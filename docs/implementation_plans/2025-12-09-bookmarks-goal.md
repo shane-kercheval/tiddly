@@ -40,6 +40,14 @@ There don't seem to be any good bookmark management solutions. I'm currently usi
             - Optionally use AI to generate summaries of bookmark content, or extract key points, etc; this could be editable by the user since it's just stored in the note as markdown
     - Suggest related bookmarks when adding a bookmark
         - Based on tags, content similarity (embeddings), etc
+    - Reminder to revisit bookmarks at later point in time
+        - User can set a reminder date when adding/viewing bookmark
+        - System will notify user when reminder date is reached (e.g. move it to top of list with special icon or something)
+    - Content will be stored in Postgres
+        - option to not store full content, just metadata (title, url, tags, description) (e.g. for privacy reasons when integrating into google docs or confluence in the future)
+        - When bookmark is clicked/accessed, the newer version of the content is fetched and stored as long as we don't get a 404 or other error
+            - Optionally store version history of bookmark content (e.g. every time it's accessed, store a new version)
+            - Allow user to view previous versions of bookmark content
 
 - REST API endpoints that expose read/write operations for all core features that can be used by, not only the frontend, but also by other tools (e.g. CLI tool, MCP, browser extension in the future, etc)
 - MCP integration
