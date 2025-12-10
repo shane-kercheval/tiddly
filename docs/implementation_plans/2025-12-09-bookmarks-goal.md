@@ -1,68 +1,163 @@
-There don't seem to be any good bookmark management solutions. I'm currently using Instapaper. It's alright. But I want something better integrated with my workflow. I don't care about offline reading, mainly just want a better way to organize, tag, and retrieve bookmarks. Also, I want to integrate it with AI tools for better search and summarization.
+# Bookmark Management System
 
-- Implement in python (current project contains project template).
-    - Fast API backend.
-    - React frontend.
-    - Postgres database.
-    - Alembic for migrations.
-    - Auth0 for authentication.
-    - Deploying to Render.com, Railway.app, fly.io, or similar (I need help deciding which is better for this use case).
-- Core features:
-    - Simple but modern and clean UI
-    - Add bookmarks via easy interface (no browser extension initially, just a web form).
-        - Copy-paste URL, auto-fetch title/content/description.
-        - Allow optional tags, descriptions, notes
-        - Option to automatically generate tags/etc using AI
-            - LLM will have access other other tags and can consistently generate tags based on existing tags
-    - View bookmarks in list
-        - Sort by date added, title, etc
-        - Filter by tags
-    - Search
-        - bookmarks by title, tags, content
-        - Semantic search using AI embeddings
-            - Vector DB?
-        - "AI search" that e.g.
-            - generates multiple search queries from a single user query (i.e. rephrases user question/query in way that is more likely to semantically match bookmarks)
-            - returns "structured output" list of bookmarks sorted by AI (i.e. give LLM the list of search results based on semantic search, search terms terms, etc, and return structured list of best matches)
-    - Edit/delete bookmarks
-    - View that shows "last clicked" bookmarks (i.e. recently accessed)
-        - (shortcut that allows user to "click" a bookmark without marking it as accessed, for cases where user just wants to view bookmark but not have it show up in "recently accessed" list (e.g. wtf is this link?))
-        - "Age" bookmarks by e.g. dimming them in the list if they haven't been accessed in a while
-        - Archive bookmarks (move to archive, not deleted, but not shown in main list; do not show up in search, unless user specifically searches in archive)
-    - Abilit to create custom "views" for bookmarks
-        - e.g. "work-related bookmarks", "personal bookmarks", etc
-        - saved filters/sorts?? No, these are predefined views that user can create and sort in a specific way
-        - Actually, this custom view would be for bookmarks, notes, and todo items (see below)
-        - It could even be a single API endpoint that returns a combined list of bookmarks, notes, and todo items for that topic/view 
-    - Create one or more notes associated with a bookmark
-        - Notes are simple markdown text
-        - View/edit notes in markdown editor
-            - Optionally use AI to generate summaries of bookmark content, or extract key points, etc; this could be editable by the user since it's just stored in the note as markdown
-    - Suggest related bookmarks when adding a bookmark
-        - Based on tags, content similarity (embeddings), etc
-    - Reminder to revisit bookmarks at later point in time
-        - User can set a reminder date when adding/viewing bookmark
-        - System will notify user when reminder date is reached (e.g. move it to top of list with special icon or something)
-    - Content will be stored in Postgres
-        - option to not store full content, just metadata (title, url, tags, description) (e.g. for privacy reasons when integrating into google docs or confluence in the future)
-        - When bookmark is clicked/accessed, the newer version of the content is fetched and stored as long as we don't get a 404 or other error
-            - Optionally store version history of bookmark content (e.g. every time it's accessed, store a new version)
-            - Allow user to view previous versions of bookmark content
+## Vision
 
-- REST API endpoints that expose read/write operations for all core features that can be used by, not only the frontend, but also by other tools (e.g. CLI tool, MCP, browser extension in the future, etc)
-- MCP integration
+There don't seem to be any good bookmark management solutions. I'm currently using Instapaper. It's alright. But I want something better integrated with my workflow. I don't care about offline reading—mainly just want a better way to organize, tag, and retrieve bookmarks. Also, I want to integrate it with AI tools for better search and summarization.
+
+---
+
+## Tech Stack
+
+- **Backend**: Python with FastAPI
+- **Frontend**: React (simple, modern, clean UI)
+- **Database**: PostgreSQL with pgvector extension (for embeddings/semantic search)
+- **Migrations**: Alembic
+- **Authentication**: Auth0
+- **Deployment**: Railway (simple, good DX) or Render (generous free tier)
+- **LLM Integration**: [sik-llms](https://github.com/shane-kercheval/sik-llms) library
+    - Provides common interface for OpenAI and Anthropic models
+    - Users provide their own API keys
+    - Model selection from `SUPPORTED_MODELS` (OpenAI + Anthropic)
+
+---
+
+## Architecture Decisions
+
+- **Multi-tenant from day 1**: Every table includes `user_id` foreign key. Minimal overhead (~1-2 hours total), but retrofitting later is painful. Auth0 already provides user identification via JWT.
+- **Vector storage**: pgvector keeps everything in Postgres (simpler ops, sufficient for personal/small-scale use)
+- **Content fetching**: Best-effort auto-fetch; if URL is behind paywall/auth, leave content empty and allow manual copy/paste
+
+---
+
+## Data Model (Conceptual)
+
+```
+User
+├── Bookmarks (url, title, description, content, tags[], created, accessed, archived)
+├── Notes (markdown, linked_bookmark_ids[], created, updated)
+├── Todos (title, description, due_date?, priority?, linked_bookmark_id?, completed)
+└── Views (name, filters for bookmarks/notes/todos)
+```
+
+---
+
+## Core Features
+
+### Bookmarks
+
+- **Add bookmarks** via web form (no browser extension initially)
+    - Copy-paste URL, auto-fetch title/content/description (best-effort; allow manual paste if fetch fails)
+    - Optional tags, descriptions, notes
+    - Option to automatically generate tags using AI
+        - LLM has access to existing tags for consistency
+- **View bookmarks** in list
+    - Sort by date added, title, etc.
+    - Filter by tags
+- **Edit/delete bookmarks**
+- **Recently accessed view**
+    - Shows "last clicked" bookmarks
+    - Shortcut to open bookmark without marking as accessed (e.g., "wtf is this link?" scenario)
+    - Visual "aging" by dimming bookmarks not accessed in a while
+- **Archive bookmarks**
+    - Moved to archive, not deleted
+    - Hidden from main list and search unless explicitly searching archive
+- **Suggest related bookmarks** when adding a bookmark
+    - Based on tags, content similarity (embeddings), etc.
+- **Reminders** to revisit bookmarks
+    - User sets reminder date when adding/viewing
+    - System surfaces reminder (e.g., move to top of list with special icon)
+
+### Content Storage
+
+- Stored in Postgres
+- Option to store only metadata (title, url, tags, description) without full content (e.g., for privacy when integrating with Google Docs or Confluence later)
+- On bookmark access, fetch and store newer version of content (if no 404/error)
+- Optional version history of bookmark content
+    - Store new version each time accessed
+    - Allow viewing previous versions
+
+### Search
+
+- **Text search**: by title, tags, content
+- **Semantic search**: using AI embeddings (pgvector)
+- **AI-enhanced search**:
+    - Generate multiple search queries from single user query (rephrase to improve semantic matching)
+    - Return structured output: LLM ranks/sorts search results and returns best matches
+
+### Notes
+
+- Create one or more notes associated with a bookmark
+- Notes are simple markdown text
+- View/edit in markdown editor
+- AI can generate summaries of bookmark content or extract key points (editable by user, stored as markdown)
+
+### Todos
+
+- Simple todo management integrated with bookmarks and notes
+- Create/complete/delete todos
+- Optional: due dates, priorities
+- Link todo to a bookmark (e.g., "Read this article", "Follow up on this resource")
+- Show in custom views alongside bookmarks/notes
+
+### Custom Views
+
+- User-created views (e.g., "work-related", "personal", "research")
+- Not just saved filters—predefined views the user configures
+- Can include bookmarks, notes, and todos for a given topic
+- Single API endpoint returns combined list for a view
+
+---
+
+## API & Integrations
+
+- **REST API** exposing read/write operations for all core features
+    - Used by frontend, CLI tools, browser extension (future), MCP, etc.
+- **MCP integration**
     - Wrap REST API endpoints in MCP commands
-    - Allow user to add/view/search bookmarks from MCP
+    - Add/view/search bookmarks from MCP
 
-- Note taking features (optional/future):
-    - Allow user to take notes on bookmarks
-    - AI-generated summaries of bookmarks
-    - Link related bookmarks together (e.g. "this bookmark is related to that bookmark")
-    - Link a note to one or more bookmarks
-    - Allow user to create "collections" of bookmarks (i.e. group related bookmarks together)
-    - Allow user to snapshot a note at a specific time (i.e. versioned notes)
-    - Notes are simply markdown text with view to switch between rendered view and markdown/edit view
-        - If AI edits a note, automatically snapshot the previous version before applying changes
+---
 
+## Phased Implementation
 
-- LLM instructions 
+### Phase 1 (MVP)
+- Add/edit/delete bookmarks with auto-fetch metadata
+- Manual tagging
+- List view with sort/filter by tags/date
+- Simple text search (title, tags, description)
+- Auth0 authentication
+
+### Phase 2
+- AI-powered auto-tagging
+- Semantic search with embeddings (pgvector)
+- Notes on bookmarks
+- "Recently accessed" tracking
+
+### Phase 3
+- Custom views
+- Todos (linked to bookmarks)
+- Reminders
+- Version history for bookmark content
+- Related bookmark suggestions
+- Archive functionality
+
+### Phase 4
+- MCP integration
+- Advanced AI search (query rephrasing, structured ranking)
+
+---
+
+## Future Ideas
+
+- Link related bookmarks together (e.g., "this bookmark is related to that bookmark")
+- Collections of bookmarks (group related bookmarks)
+- Versioned/snapshot notes
+    - If AI edits a note, automatically snapshot previous version before applying changes
+- Browser extension for quick bookmark adding
+- Mobile/offline support (not a priority currently)
+
+---
+
+## Notes / TODO
+
+- LLM instructions (TBD)
