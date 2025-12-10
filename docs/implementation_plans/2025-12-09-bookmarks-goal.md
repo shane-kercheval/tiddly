@@ -13,6 +13,7 @@ There don't seem to be any good bookmark management solutions. I'm currently usi
         - Copy-paste URL, auto-fetch title/content/description.
         - Allow optional tags, descriptions, notes
         - Option to automatically generate tags/etc using AI
+            - LLM will have access other other tags and can consistently generate tags based on existing tags
     - View bookmarks in list
         - Sort by date added, title, etc
         - Filter by tags
@@ -37,6 +38,8 @@ There don't seem to be any good bookmark management solutions. I'm currently usi
         - Notes are simple markdown text
         - View/edit notes in markdown editor
             - Optionally use AI to generate summaries of bookmark content, or extract key points, etc; this could be editable by the user since it's just stored in the note as markdown
+    - Suggest related bookmarks when adding a bookmark
+        - Based on tags, content similarity (embeddings), etc
 
 - REST API endpoints that expose read/write operations for all core features that can be used by, not only the frontend, but also by other tools (e.g. CLI tool, MCP, browser extension in the future, etc)
 - MCP integration
