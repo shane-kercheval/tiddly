@@ -146,7 +146,7 @@ async def test_list_bookmarks(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     data = response.json()
-    assert len(data) >= 3  # May have bookmarks from other tests
+    assert len(data) == 3
 
 
 async def test_list_bookmarks_pagination(client: AsyncClient) -> None:

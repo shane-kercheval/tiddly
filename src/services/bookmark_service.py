@@ -11,7 +11,11 @@ async def create_bookmark(
     user_id: int,
     data: BookmarkCreate,
 ) -> Bookmark:
-    """Create a new bookmark for a user."""
+    """
+    Create a new bookmark for a user.
+
+    Note: Does not commit. Caller (session generator) handles commit at request end.
+    """
     bookmark = Bookmark(
         user_id=user_id,
         url=str(data.url),
@@ -21,7 +25,7 @@ async def create_bookmark(
         tags=data.tags,
     )
     db.add(bookmark)
-    await db.commit()
+    await db.flush()
     await db.refresh(bookmark)
     return bookmark
 
@@ -64,7 +68,11 @@ async def update_bookmark(
     bookmark_id: int,
     data: BookmarkUpdate,
 ) -> Bookmark | None:
-    """Update a bookmark. Returns None if not found or wrong user."""
+    """
+    Update a bookmark. Returns None if not found or wrong user.
+
+    Note: Does not commit. Caller (session generator) handles commit at request end.
+    """
     bookmark = await get_bookmark(db, user_id, bookmark_id)
     if bookmark is None:
         return None
@@ -73,7 +81,7 @@ async def update_bookmark(
     for field, value in update_data.items():
         setattr(bookmark, field, value)
 
-    await db.commit()
+    await db.flush()
     await db.refresh(bookmark)
     return bookmark
 
@@ -83,11 +91,14 @@ async def delete_bookmark(
     user_id: int,
     bookmark_id: int,
 ) -> bool:
-    """Delete a bookmark. Returns True if deleted, False if not found."""
+    """
+    Delete a bookmark. Returns True if deleted, False if not found.
+
+    Note: Does not commit. Caller (session generator) handles commit at request end.
+    """
     bookmark = await get_bookmark(db, user_id, bookmark_id)
     if bookmark is None:
         return False
 
     await db.delete(bookmark)
-    await db.commit()
     return True

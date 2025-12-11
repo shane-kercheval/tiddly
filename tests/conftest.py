@@ -5,6 +5,7 @@ from collections.abc import AsyncGenerator, Generator
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -44,19 +45,38 @@ async def async_engine(database_url: str) -> AsyncGenerator[AsyncEngine]:
 
     yield engine
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
     await engine.dispose()
 
 
 @pytest.fixture
-async def db_session(async_engine: AsyncEngine) -> AsyncGenerator[AsyncSession]:
-    """Create an async session for testing."""
+async def db_connection(async_engine: AsyncEngine) -> AsyncGenerator[AsyncConnection]:
+    """
+    Create a connection with a transaction that will be rolled back after the test.
+
+    This provides test isolation - each test runs in its own transaction
+    that is rolled back, so tests don't affect each other.
+    """
+    async with async_engine.connect() as connection:
+        transaction = await connection.begin()
+        try:
+            yield connection
+        finally:
+            await transaction.rollback()
+
+
+@pytest.fixture
+async def db_session(db_connection: AsyncConnection) -> AsyncGenerator[AsyncSession]:
+    """
+    Create an async session bound to the test transaction.
+
+    Uses begin_nested() for savepoints, allowing the session's flush/commit
+    to work within our outer test transaction.
+    """
     session_factory = async_sessionmaker(
-        async_engine,
+        bind=db_connection,
         class_=AsyncSession,
         expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
     )
 
     async with session_factory() as session:
@@ -65,12 +85,12 @@ async def db_session(async_engine: AsyncEngine) -> AsyncGenerator[AsyncSession]:
 
 @pytest.fixture
 async def client(
-    async_engine: AsyncEngine,  # noqa: ARG001 - ensures db is created before client
     db_session: AsyncSession,
 ) -> AsyncGenerator[AsyncClient]:
     """Create a test client with database session override."""
     # Clear the settings cache so it picks up DATABASE_URL from environment
     from core.config import get_settings
+
     get_settings.cache_clear()
 
     from api.main import app

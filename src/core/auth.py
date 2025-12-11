@@ -85,7 +85,11 @@ async def get_or_create_user(
     auth0_id: str,
     email: str | None = None,
 ) -> User:
-    """Get existing user or create new one from Auth0 claims."""
+    """
+    Get existing user or create new one from Auth0 claims.
+
+    Note: Uses flush(), not commit. Session generator handles commit at request end.
+    """
     result = await db.execute(select(User).where(User.auth0_id == auth0_id))
     user = result.scalar_one_or_none()
 

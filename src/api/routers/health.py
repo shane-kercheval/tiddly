@@ -1,4 +1,6 @@
 """Health check endpoints."""
+import logging
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -6,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.session import get_async_session
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["health"])
 
@@ -26,6 +30,7 @@ async def health_check(
     try:
         await db.execute(text("SELECT 1"))
     except Exception:
+        logger.exception("Database health check failed")
         db_status = "unhealthy"
 
     return HealthResponse(

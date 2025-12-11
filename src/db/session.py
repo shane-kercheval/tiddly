@@ -22,7 +22,13 @@ async_session_factory = async_sessionmaker(
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession]:
-    """Yield an async database session."""
+    """
+    Yield an async database session.
+
+    Uses unit-of-work pattern: services use flush() for refreshing objects,
+    commit happens once here at request end. This ensures atomic transactions
+    per request - if anything fails, all changes are rolled back.
+    """
     async with async_session_factory() as session:
         try:
             yield session

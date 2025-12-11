@@ -57,7 +57,13 @@ class BookmarkUpdate(BaseModel):
 
 
 class BookmarkResponse(BaseModel):
-    """Schema for bookmark responses."""
+    """
+    Schema for bookmark responses.
+
+    Note: `content` field is intentionally excluded to keep list responses small.
+    Content can be large (full page text). Add a BookmarkDetailResponse or
+    ?include_content=true parameter if full content is needed in responses.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
