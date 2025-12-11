@@ -64,8 +64,17 @@ User
 - **Suggest related bookmarks** when adding a bookmark
     - Based on tags, content similarity (embeddings), etc.
 - **Reminders** to revisit bookmarks
+    - snooze/dismiss/resnooze
     - User sets reminder date when adding/viewing
     - System surfaces reminder (e.g., move to top of list with special icon)
+
+- Do we need a way to distinguish between bookmarks vs google docs/confluence pages? Maybe by url pattern? 
+- We need a way to distinguish between material that is important to save vs ephemeral material (e.g. news articles).
+    - Expiration date? Expired bookmarks either have auto-archive option or get moved to expired list to confirm/snooze/archive
+    - Similarly, some material is like important "reference material" like "hey it's good to know about this if you're working on something related" but some material is "This is super important for my current project"—maybe a priority flag?
+- Do we want users to be able to upload docs e.g. PDFs? Maybe.
+- Do we want to support collections of bookmarks (e.g. folders)? Probably not.
+- Is there an auto-complete LLM like code-complete?  
 
 ### Content Storage
 
