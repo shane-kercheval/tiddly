@@ -1,4 +1,5 @@
 """Pytest fixtures for testing."""
+import os
 from collections.abc import AsyncGenerator, Generator
 
 import pytest
@@ -23,8 +24,14 @@ def postgres_container() -> Generator[PostgresContainer]:
 
 @pytest.fixture(scope="session")
 def database_url(postgres_container: PostgresContainer) -> str:
-    """Get the database URL from the container."""
-    return postgres_container.get_connection_url()
+    """
+    Get the database URL from the container and set it in environment.
+
+    This must be set before any app imports that trigger Settings validation.
+    """
+    url = postgres_container.get_connection_url()
+    os.environ["DATABASE_URL"] = url
+    return url
 
 
 @pytest.fixture
@@ -62,6 +69,10 @@ async def client(
     db_session: AsyncSession,
 ) -> AsyncGenerator[AsyncClient]:
     """Create a test client with database session override."""
+    # Clear the settings cache so it picks up DATABASE_URL from environment
+    from core.config import get_settings
+    get_settings.cache_clear()
+
     from api.main import app
     from db.session import get_async_session
 
