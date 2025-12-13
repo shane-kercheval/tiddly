@@ -22,6 +22,7 @@ class Bookmark(Base, TimestampMixin):
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # AI-generated (Phase 2)
     tags: Mapped[list[str]] = mapped_column(ARRAY(String), server_default="{}")
 
     user: Mapped["User"] = relationship(back_populates="bookmarks")

@@ -1,9 +1,38 @@
 """Tests for bookmark CRUD endpoints."""
+from collections.abc import Generator
+from unittest.mock import AsyncMock, patch
+
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
+from services.url_scraper import ExtractedMetadata, FetchResult
+
+
+@pytest.fixture(autouse=True)
+def mock_url_fetch() -> Generator[AsyncMock]:
+    """
+    Auto-mock fetch_url for all bookmark tests to avoid real network calls.
+
+    Returns a "failed fetch" result by default so tests that don't care about
+    scraping behavior work fast. Tests that need specific scraping behavior
+    can override this with their own patch.
+    """
+    mock_result = FetchResult(
+        html=None,
+        final_url='',
+        status_code=None,
+        content_type=None,
+        error='Mocked - no network call',
+    )
+    with patch(
+        'services.bookmark_service.fetch_url',
+        new_callable=AsyncMock,
+        return_value=mock_result,
+    ) as mock:
+        yield mock
 
 
 async def test_create_bookmark(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -285,3 +314,271 @@ async def test_create_bookmark_invalid_url(client: AsyncClient) -> None:
         json={"url": "not-a-valid-url"},
     )
     assert response.status_code == 422
+
+
+# =============================================================================
+# URL Scraping Integration Tests
+# =============================================================================
+
+
+async def test_create_bookmark_auto_fetches_metadata(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that creating a bookmark without metadata auto-fetches from URL."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Fetched Title</title></head></html>',
+            final_url='https://example.com/',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(
+        title='Fetched Title',
+        description='Fetched description from meta tag.',
+    )
+
+    with (
+        patch('services.bookmark_service.fetch_url', mock_fetch),
+        patch('services.bookmark_service.extract_metadata', return_value=mock_metadata),
+        patch('services.bookmark_service.extract_content', return_value='Page content here.'),
+    ):
+        response = await client.post(
+            "/bookmarks/",
+            json={"url": "https://example.com"},
+        )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["title"] == "Fetched Title"
+    assert data["description"] == "Fetched description from meta tag."
+
+    # Verify content was stored in database
+    result = await db_session.execute(select(Bookmark).where(Bookmark.id == data["id"]))
+    bookmark = result.scalar_one()
+    assert bookmark.content == "Page content here."
+
+
+async def test_create_bookmark_user_values_take_precedence(
+    client: AsyncClient,
+) -> None:
+    """Test that user-provided title/description override fetched values."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Fetched Title</title></head></html>',
+            final_url='https://example.com/',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(
+        title='Fetched Title',
+        description='Fetched description',
+    )
+
+    with (
+        patch('services.bookmark_service.fetch_url', mock_fetch),
+        patch('services.bookmark_service.extract_metadata', return_value=mock_metadata),
+        patch('services.bookmark_service.extract_content', return_value='Fetched content'),
+    ):
+        response = await client.post(
+            "/bookmarks/",
+            json={
+                "url": "https://example.com",
+                "title": "User Title",
+                "description": "User description",
+            },
+        )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["title"] == "User Title"
+    assert data["description"] == "User description"
+
+
+async def test_create_bookmark_skips_fetch_when_all_provided(
+    client: AsyncClient,
+) -> None:
+    """Test that fetch is skipped when user provides all metadata and content."""
+    mock_fetch = AsyncMock()
+
+    with patch('services.bookmark_service.fetch_url', mock_fetch):
+        response = await client.post(
+            "/bookmarks/",
+            json={
+                "url": "https://example.com",
+                "title": "User Title",
+                "description": "User description",
+                "content": "User provided content",
+            },
+        )
+
+    assert response.status_code == 201
+    # fetch_url should not have been called
+    mock_fetch.assert_not_called()
+
+
+async def test_create_bookmark_store_content_false(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that store_content=false skips content storage but still fetches metadata."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Fetched</title></head></html>',
+            final_url='https://example.com/',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(title='Fetched Title', description='Fetched desc')
+
+    with (
+        patch('services.bookmark_service.fetch_url', mock_fetch),
+        patch('services.bookmark_service.extract_metadata', return_value=mock_metadata),
+        patch('services.bookmark_service.extract_content', return_value='Page content'),
+    ):
+        response = await client.post(
+            "/bookmarks/",
+            json={
+                "url": "https://example.com",
+                "store_content": False,
+            },
+        )
+
+    assert response.status_code == 201
+    data = response.json()
+    # Metadata should still be fetched
+    assert data["title"] == "Fetched Title"
+    assert data["description"] == "Fetched desc"
+
+    # But content should NOT be stored
+    result = await db_session.execute(select(Bookmark).where(Bookmark.id == data["id"]))
+    bookmark = result.scalar_one()
+    assert bookmark.content is None
+
+
+async def test_create_bookmark_fetch_failure_does_not_block(
+    client: AsyncClient,
+) -> None:
+    """Test that fetch failures don't prevent bookmark creation."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html=None,
+            final_url='https://example.com/',
+            status_code=None,
+            content_type=None,
+            error="Connection refused",
+        ),
+    )
+
+    with patch('services.bookmark_service.fetch_url', mock_fetch):
+        response = await client.post(
+            "/bookmarks/",
+            json={"url": "https://example.com"},
+        )
+
+    assert response.status_code == 201
+    data = response.json()
+    # Bookmark created but without fetched data
+    assert data["title"] is None
+    assert data["description"] is None
+
+
+async def test_create_bookmark_response_includes_summary_field(
+    client: AsyncClient,
+) -> None:
+    """Test that bookmark response includes summary field (null for Phase 1)."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://example.com",
+            "title": "Test",
+            "description": "Test description",
+        },
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert "summary" in data
+    assert data["summary"] is None
+
+
+async def test_create_bookmark_user_content_not_overridden(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that user-provided content is used even when fetch succeeds."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Fetched</title></head></html>',
+            final_url='https://example.com/',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(title='Fetched Title', description=None)
+
+    with (
+        patch('services.bookmark_service.fetch_url', mock_fetch),
+        patch('services.bookmark_service.extract_metadata', return_value=mock_metadata),
+        patch('services.bookmark_service.extract_content', return_value='Fetched content'),
+    ):
+        response = await client.post(
+            "/bookmarks/",
+            json={
+                "url": "https://example.com",
+                "content": "User provided content for paywalled site",
+            },
+        )
+
+    assert response.status_code == 201
+
+    # User content should be stored, not fetched content
+    result = await db_session.execute(
+        select(Bookmark).where(Bookmark.id == response.json()["id"]),
+    )
+    bookmark = result.scalar_one()
+    assert bookmark.content == "User provided content for paywalled site"
+
+
+async def test_create_bookmark_partial_metadata_fetch(
+    client: AsyncClient,
+) -> None:
+    """Test that fetch happens when only some metadata is provided."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html='<html><head><title>Fetched</title></head></html>',
+            final_url='https://example.com/',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        ),
+    )
+    mock_metadata = ExtractedMetadata(title='Fetched Title', description='Fetched desc')
+
+    with (
+        patch('services.bookmark_service.fetch_url', mock_fetch),
+        patch('services.bookmark_service.extract_metadata', return_value=mock_metadata),
+        patch('services.bookmark_service.extract_content', return_value=None),
+    ):
+        response = await client.post(
+            "/bookmarks/",
+            json={
+                "url": "https://example.com",
+                "title": "User Title",  # Only title provided
+            },
+        )
+
+    assert response.status_code == 201
+    data = response.json()
+    # User title preserved, description fetched
+    assert data["title"] == "User Title"
+    assert data["description"] == "Fetched desc"
+    # fetch_url should have been called because description was missing
+    mock_fetch.assert_called_once()

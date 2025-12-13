@@ -1,0 +1,456 @@
+"""
+Tests for URL scraper service.
+
+Tests cover:
+- fetch_url: HTTP fetching with mocked responses (success, timeout, errors, non-HTML)
+- extract_metadata: Pure function tests for title/description extraction with various HTML
+    structures
+- extract_content: Content extraction using trafilatura
+"""
+from unittest.mock import AsyncMock, patch
+
+import httpx
+import pytest
+
+from services.url_scraper import (
+    DEFAULT_TIMEOUT,
+    USER_AGENT,
+    ExtractedMetadata,
+    FetchResult,
+    extract_content,
+    extract_metadata,
+    fetch_url,
+)
+
+
+class TestFetchUrl:
+    """Tests for fetch_url function."""
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__success(self) -> None:
+        """Successful fetch returns HTML content and metadata."""
+        html = '<html><head><title>Test</title></head><body>Content</body></html>'
+        mock_response = AsyncMock()
+        mock_response.text = html
+        mock_response.url = 'https://example.com/page'
+        mock_response.status_code = 200
+        mock_response.headers = {'content-type': 'text/html; charset=utf-8'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await fetch_url('https://example.com')
+
+            assert result.html == html
+            assert result.final_url == 'https://example.com/page'
+            assert result.status_code == 200
+            assert result.content_type == 'text/html; charset=utf-8'
+            assert result.error is None
+
+            # Verify client was created with correct params
+            mock_client_class.assert_called_once_with(
+                follow_redirects=True,
+                timeout=DEFAULT_TIMEOUT,
+                headers={'User-Agent': USER_AGENT},
+            )
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__timeout(self) -> None:
+        """Timeout returns error info without raising."""
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = httpx.TimeoutException("Connection timed out")
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await fetch_url('https://example.com')
+
+            assert result.html is None
+            assert result.final_url == 'https://example.com'
+            assert result.status_code is None
+            assert result.error == "Request timed out"
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__connection_error(self) -> None:
+        """Connection error returns error info without raising."""
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await fetch_url('https://example.com')
+
+            assert result.html is None
+            assert result.error is not None
+            assert "Request failed" in result.error
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__non_html_content_type(self) -> None:
+        """Non-HTML content type returns error instead of content."""
+        mock_response = AsyncMock()
+        mock_response.url = 'https://example.com/file.pdf'
+        mock_response.status_code = 200
+        mock_response.headers = {'content-type': 'application/pdf'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await fetch_url('https://example.com/file.pdf')
+
+            assert result.html is None
+            assert result.status_code == 200
+            assert result.content_type == 'application/pdf'
+            assert "Non-HTML content type" in result.error
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__custom_timeout(self) -> None:
+        """Custom timeout is passed to client."""
+        mock_response = AsyncMock()
+        mock_response.text = '<html></html>'
+        mock_response.url = 'https://example.com'
+        mock_response.status_code = 200
+        mock_response.headers = {'content-type': 'text/html'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            await fetch_url('https://example.com', timeout=30.0)
+
+            mock_client_class.assert_called_once_with(
+                follow_redirects=True,
+                timeout=30.0,
+                headers={'User-Agent': USER_AGENT},
+            )
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__redirect_captured(self) -> None:
+        """Final URL after redirects is captured."""
+        mock_response = AsyncMock()
+        mock_response.text = '<html></html>'
+        mock_response.url = 'https://www.example.com/final-page'  # Redirected URL
+        mock_response.status_code = 200
+        mock_response.headers = {'content-type': 'text/html'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await fetch_url('https://example.com/old-page')
+
+            assert result.final_url == 'https://www.example.com/final-page'
+
+
+class TestExtractMetadata:
+    """Tests for extract_metadata function - pure function, no mocking needed."""
+
+    def test__extract_metadata__title_tag(self) -> None:
+        """Extracts title from <title> tag."""
+        html = '<html><head><title>Page Title</title></head></html>'
+        result = extract_metadata(html)
+        assert result.title == 'Page Title'
+
+    def test__extract_metadata__title_with_whitespace(self) -> None:
+        """Title is stripped of whitespace."""
+        html = '<html><head><title>  Page Title  \n</title></head></html>'
+        result = extract_metadata(html)
+        assert result.title == 'Page Title'
+
+    def test__extract_metadata__og_title_fallback(self) -> None:
+        """Falls back to og:title when <title> is missing."""
+        html = '''
+        <html><head>
+            <meta property="og:title" content="OG Title">
+        </head></html>
+        '''
+        result = extract_metadata(html)
+        assert result.title == 'OG Title'
+
+    def test__extract_metadata__twitter_title_fallback(self) -> None:
+        """Falls back to twitter:title when other titles are missing."""
+        html = '''
+        <html><head>
+            <meta name="twitter:title" content="Twitter Title">
+        </head></html>
+        '''
+        result = extract_metadata(html)
+        assert result.title == 'Twitter Title'
+
+    def test__extract_metadata__title_priority(self) -> None:
+        """<title> tag takes priority over meta tags."""
+        html = '''
+        <html><head>
+            <title>Primary Title</title>
+            <meta property="og:title" content="OG Title">
+            <meta name="twitter:title" content="Twitter Title">
+        </head></html>
+        '''
+        result = extract_metadata(html)
+        assert result.title == 'Primary Title'
+
+    def test__extract_metadata__meta_description(self) -> None:
+        """Extracts description from meta description tag."""
+        html = '''
+        <html><head>
+            <meta name="description" content="Page description here.">
+        </head></html>
+        '''
+        result = extract_metadata(html)
+        assert result.description == 'Page description here.'
+
+    def test__extract_metadata__og_description_fallback(self) -> None:
+        """Falls back to og:description when meta description is missing."""
+        html = '''
+        <html><head>
+            <meta property="og:description" content="OG Description">
+        </head></html>
+        '''
+        result = extract_metadata(html)
+        assert result.description == 'OG Description'
+
+    def test__extract_metadata__twitter_description_fallback(self) -> None:
+        """Falls back to twitter:description when other descriptions are missing."""
+        html = '''
+        <html><head>
+            <meta name="twitter:description" content="Twitter Description">
+        </head></html>
+        '''
+        result = extract_metadata(html)
+        assert result.description == 'Twitter Description'
+
+    def test__extract_metadata__description_priority(self) -> None:
+        """Meta description takes priority over og/twitter."""
+        html = '''
+        <html><head>
+            <meta name="description" content="Primary Description">
+            <meta property="og:description" content="OG Description">
+            <meta name="twitter:description" content="Twitter Description">
+        </head></html>
+        '''
+        result = extract_metadata(html)
+        assert result.description == 'Primary Description'
+
+    def test__extract_metadata__missing_title(self) -> None:
+        """Returns None for title when not found."""
+        html = '<html><head></head></html>'
+        result = extract_metadata(html)
+        assert result.title is None
+
+    def test__extract_metadata__missing_description(self) -> None:
+        """Returns None for description when not found."""
+        html = '<html><head><title>Title</title></head></html>'
+        result = extract_metadata(html)
+        assert result.description is None
+
+    def test__extract_metadata__empty_html(self) -> None:
+        """Handles empty HTML gracefully."""
+        result = extract_metadata('')
+        assert result.title is None
+        assert result.description is None
+
+    def test__extract_metadata__malformed_html(self) -> None:
+        """Handles malformed HTML gracefully."""
+        html = '<html><head><title>Title'  # Missing closing tags
+        result = extract_metadata(html)
+        assert result.title == 'Title'
+
+    def test__extract_metadata__empty_content_attribute(self) -> None:
+        """Handles empty content attributes."""
+        html = '''
+        <html><head>
+            <meta name="description" content="">
+        </head></html>
+        '''
+        result = extract_metadata(html)
+        assert result.description is None
+
+    def test__extract_metadata__full_page(self) -> None:
+        """Extracts metadata from a realistic HTML page."""
+        html = '''
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Article Title - Site Name</title>
+            <meta name="description" content="This is a great article about testing.">
+            <meta property="og:title" content="Article Title">
+            <meta property="og:description" content="OG description for sharing.">
+        </head>
+        <body>
+            <article>
+                <h1>Article Title</h1>
+                <p>Article content here...</p>
+            </article>
+        </body>
+        </html>
+        '''
+        result = extract_metadata(html)
+        assert result.title == 'Article Title - Site Name'
+        assert result.description == 'This is a great article about testing.'
+
+
+class TestExtractContent:
+    """Tests for extract_content function using trafilatura."""
+
+    def test__extract_content__article(self) -> None:
+        """Extracts readable content from article-style page."""
+        html = '''
+        <!DOCTYPE html>
+        <html>
+        <head><title>Test Article</title></head>
+        <body>
+            <nav>Navigation menu</nav>
+            <article>
+                <h1>Main Heading</h1>
+                <p>This is the first paragraph of the article. It contains important content.</p>
+                <p>This is the second paragraph with more information.</p>
+            </article>
+            <footer>Footer content</footer>
+        </body>
+        </html>
+        '''
+        result = extract_content(html)
+        # trafilatura should extract the main content
+        assert result is not None
+        assert 'paragraph' in result.lower() or 'important content' in result.lower()
+
+    def test__extract_content__minimal_html(self) -> None:
+        """Returns None for minimal HTML without substantial content."""
+        html = '<html><head><title>Title</title></head><body></body></html>'
+        result = extract_content(html)
+        # trafilatura may return None for pages without substantial content
+        assert result is None or result == ''
+
+    def test__extract_content__empty_html(self) -> None:
+        """Handles empty HTML gracefully."""
+        result = extract_content('')
+        assert result is None
+
+
+class TestEncodingHandling:
+    """Tests for handling different character encodings."""
+
+    def test__extract_metadata__utf8_characters(self) -> None:
+        """Handles UTF-8 encoded characters in metadata."""
+        html = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Café résumé naïve</title>
+            <meta name="description" content="日本語テスト Chinese: 中文 Emoji: 🎉">
+        </head>
+        </html>
+        '''
+        result = extract_metadata(html)
+        assert result.title == 'Café résumé naïve'
+        assert '日本語' in result.description
+        assert '中文' in result.description
+
+    def test__extract_metadata__html_entities(self) -> None:
+        """Handles HTML entities in metadata."""
+        html = '''
+        <html><head>
+            <title>Tom &amp; Jerry&#39;s &quot;Adventure&quot;</title>
+            <meta name="description" content="Less &lt; Greater &gt; Ampersand &amp;">
+        </head></html>
+        '''
+        result = extract_metadata(html)
+        assert result.title == "Tom & Jerry's \"Adventure\""
+        assert '<' in result.description
+        assert '>' in result.description
+
+    def test__extract_metadata__iso_8859_1_declaration(self) -> None:
+        """Handles ISO-8859-1 charset declaration."""
+        # Note: The actual bytes would be different, but BeautifulSoup handles
+        # the charset declaration and converts appropriately
+        html = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="ISO-8859-1">
+            <title>Piña Colada</title>
+            <meta name="description" content="Crème brûlée">
+        </head>
+        </html>
+        '''
+        result = extract_metadata(html)
+        assert result.title is not None
+        assert result.description is not None
+
+    def test__extract_content__utf8_article(self) -> None:
+        """Extracts content with UTF-8 characters correctly."""
+        html = '''
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="UTF-8"><title>Test</title></head>
+        <body>
+            <article>
+                <h1>Интернационализация</h1>
+                <p>This article discusses café culture in São Paulo, including the famous
+                pão de queijo and açaí bowls that tourists love to try.</p>
+                <p>Japanese text: 日本語のテキスト is also supported.</p>
+            </article>
+        </body>
+        </html>
+        '''
+        result = extract_content(html)
+        assert result is not None
+        # Content should preserve unicode characters
+        assert 'café' in result or 'culture' in result
+
+    def test__extract_metadata__special_quotes(self) -> None:
+        """Handles smart quotes and special punctuation."""
+        html = '''
+        <html><head>
+            <title>"Smart Quotes" and 'Apostrophes' — Em Dash</title>
+            <meta name="description" content="It's a "test" with … ellipsis">
+        </head></html>
+        '''
+        result = extract_metadata(html)
+        assert result.title is not None
+        assert 'Smart Quotes' in result.title
+        assert result.description is not None
+
+
+class TestDataclasses:
+    """Tests for dataclass structure (basic sanity checks)."""
+
+    def test__fetch_result__fields(self) -> None:
+        """FetchResult has expected fields."""
+        result = FetchResult(
+            html='<html></html>',
+            final_url='https://example.com',
+            status_code=200,
+            content_type='text/html',
+            error=None,
+        )
+        assert result.html == '<html></html>'
+        assert result.final_url == 'https://example.com'
+        assert result.status_code == 200
+        assert result.content_type == 'text/html'
+        assert result.error is None
+
+    def test__extracted_metadata__fields(self) -> None:
+        """ExtractedMetadata has expected fields."""
+        metadata = ExtractedMetadata(title='Title', description='Description')
+        assert metadata.title == 'Title'
+        assert metadata.description == 'Description'

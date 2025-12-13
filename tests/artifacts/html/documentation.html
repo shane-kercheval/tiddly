@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Installation - FastAPI Documentation</title>
+    <meta name="description" content="How to install FastAPI and its dependencies. Get started with the high-performance Python web framework.">
+    <meta property="og:title" content="FastAPI Installation Guide">
+    <meta property="og:description" content="Step-by-step instructions for installing FastAPI in your Python project.">
+    <meta property="og:site_name" content="FastAPI">
+    <link rel="canonical" href="https://fastapi.example.com/docs/installation">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="logo">FastAPI</div>
+        <ul class="nav-links">
+            <li><a href="/docs">Introduction</a></li>
+            <li><a href="/docs/installation" class="active">Installation</a></li>
+            <li><a href="/docs/tutorial">Tutorial</a></li>
+            <li><a href="/docs/advanced">Advanced</a></li>
+            <li><a href="/docs/api">API Reference</a></li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        <h1>Installation</h1>
+
+        <div class="admonition info">
+            <p>FastAPI requires Python 3.8+</p>
+        </div>
+
+        <h2>Install FastAPI</h2>
+        <p>The first step is to install FastAPI. For the full installation with all optional dependencies:</p>
+
+        <div class="code-block">
+            <pre><code class="language-bash">pip install "fastapi[all]"</code></pre>
+        </div>
+
+        <p>This will install FastAPI along with uvicorn (an ASGI server) and other useful dependencies.</p>
+
+        <h3>Minimal Installation</h3>
+        <p>If you prefer a minimal installation, you can install just FastAPI:</p>
+
+        <div class="code-block">
+            <pre><code class="language-bash">pip install fastapi</code></pre>
+        </div>
+
+        <p>Then install uvicorn separately to run your application:</p>
+
+        <div class="code-block">
+            <pre><code class="language-bash">pip install "uvicorn[standard]"</code></pre>
+        </div>
+
+        <h2>Create Your First App</h2>
+        <p>Create a file called <code>main.py</code> with the following content:</p>
+
+        <div class="code-block">
+            <pre><code class="language-python">from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"Hello": "World"}
+
+@app.get("/items/{item_id}")
+def read_item(item_id: int, q: str = None):
+    return {"item_id": item_id, "q": q}</code></pre>
+        </div>
+
+        <h2>Run the Server</h2>
+        <p>Start the development server with:</p>
+
+        <div class="code-block">
+            <pre><code class="language-bash">uvicorn main:app --reload</code></pre>
+        </div>
+
+        <p>The <code>--reload</code> flag enables auto-reload during development.</p>
+
+        <h2>Next Steps</h2>
+        <p>Now that you have FastAPI installed, proceed to the <a href="/docs/tutorial">Tutorial</a> to learn how to build your first complete application.</p>
+
+        <div class="admonition tip">
+            <p><strong>Tip:</strong> Check the <a href="/docs/api">API Reference</a> for detailed documentation of all features.</p>
+        </div>
+    </main>
+
+    <footer>
+        <p>FastAPI Documentation - Version 0.100.0</p>
+    </footer>
+</body>
+</html>

@@ -27,8 +27,9 @@ class BookmarkCreate(BaseModel):
     url: HttpUrl
     title: str | None = None
     description: str | None = None
-    content: str | None = None
+    content: str | None = None  # User-provided content (e.g., for paywalled sites)
     tags: list[str] = []
+    store_content: bool = True  # Whether to persist scraped content
 
     @field_validator("tags", mode="before")
     @classmethod
@@ -71,6 +72,7 @@ class BookmarkResponse(BaseModel):
     url: str
     title: str | None
     description: str | None
+    summary: str | None  # AI-generated summary (Phase 2)
     tags: list[str]
     created_at: datetime
     updated_at: datetime

@@ -1,0 +1,30 @@
+Installation
+FastAPI requires Python 3.8+
+Install FastAPI
+The first step is to install FastAPI. For the full installation with all optional dependencies:
+pip install "fastapi[all]"
+This will install FastAPI along with uvicorn (an ASGI server) and other useful dependencies.
+Minimal Installation
+If you prefer a minimal installation, you can install just FastAPI:
+pip install fastapi
+Then install uvicorn separately to run your application:
+pip install "uvicorn[standard]"
+Create Your First App
+Create a file called main.py
+with the following content:
+from fastapi import FastAPI
+app = FastAPI()
+@app.get("/")
+def read_root():
+return {"Hello": "World"}
+@app.get("/items/{item_id}")
+def read_item(item_id: int, q: str = None):
+return {"item_id": item_id, "q": q}
+Run the Server
+Start the development server with:
+uvicorn main:app --reload
+The --reload
+flag enables auto-reload during development.
+Next Steps
+Now that you have FastAPI installed, proceed to the Tutorial to learn how to build your first complete application.
+Tip: Check the API Reference for detailed documentation of all features.

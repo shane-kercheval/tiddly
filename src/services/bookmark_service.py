@@ -1,9 +1,14 @@
 """Service layer for bookmark CRUD operations."""
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate
+from services.url_scraper import extract_content, extract_metadata, fetch_url
+
+logger = logging.getLogger(__name__)
 
 
 async def create_bookmark(
@@ -12,16 +17,59 @@ async def create_bookmark(
     data: BookmarkCreate,
 ) -> Bookmark:
     """
-    Create a new bookmark for a user.
+    Create a new bookmark for a user with automatic URL scraping.
+
+    Flow:
+    1. Fetch URL for metadata unless user provided both title AND description
+    2. Extract title/description from HTML (user values take precedence)
+    3. If user didn't provide content, extract it from HTML
+    4. Store content only if store_content=True
+    5. Return the created bookmark
+
+    Scraping is best-effort - failures don't block bookmark creation.
 
     Note: Does not commit. Caller (session generator) handles commit at request end.
     """
+    url_str = str(data.url)
+    title = data.title
+    description = data.description
+    content = data.content
+
+    # Determine if we need to fetch for metadata
+    needs_metadata = title is None or description is None
+    needs_content = content is None
+
+    # Only fetch if we need metadata or content
+    if needs_metadata or needs_content:
+        fetch_result = await fetch_url(url_str)
+
+        if fetch_result.html is not None:
+            # Extract metadata if needed
+            if needs_metadata:
+                metadata = extract_metadata(fetch_result.html)
+                if title is None:
+                    title = metadata.title
+                if description is None:
+                    description = metadata.description
+
+            # Extract content if user didn't provide it
+            if needs_content:
+                extracted_content = extract_content(fetch_result.html)
+                if data.store_content:
+                    content = extracted_content
+        elif fetch_result.error:
+            logger.warning(
+                "Failed to fetch URL %s: %s",
+                url_str,
+                fetch_result.error,
+            )
+
     bookmark = Bookmark(
         user_id=user_id,
-        url=str(data.url),
-        title=data.title,
-        description=data.description,
-        content=data.content,
+        url=url_str,
+        title=title,
+        description=description,
+        content=content,
         tags=data.tags,
     )
     db.add(bookmark)
