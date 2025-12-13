@@ -34,6 +34,7 @@ class TestFetchUrl:
         mock_response.text = html
         mock_response.url = 'https://example.com/page'
         mock_response.status_code = 200
+        mock_response.is_success = True
         mock_response.headers = {'content-type': 'text/html; charset=utf-8'}
 
         with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
@@ -97,6 +98,7 @@ class TestFetchUrl:
         mock_response = AsyncMock()
         mock_response.url = 'https://example.com/file.pdf'
         mock_response.status_code = 200
+        mock_response.is_success = True
         mock_response.headers = {'content-type': 'application/pdf'}
 
         with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
@@ -120,6 +122,7 @@ class TestFetchUrl:
         mock_response.text = '<html></html>'
         mock_response.url = 'https://example.com'
         mock_response.status_code = 200
+        mock_response.is_success = True
         mock_response.headers = {'content-type': 'text/html'}
 
         with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
@@ -144,6 +147,7 @@ class TestFetchUrl:
         mock_response.text = '<html></html>'
         mock_response.url = 'https://www.example.com/final-page'  # Redirected URL
         mock_response.status_code = 200
+        mock_response.is_success = True
         mock_response.headers = {'content-type': 'text/html'}
 
         with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
@@ -156,6 +160,74 @@ class TestFetchUrl:
             result = await fetch_url('https://example.com/old-page')
 
             assert result.final_url == 'https://www.example.com/final-page'
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__404_not_found(self) -> None:
+        """404 response returns error instead of error page HTML."""
+        mock_response = AsyncMock()
+        mock_response.text = '<html><title>404 Not Found</title></html>'
+        mock_response.url = 'https://example.com/missing'
+        mock_response.status_code = 404
+        mock_response.is_success = False
+        mock_response.headers = {'content-type': 'text/html'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await fetch_url('https://example.com/missing')
+
+            assert result.html is None  # Should NOT return error page HTML
+            assert result.status_code == 404
+            assert result.error == "HTTP 404"
+            assert result.final_url == 'https://example.com/missing'
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__403_forbidden(self) -> None:
+        """403 response (auth-gated content) returns error."""
+        mock_response = AsyncMock()
+        mock_response.url = 'https://example.com/private'
+        mock_response.status_code = 403
+        mock_response.is_success = False
+        mock_response.headers = {'content-type': 'text/html'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await fetch_url('https://example.com/private')
+
+            assert result.html is None
+            assert result.status_code == 403
+            assert "403" in result.error
+
+    @pytest.mark.asyncio
+    async def test__fetch_url__500_server_error(self) -> None:
+        """500 response returns error instead of error page."""
+        mock_response = AsyncMock()
+        mock_response.url = 'https://example.com/broken'
+        mock_response.status_code = 500
+        mock_response.is_success = False
+        mock_response.headers = {'content-type': 'text/html'}
+
+        with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.get.return_value = mock_response
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client_class.return_value = mock_client
+
+            result = await fetch_url('https://example.com/broken')
+
+            assert result.html is None
+            assert result.status_code == 500
+            assert "500" in result.error
 
 
 class TestExtractMetadata:

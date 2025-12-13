@@ -489,6 +489,44 @@ async def test_create_bookmark_fetch_failure_does_not_block(
     assert data["description"] is None
 
 
+async def test_create_bookmark_http_error_saves_with_null_values(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that HTTP errors (404/500) still save bookmark with null metadata."""
+    mock_fetch = AsyncMock(
+        return_value=FetchResult(
+            html=None,  # No HTML returned for error pages
+            final_url='https://example.com/deleted-page',
+            status_code=404,
+            content_type='text/html',
+            error="HTTP 404",
+        ),
+    )
+
+    with patch('services.bookmark_service.fetch_url', mock_fetch):
+        response = await client.post(
+            "/bookmarks/",
+            json={"url": "https://example.com/deleted-page"},
+        )
+
+    assert response.status_code == 201
+    data = response.json()
+
+    # Bookmark saved with null metadata (not "404 Not Found" from error page)
+    assert data["title"] is None
+    assert data["description"] is None
+    assert data["url"] == "https://example.com/deleted-page"
+
+    # Verify in database
+    result = await db_session.execute(select(Bookmark).where(Bookmark.id == data["id"]))
+    bookmark = result.scalar_one()
+    assert bookmark.url == "https://example.com/deleted-page"
+    assert bookmark.title is None
+    assert bookmark.description is None
+    assert bookmark.content is None
+
+
 async def test_create_bookmark_response_includes_summary_field(
     client: AsyncClient,
 ) -> None:

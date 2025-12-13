@@ -51,6 +51,17 @@ async def fetch_url(url: str, timeout: float = DEFAULT_TIMEOUT) -> FetchResult: 
             headers={'User-Agent': USER_AGENT},
         ) as client:
             response = await client.get(url)
+
+            # Check for successful response (2xx status codes)
+            if not response.is_success:
+                return FetchResult(
+                    html=None,
+                    final_url=str(response.url),
+                    status_code=response.status_code,
+                    content_type=response.headers.get('content-type', ''),
+                    error=f"HTTP {response.status_code}",
+                )
+
             content_type = response.headers.get('content-type', '')
 
             # Check if response is HTML
