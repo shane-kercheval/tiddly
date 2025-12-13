@@ -159,11 +159,12 @@ User
 ## Future Ideas
 
 - Link related bookmarks together (e.g., "this bookmark is related to that bookmark")
+- Link notes together
 - Collections of bookmarks (group related bookmarks)
 - Versioned/snapshot notes
     - If AI edits a note, automatically snapshot previous version before applying changes
 - Browser extension for quick bookmark adding
-- Mobile/offline support (not a priority currently)
+- Option to scan all bookmarks in give list of that no longer resolve (404) and prompt user to archive/delete/update
 
 ---
 
