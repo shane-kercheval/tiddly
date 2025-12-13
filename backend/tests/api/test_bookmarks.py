@@ -1082,12 +1082,12 @@ async def test_total_count_accurate_with_filters(client: AsyncClient) -> None:
     for i in range(3):
         await client.post(
             "/bookmarks/",
-            json={"url": f"https://count-python{i}.com", "title": f"Python {i}", "tags": ["python"]},  # noqa: E501
+            json={"url": f"https://count-python{i}.com", "title": f"Python {i}", "tags": ["python"]},
         )
     for i in range(2):
         await client.post(
             "/bookmarks/",
-            json={"url": f"https://count-js{i}.com", "title": f"JavaScript {i}", "tags": ["javascript"]},  # noqa: E501
+            json={"url": f"https://count-js{i}.com", "title": f"JavaScript {i}", "tags": ["javascript"]},
         )
 
     # Total without filter

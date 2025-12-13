@@ -38,7 +38,7 @@ dev = [
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/api", "src/core", "src/db", "src/models", "src/schemas", "src/services"]
+packages = ["backend/src/api", "backend/src/core", "backend/src/db", "backend/src/models", "backend/src/schemas", "backend/src/services"]
 
 [build-system]
 requires = ["hatchling>=1.17.1"]
@@ -46,8 +46,8 @@ build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
-pythonpath = ["src"]
+testpaths = ["backend/tests"]
+pythonpath = ["backend/src"]
 timeout = 60
 timeout_method = "signal"  # note this only works on unix; "thread" method (default) is safer but might not catch hanging subprocesses
 asyncio_default_fixture_loop_scope = "function"

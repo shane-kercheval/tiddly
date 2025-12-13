@@ -3,17 +3,20 @@
 -include .env
 export
 
+# Set PYTHONPATH for backend
+PYTHONPATH := backend/src
+
 ####
-# Development
+# Backend Development
 ####
 build:  ## Install backend dependencies
 	uv sync
 
 run:  ## Start API server with hot-reload
-	uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+	PYTHONPATH=$(PYTHONPATH) uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 
 ####
-# Frontend
+# Frontend Development
 ####
 frontend-install:  ## Install frontend dependencies
 	cd frontend && npm install
@@ -48,12 +51,12 @@ migration:  ## Create new migration: make migration message="description"
 ####
 # Testing & Quality
 ####
-linting:  ## Run ruff linter
-	uv run ruff check src
-	uv run ruff check tests
+linting:  ## Run ruff linter on backend
+	uv run ruff check backend/src
+	uv run ruff check backend/tests
 
-unit_tests:  ## Run unit tests with coverage
-	uv run coverage run -m pytest --durations=0 tests
+unit_tests:  ## Run backend unit tests with coverage
+	uv run coverage run -m pytest --durations=0 backend/tests
 	uv run coverage html
 
 integration_tests:  ## Run integration tests
