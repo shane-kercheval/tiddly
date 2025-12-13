@@ -1,4 +1,4 @@
-.PHONY: tests build run migrate linting unit_tests
+.PHONY: tests build run migrate linting unit_tests frontend-build frontend-dev frontend-test
 
 -include .env
 export
@@ -6,11 +6,29 @@ export
 ####
 # Development
 ####
-build:  ## Install dependencies
+build:  ## Install backend dependencies
 	uv sync
 
 run:  ## Start API server with hot-reload
-	uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8010
+	uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+
+####
+# Frontend
+####
+frontend-install:  ## Install frontend dependencies
+	cd frontend && npm install
+
+frontend-dev:  ## Start frontend dev server
+	cd frontend && npm run dev
+
+frontend-build:  ## Build frontend for production
+	cd frontend && npm run build
+
+frontend-test:  ## Run frontend tests
+	cd frontend && npm run test:run
+
+frontend-lint:  ## Run frontend linter
+	cd frontend && npm run lint
 
 ####
 # Database

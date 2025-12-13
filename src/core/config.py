@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Development mode - bypasses auth for local development
     dev_mode: bool = False
 
+    # CORS - comma-separated list of allowed origins
+    cors_origins: list[str] = ["http://localhost:5173"]
+
     @property
     def auth0_issuer(self) -> str:
         """Get the Auth0 issuer URL."""
