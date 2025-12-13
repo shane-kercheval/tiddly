@@ -151,8 +151,8 @@ async def validate_token(
     """
     Validate a plaintext token and return the associated ApiToken if valid.
 
-    Uses constant-time comparison via database lookup by hash to prevent
-    timing attacks.
+    Hashes the input token before database lookup, preventing timing attacks
+    since attackers cannot correlate response time with token validity.
 
     Args:
         db: Database session.
