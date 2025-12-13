@@ -1,7 +1,7 @@
 """Application configuration using pydantic-settings."""
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,16 +26,18 @@ class Settings(BaseSettings):
     # Development mode - bypasses auth for local development
     dev_mode: bool = False
 
-    # CORS - comma-separated list of allowed origins
-    cors_origins: list[str] = ["http://localhost:5173"]
+    # CORS - comma-separated list of allowed origins (stored as string, parsed via property)
+    cors_origins_str: str = Field(
+        default="http://localhost:5173",
+        validation_alias="CORS_ORIGINS",
+    )
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v: str | list[str]) -> list[str]:
+    @property
+    def cors_origins(self) -> list[str]:
         """Parse comma-separated CORS origins string into a list."""
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
-        return v
+        if not self.cors_origins_str:
+            return []
+        return [origin.strip() for origin in self.cors_origins_str.split(",") if origin.strip()]
 
     @property
     def auth0_issuer(self) -> str:
