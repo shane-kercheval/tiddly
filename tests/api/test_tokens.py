@@ -4,7 +4,7 @@ Tests for API token (PAT) endpoints.
 Tests cover token creation, listing, deletion, and authentication flow.
 """
 from collections.abc import AsyncGenerator
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -50,13 +50,10 @@ async def test_create_token_with_expiration(client: AsyncClient) -> None:
     assert data["expires_at"] is not None
 
     # Verify expiration is approximately 30 days from now
-    # Parse the ISO format datetime, removing timezone info for comparison
-    expires_at_str = data["expires_at"].replace("Z", "").replace("+00:00", "")
-    if "." in expires_at_str:
-        expires_at = datetime.fromisoformat(expires_at_str.split(".")[0])
-    else:
-        expires_at = datetime.fromisoformat(expires_at_str)
-    expected_expiry = datetime.utcnow() + timedelta(days=30)
+    # Parse the ISO format datetime (Python 3.11+ handles "Z" suffix)
+    expires_at_str = data["expires_at"].replace("Z", "+00:00")
+    expires_at = datetime.fromisoformat(expires_at_str)
+    expected_expiry = datetime.now(UTC) + timedelta(days=30)
     # Allow 1 minute tolerance
     assert abs((expires_at - expected_expiry).total_seconds()) < 60
 
@@ -240,7 +237,7 @@ async def test_authenticate_with_expired_pat(
     # Manually set the expiration to the past
     result = await db_session.execute(select(ApiToken).where(ApiToken.id == token_id))
     api_token = result.scalar_one()
-    api_token.expires_at = datetime.utcnow() - timedelta(hours=1)
+    api_token.expires_at = datetime.now(UTC) - timedelta(hours=1)
     await db_session.flush()
 
     # Try to use the expired token
@@ -323,7 +320,7 @@ async def test_pat_updates_last_used_at(
     # Refresh and check last_used_at is now set
     await db_session.refresh(api_token)
     assert api_token.last_used_at is not None
-    assert api_token.last_used_at <= datetime.utcnow()
+    assert api_token.last_used_at <= datetime.now(UTC)
 
     app.dependency_overrides.clear()
 

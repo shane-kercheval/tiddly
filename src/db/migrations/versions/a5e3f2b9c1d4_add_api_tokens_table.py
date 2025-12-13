@@ -41,10 +41,10 @@ def upgrade() -> None:
             nullable=False,
             comment="First 12 chars for identification, e.g., 'bm_abc12345'",
         ),
-        sa.Column("last_used_at", sa.DateTime(), nullable=True),
+        sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "expires_at",
-            sa.DateTime(),
+            sa.DateTime(timezone=True),
             nullable=True,
             comment="Optional expiration date",
         ),

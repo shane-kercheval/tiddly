@@ -1,7 +1,7 @@
 """Service layer for API token (PAT) operations."""
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,7 +54,7 @@ async def create_token(
 
     expires_at = None
     if data.expires_in_days is not None:
-        expires_at = datetime.utcnow() + timedelta(days=data.expires_in_days)
+        expires_at = datetime.now(UTC) + timedelta(days=data.expires_in_days)
 
     api_token = ApiToken(
         user_id=user_id,
@@ -175,11 +175,11 @@ async def validate_token(
         return None
 
     # Check expiration
-    if api_token.expires_at is not None and datetime.utcnow() > api_token.expires_at:
+    if api_token.expires_at is not None and datetime.now(UTC) > api_token.expires_at:
         return None
 
     # Update last_used_at
-    api_token.last_used_at = datetime.utcnow()
+    api_token.last_used_at = datetime.now(UTC)
     await db.flush()
 
     return api_token
