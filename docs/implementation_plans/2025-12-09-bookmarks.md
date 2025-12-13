@@ -438,7 +438,8 @@ DEV_MODE=true
        url: Mapped[str]
        title: Mapped[str | None]
        description: Mapped[str | None]
-       content: Mapped[str | None]  # Full page content (optional)
+       summary: Mapped[str | None]   # AI-generated summary (Phase 2)
+       content: Mapped[str | None]   # Full page content (optional)
        tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
        created_at: Mapped[datetime]
        updated_at: Mapped[datetime]
@@ -452,8 +453,9 @@ DEV_MODE=true
        url: HttpUrl
        title: str | None = None
        description: str | None = None
-       content: str | None = None
+       content: str | None = None      # User-provided content (e.g., paywalled)
        tags: list[str] = []
+       store_content: bool = True      # Whether to persist scraped content
 
        @field_validator("tags", mode="before")
        @classmethod
@@ -479,6 +481,7 @@ DEV_MODE=true
        url: str
        title: str | None
        description: str | None
+       summary: str | None             # AI-generated (Phase 2)
        tags: list[str]
        created_at: datetime
        updated_at: datetime
@@ -518,72 +521,174 @@ DEV_MODE=true
 
 ---
 
-### Milestone 4: URL Metadata Fetching
+### Milestone 4: URL Scraping & Metadata Extraction
 
-**Goal**: Automatically fetch title, description, and content when a bookmark URL is provided.
+**Goal**: Scrape URLs to extract title, description, and content when creating bookmarks. Also add `summary` field to model for future AI summaries.
 
 **Dependencies**: Milestone 3
 
 **Success Criteria**:
-- When creating a bookmark, if title/description not provided, attempt to fetch from URL
+- When creating a bookmark, scrape URL unless content is user-provided
+- Extract title and description from HTML (user values take precedence)
+- Extract main page content using trafilatura
+- Content storage is controlled by `store_content` flag (default: true)
 - Fetching is best-effort - failures don't block bookmark creation
-- Content extraction is optional (user can paste manually if fetch fails)
 - Tests cover success, failure, and timeout scenarios
 
 **Key Changes**:
 
 1. **Add dependencies** via uv:
    ```bash
-   uv add httpx beautifulsoup4 lxml
+   uv add httpx beautifulsoup4 lxml trafilatura
    ```
 
-2. **Create `src/services/url_fetcher.py`**:
+2. **Add migration** for `summary` field on bookmarks table:
+   ```python
+   # Add summary column (nullable text) for AI-generated summaries (Phase 2)
+   op.add_column('bookmarks', sa.Column('summary', sa.Text(), nullable=True))
+   ```
+
+3. **Update `src/models/bookmark.py`** - Add summary field:
+   ```python
+   summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # AI-generated (Phase 2)
+   ```
+
+4. **Update `src/schemas/bookmark.py`** - Add store_content and summary:
+   ```python
+   class BookmarkCreate(BaseModel):
+       url: HttpUrl
+       title: str | None = None
+       description: str | None = None
+       content: str | None = None      # User-provided content (e.g., paywalled)
+       tags: list[str] = []
+       store_content: bool = True      # Whether to persist scraped content
+
+   class BookmarkResponse(BaseModel):
+       # ... existing fields ...
+       summary: str | None             # AI-generated (Phase 2)
+   ```
+
+5. **Create `src/services/url_scraper.py`** - Three-layer architecture:
+
    ```python
    @dataclass
-   class UrlMetadata:
+   class FetchResult:
+       html: str | None
+       final_url: str          # After redirects
+       status_code: int | None
+       content_type: str | None
+       error: str | None       # Error message if fetch failed
+
+   @dataclass
+   class ExtractedMetadata:
        title: str | None
        description: str | None
-       content: str | None  # Extracted main content text
 
-   async def fetch_url_metadata(url: str, timeout: float = 10.0) -> UrlMetadata:
+   async def fetch_url(url: str, timeout: float = 10.0) -> FetchResult:
        """
-       Fetches and parses URL metadata. Best-effort - returns partial
-       results on failure. Never raises exceptions.
+       Fetches raw HTML from URL. Best-effort - returns error info on failure.
+       Uses httpx async client with reasonable User-Agent header.
+       """
+
+   def extract_metadata(html: str) -> ExtractedMetadata:
+       """
+       Extracts title and description from HTML using BeautifulSoup.
+       Pure function, no I/O.
+
+       Title extraction priority:
+       1. <title> tag
+       2. <meta property="og:title">
+       3. <meta name="twitter:title">
+
+       Description extraction priority:
+       1. <meta name="description">
+       2. <meta property="og:description">
+       3. <meta name="twitter:description">
+       """
+
+   def extract_content(html: str) -> str | None:
+       """
+       Extracts main readable content from HTML using trafilatura.
+       Pure function, no I/O. Returns plain text.
        """
    ```
 
-   Implementation notes:
-   - Use httpx async client with timeout
-   - Extract `<title>` tag
-   - Extract `<meta name="description">` or `<meta property="og:description">`
-   - Extract main content text (strip scripts, styles, nav, footer, etc.)
-   - Handle redirects, encoding issues, non-HTML responses gracefully
-   - Return empty/None for anything that fails
-
-3. **Update bookmark creation flow**:
-   - If title/description not provided, call `fetch_url_metadata`
-   - Populate fields from fetched data
-   - Store content if fetched successfully
-
-4. **Add API endpoint** to manually trigger fetch:
+6. **Update `src/services/bookmark_service.py`** - Integrate scraping:
    ```python
-   @router.post("/{bookmark_id}/fetch-metadata")
+   async def create_bookmark(
+       session: AsyncSession,
+       user_id: int,
+       data: BookmarkCreate,
+   ) -> Bookmark:
+       """
+       Creates a bookmark with automatic URL scraping.
+
+       Flow:
+       1. If content not provided by user, fetch URL and extract content
+       2. Extract metadata (title, description) from HTML
+       3. Use user-provided values if given, else use extracted values
+       4. Store content only if store_content=True
+       5. Return the created bookmark
+       """
    ```
-   This allows users to re-fetch metadata for existing bookmarks.
+
+**Bookmark Creation Flow**:
+```
+Input: url, optional title/description/content/tags, store_content flag
+
+1. If content NOT provided by user:
+   a. fetch_url(url) → get raw HTML
+   b. extract_content(html) → get main text
+
+2. Extract metadata from HTML (whether user-provided or fetched):
+   a. extract_metadata(html) → get title, description
+
+3. Merge values (user takes precedence):
+   - title = user_title or extracted_title
+   - description = user_description or extracted_description
+   - content = user_content or (extracted_content if store_content else None)
+
+4. Create and return bookmark
+```
 
 **Testing Strategy**:
 - Test with mock HTTP responses (don't hit real URLs in tests)
-- Test successful metadata extraction from well-formed HTML
-- Test handling of missing title/description
-- Test timeout handling
-- Test non-HTML responses (PDF, images, etc.)
-- Test invalid URLs / connection errors
+- Test `fetch_url`:
+  - Successful fetch returns HTML
+  - Timeout returns error
+  - Non-HTML content type handled gracefully
+  - Redirects followed, final URL captured
+  - Connection errors return error info
+- Test `extract_metadata`:
+  - Extracts `<title>` tag
+  - Falls back to og:title, twitter:title
+  - Extracts meta description with fallbacks
+  - Handles missing tags gracefully
+  - Returns None for malformed HTML
+- Test `extract_content`:
+  - Returns readable text from article pages
+  - Strips navigation, scripts, styles
+  - Returns None for non-article content
+- Test bookmark creation integration:
+  - Auto-fetches when content not provided
+  - User values override extracted values
+  - store_content=false skips content storage
+  - Fetch failures don't block creation
 - Test encoding issues (UTF-8, ISO-8859-1, etc.)
+- **Golden file / snapshot tests** for extraction regression detection:
+  - Store realistic HTML pages in `tests/artifacts/html/` (e.g., `article_example.html`)
+  - Run extraction and save output to `tests/artifacts/extracted/` (e.g., `article_example_metadata.json`, `article_example_content.txt`)
+  - Test performs basic assertions but primary purpose is generating output files
+  - Changes to extraction logic show up as git diffs in output files for review
+  - Include 2-3 diverse page types: article/blog, documentation, product page
 
 **Risk Factors**:
-- Some sites block scrapers - consider adding a User-Agent header
-- Content extraction quality varies - keep it simple, don't over-engineer
-- Paywalled content will fail - this is expected, user can paste manually
+- Some sites block scrapers - use reasonable User-Agent header
+- trafilatura may not extract well from all page types - acceptable for MVP
+- Paywalled content will fail - user can paste content manually
+
+**Deferred**:
+- `POST /bookmarks/{id}/fetch-metadata` endpoint - will add when requirements for re-fetching are clearer (e.g., AI summary flow)
 
 ---
 
