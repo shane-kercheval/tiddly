@@ -1,4 +1,4 @@
-"""Authentication module for Auth0 JWT validation."""
+"""Authentication module for Auth0 JWT validation and PAT support."""
 import httpx
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import Settings, get_settings
 from db.session import get_async_session
 from models.user import User
+from services import token_service
 
 
 # HTTP Bearer token scheme
@@ -115,13 +116,54 @@ async def get_or_create_dev_user(db: AsyncSession) -> User:
     )
 
 
+async def validate_pat(db: AsyncSession, token: str) -> User:
+    """
+    Validate a Personal Access Token (PAT) and return the associated user.
+
+    Args:
+        db: Database session.
+        token: The plaintext PAT (starts with 'bm_').
+
+    Returns:
+        User associated with the token.
+
+    Raises:
+        HTTPException: If token is invalid, expired, or revoked.
+    """
+    api_token = await token_service.validate_token(db, token)
+
+    if api_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Load the user associated with this token
+    result = await db.execute(select(User).where(User.id == api_token.user_id))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return user
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_async_session),
     settings: Settings = Depends(get_settings),
 ) -> User:
     """
-    Dependency that validates the JWT token and returns the current user.
+    Dependency that validates the token and returns the current user.
+
+    Supports both:
+    - Auth0 JWTs (for web UI)
+    - Personal Access Tokens (PATs) starting with 'bm_' (for CLI/MCP/scripts)
 
     In DEV_MODE, bypasses auth and returns a test user.
     """
@@ -136,6 +178,12 @@ async def get_current_user(
         )
 
     token = credentials.credentials
+
+    # Route to appropriate validation based on token prefix
+    if token.startswith("bm_"):
+        return await validate_pat(db, token)
+
+    # Auth0 JWT validation
     payload = decode_jwt(token, settings)
 
     # Extract user info from JWT claims

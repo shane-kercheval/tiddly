@@ -10,7 +10,7 @@ build:  ## Install dependencies
 	uv sync
 
 run:  ## Start API server with hot-reload
-	uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+	uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8010
 
 ####
 # Database

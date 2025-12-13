@@ -1,7 +1,7 @@
 """FastAPI application entry point."""
 from fastapi import FastAPI
 
-from api.routers import bookmarks, health, users
+from api.routers import bookmarks, health, tokens, users
 
 
 app = FastAPI(
@@ -13,3 +13,4 @@ app = FastAPI(
 app.include_router(health.router)
 app.include_router(users.router)
 app.include_router(bookmarks.router)
+app.include_router(tokens.router)
