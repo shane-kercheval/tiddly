@@ -84,6 +84,15 @@ export function getDomain(url: string): string {
   }
 }
 
+/**
+ * Get URL without protocol (http:// or https://) for display.
+ * @param url - Full URL
+ * @returns URL without protocol prefix
+ */
+export function getUrlWithoutProtocol(url: string): string {
+  return url.replace(/^https?:\/\//, '').replace(/^www\./, '')
+}
+
 // ============================================================================
 // Tag Utilities
 // ============================================================================

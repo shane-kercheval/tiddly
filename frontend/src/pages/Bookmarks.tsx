@@ -365,7 +365,7 @@ export function Bookmarks(): ReactNode {
     return (
       <>
         {/* Bookmark list */}
-        <div className="space-y-4">
+        <div className="divide-y divide-gray-100">
           {bookmarks.map((bookmark) => (
             <BookmarkCard
               key={bookmark.id}
@@ -407,98 +407,69 @@ export function Bookmarks(): ReactNode {
 
   return (
     <div>
-      {/* Header */}
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">Your Bookmarks</h1>
-          <p className="mt-1 text-sm text-gray-400">
-            {total} bookmark{total !== 1 ? 's' : ''}
-            {hasFilters && ' matching your filters'}
-          </p>
-        </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="btn-primary inline-flex items-center gap-2"
-        >
-          <PlusIcon />
-          Add Bookmark
-        </button>
-      </div>
-
       {/* Search and filters */}
-      <div className="mb-6 space-y-4">
-        {/* Search input */}
-        <div className="relative">
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-            <SearchIcon />
-          </div>
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={searchQuery}
-            onChange={handleSearchChange}
-            placeholder="Search bookmarks... (press / to focus)"
-            className="input pl-10"
-          />
-        </div>
-
-        {/* Filter row */}
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Selected tags */}
-          {selectedTags.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-gray-400">Tags:</span>
-              {selectedTags.map((tag) => (
-                <button
-                  key={tag}
-                  onClick={() => handleRemoveTag(tag)}
-                  className="badge-primary inline-flex items-center gap-1 hover:bg-blue-100 transition-colors"
-                >
-                  {tag}
-                  <CloseIcon />
-                </button>
-              ))}
-
-              {/* Tag match selector */}
-              {selectedTags.length > 1 && (
-                <select
-                  value={tagMatch}
-                  onChange={handleTagMatchChange}
-                  className="rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-1 text-xs focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
-                >
-                  <option value="all">Match all</option>
-                  <option value="any">Match any</option>
-                </select>
-              )}
+      <div className="mb-6 space-y-3">
+        {/* Add button, search, and sort row */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="btn-primary shrink-0 p-2.5"
+            title="Add bookmark"
+            aria-label="Add bookmark"
+          >
+            <PlusIcon />
+          </button>
+          <div className="relative flex-1">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <SearchIcon />
             </div>
-          )}
-
-          {/* Spacer */}
-          <div className="flex-1" />
-
-          {/* Sort selector */}
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={handleSearchChange}
+              placeholder="Search bookmarks..."
+              className="input pl-10"
+            />
+          </div>
           <select
             value={`${sortBy}-${sortOrder}`}
             onChange={handleSortChange}
-            className="rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-1.5 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
+            className="rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
           >
             <option value="created_at-desc">Newest first</option>
             <option value="created_at-asc">Oldest first</option>
             <option value="title-asc">Title A-Z</option>
             <option value="title-desc">Title Z-A</option>
           </select>
-
-          {/* Shortcuts hint */}
-          <button
-            onClick={() => setShowShortcuts(true)}
-            className="text-xs text-gray-400 hover:text-gray-500 transition-colors"
-            title="Keyboard shortcuts"
-          >
-            <kbd className="rounded-md border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-xs">
-              ?
-            </kbd>
-          </button>
         </div>
+
+        {/* Selected tags filter */}
+        {selectedTags.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-gray-400">Filtering by:</span>
+            {selectedTags.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => handleRemoveTag(tag)}
+                className="badge-primary inline-flex items-center gap-1 hover:bg-blue-100 transition-colors"
+              >
+                {tag}
+                <CloseIcon />
+              </button>
+            ))}
+            {selectedTags.length > 1 && (
+              <select
+                value={tagMatch}
+                onChange={handleTagMatchChange}
+                className="rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-1 text-xs focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
+              >
+                <option value="all">Match all</option>
+                <option value="any">Match any</option>
+              </select>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Content */}

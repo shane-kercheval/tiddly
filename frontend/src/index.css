@@ -74,9 +74,9 @@
     @apply relative max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white shadow-2xl border border-gray-100;
   }
 
-  /* Card styles */
+  /* Card styles - minimal list item approach */
   .card {
-    @apply rounded-xl bg-white p-5 transition-all border border-gray-100 hover:border-gray-200 hover:bg-gray-50/50;
+    @apply py-4 transition-all hover:bg-gray-50 -mx-3 px-3;
   }
 
   /* Alert/Notice styles */
