@@ -91,6 +91,9 @@ export function Bookmarks(): ReactNode {
     createBookmark,
     updateBookmark,
     deleteBookmark,
+    restoreBookmark,
+    archiveBookmark,
+    unarchiveBookmark,
     fetchMetadata,
   } = useBookmarks()
 
@@ -262,9 +265,54 @@ export function Bookmarks(): ReactNode {
     } catch (err) {
       // Check for duplicate URL error (409 Conflict)
       if (err && typeof err === 'object' && 'response' in err) {
-        const axiosError = err as { response?: { status?: number; data?: { detail?: string } } }
+        const axiosError = err as {
+          response?: {
+            status?: number
+            data?: {
+              detail?: string | {
+                message?: string
+                error_code?: string
+                existing_bookmark_id?: number
+              }
+            }
+          }
+        }
         if (axiosError.response?.status === 409) {
-          toast.error(axiosError.response.data?.detail || 'A bookmark with this URL already exists')
+          const detail = axiosError.response.data?.detail
+          // Check if it's the structured error response for archived URL
+          if (typeof detail === 'object' && detail?.error_code === 'ARCHIVED_URL_EXISTS' && detail?.existing_bookmark_id) {
+            const bookmarkId = detail.existing_bookmark_id
+            toast.error(
+              (t) => (
+                <span className="flex items-center gap-2">
+                  This URL is in your archive.
+                  <button
+                    onClick={() => {
+                      toast.dismiss(t.id)
+                      unarchiveBookmark(bookmarkId)
+                        .then(() => {
+                          setShowAddModal(false)
+                          fetchBookmarks(currentParams)
+                          fetchTags()
+                          toast.success('Bookmark unarchived')
+                        })
+                        .catch(() => {
+                          toast.error('Failed to unarchive bookmark')
+                        })
+                    }}
+                    className="font-medium underline"
+                  >
+                    Unarchive
+                  </button>
+                </span>
+              ),
+              { duration: 8000 }
+            )
+          } else {
+            // Regular duplicate URL error
+            const message = typeof detail === 'string' ? detail : detail?.message || 'A bookmark with this URL already exists'
+            toast.error(message)
+          }
           throw err
         }
       }
@@ -302,15 +350,72 @@ export function Bookmarks(): ReactNode {
   }
 
   const handleDeleteBookmark = async (bookmark: Bookmark): Promise<void> => {
-    if (!confirm(`Delete "${bookmark.title || bookmark.url}"?`)) return
-
     try {
       await deleteBookmark(bookmark.id)
-      toast.success('Bookmark deleted')
       fetchBookmarks(currentParams)
       fetchTags()
+      toast.success(
+        (t) => (
+          <span className="flex items-center gap-2">
+            Bookmark deleted.
+            <button
+              onClick={() => {
+                toast.dismiss(t.id)
+                restoreBookmark(bookmark.id)
+                  .then(() => {
+                    fetchBookmarks(currentParams)
+                    fetchTags()
+                    toast.success('Bookmark restored')
+                  })
+                  .catch(() => {
+                    toast.error("Couldn't undo. The bookmark may have been modified.")
+                  })
+              }}
+              className="font-medium underline"
+            >
+              Undo
+            </button>
+          </span>
+        ),
+        { duration: 5000 }
+      )
     } catch {
       toast.error('Failed to delete bookmark')
+    }
+  }
+
+  const handleArchiveBookmark = async (bookmark: Bookmark): Promise<void> => {
+    try {
+      await archiveBookmark(bookmark.id)
+      fetchBookmarks(currentParams)
+      fetchTags()
+      toast.success(
+        (t) => (
+          <span className="flex items-center gap-2">
+            Bookmark archived.
+            <button
+              onClick={() => {
+                toast.dismiss(t.id)
+                unarchiveBookmark(bookmark.id)
+                  .then(() => {
+                    fetchBookmarks(currentParams)
+                    fetchTags()
+                    toast.success('Bookmark unarchived')
+                  })
+                  .catch(() => {
+                    toast.error("Couldn't undo. The bookmark may have been modified.")
+                  })
+              }}
+              className="font-medium underline"
+            >
+              Undo
+            </button>
+          </span>
+        ),
+        { duration: 5000 }
+      )
+    } catch {
+      toast.error('Failed to archive bookmark')
     }
   }
 
@@ -372,6 +477,7 @@ export function Bookmarks(): ReactNode {
               bookmark={bookmark}
               onEdit={setEditingBookmark}
               onDelete={handleDeleteBookmark}
+              onArchive={handleArchiveBookmark}
               onTagClick={handleTagClick}
             />
           ))}
