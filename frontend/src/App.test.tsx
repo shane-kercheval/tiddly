@@ -55,7 +55,7 @@ describe('App', () => {
     // Wait for the redirect and bookmarks content to appear
     await waitFor(
       () => {
-        expect(screen.getByText('Your Bookmarks')).toBeInTheDocument()
+        expect(screen.getByPlaceholderText('Search bookmarks...')).toBeInTheDocument()
       },
       { timeout: 3000 }
     )

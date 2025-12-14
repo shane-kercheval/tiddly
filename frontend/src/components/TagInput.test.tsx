@@ -321,9 +321,9 @@ describe('TagInput', () => {
       await user.click(input)
       await user.keyboard('{ArrowDown}')
 
-      // First suggestion should be highlighted (has bg-blue-50 class)
+      // First suggestion should be highlighted
       const firstSuggestion = screen.getByRole('button', { name: /react/ })
-      expect(firstSuggestion).toHaveClass('bg-blue-50')
+      expect(firstSuggestion).toHaveAttribute('aria-selected', 'true')
     })
 
     it('should select highlighted suggestion on Enter', async () => {
