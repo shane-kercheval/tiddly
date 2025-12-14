@@ -1,8 +1,8 @@
 /**
  * Tag input component with autocomplete suggestions.
  */
-import { useState, useRef, useEffect } from 'react'
-import type { ReactNode, KeyboardEvent, ChangeEvent } from 'react'
+import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
+import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
 import type { TagCount } from '../types'
 
 interface TagInputProps {
@@ -20,6 +20,14 @@ interface TagInputProps {
   id?: string
   /** Error message to display */
   error?: string
+}
+
+/** Exposed methods via ref */
+export interface TagInputHandle {
+  /** Get pending text that hasn't been added as a tag yet */
+  getPendingValue: () => string
+  /** Clear the pending input */
+  clearPending: () => void
 }
 
 /**
@@ -44,16 +52,20 @@ function validateTag(tag: string): string | null {
  * - Type a new tag and press Enter or comma to add it
  * - Click X on chips to remove tags
  * - Tab to select first suggestion
+ * - Exposes addPendingTag() via ref for form submission
  */
-export function TagInput({
-  value,
-  onChange,
-  suggestions,
-  placeholder = 'Add tags...',
-  disabled = false,
-  id,
-  error,
-}: TagInputProps): ReactNode {
+export const TagInput = forwardRef(function TagInput(
+  {
+    value,
+    onChange,
+    suggestions,
+    placeholder = 'Add tags...',
+    disabled = false,
+    id,
+    error,
+  }: TagInputProps,
+  ref: Ref<TagInputHandle>
+): ReactNode {
   const [inputValue, setInputValue] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
@@ -83,13 +95,15 @@ export function TagInput({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const addTag = (tag: string): void => {
+  const addTag = (tag: string): boolean => {
     const normalized = tag.toLowerCase().trim()
+    if (!normalized) return false
+
     const validationError = validateTag(normalized)
 
     if (validationError) {
       setLocalError(validationError)
-      return
+      return false
     }
 
     if (!value.includes(normalized)) {
@@ -100,7 +114,14 @@ export function TagInput({
     setLocalError(null)
     setShowSuggestions(false)
     setHighlightedIndex(-1)
+    return true
   }
+
+  // Expose methods via ref for form submission
+  useImperativeHandle(ref, () => ({
+    getPendingValue: () => inputValue.trim(),
+    clearPending: () => setInputValue(''),
+  }))
 
   const removeTag = (tagToRemove: string): void => {
     onChange(value.filter((tag) => tag !== tagToRemove))
@@ -233,4 +254,4 @@ export function TagInput({
       )}
     </div>
   )
-}
+})

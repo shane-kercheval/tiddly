@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import { TagInput } from './TagInput'
+import type { TagInputHandle } from './TagInput'
 import type { Bookmark, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
 
 interface BookmarkFormProps {
@@ -93,6 +94,7 @@ export function BookmarkForm({
   const [errors, setErrors] = useState<FormErrors>({})
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
   const [metadataFetched, setMetadataFetched] = useState(false)
+  const tagInputRef = useRef<TagInputHandle>(null)
 
   // Track previous URL to detect changes
   const prevUrlRef = useRef(form.url)
@@ -170,8 +172,20 @@ export function BookmarkForm({
 
     if (!validate()) return
 
+    // Get any pending tag text and include it
+    const pendingTag = tagInputRef.current?.getPendingValue() || ''
+    let tagsToSubmit = [...form.tags]
+    if (pendingTag) {
+      const normalized = pendingTag.toLowerCase().trim()
+      // Only add if valid and not already present
+      if (/^[a-z0-9]+(-[a-z0-9]+)*$/.test(normalized) && !tagsToSubmit.includes(normalized)) {
+        tagsToSubmit.push(normalized)
+        tagInputRef.current?.clearPending()
+      }
+    }
+
     console.log('Form state before submit:', form)
-    console.log('Tags in form:', form.tags)
+    console.log('Tags to submit:', tagsToSubmit)
 
     try {
       if (isEditing) {
@@ -180,8 +194,8 @@ export function BookmarkForm({
         if (form.title !== bookmark?.title) updates.title = form.title || null
         if (form.description !== bookmark?.description)
           updates.description = form.description || null
-        if (JSON.stringify(form.tags) !== JSON.stringify(bookmark?.tags))
-          updates.tags = form.tags
+        if (JSON.stringify(tagsToSubmit) !== JSON.stringify(bookmark?.tags))
+          updates.tags = tagsToSubmit
 
         await onSubmit(updates)
       } else {
@@ -190,7 +204,7 @@ export function BookmarkForm({
           url: normalizeUrl(form.url),
           title: form.title || undefined,
           description: form.description || undefined,
-          tags: form.tags,
+          tags: tagsToSubmit,
           store_content: form.storeContent,
         }
         await onSubmit(createData)
@@ -314,6 +328,7 @@ export function BookmarkForm({
         </label>
         <div className="mt-1">
           <TagInput
+            ref={tagInputRef}
             id="tags"
             value={form.tags}
             onChange={(tags) => setForm((prev) => ({ ...prev, tags }))}
@@ -359,7 +374,7 @@ export function BookmarkForm({
         </button>
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || (!isEditing && !form.url.trim())}
           className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSubmitting ? (
