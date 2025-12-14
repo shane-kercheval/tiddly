@@ -24,6 +24,8 @@ def validate_and_normalize_tags(tags: list[str]) -> list[str]:
 class BookmarkCreate(BaseModel):
     """Schema for creating a new bookmark."""
 
+    # HttpUrl normalizes root domains with trailing slash (example.com -> example.com/)
+    # but preserves paths as-is (example.com/page stays example.com/page)
     url: HttpUrl
     title: str | None = None
     description: str | None = None
@@ -43,6 +45,7 @@ class BookmarkCreate(BaseModel):
 class BookmarkUpdate(BaseModel):
     """Schema for updating an existing bookmark."""
 
+    # See BookmarkCreate for HttpUrl normalization behavior
     url: HttpUrl | None = None
     title: str | None = None
     description: str | None = None

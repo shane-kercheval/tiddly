@@ -186,7 +186,12 @@ async def search_bookmarks(
     total = total_result.scalar() or 0
 
     # Apply sorting (with secondary sort by id for deterministic ordering)
-    sort_column = Bookmark.created_at if sort_by == "created_at" else Bookmark.title
+    # For title sorting, fall back to URL when title is NULL
+    if sort_by == "created_at":
+        sort_column = Bookmark.created_at
+    else:
+        sort_column = func.coalesce(Bookmark.title, Bookmark.url)
+
     if sort_order == "desc":
         base_query = base_query.order_by(sort_column.desc(), Bookmark.id.desc())
     else:

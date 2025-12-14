@@ -1027,6 +1027,60 @@ async def test_sort_by_title_desc(client: AsyncClient) -> None:
     assert titles == ["Gamma", "Beta", "Alpha"]
 
 
+async def test_sort_by_title_falls_back_to_url_when_title_missing(
+    client: AsyncClient,
+) -> None:
+    """Test that sorting by title uses URL as fallback when title is NULL."""
+    # Create bookmarks: some with titles, some without
+    # Without title - should sort by URL "https://becu.org"
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://becu.org"},
+    )
+    # With title "Zebra"
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://zebra.com", "title": "Zebra"},
+    )
+    # Without title - should sort by URL "https://apple.org"
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://apple.org"},
+    )
+    # With title "Middle"
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://middle.com", "title": "Middle"},
+    )
+
+    # Sort ascending - expected order by coalesce(title, url):
+    # "Middle", "Zebra", "https://apple.org", "https://becu.org"
+    response = await client.get("/bookmarks/?sort_by=title&sort_order=asc")
+    assert response.status_code == 200
+
+    data = response.json()
+    urls = [item["url"] for item in data["items"]]
+    assert urls == [
+        "https://apple.org/",  # No title, sorts by URL
+        "https://becu.org/",  # No title, sorts by URL
+        "https://middle.com/",  # Title "Middle"
+        "https://zebra.com/",  # Title "Zebra"
+    ]
+
+    # Sort descending - reverse order
+    response = await client.get("/bookmarks/?sort_by=title&sort_order=desc")
+    assert response.status_code == 200
+
+    data = response.json()
+    urls = [item["url"] for item in data["items"]]
+    assert urls == [
+        "https://zebra.com/",  # Title "Zebra"
+        "https://middle.com/",  # Title "Middle"
+        "https://becu.org/",  # No title, sorts by URL
+        "https://apple.org/",  # No title, sorts by URL
+    ]
+
+
 async def test_pagination_with_search(client: AsyncClient) -> None:
     """Test pagination works correctly with search results."""
     # Create 5 bookmarks matching search
