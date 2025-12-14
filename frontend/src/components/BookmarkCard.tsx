@@ -23,7 +23,7 @@ interface BookmarkCardProps {
  * - Clickable title/URL opens in new tab
  * - Context-aware action buttons based on view:
  *   - active: edit, archive, delete
- *   - archived: edit, unarchive, delete
+ *   - archived: edit, restore, delete
  *   - deleted: restore, permanent delete
  * - Clickable tags for filtering
  * - Truncated description
@@ -97,7 +97,7 @@ export function BookmarkCard({
 
         {/* Actions and date */}
         <div className="flex flex-col items-end gap-1 shrink-0">
-          <div className="flex gap-1">
+          <div className="flex">
             {/* Edit button - shown in active and archived views */}
             {view !== 'deleted' && onEdit && (
               <button
@@ -146,13 +146,13 @@ export function BookmarkCard({
               </button>
             )}
 
-            {/* Unarchive button - shown in archived view */}
+            {/* Restore button - shown in archived view (unarchive action) */}
             {view === 'archived' && onUnarchive && (
               <button
                 onClick={() => onUnarchive(bookmark)}
                 className="btn-icon"
-                title="Unarchive bookmark"
-                aria-label="Unarchive bookmark"
+                title="Restore bookmark"
+                aria-label="Restore bookmark"
               >
                 <svg
                   className="h-4 w-4"
@@ -164,7 +164,7 @@ export function BookmarkCard({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4l3-3m0 0l3 3m-3-3v6"
+                    d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
                   />
                 </svg>
               </button>
