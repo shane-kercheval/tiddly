@@ -110,8 +110,8 @@ export function BookmarkModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-          <h2 id="modal-title" className="text-lg font-semibold text-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <h2 id="modal-title" className="text-base font-semibold text-gray-900">
             {isEditing ? 'Edit Bookmark' : 'Add Bookmark'}
           </h2>
           <button

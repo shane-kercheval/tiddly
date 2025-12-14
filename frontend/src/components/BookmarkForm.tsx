@@ -302,9 +302,9 @@ export function BookmarkForm({
               setForm((prev) => ({ ...prev, storeContent: e.target.checked }))
             }
             disabled={isSubmitting}
-            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900/10"
           />
-          <label htmlFor="storeContent" className="text-sm text-gray-700">
+          <label htmlFor="storeContent" className="text-sm text-gray-600">
             Save page content (for search)
           </label>
         </div>

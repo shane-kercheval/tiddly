@@ -161,18 +161,18 @@ export const TagInput = forwardRef(function TagInput(
     <div ref={containerRef} className="relative">
       {/* Selected tags and input */}
       <div
-        className={`flex min-h-[42px] flex-wrap gap-1.5 rounded-md border bg-white px-3 py-2 ${
+        className={`flex min-h-[42px] flex-wrap gap-1.5 rounded-lg border px-3 py-2 transition-all ${
           displayError
-            ? 'border-red-300 focus-within:border-red-500 focus-within:ring-red-500'
-            : 'border-gray-300 focus-within:border-blue-500 focus-within:ring-blue-500'
-        } focus-within:ring-1`}
+            ? 'border-red-200 bg-red-50/50 focus-within:border-red-300 focus-within:ring-red-500/10'
+            : 'border-gray-200 bg-gray-50/50 focus-within:border-gray-300 focus-within:bg-white focus-within:ring-gray-900/5'
+        } focus-within:ring-2`}
         onClick={() => inputRef.current?.focus()}
       >
         {/* Tag chips */}
         {value.map((tag) => (
           <span
             key={tag}
-            className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-sm font-medium text-blue-800"
+            className="inline-flex items-center gap-1 rounded-md bg-blue-50 border border-blue-100 px-2 py-0.5 text-xs font-medium text-blue-600"
           >
             {tag}
             <button
@@ -182,7 +182,7 @@ export const TagInput = forwardRef(function TagInput(
                 removeTag(tag)
               }}
               disabled={disabled}
-              className="rounded-full p-0.5 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="rounded p-0.5 hover:bg-blue-100 focus:outline-none transition-colors"
               aria-label={`Remove tag ${tag}`}
             >
               <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
@@ -217,21 +217,21 @@ export const TagInput = forwardRef(function TagInput(
 
       {/* Error message */}
       {displayError && (
-        <p className="mt-1 text-sm text-red-600">{displayError}</p>
+        <p className="mt-1.5 text-sm text-red-500">{displayError}</p>
       )}
 
       {/* Suggestions dropdown */}
       {showSuggestions && filteredSuggestions.length > 0 && (
-        <div className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+        <div className="absolute z-10 mt-1.5 max-h-60 w-full overflow-auto rounded-xl border border-gray-100 bg-white py-1 shadow-lg">
           {filteredSuggestions.map((suggestion, index) => (
             <button
               key={suggestion.name}
               type="button"
               onClick={() => addTag(suggestion.name)}
-              className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm ${
+              className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors ${
                 index === highlightedIndex
-                  ? 'bg-blue-50 text-blue-700'
-                  : 'text-gray-700 hover:bg-gray-50'
+                  ? 'bg-gray-100 text-gray-900'
+                  : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
               <span>{suggestion.name}</span>

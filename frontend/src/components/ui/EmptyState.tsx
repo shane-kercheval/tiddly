@@ -27,16 +27,16 @@ export function EmptyState({
   action,
 }: EmptyStateProps): ReactNode {
   return (
-    <div className="py-12 text-center">
-      <div className="mx-auto h-12 w-12 text-gray-400">
+    <div className="py-16 text-center">
+      <div className="mx-auto h-10 w-10 text-gray-300">
         {icon}
       </div>
-      <h3 className="mt-4 text-lg font-medium text-gray-900">{title}</h3>
-      <p className="mt-2 text-sm text-gray-500">{description}</p>
+      <h3 className="mt-4 text-base font-medium text-gray-900">{title}</h3>
+      <p className="mt-1.5 text-sm text-gray-400">{description}</p>
       {action && (
         <button
           onClick={action.onClick}
-          className="btn-primary mt-4"
+          className="btn-primary mt-6"
         >
           {action.label}
         </button>

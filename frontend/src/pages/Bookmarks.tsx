@@ -379,7 +379,7 @@ export function Bookmarks(): ReactNode {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="mt-8 flex items-center justify-between border-t border-gray-200 pt-4">
+          <div className="mt-8 flex items-center justify-between border-t border-gray-100 pt-4">
             <button
               onClick={() => handlePageChange(Math.max(0, offset - DEFAULT_LIMIT))}
               disabled={offset === 0}
@@ -388,7 +388,7 @@ export function Bookmarks(): ReactNode {
               Previous
             </button>
 
-            <span className="text-sm text-gray-500">
+            <span className="text-sm text-gray-400">
               Page {currentPage} of {totalPages}
             </span>
 
@@ -408,10 +408,10 @@ export function Bookmarks(): ReactNode {
   return (
     <div>
       {/* Header */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Your Bookmarks</h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <h1 className="text-xl font-semibold text-gray-900">Your Bookmarks</h1>
+          <p className="mt-1 text-sm text-gray-400">
             {total} bookmark{total !== 1 ? 's' : ''}
             {hasFilters && ' matching your filters'}
           </p>
@@ -447,12 +447,12 @@ export function Bookmarks(): ReactNode {
           {/* Selected tags */}
           {selectedTags.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-gray-500">Tags:</span>
+              <span className="text-sm text-gray-400">Tags:</span>
               {selectedTags.map((tag) => (
                 <button
                   key={tag}
                   onClick={() => handleRemoveTag(tag)}
-                  className="badge-primary inline-flex items-center gap-1 hover:bg-blue-200"
+                  className="badge-primary inline-flex items-center gap-1 hover:bg-blue-100 transition-colors"
                 >
                   {tag}
                   <CloseIcon />
@@ -464,7 +464,7 @@ export function Bookmarks(): ReactNode {
                 <select
                   value={tagMatch}
                   onChange={handleTagMatchChange}
-                  className="rounded border border-gray-300 bg-white px-2 py-1 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-1 text-xs focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
                 >
                   <option value="all">Match all</option>
                   <option value="any">Match any</option>
@@ -480,7 +480,7 @@ export function Bookmarks(): ReactNode {
           <select
             value={`${sortBy}-${sortOrder}`}
             onChange={handleSortChange}
-            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-1.5 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
           >
             <option value="created_at-desc">Newest first</option>
             <option value="created_at-asc">Oldest first</option>
@@ -491,10 +491,10 @@ export function Bookmarks(): ReactNode {
           {/* Shortcuts hint */}
           <button
             onClick={() => setShowShortcuts(true)}
-            className="text-xs text-gray-400 hover:text-gray-600"
+            className="text-xs text-gray-400 hover:text-gray-500 transition-colors"
             title="Keyboard shortcuts"
           >
-            <kbd className="rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 font-mono text-xs">
+            <kbd className="rounded-md border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-xs">
               ?
             </kbd>
           </button>

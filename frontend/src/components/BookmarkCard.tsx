@@ -40,7 +40,7 @@ export function BookmarkCard({
             href={bookmark.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="block text-lg font-medium text-blue-600 hover:text-blue-800 hover:underline"
+            className="block text-base font-medium text-gray-900 hover:text-gray-600 transition-colors"
             title={bookmark.url}
           >
             {truncate(displayTitle, 60)}
@@ -51,7 +51,7 @@ export function BookmarkCard({
             href={bookmark.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-0.5 block text-sm text-gray-500 hover:text-gray-700"
+            className="mt-0.5 block text-sm text-gray-400 hover:text-gray-600 transition-colors"
           >
             {domain}
           </a>
@@ -104,7 +104,7 @@ export function BookmarkCard({
 
       {/* Description */}
       {bookmark.description && (
-        <p className="mt-2 text-sm text-gray-600">
+        <p className="mt-2 text-sm text-gray-500 leading-relaxed">
           {truncate(bookmark.description, 150)}
         </p>
       )}
@@ -118,7 +118,7 @@ export function BookmarkCard({
               <button
                 key={tag}
                 onClick={() => onTagClick?.(tag)}
-                className="badge-secondary hover:bg-gray-200"
+                className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
                 title={`Filter by tag: ${tag}`}
               >
                 {tag}
