@@ -365,7 +365,7 @@ export function Bookmarks(): ReactNode {
     return (
       <>
         {/* Bookmark list */}
-        <div className="divide-y divide-gray-100">
+        <div>
           {bookmarks.map((bookmark) => (
             <BookmarkCard
               key={bookmark.id}
