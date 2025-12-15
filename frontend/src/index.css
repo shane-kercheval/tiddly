@@ -19,11 +19,11 @@
   }
 
   .btn-icon {
-    @apply rounded-lg p-1.5 text-gray-400 transition-all hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply rounded-lg p-1 text-gray-400 transition-all hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-icon-danger {
-    @apply rounded-lg p-1.5 text-gray-400 transition-all hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply rounded-lg p-1 text-gray-400 transition-all hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   /* Form inputs */
