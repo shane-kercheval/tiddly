@@ -1,7 +1,8 @@
 /**
  * Hook for managing bookmarks - fetching, creating, updating, deleting.
  */
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
+import axios from 'axios'
 import { api } from '../services/api'
 import type {
   Bookmark,
@@ -51,7 +52,19 @@ export function useBookmarks(): UseBookmarksReturn {
     error: null,
   })
 
+  // AbortController for canceling in-flight requests
+  const abortControllerRef = useRef<AbortController | null>(null)
+
   const fetchBookmarks = useCallback(async (params: BookmarkSearchParams = {}) => {
+    // Cancel any in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+
+    // Create new AbortController for this request
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
+
     setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
     try {
@@ -86,7 +99,9 @@ export function useBookmarks(): UseBookmarksReturn {
       const queryString = queryParams.toString()
       const url = queryString ? `/bookmarks/?${queryString}` : '/bookmarks/'
 
-      const response = await api.get<BookmarkListResponse>(url)
+      const response = await api.get<BookmarkListResponse>(url, {
+        signal: abortController.signal,
+      })
 
       setState({
         bookmarks: response.data.items,
@@ -95,6 +110,11 @@ export function useBookmarks(): UseBookmarksReturn {
         error: null,
       })
     } catch (err) {
+      // Ignore canceled requests - a newer request superseded this one
+      if (axios.isCancel(err)) {
+        return
+      }
+
       const message = err instanceof Error ? err.message : 'Failed to fetch bookmarks'
       setState((prev) => ({
         ...prev,

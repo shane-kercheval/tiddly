@@ -53,7 +53,7 @@ describe('useBookmarks', () => {
       expect(result.current.total).toBe(2)
       expect(result.current.isLoading).toBe(false)
       expect(result.current.error).toBeNull()
-      expect(mockGet).toHaveBeenCalledWith('/bookmarks/')
+      expect(mockGet).toHaveBeenCalledWith('/bookmarks/', expect.objectContaining({ signal: expect.any(AbortSignal) }))
     })
 
     it('should build query string with search params', async () => {
@@ -72,21 +72,12 @@ describe('useBookmarks', () => {
         })
       })
 
-      expect(mockGet).toHaveBeenCalledWith(
-        expect.stringContaining('q=test')
-      )
-      expect(mockGet).toHaveBeenCalledWith(
-        expect.stringContaining('tags=react')
-      )
-      expect(mockGet).toHaveBeenCalledWith(
-        expect.stringContaining('tags=typescript')
-      )
-      expect(mockGet).toHaveBeenCalledWith(
-        expect.stringContaining('sort_by=created_at')
-      )
-      expect(mockGet).toHaveBeenCalledWith(
-        expect.stringContaining('sort_order=desc')
-      )
+      const calledUrl = mockGet.mock.calls[0][0] as string
+      expect(calledUrl).toContain('q=test')
+      expect(calledUrl).toContain('tags=react')
+      expect(calledUrl).toContain('tags=typescript')
+      expect(calledUrl).toContain('sort_by=created_at')
+      expect(calledUrl).toContain('sort_order=desc')
     })
 
     it('should include view parameter in query string', async () => {
@@ -102,9 +93,8 @@ describe('useBookmarks', () => {
         })
       })
 
-      expect(mockGet).toHaveBeenCalledWith(
-        expect.stringContaining('view=archived')
-      )
+      const calledUrl = mockGet.mock.calls[0][0] as string
+      expect(calledUrl).toContain('view=archived')
     })
 
     it('should include view=deleted parameter for trash view', async () => {
@@ -120,9 +110,8 @@ describe('useBookmarks', () => {
         })
       })
 
-      expect(mockGet).toHaveBeenCalledWith(
-        expect.stringContaining('view=deleted')
-      )
+      const calledUrl = mockGet.mock.calls[0][0] as string
+      expect(calledUrl).toContain('view=deleted')
     })
 
     it('should set error on fetch failure', async () => {

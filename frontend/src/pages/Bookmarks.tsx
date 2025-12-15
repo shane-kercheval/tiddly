@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useTags } from '../hooks/useTags'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
 import { ShortcutsDialog } from '../components/ShortcutsDialog'
@@ -134,13 +135,16 @@ export function Bookmarks(): ReactNode {
   const offset = parseInt(searchParams.get('offset') || '0', 10)
   const currentView = (searchParams.get('view') as 'active' | 'archived' | 'deleted') || 'active'
 
+  // Debounce search query to avoid excessive API calls while typing
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
+
   // Derive has_filters for empty state
   const hasFilters = searchQuery.length > 0 || selectedTags.length > 0
 
-  // Build search params object
+  // Build search params object (uses debounced search query)
   const currentParams: BookmarkSearchParams = useMemo(
     () => ({
-      q: searchQuery || undefined,
+      q: debouncedSearchQuery || undefined,
       tags: selectedTags.length > 0 ? selectedTags : undefined,
       tag_match: selectedTags.length > 0 ? tagMatch : undefined,
       sort_by: sortBy,
@@ -149,7 +153,7 @@ export function Bookmarks(): ReactNode {
       limit: DEFAULT_LIMIT,
       view: currentView,
     }),
-    [searchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, currentView]
+    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, currentView]
   )
 
   // Fetch bookmarks when params change
