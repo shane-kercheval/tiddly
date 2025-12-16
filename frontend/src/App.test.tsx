@@ -17,13 +17,24 @@ vi.mock('./hooks/useBookmarks', () => ({
   }),
 }))
 
-vi.mock('./hooks/useTags', () => ({
-  useTags: () => ({
+vi.mock('./stores/tagsStore', () => ({
+  useTagsStore: () => ({
     tags: [],
     isLoading: false,
     error: null,
     fetchTags: vi.fn(),
     clearError: vi.fn(),
+  }),
+}))
+
+vi.mock('./stores/settingsStore', () => ({
+  useSettingsStore: () => ({
+    computedTabOrder: [
+      { key: 'all', label: 'All Bookmarks', type: 'builtin' },
+      { key: 'archived', label: 'Archived', type: 'builtin' },
+      { key: 'trash', label: 'Trash', type: 'builtin' },
+    ],
+    fetchTabOrder: vi.fn(),
   }),
 }))
 

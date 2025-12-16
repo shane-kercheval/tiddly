@@ -6,10 +6,10 @@ import type { ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useBookmarks } from '../hooks/useBookmarks'
-import { useTags } from '../hooks/useTags'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useTagsStore } from '../stores/tagsStore'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
 import { ShortcutsDialog } from '../components/ShortcutsDialog'
@@ -138,7 +138,7 @@ export function Bookmarks(): ReactNode {
     trackBookmarkUsage,
   } = useBookmarks()
 
-  const { tags: tagSuggestions, fetchTags } = useTags()
+  const { tags: tagSuggestions, fetchTags } = useTagsStore()
   const { computedTabOrder, fetchTabOrder } = useSettingsStore()
 
   // Parse URL params
