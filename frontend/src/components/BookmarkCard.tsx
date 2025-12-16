@@ -42,7 +42,8 @@ export function BookmarkCard({
   const displayTitle = bookmark.title || getDomain(bookmark.url)
   const urlDisplay = getUrlWithoutProtocol(bookmark.url)
   const domain = getDomain(bookmark.url)
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`
+  const faviconUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`
+  const defaultFavicon = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%239CA3AF" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`
 
   return (
     <div className="card">
@@ -63,7 +64,7 @@ export function BookmarkCard({
                 className="w-4 h-4"
                 loading="lazy"
                 onError={(e) => {
-                  e.currentTarget.style.display = 'none'
+                  e.currentTarget.src = defaultFavicon
                 }}
               />
             </a>
