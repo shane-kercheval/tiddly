@@ -14,7 +14,7 @@ from schemas.bookmark import (
     BookmarkUpdate,
     MetadataPreviewResponse,
 )
-from services import bookmark_service
+from services import bookmark_list_service, bookmark_service
 from services.bookmark_service import (
     ArchivedUrlExistsError,
     DuplicateUrlError,
@@ -104,6 +104,7 @@ async def list_bookmarks(
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
     view: Literal["active", "archived", "deleted"] = Query(default="active", description="Which bookmarks to show: active (default), archived, or deleted"),  # noqa: E501
+    list_id: int | None = Query(default=None, description="Filter by bookmark list ID"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkListResponse:
@@ -116,7 +117,16 @@ async def list_bookmarks(
     - **sort_by**: Sort by created_at (default) or title
     - **sort_order**: Sort ascending or descending (default: desc)
     - **view**: Which bookmarks to show - 'active' (not deleted/archived), 'archived', or 'deleted'
+    - **list_id**: Filter by bookmark list (overrides tags parameter)
     """
+    # If list_id provided, fetch the list and use its filter expression
+    filter_expression = None
+    if list_id is not None:
+        bookmark_list = await bookmark_list_service.get_list(db, current_user.id, list_id)
+        if bookmark_list is None:
+            raise HTTPException(status_code=404, detail="List not found")
+        filter_expression = bookmark_list.filter_expression
+
     try:
         bookmarks, total = await bookmark_service.search_bookmarks(
             db=db,
@@ -129,6 +139,7 @@ async def list_bookmarks(
             offset=offset,
             limit=limit,
             view=view,
+            filter_expression=filter_expression,
         )
     except ValueError as e:
         # Tag validation errors from validate_and_normalize_tags

@@ -6,6 +6,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { Layout } from './components/Layout'
 import { LandingPage } from './pages/LandingPage'
 import { Bookmarks } from './pages/Bookmarks'
+import { Settings } from './pages/Settings'
 
 /**
  * Main application component with routing configuration.
@@ -13,6 +14,7 @@ import { Bookmarks } from './pages/Bookmarks'
  * Routes:
  * - / : Landing page (public)
  * - /bookmarks : Bookmark list (protected)
+ * - /settings : Settings page (protected)
  */
 function App(): ReactNode {
   return (
@@ -24,6 +26,7 @@ function App(): ReactNode {
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
               <Route path="/bookmarks" element={<Bookmarks />} />
+              <Route path="/settings" element={<Settings />} />
             </Route>
           </Route>
         </Routes>

@@ -57,6 +57,12 @@ function Header(): ReactNode {
           Bookmarks
         </Link>
         <nav className="flex items-center gap-4">
+          <Link
+            to="/settings"
+            className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            Settings
+          </Link>
           {isDevMode ? <DevModeUserControls /> : <AuthenticatedUserControls />}
         </nav>
       </div>

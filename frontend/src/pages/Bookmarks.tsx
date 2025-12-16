@@ -9,6 +9,7 @@ import { useBookmarks } from '../hooks/useBookmarks'
 import { useTags } from '../hooks/useTags'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { useSettingsStore } from '../stores/settingsStore'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
 import { ShortcutsDialog } from '../components/ShortcutsDialog'
@@ -73,6 +74,18 @@ const ArchiveIcon = (): ReactNode => (
   </svg>
 )
 
+/** Folder icon for list empty state */
+const FolderIcon = (): ReactNode => (
+  <svg className="h-full w-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+    />
+  </svg>
+)
+
 /** Trash icon for empty state */
 const TrashIcon = (): ReactNode => (
   <svg className="h-full w-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -126,6 +139,7 @@ export function Bookmarks(): ReactNode {
   } = useBookmarks()
 
   const { tags: tagSuggestions, fetchTags } = useTags()
+  const { computedTabOrder, fetchTabOrder } = useSettingsStore()
 
   // Parse URL params
   const searchQuery = searchParams.get('q') || ''
@@ -136,7 +150,27 @@ export function Bookmarks(): ReactNode {
   const sortBy = (searchParams.get('sort_by') as 'created_at' | 'updated_at' | 'last_used_at' | 'title') || 'created_at'
   const sortOrder = (searchParams.get('sort_order') as 'asc' | 'desc') || 'desc'
   const offset = parseInt(searchParams.get('offset') || '0', 10)
-  const currentView = (searchParams.get('view') as 'active' | 'archived' | 'deleted') || 'active'
+
+  // Tab state - get from URL or default to first tab
+  const currentTabKey = searchParams.get('tab') || (computedTabOrder.length > 0 ? computedTabOrder[0].key : 'all')
+
+  // Derive view and list_id from current tab
+  const { currentView, currentListId } = useMemo(() => {
+    if (currentTabKey === 'all') {
+      return { currentView: 'active' as const, currentListId: undefined }
+    }
+    if (currentTabKey === 'archived') {
+      return { currentView: 'archived' as const, currentListId: undefined }
+    }
+    if (currentTabKey === 'trash') {
+      return { currentView: 'deleted' as const, currentListId: undefined }
+    }
+    if (currentTabKey.startsWith('list:')) {
+      const listId = parseInt(currentTabKey.replace('list:', ''), 10)
+      return { currentView: 'active' as const, currentListId: isNaN(listId) ? undefined : listId }
+    }
+    return { currentView: 'active' as const, currentListId: undefined }
+  }, [currentTabKey])
 
   // Debounce search query to avoid excessive API calls while typing
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
@@ -155,8 +189,9 @@ export function Bookmarks(): ReactNode {
       offset,
       limit: DEFAULT_LIMIT,
       view: currentView,
+      list_id: currentListId,
     }),
-    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, currentView]
+    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, currentView, currentListId]
   )
 
   // Fetch bookmarks when params change
@@ -164,10 +199,17 @@ export function Bookmarks(): ReactNode {
     fetchBookmarks(currentParams)
   }, [fetchBookmarks, currentParams])
 
-  // Fetch tags on mount
+  // Track if initial data has been fetched
+  const hasFetchedRef = useRef(false)
+
+  // Fetch tags and tab order on mount (only once)
   useEffect(() => {
-    fetchTags()
-  }, [fetchTags])
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true
+      fetchTags()
+      fetchTabOrder()
+    }
+  }, [fetchTags, fetchTabOrder])
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -243,15 +285,8 @@ export function Bookmarks(): ReactNode {
         }
       }
 
-      if ('view' in updates) {
-        if (updates.view && updates.view !== 'active') {
-          newParams.set('view', updates.view)
-        } else {
-          newParams.delete('view')
-        }
-        // Reset pagination when switching views
-        newParams.delete('offset')
-      }
+      // Note: 'view' is derived from 'tab', so we don't set it directly in URL
+      // Use handleTabChange for tab switching
 
       setSearchParams(newParams, { replace: true })
     },
@@ -633,7 +668,19 @@ export function Bookmarks(): ReactNode {
         )
       }
 
-      // Active view
+      // Active view - check if it's a list view
+      if (currentListId) {
+        // Custom list with no matching bookmarks
+        const currentTab = computedTabOrder.find((t) => t.key === currentTabKey)
+        return (
+          <EmptyState
+            icon={<FolderIcon />}
+            title="No bookmarks match this list"
+            description={`Add bookmarks with the tags defined in "${currentTab?.label || 'this list'}" to see them here.`}
+          />
+        )
+      }
+
       if (hasFilters) {
         return (
           <EmptyState
@@ -702,49 +749,83 @@ export function Bookmarks(): ReactNode {
     )
   }
 
-  // Handler for view tab change
-  const handleViewChange = useCallback(
-    (newView: 'active' | 'archived' | 'deleted') => {
-      updateParams({ view: newView })
+  // Handler for tab change
+  const handleTabChange = useCallback(
+    (tabKey: string) => {
+      const newParams = new URLSearchParams(searchParams)
+
+      // Set tab (use 'all' as default, don't store in URL)
+      if (tabKey && tabKey !== 'all') {
+        newParams.set('tab', tabKey)
+      } else {
+        newParams.delete('tab')
+      }
+
+      // Reset pagination when switching tabs
+      newParams.delete('offset')
+
+      setSearchParams(newParams, { replace: true })
     },
-    [updateParams]
+    [searchParams, setSearchParams]
   )
+
+  // Determine if we should show add button (only for active views, not archived/trash)
+  const showAddButton = currentView === 'active'
 
   return (
     <div>
-      {/* View tabs */}
+      {/* Dynamic tabs from computed tab order */}
       <div className="mb-4 border-b border-gray-200">
-        <nav className="-mb-px flex gap-4" aria-label="Tabs">
-          <button
-            onClick={() => handleViewChange('active')}
-            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
-              currentView === 'active'
-                ? 'border-gray-900 text-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            All Bookmarks
-          </button>
-          <button
-            onClick={() => handleViewChange('archived')}
-            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
-              currentView === 'archived'
-                ? 'border-gray-900 text-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Archived
-          </button>
-          <button
-            onClick={() => handleViewChange('deleted')}
-            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
-              currentView === 'deleted'
-                ? 'border-gray-900 text-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Trash
-          </button>
+        <nav className="-mb-px flex gap-4 overflow-x-auto" aria-label="Tabs">
+          {computedTabOrder.length > 0 ? (
+            computedTabOrder.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => handleTabChange(tab.key)}
+                className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  currentTabKey === tab.key
+                    ? 'border-gray-900 text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))
+          ) : (
+            // Fallback to default tabs if tab order not loaded yet
+            <>
+              <button
+                onClick={() => handleTabChange('all')}
+                className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+                  currentTabKey === 'all'
+                    ? 'border-gray-900 text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                All Bookmarks
+              </button>
+              <button
+                onClick={() => handleTabChange('archived')}
+                className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+                  currentTabKey === 'archived'
+                    ? 'border-gray-900 text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Archived
+              </button>
+              <button
+                onClick={() => handleTabChange('trash')}
+                className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+                  currentTabKey === 'trash'
+                    ? 'border-gray-900 text-gray-900'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Trash
+              </button>
+            </>
+          )}
         </nav>
       </div>
 
@@ -752,7 +833,7 @@ export function Bookmarks(): ReactNode {
       <div className="mb-6 space-y-3">
         {/* Add button (only in active view), search, and sort row */}
         <div className="flex items-center gap-3">
-          {currentView === 'active' && (
+          {showAddButton && (
             <button
               onClick={() => setShowAddModal(true)}
               className="btn-primary shrink-0 p-2.5"
