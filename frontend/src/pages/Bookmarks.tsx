@@ -356,10 +356,8 @@ export function Bookmarks(): ReactNode {
   }
 
   const handleDeleteBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
-    // In trash view, use permanent delete with confirmation
+    // In trash view, use permanent delete (confirmation handled by ConfirmDeleteButton)
     if (currentView === 'deleted') {
-      if (!confirm('Permanently delete this bookmark? This cannot be undone.')) return
-
       try {
         await deleteBookmark(bookmark.id, true) // permanent=true
         fetchBookmarks(currentParams)

@@ -7,7 +7,8 @@ import { useEffect, useState } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import toast from 'react-hot-toast'
 import { useTagsStore } from '../../stores/tagsStore'
-import { LoadingSpinner } from '../../components/ui/LoadingSpinner'
+import { LoadingSpinner, ConfirmDeleteButton } from '../../components/ui'
+import { EditIcon } from '../../components/icons'
 import { validateTag, normalizeTag } from '../../utils'
 import type { TagCount } from '../../types'
 
@@ -52,9 +53,6 @@ function TagRow({
   }
 
   const handleDelete = async (): Promise<void> => {
-    if (!confirm(`Delete tag "${tag.name}"? This will remove it from all bookmarks.`)) {
-      return
-    }
     setIsDeleting(true)
     try {
       await onDelete()
@@ -90,7 +88,7 @@ function TagRow({
           )}
         </td>
         <td className="py-3 pr-4 text-center text-sm text-gray-500">{tag.count}</td>
-        <td className="py-3 text-right">
+        <td className="py-3 pr-4 text-right">
           <div className="flex items-center justify-end gap-2">
             <button
               onClick={handleSave}
@@ -120,21 +118,20 @@ function TagRow({
         </span>
       </td>
       <td className="py-3 pr-4 text-center text-sm text-gray-500">{tag.count}</td>
-      <td className="py-3 text-right">
-        <div className="flex items-center justify-end gap-2">
+      <td className="py-3 pr-4 text-right">
+        <div className="flex items-center justify-end gap-1">
           <button
             onClick={onStartEdit}
-            className="rounded px-2 py-1 text-sm text-gray-600 hover:bg-gray-100"
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Rename tag"
           >
-            Rename
+            <EditIcon />
           </button>
-          <button
-            onClick={handleDelete}
-            disabled={isDeleting}
-            className="rounded px-2 py-1 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
-          >
-            {isDeleting ? 'Deleting...' : 'Delete'}
-          </button>
+          <ConfirmDeleteButton
+            onConfirm={handleDelete}
+            isDeleting={isDeleting}
+            title="Delete tag"
+          />
         </div>
       </td>
     </tr>
