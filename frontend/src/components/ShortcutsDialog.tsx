@@ -21,8 +21,10 @@ const shortcuts: Shortcut[] = [
   { keys: ['n'], description: 'New bookmark' },
   { keys: ['\u2318', 'V'], description: 'Paste URL to add bookmark' },
   { keys: ['/'], description: 'Focus search' },
-  { keys: ['Esc'], description: 'Close modal' },
+  { keys: ['w'], description: 'Toggle full-width layout' },
+  { keys: ['Esc'], description: 'Close modal / Unfocus search' },
   { keys: ['\u2318', '/'], description: 'Show shortcuts' },
+  { keys: ['\u21E7', '\u2318', 'Click'], description: 'Open link without tracking' },
 ]
 
 /**

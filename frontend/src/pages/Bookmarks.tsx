@@ -11,6 +11,8 @@ import { useBookmarkView } from '../hooks/useBookmarkView'
 import { useBookmarkUrlParams } from '../hooks/useBookmarkUrlParams'
 import { useTagsStore } from '../stores/tagsStore'
 import { useListsStore } from '../stores/listsStore'
+import { useTagFilterStore } from '../stores/tagFilterStore'
+import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
 import { ShortcutsDialog } from '../components/ShortcutsDialog'
@@ -75,20 +77,33 @@ export function Bookmarks(): ReactNode {
   const { tags: tagSuggestions, fetchTags } = useTagsStore()
   const { lists, fetchLists } = useListsStore()
 
+  // Tag filters from global store (persists across navigation)
+  const {
+    selectedTags,
+    tagMatch,
+    addTag,
+    removeTag,
+    setTagMatch,
+    clearFilters: clearTagFilters,
+  } = useTagFilterStore()
+
+  // UI preferences
+  const toggleFullWidthLayout = useUIPreferencesStore((state) => state.toggleFullWidthLayout)
+
   // Route-based view
   const { currentView, currentListId } = useBookmarkView()
 
-  // URL params for search, filter, sort, pagination
+  // URL params for search, sort, pagination (tags now from store)
   const {
     searchQuery,
-    selectedTags,
-    tagMatch,
     sortBy,
     sortOrder,
     offset,
     updateParams,
-    hasFilters,
   } = useBookmarkUrlParams()
+
+  // Derive hasFilters from search query and tag store
+  const hasFilters = searchQuery.length > 0 || selectedTags.length > 0
 
   // Debounce search query to avoid excessive API calls while typing
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
@@ -135,10 +150,14 @@ export function Bookmarks(): ReactNode {
       }
     },
     onFocusSearch: () => searchInputRef.current?.focus(),
+    onToggleWidth: toggleFullWidthLayout,
     onEscape: () => {
       if (showAddModal) setShowAddModal(false)
       else if (editingBookmark) setEditingBookmark(null)
       else if (showShortcuts) setShowShortcuts(false)
+      else if (document.activeElement === searchInputRef.current) {
+        searchInputRef.current?.blur()
+      }
     },
     onShowShortcuts: () => setShowShortcuts(true),
     onPasteUrl: (url) => {
@@ -161,28 +180,32 @@ export function Bookmarks(): ReactNode {
   const handleTagClick = useCallback(
     (tag: string) => {
       if (!selectedTags.includes(tag)) {
-        updateParams({ tags: [...selectedTags, tag], offset: 0 })
+        addTag(tag)
+        updateParams({ offset: 0 })
       }
     },
-    [selectedTags, updateParams]
+    [selectedTags, addTag, updateParams]
   )
 
   const handleRemoveTag = useCallback(
     (tagToRemove: string) => {
-      updateParams({
-        tags: selectedTags.filter((t) => t !== tagToRemove),
-        offset: 0,
-      })
+      removeTag(tagToRemove)
+      updateParams({ offset: 0 })
     },
-    [selectedTags, updateParams]
+    [removeTag, updateParams]
   )
 
   const handleTagMatchChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
-      updateParams({ tag_match: e.target.value as 'all' | 'any' })
+      setTagMatch(e.target.value as 'all' | 'any')
     },
-    [updateParams]
+    [setTagMatch]
   )
+
+  const handleClearTagFilters = useCallback(() => {
+    clearTagFilters()
+    updateParams({ offset: 0 })
+  }, [clearTagFilters, updateParams])
 
   const handleSortChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -707,14 +730,22 @@ export function Bookmarks(): ReactNode {
               </button>
             ))}
             {selectedTags.length > 1 && (
-              <select
-                value={tagMatch}
-                onChange={handleTagMatchChange}
-                className="rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-1 text-xs focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
-              >
-                <option value="all">Match all</option>
-                <option value="any">Match any</option>
-              </select>
+              <>
+                <select
+                  value={tagMatch}
+                  onChange={handleTagMatchChange}
+                  className="rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-1 text-xs focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
+                >
+                  <option value="all">Match all</option>
+                  <option value="any">Match any</option>
+                </select>
+                <button
+                  onClick={handleClearTagFilters}
+                  className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  Clear
+                </button>
+              </>
             )}
           </div>
         )}

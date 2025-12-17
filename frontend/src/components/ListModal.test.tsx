@@ -281,7 +281,7 @@ describe('ListModal', () => {
       expect(onClose).toHaveBeenCalled()
     })
 
-    it('should close when clicking backdrop', async () => {
+    it('should NOT close when clicking backdrop (prevents accidental data loss)', async () => {
       const onClose = vi.fn()
       const user = userEvent.setup()
 
@@ -298,7 +298,8 @@ describe('ListModal', () => {
       expect(backdrop).toBeTruthy()
       await user.click(backdrop!)
 
-      expect(onClose).toHaveBeenCalled()
+      // Modal should NOT close on backdrop click
+      expect(onClose).not.toHaveBeenCalled()
     })
 
     it('should close when clicking close button', async () => {

@@ -1,5 +1,8 @@
 /**
  * Tests for useBookmarkUrlParams hook.
+ *
+ * Note: Tag filters (selectedTags, tagMatch) are now managed by useTagFilterStore
+ * for persistence across navigation. This hook only manages search, sort, and pagination.
  */
 import { describe, it, expect } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
@@ -25,12 +28,9 @@ describe('useBookmarkUrlParams', () => {
       })
 
       expect(result.current.searchQuery).toBe('')
-      expect(result.current.selectedTags).toEqual([])
-      expect(result.current.tagMatch).toBe('all')
       expect(result.current.sortBy).toBe('created_at')
       expect(result.current.sortOrder).toBe('desc')
       expect(result.current.offset).toBe(0)
-      expect(result.current.hasFilters).toBe(false)
     })
 
     it('parses search query from URL', () => {
@@ -39,32 +39,6 @@ describe('useBookmarkUrlParams', () => {
       })
 
       expect(result.current.searchQuery).toBe('react hooks')
-      expect(result.current.hasFilters).toBe(true)
-    })
-
-    it('parses single tag from URL', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?tags=javascript']),
-      })
-
-      expect(result.current.selectedTags).toEqual(['javascript'])
-      expect(result.current.hasFilters).toBe(true)
-    })
-
-    it('parses multiple tags from URL', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?tags=javascript&tags=react&tags=typescript']),
-      })
-
-      expect(result.current.selectedTags).toEqual(['javascript', 'react', 'typescript'])
-    })
-
-    it('parses tag_match from URL', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?tag_match=any']),
-      })
-
-      expect(result.current.tagMatch).toBe('any')
     })
 
     it('parses sort_by from URL', () => {
@@ -93,16 +67,13 @@ describe('useBookmarkUrlParams', () => {
 
     it('parses all params together', () => {
       const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?q=test&tags=js&tag_match=any&sort_by=title&sort_order=asc&offset=25']),
+        wrapper: createWrapper(['/bookmarks?q=test&sort_by=title&sort_order=asc&offset=25']),
       })
 
       expect(result.current.searchQuery).toBe('test')
-      expect(result.current.selectedTags).toEqual(['js'])
-      expect(result.current.tagMatch).toBe('any')
       expect(result.current.sortBy).toBe('title')
       expect(result.current.sortOrder).toBe('asc')
       expect(result.current.offset).toBe(25)
-      expect(result.current.hasFilters).toBe(true)
     })
   })
 
@@ -129,66 +100,6 @@ describe('useBookmarkUrlParams', () => {
       })
 
       expect(result.current.searchQuery).toBe('')
-    })
-
-    it('sets tags in URL', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks']),
-      })
-
-      act(() => {
-        result.current.updateParams({ tags: ['javascript', 'react'] })
-      })
-
-      expect(result.current.selectedTags).toEqual(['javascript', 'react'])
-    })
-
-    it('replaces existing tags', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?tags=old']),
-      })
-
-      act(() => {
-        result.current.updateParams({ tags: ['new1', 'new2'] })
-      })
-
-      expect(result.current.selectedTags).toEqual(['new1', 'new2'])
-    })
-
-    it('clears tags when empty array', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?tags=javascript']),
-      })
-
-      act(() => {
-        result.current.updateParams({ tags: [] })
-      })
-
-      expect(result.current.selectedTags).toEqual([])
-    })
-
-    it('sets tag_match in URL when not default', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks']),
-      })
-
-      act(() => {
-        result.current.updateParams({ tag_match: 'any' })
-      })
-
-      expect(result.current.tagMatch).toBe('any')
-    })
-
-    it('removes tag_match from URL when set to default "all"', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?tag_match=any']),
-      })
-
-      act(() => {
-        result.current.updateParams({ tag_match: 'all' })
-      })
-
-      expect(result.current.tagMatch).toBe('all')
     })
 
     it('sets sort_by in URL when not default', () => {
@@ -293,54 +204,6 @@ describe('useBookmarkUrlParams', () => {
       expect(result.current.searchQuery).toBe('existing')
       expect(result.current.sortBy).toBe('title')
       expect(result.current.offset).toBe(25)
-    })
-  })
-
-  describe('hasFilters', () => {
-    it('returns false when no search or tags', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks']),
-      })
-
-      expect(result.current.hasFilters).toBe(false)
-    })
-
-    it('returns true when search query exists', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?q=test']),
-      })
-
-      expect(result.current.hasFilters).toBe(true)
-    })
-
-    it('returns true when tags exist', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?tags=javascript']),
-      })
-
-      expect(result.current.hasFilters).toBe(true)
-    })
-
-    it('returns false when only sort/offset params exist', () => {
-      const { result } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?sort_by=title&offset=50']),
-      })
-
-      expect(result.current.hasFilters).toBe(false)
-    })
-  })
-
-  describe('selectedTags memoization', () => {
-    it('returns same array reference when tags unchanged', () => {
-      const { result, rerender } = renderHook(() => useBookmarkUrlParams(), {
-        wrapper: createWrapper(['/bookmarks?tags=a&tags=b']),
-      })
-
-      const firstTags = result.current.selectedTags
-
-      rerender()
-
-      expect(result.current.selectedTags).toBe(firstTags)
     })
   })
 })

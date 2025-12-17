@@ -190,5 +190,31 @@ describe('useKeyboardShortcuts', () => {
 
       expect(onEscape).toHaveBeenCalled()
     })
+
+    it('should call onToggleWidth when w is pressed outside input fields', () => {
+      const onToggleWidth = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onToggleWidth }))
+
+      const keyEvent = new KeyboardEvent('keydown', { key: 'w' })
+      document.dispatchEvent(keyEvent)
+
+      expect(onToggleWidth).toHaveBeenCalled()
+    })
+
+    it('should NOT call onToggleWidth when w is pressed inside an input', () => {
+      const onToggleWidth = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onToggleWidth }))
+
+      const input = document.createElement('input')
+      document.body.appendChild(input)
+      input.focus()
+
+      const keyEvent = new KeyboardEvent('keydown', { key: 'w' })
+      document.dispatchEvent(keyEvent)
+
+      expect(onToggleWidth).not.toHaveBeenCalled()
+
+      document.body.removeChild(input)
+    })
   })
 })

@@ -16,6 +16,8 @@ interface KeyboardShortcutHandlers {
   onShowShortcuts?: () => void
   /** Called when a URL is pasted outside of input fields */
   onPasteUrl?: (url: string) => void
+  /** Called when 'w' is pressed (toggle width) */
+  onToggleWidth?: () => void
 }
 
 /**
@@ -40,6 +42,7 @@ function isInputFocused(): boolean {
  * Shortcuts:
  * - `n` - New bookmark (when not typing)
  * - `/` - Focus search (when not typing)
+ * - `w` - Toggle content width (when not typing)
  * - `Escape` - Close modal
  * - `Cmd/Ctrl + /` - Show shortcuts dialog
  * - `Cmd/Ctrl + V` - Paste URL to create bookmark (when not in input)
@@ -49,6 +52,7 @@ function isInputFocused(): boolean {
  * useKeyboardShortcuts({
  *   onNewBookmark: () => setShowAddModal(true),
  *   onFocusSearch: () => searchInputRef.current?.focus(),
+ *   onToggleWidth: () => toggleFullWidthLayout(),
  *   onEscape: () => setShowModal(false),
  *   onShowShortcuts: () => setShowShortcutsDialog(true),
  *   onPasteUrl: (url) => openModalWithUrl(url),
@@ -87,6 +91,13 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
       if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey) {
         event.preventDefault()
         handlers.onFocusSearch?.()
+        return
+      }
+
+      // w - Toggle width
+      if (event.key === 'w' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault()
+        handlers.onToggleWidth?.()
         return
       }
     },

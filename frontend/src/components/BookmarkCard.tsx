@@ -1,6 +1,7 @@
 /**
  * Component for displaying a single bookmark card.
  */
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { BookmarkListItem } from '../types'
 import { formatDate, truncate, getDomain, getUrlWithoutProtocol } from '../utils'
@@ -66,13 +67,30 @@ export function BookmarkCard({
     }
   }
 
-  // Track usage when link is clicked (unless modifier key is held)
+  // State for copy button feedback
+  const [copySuccess, setCopySuccess] = useState(false)
+
+  // Track usage when link is clicked (unless shift+modifier key is held for silent mode)
   const handleLinkClick = (e: React.MouseEvent): void => {
-    // Skip tracking if modifier key held (cmd/ctrl+click opens in new tab without tracking)
-    if (e.metaKey || e.ctrlKey) {
+    // Skip tracking if shift+cmd/ctrl held (silent mode: open without tracking)
+    if (e.shiftKey && (e.metaKey || e.ctrlKey)) {
       return
     }
     onLinkClick?.(bookmark)
+  }
+
+  // Copy URL to clipboard with visual feedback
+  const handleCopyUrl = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(bookmark.url)
+      setCopySuccess(true)
+      // Track usage when copying
+      onLinkClick?.(bookmark)
+      // Reset after brief flash
+      setTimeout(() => setCopySuccess(false), 1000)
+    } catch {
+      // Silently fail - clipboard API may not be available
+    }
   }
 
   return (
@@ -150,6 +168,28 @@ export function BookmarkCard({
         {/* Actions and date */}
         <div className="flex flex-col items-end gap-1 shrink-0">
           <div className="flex">
+            {/* Copy URL button */}
+            <button
+              onClick={handleCopyUrl}
+              className={`btn-icon transition-colors ${copySuccess ? 'text-green-600' : ''}`}
+              title="Copy URL"
+              aria-label="Copy URL"
+            >
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                />
+              </svg>
+            </button>
+
             {/* Edit button - shown in active and archived views */}
             {view !== 'deleted' && onEdit && (
               <button
