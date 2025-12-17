@@ -114,6 +114,9 @@ export function useBookmarks(): UseBookmarksReturn {
       if (params.view) {
         queryParams.set('view', params.view)
       }
+      if (params.list_id !== undefined) {
+        queryParams.set('list_id', String(params.list_id))
+      }
 
       const queryString = queryParams.toString()
       const url = queryString ? `/bookmarks/?${queryString}` : '/bookmarks/'

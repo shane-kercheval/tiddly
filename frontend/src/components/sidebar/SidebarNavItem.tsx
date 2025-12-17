@@ -15,6 +15,7 @@ export function SidebarNavItem({ to, label, isCollapsed, onClick }: SidebarNavIt
   return (
     <NavLink
       to={to}
+      end
       onClick={onClick}
       className={({ isActive }) =>
         `flex items-center rounded-lg px-3 py-2 text-sm transition-colors ${

@@ -108,8 +108,8 @@ function getTabRoute(key: string): string {
   if (key === 'all') return '/bookmarks'
   if (key === 'archived') return '/bookmarks/archived'
   if (key === 'trash') return '/bookmarks/trash'
-  if (key.startsWith('list-')) {
-    const listId = key.replace('list-', '')
+  if (key.startsWith('list:')) {
+    const listId = key.replace('list:', '')
     return `/bookmarks/lists/${listId}`
   }
   return '/bookmarks'
