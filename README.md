@@ -16,12 +16,12 @@ A bookmark management system with tagging and search capabilities.
 
 ```
 bookmarks/
-├── backend/       # FastAPI backend
-│   ├── src/       # Application code
-│   └── tests/     # Backend tests
-├── frontend/      # React frontend (see frontend/README.md)
-├── .env.example   # Environment configuration
-└── Makefile       # Development commands
+├── ai-instructions  # Prompts containing guidelines for AI
+├── backend/         # FastAPI backend
+├── frontend/        # React frontend
+├── docs/            # Contains implementation plans for AI coding agents
+├── .env.example     # Environment configuration
+└── Makefile         # Development commands
 ```
 
 ## Prerequisites
@@ -47,7 +47,7 @@ cd frontend && npm install && npm run dev
 # Frontend at http://localhost:5173
 ```
 
-With default `DEV_MODE=true`, authentication is bypassed for local development.
+With default `VITE_DEV_MODE=true`, authentication is bypassed for local development.
 
 ### Testing with Auth0
 
@@ -60,7 +60,7 @@ To test real authentication:
 
 2. **Configure `.env`**:
    ```bash
-   DEV_MODE=false
+   VITE_DEV_MODE=false
    VITE_AUTH0_DOMAIN=your-tenant.auth0.com
    VITE_AUTH0_CLIENT_ID=your-spa-client-id
    VITE_AUTH0_AUDIENCE=https://bookmarks-api
@@ -78,7 +78,7 @@ To test real authentication:
 
 See `.env.example` for all options. Key settings:
 
-- `DEV_MODE=true` - Bypasses auth (local dev)
+- `VITE_DEV_MODE=true` - Bypasses auth (local dev)
 - `VITE_AUTH0_*` - Auth0 config (used by both backend and frontend, empty = dev mode)
 
 ## Commands
@@ -101,7 +101,7 @@ With the backend running: http://localhost:8000/docs
 PATs allow programmatic API access for CLI tools and scripts.
 
 ```bash
-# Create a token (with DEV_MODE=true, no auth header needed)
+# Create a token (with VITE_DEV_MODE=true, no auth header needed)
 curl -X POST http://localhost:8000/tokens/ \
   -H "Content-Type: application/json" \
   -d '{"name": "My CLI Token"}'

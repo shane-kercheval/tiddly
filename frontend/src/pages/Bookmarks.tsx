@@ -2,17 +2,19 @@
  * Bookmarks page - main bookmark list view with search, filter, and CRUD operations.
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { useTabNavigation } from '../hooks/useTabNavigation'
+import { useBookmarkUrlParams } from '../hooks/useBookmarkUrlParams'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useTagsStore } from '../stores/tagsStore'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
 import { ShortcutsDialog } from '../components/ShortcutsDialog'
 import { TagFilterInput } from '../components/TagFilterInput'
+import { TabBar } from '../components/TabBar'
 import { LoadingSpinnerCentered, ErrorState, EmptyState } from '../components/ui'
 import {
   SearchIcon,
@@ -28,6 +30,13 @@ import type { Bookmark, BookmarkCreate, BookmarkUpdate, BookmarkSearchParams } f
 /** Default pagination limit */
 const DEFAULT_LIMIT = 50
 
+/** Default tabs shown while settings are loading */
+const DEFAULT_FALLBACK_TABS = [
+  { key: 'all', label: 'All Bookmarks' },
+  { key: 'archived', label: 'Archived' },
+  { key: 'trash', label: 'Trash' },
+]
+
 /**
  * Bookmarks page - main view for managing bookmarks.
  *
@@ -41,7 +50,6 @@ const DEFAULT_LIMIT = 50
  * - URL state for shareable filters
  */
 export function Bookmarks(): ReactNode {
-  const [searchParams, setSearchParams] = useSearchParams()
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   // Modal state
@@ -71,42 +79,23 @@ export function Bookmarks(): ReactNode {
   const { tags: tagSuggestions, fetchTags } = useTagsStore()
   const { computedTabOrder, fetchTabOrder } = useSettingsStore()
 
-  // Parse URL params
-  const searchQuery = searchParams.get('q') || ''
-  const selectedTagsRaw = searchParams.getAll('tags')
-  // Memoize selectedTags to prevent infinite re-renders (getAll returns new array each time)
-  const selectedTags = useMemo(() => selectedTagsRaw, [selectedTagsRaw.join(',')])
-  const tagMatch = (searchParams.get('tag_match') as 'all' | 'any') || 'all'
-  const sortBy = (searchParams.get('sort_by') as 'created_at' | 'updated_at' | 'last_used_at' | 'title') || 'created_at'
-  const sortOrder = (searchParams.get('sort_order') as 'asc' | 'desc') || 'desc'
-  const offset = parseInt(searchParams.get('offset') || '0', 10)
+  // Tab navigation (URL-synced)
+  const { currentTabKey, currentView, currentListId, handleTabChange } = useTabNavigation()
 
-  // Tab state - get from URL or default to first tab
-  const currentTabKey = searchParams.get('tab') || (computedTabOrder.length > 0 ? computedTabOrder[0].key : 'all')
-
-  // Derive view and list_id from current tab
-  const { currentView, currentListId } = useMemo(() => {
-    if (currentTabKey === 'all') {
-      return { currentView: 'active' as const, currentListId: undefined }
-    }
-    if (currentTabKey === 'archived') {
-      return { currentView: 'archived' as const, currentListId: undefined }
-    }
-    if (currentTabKey === 'trash') {
-      return { currentView: 'deleted' as const, currentListId: undefined }
-    }
-    if (currentTabKey.startsWith('list:')) {
-      const listId = parseInt(currentTabKey.replace('list:', ''), 10)
-      return { currentView: 'active' as const, currentListId: isNaN(listId) ? undefined : listId }
-    }
-    return { currentView: 'active' as const, currentListId: undefined }
-  }, [currentTabKey])
+  // URL params for search, filter, sort, pagination
+  const {
+    searchQuery,
+    selectedTags,
+    tagMatch,
+    sortBy,
+    sortOrder,
+    offset,
+    updateParams,
+    hasFilters,
+  } = useBookmarkUrlParams()
 
   // Debounce search query to avoid excessive API calls while typing
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
-
-  // Derive has_filters for empty state
-  const hasFilters = searchQuery.length > 0 || selectedTags.length > 0
 
   // Build search params object (uses debounced search query)
   const currentParams: BookmarkSearchParams = useMemo(
@@ -165,65 +154,7 @@ export function Bookmarks(): ReactNode {
     },
   })
 
-  // Update URL params
-  const updateParams = useCallback(
-    (updates: Partial<BookmarkSearchParams>) => {
-      const newParams = new URLSearchParams(searchParams)
-
-      if ('q' in updates) {
-        if (updates.q) {
-          newParams.set('q', updates.q)
-        } else {
-          newParams.delete('q')
-        }
-      }
-
-      if ('tags' in updates) {
-        newParams.delete('tags')
-        updates.tags?.forEach((tag) => newParams.append('tags', tag))
-      }
-
-      if ('tag_match' in updates) {
-        if (updates.tag_match && updates.tag_match !== 'all') {
-          newParams.set('tag_match', updates.tag_match)
-        } else {
-          newParams.delete('tag_match')
-        }
-      }
-
-      if ('sort_by' in updates) {
-        if (updates.sort_by && updates.sort_by !== 'created_at') {
-          newParams.set('sort_by', updates.sort_by)
-        } else {
-          newParams.delete('sort_by')
-        }
-      }
-
-      if ('sort_order' in updates) {
-        if (updates.sort_order && updates.sort_order !== 'desc') {
-          newParams.set('sort_order', updates.sort_order)
-        } else {
-          newParams.delete('sort_order')
-        }
-      }
-
-      if ('offset' in updates) {
-        if (updates.offset && updates.offset > 0) {
-          newParams.set('offset', String(updates.offset))
-        } else {
-          newParams.delete('offset')
-        }
-      }
-
-      // Note: 'view' is derived from 'tab', so we don't set it directly in URL
-      // Use handleTabChange for tab switching
-
-      setSearchParams(newParams, { replace: true })
-    },
-    [searchParams, setSearchParams]
-  )
-
-  // Handlers
+  // Handlers for search/filter/sort changes
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       updateParams({ q: e.target.value, offset: 0 })
@@ -694,85 +625,18 @@ export function Bookmarks(): ReactNode {
     )
   }
 
-  // Handler for tab change
-  const handleTabChange = useCallback(
-    (tabKey: string) => {
-      const newParams = new URLSearchParams(searchParams)
-
-      // Set tab (use 'all' as default, don't store in URL)
-      if (tabKey && tabKey !== 'all') {
-        newParams.set('tab', tabKey)
-      } else {
-        newParams.delete('tab')
-      }
-
-      // Reset pagination when switching tabs
-      newParams.delete('offset')
-
-      setSearchParams(newParams, { replace: true })
-    },
-    [searchParams, setSearchParams]
-  )
-
   // Determine if we should show add button (only for active views, not archived/trash)
   const showAddButton = currentView === 'active'
 
   return (
     <div>
-      {/* Dynamic tabs from computed tab order */}
-      <div className="mb-4 border-b border-gray-200">
-        <nav className="-mb-px flex gap-4 overflow-x-auto" aria-label="Tabs">
-          {computedTabOrder.length > 0 ? (
-            computedTabOrder.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => handleTabChange(tab.key)}
-                className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  currentTabKey === tab.key
-                    ? 'border-gray-900 text-gray-900'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))
-          ) : (
-            // Fallback to default tabs if tab order not loaded yet
-            <>
-              <button
-                onClick={() => handleTabChange('all')}
-                className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
-                  currentTabKey === 'all'
-                    ? 'border-gray-900 text-gray-900'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                All Bookmarks
-              </button>
-              <button
-                onClick={() => handleTabChange('archived')}
-                className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
-                  currentTabKey === 'archived'
-                    ? 'border-gray-900 text-gray-900'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                Archived
-              </button>
-              <button
-                onClick={() => handleTabChange('trash')}
-                className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
-                  currentTabKey === 'trash'
-                    ? 'border-gray-900 text-gray-900'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                Trash
-              </button>
-            </>
-          )}
-        </nav>
-      </div>
+      {/* Tab navigation */}
+      <TabBar
+        tabs={computedTabOrder}
+        activeTabKey={currentTabKey}
+        onTabChange={handleTabChange}
+        fallbackTabs={DEFAULT_FALLBACK_TABS}
+      />
 
       {/* Search and filters */}
       <div className="mb-6 space-y-3">
