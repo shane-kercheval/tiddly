@@ -109,6 +109,8 @@ Migrate existing tag data from the `tags` array column to the new normalized tab
 
 **1. Create data migration script/migration:**
 
+** Use `make migration` command to create a new Alembic migration file.**
+
 The migration should:
 1. For each user, extract unique tags from all their bookmarks
 2. Insert unique tags into `tags` table
