@@ -10,7 +10,9 @@ import { CreateTokenModal } from '../../components/CreateTokenModal'
 import { config } from '../../config'
 import type { TokenCreate, TokenCreateResponse } from '../../types'
 
-const EXAMPLE_CURL = `curl -H "Authorization: Bearer bm_xxx" ${config.apiUrl}/bookmarks/`
+const EXAMPLE_CURL = `curl \\
+  -H "Authorization: Bearer bm_xxx" \\
+  ${config.apiUrl}/bookmarks/`
 
 /**
  * Personal Access Tokens settings page.
@@ -74,7 +76,7 @@ export function SettingsTokens(): ReactNode {
       <div className="mt-8">
         <h2 className="text-sm font-medium text-gray-700 mb-2">Example Usage</h2>
         <div className="relative">
-          <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 overflow-x-auto">
+          <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 whitespace-pre-wrap break-all">
             <code>{EXAMPLE_CURL}</code>
           </pre>
           <button

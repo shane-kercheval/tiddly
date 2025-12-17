@@ -4,7 +4,7 @@
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { useSidebarStore } from '../../stores/sidebarStore'
-import { useListsStore } from '../../stores/listsStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { SidebarSection } from './SidebarSection'
 import { SidebarNavItem } from './SidebarNavItem'
 import { SidebarUserSection } from './SidebarUserSection'
@@ -101,13 +101,27 @@ interface SidebarContentProps {
   onNavClick?: () => void
 }
 
+/**
+ * Get the route path for a tab order item.
+ */
+function getTabRoute(key: string): string {
+  if (key === 'all') return '/bookmarks'
+  if (key === 'archived') return '/bookmarks/archived'
+  if (key === 'trash') return '/bookmarks/trash'
+  if (key.startsWith('list-')) {
+    const listId = key.replace('list-', '')
+    return `/bookmarks/lists/${listId}`
+  }
+  return '/bookmarks'
+}
+
 function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): ReactNode {
   const { expandedSections, toggleSection, toggleCollapse } = useSidebarStore()
-  const { lists, fetchLists } = useListsStore()
+  const { computedTabOrder, fetchTabOrder } = useSettingsStore()
 
   useEffect(() => {
-    fetchLists()
-  }, [fetchLists])
+    fetchTabOrder()
+  }, [fetchTabOrder])
 
   const isBookmarksExpanded = expandedSections.includes('bookmarks')
   const isSettingsExpanded = expandedSections.includes('settings')
@@ -123,29 +137,11 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           onToggle={() => toggleSection('bookmarks')}
           isCollapsed={isCollapsed}
         >
-          <SidebarNavItem
-            to="/bookmarks"
-            label="All Bookmarks"
-            isCollapsed={isCollapsed}
-            onClick={onNavClick}
-          />
-          <SidebarNavItem
-            to="/bookmarks/archived"
-            label="Archived"
-            isCollapsed={isCollapsed}
-            onClick={onNavClick}
-          />
-          <SidebarNavItem
-            to="/bookmarks/trash"
-            label="Trash"
-            isCollapsed={isCollapsed}
-            onClick={onNavClick}
-          />
-          {lists.map((list) => (
+          {computedTabOrder.map((item) => (
             <SidebarNavItem
-              key={list.id}
-              to={`/bookmarks/lists/${list.id}`}
-              label={list.name}
+              key={item.key}
+              to={getTabRoute(item.key)}
+              label={item.label}
               isCollapsed={isCollapsed}
               onClick={onNavClick}
             />
