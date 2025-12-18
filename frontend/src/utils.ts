@@ -170,3 +170,52 @@ export function validateTag(tag: string): string | null {
 export function normalizeTag(tag: string): string {
   return tag.toLowerCase().trim()
 }
+
+// ============================================================================
+// Sorting Utilities
+// ============================================================================
+
+import type { BookmarkList, TagCount } from './types'
+
+export type TagSortOption = 'name-asc' | 'name-desc' | 'count-asc' | 'count-desc'
+
+/**
+ * Sort tags by name or count.
+ * @param tags - Array of tags to sort
+ * @param sortOption - Sort option (name-asc, name-desc, count-asc, count-desc)
+ * @returns Sorted copy of tags array
+ */
+export function sortTags(tags: TagCount[], sortOption: TagSortOption): TagCount[] {
+  return [...tags].sort((a, b) => {
+    switch (sortOption) {
+      case 'name-asc':
+        return a.name.localeCompare(b.name)
+      case 'name-desc':
+        return b.name.localeCompare(a.name)
+      case 'count-asc':
+        return a.count - b.count || a.name.localeCompare(b.name)
+      case 'count-desc':
+        return b.count - a.count || a.name.localeCompare(b.name)
+    }
+  })
+}
+
+// ============================================================================
+// Filter Expression Utilities
+// ============================================================================
+
+/**
+ * Extract tags from the first filter group of a bookmark list.
+ * Used for pre-populating tags when adding bookmarks from a custom list view.
+ *
+ * @param list - The bookmark list to extract tags from
+ * @returns Array of tags from the first filter group, or undefined if no tags
+ *
+ * @example
+ * // List with filter: (react AND typescript) OR (vue)
+ * getFirstGroupTags(list) // returns ['react', 'typescript']
+ */
+export function getFirstGroupTags(list: BookmarkList | undefined): string[] | undefined {
+  const firstGroup = list?.filter_expression?.groups?.[0]
+  return firstGroup?.tags?.length ? firstGroup.tags : undefined
+}

@@ -4,7 +4,8 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { BookmarkList, FilterExpression } from '../types'
-import { EditIcon, TrashIcon } from './icons'
+import { EditIcon } from './icons'
+import { ConfirmDeleteButton } from './ui'
 
 interface ListCardProps {
   list: BookmarkList
@@ -44,10 +45,6 @@ export function ListCard({ list, onEdit, onDelete }: ListCardProps): ReactNode {
   const [isDeleting, setIsDeleting] = useState(false)
 
   const handleDelete = async (): Promise<void> => {
-    if (!confirm(`Delete list "${list.name}"? This action cannot be undone.`)) {
-      return
-    }
-
     setIsDeleting(true)
     try {
       await onDelete(list)
@@ -72,14 +69,11 @@ export function ListCard({ list, onEdit, onDelete }: ListCardProps): ReactNode {
         >
           <EditIcon />
         </button>
-        <button
-          onClick={handleDelete}
-          disabled={isDeleting}
-          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+        <ConfirmDeleteButton
+          onConfirm={handleDelete}
+          isDeleting={isDeleting}
           title="Delete list"
-        >
-          <TrashIcon />
-        </button>
+        />
       </div>
     </div>
   )

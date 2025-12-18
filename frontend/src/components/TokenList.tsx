@@ -5,7 +5,8 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Token } from '../types'
 import { formatRelativeDate } from '../utils'
-import { PlusIcon, TrashIcon, KeyIcon } from './icons'
+import { PlusIcon, KeyIcon } from './icons'
+import { ConfirmDeleteButton } from './ui'
 
 interface TokenListProps {
   tokens: Token[]
@@ -39,14 +40,10 @@ function isExpired(expiresAt: string | null): boolean {
 export function TokenList({ tokens, isLoading, onDelete, onCreateClick }: TokenListProps): ReactNode {
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
-  const handleDelete = async (token: Token): Promise<void> => {
-    if (!confirm(`Delete token "${token.name}"? This action cannot be undone.`)) {
-      return
-    }
-
-    setDeletingId(token.id)
+  const handleDelete = async (tokenId: number): Promise<void> => {
+    setDeletingId(tokenId)
     try {
-      await onDelete(token.id)
+      await onDelete(tokenId)
     } finally {
       setDeletingId(null)
     }
@@ -112,14 +109,12 @@ export function TokenList({ tokens, isLoading, onDelete, onCreateClick }: TokenL
                 <span>Expires: {formatExpiry(token.expires_at)}</span>
               </div>
             </div>
-            <button
-              onClick={() => handleDelete(token)}
-              disabled={deletingId === token.id}
-              className="ml-4 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+            <ConfirmDeleteButton
+              onConfirm={() => handleDelete(token.id)}
+              isDeleting={deletingId === token.id}
               title="Delete token"
-            >
-              <TrashIcon />
-            </button>
+              className="ml-4"
+            />
           </div>
         ))}
       </div>

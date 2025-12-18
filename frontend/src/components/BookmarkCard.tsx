@@ -1,9 +1,11 @@
 /**
  * Component for displaying a single bookmark card.
  */
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { BookmarkListItem } from '../types'
 import { formatDate, truncate, getDomain, getUrlWithoutProtocol } from '../utils'
+import { ConfirmDeleteButton } from './ui'
 
 interface BookmarkCardProps {
   bookmark: BookmarkListItem
@@ -66,13 +68,30 @@ export function BookmarkCard({
     }
   }
 
-  // Track usage when link is clicked (unless modifier key is held)
+  // State for copy button feedback
+  const [copySuccess, setCopySuccess] = useState(false)
+
+  // Track usage when link is clicked (unless shift+modifier key is held for silent mode)
   const handleLinkClick = (e: React.MouseEvent): void => {
-    // Skip tracking if modifier key held (cmd/ctrl+click opens in new tab without tracking)
-    if (e.metaKey || e.ctrlKey) {
+    // Skip tracking if shift+cmd/ctrl held (silent mode: open without tracking)
+    if (e.shiftKey && (e.metaKey || e.ctrlKey)) {
       return
     }
     onLinkClick?.(bookmark)
+  }
+
+  // Copy URL to clipboard with visual feedback
+  const handleCopyUrl = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(bookmark.url)
+      setCopySuccess(true)
+      // Track usage when copying
+      onLinkClick?.(bookmark)
+      // Reset after brief flash
+      setTimeout(() => setCopySuccess(false), 1000)
+    } catch {
+      // Silently fail - clipboard API may not be available
+    }
   }
 
   return (
@@ -150,6 +169,28 @@ export function BookmarkCard({
         {/* Actions and date */}
         <div className="flex flex-col items-end gap-1 shrink-0">
           <div className="flex">
+            {/* Copy URL button */}
+            <button
+              onClick={handleCopyUrl}
+              className={`btn-icon transition-colors ${copySuccess ? 'text-green-600' : ''}`}
+              title="Copy URL"
+              aria-label="Copy URL"
+            >
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                />
+              </svg>
+            </button>
+
             {/* Edit button - shown in active and archived views */}
             {view !== 'deleted' && onEdit && (
               <button
@@ -252,26 +293,34 @@ export function BookmarkCard({
             )}
 
             {/* Delete button - shown in all views */}
-            <button
-              onClick={() => onDelete(bookmark)}
-              className="btn-icon-danger"
-              title={view === 'deleted' ? 'Delete permanently' : 'Delete bookmark'}
-              aria-label={view === 'deleted' ? 'Delete permanently' : 'Delete bookmark'}
-            >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+            {/* Use ConfirmDeleteButton for permanent delete in trash view */}
+            {view === 'deleted' ? (
+              <ConfirmDeleteButton
+                onConfirm={() => onDelete(bookmark)}
+                title="Delete permanently"
+              />
+            ) : (
+              <button
+                onClick={() => onDelete(bookmark)}
+                className="btn-icon-danger"
+                title="Delete bookmark"
+                aria-label="Delete bookmark"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
-              </svg>
-            </button>
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+              </button>
+            )}
           </div>
           <span className="text-xs text-gray-400">
             {getDateDisplay()}

@@ -6,7 +6,7 @@ import { isValidUrl } from '../utils'
 
 /** Callback functions for keyboard shortcuts */
 interface KeyboardShortcutHandlers {
-  /** Called when 'n' is pressed (new bookmark) */
+  /** Called when 'b' is pressed (new bookmark) */
   onNewBookmark?: () => void
   /** Called when '/' is pressed (focus search) */
   onFocusSearch?: () => void
@@ -16,6 +16,10 @@ interface KeyboardShortcutHandlers {
   onShowShortcuts?: () => void
   /** Called when a URL is pasted outside of input fields */
   onPasteUrl?: (url: string) => void
+  /** Called when 'w' is pressed (toggle width) */
+  onToggleWidth?: () => void
+  /** Called when Cmd/Ctrl + b is pressed (toggle sidebar) */
+  onToggleSidebar?: () => void
 }
 
 /**
@@ -38,10 +42,12 @@ function isInputFocused(): boolean {
  * Hook for global keyboard shortcuts.
  *
  * Shortcuts:
- * - `n` - New bookmark (when not typing)
+ * - `b` - New bookmark (when not typing)
  * - `/` - Focus search (when not typing)
+ * - `w` - Toggle content width (when not typing)
  * - `Escape` - Close modal
  * - `Cmd/Ctrl + /` - Show shortcuts dialog
+ * - `Cmd/Ctrl + b` - Toggle sidebar
  * - `Cmd/Ctrl + V` - Paste URL to create bookmark (when not in input)
  *
  * Usage:
@@ -49,6 +55,8 @@ function isInputFocused(): boolean {
  * useKeyboardShortcuts({
  *   onNewBookmark: () => setShowAddModal(true),
  *   onFocusSearch: () => searchInputRef.current?.focus(),
+ *   onToggleWidth: () => toggleFullWidthLayout(),
+ *   onToggleSidebar: () => toggleSidebar(),
  *   onEscape: () => setShowModal(false),
  *   onShowShortcuts: () => setShowShortcutsDialog(true),
  *   onPasteUrl: (url) => openModalWithUrl(url),
@@ -65,6 +73,13 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
         return
       }
 
+      // Cmd/Ctrl + b - Toggle sidebar (works even when typing)
+      if ((event.metaKey || event.ctrlKey) && event.key === 'b') {
+        event.preventDefault()
+        handlers.onToggleSidebar?.()
+        return
+      }
+
       // Escape - Close modal (works even when typing)
       if (event.key === 'Escape') {
         handlers.onEscape?.()
@@ -76,8 +91,8 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
         return
       }
 
-      // n - New bookmark
-      if (event.key === 'n' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      // b - New bookmark (without modifier)
+      if (event.key === 'b' && !event.metaKey && !event.ctrlKey && !event.altKey) {
         event.preventDefault()
         handlers.onNewBookmark?.()
         return
@@ -87,6 +102,13 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
       if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey) {
         event.preventDefault()
         handlers.onFocusSearch?.()
+        return
+      }
+
+      // w - Toggle width
+      if (event.key === 'w' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault()
+        handlers.onToggleWidth?.()
         return
       }
     },

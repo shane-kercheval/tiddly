@@ -11,9 +11,9 @@ import { useBookmarkView } from '../hooks/useBookmarkView'
 import { useBookmarkUrlParams } from '../hooks/useBookmarkUrlParams'
 import { useTagsStore } from '../stores/tagsStore'
 import { useListsStore } from '../stores/listsStore'
+import { useTagFilterStore } from '../stores/tagFilterStore'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
-import { ShortcutsDialog } from '../components/ShortcutsDialog'
 import { TagFilterInput } from '../components/TagFilterInput'
 import { LoadingSpinnerCentered, ErrorState, EmptyState } from '../components/ui'
 import {
@@ -26,6 +26,7 @@ import {
   TrashIcon,
 } from '../components/icons'
 import type { Bookmark, BookmarkListItem, BookmarkCreate, BookmarkUpdate, BookmarkSearchParams } from '../types'
+import { getFirstGroupTags } from '../utils'
 
 /** Default pagination limit */
 const DEFAULT_LIMIT = 50
@@ -48,7 +49,6 @@ export function Bookmarks(): ReactNode {
   // Modal state
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingBookmark, setEditingBookmark] = useState<Bookmark | null>(null)
-  const [showShortcuts, setShowShortcuts] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [pastedUrl, setPastedUrl] = useState<string | undefined>(undefined)
   const [loadingBookmarkId, setLoadingBookmarkId] = useState<number | null>(null)
@@ -75,20 +75,37 @@ export function Bookmarks(): ReactNode {
   const { tags: tagSuggestions, fetchTags } = useTagsStore()
   const { lists, fetchLists } = useListsStore()
 
+  // Tag filters from global store (persists across navigation)
+  const {
+    selectedTags,
+    tagMatch,
+    addTag,
+    removeTag,
+    setTagMatch,
+    clearFilters: clearTagFilters,
+  } = useTagFilterStore()
+
   // Route-based view
   const { currentView, currentListId } = useBookmarkView()
 
-  // URL params for search, filter, sort, pagination
+  // URL params for search, sort, pagination (tags now from store)
   const {
     searchQuery,
-    selectedTags,
-    tagMatch,
     sortBy,
     sortOrder,
     offset,
     updateParams,
-    hasFilters,
   } = useBookmarkUrlParams()
+
+  // Derive hasFilters from search query and tag store
+  const hasFilters = searchQuery.length > 0 || selectedTags.length > 0
+
+  // Get initial tags from current list's first filter group (for pre-populating new bookmarks)
+  const initialTagsFromList = useMemo(() => {
+    if (!currentListId) return undefined
+    const currentList = lists.find((l) => l.id === currentListId)
+    return getFirstGroupTags(currentList)
+  }, [currentListId, lists])
 
   // Debounce search query to avoid excessive API calls while typing
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
@@ -126,7 +143,7 @@ export function Bookmarks(): ReactNode {
     }
   }, [fetchTags, fetchLists])
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (page-specific - global shortcuts are in Layout)
   useKeyboardShortcuts({
     onNewBookmark: () => {
       // Only allow adding bookmarks from active view
@@ -138,9 +155,10 @@ export function Bookmarks(): ReactNode {
     onEscape: () => {
       if (showAddModal) setShowAddModal(false)
       else if (editingBookmark) setEditingBookmark(null)
-      else if (showShortcuts) setShowShortcuts(false)
+      else if (document.activeElement === searchInputRef.current) {
+        searchInputRef.current?.blur()
+      }
     },
-    onShowShortcuts: () => setShowShortcuts(true),
     onPasteUrl: (url) => {
       // Only allow adding bookmarks from active view
       if (currentView === 'active') {
@@ -161,28 +179,32 @@ export function Bookmarks(): ReactNode {
   const handleTagClick = useCallback(
     (tag: string) => {
       if (!selectedTags.includes(tag)) {
-        updateParams({ tags: [...selectedTags, tag], offset: 0 })
+        addTag(tag)
+        updateParams({ offset: 0 })
       }
     },
-    [selectedTags, updateParams]
+    [selectedTags, addTag, updateParams]
   )
 
   const handleRemoveTag = useCallback(
     (tagToRemove: string) => {
-      updateParams({
-        tags: selectedTags.filter((t) => t !== tagToRemove),
-        offset: 0,
-      })
+      removeTag(tagToRemove)
+      updateParams({ offset: 0 })
     },
-    [selectedTags, updateParams]
+    [removeTag, updateParams]
   )
 
   const handleTagMatchChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
-      updateParams({ tag_match: e.target.value as 'all' | 'any' })
+      setTagMatch(e.target.value as 'all' | 'any')
     },
-    [updateParams]
+    [setTagMatch]
   )
+
+  const handleClearTagFilters = useCallback(() => {
+    clearTagFilters()
+    updateParams({ offset: 0 })
+  }, [clearTagFilters, updateParams])
 
   const handleSortChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -330,10 +352,8 @@ export function Bookmarks(): ReactNode {
   }
 
   const handleDeleteBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
-    // In trash view, use permanent delete with confirmation
+    // In trash view, use permanent delete (confirmation handled by ConfirmDeleteButton)
     if (currentView === 'deleted') {
-      if (!confirm('Permanently delete this bookmark? This cannot be undone.')) return
-
       try {
         await deleteBookmark(bookmark.id, true) // permanent=true
         fetchBookmarks(currentParams)
@@ -681,14 +701,14 @@ export function Bookmarks(): ReactNode {
             onChange={handleSortChange}
             className="rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
           >
-            <option value="created_at-desc">Newest first</option>
-            <option value="created_at-asc">Oldest first</option>
-            <option value="updated_at-desc">Recently modified</option>
-            <option value="updated_at-asc">Least recently modified</option>
-            <option value="last_used_at-desc">Recently used</option>
-            <option value="last_used_at-asc">Least recently used</option>
-            <option value="title-asc">Title A-Z</option>
-            <option value="title-desc">Title Z-A</option>
+            <option value="last_used_at-desc">Last Used ↓</option>
+            <option value="last_used_at-asc">Last Used ↑</option>
+            <option value="created_at-desc">Date Added ↓</option>
+            <option value="created_at-asc">Date Added ↑</option>
+            <option value="title-asc">Title ↑</option>
+            <option value="title-desc">Title ↓</option>
+            <option value="updated_at-desc">Date Modified ↓</option>
+            <option value="updated_at-asc">Date Modified ↑</option>
           </select>
         </div>
 
@@ -707,14 +727,22 @@ export function Bookmarks(): ReactNode {
               </button>
             ))}
             {selectedTags.length > 1 && (
-              <select
-                value={tagMatch}
-                onChange={handleTagMatchChange}
-                className="rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-1 text-xs focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
-              >
-                <option value="all">Match all</option>
-                <option value="any">Match any</option>
-              </select>
+              <>
+                <select
+                  value={tagMatch}
+                  onChange={handleTagMatchChange}
+                  className="rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-1 text-xs focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
+                >
+                  <option value="all">Match all</option>
+                  <option value="any">Match any</option>
+                </select>
+                <button
+                  onClick={handleClearTagFilters}
+                  className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  Clear
+                </button>
+              </>
             )}
           </div>
         )}
@@ -735,6 +763,7 @@ export function Bookmarks(): ReactNode {
         onFetchMetadata={handleFetchMetadata}
         isSubmitting={isSubmitting}
         initialUrl={pastedUrl}
+        initialTags={initialTagsFromList}
       />
 
       {/* Edit bookmark modal */}
@@ -748,11 +777,6 @@ export function Bookmarks(): ReactNode {
         isSubmitting={isSubmitting}
       />
 
-      {/* Shortcuts dialog */}
-      <ShortcutsDialog
-        isOpen={showShortcuts}
-        onClose={() => setShowShortcuts(false)}
-      />
     </div>
   )
 }

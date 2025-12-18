@@ -3,18 +3,56 @@
  *
  * Allows users to view all tags, rename them, and delete them.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import toast from 'react-hot-toast'
 import { useTagsStore } from '../../stores/tagsStore'
-import { LoadingSpinner } from '../../components/ui/LoadingSpinner'
-import { validateTag, normalizeTag } from '../../utils'
+import { LoadingSpinner, ConfirmDeleteButton } from '../../components/ui'
+import { EditIcon } from '../../components/icons'
+import { validateTag, normalizeTag, sortTags } from '../../utils'
+import type { TagSortOption } from '../../utils'
 import type { TagCount } from '../../types'
+
+const ITEMS_PER_PAGE = 15
 
 interface EditingState {
   tagName: string
   newName: string
   error: string | null
+}
+
+interface PaginationProps {
+  currentPage: number
+  totalPages: number
+  onPageChange: (page: number) => void
+}
+
+function Pagination({ currentPage, totalPages, onPageChange }: PaginationProps): ReactNode {
+  if (totalPages <= 1) return null
+
+  return (
+    <div className="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-4 py-3">
+      <span className="text-sm text-gray-500">
+        Page {currentPage} of {totalPages}
+      </span>
+      <div className="flex gap-2">
+        <button
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage <= 1}
+          className="rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Previous
+        </button>
+        <button
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage >= totalPages}
+          className="rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  )
 }
 
 interface TagRowProps {
@@ -26,6 +64,7 @@ interface TagRowProps {
   onSaveEdit: () => Promise<void>
   onEditChange: (value: string) => void
   onDelete: () => Promise<void>
+  showCount?: boolean
 }
 
 function TagRow({
@@ -37,6 +76,7 @@ function TagRow({
   onSaveEdit,
   onEditChange,
   onDelete,
+  showCount = true,
 }: TagRowProps): ReactNode {
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -52,9 +92,6 @@ function TagRow({
   }
 
   const handleDelete = async (): Promise<void> => {
-    if (!confirm(`Delete tag "${tag.name}"? This will remove it from all bookmarks.`)) {
-      return
-    }
     setIsDeleting(true)
     try {
       await onDelete()
@@ -66,7 +103,7 @@ function TagRow({
   if (isEditing && editingState) {
     return (
       <tr className="border-b border-gray-100">
-        <td className="py-3 pr-4">
+        <td className="py-3 pl-4 pr-4">
           <form onSubmit={handleSave} className="flex items-center gap-2">
             <input
               type="text"
@@ -89,8 +126,10 @@ function TagRow({
             <p className="mt-1 text-xs text-red-500">{editingState.error}</p>
           )}
         </td>
-        <td className="py-3 pr-4 text-center text-sm text-gray-500">{tag.count}</td>
-        <td className="py-3 text-right">
+        {showCount && (
+          <td className="py-3 pr-4 text-center text-sm text-gray-500">{tag.count}</td>
+        )}
+        <td className="py-3 pr-4 text-right">
           <div className="flex items-center justify-end gap-2">
             <button
               onClick={handleSave}
@@ -114,27 +153,28 @@ function TagRow({
 
   return (
     <tr className="border-b border-gray-100 hover:bg-gray-50">
-      <td className="py-3 pr-4">
+      <td className="py-3 pl-4 pr-4">
         <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-sm font-medium text-gray-700">
           {tag.name}
         </span>
       </td>
-      <td className="py-3 pr-4 text-center text-sm text-gray-500">{tag.count}</td>
-      <td className="py-3 text-right">
-        <div className="flex items-center justify-end gap-2">
+      {showCount && (
+        <td className="py-3 pr-4 text-center text-sm text-gray-500">{tag.count}</td>
+      )}
+      <td className="py-3 pr-4 text-right">
+        <div className="flex items-center justify-end gap-1">
           <button
             onClick={onStartEdit}
-            className="rounded px-2 py-1 text-sm text-gray-600 hover:bg-gray-100"
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Rename tag"
           >
-            Rename
+            <EditIcon />
           </button>
-          <button
-            onClick={handleDelete}
-            disabled={isDeleting}
-            className="rounded px-2 py-1 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
-          >
-            {isDeleting ? 'Deleting...' : 'Delete'}
-          </button>
+          <ConfirmDeleteButton
+            onConfirm={handleDelete}
+            isDeleting={isDeleting}
+            title="Delete tag"
+          />
         </div>
       </td>
     </tr>
@@ -147,10 +187,19 @@ function TagRow({
 export function SettingsTags(): ReactNode {
   const { tags, isLoading, fetchTags, renameTag, deleteTag } = useTagsStore()
   const [editingState, setEditingState] = useState<EditingState | null>(null)
+  const [sortOption, setSortOption] = useState<TagSortOption>('name-asc')
+  const [activeTagsPage, setActiveTagsPage] = useState(1)
+  const [unusedTagsPage, setUnusedTagsPage] = useState(1)
 
   useEffect(() => {
     fetchTags()
   }, [fetchTags])
+
+  const handleSortChange = (newSortOption: TagSortOption): void => {
+    setSortOption(newSortOption)
+    setActiveTagsPage(1)
+    setUnusedTagsPage(1)
+  }
 
   const handleStartEdit = (tagName: string): void => {
     setEditingState({
@@ -215,17 +264,49 @@ export function SettingsTags(): ReactNode {
     }
   }
 
-  // Separate tags with bookmarks from orphaned tags
-  const activeTags = tags.filter((tag) => tag.count > 0)
-  const orphanedTags = tags.filter((tag) => tag.count === 0)
+  // Separate, sort, and paginate tags
+  const activeTags = useMemo(() => {
+    const filtered = tags.filter((tag) => tag.count > 0)
+    return sortTags(filtered, sortOption)
+  }, [tags, sortOption])
+
+  const unusedTags = useMemo(() => {
+    const filtered = tags.filter((tag) => tag.count === 0)
+    return sortTags(filtered, sortOption)
+  }, [tags, sortOption])
+
+  const activeTagsTotalPages = Math.ceil(activeTags.length / ITEMS_PER_PAGE)
+  const unusedTagsTotalPages = Math.ceil(unusedTags.length / ITEMS_PER_PAGE)
+
+  const paginatedActiveTags = useMemo(() => {
+    const start = (activeTagsPage - 1) * ITEMS_PER_PAGE
+    return activeTags.slice(start, start + ITEMS_PER_PAGE)
+  }, [activeTags, activeTagsPage])
+
+  const paginatedUnusedTags = useMemo(() => {
+    const start = (unusedTagsPage - 1) * ITEMS_PER_PAGE
+    return unusedTags.slice(start, start + ITEMS_PER_PAGE)
+  }, [unusedTags, unusedTagsPage])
 
   return (
     <div className="max-w-3xl">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Tags</h1>
-        <p className="mt-1 text-gray-500">
-          Manage your tags. Rename or delete tags across all bookmarks.
-        </p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Tags</h1>
+          <p className="mt-1 text-gray-500">
+            Manage your tags. Rename or delete tags across all bookmarks.
+          </p>
+        </div>
+        <select
+          value={sortOption}
+          onChange={(e) => handleSortChange(e.target.value as TagSortOption)}
+          className="rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
+        >
+          <option value="name-asc">Name ↑</option>
+          <option value="name-desc">Name ↓</option>
+          <option value="count-desc">Count ↓</option>
+          <option value="count-asc">Count ↑</option>
+        </select>
       </div>
 
       {isLoading ? (
@@ -262,7 +343,7 @@ export function SettingsTags(): ReactNode {
                     </tr>
                   </thead>
                   <tbody className="bg-white px-4">
-                    {activeTags.map((tag) => (
+                    {paginatedActiveTags.map((tag) => (
                       <TagRow
                         key={tag.name}
                         tag={tag}
@@ -277,15 +358,20 @@ export function SettingsTags(): ReactNode {
                     ))}
                   </tbody>
                 </table>
+                <Pagination
+                  currentPage={activeTagsPage}
+                  totalPages={activeTagsTotalPages}
+                  onPageChange={setActiveTagsPage}
+                />
               </div>
             )}
           </section>
 
-          {/* Orphaned Tags */}
-          {orphanedTags.length > 0 && (
+          {/* Inactive Tags */}
+          {unusedTags.length > 0 && (
             <section>
               <h2 className="mb-2 text-lg font-semibold text-gray-900">
-                Unused Tags ({orphanedTags.length})
+                Inactive Tags ({unusedTags.length})
               </h2>
               <p className="mb-4 text-sm text-gray-500">
                 These tags are not used by any active bookmarks. They may be associated with archived or deleted bookmarks.
@@ -297,16 +383,13 @@ export function SettingsTags(): ReactNode {
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                         Tag
                       </th>
-                      <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Bookmarks
-                      </th>
                       <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
                         Actions
                       </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white px-4">
-                    {orphanedTags.map((tag) => (
+                    {paginatedUnusedTags.map((tag) => (
                       <TagRow
                         key={tag.name}
                         tag={tag}
@@ -317,10 +400,16 @@ export function SettingsTags(): ReactNode {
                         onSaveEdit={handleSaveEdit}
                         onEditChange={handleEditChange}
                         onDelete={() => handleDelete(tag.name)}
+                        showCount={false}
                       />
                     ))}
                   </tbody>
                 </table>
+                <Pagination
+                  currentPage={unusedTagsPage}
+                  totalPages={unusedTagsTotalPages}
+                  onPageChange={setUnusedTagsPage}
+                />
               </div>
             </section>
           )}

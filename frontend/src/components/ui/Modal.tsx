@@ -2,7 +2,7 @@
  * Reusable modal dialog component.
  */
 import { useEffect, useRef } from 'react'
-import type { ReactNode, MouseEvent } from 'react'
+import type { ReactNode } from 'react'
 import { CloseIcon } from '../icons'
 
 interface ModalProps {
@@ -18,7 +18,7 @@ interface ModalProps {
   maxWidth?: string
   /** Whether to remove content padding (default: false) */
   noPadding?: boolean
-  /** Whether the modal can be closed via escape/backdrop (default: true) */
+  /** Whether the modal can be closed via escape key/close button (default: true) */
   canClose?: boolean
 }
 
@@ -26,11 +26,13 @@ interface ModalProps {
  * Modal dialog with backdrop, close button, and accessibility support.
  *
  * Features:
- * - Click outside to close
  * - Escape key to close
  * - Focus trap (focuses first input on open)
  * - Scroll lock when open
  * - ARIA attributes for accessibility
+ *
+ * Note: Clicking outside does NOT close the modal to prevent accidental
+ * data loss. Use Escape key or close button to dismiss.
  */
 export function Modal({
   isOpen,
@@ -89,16 +91,9 @@ export function Modal({
 
   if (!isOpen) return null
 
-  const handleBackdropClick = (e: MouseEvent): void => {
-    if (e.target === e.currentTarget && canClose) {
-      onClose()
-    }
-  }
-
   return (
     <div
       className="modal-backdrop"
-      onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-title"
