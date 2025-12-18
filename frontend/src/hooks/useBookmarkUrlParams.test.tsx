@@ -28,7 +28,8 @@ describe('useBookmarkUrlParams', () => {
       })
 
       expect(result.current.searchQuery).toBe('')
-      expect(result.current.sortBy).toBe('created_at')
+      // Default is 'last_used_at' (from uiPreferencesStore)
+      expect(result.current.sortBy).toBe('last_used_at')
       expect(result.current.sortOrder).toBe('desc')
       expect(result.current.offset).toBe(0)
     })
@@ -114,7 +115,7 @@ describe('useBookmarkUrlParams', () => {
       expect(result.current.sortBy).toBe('title')
     })
 
-    it('removes sort_by from URL when set to default "created_at"', () => {
+    it('updates sort_by in URL and persists to store', () => {
       const { result } = renderHook(() => useBookmarkUrlParams(), {
         wrapper: createWrapper(['/bookmarks?sort_by=title']),
       })
@@ -138,7 +139,7 @@ describe('useBookmarkUrlParams', () => {
       expect(result.current.sortOrder).toBe('asc')
     })
 
-    it('removes sort_order from URL when set to default "desc"', () => {
+    it('updates sort_order in URL and persists to store', () => {
       const { result } = renderHook(() => useBookmarkUrlParams(), {
         wrapper: createWrapper(['/bookmarks?sort_order=asc']),
       })

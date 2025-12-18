@@ -12,11 +12,8 @@ import { useBookmarkUrlParams } from '../hooks/useBookmarkUrlParams'
 import { useTagsStore } from '../stores/tagsStore'
 import { useListsStore } from '../stores/listsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
-import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
-import { useSidebarStore } from '../stores/sidebarStore'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
-import { ShortcutsDialog } from '../components/ShortcutsDialog'
 import { TagFilterInput } from '../components/TagFilterInput'
 import { LoadingSpinnerCentered, ErrorState, EmptyState } from '../components/ui'
 import {
@@ -52,7 +49,6 @@ export function Bookmarks(): ReactNode {
   // Modal state
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingBookmark, setEditingBookmark] = useState<Bookmark | null>(null)
-  const [showShortcuts, setShowShortcuts] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [pastedUrl, setPastedUrl] = useState<string | undefined>(undefined)
   const [loadingBookmarkId, setLoadingBookmarkId] = useState<number | null>(null)
@@ -88,10 +84,6 @@ export function Bookmarks(): ReactNode {
     setTagMatch,
     clearFilters: clearTagFilters,
   } = useTagFilterStore()
-
-  // UI preferences
-  const toggleFullWidthLayout = useUIPreferencesStore((state) => state.toggleFullWidthLayout)
-  const toggleSidebar = useSidebarStore((state) => state.toggleCollapse)
 
   // Route-based view
   const { currentView, currentListId } = useBookmarkView()
@@ -151,7 +143,7 @@ export function Bookmarks(): ReactNode {
     }
   }, [fetchTags, fetchLists])
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (page-specific - global shortcuts are in Layout)
   useKeyboardShortcuts({
     onNewBookmark: () => {
       // Only allow adding bookmarks from active view
@@ -160,17 +152,13 @@ export function Bookmarks(): ReactNode {
       }
     },
     onFocusSearch: () => searchInputRef.current?.focus(),
-    onToggleWidth: toggleFullWidthLayout,
-    onToggleSidebar: toggleSidebar,
     onEscape: () => {
       if (showAddModal) setShowAddModal(false)
       else if (editingBookmark) setEditingBookmark(null)
-      else if (showShortcuts) setShowShortcuts(false)
       else if (document.activeElement === searchInputRef.current) {
         searchInputRef.current?.blur()
       }
     },
-    onShowShortcuts: () => setShowShortcuts(true),
     onPasteUrl: (url) => {
       // Only allow adding bookmarks from active view
       if (currentView === 'active') {
@@ -713,14 +701,14 @@ export function Bookmarks(): ReactNode {
             onChange={handleSortChange}
             className="rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2.5 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
           >
-            <option value="created_at-desc">Newest first</option>
-            <option value="created_at-asc">Oldest first</option>
-            <option value="updated_at-desc">Recently modified</option>
-            <option value="updated_at-asc">Least recently modified</option>
-            <option value="last_used_at-desc">Recently used</option>
-            <option value="last_used_at-asc">Least recently used</option>
-            <option value="title-asc">Title A-Z</option>
-            <option value="title-desc">Title Z-A</option>
+            <option value="last_used_at-desc">Last Used ↓</option>
+            <option value="last_used_at-asc">Last Used ↑</option>
+            <option value="created_at-desc">Date Added ↓</option>
+            <option value="created_at-asc">Date Added ↑</option>
+            <option value="title-asc">Title ↑</option>
+            <option value="title-desc">Title ↓</option>
+            <option value="updated_at-desc">Date Modified ↓</option>
+            <option value="updated_at-asc">Date Modified ↑</option>
           </select>
         </div>
 
@@ -789,11 +777,6 @@ export function Bookmarks(): ReactNode {
         isSubmitting={isSubmitting}
       />
 
-      {/* Shortcuts dialog */}
-      <ShortcutsDialog
-        isOpen={showShortcuts}
-        onClose={() => setShowShortcuts(false)}
-      />
     </div>
   )
 }

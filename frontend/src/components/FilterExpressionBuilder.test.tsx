@@ -1,8 +1,15 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FilterExpressionBuilder } from './FilterExpressionBuilder'
 import type { FilterExpression, TagCount } from '../types'
+
+afterEach(async () => {
+  // Wait for the 150ms blur timeout to complete before cleanup
+  // This prevents "window is not defined" errors from timers firing after teardown
+  await waitFor(() => {}, { timeout: 200 })
+  cleanup()
+})
 
 const mockSuggestions: TagCount[] = [
   { name: 'react', count: 5 },

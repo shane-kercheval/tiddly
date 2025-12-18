@@ -9,9 +9,10 @@ import {
   validateTag,
   normalizeTag,
   getFirstGroupTags,
+  sortTags,
   TAG_PATTERN,
 } from './utils'
-import type { BookmarkList } from './types'
+import type { BookmarkList, TagCount } from './types'
 
 // ============================================================================
 // Date Utilities
@@ -347,5 +348,50 @@ describe('getFirstGroupTags', () => {
   it('should return single tag when first group has one tag', () => {
     const list = createList([{ tags: ['javascript'] }])
     expect(getFirstGroupTags(list)).toEqual(['javascript'])
+  })
+})
+
+// ============================================================================
+// Sorting Utilities
+// ============================================================================
+
+describe('sortTags', () => {
+  const tags: TagCount[] = [
+    { name: 'react', count: 5 },
+    { name: 'angular', count: 3 },
+    { name: 'vue', count: 5 },
+    { name: 'svelte', count: 1 },
+  ]
+
+  it('should sort by name ascending', () => {
+    const sorted = sortTags(tags, 'name-asc')
+    expect(sorted.map((t) => t.name)).toEqual(['angular', 'react', 'svelte', 'vue'])
+  })
+
+  it('should sort by name descending', () => {
+    const sorted = sortTags(tags, 'name-desc')
+    expect(sorted.map((t) => t.name)).toEqual(['vue', 'svelte', 'react', 'angular'])
+  })
+
+  it('should sort by count ascending with name as tiebreaker', () => {
+    const sorted = sortTags(tags, 'count-asc')
+    // svelte (1), angular (3), react (5), vue (5) - react before vue alphabetically
+    expect(sorted.map((t) => t.name)).toEqual(['svelte', 'angular', 'react', 'vue'])
+  })
+
+  it('should sort by count descending with name as tiebreaker', () => {
+    const sorted = sortTags(tags, 'count-desc')
+    // react (5), vue (5), angular (3), svelte (1) - react before vue alphabetically
+    expect(sorted.map((t) => t.name)).toEqual(['react', 'vue', 'angular', 'svelte'])
+  })
+
+  it('should not mutate original array', () => {
+    const original = [...tags]
+    sortTags(tags, 'name-asc')
+    expect(tags).toEqual(original)
+  })
+
+  it('should handle empty array', () => {
+    expect(sortTags([], 'name-asc')).toEqual([])
   })
 })

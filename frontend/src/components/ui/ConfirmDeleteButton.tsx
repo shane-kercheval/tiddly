@@ -88,7 +88,7 @@ export function ConfirmDeleteButton({
     }
   }
 
-  const baseClasses = 'p-2 rounded-lg transition-colors disabled:opacity-50'
+  const baseClasses = 'p-2 h-8 rounded-lg transition-colors disabled:opacity-50 inline-flex items-center justify-center'
   const stateClasses = isConfirming
     ? 'bg-red-100 text-red-600 hover:bg-red-200'
     : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
@@ -102,7 +102,7 @@ export function ConfirmDeleteButton({
       title={isConfirming ? 'Click again to confirm' : title}
     >
       {isConfirming ? (
-        <span className="text-xs font-medium px-1">Confirm</span>
+        <span className="inline-flex h-4 items-center text-xs font-medium leading-none">Confirm</span>
       ) : (
         <TrashIcon />
       )}

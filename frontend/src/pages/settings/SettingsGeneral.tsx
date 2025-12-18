@@ -21,6 +21,13 @@ export function SettingsGeneral(): ReactNode {
         </p>
       </div>
 
+      {/* Keyboard Shortcuts Note */}
+      <div className="mb-8 rounded-lg border border-gray-200 bg-gray-50 p-4">
+        <p className="text-sm text-gray-600">
+          Press <kbd className="rounded border border-gray-300 bg-white px-1.5 py-0.5 font-mono text-xs">⌘+/</kbd> anywhere to view all keyboard shortcuts.
+        </p>
+      </div>
+
       {/* Layout Section */}
       <div className="space-y-6">
         <div>

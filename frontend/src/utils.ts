@@ -172,10 +172,37 @@ export function normalizeTag(tag: string): string {
 }
 
 // ============================================================================
-// Filter Expression Utilities
+// Sorting Utilities
 // ============================================================================
 
-import type { BookmarkList } from './types'
+import type { BookmarkList, TagCount } from './types'
+
+export type TagSortOption = 'name-asc' | 'name-desc' | 'count-asc' | 'count-desc'
+
+/**
+ * Sort tags by name or count.
+ * @param tags - Array of tags to sort
+ * @param sortOption - Sort option (name-asc, name-desc, count-asc, count-desc)
+ * @returns Sorted copy of tags array
+ */
+export function sortTags(tags: TagCount[], sortOption: TagSortOption): TagCount[] {
+  return [...tags].sort((a, b) => {
+    switch (sortOption) {
+      case 'name-asc':
+        return a.name.localeCompare(b.name)
+      case 'name-desc':
+        return b.name.localeCompare(a.name)
+      case 'count-asc':
+        return a.count - b.count || a.name.localeCompare(b.name)
+      case 'count-desc':
+        return b.count - a.count || a.name.localeCompare(b.name)
+    }
+  })
+}
+
+// ============================================================================
+// Filter Expression Utilities
+// ============================================================================
 
 /**
  * Extract tags from the first filter group of a bookmark list.

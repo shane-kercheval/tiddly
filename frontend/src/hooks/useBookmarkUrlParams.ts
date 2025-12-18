@@ -6,13 +6,15 @@
  * - Providing typed updateParams function with smart defaults
  *
  * Note: Tag filters are managed separately by useTagFilterStore for persistence
- * across navigation.
+ * across navigation. Sort preferences are stored in uiPreferencesStore for
+ * persistence across navigation.
  */
 import { useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
+import type { SortByOption, SortOrderOption } from '../stores/uiPreferencesStore'
 
-export type SortByOption = 'created_at' | 'updated_at' | 'last_used_at' | 'title'
-export type SortOrderOption = 'asc' | 'desc'
+export type { SortByOption, SortOrderOption }
 
 export interface BookmarkUrlParams {
   searchQuery: string
@@ -53,13 +55,18 @@ export interface UseBookmarkUrlParamsReturn extends BookmarkUrlParams {
 export function useBookmarkUrlParams(): UseBookmarkUrlParamsReturn {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // Parse URL params with defaults
+  // Get persisted sort preferences from store (defaults to last_used_at desc)
+  const storedSortBy = useUIPreferencesStore((state) => state.bookmarkSortBy)
+  const storedSortOrder = useUIPreferencesStore((state) => state.bookmarkSortOrder)
+  const setBookmarkSort = useUIPreferencesStore((state) => state.setBookmarkSort)
+
+  // Parse URL params with defaults from store
   const searchQuery = searchParams.get('q') || ''
-  const sortBy = (searchParams.get('sort_by') as SortByOption) || 'created_at'
-  const sortOrder = (searchParams.get('sort_order') as SortOrderOption) || 'desc'
+  const sortBy = (searchParams.get('sort_by') as SortByOption) || storedSortBy
+  const sortOrder = (searchParams.get('sort_order') as SortOrderOption) || storedSortOrder
   const offset = parseInt(searchParams.get('offset') || '0', 10)
 
-  // Update URL params with smart defaults (removes default values from URL)
+  // Update URL params and persist sort preferences to store
   const updateParams = useCallback(
     (updates: BookmarkUrlParamUpdates) => {
       const newParams = new URLSearchParams(searchParams)
@@ -72,20 +79,17 @@ export function useBookmarkUrlParams(): UseBookmarkUrlParamsReturn {
         }
       }
 
-      if ('sort_by' in updates) {
-        if (updates.sort_by && updates.sort_by !== 'created_at') {
-          newParams.set('sort_by', updates.sort_by)
-        } else {
-          newParams.delete('sort_by')
-        }
-      }
+      // When sort changes, persist to store and update URL
+      if ('sort_by' in updates || 'sort_order' in updates) {
+        const newSortBy = updates.sort_by ?? sortBy
+        const newSortOrder = updates.sort_order ?? sortOrder
 
-      if ('sort_order' in updates) {
-        if (updates.sort_order && updates.sort_order !== 'desc') {
-          newParams.set('sort_order', updates.sort_order)
-        } else {
-          newParams.delete('sort_order')
-        }
+        // Persist to store for navigation retention
+        setBookmarkSort(newSortBy, newSortOrder)
+
+        // Always set in URL when explicitly changed
+        newParams.set('sort_by', newSortBy)
+        newParams.set('sort_order', newSortOrder)
       }
 
       if ('offset' in updates) {
@@ -98,7 +102,7 @@ export function useBookmarkUrlParams(): UseBookmarkUrlParamsReturn {
 
       setSearchParams(newParams, { replace: true })
     },
-    [searchParams, setSearchParams]
+    [searchParams, setSearchParams, sortBy, sortOrder, setBookmarkSort]
   )
 
   return {
