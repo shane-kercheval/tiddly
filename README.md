@@ -174,6 +174,10 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 Replace `bm_your_token_here` with a Personal Access Token created via the API.
 
+## Deployment
+
+See [README_DEPLOY.md](README_DEPLOY.md) for full deployment instructions including:
+
 ## Security
 
 ### SSRF Protection

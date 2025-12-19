@@ -1,0 +1,150 @@
+# Railway Deployment Workflow
+#
+# Deploys all services to Railway on push to main branch.
+# Also runs on manual trigger (workflow_dispatch).
+#
+# Required secrets (set in GitHub repo settings):
+#   RAILWAY_TOKEN - Railway API token (from Railway dashboard -> Account -> Tokens)
+#
+# Required variables (set in GitHub repo settings -> Environments -> production):
+#   RAILWAY_SERVICE_API_ID - Service ID for the API service
+#   RAILWAY_SERVICE_MCP_ID - Service ID for the MCP service
+#   RAILWAY_SERVICE_FRONTEND_ID - Service ID for the Frontend service
+
+name: Deploy to Railway
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      services:
+        description: 'Services to deploy (comma-separated: api,mcp,frontend or "all")'
+        required: false
+        default: 'all'
+
+env:
+  RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+jobs:
+  # Run tests before deployment
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run linting
+        run: uv run ruff check backend/src backend/tests
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Run frontend tests
+        run: cd frontend && npm run test:run
+
+      - name: Run frontend lint
+        run: cd frontend && npm run lint
+
+  # Deploy API service
+  deploy-api:
+    name: Deploy API
+    needs: test
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'api')))
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy API to Railway
+        run: |
+          railway up --service ${{ vars.RAILWAY_SERVICE_API_ID }} --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+  # Deploy MCP service
+  deploy-mcp:
+    name: Deploy MCP Server
+    needs: test
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'mcp')))
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy MCP to Railway
+        run: |
+          railway up --service ${{ vars.RAILWAY_SERVICE_MCP_ID }} --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+  # Deploy Frontend service
+  deploy-frontend:
+    name: Deploy Frontend
+    needs: test
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.services == 'all' || contains(github.event.inputs.services, 'frontend')))
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy Frontend to Railway
+        run: |
+          railway up --service ${{ vars.RAILWAY_SERVICE_FRONTEND_ID }} --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+  # Run database migrations after API deployment
+  migrate:
+    name: Run Database Migrations
+    needs: deploy-api
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Run migrations
+        run: |
+          railway run --service ${{ vars.RAILWAY_SERVICE_API_ID }} -- alembic upgrade head
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
