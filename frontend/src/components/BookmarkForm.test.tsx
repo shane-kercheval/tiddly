@@ -15,9 +15,13 @@ const mockBookmark: Bookmark = {
   title: 'Example Site',
   description: 'A sample description',
   summary: null,
+  content: null,
   tags: ['react'],
   created_at: '2024-01-15T12:00:00Z',
   updated_at: '2024-01-15T12:00:00Z',
+  last_used_at: '2024-01-15T12:00:00Z',
+  deleted_at: null,
+  archived_at: null,
 }
 
 describe('BookmarkForm', () => {

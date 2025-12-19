@@ -13,12 +13,13 @@ const mockBookmark: BookmarkListItem = {
   url: 'https://example.com/article',
   title: 'Example Article',
   description: 'A test bookmark',
+  summary: null,
   tags: ['test', 'example'],
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
-  last_used_at: null,
-  is_archived: false,
-  is_deleted: false,
+  last_used_at: '2024-01-01T00:00:00Z',
+  deleted_at: null,
+  archived_at: null,
 }
 
 describe('BookmarkCard', () => {

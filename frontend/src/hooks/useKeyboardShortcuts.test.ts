@@ -10,7 +10,7 @@ function createPasteEvent(text: string): Event {
   const event = new Event('paste', { bubbles: true, cancelable: true })
   ;(event as Event & { clipboardData: DataTransfer }).clipboardData = {
     getData: () => text,
-  } as DataTransfer
+  } as unknown as DataTransfer
   return event
 }
 

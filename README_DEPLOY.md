@@ -107,16 +107,21 @@ Click on each service → **Variables** tab.
 Click **New Variable** or use **RAW Editor** to add:
 
 ```
-DATABASE_URL=${{Postgres.DATABASE_URL}}
+DATABASE_URL=postgresql+asyncpg://<manually-set-see-below>
 CORS_ORIGINS=${{frontend.RAILWAY_PUBLIC_DOMAIN}}
 VITE_AUTH0_DOMAIN=<your-auth0-domain>
 VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
 VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
 ```
 
-**Note:** The `${{Postgres.DATABASE_URL}}` syntax automatically references the Postgres service's DATABASE_URL. Railway will show an autocomplete dropdown.
+**Important: DATABASE_URL must be set manually.** Railway's Postgres provides `postgresql://` but this app requires `postgresql+asyncpg://` for async SQLAlchemy. Do NOT use `${{Postgres.DATABASE_URL}}`.
 
-**Important:** Your app uses `postgresql+asyncpg://` but Railway provides `postgresql://`. You may need to handle this in your app config or set DATABASE_URL manually by copying from Postgres and changing the prefix.
+To set DATABASE_URL:
+1. Click the **Postgres** service → **Variables** tab
+2. Copy the `DATABASE_URL` value (e.g., `postgresql://user:pass@host:5432/railway`)
+3. Go back to the **api** service → **Variables** tab
+4. Add `DATABASE_URL` and paste the copied value
+5. Change `postgresql://` to `postgresql+asyncpg://` at the start of the URL
 
 #### MCP Service Variables
 
@@ -165,19 +170,6 @@ Push your changes to `main` branch. With **Wait for CI** enabled, Railway will:
 
 ---
 
-## Handling DATABASE_URL Prefix
-
-Your app expects `postgresql+asyncpg://` but Railway provides `postgresql://`. Options:
-
-**Option A: Update your app** to accept both formats (recommended)
-
-**Option B: Set DATABASE_URL manually:**
-1. Click Postgres service → Variables → Copy `DATABASE_URL`
-2. Click API service → Variables
-3. Add `DATABASE_URL` with the copied value, changing `postgresql://` to `postgresql+asyncpg://`
-
----
-
 ## Deploying Changes
 
 Push to `main` branch - Railway auto-deploys from connected GitHub repo.
@@ -221,10 +213,11 @@ Check build logs in Railway dashboard. Common issues:
 - Missing dependencies in `pyproject.toml`
 - Wrong root directory for frontend
 
-### Database connection fails
+### Database connection fails / ModuleNotFoundError: psycopg2
 
-1. Verify `DATABASE_URL` references Postgres correctly: `${{Postgres.DATABASE_URL}}`
-2. Check if you need `postgresql+asyncpg://` prefix (see above)
+1. Verify `DATABASE_URL` uses `postgresql+asyncpg://` prefix (NOT `postgresql://`)
+2. Do NOT use `${{Postgres.DATABASE_URL}}` - you must manually copy and modify the URL
+3. See Step 5 above for detailed instructions
 
 ### CORS errors
 

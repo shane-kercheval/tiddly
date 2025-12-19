@@ -1,3 +1,8 @@
+# CI Workflow
+#
+# Runs tests on push to main and PRs. Railway deploys automatically after CI passes
+# (when "Wait for CI" is enabled in Railway service settings).
+
 name: tests
 
 on:
@@ -6,44 +11,68 @@ on:
       - "main"
     paths-ignore:
       - 'README.md'
+      - 'README_DEPLOY.md'
   pull_request:
     branches:
       - "main"
     paths-ignore:
       - 'README.md'
+      - 'README_DEPLOY.md'
 
 jobs:
-  test:
+  backend:
+    name: Backend Tests
     runs-on: ubuntu-latest
     env:
       SKIP_CI_TESTS: "true"
     strategy:
       matrix:
-        # Run in all these versions of Python
         python-version: ['3.12', '3.13']
     steps:
-        # Checkout the latest code from the repo
       - name: Checkout repo
         uses: actions/checkout@v4
-        # Setup which version of Python to use
+
       - name: Set Up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-        # Display the Python version being used
+
       - name: Display Python version
         run: python -c "import sys; print(sys.version)"
-        # Install the package using the setup.py
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install uv
           make build
+
       - name: linting
-        run: |
-          make linting
+        run: make linting
+
       - name: tests_only
         env:
           DEV_MODE: "true"
-        run: |
-          make tests_only
+        run: make tests_only
+
+  frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: cd frontend && npm ci
+
+      - name: Run linting
+        run: cd frontend && npm run lint
+
+      - name: Run tests
+        run: cd frontend && npm run test:run

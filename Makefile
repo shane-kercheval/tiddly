@@ -68,7 +68,7 @@ linting:  ## Run ruff linter on backend
 	uv run ruff check backend/tests
 
 unit_tests:  ## Run backend unit tests with coverage
-	uv run coverage run -m pytest --durations=0 backend/tests
+	uv run coverage run -m pytest --durations=20 backend/tests
 	uv run coverage html
 
 integration_tests:  ## Run integration tests
