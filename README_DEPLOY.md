@@ -108,7 +108,7 @@ Click **New Variable** or use **RAW Editor** to add:
 
 ```
 DATABASE_URL=postgresql+asyncpg://<manually-set-see-below>
-CORS_ORIGINS=${{frontend.RAILWAY_PUBLIC_DOMAIN}}
+CORS_ORIGINS=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
 VITE_AUTH0_DOMAIN=<your-auth0-domain>
 VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
 VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
@@ -127,9 +127,10 @@ To set DATABASE_URL:
 
 ```
 VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
-MCP_HOST=0.0.0.0
-MCP_PORT=${{PORT}}
+MCP_PORT=$PORT
 ```
+
+**Note:** `$PORT` (not `${{PORT}}`) references Railway's injected port for this service.
 
 #### Frontend Service Variables
 
