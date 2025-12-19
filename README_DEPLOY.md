@@ -135,11 +135,31 @@ VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
 VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
 ```
 
-### Step 6: Deploy
+### Step 6: Configure GitHub Actions
 
-Click **Deploy** in the top bar to deploy all services.
+Since **Wait for CI** is enabled, you must set up the `RAILWAY_TOKEN` secret in GitHub before deploying:
 
-### Step 7: Run Database Migrations
+1. **Get Railway API Token:**
+   - Go to Railway dashboard → Click your profile (top right) → **Account Settings**
+   - Go to **Tokens** → **Create New Token**
+   - Copy the token
+
+2. **Add Token to GitHub:**
+   - Go to your GitHub repo → **Settings** → **Secrets and variables** → **Actions**
+   - Click **New repository secret**
+   - Name: `RAILWAY_TOKEN`
+   - Value: paste the token
+   - Click **Add secret**
+
+### Step 7: Deploy
+
+Push your changes to `main` branch. With **Wait for CI** enabled, Railway will:
+1. Wait for GitHub Actions tests to pass
+2. Then automatically deploy all services
+
+**Note:** If you click **Deploy** in the dashboard before pushing, you'll see "Deployment waiting" until CI passes. Push to `main` to trigger the GitHub Actions workflow.
+
+### Step 8: Run Database Migrations
 
 After the API service deploys successfully:
 
@@ -226,22 +246,6 @@ Verify `CORS_ORIGINS` on API service includes your frontend domain with `https:/
 ### Frontend shows blank page
 
 Check browser console. Verify `VITE_API_URL` points to your API's Railway domain.
-
----
-
-## GitHub Actions (Optional)
-
-The `.github/workflows/deploy.yml` can automate deployments. Update it to use:
-
-```yaml
-- name: Deploy
-  run: railway up -s ${{ matrix.service }}
-  env:
-    RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-```
-
-Required secrets:
-- `RAILWAY_TOKEN`: From Railway dashboard → Account → Tokens
 
 ---
 
