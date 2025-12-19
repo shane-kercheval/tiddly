@@ -18,6 +18,7 @@ on:
     paths-ignore:
       - 'README.md'
       - 'README_DEPLOY.md'
+  workflow_dispatch:  # Allow manual trigger from GitHub Actions UI
 
 jobs:
   backend:
