@@ -151,16 +151,16 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
         {/* Key Features */}
         <div className="mx-auto mt-32 max-w-4xl">
           <h2 className="mb-12 text-center text-4xl font-bold text-gray-900">
-            Built for developers and power users
+            Simple, yet powerful
           </h2>
           <div className="grid gap-8 sm:grid-cols-2">
             <div>
               <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                Search everything, instantly
+                Search everything
               </h3>
               <p className="text-gray-600">
                 Full-text search across titles, URLs, and page content. Find what you need in
-                milliseconds, not minutes.
+                seconds, not minutes.
               </p>
             </div>
             <div>
@@ -168,7 +168,7 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
                 Keyboard-first workflow
               </h3>
               <p className="text-gray-600">
-                Built for speed. Navigate, search, and organize without touching your mouse.
+                Navigate, search, and organize efficiently with keyboard shortcuts.
                 Press <kbd className="rounded bg-gray-100 px-2 py-1 text-sm">/</kbd> to start
                 searching.
               </p>
@@ -196,7 +196,7 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
         <div className="mt-32 text-center">
           <h2 className="mb-6 text-4xl font-bold text-gray-900">Start organizing today</h2>
           <p className="mb-10 text-xl text-gray-600">
-            Free to use. No credit card required.
+            Free while in beta. Pricing to be determined.
           </p>
           <button
             onClick={onLogin}
