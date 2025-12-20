@@ -261,6 +261,7 @@ export function Bookmarks(): ReactNode {
     try {
       await createBookmark(data as BookmarkCreate)
       setShowAddModal(false)
+      setPastedUrl(undefined)
       toast.success('Bookmark added')
       fetchBookmarks(currentParams)
       fetchTags()
@@ -294,6 +295,7 @@ export function Bookmarks(): ReactNode {
                       unarchiveBookmark(bookmarkId)
                         .then(() => {
                           setShowAddModal(false)
+                          setPastedUrl(undefined)
                           fetchBookmarks(currentParams)
                           fetchTags()
                           toast.success('Bookmark unarchived')
