@@ -7,8 +7,9 @@ from core.config import Settings
 class TestCorsOriginsParsing:
     """Tests for CORS origins parsing from environment variables."""
 
-    def test_parse_single_origin_string(self) -> None:
+    def test_parse_single_origin_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Single origin string is parsed correctly."""
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
         settings = Settings(
             _env_file=None,
             database_url="postgresql://test",
@@ -17,8 +18,9 @@ class TestCorsOriginsParsing:
         )
         assert settings.cors_origins == ["http://localhost:5173"]
 
-    def test_parse_multiple_origins_comma_separated(self) -> None:
+    def test_parse_multiple_origins_comma_separated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Multiple comma-separated origins are parsed correctly."""
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
         settings = Settings(
             _env_file=None,
             database_url="postgresql://test",
@@ -30,8 +32,9 @@ class TestCorsOriginsParsing:
             "https://example.com",
         ]
 
-    def test_parse_origins_with_whitespace(self) -> None:
+    def test_parse_origins_with_whitespace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Whitespace around origins is stripped."""
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
         settings = Settings(
             _env_file=None,
             database_url="postgresql://test",
@@ -43,8 +46,9 @@ class TestCorsOriginsParsing:
             "https://example.com",
         ]
 
-    def test_parse_empty_string(self) -> None:
+    def test_parse_empty_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Empty string results in empty list."""
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
         settings = Settings(
             _env_file=None,
             database_url="postgresql://test",
@@ -53,8 +57,9 @@ class TestCorsOriginsParsing:
         )
         assert settings.cors_origins == []
 
-    def test_parse_trailing_comma(self) -> None:
+    def test_parse_trailing_comma(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Trailing comma is handled (empty entries filtered)."""
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
         settings = Settings(
             _env_file=None,
             database_url="postgresql://test",
@@ -67,6 +72,7 @@ class TestCorsOriginsParsing:
         """Default CORS origins is localhost:5173."""
         # Clear any CORS_ORIGINS env var that may be set
         monkeypatch.delenv("CORS_ORIGINS", raising=False)
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
         settings = Settings(
             _env_file=None,
             database_url="postgresql://test",
@@ -78,8 +84,9 @@ class TestCorsOriginsParsing:
 class TestAuth0Config:
     """Tests for Auth0 configuration with VITE_ prefix aliases."""
 
-    def test_auth0_reads_vite_prefixed_vars(self) -> None:
+    def test_auth0_reads_vite_prefixed_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Auth0 settings can be set via VITE_AUTH0_* aliases."""
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
         settings = Settings(
             _env_file=None,  # Don't load from .env file
             database_url="postgresql://test",
@@ -98,6 +105,7 @@ class TestAuth0Config:
         monkeypatch.delenv("VITE_AUTH0_DOMAIN", raising=False)
         monkeypatch.delenv("VITE_AUTH0_CLIENT_ID", raising=False)
         monkeypatch.delenv("VITE_AUTH0_AUDIENCE", raising=False)
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
 
         settings = Settings(
             _env_file=None,  # Don't load from .env file
@@ -108,8 +116,9 @@ class TestAuth0Config:
         assert settings.auth0_client_id == ""
         assert settings.auth0_audience == ""
 
-    def test_auth0_issuer_property(self) -> None:
+    def test_auth0_issuer_property(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Auth0 issuer URL is derived from domain."""
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
         settings = Settings(
             _env_file=None,
             database_url="postgresql://test",
@@ -118,8 +127,9 @@ class TestAuth0Config:
         )
         assert settings.auth0_issuer == "https://test.auth0.com/"
 
-    def test_auth0_jwks_url_property(self) -> None:
+    def test_auth0_jwks_url_property(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Auth0 JWKS URL is derived from domain."""
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
         settings = Settings(
             _env_file=None,
             database_url="postgresql://test",
@@ -183,8 +193,9 @@ class TestDevModeSecurityValidation:
                 VITE_DEV_MODE="true",
             )
 
-    def test__dev_mode_disabled_allows_production_database(self) -> None:
+    def test__dev_mode_disabled_allows_production_database(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Production database is allowed when DEV_MODE is disabled."""
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
         settings = Settings(
             _env_file=None,
             database_url="postgresql://prod-db.railway.app:5432/bookmarks",

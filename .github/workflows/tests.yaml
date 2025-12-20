@@ -51,8 +51,6 @@ jobs:
         run: make backend-lint
 
       - name: tests_only
-        env:
-          DEV_MODE: "true"
         run: make backend-tests
 
   frontend:
