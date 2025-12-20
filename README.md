@@ -221,5 +221,6 @@ Content exceeding this limit will be rejected with a validation error.
 
 # Limitations and Future Improvements
 
+- **We are not currently deleting bookmarks in trash:** A background job to permanently delete trashed bookmarks after a retention period should be added.
 - **In-memory Rate Limiting:** Current rate limiting uses in-memory storage, which won't work across multiple instances. Future versions could use Redis or a distributed cache.
 - **Security Audit Logging:** No structured logging for security events (auth failures, IDOR attempts, token operations). Consider adding if monitoring infrastructure is in place.
