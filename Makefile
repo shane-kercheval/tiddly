@@ -71,10 +71,16 @@ backend-tests:  ## Run backend unit tests with coverage
 	uv run coverage run -m pytest --durations=20 backend/tests
 	uv run coverage html
 
+tests: backend-lint backend-tests frontend-lint frontend-tests ## Run linting + all tests
+
 pen_tests:  ## Run live penetration tests (requires SECURITY_TEST_USER_A_PAT and SECURITY_TEST_USER_B_PAT in .env)
 	uv run pytest backend/tests/security/test_live_penetration.py -v
 
-tests: backend-lint backend-tests frontend-lint frontend-tests ## Run linting + all tests
+dependency-audit:  ## Run audits to check for vulnerable dependencies
+	uv run pip-audit
+	npm audit --prefix frontend
+
+security: dependency-audit pen_tests  ## Run security checks
 
 open_coverage:  ## Open coverage report in browser
 	open 'htmlcov/index.html'
