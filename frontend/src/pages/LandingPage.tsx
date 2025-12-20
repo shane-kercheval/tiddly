@@ -24,12 +24,20 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
       {/* Hero Section */}
       <div className="mx-auto max-w-6xl px-6 pb-24 pt-24 sm:px-8 lg:px-12">
         <div className="text-center">
-          <h1 className="mb-8 text-7xl font-bold tracking-tight text-gray-900 sm:text-8xl">
-            Tiddly
-          </h1>
-          <p className="mx-auto mb-16 max-w-3xl text-2xl leading-relaxed text-gray-600">
+          <div className="mb-8 flex items-center justify-center gap-4">
+            <h1 className="text-7xl font-bold tracking-tight text-gray-900 sm:text-8xl">
+              Tiddly
+            </h1>
+            <span className="mb-2 self-start rounded-full border-2 border-orange-200 bg-orange-50 px-4 py-1.5 text-sm font-semibold uppercase tracking-wide text-orange-700">
+              Beta
+            </span>
+          </div>
+          <p className="mx-auto mb-4 max-w-3xl text-2xl leading-relaxed text-gray-600">
             Your personal knowledge base. Save and organize bookmarks with powerful search,
             tags, and AI integration.
+          </p>
+          <p className="mx-auto mb-16 text-base text-gray-500">
+            Currently in beta. Things may change as we improve the platform.
           </p>
           <button
             onClick={onLogin}
