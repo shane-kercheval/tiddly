@@ -70,6 +70,9 @@ class TestCheckConsentStatus:
         data = response.json()
         assert data["needs_consent"] is True
         assert data["current_consent"] is None
+        # Verify current versions are returned (single source of truth)
+        assert data["current_privacy_version"] == "2024-12-20"
+        assert data["current_terms_version"] == "2024-12-20"
 
     async def test__check_status__valid_consent_returns_needs_consent_false(
         self,
@@ -95,6 +98,9 @@ class TestCheckConsentStatus:
         assert data["needs_consent"] is False
         assert data["current_consent"] is not None
         assert data["current_consent"]["privacy_policy_version"] == "2024-12-20"
+        # Verify current versions are returned (single source of truth)
+        assert data["current_privacy_version"] == "2024-12-20"
+        assert data["current_terms_version"] == "2024-12-20"
 
     async def test__check_status__outdated_privacy_version_returns_needs_consent_true(
         self,
@@ -143,50 +149,6 @@ class TestCheckConsentStatus:
         data = response.json()
         assert data["needs_consent"] is True
         assert data["current_consent"] is not None
-
-
-class TestGetConsent:
-    """Tests for GET /consent/me endpoint."""
-
-    async def test__get_consent__no_consent_returns_404(
-        self,
-        client: AsyncClient,
-    ) -> None:
-        """Returns 404 when user has no consent record."""
-        response = await client.get("/consent/me")
-
-        assert response.status_code == 404
-        assert "not consented" in response.json()["detail"].lower()
-
-    async def test__get_consent__returns_existing_consent(
-        self,
-        client: AsyncClient,
-        db_session: AsyncSession,
-        test_user: User,
-    ) -> None:
-        """Returns consent record when it exists."""
-        # Create consent record
-        consent = UserConsent(
-            user_id=test_user.id,
-            consented_at=datetime.now(UTC),
-            privacy_policy_version="2024-12-20",
-            terms_of_service_version="2024-12-20",
-            ip_address="192.168.1.1",
-            user_agent="Test Browser",
-        )
-        db_session.add(consent)
-        await db_session.commit()
-
-        response = await client.get("/consent/me")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["user_id"] == test_user.id
-        assert data["privacy_policy_version"] == "2024-12-20"
-        assert data["terms_of_service_version"] == "2024-12-20"
-        assert data["ip_address"] == "192.168.1.1"
-        assert data["user_agent"] == "Test Browser"
-        assert "consented_at" in data
 
 
 class TestRecordConsent:

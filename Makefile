@@ -71,6 +71,8 @@ backend-tests:  ## Run backend unit tests with coverage
 	uv run coverage run -m pytest --durations=20 backend/tests
 	uv run coverage html
 
+lint: backend-lint frontend-lint  ## Run all linters
+
 tests: backend-lint backend-tests frontend-lint frontend-tests ## Run linting + all tests
 
 pen_tests:  ## Run live penetration tests (requires SECURITY_TEST_USER_A_PAT and SECURITY_TEST_USER_B_PAT in .env)

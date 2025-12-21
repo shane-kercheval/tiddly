@@ -456,15 +456,17 @@ When you need to update PRIVACY.md or TERMS.md:
 
 1. **Update the policy document** (PRIVACY.md or TERMS.md)
 2. **Update "Last Updated" date** in the policy file
-3. **Update version constant** in `frontend/src/config.ts`:
-   ```typescript
-   export const PRIVACY_POLICY_VERSION = '2025-01-15'  // New date
-   export const TERMS_OF_SERVICE_VERSION = '2025-01-15'  // New date
+3. **Update version constants** in `backend/src/api/routers/consent.py`:
+   ```python
+   PRIVACY_POLICY_VERSION = "2025-01-15"  # New date
+   TERMS_OF_SERVICE_VERSION = "2025-01-15"  # New date
    ```
 4. **Deploy changes**
 5. **Result:** All users will see consent dialog again on next login (version mismatch)
 
 **Important:** Users MUST re-consent when policies change. The version check ensures this happens automatically.
+
+**Note:** The backend is the single source of truth for policy versions. The frontend fetches current versions from the `/consent/status` endpoint to avoid version drift between frontend and backend.
 
 ---
 

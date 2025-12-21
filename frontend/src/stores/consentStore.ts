@@ -6,15 +6,17 @@
  * status after policy updates. One API call per session is acceptable performance.
  *
  * Version checking is handled server-side for consistency and maintainability.
+ * Current required versions are fetched from the backend to ensure single source of truth.
  */
 import { create } from 'zustand'
 import type { ConsentResponse } from '../services/api'
 import { checkConsentStatus, recordMyConsent } from '../services/api'
-import { PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION } from '../config'
 
 interface ConsentState {
   consent: ConsentResponse | null
   needsConsent: boolean | null  // null = not checked yet, true/false after check
+  currentPrivacyVersion: string | null  // fetched from backend
+  currentTermsVersion: string | null    // fetched from backend
   isLoading: boolean
   error: string | null
 }
@@ -31,6 +33,8 @@ export const useConsentStore = create<ConsentStore>((set, get) => ({
   // State
   consent: null,
   needsConsent: null,
+  currentPrivacyVersion: null,
+  currentTermsVersion: null,
   isLoading: false,
   error: null,
 
@@ -40,7 +44,8 @@ export const useConsentStore = create<ConsentStore>((set, get) => ({
    * Caches result in memory for the session.
    *
    * Version checking is done server-side - backend compares stored consent
-   * versions against current policy versions.
+   * versions against current policy versions. Current versions are fetched
+   * from backend to ensure single source of truth.
    */
   checkConsent: async () => {
     // If already checked this session, don't check again
@@ -55,6 +60,8 @@ export const useConsentStore = create<ConsentStore>((set, get) => ({
       set({
         consent: status.current_consent,
         needsConsent: status.needs_consent,
+        currentPrivacyVersion: status.current_privacy_version,
+        currentTermsVersion: status.current_terms_version,
         isLoading: false
       })
     } catch (err) {
@@ -64,14 +71,20 @@ export const useConsentStore = create<ConsentStore>((set, get) => ({
   },
 
   /**
-   * Record user's consent with current policy versions.
+   * Record user's consent with current policy versions from backend.
    */
   recordConsent: async () => {
+    const { currentPrivacyVersion, currentTermsVersion } = get()
+
+    if (!currentPrivacyVersion || !currentTermsVersion) {
+      throw new Error('Policy versions not loaded. Call checkConsent first.')
+    }
+
     set({ isLoading: true, error: null })
     try {
       const consent = await recordMyConsent({
-        privacy_policy_version: PRIVACY_POLICY_VERSION,
-        terms_of_service_version: TERMS_OF_SERVICE_VERSION,
+        privacy_policy_version: currentPrivacyVersion,
+        terms_of_service_version: currentTermsVersion,
       })
 
       set({
@@ -93,6 +106,8 @@ export const useConsentStore = create<ConsentStore>((set, get) => ({
     set({
       consent: null,
       needsConsent: null,
+      currentPrivacyVersion: null,
+      currentTermsVersion: null,
       isLoading: false,
       error: null,
     })

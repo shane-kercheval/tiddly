@@ -40,6 +40,8 @@ export interface ConsentCreate {
 export interface ConsentStatus {
   needs_consent: boolean
   current_consent: ConsentResponse | null
+  current_privacy_version: string
+  current_terms_version: string
 }
 
 /**
@@ -97,17 +99,6 @@ export function setupAuthInterceptor(
  */
 export async function checkConsentStatus(): Promise<ConsentStatus> {
   const response = await api.get<ConsentStatus>('/consent/status')
-  return response.data
-}
-
-/**
- * Get the current user's consent record.
- * Returns 404 if user has not consented yet.
- *
- * @deprecated Use checkConsentStatus() instead for better error handling
- */
-export async function getMyConsent(): Promise<ConsentResponse> {
-  const response = await api.get<ConsentResponse>('/consent/me')
   return response.data
 }
 

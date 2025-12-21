@@ -1,7 +1,7 @@
 """User consent endpoints for privacy policy and terms of service tracking."""
 from datetime import datetime, UTC
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,7 +70,12 @@ async def check_consent_status(
     consent = result.scalar_one_or_none()
 
     if not consent:
-        return ConsentStatus(needs_consent=True, current_consent=None)
+        return ConsentStatus(
+            needs_consent=True,
+            current_consent=None,
+            current_privacy_version=PRIVACY_POLICY_VERSION,
+            current_terms_version=TERMS_OF_SERVICE_VERSION,
+        )
 
     # Check if versions match current policy versions
     needs_consent = (
@@ -81,35 +86,9 @@ async def check_consent_status(
     return ConsentStatus(
         needs_consent=needs_consent,
         current_consent=consent,
+        current_privacy_version=PRIVACY_POLICY_VERSION,
+        current_terms_version=TERMS_OF_SERVICE_VERSION,
     )
-
-
-@router.get("/me", response_model=ConsentResponse)
-async def get_my_consent(
-    current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_async_session),
-) -> UserConsent:
-    """
-    Get the current user's consent record.
-
-    Returns 404 if user has not consented yet.
-
-    NOTE: Consent is currently enforced on the frontend only.
-    This is appropriate for beta with trusted users. Backend enforcement
-    can be added later via middleware if needed (return HTTP 451 if no consent).
-    """
-    result = await session.execute(
-        select(UserConsent).where(UserConsent.user_id == current_user.id),
-    )
-    consent = result.scalar_one_or_none()
-
-    if not consent:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User has not consented to privacy policy and terms of service",
-        )
-
-    return consent
 
 
 @router.post("/me", response_model=ConsentResponse, status_code=status.HTTP_201_CREATED)

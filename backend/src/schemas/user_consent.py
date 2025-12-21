@@ -48,3 +48,11 @@ class ConsentStatus(BaseModel):
         default=None,
         description="Current consent record if it exists",
     )
+    current_privacy_version: str = Field(
+        ...,
+        description="Current privacy policy version that should be accepted",
+    )
+    current_terms_version: str = Field(
+        ...,
+        description="Current terms of service version that should be accepted",
+    )
