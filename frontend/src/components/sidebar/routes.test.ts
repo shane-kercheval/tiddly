@@ -5,7 +5,7 @@
  * This prevents bugs where clicking sidebar items doesn't navigate correctly.
  */
 import { describe, it, expect } from 'vitest'
-import { getTabRoute } from './Sidebar'
+import { getTabRoute } from './routes'
 
 describe('getTabRoute', () => {
   it('returns /app/bookmarks for "all"', () => {

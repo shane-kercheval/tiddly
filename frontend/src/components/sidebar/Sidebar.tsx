@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { useSidebarStore } from '../../stores/sidebarStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { getTabRoute } from './routes'
 import { SidebarSection } from './SidebarSection'
 import { SidebarNavItem } from './SidebarNavItem'
 import { SidebarUserSection } from './SidebarUserSection'
@@ -99,21 +100,6 @@ function CloseIcon(): ReactNode {
 interface SidebarContentProps {
   isCollapsed: boolean
   onNavClick?: () => void
-}
-
-/**
- * Get the route path for a tab order item.
- * Exported for testing.
- */
-export function getTabRoute(key: string): string {
-  if (key === 'all') return '/app/bookmarks'
-  if (key === 'archived') return '/app/bookmarks/archived'
-  if (key === 'trash') return '/app/bookmarks/trash'
-  if (key.startsWith('list:')) {
-    const listId = key.replace('list:', '')
-    return `/app/bookmarks/lists/${listId}`
-  }
-  return '/app/bookmarks'
 }
 
 function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): ReactNode {
