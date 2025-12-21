@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from api.routers import bookmarks, health, lists, settings, tags, tokens, users
+from api.routers import bookmarks, consent, health, lists, settings, tags, tokens, users
 from core.config import get_settings
 
 
@@ -47,6 +47,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(users.router)
+app.include_router(consent.router)
 app.include_router(bookmarks.router)
 app.include_router(tags.router)
 app.include_router(tokens.router)

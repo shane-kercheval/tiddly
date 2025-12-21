@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
 import { BookmarkIcon } from '../components/icons'
+import { Footer } from '../components/Footer'
 
 /**
  * Loading spinner component shown while Auth0 is initializing.
@@ -33,8 +34,7 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
             </span>
           </div>
           <p className="mx-auto mb-4 max-w-3xl text-2xl leading-relaxed text-gray-600">
-            Your personal knowledge base. Save and organize bookmarks with powerful search,
-            tags, and AI integration.
+            Your personal knowledge base. Save and organize content with tags, search, and AI integration.
           </p>
           <p className="mx-auto mb-16 text-base text-gray-500">
             Currently in beta. Things may change as we improve the platform.
@@ -63,7 +63,7 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
                   </span>
                 </div>
                 <p className="mb-4 text-lg leading-relaxed text-gray-600">
-                  Full-text search, flexible tagging, custom lists, and keyboard shortcuts.
+                  Full-text search, flexible tagging, and custom lists.
                   Generate API tokens for CLI access or connect via MCP for AI-powered
                   organization.
                 </p>
@@ -324,10 +324,18 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
                 Can I self-host Tiddly?
               </h3>
               <p className="text-gray-600">
-                Yes! The codebase is available and can be self-hosted. You'll need PostgreSQL,
-                and optionally Auth0 for authentication (or use dev mode to bypass auth). Full
-                deployment instructions are included in the repository. Self-hosting gives you
-                complete control over your data.
+                Yes! The{' '}
+                <a
+                  href="https://github.com/shane-kercheval/bookmarks"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline"
+                >
+                  codebase is available
+                </a>{' '}
+                and can be self-hosted. You'll need PostgreSQL, and optionally Auth0 for
+                authentication (or use dev mode to bypass auth). Full deployment instructions are
+                included in the repository. Self-hosting gives you complete control over your data.
               </p>
             </div>
           </div>
@@ -347,38 +355,8 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
           </button>
         </div>
 
-        {/* Footer */}
-        <footer className="mt-24 border-t border-gray-200 py-12">
-          <div className="flex flex-col items-center justify-center gap-6 text-sm text-gray-600">
-            <p>
-              By using Tiddly, you agree to our Terms of Service and Privacy Policy.
-            </p>
-            <div className="flex flex-wrap justify-center gap-6">
-              <a
-                href="https://github.com/shanekercheval/bookmarks"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-gray-900 hover:underline"
-              >
-                GitHub
-              </a>
-              <a
-                href="https://github.com/shanekercheval/bookmarks/blob/main/LICENSE.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-gray-900 hover:underline"
-              >
-                License (ELv2)
-              </a>
-              <span className="text-gray-400">•</span>
-              <span className="text-gray-500">Terms of Service (Coming Soon)</span>
-              <span className="text-gray-400">•</span>
-              <span className="text-gray-500">Privacy Policy (Coming Soon)</span>
-            </div>
-            <p className="text-gray-500">© 2025 Tiddly. Open source under Elastic License 2.0.</p>
-          </div>
-        </footer>
       </div>
+      <Footer />
     </div>
   )
 }
@@ -393,9 +371,9 @@ function AuthenticatedLandingPage(): ReactNode {
     return <LoadingSpinner />
   }
 
-  // If already authenticated, redirect to bookmarks
+  // If already authenticated, redirect to app
   if (isAuthenticated) {
-    return <Navigate to="/bookmarks" replace />
+    return <Navigate to="/app/bookmarks" replace />
   }
 
   return <LandingContent onLogin={() => loginWithRedirect()} />
@@ -403,13 +381,13 @@ function AuthenticatedLandingPage(): ReactNode {
 
 /**
  * Landing page component - public entry point.
- * In dev mode, redirects directly to bookmarks.
+ * In dev mode, redirects directly to app.
  * In production, shows login button for unauthenticated users.
  */
 export function LandingPage(): ReactNode {
-  // In dev mode, go straight to bookmarks
+  // In dev mode, go straight to app
   if (isDevMode) {
-    return <Navigate to="/bookmarks" replace />
+    return <Navigate to="/app/bookmarks" replace />
   }
 
   return <AuthenticatedLandingPage />

@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from models.bookmark import Bookmark
     from models.bookmark_list import BookmarkList
     from models.tag import Tag
+    from models.user_consent import UserConsent
     from models.user_settings import UserSettings
 
 
@@ -48,4 +49,9 @@ class User(Base, TimestampMixin):
     tags: Mapped[list["Tag"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+    )
+    consent: Mapped["UserConsent | None"] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
     )

@@ -21,3 +21,16 @@ export const config = {
  * The backend must also have DEV_MODE=true for this to work.
  */
 export const isDevMode = import.meta.env.VITE_DEV_MODE === 'true' || !config.auth0.domain
+
+/**
+ * Policy version tracking for consent management.
+ *
+ * When you update PRIVACY.md or TERMS.md:
+ * 1. Update the "Last Updated" date in the policy file
+ * 2. Update the corresponding version constant below
+ * 3. Deploy changes
+ *
+ * Result: All users will see consent dialog again on next login (version mismatch).
+ */
+export const PRIVACY_POLICY_VERSION = '2024-12-20'
+export const TERMS_OF_SERVICE_VERSION = '2024-12-20'

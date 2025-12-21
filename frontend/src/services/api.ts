@@ -20,6 +20,29 @@ type GetAccessTokenFn = () => Promise<string>
 type OnAuthErrorFn = () => void
 
 /**
+ * Consent API types
+ */
+export interface ConsentResponse {
+  id: number
+  user_id: number
+  consented_at: string
+  privacy_policy_version: string
+  terms_of_service_version: string
+  ip_address: string | null
+  user_agent: string | null
+}
+
+export interface ConsentCreate {
+  privacy_policy_version: string
+  terms_of_service_version: string
+}
+
+export interface ConsentStatus {
+  needs_consent: boolean
+  current_consent: ConsentResponse | null
+}
+
+/**
  * Sets up auth interceptors on the API instance.
  * Should be called once when the Auth0 context is available.
  *
@@ -58,4 +81,43 @@ export function setupAuthInterceptor(
       return Promise.reject(error)
     }
   )
+}
+
+/**
+ * Consent API Methods
+ */
+
+/**
+ * Check if user needs to consent.
+ * This is the recommended endpoint - never returns 404.
+ *
+ * Returns:
+ * - needs_consent: true if user needs to accept/re-accept terms
+ * - current_consent: existing consent record (if any)
+ */
+export async function checkConsentStatus(): Promise<ConsentStatus> {
+  const response = await api.get<ConsentStatus>('/consent/status')
+  return response.data
+}
+
+/**
+ * Get the current user's consent record.
+ * Returns 404 if user has not consented yet.
+ *
+ * @deprecated Use checkConsentStatus() instead for better error handling
+ */
+export async function getMyConsent(): Promise<ConsentResponse> {
+  const response = await api.get<ConsentResponse>('/consent/me')
+  return response.data
+}
+
+/**
+ * Record or update the current user's consent.
+ * Creates a new consent record if none exists, or updates the existing one.
+ */
+export async function recordMyConsent(
+  data: ConsentCreate
+): Promise<ConsentResponse> {
+  const response = await api.post<ConsentResponse>('/consent/me', data)
+  return response.data
 }

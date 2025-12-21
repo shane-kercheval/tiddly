@@ -1,6 +1,6 @@
-# Bookmarks
+# Tiddly
 
-A bookmark management system with tagging and search capabilities.
+A bookmark (notes/todos coming soon) management system with tagging and search capabilities.
 
 ## Features
 
@@ -221,6 +221,23 @@ Content exceeding this limit will be rejected with a validation error.
 
 # Limitations and Future Improvements
 
-- **We are not currently deleting bookmarks in trash:** A background job to permanently delete trashed bookmarks after a retention period should be added.
+- **No automatic trash deletion:** Trashed bookmarks are kept indefinitely until manually deleted. Future versions will automatically permanently delete items after 30 days in trash.
+- **No account deletion:** Users cannot delete their own accounts through the UI. This requires manual database operations. A self-service account deletion feature is planned.
+- **Limited data export:** Users can export bookmarks programmatically via the API with a Personal Access Token, but there's no UI-based bulk export feature. A one-click export (JSON/CSV) is planned for GDPR compliance.
+- **No Privacy/Terms consent tracking:** Users are not required to explicitly consent to Privacy Policy and Terms of Service, and consent is not tracked. This will be added before public launch (GDPR compliance).
 - **In-memory Rate Limiting:** Current rate limiting uses in-memory storage, which won't work across multiple instances. Future versions could use Redis or a distributed cache.
 - **Security Audit Logging:** No structured logging for security events (auth failures, IDOR attempts, token operations). Consider adding if monitoring infrastructure is in place.
+
+## Updating Privacy Policy or Terms of Service
+
+When updating PRIVACY.md or TERMS.md:
+
+1. Update the policy document
+2. Update "Last Updated" date in the policy file
+3. Update version constant in `frontend/src/config.ts`:
+   ```typescript
+   export const PRIVACY_POLICY_VERSION = 'YYYY-MM-DD'  // New date
+   export const TERMS_OF_SERVICE_VERSION = 'YYYY-MM-DD'  // New date
+   ```
+4. Deploy changes
+5. All users will see consent dialog again on next login (version mismatch requires re-consent)

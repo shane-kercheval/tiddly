@@ -64,8 +64,8 @@ migration:  ## Create new migration: make migration message="description"
 # Testing & Quality
 ####
 backend-lint:  ## Run ruff linter on backend
-	uv run ruff check backend/src
-	uv run ruff check backend/tests
+	uv run ruff check backend/src --fix --unsafe-fixes
+	uv run ruff check backend/tests --fix --unsafe-fixes
 
 backend-tests:  ## Run backend unit tests with coverage
 	uv run coverage run -m pytest --durations=20 backend/tests
