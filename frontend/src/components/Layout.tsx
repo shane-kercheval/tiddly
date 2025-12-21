@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { Sidebar } from './sidebar'
 import { ShortcutsDialog } from './ShortcutsDialog'
+import { Footer } from './Footer'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useSidebarStore } from '../stores/sidebarStore'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
@@ -30,10 +31,11 @@ export function Layout(): ReactNode {
   return (
     <div className="flex min-h-screen bg-white">
       <Sidebar />
-      <main className="flex-1 overflow-auto">
-        <div className={`px-6 py-8 md:px-10 ${fullWidthLayout ? '' : 'max-w-5xl'}`}>
+      <main className="flex-1 overflow-auto flex flex-col">
+        <div className={`flex-1 px-6 py-8 md:px-10 ${fullWidthLayout ? '' : 'max-w-5xl'}`}>
           <Outlet />
         </div>
+        <Footer />
       </main>
       <ShortcutsDialog isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
     </div>

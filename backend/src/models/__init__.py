@@ -5,6 +5,7 @@ from models.tag import Tag, bookmark_tags  # Must be before bookmark due to impo
 from models.bookmark import Bookmark
 from models.bookmark_list import BookmarkList
 from models.user import User
+from models.user_consent import UserConsent
 from models.user_settings import UserSettings
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "Tag",
     "TimestampMixin",
     "User",
+    "UserConsent",
     "UserSettings",
     "bookmark_tags",
 ]

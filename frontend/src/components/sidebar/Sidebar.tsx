@@ -157,31 +157,31 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           isCollapsed={isCollapsed}
         >
           <SidebarNavItem
-            to="/settings/general"
+            to="/app/settings/general"
             label="General"
             isCollapsed={isCollapsed}
             onClick={onNavClick}
           />
           <SidebarNavItem
-            to="/settings/bookmarks"
+            to="/app/settings/bookmarks"
             label="Bookmarks"
             isCollapsed={isCollapsed}
             onClick={onNavClick}
           />
           <SidebarNavItem
-            to="/settings/tags"
+            to="/app/settings/tags"
             label="Tags"
             isCollapsed={isCollapsed}
             onClick={onNavClick}
           />
           <SidebarNavItem
-            to="/settings/tokens"
+            to="/app/settings/tokens"
             label="Personal Access Tokens"
             isCollapsed={isCollapsed}
             onClick={onNavClick}
           />
           <SidebarNavItem
-            to="/settings/mcp"
+            to="/app/settings/mcp"
             label="MCP Integration"
             isCollapsed={isCollapsed}
             onClick={onNavClick}

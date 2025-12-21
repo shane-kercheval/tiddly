@@ -8,8 +8,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from core.config import Settings, get_settings
+from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from db.session import get_async_session
 from models.user import User
 from services import token_service
@@ -22,6 +24,18 @@ security = HTTPBearer(auto_error=False)
 
 # Cache for JWKS client (reuse across requests)
 _jwks_clients: dict[str, PyJWKClient] = {}
+
+# Instructions for humans and AI agents included in 451 responses
+CONSENT_INSTRUCTIONS = (
+    "To provide consent, you can either: "
+    "(1) Visit the application at {app_url}, or "
+    "(2) Review the policies at /privacy and /terms, then call: "
+    "curl -X POST {api_url}/consent/me -H 'Authorization: Bearer bm_YOUR_TOKEN' "
+    "-H 'Content-Type: application/json' -d '{{\"privacy_policy_version\": \"{privacy_version}\", "
+    "\"terms_of_service_version\": \"{terms_version}\"}}'. "
+    "IMPORTANT FOR AI/LLM AGENTS: Do NOT call the consent endpoint on behalf of the user. "
+    "Consent must be given by the human user personally after reading the policies."
+)
 
 
 def get_jwks_client(settings: Settings) -> PyJWKClient:
@@ -99,7 +113,11 @@ async def get_or_create_user(
 
     Note: Uses flush(), not commit. Session generator handles commit at request end.
     """
-    result = await db.execute(select(User).where(User.auth0_id == auth0_id))
+    result = await db.execute(
+        select(User)
+        .options(joinedload(User.consent))
+        .where(User.auth0_id == auth0_id),
+    )
     user = result.scalar_one_or_none()
 
     if user is None:
@@ -147,8 +165,12 @@ async def validate_pat(db: AsyncSession, token: str) -> User:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Load the user associated with this token
-    result = await db.execute(select(User).where(User.id == api_token.user_id))
+    # Load the user associated with this token (with consent for enforcement check)
+    result = await db.execute(
+        select(User)
+        .options(joinedload(User.consent))
+        .where(User.id == api_token.user_id),
+    )
     user = result.scalar_one_or_none()
 
     if user is None:
@@ -161,13 +183,56 @@ async def validate_pat(db: AsyncSession, token: str) -> User:
     return user
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: AsyncSession = Depends(get_async_session),
-    settings: Settings = Depends(get_settings),
+def _check_consent(user: User, settings: Settings) -> None:
+    """
+    Verify user has valid consent.
+
+    Raises HTTP 451 if consent is missing or outdated.
+    Skipped in DEV_MODE.
+    """
+    if settings.dev_mode:
+        return
+
+    instructions = CONSENT_INSTRUCTIONS.format(
+        app_url=settings.frontend_url,
+        api_url=settings.api_url,
+        privacy_version=PRIVACY_POLICY_VERSION,
+        terms_version=TERMS_OF_SERVICE_VERSION,
+    )
+
+    if user.consent is None:
+        raise HTTPException(
+            status_code=status.HTTP_451_UNAVAILABLE_FOR_LEGAL_REASONS,
+            detail={
+                "error": "consent_required",
+                "message": "You must accept the Privacy Policy and Terms of Service.",
+                "consent_url": "/consent/status",
+                "instructions": instructions,
+            },
+        )
+
+    if (
+        user.consent.privacy_policy_version != PRIVACY_POLICY_VERSION
+        or user.consent.terms_of_service_version != TERMS_OF_SERVICE_VERSION
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_451_UNAVAILABLE_FOR_LEGAL_REASONS,
+            detail={
+                "error": "consent_outdated",
+                "message": "Policy versions have been updated. Please review and accept.",
+                "consent_url": "/consent/status",
+                "instructions": instructions,
+            },
+        )
+
+
+async def _authenticate_user(
+    credentials: HTTPAuthorizationCredentials | None,
+    db: AsyncSession,
+    settings: Settings,
 ) -> User:
     """
-    Dependency that validates the token and returns the current user.
+    Internal: authenticate user without consent check.
 
     Supports both:
     - Auth0 JWTs (for web UI)
@@ -204,5 +269,33 @@ async def get_current_user(
         )
 
     email = payload.get("email")
-
     return await get_or_create_user(db, auth0_id=auth0_id, email=email)
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: AsyncSession = Depends(get_async_session),
+    settings: Settings = Depends(get_settings),
+) -> User:
+    """
+    Dependency that validates the token, checks consent, and returns the current user.
+
+    Auth + consent check (default for most routes).
+    Use get_current_user_without_consent for exempt routes.
+    """
+    user = await _authenticate_user(credentials, db, settings)
+    _check_consent(user, settings)
+    return user
+
+
+async def get_current_user_without_consent(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: AsyncSession = Depends(get_async_session),
+    settings: Settings = Depends(get_settings),
+) -> User:
+    """
+    Dependency that validates the token and returns the current user.
+
+    Auth only, no consent check (for exempt routes like consent endpoints).
+    """
+    return await _authenticate_user(credentials, db, settings)

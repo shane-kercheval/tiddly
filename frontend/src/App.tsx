@@ -3,8 +3,11 @@ import type { ReactNode } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './components/AuthProvider'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { AppLayout } from './components/AppLayout'
 import { Layout } from './components/Layout'
 import { LandingPage } from './pages/LandingPage'
+import { PrivacyPolicy } from './pages/PrivacyPolicy'
+import { TermsOfService } from './pages/TermsOfService'
 import { Bookmarks } from './pages/Bookmarks'
 import { SettingsGeneral } from './pages/settings/SettingsGeneral'
 import { SettingsTokens } from './pages/settings/SettingsTokens'
@@ -15,17 +18,28 @@ import { SettingsTags } from './pages/settings/SettingsTags'
 /**
  * Main application component with routing configuration.
  *
- * Routes:
- * - / : Landing page (public)
- * - /bookmarks : All bookmarks (protected)
- * - /bookmarks/archived : Archived bookmarks (protected)
- * - /bookmarks/trash : Trash (protected)
- * - /bookmarks/lists/:listId : Custom list (protected)
- * - /settings/general : General UI preferences (protected)
- * - /settings/tokens : Personal access tokens (protected)
- * - /settings/mcp : MCP integration setup (protected)
- * - /settings/bookmarks : Bookmark lists and tab order (protected)
- * - /settings/tags : Tag management (protected)
+ * Route structure:
+ * - Public routes (no auth required):
+ *   - / : Landing page
+ *   - /privacy : Privacy Policy
+ *   - /terms : Terms of Service
+ *
+ * - App routes (authentication + consent required):
+ *   - /app : App container (redirects to /app/bookmarks)
+ *   - /app/bookmarks : All bookmarks
+ *   - /app/bookmarks/archived : Archived bookmarks
+ *   - /app/bookmarks/trash : Trash
+ *   - /app/bookmarks/lists/:listId : Custom list
+ *   - /app/settings : Redirects to /app/settings/general
+ *   - /app/settings/general : General UI preferences
+ *   - /app/settings/tokens : Personal access tokens
+ *   - /app/settings/mcp : MCP integration setup
+ *   - /app/settings/bookmarks : Bookmark lists and tab order
+ *   - /app/settings/tags : Tag management
+ *
+ * - Legacy redirects (backward compatibility):
+ *   - /bookmarks : Redirects to /app/bookmarks
+ *   - /settings : Redirects to /app/settings
  */
 function App(): ReactNode {
   return (
@@ -33,22 +47,38 @@ function App(): ReactNode {
       <AuthProvider>
         <Toaster position="top-right" />
         <Routes>
+          {/* Public routes */}
           <Route path="/" element={<LandingPage />} />
-          <Route element={<ProtectedRoute />}>
-            <Route element={<Layout />}>
-              {/* Bookmarks routes */}
-              <Route path="/bookmarks" element={<Bookmarks />} />
-              <Route path="/bookmarks/archived" element={<Bookmarks />} />
-              <Route path="/bookmarks/trash" element={<Bookmarks />} />
-              <Route path="/bookmarks/lists/:listId" element={<Bookmarks />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<TermsOfService />} />
 
-              {/* Settings routes */}
-              <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
-              <Route path="/settings/general" element={<SettingsGeneral />} />
-              <Route path="/settings/tokens" element={<SettingsTokens />} />
-              <Route path="/settings/mcp" element={<SettingsMCP />} />
-              <Route path="/settings/bookmarks" element={<SettingsBookmarks />} />
-              <Route path="/settings/tags" element={<SettingsTags />} />
+          {/* Legacy redirects for backward compatibility */}
+          <Route path="/bookmarks" element={<Navigate to="/app/bookmarks" replace />} />
+          <Route path="/bookmarks/*" element={<Navigate to="/app/bookmarks" replace />} />
+          <Route path="/settings" element={<Navigate to="/app/settings" replace />} />
+          <Route path="/settings/*" element={<Navigate to="/app/settings/general" replace />} />
+
+          {/* Protected app routes - requires auth + consent */}
+          <Route element={<ProtectedRoute />}>
+            <Route element={<AppLayout />}>
+              <Route element={<Layout />}>
+                {/* /app root redirects to bookmarks */}
+                <Route path="/app" element={<Navigate to="/app/bookmarks" replace />} />
+
+                {/* Bookmarks routes */}
+                <Route path="/app/bookmarks" element={<Bookmarks />} />
+                <Route path="/app/bookmarks/archived" element={<Bookmarks />} />
+                <Route path="/app/bookmarks/trash" element={<Bookmarks />} />
+                <Route path="/app/bookmarks/lists/:listId" element={<Bookmarks />} />
+
+                {/* Settings routes */}
+                <Route path="/app/settings" element={<Navigate to="/app/settings/general" replace />} />
+                <Route path="/app/settings/general" element={<SettingsGeneral />} />
+                <Route path="/app/settings/tokens" element={<SettingsTokens />} />
+                <Route path="/app/settings/mcp" element={<SettingsMCP />} />
+                <Route path="/app/settings/bookmarks" element={<SettingsBookmarks />} />
+                <Route path="/app/settings/tags" element={<SettingsTags />} />
+              </Route>
             </Route>
           </Route>
         </Routes>
