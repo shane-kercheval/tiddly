@@ -1,5 +1,6 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { config, isDevMode } from '../config'
+import { useConsentStore } from '../stores/consentStore'
 
 /**
  * Axios instance configured with the API base URL.
@@ -72,13 +73,21 @@ export function setupAuthInterceptor(
     (error: AxiosError) => Promise.reject(error)
   )
 
-  // Response interceptor - handle auth errors
+  // Response interceptor - handle auth and consent errors
   api.interceptors.response.use(
     (response) => response,
     (error: AxiosError) => {
       if (error.response?.status === 401 && !isDevMode) {
         // Token expired or invalid - trigger logout/re-login
         onAuthError()
+      }
+      if (error.response?.status === 451) {
+        // Policy update while logged in - reset and re-check to show dialog
+        const store = useConsentStore.getState()
+        store.reset()
+        store.checkConsent().catch(() => {
+          // Ignore errors - the 451 already indicates consent is needed
+        })
       }
       return Promise.reject(error)
     }

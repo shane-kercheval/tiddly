@@ -1,7 +1,7 @@
 # Implementation Plan: Backend Consent Enforcement
 
 **Date:** December 21, 2024
-**Status:** Draft - Ready for Implementation
+**Status:** Implemented
 **Goal:** Add backend enforcement of Privacy Policy and Terms of Service consent
 
 ---
@@ -327,12 +327,12 @@ Add test for 451 interceptor behavior in `frontend/src/services/api.test.ts`.
 
 ## Success Criteria
 
-- [ ] Policy versions in dedicated module (`core/policy_versions.py`)
-- [ ] User queries use explicit `joinedload(User.consent)` (zero extra queries)
-- [ ] `get_current_user` returns 451 for missing/outdated consent
-- [ ] `get_current_user_without_consent` allows access without consent
-- [ ] Only consent endpoints exempt (`/consent/status`, `POST /consent/me`)
-- [ ] DEV_MODE bypasses consent check
-- [ ] Frontend handles 451 by showing consent dialog
-- [ ] All existing tests pass
-- [ ] New consent enforcement tests pass
+- [x] Policy versions in dedicated module (`core/policy_versions.py`)
+- [x] User queries use explicit `joinedload(User.consent)` (zero extra queries)
+- [x] `get_current_user` returns 451 for missing/outdated consent
+- [x] `get_current_user_without_consent` allows access without consent
+- [x] Only consent endpoints exempt (`/consent/status`, `POST /consent/me`)
+- [x] DEV_MODE bypasses consent check
+- [x] Frontend handles 451 by showing consent dialog
+- [x] All existing tests pass (488 passed)
+- [x] New consent enforcement tests pass

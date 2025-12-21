@@ -1,5 +1,6 @@
 """Tests for bookmark CRUD endpoints."""
 from collections.abc import Generator
+from datetime import datetime, UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,7 +9,23 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
+from models.user import User
+from models.user_consent import UserConsent
 from services.url_scraper import ExtractedMetadata, FetchResult
+
+
+async def add_consent_for_user(db_session: AsyncSession, user: User) -> None:
+    """Add valid consent record for a user (required for non-dev mode tests)."""
+    from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
+
+    consent = UserConsent(
+        user_id=user.id,
+        consented_at=datetime.now(UTC),
+        privacy_policy_version=PRIVACY_POLICY_VERSION,
+        terms_of_service_version=TERMS_OF_SERVICE_VERSION,
+    )
+    db_session.add(consent)
+    await db_session.flush()
 
 
 @pytest.fixture(autouse=True)
@@ -2113,6 +2130,9 @@ async def test_user_cannot_see_other_users_bookmarks_in_list(
     db_session.add(user2)
     await db_session.flush()
 
+    # Add consent for user2 (required when dev_mode=False)
+    await add_consent_for_user(db_session, user2)
+
     _, user2_token = await create_token(
         db_session, user2.id, TokenCreate(name="Test Token"),
     )
@@ -2174,6 +2194,9 @@ async def test_user_cannot_get_other_users_bookmark_by_id(
     db_session.add(user2)
     await db_session.flush()
 
+    # Add consent for user2 (required when dev_mode=False)
+    await add_consent_for_user(db_session, user2)
+
     _, user2_token = await create_token(
         db_session, user2.id, TokenCreate(name="Test Token"),
     )
@@ -2231,6 +2254,9 @@ async def test_user_cannot_update_other_users_bookmark(
     user2 = User(auth0_id="auth0|user2-update-test", email="user2-update@example.com")
     db_session.add(user2)
     await db_session.flush()
+
+    # Add consent for user2 (required when dev_mode=False)
+    await add_consent_for_user(db_session, user2)
 
     _, user2_token = await create_token(
         db_session, user2.id, TokenCreate(name="Test Token"),
@@ -2299,6 +2325,9 @@ async def test_user_cannot_delete_other_users_bookmark(
     user2 = User(auth0_id="auth0|user2-delete-test", email="user2-delete@example.com")
     db_session.add(user2)
     await db_session.flush()
+
+    # Add consent for user2 (required when dev_mode=False)
+    await add_consent_for_user(db_session, user2)
 
     _, user2_token = await create_token(
         db_session, user2.id, TokenCreate(name="Test Token"),

@@ -1,6 +1,7 @@
 """Tests for user consent endpoints."""
 from collections.abc import AsyncGenerator
 from datetime import datetime, UTC
+from typing import TYPE_CHECKING
 
 import pytest
 from httpx import AsyncClient
@@ -9,6 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.user import User
 from models.user_consent import UserConsent
+
+if TYPE_CHECKING:
+    from core.config import Settings
 
 
 @pytest.fixture
@@ -30,13 +34,15 @@ async def client(
     test_user: User,
 ) -> AsyncGenerator[AsyncClient]:
     """Create a test client with user override for consent tests."""
-    from api.dependencies import get_current_user
+    from api.dependencies import get_current_user_without_consent
     from api.main import app
 
-    async def override_get_current_user() -> User:
+    async def override_get_current_user_without_consent() -> User:
         return test_user
 
-    app.dependency_overrides[get_current_user] = override_get_current_user
+    app.dependency_overrides[get_current_user_without_consent] = (
+        override_get_current_user_without_consent
+    )
 
     from db.session import get_async_session
 
@@ -399,3 +405,373 @@ class TestIPDetection:
 
         data = response.json()
         assert data["ip_address"] == ipv6_address
+
+
+class TestConsentEnforcement:
+    """Tests for backend consent enforcement via get_current_user."""
+
+    @pytest.fixture
+    def mock_settings_no_dev_mode(self) -> "Settings":
+        """Create mock settings with dev_mode=False for testing consent enforcement."""
+        from core.config import Settings
+        from unittest.mock import MagicMock
+
+        settings = MagicMock(spec=Settings)
+        settings.dev_mode = False
+        settings.frontend_url = "http://localhost:5173"
+        settings.api_url = "http://localhost:8000"
+        return settings
+
+    @pytest.fixture
+    def mock_settings_dev_mode(self) -> "Settings":
+        """Create mock settings with dev_mode=True for testing DEV_MODE bypass."""
+        from core.config import Settings
+        from unittest.mock import MagicMock
+
+        settings = MagicMock(spec=Settings)
+        settings.dev_mode = True
+        return settings
+
+    @pytest.fixture
+    def user_without_consent(self, test_user: User) -> User:
+        """User without consent record."""
+        test_user.consent = None
+        return test_user
+
+    @pytest.fixture
+    def user_with_valid_consent(self, test_user: User) -> User:
+        """User with valid consent matching current versions."""
+        test_user.consent = UserConsent(
+            id=1,
+            user_id=test_user.id,
+            consented_at=datetime.now(UTC),
+            privacy_policy_version="2024-12-20",
+            terms_of_service_version="2024-12-20",
+        )
+        return test_user
+
+    @pytest.fixture
+    def user_with_outdated_privacy(self, test_user: User) -> User:
+        """User with outdated privacy policy version."""
+        test_user.consent = UserConsent(
+            id=1,
+            user_id=test_user.id,
+            consented_at=datetime.now(UTC),
+            privacy_policy_version="2024-01-01",  # Outdated
+            terms_of_service_version="2024-12-20",
+        )
+        return test_user
+
+    @pytest.fixture
+    def user_with_outdated_terms(self, test_user: User) -> User:
+        """User with outdated terms version."""
+        test_user.consent = UserConsent(
+            id=1,
+            user_id=test_user.id,
+            consented_at=datetime.now(UTC),
+            privacy_policy_version="2024-12-20",
+            terms_of_service_version="2024-01-01",  # Outdated
+        )
+        return test_user
+
+    def test__check_consent__raises_451_without_consent(
+        self,
+        user_without_consent: User,
+        mock_settings_no_dev_mode: "Settings",
+    ) -> None:
+        """Returns HTTP 451 when user has no consent record."""
+        from core.auth import _check_consent
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _check_consent(user_without_consent, mock_settings_no_dev_mode)
+
+        assert exc_info.value.status_code == 451
+        assert exc_info.value.detail["error"] == "consent_required"
+        assert "Privacy Policy" in exc_info.value.detail["message"]
+
+    def test__check_consent__raises_451_with_outdated_privacy_version(
+        self,
+        user_with_outdated_privacy: User,
+        mock_settings_no_dev_mode: "Settings",
+    ) -> None:
+        """Returns HTTP 451 when privacy policy version is outdated."""
+        from core.auth import _check_consent
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _check_consent(user_with_outdated_privacy, mock_settings_no_dev_mode)
+
+        assert exc_info.value.status_code == 451
+        assert exc_info.value.detail["error"] == "consent_outdated"
+        assert "updated" in exc_info.value.detail["message"]
+
+    def test__check_consent__raises_451_with_outdated_terms_version(
+        self,
+        user_with_outdated_terms: User,
+        mock_settings_no_dev_mode: "Settings",
+    ) -> None:
+        """Returns HTTP 451 when terms version is outdated."""
+        from core.auth import _check_consent
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _check_consent(user_with_outdated_terms, mock_settings_no_dev_mode)
+
+        assert exc_info.value.status_code == 451
+        assert exc_info.value.detail["error"] == "consent_outdated"
+
+    def test__check_consent__allows_access_with_valid_consent(
+        self,
+        user_with_valid_consent: User,
+        mock_settings_no_dev_mode: "Settings",
+    ) -> None:
+        """Allows access when consent is valid and current."""
+        from core.auth import _check_consent
+
+        # Should not raise - valid consent
+        _check_consent(user_with_valid_consent, mock_settings_no_dev_mode)
+
+    def test__check_consent__bypasses_in_dev_mode(
+        self,
+        user_without_consent: User,
+        mock_settings_dev_mode: "Settings",
+    ) -> None:
+        """Skips consent check in DEV_MODE."""
+        from core.auth import _check_consent
+
+        # Should not raise - DEV_MODE bypasses consent check
+        _check_consent(user_without_consent, mock_settings_dev_mode)
+
+    def test__451_response__includes_instructions_and_ai_warning(
+        self,
+        user_without_consent: User,
+        mock_settings_no_dev_mode: "Settings",
+    ) -> None:
+        """451 response includes instructions for humans and AI warning."""
+        from core.auth import _check_consent
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _check_consent(user_without_consent, mock_settings_no_dev_mode)
+
+        instructions = exc_info.value.detail["instructions"]
+        # Check instructions include curl example
+        assert "curl -X POST" in instructions
+        assert "/consent/me" in instructions
+        # Check AI warning is included
+        assert "AI/LLM AGENTS" in instructions
+        assert "Do NOT call the consent endpoint on behalf of the user" in instructions
+
+    def test__451_response__includes_consent_url(
+        self,
+        user_without_consent: User,
+        mock_settings_no_dev_mode: "Settings",
+    ) -> None:
+        """451 response includes consent_url for programmatic handling."""
+        from core.auth import _check_consent
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            _check_consent(user_without_consent, mock_settings_no_dev_mode)
+
+        assert exc_info.value.detail["consent_url"] == "/consent/status"
+
+
+class TestConsentEnforcementIntegration:
+    """Integration tests for consent enforcement on protected endpoints."""
+
+    @pytest.fixture
+    async def user_with_consent(
+        self,
+        db_session: AsyncSession,
+    ) -> User:
+        """Create a user with valid consent."""
+        user = User(
+            auth0_id="test-auth0-id-with-consent",
+            email="consented@test.com",
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        consent = UserConsent(
+            user_id=user.id,
+            consented_at=datetime.now(UTC),
+            privacy_policy_version="2024-12-20",
+            terms_of_service_version="2024-12-20",
+        )
+        db_session.add(consent)
+        await db_session.commit()
+        await db_session.refresh(user)
+        return user
+
+    @pytest.fixture
+    async def user_no_consent(
+        self,
+        db_session: AsyncSession,
+    ) -> User:
+        """Create a user without consent."""
+        user = User(
+            auth0_id="test-auth0-id-no-consent",
+            email="noconsent@test.com",
+        )
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+        return user
+
+    @pytest.fixture
+    async def client_with_consent_user(
+        self,
+        db_session: AsyncSession,
+        user_with_consent: User,
+    ) -> AsyncGenerator[AsyncClient]:
+        """Client with a user that has valid consent, DEV_MODE disabled."""
+        from unittest.mock import MagicMock
+
+        from api.dependencies import get_current_user, get_current_user_without_consent
+        from api.main import app
+        from core.auth import _check_consent
+        from core.config import Settings, get_settings
+        from db.session import get_async_session
+        from httpx import ASGITransport
+        from sqlalchemy.orm import joinedload
+
+        # Reload user with consent eagerly loaded
+        result = await db_session.execute(
+            select(User)
+            .options(joinedload(User.consent))
+            .where(User.id == user_with_consent.id),
+        )
+        user = result.scalar_one()
+
+        # Create mock settings for consent check
+        original_settings = get_settings()
+        mock_settings = MagicMock(spec=Settings)
+        mock_settings.dev_mode = False
+        mock_settings.frontend_url = original_settings.frontend_url
+        mock_settings.api_url = original_settings.api_url
+
+        async def override_get_current_user() -> User:
+            # Must call _check_consent to test enforcement
+            _check_consent(user, mock_settings)
+            return user
+
+        async def override_get_current_user_without_consent() -> User:
+            return user
+
+        def override_get_settings() -> Settings:
+            return mock_settings
+
+        async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+            yield db_session
+
+        app.dependency_overrides[get_current_user] = override_get_current_user
+        app.dependency_overrides[get_current_user_without_consent] = (
+            override_get_current_user_without_consent
+        )
+        app.dependency_overrides[get_settings] = override_get_settings
+        app.dependency_overrides[get_async_session] = override_get_async_session
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as test_client:
+            yield test_client
+
+        app.dependency_overrides.clear()
+
+    @pytest.fixture
+    async def client_without_consent_user(
+        self,
+        db_session: AsyncSession,
+        user_no_consent: User,
+    ) -> AsyncGenerator[AsyncClient]:
+        """Client with a user that has no consent, DEV_MODE disabled."""
+        from unittest.mock import MagicMock
+
+        from api.dependencies import get_current_user, get_current_user_without_consent
+        from api.main import app
+        from core.auth import _check_consent
+        from core.config import Settings, get_settings
+        from db.session import get_async_session
+        from httpx import ASGITransport
+        from sqlalchemy.orm import joinedload
+
+        # Reload user with consent eagerly loaded (will be None)
+        result = await db_session.execute(
+            select(User)
+            .options(joinedload(User.consent))
+            .where(User.id == user_no_consent.id),
+        )
+        user = result.scalar_one()
+
+        # Create mock settings for consent check
+        original_settings = get_settings()
+        mock_settings = MagicMock(spec=Settings)
+        mock_settings.dev_mode = False
+        mock_settings.frontend_url = original_settings.frontend_url
+        mock_settings.api_url = original_settings.api_url
+
+        async def override_get_current_user() -> User:
+            # Must call _check_consent to test enforcement
+            _check_consent(user, mock_settings)
+            return user
+
+        async def override_get_current_user_without_consent() -> User:
+            return user
+
+        def override_get_settings() -> Settings:
+            return mock_settings
+
+        async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+            yield db_session
+
+        app.dependency_overrides[get_current_user] = override_get_current_user
+        app.dependency_overrides[get_current_user_without_consent] = (
+            override_get_current_user_without_consent
+        )
+        app.dependency_overrides[get_settings] = override_get_settings
+        app.dependency_overrides[get_async_session] = override_get_async_session
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as test_client:
+            yield test_client
+
+        app.dependency_overrides.clear()
+
+    async def test__protected_route__returns_451_without_consent(
+        self,
+        client_without_consent_user: AsyncClient,
+    ) -> None:
+        """Protected route returns 451 when user has no consent."""
+        response = await client_without_consent_user.get("/users/me")
+
+        assert response.status_code == 451
+        data = response.json()
+        assert data["detail"]["error"] == "consent_required"
+
+    async def test__protected_route__allows_access_with_valid_consent(
+        self,
+        client_with_consent_user: AsyncClient,
+    ) -> None:
+        """Protected route allows access when user has valid consent."""
+        response = await client_with_consent_user.get("/users/me")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "email" in data
+
+    async def test__consent_status__works_without_consent(
+        self,
+        client_without_consent_user: AsyncClient,
+    ) -> None:
+        """GET /consent/status works without consent (exempt route)."""
+        # The fixture already overrides get_current_user_without_consent
+        response = await client_without_consent_user.get("/consent/status")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["needs_consent"] is True

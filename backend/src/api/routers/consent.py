@@ -5,16 +5,13 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_async_session, get_current_user
+from api.dependencies import get_async_session, get_current_user_without_consent
+from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
 from models.user_consent import UserConsent
 from schemas.user_consent import ConsentCreate, ConsentResponse, ConsentStatus
 
 router = APIRouter(prefix="/consent", tags=["consent"])
-
-# Policy version constants
-PRIVACY_POLICY_VERSION = "2024-12-20"
-TERMS_OF_SERVICE_VERSION = "2024-12-20"
 
 
 def get_client_ip(request: Request) -> str | None:
@@ -50,7 +47,7 @@ def get_client_ip(request: Request) -> str | None:
 
 @router.get("/status", response_model=ConsentStatus)
 async def check_consent_status(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_without_consent),
     session: AsyncSession = Depends(get_async_session),
 ) -> ConsentStatus:
     """
@@ -95,7 +92,7 @@ async def check_consent_status(
 async def record_my_consent(
     consent_data: ConsentCreate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_without_consent),
     session: AsyncSession = Depends(get_async_session),
 ) -> UserConsent:
     """
