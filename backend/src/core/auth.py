@@ -7,6 +7,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -111,7 +112,15 @@ async def get_or_create_user(
     """
     Get existing user or create new one from Auth0 claims.
 
+    Handles race conditions where multiple concurrent requests may try to create
+    the same user simultaneously. If an IntegrityError occurs (due to unique
+    constraint on auth0_id), the function rolls back and fetches the existing user.
+
     Note: Uses flush(), not commit. Session generator handles commit at request end.
+
+    Important: This function is called during authentication before any other
+    database operations in the request. The rollback on IntegrityError is safe
+    because no prior work exists to be undone.
     """
     result = await db.execute(
         select(User)
@@ -123,9 +132,22 @@ async def get_or_create_user(
     if user is None:
         user = User(auth0_id=auth0_id, email=email)
         db.add(user)
-        await db.flush()
-    elif email and user.email != email:
-        # Update email if changed in Auth0
+        try:
+            await db.flush()
+        except IntegrityError:
+            # Race condition: another request created the user between our SELECT
+            # and INSERT. Rollback and fetch the existing user.
+            await db.rollback()
+            result = await db.execute(
+                select(User)
+                .options(joinedload(User.consent))
+                .where(User.auth0_id == auth0_id),
+            )
+            user = result.scalar_one()
+
+    # Update email if changed in Auth0 (applies to both existing users and
+    # users fetched after race condition recovery)
+    if email and user.email != email:
         user.email = email
         await db.flush()
 
