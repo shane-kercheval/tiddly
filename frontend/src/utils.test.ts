@@ -309,6 +309,8 @@ describe('getFirstGroupTags', () => {
     },
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
+    default_sort_by: null,
+    default_sort_ascending: null,
   })
 
   it('should return tags from first group when list has single group', () => {

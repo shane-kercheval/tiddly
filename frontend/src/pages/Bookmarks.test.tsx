@@ -9,6 +9,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { Bookmarks } from './Bookmarks'
 import { SORT_LABELS, BASE_SORT_OPTIONS } from '../constants/sortOptions'
+import type { SortByOption, SortOrderOption } from '../constants/sortOptions'
 
 // Mock toast
 vi.mock('react-hot-toast', () => ({
@@ -66,9 +67,14 @@ vi.mock('../hooks/useBookmarkUrlParams', () => ({
 }))
 
 // This mock needs to be configurable per test
-let mockEffectiveSort = {
-  sortBy: 'last_used_at' as const,
-  sortOrder: 'desc' as const,
+let mockEffectiveSort: {
+  sortBy: SortByOption
+  sortOrder: SortOrderOption
+  setSort: typeof mockSetSort
+  availableSortOptions: readonly SortByOption[]
+} = {
+  sortBy: 'last_used_at',
+  sortOrder: 'desc',
   setSort: mockSetSort,
   availableSortOptions: BASE_SORT_OPTIONS,
 }

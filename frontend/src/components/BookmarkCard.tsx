@@ -4,13 +4,14 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { BookmarkListItem } from '../types'
+import type { SortByOption } from '../constants/sortOptions'
 import { formatDate, truncate, getDomain, getUrlWithoutProtocol } from '../utils'
 import { ConfirmDeleteButton } from './ui'
 
 interface BookmarkCardProps {
   bookmark: BookmarkListItem
   view?: 'active' | 'archived' | 'deleted'
-  sortBy?: 'created_at' | 'updated_at' | 'last_used_at' | 'title'
+  sortBy?: SortByOption
   onEdit?: (bookmark: BookmarkListItem) => void
   onDelete: (bookmark: BookmarkListItem) => void
   onArchive?: (bookmark: BookmarkListItem) => void

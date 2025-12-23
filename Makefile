@@ -37,7 +37,7 @@ frontend-lint:  ## Run frontend linter
 	cd frontend && npm run lint
 
 frontend-typecheck:  ## Run TypeScript type checking
-	cd frontend && npx tsc --noEmit
+	cd frontend && npm run typecheck
 
 frontend-tests:  ## Run frontend tests
 	cd frontend && npm run test:run
