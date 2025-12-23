@@ -58,12 +58,6 @@ describe('BookmarkForm', () => {
       expect(urlLabel).toContainHTML('<span class="text-red-500">*</span>')
     })
 
-    it('should show store content checkbox in create mode', () => {
-      render(<BookmarkForm {...defaultProps} />)
-
-      expect(screen.getByLabelText(/Save for search/)).toBeInTheDocument()
-    })
-
     it('should disable Add Bookmark button when URL is empty', () => {
       render(<BookmarkForm {...defaultProps} />)
 
@@ -102,11 +96,10 @@ describe('BookmarkForm', () => {
       expect(screen.getByRole('button', { name: 'Fetch metadata from URL' })).toBeInTheDocument()
     })
 
-    it('should show content field and checkbox in edit mode', () => {
+    it('should show content field in edit mode', () => {
       render(<BookmarkForm {...defaultProps} bookmark={mockBookmark} />)
 
       expect(screen.getByLabelText(/Content/)).toBeInTheDocument()
-      expect(screen.getByLabelText(/Save for search/)).toBeInTheDocument()
     })
   })
 
@@ -127,7 +120,6 @@ describe('BookmarkForm', () => {
           title: 'Test Title',
           description: undefined,
           tags: [],
-          store_content: true,
         })
       })
     })
@@ -339,7 +331,6 @@ describe('BookmarkForm', () => {
       expect(screen.getByLabelText(/URL/)).toBeDisabled()
       expect(screen.getByLabelText(/Title/)).toBeDisabled()
       expect(screen.getByLabelText(/Description/)).toBeDisabled()
-      expect(screen.getByLabelText(/Save for search/)).toBeDisabled()
     })
 
     it('should show Saving... on submit button when isSubmitting', () => {

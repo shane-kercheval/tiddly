@@ -27,32 +27,41 @@ async def add_consent_for_user(db_session: AsyncSession, user: User) -> None:
 
 
 async def test_create_bookmark(client: AsyncClient, db_session: AsyncSession) -> None:
-    """Test creating a new bookmark."""
+    """Test creating a new bookmark with all fields."""
     response = await client.post(
         "/bookmarks/",
         json={
             "url": "https://example.com",
             "title": "Example Site",
             "description": "An example website",
+            "content": "Full page content here",
             "tags": ["example", "test"],
         },
     )
     assert response.status_code == 201
 
     data = response.json()
+    # Verify all response fields
     assert data["url"] == "https://example.com/"
     assert data["title"] == "Example Site"
     assert data["description"] == "An example website"
+    assert data["content"] == "Full page content here"
     assert data["tags"] == ["example", "test"]
-    assert "id" in data
+    assert data["summary"] is None  # AI summary not implemented yet
+    assert data["deleted_at"] is None
+    assert data["archived_at"] is None
+    assert isinstance(data["id"], int)
     assert "created_at" in data
     assert "updated_at" in data
+    assert "last_used_at" in data
 
     # Verify in database
     result = await db_session.execute(select(Bookmark).where(Bookmark.id == data["id"]))
     bookmark = result.scalar_one()
     assert bookmark.url == "https://example.com/"
     assert bookmark.title == "Example Site"
+    assert bookmark.description == "An example website"
+    assert bookmark.content == "Full page content here"
 
 
 async def test_create_bookmark_minimal(client: AsyncClient) -> None:
@@ -68,6 +77,52 @@ async def test_create_bookmark_minimal(client: AsyncClient) -> None:
     assert data["title"] is None
     assert data["description"] is None
     assert data["tags"] == []
+
+
+async def test_create_bookmark_with_content(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test creating a bookmark with user-provided content."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://example.com/with-content",
+            "title": "Article Title",
+            "content": "This is the article content for search.",
+        },
+    )
+    assert response.status_code == 201
+
+    data = response.json()
+    assert data["content"] == "This is the article content for search."
+
+    # Verify content is stored in database
+    result = await db_session.execute(select(Bookmark).where(Bookmark.id == data["id"]))
+    bookmark = result.scalar_one()
+    assert bookmark.content == "This is the article content for search."
+
+
+async def test_create_bookmark_without_content_stores_null(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that content is null when not provided."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://example.com/no-content",
+            "title": "No Content Bookmark",
+        },
+    )
+    assert response.status_code == 201
+
+    # Verify content is null in database
+    result = await db_session.execute(
+        select(Bookmark).where(Bookmark.id == response.json()["id"]),
+    )
+    bookmark = result.scalar_one()
+    assert bookmark.content is None
 
 
 async def test_create_bookmark_normalizes_tags(client: AsyncClient) -> None:
@@ -339,25 +394,6 @@ async def test_create_bookmark_invalid_url(client: AsyncClient) -> None:
         json={"url": "not-a-valid-url"},
     )
     assert response.status_code == 422
-
-
-async def test_create_bookmark_response_includes_summary_field(
-    client: AsyncClient,
-) -> None:
-    """Test that bookmark response includes summary field (null for Phase 1)."""
-    response = await client.post(
-        "/bookmarks/",
-        json={
-            "url": "https://example.com",
-            "title": "Test",
-            "description": "Test description",
-        },
-    )
-
-    assert response.status_code == 201
-    data = response.json()
-    assert "summary" in data
-    assert data["summary"] is None
 
 
 # =============================================================================

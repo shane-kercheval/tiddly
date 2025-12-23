@@ -79,9 +79,8 @@ class BookmarkCreate(BaseModel):
     url: HttpUrl
     title: str | None = None
     description: str | None = None
-    content: str | None = None  # User-provided content (e.g., for paywalled sites)
+    content: str | None = None  # User-provided or scraped content
     tags: list[str] = []
-    store_content: bool = True  # Whether to persist scraped content
 
     @field_validator("tags", mode="before")
     @classmethod

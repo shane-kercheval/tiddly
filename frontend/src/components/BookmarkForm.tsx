@@ -38,7 +38,6 @@ interface FormState {
   description: string
   content: string
   tags: string[]
-  storeContent: boolean
 }
 
 interface FormErrors {
@@ -55,7 +54,6 @@ interface FormErrors {
  * - URL input with "Fetch Metadata" button
  * - Auto-populated title and description from metadata
  * - Tag input with suggestions
- * - "Save for search" checkbox
  * - Validation with inline errors
  */
 export function BookmarkForm({
@@ -76,7 +74,6 @@ export function BookmarkForm({
     description: bookmark?.description || '',
     content: bookmark?.content || '',
     tags: bookmark?.tags || initialTags || [],
-    storeContent: true,
   })
 
   // Track if we've already auto-fetched for this initialUrl
@@ -242,7 +239,6 @@ export function BookmarkForm({
           description: form.description || undefined,
           content: form.content || undefined,
           tags: tagsToSubmit,
-          store_content: form.storeContent,
         }
         await onSubmit(createData)
       }
@@ -356,24 +352,9 @@ export function BookmarkForm({
 
       {/* Content field */}
       <div>
-        <div className="flex items-center justify-between">
-          <label htmlFor="content" className="label">
-            Content
-          </label>
-          <label className="flex items-center gap-1.5 text-sm text-gray-500">
-            <input
-              type="checkbox"
-              id="storeContent"
-              checked={form.storeContent}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, storeContent: e.target.checked }))
-              }
-              disabled={isSubmitting}
-              className="h-3.5 w-3.5 rounded border-gray-300 text-gray-900 focus:ring-gray-900/10"
-            />
-            Save for search
-          </label>
-        </div>
+        <label htmlFor="content" className="label">
+          Content
+        </label>
         <textarea
           id="content"
           value={form.content}

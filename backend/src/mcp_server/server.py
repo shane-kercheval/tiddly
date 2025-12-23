@@ -170,38 +170,23 @@ async def get_bookmark(
 
 
 @mcp.tool(
-    description=(
-        "Create a new bookmark. URL metadata (title, description) "
-        "will be auto-fetched if not provided."
-    ),
+    description="Create a new bookmark.",
     annotations={"readOnlyHint": False},
 )
 async def create_bookmark(
     url: Annotated[str, Field(description="The URL to bookmark")],
-    title: Annotated[
-        str | None, Field(description="Title (auto-fetched from URL if not provided)"),
-    ] = None,
-    description: Annotated[
-        str | None, Field(description="Description (auto-fetched from URL if not provided)"),
-    ] = None,
+    title: Annotated[str | None, Field(description="Bookmark title")] = None,
+    description: Annotated[str | None, Field(description="Bookmark description")] = None,
     tags: Annotated[
         list[str] | None,
         Field(description="Tags to assign (lowercase with hyphens, e.g., 'machine-learning')"),
     ] = None,
-    store_content: Annotated[
-        bool, Field(description="Whether to store the page content for search"),
-    ] = True,
 ) -> dict[str, Any]:
-    """
-    Create a new bookmark.
-
-    If title and description are not provided, they will be automatically
-    fetched from the URL. Tags should be lowercase with hyphens (e.g., 'web-dev').
-    """
+    """Create a new bookmark."""
     client = await _get_http_client()
     token = _get_token()
 
-    payload: dict[str, Any] = {"url": url, "store_content": store_content}
+    payload: dict[str, Any] = {"url": url}
     if title is not None:
         payload["title"] = title
     if description is not None:

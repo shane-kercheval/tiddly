@@ -38,7 +38,6 @@ export interface BookmarkCreate {
   description?: string | null
   content?: string | null
   tags?: string[]
-  store_content?: boolean
 }
 
 /** Data for updating an existing bookmark */
