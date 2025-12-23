@@ -83,6 +83,7 @@ export function BookmarkForm({
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
   const [showFetchSuccess, setShowFetchSuccess] = useState(false)
   const tagInputRef = useRef<TagInputHandle>(null)
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Track previous URL to detect changes
   const prevUrlRef = useRef(form.url)
@@ -124,7 +125,10 @@ export function BookmarkForm({
           }))
 
           setShowFetchSuccess(true)
-          setTimeout(() => setShowFetchSuccess(false), 2000)
+          if (successTimeoutRef.current) {
+            clearTimeout(successTimeoutRef.current)
+          }
+          successTimeoutRef.current = setTimeout(() => setShowFetchSuccess(false), 2000)
         })
         .catch(() => {
           setErrors((prev) => ({
@@ -137,6 +141,15 @@ export function BookmarkForm({
         })
     }
   }, [initialUrl, onFetchMetadata])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const handleFetchMetadata = async (): Promise<void> => {
     if (!form.url.trim()) {
@@ -174,7 +187,10 @@ export function BookmarkForm({
 
       // Show success checkmark temporarily
       setShowFetchSuccess(true)
-      setTimeout(() => setShowFetchSuccess(false), 2000)
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current)
+      }
+      successTimeoutRef.current = setTimeout(() => setShowFetchSuccess(false), 2000)
     } catch {
       setErrors((prev) => ({
         ...prev,
