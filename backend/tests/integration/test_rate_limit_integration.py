@@ -3,8 +3,6 @@ Integration tests for rate limiting through the HTTP layer.
 
 These tests verify that rate limiting works end-to-end with real Redis,
 not mocked. They test the full flow: HTTP request → auth → rate limit check → response headers.
-
-Currently, rate limiting is only applied to the fetch-metadata endpoint (SENSITIVE operation).
 """
 import time
 from unittest.mock import AsyncMock, patch
@@ -12,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 
-from core.rate_limiter import RATE_LIMITS, AuthType, OperationType
+from core.rate_limit_config import RATE_LIMITS, AuthType, OperationType
 from core.redis import RedisClient
 from services.url_scraper import ExtractedMetadata, ScrapedPage
 

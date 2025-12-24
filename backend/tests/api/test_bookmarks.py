@@ -1194,7 +1194,7 @@ async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
     """Test that fetch-metadata endpoint returns 429 when rate limit exceeded."""
     import time
 
-    from core.rate_limiter import RateLimitExceededError, RateLimitResult
+    from core.rate_limit_config import RateLimitResult
 
     mock_scraped = ScrapedPage(
         text=None,
@@ -1208,20 +1208,20 @@ async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
     async def mock_check(
         _user_id: int, _auth_type: object, _operation_type: object,
     ) -> RateLimitResult:
-        raise RateLimitExceededError(RateLimitResult(
+        return RateLimitResult(
             allowed=False,
             limit=30,
             remaining=0,
             reset=int(time.time()) + 60,
             retry_after=60,
-        ))
+        )
 
     with patch(
         'api.routers.bookmarks.scrape_url',
         new_callable=AsyncMock,
         return_value=mock_scraped,
     ), patch(
-        'api.dependencies.rate_limiter.check',
+        'core.auth.check_rate_limit',
         side_effect=mock_check,
     ):
         response = await client.get(

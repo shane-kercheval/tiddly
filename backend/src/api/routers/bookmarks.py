@@ -6,12 +6,10 @@ from pydantic import HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import (
-    check_rate_limit,
     get_async_session,
     get_current_user,
     get_current_user_auth0_only,
 )
-from core.rate_limiter import RateLimitResult
 from models.user import User
 from schemas.bookmark import (
     BookmarkCreate,
@@ -37,7 +35,6 @@ async def fetch_metadata(
     url: HttpUrl = Query(..., description="URL to fetch metadata from"),
     include_content: bool = Query(default=False, description="Also extract page content"),
     _current_user: User = Depends(get_current_user_auth0_only),
-    _rate_limit: RateLimitResult = Depends(check_rate_limit),
 ) -> MetadataPreviewResponse:
     """
     Fetch metadata from a URL without saving a bookmark.

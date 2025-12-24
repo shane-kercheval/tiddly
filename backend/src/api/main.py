@@ -10,7 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from api.routers import bookmarks, consent, health, lists, settings, tags, tokens, users
 from core.auth_cache import AuthCache, set_auth_cache
 from core.config import get_settings
-from core.rate_limiter import RateLimitExceededError
+from core.rate_limit_config import RateLimitExceededError
 from core.redis import RedisClient, set_redis_client
 
 
