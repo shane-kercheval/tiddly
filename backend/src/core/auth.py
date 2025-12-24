@@ -400,16 +400,19 @@ async def get_current_user(
     settings: Settings = Depends(get_settings),
 ) -> User | CachedUser:
     """
-    Dependency that validates the token, checks consent, applies rate limiting,
+    Dependency that validates the token, applies rate limiting, checks consent,
     and returns the current user.
 
     Returns User ORM object on cache miss, CachedUser on cache hit.
-    Auth + consent check + rate limiting (default for most routes).
+    Auth + rate limiting + consent check (default for most routes).
     Use get_current_user_without_consent for exempt routes.
+
+    Note: Rate limiting runs before consent check so all authenticated requests
+    count against limits, even from users who haven't consented yet.
     """
     user = await _authenticate_user(credentials, db, settings, request)
-    _check_consent(user, settings)
     await _apply_rate_limit(user, request)
+    _check_consent(user, settings)
     return user
 
 
@@ -437,7 +440,7 @@ async def get_current_user_auth0_only(
     settings: Settings = Depends(get_settings),
 ) -> User | CachedUser:
     """
-    Dependency: Auth0-only auth + consent check + rate limiting (blocks PAT access).
+    Dependency: Auth0-only auth + rate limiting + consent check (blocks PAT access).
 
     Returns User ORM object on cache miss, CachedUser on cache hit.
     Use this to block PAT access and help prevent unintended programmatic use.
@@ -457,8 +460,8 @@ async def get_current_user_auth0_only(
     Use get_current_user_auth0_only_without_consent for consent-exempt routes.
     """
     user = await _authenticate_user(credentials, db, settings, request, allow_pat=False)
-    _check_consent(user, settings)
     await _apply_rate_limit(user, request)
+    _check_consent(user, settings)
     return user
 
 

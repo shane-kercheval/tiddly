@@ -27,10 +27,8 @@ def low_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
         (AuthType.AUTH0, OperationType.WRITE): TEST_RATE_LIMIT,
         (AuthType.AUTH0, OperationType.SENSITIVE): TEST_RATE_LIMIT,
     }
+    # Only need to patch once - rate_limiter imports RATE_LIMITS at call time
     monkeypatch.setattr(rate_limit_config, "RATE_LIMITS", test_limits)
-    # Also patch the import in rate_limiter module
-    from core import rate_limiter
-    monkeypatch.setattr(rate_limiter, "RATE_LIMITS", test_limits)
 
 
 class TestRateLimitAppliedToAllEndpoints:

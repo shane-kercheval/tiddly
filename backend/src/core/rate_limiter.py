@@ -9,7 +9,6 @@ import time
 import uuid
 
 from core.rate_limit_config import (
-    RATE_LIMITS,
     AuthType,
     OperationType,
     RateLimitResult,
@@ -30,6 +29,9 @@ async def check_rate_limit(
     Returns RateLimitResult with allowed status and header values.
     Falls back to allowing requests if Redis is unavailable.
     """
+    # Import at call time so tests can monkeypatch rate_limit_config.RATE_LIMITS
+    from core.rate_limit_config import RATE_LIMITS
+
     config = RATE_LIMITS.get((auth_type, operation_type))
     if not config:
         # No limit configured (e.g., PAT + SENSITIVE) - return permissive result
