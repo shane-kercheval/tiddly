@@ -7,6 +7,9 @@ fallback behavior which contain actual business logic.
 """
 import time
 import uuid
+from unittest.mock import AsyncMock, patch
+
+from redis.exceptions import RedisError
 
 from core.redis import RedisClient
 
@@ -152,3 +155,98 @@ class TestRedisClientUnavailable:
         assert await client.evalsha("sha", 1, "key") is None
 
         await client.close()
+
+
+class TestRedisOperationFailures:
+    """Tests for Redis operation failures when connected (network blips, timeouts)."""
+
+    async def test__get__returns_none_on_redis_error(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """GET returns None when Redis raises an error mid-operation."""
+        with patch.object(
+            redis_client._client, "get",
+            new_callable=AsyncMock,
+            side_effect=RedisError("Connection lost"),
+        ):
+            result = await redis_client.get("any-key")
+
+        assert result is None
+
+    async def test__setex__returns_false_on_redis_error(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """SETEX returns False when Redis raises an error mid-operation."""
+        with patch.object(
+            redis_client._client, "setex",
+            new_callable=AsyncMock,
+            side_effect=RedisError("Connection lost"),
+        ):
+            result = await redis_client.setex("any-key", 60, "value")
+
+        assert result is False
+
+    async def test__delete__returns_false_on_redis_error(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """DELETE returns False when Redis raises an error mid-operation."""
+        with patch.object(
+            redis_client._client, "delete",
+            new_callable=AsyncMock,
+            side_effect=RedisError("Connection lost"),
+        ):
+            result = await redis_client.delete("any-key")
+
+        assert result is False
+
+    async def test__evalsha__returns_none_on_redis_error(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """EVALSHA returns None when Redis raises an error mid-operation."""
+        with patch.object(
+            redis_client._client, "evalsha",
+            new_callable=AsyncMock,
+            side_effect=RedisError("Connection lost"),
+        ):
+            result = await redis_client.evalsha("some-sha", 1, "key")
+
+        assert result is None
+
+    async def test__ping__returns_false_on_redis_error(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """PING returns False when Redis raises an error mid-operation."""
+        with patch.object(
+            redis_client._client, "ping",
+            new_callable=AsyncMock,
+            side_effect=RedisError("Connection lost"),
+        ):
+            result = await redis_client.ping()
+
+        assert result is False
+
+    async def test__flushdb__returns_false_on_redis_error(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """FLUSHDB returns False when Redis raises an error mid-operation."""
+        with patch.object(
+            redis_client._client, "flushdb",
+            new_callable=AsyncMock,
+            side_effect=RedisError("Connection lost"),
+        ):
+            result = await redis_client.flushdb()
+
+        assert result is False
+
+    async def test__script_load__returns_none_on_redis_error(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """SCRIPT LOAD returns None when Redis raises an error mid-operation."""
+        with patch.object(
+            redis_client._client, "script_load",
+            new_callable=AsyncMock,
+            side_effect=RedisError("Connection lost"),
+        ):
+            result = await redis_client.script_load("return 1")
+
+        assert result is None

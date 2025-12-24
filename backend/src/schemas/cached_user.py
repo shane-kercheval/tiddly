@@ -9,6 +9,11 @@ class CachedUser:
 
     Avoids ORM reconstruction complexity - just the fields needed for auth checks.
 
+    IMPORTANT: When adding, removing, or renaming fields in this class, you MUST bump
+    CACHE_SCHEMA_VERSION in core/auth_cache.py. This ensures old cached entries (with
+    the previous schema) are ignored and expire naturally via TTL. Without bumping
+    the version, deserialization will fail or return stale/incorrect data.
+
     Safe attributes (available on both CachedUser and User ORM):
     - id: int
     - auth0_id: str

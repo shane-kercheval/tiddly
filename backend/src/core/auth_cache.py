@@ -11,8 +11,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Bump this when CachedUser fields change
-# Old versioned keys will be ignored and cleaned up by TTL
+# Cache schema version - included in all cache keys (e.g., "auth:v1:user:...")
+#
+# Bump this version when CachedUser fields are added, removed, or renamed.
+# This ensures old cached entries (with the previous schema) are ignored:
+# - New code looks for "auth:v2:..." keys
+# - Old "auth:v1:..." keys are never found (cache miss)
+# - Old entries expire naturally via TTL (5 minutes)
+#
+# This avoids the need for cache invalidation during deployments.
 CACHE_SCHEMA_VERSION = 1
 
 
