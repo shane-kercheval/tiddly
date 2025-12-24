@@ -212,16 +212,18 @@ None - this is the foundation.
 ## Milestone 2: Redis-Based Rate Limiting
 
 ### Goal
-Replace in-memory rate limiter with Redis-based sliding window implementation supporting tiered limits.
+Replace in-memory rate limiter with Redis-based implementation supporting tiered limits.
 
 ### Success Criteria
-- Rate limits enforced via Redis sorted sets (sliding window)
+- Per-minute limits enforced via Redis sorted sets (sliding window for precision)
+- Daily caps enforced via Redis INCR + EXPIRE (fixed window, simpler and lower memory)
 - Different limits for PAT vs Auth0 tokens
 - Different limits for read vs write vs sensitive operations
-- Daily caps in addition to per-minute limits
 - Rate limit headers returned on all responses (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`)
 - Graceful fallback when Redis unavailable
 - Existing `fetch_metadata_limiter` migrated to new system
+
+**Note on daily caps:** Uses rolling 24-hour window (not calendar-day reset). This is more forgiving for users - no "cliff edge" at midnight where limits suddenly reset.
 
 ### Key Changes
 
@@ -244,12 +246,21 @@ class RateLimitConfig:
     requests_per_minute: int
     requests_per_day: int
 
+@dataclass
+class RateLimitResult:
+    """Result of a rate limit check with all info needed for headers."""
+    allowed: bool
+    limit: int           # Max requests in current window
+    remaining: int       # Requests remaining in current window
+    reset: int           # Unix timestamp when window resets
+    retry_after: int     # Seconds until retry allowed (0 if allowed)
+
 # Limit configuration
 # Daily caps: general (read/write) vs sensitive are tracked separately
 RATE_LIMITS: dict[tuple[AuthType, OperationType], RateLimitConfig] = {
     (AuthType.PAT, OperationType.READ): RateLimitConfig(120, 2000),
     (AuthType.PAT, OperationType.WRITE): RateLimitConfig(60, 2000),
-    # PAT + SENSITIVE = not allowed (handled separately, returns 403)
+    # PAT + SENSITIVE = not allowed (handled by auth dependency, returns 403)
     (AuthType.AUTH0, OperationType.READ): RateLimitConfig(300, 4000),
     (AuthType.AUTH0, OperationType.WRITE): RateLimitConfig(90, 4000),
     (AuthType.AUTH0, OperationType.SENSITIVE): RateLimitConfig(30, 250),  # Separate daily key
@@ -266,54 +277,89 @@ SENSITIVE_ENDPOINTS: set[tuple[str, str]] = {
 }
 
 class RedisRateLimiter:
-    """Redis-based sliding window rate limiter."""
+    """Redis-based rate limiter with sliding window (per-minute) and fixed window (daily)."""
 
-    async def is_allowed(
+    async def check(
         self,
         user_id: int,
         auth_type: AuthType,
         operation_type: OperationType,
-    ) -> tuple[bool, int | None]:
+    ) -> RateLimitResult:
         """
-        Check if request is allowed.
+        Check if request is allowed and return full rate limit info.
 
-        Returns:
-            (allowed, retry_after_seconds or None)
+        Returns RateLimitResult with allowed status and header values.
         """
         config = RATE_LIMITS.get((auth_type, operation_type))
         if not config:
-            return True, None  # No limit configured
+            # No limit configured - return permissive result
+            return RateLimitResult(
+                allowed=True, limit=0, remaining=0, reset=0, retry_after=0
+            )
 
-        # Check minute limit
+        now = int(time.time())
+
+        # Check minute limit (sliding window for precision)
         minute_key = f"rate:{user_id}:{auth_type.value}:{operation_type.value}:min"
-        minute_allowed, minute_retry = await self._check_window(
-            minute_key, config.requests_per_minute, 60
+        minute_result = await self._check_sliding_window(
+            minute_key, config.requests_per_minute, 60, now
         )
-        if not minute_allowed:
-            return False, minute_retry
+        if not minute_result.allowed:
+            return minute_result
 
-        # Check daily limit (separate pools for general vs sensitive)
+        # Check daily limit (fixed window - simpler, lower memory)
         daily_pool = "sensitive" if operation_type == OperationType.SENSITIVE else "general"
         day_key = f"rate:{user_id}:daily:{daily_pool}"
-        day_allowed, day_retry = await self._check_window(
-            day_key, config.requests_per_day, 86400
+        day_result = await self._check_fixed_window(
+            day_key, config.requests_per_day, 86400, now
         )
-        if not day_allowed:
-            return False, day_retry
+        if not day_result.allowed:
+            return day_result
 
-        return True, None
+        # Both passed - return the per-minute result (more relevant for headers)
+        return minute_result
 
-    async def _check_window(
-        self, key: str, max_requests: int, window_seconds: int
-    ) -> tuple[bool, int | None]:
-        """Sliding window check using Redis sorted set."""
+    async def _check_sliding_window(
+        self, key: str, max_requests: int, window_seconds: int, now: int
+    ) -> RateLimitResult:
+        """
+        Sliding window check using Redis sorted set.
+
+        More accurate than fixed window - prevents gaming at window boundaries.
+        Used for per-minute limits where precision matters.
+        """
         # Implementation uses ZADD/ZREMRANGEBYSCORE/ZCARD pattern
         # Falls back to allowing if Redis unavailable
+        ...
+
+    async def _check_fixed_window(
+        self, key: str, max_requests: int, window_seconds: int, now: int
+    ) -> RateLimitResult:
+        """
+        Fixed window check using Redis INCR + EXPIRE.
+
+        Simpler and lower memory than sliding window.
+        Used for daily limits where slight boundary imprecision is acceptable.
+        """
+        # Implementation uses INCR + EXPIRE pattern
+        # Falls back to allowing if Redis unavailable
+        ...
+```
+
+**backend/src/core/rate_limiter.py** - Custom exception for rate limiting:
+```python
+class RateLimitExceeded(Exception):
+    """Raised when rate limit is exceeded."""
+    def __init__(self, result: RateLimitResult):
+        self.result = result
+        super().__init__("Rate limit exceeded")
 ```
 
 **backend/src/api/dependencies.py** - Add rate limit dependency:
 ```python
-from core.rate_limiter import AuthType, OperationType, rate_limiter, SENSITIVE_ENDPOINTS
+from core.rate_limiter import (
+    AuthType, OperationType, rate_limiter, SENSITIVE_ENDPOINTS, RateLimitExceeded
+)
 
 def _get_operation_type(method: str, path: str) -> OperationType:
     """Determine operation type from HTTP method and path."""
@@ -326,12 +372,13 @@ def _get_operation_type(method: str, path: str) -> OperationType:
 async def check_rate_limit(
     request: Request,
     current_user: User = Depends(get_current_user),
-) -> None:
+) -> RateLimitResult:
     """
     Dependency that enforces rate limits.
 
     Reads auth_type from request.state (set by auth dependency).
-    Stores rate limit info in request.state for middleware to add headers.
+    Returns RateLimitResult for adding headers to successful responses.
+    Raises RateLimitExceeded for 429 responses (handled by exception handler).
     """
     auth_type = getattr(request.state, "auth_type", AuthType.AUTH0)
     operation_type = _get_operation_type(request.method, request.url.path)
@@ -340,34 +387,47 @@ async def check_rate_limit(
         current_user.id, auth_type, operation_type
     )
 
-    # Store for middleware to add headers
-    request.state.rate_limit_info = {
-        "limit": result.limit,
-        "remaining": result.remaining,
-        "reset": result.reset,
-    }
-
     if not result.allowed:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded. Please try again later.",
-            headers={"Retry-After": str(result.retry_after)},
-        )
+        raise RateLimitExceeded(result)
+
+    return result
 ```
 
-**backend/src/api/middleware/rate_limit_headers.py** - Middleware for headers:
+**backend/src/api/main.py** - Exception handler for 429 responses:
+```python
+from core.rate_limiter import RateLimitExceeded
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exception_handler(
+    request: Request, exc: RateLimitExceeded
+) -> JSONResponse:
+    """Handle rate limit exceeded with proper headers."""
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please try again later."},
+        headers={
+            "Retry-After": str(exc.result.retry_after),
+            "X-RateLimit-Limit": str(exc.result.limit),
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": str(exc.result.reset),
+        },
+    )
+```
+
+**backend/src/api/middleware/rate_limit_headers.py** - Middleware for successful responses:
 ```python
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
-    """Add rate limit headers to responses."""
+    """Add rate limit headers to successful responses."""
 
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
 
         # Add headers if rate limit info was stored by dependency
+        # Note: 429 responses are handled by exception handler, not middleware
         info = getattr(request.state, "rate_limit_info", None)
         if info:
             response.headers["X-RateLimit-Limit"] = str(info["limit"])
@@ -381,6 +441,8 @@ class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
 ```python
 app.add_middleware(RateLimitHeadersMiddleware)
 ```
+
+**Note:** The exception handler ensures 429 responses always include rate limit headers, even though middleware may not execute for exception responses.
 
 **Router changes** - Apply rate limiting:
 - Remove inline rate limiting from `fetch_metadata` endpoint
@@ -399,24 +461,24 @@ app.add_middleware(RateLimitHeadersMiddleware)
 
 Key test cases:
 ```python
-async def test__rate_limit__pat_write_blocked_at_30_per_minute()
-async def test__rate_limit__auth0_write_allowed_up_to_60_per_minute()
-async def test__rate_limit__sensitive_uses_15_per_minute_limit()
+async def test__rate_limit__pat_write_blocked_at_60_per_minute()
+async def test__rate_limit__auth0_write_allowed_up_to_90_per_minute()
+async def test__rate_limit__sensitive_uses_30_per_minute_limit()
 async def test__rate_limit__sensitive_daily_cap_250()
 async def test__rate_limit__daily_cap_enforced_across_operations()
 async def test__rate_limit__different_users_have_separate_buckets()
 async def test__rate_limit__redis_down_fails_open()
 async def test__rate_limit__headers_included_in_response()
-async def test__rate_limit__headers_decrement_correctly()
+async def test__rate_limit__headers_on_429_response()
 ```
 
 ### Dependencies
 - Milestone 1 (Redis Infrastructure)
 
 ### Risk Factors
-- Sliding window with sorted sets has Redis memory overhead
+- Sliding window sorted sets have memory overhead (mitigated by using fixed window for daily limits)
 - Need to balance accuracy vs Redis operations per request
-- Consider using Redis pipeline for atomic operations
+- Lua scripts require testing with both fakeredis and real Redis
 
 ---
 
@@ -485,7 +547,6 @@ class AuthCache:
         key = self._cache_key_auth0(auth0_id)
         data = await self._redis.get(key)
         if data:
-            logger.info("auth_cache_hit", extra={"auth0_id": auth0_id})
             return self._deserialize(data)
         logger.info("auth_cache_miss", extra={"auth0_id": auth0_id})
         return None
@@ -550,7 +611,16 @@ async def get_or_create_user(
     Get user from cache or database.
 
     Returns CachedUser on cache hit, User ORM object on cache miss.
-    Both have the fields needed for auth checks (id, auth0_id, email, consent).
+
+    Safe attributes (available on both types):
+    - id: int
+    - auth0_id: str
+    - email: str | None
+    - consent_privacy_version: str | None (CachedUser) or consent.privacy_policy_version (User)
+    - consent_tos_version: str | None (CachedUser) or consent.terms_of_service_version (User)
+
+    WARNING: Do NOT access ORM relationships like .bookmarks, .tokens on the return value.
+    Those only exist on User, not CachedUser.
     """
     # Try cache first
     cached = await auth_cache.get_by_auth0_id(auth0_id)
@@ -727,10 +797,12 @@ Three operation types: **Read**, **Write**, **Sensitive**
 | Operation | PAT | Auth0 |
 |-----------|-----|-------|
 | Read | 120/min | 300/min |
-| Write | 30/min | 60/min |
-| Sensitive | N/A (403) | 15/min |
-| Daily (read/write) | 2,000/day | 5,000/day |
+| Write | 60/min | 90/min |
+| Sensitive | N/A (403) | 30/min |
+| Daily (read/write) | 2,000/day | 4,000/day |
 | Daily (sensitive) | N/A | 250/day |
+
+Daily caps use a rolling 24-hour window (not calendar-day reset).
 
 **Sensitive endpoints** (Auth0-only, stricter limits):
 - `GET /bookmarks/fetch-metadata`
@@ -796,12 +868,20 @@ export class RateLimitError extends Error {
 
 ## Implementation Notes
 
-### Redis Lua Scripts
+### Testing Strategy: fakeredis vs Testcontainers
 
-For atomic sliding window operations, consider using Lua scripts:
+Use both for different scenarios:
+- **fakeredis**: Fast unit tests for rate limiter logic (already installed in project)
+- **Testcontainers Redis**: Integration tests that need real Redis behavior
+
+This keeps the test suite fast while still verifying real Redis interactions.
+
+### Redis Lua Scripts (Per-Minute Sliding Window)
+
+For atomic sliding window operations on per-minute limits, use Lua scripts:
 
 ```lua
--- Sliding window rate limit check
+-- Sliding window rate limit check (used for per-minute limits)
 local key = KEYS[1]
 local now = tonumber(ARGV[1])
 local window = tonumber(ARGV[2])
@@ -817,13 +897,39 @@ if count < limit then
     -- Add new entry
     redis.call('ZADD', key, now, now .. ':' .. math.random())
     redis.call('EXPIRE', key, window)
-    return {1, 0}  -- allowed, no retry needed
+    return {1, limit - count - 1, 0}  -- allowed, remaining, no retry needed
 else
     -- Get oldest entry for retry-after calculation
     local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
     local retry_after = (oldest[2] + window) - now
-    return {0, math.ceil(retry_after)}  -- denied, retry after
+    return {0, 0, math.ceil(retry_after)}  -- denied, 0 remaining, retry after
 end
+```
+
+### Fixed Window for Daily Limits
+
+Daily limits use simple INCR + EXPIRE (no Lua script needed):
+
+```python
+async def _check_fixed_window(self, key: str, limit: int, window: int) -> RateLimitResult:
+    """Fixed window using INCR + EXPIRE."""
+    pipe = self._redis.pipeline()
+    pipe.incr(key)
+    pipe.ttl(key)
+    count, ttl = await pipe.execute()
+
+    # Set expiry on first request
+    if ttl == -1:
+        await self._redis.expire(key, window)
+        ttl = window
+
+    return RateLimitResult(
+        allowed=count <= limit,
+        limit=limit,
+        remaining=max(0, limit - count),
+        reset=int(time.time()) + ttl,
+        retry_after=ttl if count > limit else 0,
+    )
 ```
 
 ### Railway Deployment
