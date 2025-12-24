@@ -29,14 +29,16 @@ npm run test:run        # Run tests once
 npm run test            # Run tests in watch mode
 npm run lint            # Run ESLint
 
-# Database
-make db-up              # Start PostgreSQL container
+# Docker (PostgreSQL + Redis)
+make docker-up          # Start all containers
+make docker-down        # Stop all containers
+make docker-restart     # Restart all containers
+make docker-logs        # Show container logs
+make redis-cli          # Connect to Redis CLI
+
+# Database Migrations
 make migrate            # Run Alembic migrations
 make migration message="description"  # Create new migration
-
-# Redis (required for rate limiting and auth caching)
-# Redis runs via docker-compose alongside PostgreSQL
-docker-compose up -d    # Start both PostgreSQL and Redis
 ```
 
 ## Architecture
