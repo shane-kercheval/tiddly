@@ -3,13 +3,15 @@ Tests for auth module, focusing on null email handling and edge cases.
 
 Email is nullable by design (some Auth0 providers don't include it).
 These tests verify the null email path works correctly.
+
+Note: Imports from core.auth are done inside test methods to avoid triggering
+Settings validation during test collection (before DATABASE_URL is set by fixtures).
 """
 import json
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth import get_or_create_user
 from core.auth_cache import CACHE_SCHEMA_VERSION, get_auth_cache
 from core.redis import RedisClient
 from models.user import User
@@ -24,6 +26,8 @@ class TestGetOrCreateUserNullEmail:
         redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """User can be created with email=None."""
+        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+
         auth0_id = "auth0|null-email-test-1"
 
         user = await get_or_create_user(db_session, auth0_id=auth0_id)
@@ -39,6 +43,8 @@ class TestGetOrCreateUserNullEmail:
         redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """Existing user with null email can be retrieved."""
+        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+
         auth0_id = "auth0|null-email-test-2"
 
         # Create user without email
@@ -63,6 +69,8 @@ class TestGetOrCreateUserNullEmail:
         redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """User's email can be updated from null to a value."""
+        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+
         auth0_id = "auth0|null-email-test-3"
 
         # Create user without email
@@ -90,6 +98,8 @@ class TestGetOrCreateUserNullEmail:
         redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """Passing email=None does not overwrite existing email."""
+        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+
         auth0_id = "auth0|null-email-test-4"
 
         # Create user with email
@@ -121,6 +131,8 @@ class TestAuthCacheNullEmail:
         redis_client: RedisClient,
     ) -> None:
         """Cache correctly stores user with null email."""
+        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+
         auth0_id = "auth0|cache-null-email-1"
 
         # Create user without email
@@ -141,6 +153,8 @@ class TestAuthCacheNullEmail:
         redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """Cached user with null email can be retrieved."""
+        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+
         auth0_id = "auth0|cache-null-email-2"
 
         # Create user without email (populates cache)
@@ -161,6 +175,9 @@ class TestAuthCacheNullEmail:
         redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """Second request for null-email user uses cache."""
+        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+        from schemas.cached_user import CachedUser
+
         auth0_id = "auth0|cache-null-email-3"
 
         # First request creates user and populates cache
@@ -168,7 +185,6 @@ class TestAuthCacheNullEmail:
         await db_session.commit()
 
         # Second request should return CachedUser (not User ORM)
-        from schemas.cached_user import CachedUser
         result = await get_or_create_user(db_session, auth0_id=auth0_id)
 
         # Should be CachedUser on cache hit
@@ -189,6 +205,8 @@ class TestEmailMismatchCacheFallthrough:
 
         This handles the case where Auth0 updates the user's email.
         """
+        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+
         auth0_id = "auth0|email-mismatch-test"
 
         # Create user with old email (populates cache)
@@ -224,6 +242,8 @@ class TestEmailMismatchCacheFallthrough:
         redis_client: RedisClient,
     ) -> None:
         """When cache has null email and request has email, updates via DB."""
+        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+
         auth0_id = "auth0|null-to-email-test"
 
         # Create user without email (populates cache with null email)
