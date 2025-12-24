@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     # Redis - for rate limiting and auth caching
     redis_url: str = Field(default="redis://localhost:6379", validation_alias="REDIS_URL")
     redis_enabled: bool = Field(default=True, validation_alias="REDIS_ENABLED")
+    redis_pool_size: int = Field(default=20, validation_alias="REDIS_POOL_SIZE")
 
     @model_validator(mode="after")
     def validate_dev_mode_security(self) -> "Settings":

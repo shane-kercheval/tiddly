@@ -9,7 +9,7 @@ import time
 import uuid
 from unittest.mock import AsyncMock, patch
 
-from redis.exceptions import RedisError
+from redis.exceptions import NoScriptError, RedisError
 
 from core.redis import RedisClient
 
@@ -250,3 +250,200 @@ class TestRedisOperationFailures:
             result = await redis_client.script_load("return 1")
 
         assert result is None
+
+
+class TestNoScriptErrorHandling:
+    """Tests for NOSCRIPT error handling (script reload after Redis restart)."""
+
+    async def test__eval_sliding_window__reloads_on_noscript(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """Sliding window reloads scripts on NOSCRIPT error and retries."""
+        key = "test:noscript:sliding"
+        now = int(time.time())
+
+        # First call raises NOSCRIPT, simulating Redis restart
+        call_count = 0
+        original_evalsha = redis_client._client.evalsha
+
+        async def mock_evalsha(*args: object, **kwargs: object) -> list[int]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise NoScriptError("NOSCRIPT No matching script")
+            return await original_evalsha(*args, **kwargs)
+
+        with patch.object(redis_client._client, "evalsha", side_effect=mock_evalsha):
+            result = await redis_client.eval_sliding_window(
+                key=key,
+                now=now,
+                window_seconds=60,
+                max_requests=10,
+                request_id="test-uuid",
+            )
+
+        # Should succeed after reload and retry
+        assert result is not None
+        assert result[0] == 1  # allowed
+        assert call_count == 2  # First call failed, second succeeded
+
+    async def test__eval_fixed_window__reloads_on_noscript(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """Fixed window reloads scripts on NOSCRIPT error and retries."""
+        key = "test:noscript:fixed"
+
+        call_count = 0
+        original_evalsha = redis_client._client.evalsha
+
+        async def mock_evalsha(*args: object, **kwargs: object) -> list[int]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise NoScriptError("NOSCRIPT No matching script")
+            return await original_evalsha(*args, **kwargs)
+
+        with patch.object(redis_client._client, "evalsha", side_effect=mock_evalsha):
+            result = await redis_client.eval_fixed_window(
+                key=key,
+                max_requests=10,
+                window_seconds=60,
+            )
+
+        # Should succeed after reload and retry
+        assert result is not None
+        assert result[0] == 1  # allowed
+        assert call_count == 2
+
+    async def test__eval_sliding_window__returns_none_if_retry_fails(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """Returns None if retry also fails after reload."""
+        with patch.object(
+            redis_client._client, "evalsha",
+            new_callable=AsyncMock,
+            side_effect=NoScriptError("NOSCRIPT No matching script"),
+        ):
+            # Script reload will work but evalsha keeps failing
+            result = await redis_client.eval_sliding_window(
+                key="test:fail",
+                now=int(time.time()),
+                window_seconds=60,
+                max_requests=10,
+                request_id="test-uuid",
+            )
+
+        # Should return None after retry fails
+        assert result is None
+
+    async def test__eval_fixed_window__returns_none_if_retry_fails(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """Returns None if retry also fails after reload."""
+        with patch.object(
+            redis_client._client, "evalsha",
+            new_callable=AsyncMock,
+            side_effect=NoScriptError("NOSCRIPT No matching script"),
+        ):
+            result = await redis_client.eval_fixed_window(
+                key="test:fail",
+                max_requests=10,
+                window_seconds=60,
+            )
+
+        assert result is None
+
+    async def test__eval_sliding_window__returns_none_when_not_connected(
+        self,
+    ) -> None:
+        """Returns None when client is not connected."""
+        client = RedisClient("redis://localhost:6379", enabled=False)
+        await client.connect()
+
+        result = await client.eval_sliding_window(
+            key="test:key",
+            now=int(time.time()),
+            window_seconds=60,
+            max_requests=10,
+            request_id="test-uuid",
+        )
+
+        assert result is None
+        await client.close()
+
+    async def test__eval_fixed_window__returns_none_when_not_connected(
+        self,
+    ) -> None:
+        """Returns None when client is not connected."""
+        client = RedisClient("redis://localhost:6379", enabled=False)
+        await client.connect()
+
+        result = await client.eval_fixed_window(
+            key="test:key",
+            max_requests=10,
+            window_seconds=60,
+        )
+
+        assert result is None
+        await client.close()
+
+
+class TestEvalScriptMethods:
+    """Tests for the new eval_sliding_window and eval_fixed_window methods."""
+
+    async def test__eval_sliding_window__works_correctly(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """Sliding window method works correctly."""
+        key = "test:eval:sliding"
+        now = int(time.time())
+
+        # Make 3 requests - all should be allowed
+        for i in range(3):
+            result = await redis_client.eval_sliding_window(
+                key=key,
+                now=now + i,
+                window_seconds=60,
+                max_requests=3,
+                request_id=str(uuid.uuid4()),
+            )
+            assert result is not None
+            assert result[0] == 1  # allowed
+            assert result[1] == 3 - i - 1  # remaining
+
+        # 4th request should be denied
+        result = await redis_client.eval_sliding_window(
+            key=key,
+            now=now + 3,
+            window_seconds=60,
+            max_requests=3,
+            request_id=str(uuid.uuid4()),
+        )
+        assert result is not None
+        assert result[0] == 0  # denied
+
+    async def test__eval_fixed_window__works_correctly(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """Fixed window method works correctly."""
+        key = "test:eval:fixed"
+
+        # Make 3 requests - all should be allowed
+        for i in range(3):
+            result = await redis_client.eval_fixed_window(
+                key=key,
+                max_requests=3,
+                window_seconds=60,
+            )
+            assert result is not None
+            assert result[0] == 1  # allowed
+            assert result[1] == 3 - i - 1  # remaining
+
+        # 4th request should be denied
+        result = await redis_client.eval_fixed_window(
+            key=key,
+            max_requests=3,
+            window_seconds=60,
+        )
+        assert result is not None
+        assert result[0] == 0  # denied

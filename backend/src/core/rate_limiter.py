@@ -103,7 +103,7 @@ async def _check_sliding_window(
     Used for per-minute limits where precision matters.
     """
     redis_client = get_redis_client()
-    if redis_client is None or redis_client.sliding_window_sha is None:
+    if redis_client is None:
         # Redis unavailable - fail open
         return RateLimitResult(
             allowed=True,
@@ -113,14 +113,12 @@ async def _check_sliding_window(
             retry_after=0,
         )
 
-    result = await redis_client.evalsha(
-        redis_client.sliding_window_sha,
-        1,  # number of keys
-        key,
-        now,
-        window_seconds,
-        max_requests,
-        str(uuid.uuid4()),  # unique request ID
+    result = await redis_client.eval_sliding_window(
+        key=key,
+        now=now,
+        window_seconds=window_seconds,
+        max_requests=max_requests,
+        request_id=str(uuid.uuid4()),
     )
 
     if result is None:
@@ -153,7 +151,7 @@ async def _check_fixed_window(
     Used for daily limits where slight boundary imprecision is acceptable.
     """
     redis_client = get_redis_client()
-    if redis_client is None or redis_client.fixed_window_sha is None:
+    if redis_client is None:
         # Redis unavailable - fail open
         return RateLimitResult(
             allowed=True,
@@ -163,12 +161,10 @@ async def _check_fixed_window(
             retry_after=0,
         )
 
-    result = await redis_client.evalsha(
-        redis_client.fixed_window_sha,
-        1,  # number of keys
-        key,
-        max_requests,
-        window_seconds,
+    result = await redis_client.eval_fixed_window(
+        key=key,
+        max_requests=max_requests,
+        window_seconds=window_seconds,
     )
 
     if result is None:

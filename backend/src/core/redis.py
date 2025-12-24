@@ -4,7 +4,7 @@ from typing import Any
 
 from redis.asyncio import ConnectionPool, Redis
 from redis.asyncio.client import Pipeline
-from redis.exceptions import RedisError
+from redis.exceptions import NoScriptError, RedisError
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +63,10 @@ end
 class RedisClient:
     """Async Redis client with connection pooling and graceful fallback."""
 
-    def __init__(self, url: str, enabled: bool = True) -> None:
+    def __init__(self, url: str, enabled: bool = True, pool_size: int = 20) -> None:
         self._url = url
         self._enabled = enabled
+        self._pool_size = pool_size
         self._pool: ConnectionPool | None = None
         self._client: Redis | None = None
         self._sliding_window_sha: str | None = None
@@ -77,7 +78,7 @@ class RedisClient:
             logger.info("Redis disabled by configuration")
             return
         try:
-            self._pool = ConnectionPool.from_url(self._url, max_connections=10)
+            self._pool = ConnectionPool.from_url(self._url, max_connections=self._pool_size)
             self._client = Redis(connection_pool=self._pool)
             # Verify connection
             await self._client.ping()
@@ -200,6 +201,124 @@ class RedisClient:
         except RedisError as e:
             logger.warning("Redis FLUSHDB failed: %s", e)
             return False
+
+    async def eval_sliding_window(
+        self,
+        key: str,
+        now: int,
+        window_seconds: int,
+        max_requests: int,
+        request_id: str,
+    ) -> list[int] | None:
+        """
+        Execute sliding window rate limit script with automatic script reload.
+
+        Handles NOSCRIPT errors by reloading scripts and retrying once.
+
+        Args:
+            key: Redis key for this rate limit bucket
+            now: Current Unix timestamp
+            window_seconds: Window size in seconds
+            max_requests: Maximum requests allowed in window
+            request_id: Unique ID for this request (prevents collisions)
+
+        Returns:
+            [allowed, remaining, retry_after] or None if Redis unavailable
+        """
+        # Check for SHA being None: this can happen if Redis was unavailable at startup
+        # (scripts couldn't be loaded) or if _load_scripts() failed during a NOSCRIPT retry.
+        # In either case, we fail open by returning None.
+        if not self._client or self._sliding_window_sha is None:
+            return None
+
+        try:
+            return await self._client.evalsha(
+                self._sliding_window_sha,
+                1,
+                key,
+                now,
+                window_seconds,
+                max_requests,
+                request_id,
+            )
+        except NoScriptError:
+            # Redis restarted, scripts need reloading
+            logger.warning("redis_script_reload", extra={"script": "sliding_window"})
+            await self._load_scripts()
+            if self._sliding_window_sha is None:
+                return None
+            # Retry once with fresh SHA
+            try:
+                return await self._client.evalsha(
+                    self._sliding_window_sha,
+                    1,
+                    key,
+                    now,
+                    window_seconds,
+                    max_requests,
+                    request_id,
+                )
+            except RedisError as e:
+                logger.warning("Redis sliding window retry failed: %s", e)
+                return None
+        except RedisError as e:
+            logger.warning("Redis sliding window failed: %s", e)
+            return None
+
+    async def eval_fixed_window(
+        self,
+        key: str,
+        max_requests: int,
+        window_seconds: int,
+    ) -> list[int] | None:
+        """
+        Execute fixed window rate limit script with automatic script reload.
+
+        Handles NOSCRIPT errors by reloading scripts and retrying once.
+
+        Args:
+            key: Redis key for this rate limit bucket
+            max_requests: Maximum requests allowed in window
+            window_seconds: Window size in seconds
+
+        Returns:
+            [allowed, remaining, ttl, retry_after] or None if Redis unavailable
+        """
+        # Check for SHA being None: this can happen if Redis was unavailable at startup
+        # (scripts couldn't be loaded) or if _load_scripts() failed during a NOSCRIPT retry.
+        # In either case, we fail open by returning None.
+        if not self._client or self._fixed_window_sha is None:
+            return None
+
+        try:
+            return await self._client.evalsha(
+                self._fixed_window_sha,
+                1,
+                key,
+                max_requests,
+                window_seconds,
+            )
+        except NoScriptError:
+            # Redis restarted, scripts need reloading
+            logger.warning("redis_script_reload", extra={"script": "fixed_window"})
+            await self._load_scripts()
+            if self._fixed_window_sha is None:
+                return None
+            # Retry once with fresh SHA
+            try:
+                return await self._client.evalsha(
+                    self._fixed_window_sha,
+                    1,
+                    key,
+                    max_requests,
+                    window_seconds,
+                )
+            except RedisError as e:
+                logger.warning("Redis fixed window retry failed: %s", e)
+                return None
+        except RedisError as e:
+            logger.warning("Redis fixed window failed: %s", e)
+            return None
 
 
 # Global Redis client state using a container to avoid global statement

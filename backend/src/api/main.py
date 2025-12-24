@@ -23,6 +23,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     redis_client = RedisClient(
         url=app_settings.redis_url,
         enabled=app_settings.redis_enabled,
+        pool_size=app_settings.redis_pool_size,
     )
     await redis_client.connect()
     set_redis_client(redis_client)
