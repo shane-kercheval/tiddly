@@ -12,6 +12,7 @@ from core.rate_limiter import check_rate_limit
 from core.redis import RedisClient
 
 # Reference configurations for cleaner tests
+PAT_READ_CONFIG = RATE_LIMITS[(AuthType.PAT, OperationType.READ)]
 AUTH0_READ_CONFIG = RATE_LIMITS[(AuthType.AUTH0, OperationType.READ)]
 AUTH0_SENSITIVE_CONFIG = RATE_LIMITS[(AuthType.AUTH0, OperationType.SENSITIVE)]
 
@@ -108,11 +109,10 @@ class TestCheckRateLimit:
         assert result1.allowed is True
         assert result2.allowed is True
 
-    async def test__check__pat_has_lower_limits_than_auth0(
+    async def test__check__pat_and_auth0_use_configured_limits(
         self, redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
-        """PAT has lower per-minute limits than Auth0."""
-        # PAT READ is 120/min, AUTH0 READ is 300/min
+        """PAT and Auth0 use their respective configured limits."""
         pat_result = await check_rate_limit(
             user_id=1,
             auth_type=AuthType.PAT,
@@ -124,8 +124,9 @@ class TestCheckRateLimit:
             operation_type=OperationType.READ,
         )
 
-        # PAT should have lower limit
-        assert pat_result.limit < auth0_result.limit
+        # Verify limits match configuration
+        assert pat_result.limit == PAT_READ_CONFIG.requests_per_minute
+        assert auth0_result.limit == AUTH0_READ_CONFIG.requests_per_minute
 
     async def test__check__sensitive_has_strictest_limits(
         self, redis_client: RedisClient,  # noqa: ARG002
