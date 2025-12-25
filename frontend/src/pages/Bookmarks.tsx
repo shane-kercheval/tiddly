@@ -1,10 +1,19 @@
 /**
  * Bookmarks page - main bookmark list view with search, filter, and CRUD operations.
  */
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import toast from 'react-hot-toast'
 import { useBookmarks } from '../hooks/useBookmarks'
+import { useBookmarksQuery } from '../hooks/useBookmarksQuery'
+import {
+  useCreateBookmark,
+  useUpdateBookmark,
+  useDeleteBookmark,
+  useRestoreBookmark,
+  useArchiveBookmark,
+  useUnarchiveBookmark,
+} from '../hooks/useBookmarkMutations'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useBookmarkView } from '../hooks/useBookmarkView'
@@ -55,26 +64,18 @@ export function Bookmarks(): ReactNode {
   const [pastedUrl, setPastedUrl] = useState<string | undefined>(undefined)
   const [loadingBookmarkId, setLoadingBookmarkId] = useState<number | null>(null)
 
-  // Hooks for data
-  const {
-    bookmarks,
-    total,
-    isLoading,
-    error,
-    fetchBookmarks,
-    fetchBookmark,
-    createBookmark,
-    updateBookmark,
-    deleteBookmark,
-    restoreBookmark,
-    archiveBookmark,
-    unarchiveBookmark,
-    fetchMetadata,
-    trackBookmarkUsage,
-    clearAndSetLoading,
-  } = useBookmarks()
+  // Non-cacheable utilities from useBookmarks
+  const { fetchBookmark, fetchMetadata, trackBookmarkUsage } = useBookmarks()
 
-  const { tags: tagSuggestions, fetchTags } = useTagsStore()
+  // Mutation hooks with automatic cache invalidation
+  const createMutation = useCreateBookmark()
+  const updateMutation = useUpdateBookmark()
+  const deleteMutation = useDeleteBookmark()
+  const restoreMutation = useRestoreBookmark()
+  const archiveMutation = useArchiveBookmark()
+  const unarchiveMutation = useUnarchiveBookmark()
+
+  const { tags: tagSuggestions } = useTagsStore()
   const lists = useListsStore((state) => state.lists)
   const { pageSize, setPageSize } = useUIPreferencesStore()
 
@@ -90,20 +91,6 @@ export function Bookmarks(): ReactNode {
 
   // Route-based view
   const { currentView, currentListId } = useBookmarkView()
-
-  // Track previous view/list to detect changes
-  const prevViewRef = useRef({ view: currentView, listId: currentListId })
-
-  // Clear bookmarks immediately when view or list changes (runs before paint)
-  useLayoutEffect(() => {
-    const viewChanged = prevViewRef.current.view !== currentView
-    const listChanged = prevViewRef.current.listId !== currentListId
-
-    if (viewChanged || listChanged) {
-      clearAndSetLoading()
-      prevViewRef.current = { view: currentView, listId: currentListId }
-    }
-  }, [currentView, currentListId, clearAndSetLoading])
 
   // URL params for search and pagination (sort now from useEffectiveSort, tags from store)
   const {
@@ -160,10 +147,18 @@ export function Bookmarks(): ReactNode {
     [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentListId]
   )
 
-  // Fetch bookmarks when params change
-  useEffect(() => {
-    fetchBookmarks(currentParams)
-  }, [fetchBookmarks, currentParams])
+  // Fetch bookmarks with TanStack Query caching
+  const {
+    data: queryData,
+    isLoading,
+    error: queryError,
+    refetch,
+  } = useBookmarksQuery(currentParams)
+
+  // Extract data from query result
+  const bookmarks = queryData?.items ?? []
+  const total = queryData?.total ?? 0
+  const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to fetch bookmarks') : null
 
   // Keyboard shortcuts (page-specific - global shortcuts are in Layout)
   useKeyboardShortcuts({
@@ -278,11 +273,9 @@ export function Bookmarks(): ReactNode {
   const handleAddBookmark = async (data: BookmarkCreate | BookmarkUpdate): Promise<void> => {
     setIsSubmitting(true)
     try {
-      await createBookmark(data as BookmarkCreate)
+      await createMutation.mutateAsync(data as BookmarkCreate)
       setShowAddModal(false)
       setPastedUrl(undefined)
-      fetchBookmarks(currentParams)
-      fetchTags()
     } catch (err) {
       // Check for duplicate URL error (409 Conflict)
       if (err && typeof err === 'object' && 'response' in err) {
@@ -310,12 +303,10 @@ export function Bookmarks(): ReactNode {
                   <button
                     onClick={() => {
                       toast.dismiss(t.id)
-                      unarchiveBookmark(bookmarkId)
+                      unarchiveMutation.mutateAsync(bookmarkId)
                         .then(() => {
                           setShowAddModal(false)
                           setPastedUrl(undefined)
-                          fetchBookmarks(currentParams)
-                          fetchTags()
                           toast.success('Bookmark unarchived')
                         })
                         .catch(() => {
@@ -350,10 +341,8 @@ export function Bookmarks(): ReactNode {
 
     setIsSubmitting(true)
     try {
-      await updateBookmark(editingBookmark.id, data as BookmarkUpdate)
+      await updateMutation.mutateAsync({ id: editingBookmark.id, data: data as BookmarkUpdate })
       setEditingBookmark(null)
-      fetchBookmarks(currentParams)
-      fetchTags()
     } catch (err) {
       // Check for duplicate URL error (409 Conflict)
       if (err && typeof err === 'object' && 'response' in err) {
@@ -374,9 +363,7 @@ export function Bookmarks(): ReactNode {
     // In trash view, use permanent delete (confirmation handled by ConfirmDeleteButton)
     if (currentView === 'deleted') {
       try {
-        await deleteBookmark(bookmark.id, true) // permanent=true
-        fetchBookmarks(currentParams)
-        fetchTags()
+        await deleteMutation.mutateAsync({ id: bookmark.id, permanent: true })
       } catch {
         toast.error('Failed to delete bookmark')
       }
@@ -385,9 +372,7 @@ export function Bookmarks(): ReactNode {
 
     // In active/archived views, use soft delete with undo toast
     try {
-      await deleteBookmark(bookmark.id)
-      fetchBookmarks(currentParams)
-      fetchTags()
+      await deleteMutation.mutateAsync({ id: bookmark.id })
       toast.success(
         (t) => (
           <span className="flex items-center gap-2">
@@ -395,10 +380,8 @@ export function Bookmarks(): ReactNode {
             <button
               onClick={() => {
                 toast.dismiss(t.id)
-                restoreBookmark(bookmark.id)
+                restoreMutation.mutateAsync(bookmark.id)
                   .then(() => {
-                    fetchBookmarks(currentParams)
-                    fetchTags()
                     toast.success('Bookmark restored')
                   })
                   .catch(() => {
@@ -420,9 +403,7 @@ export function Bookmarks(): ReactNode {
 
   const handleArchiveBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
-      await archiveBookmark(bookmark.id)
-      fetchBookmarks(currentParams)
-      fetchTags()
+      await archiveMutation.mutateAsync(bookmark.id)
       toast.success(
         (t) => (
           <span className="flex items-center gap-2">
@@ -430,10 +411,8 @@ export function Bookmarks(): ReactNode {
             <button
               onClick={() => {
                 toast.dismiss(t.id)
-                unarchiveBookmark(bookmark.id)
+                unarchiveMutation.mutateAsync(bookmark.id)
                   .then(() => {
-                    fetchBookmarks(currentParams)
-                    fetchTags()
                     toast.success('Bookmark unarchived')
                   })
                   .catch(() => {
@@ -455,9 +434,7 @@ export function Bookmarks(): ReactNode {
 
   const handleUnarchiveBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
-      await unarchiveBookmark(bookmark.id)
-      fetchBookmarks(currentParams)
-      fetchTags()
+      await unarchiveMutation.mutateAsync(bookmark.id)
       toast.success(
         (t) => (
           <span className="flex items-center gap-2">
@@ -465,10 +442,8 @@ export function Bookmarks(): ReactNode {
             <button
               onClick={() => {
                 toast.dismiss(t.id)
-                archiveBookmark(bookmark.id)
+                archiveMutation.mutateAsync(bookmark.id)
                   .then(() => {
-                    fetchBookmarks(currentParams)
-                    fetchTags()
                     toast.success('Bookmark archived')
                   })
                   .catch(() => {
@@ -490,9 +465,7 @@ export function Bookmarks(): ReactNode {
 
   const handleRestoreBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
-      await restoreBookmark(bookmark.id)
-      fetchBookmarks(currentParams)
-      fetchTags()
+      await restoreMutation.mutateAsync(bookmark.id)
       toast.success(
         (t) => (
           <span className="flex items-center gap-2">
@@ -500,10 +473,8 @@ export function Bookmarks(): ReactNode {
             <button
               onClick={() => {
                 toast.dismiss(t.id)
-                deleteBookmark(bookmark.id)
+                deleteMutation.mutateAsync({ id: bookmark.id })
                   .then(() => {
-                    fetchBookmarks(currentParams)
-                    fetchTags()
                     toast.success('Bookmark moved to trash')
                   })
                   .catch(() => {
@@ -526,9 +497,7 @@ export function Bookmarks(): ReactNode {
   const handleTagRemove = async (bookmark: BookmarkListItem, tag: string): Promise<void> => {
     const newTags = bookmark.tags.filter((t) => t !== tag)
     try {
-      await updateBookmark(bookmark.id, { tags: newTags })
-      fetchBookmarks(currentParams)
-      fetchTags()
+      await updateMutation.mutateAsync({ id: bookmark.id, data: { tags: newTags } })
     } catch {
       toast.error('Failed to remove tag')
     }
@@ -562,7 +531,7 @@ export function Bookmarks(): ReactNode {
     }
 
     if (error) {
-      return <ErrorState message={error} onRetry={() => fetchBookmarks(currentParams)} />
+      return <ErrorState message={error} onRetry={() => refetch()} />
     }
 
     if (bookmarks.length === 0) {
