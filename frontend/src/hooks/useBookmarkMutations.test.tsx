@@ -187,6 +187,21 @@ describe('useUpdateBookmark', () => {
     // Should NOT invalidate deleted
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
   })
+
+  it('should refresh tags on success', async () => {
+    const queryClient = createTestQueryClient()
+    mockPatch.mockResolvedValueOnce({ data: { id: 1 } })
+
+    const { result } = renderHook(() => useUpdateBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 1, data: { title: 'New' } })
+    })
+
+    expect(mockFetchTags).toHaveBeenCalled()
+  })
 })
 
 describe('useDeleteBookmark', () => {
@@ -263,6 +278,36 @@ describe('useDeleteBookmark', () => {
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
   })
+
+  it('should refresh tags on soft delete', async () => {
+    const queryClient = createTestQueryClient()
+    mockDelete.mockResolvedValueOnce({})
+
+    const { result } = renderHook(() => useDeleteBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 1 })
+    })
+
+    expect(mockFetchTags).toHaveBeenCalled()
+  })
+
+  it('should refresh tags on permanent delete', async () => {
+    const queryClient = createTestQueryClient()
+    mockDelete.mockResolvedValueOnce({})
+
+    const { result } = renderHook(() => useDeleteBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 1, permanent: true })
+    })
+
+    expect(mockFetchTags).toHaveBeenCalled()
+  })
 })
 
 describe('useRestoreBookmark', () => {
@@ -311,6 +356,21 @@ describe('useRestoreBookmark', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
     // Should NOT invalidate archived
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
+  })
+
+  it('should refresh tags on success', async () => {
+    const queryClient = createTestQueryClient()
+    mockPost.mockResolvedValueOnce({ data: { id: 1 } })
+
+    const { result } = renderHook(() => useRestoreBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync(1)
+    })
+
+    expect(mockFetchTags).toHaveBeenCalled()
   })
 })
 
@@ -361,6 +421,21 @@ describe('useArchiveBookmark', () => {
     // Should NOT invalidate deleted
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
   })
+
+  it('should refresh tags on success', async () => {
+    const queryClient = createTestQueryClient()
+    mockPost.mockResolvedValueOnce({ data: { id: 1 } })
+
+    const { result } = renderHook(() => useArchiveBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync(1)
+    })
+
+    expect(mockFetchTags).toHaveBeenCalled()
+  })
 })
 
 describe('useUnarchiveBookmark', () => {
@@ -409,5 +484,20 @@ describe('useUnarchiveBookmark', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
     // Should NOT invalidate deleted
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
+  })
+
+  it('should refresh tags on success', async () => {
+    const queryClient = createTestQueryClient()
+    mockPost.mockResolvedValueOnce({ data: { id: 1 } })
+
+    const { result } = renderHook(() => useUnarchiveBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync(1)
+    })
+
+    expect(mockFetchTags).toHaveBeenCalled()
   })
 })
