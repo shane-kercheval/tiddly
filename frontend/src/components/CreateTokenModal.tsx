@@ -218,7 +218,7 @@ export function CreateTokenModal({ isOpen, onClose, onCreate }: CreateTokenModal
               id="token-expiry"
               value={expiresInDays}
               onChange={(e) => setExpiresInDays(e.target.value)}
-              className="input"
+              className="select"
               disabled={isSubmitting}
             >
               {EXPIRY_OPTIONS.map((option) => (

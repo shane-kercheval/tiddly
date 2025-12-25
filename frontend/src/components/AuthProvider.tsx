@@ -43,6 +43,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         redirect_uri: window.location.origin,
         audience: config.auth0.audience,
       }}
+      cacheLocation="localstorage"
+      useRefreshTokens={true}
     >
       <AuthInterceptorSetup>{children}</AuthInterceptorSetup>
     </Auth0Provider>
