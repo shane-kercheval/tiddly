@@ -49,7 +49,7 @@ Railway automatically creates these variables on the Postgres service:
 ### Step 2b: Add Redis
 
 In the Railway dashboard:
-1. Press `Cmd+K` (Mac) or `Ctrl+K` (Windows)
+1. Click `Create`
 2. Type "Redis" and select **Add Redis**
 
 Railway automatically creates these variables on the Redis service:
