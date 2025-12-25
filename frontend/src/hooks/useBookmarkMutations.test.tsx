@@ -1,5 +1,7 @@
 /**
  * Tests for useBookmarkMutations hooks.
+ *
+ * Tests both API calls AND cache invalidation behavior.
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
@@ -13,6 +15,7 @@ import {
   useArchiveBookmark,
   useUnarchiveBookmark,
 } from './useBookmarkMutations'
+import { bookmarkKeys } from './useBookmarksQuery'
 import { api } from '../services/api'
 
 vi.mock('../services/api', () => ({
@@ -23,10 +26,10 @@ vi.mock('../services/api', () => ({
   },
 }))
 
+const mockFetchTags = vi.fn()
 vi.mock('../stores/tagsStore', () => ({
   useTagsStore: (selector: (state: { fetchTags: () => void }) => unknown) => {
-    const fetchTags = vi.fn()
-    return selector({ fetchTags })
+    return selector({ fetchTags: mockFetchTags })
   },
 }))
 
@@ -34,13 +37,16 @@ const mockPost = api.post as Mock
 const mockPatch = api.patch as Mock
 const mockDelete = api.delete as Mock
 
-function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
-  const queryClient = new QueryClient({
+function createTestQueryClient(): QueryClient {
+  return new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
     },
   })
+}
+
+function createWrapper(queryClient: QueryClient): ({ children }: { children: ReactNode }) => ReactNode {
   return function Wrapper({ children }: { children: ReactNode }): ReactNode {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   }
@@ -52,6 +58,7 @@ describe('useCreateBookmark', () => {
   })
 
   it('should create a bookmark', async () => {
+    const queryClient = createTestQueryClient()
     const mockBookmark = {
       id: 1,
       url: 'https://example.com',
@@ -61,7 +68,7 @@ describe('useCreateBookmark', () => {
     mockPost.mockResolvedValueOnce({ data: mockBookmark })
 
     const { result } = renderHook(() => useCreateBookmark(), {
-      wrapper: createWrapper(),
+      wrapper: createWrapper(queryClient),
     })
 
     let created: unknown
@@ -81,17 +88,51 @@ describe('useCreateBookmark', () => {
     })
   })
 
+  it('should invalidate active view and custom lists on success', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    mockPost.mockResolvedValueOnce({ data: { id: 1 } })
+
+    const { result } = renderHook(() => useCreateBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ url: 'https://example.com' })
+    })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    // Should NOT invalidate archived or deleted
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
+  })
+
+  it('should refresh tags on success', async () => {
+    const queryClient = createTestQueryClient()
+    mockPost.mockResolvedValueOnce({ data: { id: 1 } })
+
+    const { result } = renderHook(() => useCreateBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ url: 'https://example.com' })
+    })
+
+    expect(mockFetchTags).toHaveBeenCalled()
+  })
+
   it('should throw on error', async () => {
+    const queryClient = createTestQueryClient()
     mockPost.mockRejectedValueOnce(new Error('Duplicate URL'))
 
     const { result } = renderHook(() => useCreateBookmark(), {
-      wrapper: createWrapper(),
+      wrapper: createWrapper(queryClient),
     })
 
     await expect(
-      result.current.mutateAsync({
-        url: 'https://example.com',
-      })
+      result.current.mutateAsync({ url: 'https://example.com' })
     ).rejects.toThrow('Duplicate URL')
   })
 })
@@ -102,6 +143,7 @@ describe('useUpdateBookmark', () => {
   })
 
   it('should update a bookmark', async () => {
+    const queryClient = createTestQueryClient()
     const mockBookmark = {
       id: 1,
       url: 'https://example.com',
@@ -111,7 +153,7 @@ describe('useUpdateBookmark', () => {
     mockPatch.mockResolvedValueOnce({ data: mockBookmark })
 
     const { result } = renderHook(() => useUpdateBookmark(), {
-      wrapper: createWrapper(),
+      wrapper: createWrapper(queryClient),
     })
 
     let updated: unknown
@@ -125,6 +167,26 @@ describe('useUpdateBookmark', () => {
     expect(updated).toEqual(mockBookmark)
     expect(mockPatch).toHaveBeenCalledWith('/bookmarks/1', { title: 'Updated Title' })
   })
+
+  it('should invalidate active, archived, and custom lists on success', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    mockPatch.mockResolvedValueOnce({ data: { id: 1 } })
+
+    const { result } = renderHook(() => useUpdateBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 1, data: { title: 'New' } })
+    })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    // Should NOT invalidate deleted
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
+  })
 })
 
 describe('useDeleteBookmark', () => {
@@ -133,10 +195,11 @@ describe('useDeleteBookmark', () => {
   })
 
   it('should soft delete a bookmark by default', async () => {
+    const queryClient = createTestQueryClient()
     mockDelete.mockResolvedValueOnce({})
 
     const { result } = renderHook(() => useDeleteBookmark(), {
-      wrapper: createWrapper(),
+      wrapper: createWrapper(queryClient),
     })
 
     await act(async () => {
@@ -146,11 +209,32 @@ describe('useDeleteBookmark', () => {
     expect(mockDelete).toHaveBeenCalledWith('/bookmarks/1')
   })
 
-  it('should permanently delete a bookmark when permanent=true', async () => {
+  it('should invalidate active, deleted, and custom lists on soft delete', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockDelete.mockResolvedValueOnce({})
 
     const { result } = renderHook(() => useDeleteBookmark(), {
-      wrapper: createWrapper(),
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 1 })
+    })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    // Should NOT invalidate archived
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
+  })
+
+  it('should permanently delete a bookmark when permanent=true', async () => {
+    const queryClient = createTestQueryClient()
+    mockDelete.mockResolvedValueOnce({})
+
+    const { result } = renderHook(() => useDeleteBookmark(), {
+      wrapper: createWrapper(queryClient),
     })
 
     await act(async () => {
@@ -158,6 +242,26 @@ describe('useDeleteBookmark', () => {
     })
 
     expect(mockDelete).toHaveBeenCalledWith('/bookmarks/1?permanent=true')
+  })
+
+  it('should only invalidate deleted view on permanent delete', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    mockDelete.mockResolvedValueOnce({})
+
+    const { result } = renderHook(() => useDeleteBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 1, permanent: true })
+    })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
+    // Should NOT invalidate active, archived, or custom lists
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
   })
 })
 
@@ -167,6 +271,7 @@ describe('useRestoreBookmark', () => {
   })
 
   it('should restore a deleted bookmark', async () => {
+    const queryClient = createTestQueryClient()
     const mockBookmark = {
       id: 1,
       url: 'https://example.com',
@@ -176,7 +281,7 @@ describe('useRestoreBookmark', () => {
     mockPost.mockResolvedValueOnce({ data: mockBookmark })
 
     const { result } = renderHook(() => useRestoreBookmark(), {
-      wrapper: createWrapper(),
+      wrapper: createWrapper(queryClient),
     })
 
     let restored: unknown
@@ -187,6 +292,26 @@ describe('useRestoreBookmark', () => {
     expect(restored).toEqual(mockBookmark)
     expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/restore')
   })
+
+  it('should invalidate active, deleted, and custom lists on success', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    mockPost.mockResolvedValueOnce({ data: { id: 1 } })
+
+    const { result } = renderHook(() => useRestoreBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync(1)
+    })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    // Should NOT invalidate archived
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
+  })
 })
 
 describe('useArchiveBookmark', () => {
@@ -195,6 +320,7 @@ describe('useArchiveBookmark', () => {
   })
 
   it('should archive a bookmark', async () => {
+    const queryClient = createTestQueryClient()
     const mockBookmark = {
       id: 1,
       url: 'https://example.com',
@@ -204,7 +330,7 @@ describe('useArchiveBookmark', () => {
     mockPost.mockResolvedValueOnce({ data: mockBookmark })
 
     const { result } = renderHook(() => useArchiveBookmark(), {
-      wrapper: createWrapper(),
+      wrapper: createWrapper(queryClient),
     })
 
     let archived: unknown
@@ -215,6 +341,26 @@ describe('useArchiveBookmark', () => {
     expect(archived).toEqual(mockBookmark)
     expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/archive')
   })
+
+  it('should invalidate active, archived, and custom lists on success', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    mockPost.mockResolvedValueOnce({ data: { id: 1 } })
+
+    const { result } = renderHook(() => useArchiveBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync(1)
+    })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    // Should NOT invalidate deleted
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
+  })
 })
 
 describe('useUnarchiveBookmark', () => {
@@ -223,6 +369,7 @@ describe('useUnarchiveBookmark', () => {
   })
 
   it('should unarchive a bookmark', async () => {
+    const queryClient = createTestQueryClient()
     const mockBookmark = {
       id: 1,
       url: 'https://example.com',
@@ -232,7 +379,7 @@ describe('useUnarchiveBookmark', () => {
     mockPost.mockResolvedValueOnce({ data: mockBookmark })
 
     const { result } = renderHook(() => useUnarchiveBookmark(), {
-      wrapper: createWrapper(),
+      wrapper: createWrapper(queryClient),
     })
 
     let unarchived: unknown
@@ -242,5 +389,25 @@ describe('useUnarchiveBookmark', () => {
 
     expect(unarchived).toEqual(mockBookmark)
     expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/unarchive')
+  })
+
+  it('should invalidate active, archived, and custom lists on success', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    mockPost.mockResolvedValueOnce({ data: { id: 1 } })
+
+    const { result } = renderHook(() => useUnarchiveBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync(1)
+    })
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
+    // Should NOT invalidate deleted
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
   })
 })

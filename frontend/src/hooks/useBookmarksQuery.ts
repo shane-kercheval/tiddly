@@ -14,20 +14,39 @@ import type { BookmarkListResponse, BookmarkSearchParams } from '../types'
 /**
  * Query key factory for consistent cache keys.
  *
- * Structure:
- * - ['bookmarks', 'list', params] - for fetching bookmark lists
- * - ['bookmarks', 'active'] - for invalidating active view cache
- * - ['bookmarks', 'archived'] - for invalidating archived view cache
- * - ['bookmarks', 'deleted'] - for invalidating deleted view cache
- * - ['bookmarks', 'list'] - prefix to invalidate all list queries
+ * Key Structure (view segment BEFORE params for prefix matching):
+ * - ['bookmarks', 'list', 'active', params]  - active view queries
+ * - ['bookmarks', 'list', 'archived', params] - archived view queries
+ * - ['bookmarks', 'list', 'deleted', params] - deleted view queries
+ * - ['bookmarks', 'list', 'custom', params] - custom list queries (have list_id)
+ *
+ * Invalidation Keys (prefix matching):
+ * - bookmarkKeys.view('active')  → ['bookmarks', 'list', 'active'] - all active queries
+ * - bookmarkKeys.view('archived') → ['bookmarks', 'list', 'archived'] - all archived queries
+ * - bookmarkKeys.view('deleted') → ['bookmarks', 'list', 'deleted'] - all deleted queries
+ * - bookmarkKeys.customLists()   → ['bookmarks', 'list', 'custom'] - all custom list queries
+ * - bookmarkKeys.lists()         → ['bookmarks', 'list'] - ALL list queries
  */
 export const bookmarkKeys = {
   all: ['bookmarks'] as const,
   lists: () => [...bookmarkKeys.all, 'list'] as const,
-  list: (params: BookmarkSearchParams) => [...bookmarkKeys.lists(), params] as const,
-  active: () => [...bookmarkKeys.all, 'active'] as const,
-  archived: () => [...bookmarkKeys.all, 'archived'] as const,
-  deleted: () => [...bookmarkKeys.all, 'deleted'] as const,
+
+  /** Invalidation key for a specific view type (active/archived/deleted) */
+  view: (view: 'active' | 'archived' | 'deleted') =>
+    [...bookmarkKeys.lists(), view] as const,
+
+  /** Invalidation key for all custom list queries */
+  customLists: () => [...bookmarkKeys.lists(), 'custom'] as const,
+
+  /** Query key for fetching - includes view/custom segment for granular invalidation */
+  list: (params: BookmarkSearchParams) => {
+    // Custom lists have list_id - group them separately
+    if (params.list_id !== undefined) {
+      return [...bookmarkKeys.customLists(), params] as const
+    }
+    // Standard view queries - group by view type
+    return [...bookmarkKeys.view(params.view ?? 'active'), params] as const
+  },
 }
 
 /**

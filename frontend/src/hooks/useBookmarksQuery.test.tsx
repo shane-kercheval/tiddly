@@ -139,22 +139,99 @@ describe('useBookmarksQuery', () => {
 })
 
 describe('bookmarkKeys', () => {
-  it('should generate correct base key', () => {
-    expect(bookmarkKeys.all).toEqual(['bookmarks'])
+  describe('base keys', () => {
+    it('should generate correct all key', () => {
+      expect(bookmarkKeys.all).toEqual(['bookmarks'])
+    })
+
+    it('should generate correct lists prefix key', () => {
+      expect(bookmarkKeys.lists()).toEqual(['bookmarks', 'list'])
+    })
   })
 
-  it('should generate correct lists key', () => {
-    expect(bookmarkKeys.lists()).toEqual(['bookmarks', 'list'])
+  describe('view keys for invalidation', () => {
+    it('should generate correct active view key', () => {
+      expect(bookmarkKeys.view('active')).toEqual(['bookmarks', 'list', 'active'])
+    })
+
+    it('should generate correct archived view key', () => {
+      expect(bookmarkKeys.view('archived')).toEqual(['bookmarks', 'list', 'archived'])
+    })
+
+    it('should generate correct deleted view key', () => {
+      expect(bookmarkKeys.view('deleted')).toEqual(['bookmarks', 'list', 'deleted'])
+    })
+
+    it('should generate correct custom lists key', () => {
+      expect(bookmarkKeys.customLists()).toEqual(['bookmarks', 'list', 'custom'])
+    })
   })
 
-  it('should generate correct list key with params', () => {
-    const params = { view: 'active' as const, q: 'test' }
-    expect(bookmarkKeys.list(params)).toEqual(['bookmarks', 'list', params])
+  describe('list query keys', () => {
+    it('should include view segment before params for active view', () => {
+      const params = { view: 'active' as const, q: 'test' }
+      const key = bookmarkKeys.list(params)
+
+      // Key should be ['bookmarks', 'list', 'active', params]
+      expect(key[0]).toBe('bookmarks')
+      expect(key[1]).toBe('list')
+      expect(key[2]).toBe('active')
+      expect(key[3]).toEqual(params)
+    })
+
+    it('should include view segment before params for archived view', () => {
+      const params = { view: 'archived' as const }
+      const key = bookmarkKeys.list(params)
+
+      expect(key).toEqual(['bookmarks', 'list', 'archived', params])
+    })
+
+    it('should include view segment before params for deleted view', () => {
+      const params = { view: 'deleted' as const }
+      const key = bookmarkKeys.list(params)
+
+      expect(key).toEqual(['bookmarks', 'list', 'deleted', params])
+    })
+
+    it('should default to active view when view is undefined', () => {
+      const params = { q: 'test' }
+      const key = bookmarkKeys.list(params)
+
+      expect(key[2]).toBe('active')
+    })
+
+    it('should use custom segment for queries with list_id', () => {
+      const params = { view: 'active' as const, list_id: 123 }
+      const key = bookmarkKeys.list(params)
+
+      // Custom lists use 'custom' segment instead of view
+      expect(key).toEqual(['bookmarks', 'list', 'custom', params])
+    })
   })
 
-  it('should generate correct view-specific keys', () => {
-    expect(bookmarkKeys.active()).toEqual(['bookmarks', 'active'])
-    expect(bookmarkKeys.archived()).toEqual(['bookmarks', 'archived'])
-    expect(bookmarkKeys.deleted()).toEqual(['bookmarks', 'deleted'])
+  describe('prefix matching for invalidation', () => {
+    it('view key should be prefix of list key for same view', () => {
+      const viewKey = bookmarkKeys.view('active')
+      const listKey = bookmarkKeys.list({ view: 'active', q: 'test' })
+
+      // viewKey should be a prefix of listKey
+      expect(listKey.slice(0, viewKey.length)).toEqual(viewKey)
+    })
+
+    it('customLists key should be prefix of list key with list_id', () => {
+      const customKey = bookmarkKeys.customLists()
+      const listKey = bookmarkKeys.list({ view: 'active', list_id: 123 })
+
+      // customKey should be a prefix of listKey
+      expect(listKey.slice(0, customKey.length)).toEqual(customKey)
+    })
+
+    it('active view key should NOT match archived list key', () => {
+      const activeViewKey = bookmarkKeys.view('active')
+      const archivedListKey = bookmarkKeys.list({ view: 'archived' })
+
+      // These should be different at position 2
+      expect(activeViewKey[2]).not.toBe(archivedListKey[2])
+    })
   })
 })
