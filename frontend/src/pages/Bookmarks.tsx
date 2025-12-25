@@ -280,7 +280,6 @@ export function Bookmarks(): ReactNode {
       await createBookmark(data as BookmarkCreate)
       setShowAddModal(false)
       setPastedUrl(undefined)
-      toast.success('Bookmark added')
       fetchBookmarks(currentParams)
       fetchTags()
     } catch (err) {
@@ -352,7 +351,6 @@ export function Bookmarks(): ReactNode {
     try {
       await updateBookmark(editingBookmark.id, data as BookmarkUpdate)
       setEditingBookmark(null)
-      toast.success('Bookmark updated')
       fetchBookmarks(currentParams)
       fetchTags()
     } catch (err) {
@@ -378,7 +376,6 @@ export function Bookmarks(): ReactNode {
         await deleteBookmark(bookmark.id, true) // permanent=true
         fetchBookmarks(currentParams)
         fetchTags()
-        toast.success('Bookmark permanently deleted')
       } catch {
         toast.error('Failed to delete bookmark')
       }
@@ -531,7 +528,6 @@ export function Bookmarks(): ReactNode {
       await updateBookmark(bookmark.id, { tags: newTags })
       fetchBookmarks(currentParams)
       fetchTags()
-      toast.success(`Removed tag "${tag}"`)
     } catch {
       toast.error('Failed to remove tag')
     }
