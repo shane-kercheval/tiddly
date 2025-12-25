@@ -525,6 +525,18 @@ export function Bookmarks(): ReactNode {
     }
   }
 
+  const handleTagRemove = async (bookmark: BookmarkListItem, tag: string): Promise<void> => {
+    const newTags = bookmark.tags.filter((t) => t !== tag)
+    try {
+      await updateBookmark(bookmark.id, { tags: newTags })
+      fetchBookmarks(currentParams)
+      fetchTags()
+      toast.success(`Removed tag "${tag}"`)
+    } catch {
+      toast.error('Failed to remove tag')
+    }
+  }
+
   const handleFetchMetadata = async (url: string): Promise<{
     title: string | null
     description: string | null
@@ -644,6 +656,7 @@ export function Bookmarks(): ReactNode {
               onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
               onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
               onTagClick={handleTagClick}
+              onTagRemove={currentView !== 'deleted' ? handleTagRemove : undefined}
               onLinkClick={(b) => trackBookmarkUsage(b.id)}
               isLoading={loadingBookmarkId === bookmark.id}
             />
