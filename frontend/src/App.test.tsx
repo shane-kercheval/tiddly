@@ -23,6 +23,25 @@ vi.mock('./hooks/useBookmarks', () => ({
   }),
 }))
 
+vi.mock('./hooks/useBookmarksQuery', () => ({
+  useBookmarksQuery: () => ({
+    data: { items: [], total: 0, offset: 0, limit: 20, has_more: false },
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}))
+
+vi.mock('./hooks/useBookmarkMutations', () => ({
+  useCreateBookmark: () => ({ mutateAsync: vi.fn() }),
+  useUpdateBookmark: () => ({ mutateAsync: vi.fn() }),
+  useDeleteBookmark: () => ({ mutateAsync: vi.fn() }),
+  useRestoreBookmark: () => ({ mutateAsync: vi.fn() }),
+  useArchiveBookmark: () => ({ mutateAsync: vi.fn() }),
+  useUnarchiveBookmark: () => ({ mutateAsync: vi.fn() }),
+}))
+
 vi.mock('./stores/tagsStore', () => ({
   useTagsStore: (selector?: (state: Record<string, unknown>) => unknown) => {
     const state = {
