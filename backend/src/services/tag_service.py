@@ -1,4 +1,6 @@
 """Service layer for tag operations."""
+from typing import TYPE_CHECKING
+
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +9,9 @@ from models.bookmark import Bookmark
 from models.tag import Tag, bookmark_tags
 from schemas.bookmark import validate_and_normalize_tags
 from schemas.tag import TagCount
+
+if TYPE_CHECKING:
+    from models.note import Note
 
 
 class TagNotFoundError(Exception):
@@ -257,4 +262,30 @@ async def update_bookmark_tags(
 
     # Update the relationship
     bookmark.tag_objects = tag_objects
+    await db.flush()
+
+
+async def update_note_tags(
+    db: AsyncSession,
+    note: "Note",
+    tag_names: list[str],
+) -> None:
+    """
+    Update a note's tags using the junction table.
+
+    Clears existing tags and sets new ones.
+
+    Args:
+        db: Database session.
+        note: The note to update.
+        tag_names: New list of tag names.
+    """
+    # Get or create the tag objects
+    if tag_names:
+        tag_objects = await get_or_create_tags(db, note.user_id, tag_names)
+    else:
+        tag_objects = []
+
+    # Update the relationship
+    note.tag_objects = tag_objects
     await db.flush()

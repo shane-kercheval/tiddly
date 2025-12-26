@@ -11,6 +11,7 @@ from models.bookmark import Bookmark
 from models.tag import Tag, bookmark_tags
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate, validate_and_normalize_tags
 from services.tag_service import get_or_create_tags, update_bookmark_tags
+from services.utils import escape_ilike
 
 logger = logging.getLogger(__name__)
 
@@ -37,20 +38,6 @@ class InvalidStateError(Exception):
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
-
-
-def escape_ilike(value: str) -> str:
-    r"""
-    Escape special ILIKE characters for safe use in LIKE/ILIKE patterns.
-
-    PostgreSQL LIKE/ILIKE treats these characters specially:
-    - % matches any sequence of characters
-    - _ matches any single character
-    - \\ is the escape character
-
-    This function escapes them so they match literally.
-    """
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def build_filter_from_expression(filter_expression: dict, user_id: int) -> list:
