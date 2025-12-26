@@ -123,7 +123,7 @@ async def test__get_user_tags_with_counts__counts_only_active_bookmarks(
     test_user: User,
 ) -> None:
     """Test that tag counts exclude archived and deleted bookmarks."""
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
     # Create tags first
     shared_tag = (await get_or_create_tags(db_session, test_user.id, ["shared"]))[0]
@@ -137,7 +137,8 @@ async def test__get_user_tags_with_counts__counts_only_active_bookmarks(
 
     archived = Bookmark(user_id=test_user.id, url="https://archived.com/")
     archived.tag_objects = [shared_tag]
-    archived.archived_at = datetime.now(UTC)
+    # Use a clearly past time to avoid any timing issues
+    archived.archived_at = datetime.now(UTC) - timedelta(hours=1)
 
     deleted = Bookmark(user_id=test_user.id, url="https://deleted.com/")
     deleted.tag_objects = [shared_tag]

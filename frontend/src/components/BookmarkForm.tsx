@@ -39,6 +39,8 @@ interface FormState {
   description: string
   content: string
   tags: string[]
+  archivedAt: string  // ISO string or empty
+  archivePreset: 'none' | '1-week' | '1-month' | 'end-of-month' | 'custom'
 }
 
 interface FormErrors {
@@ -71,16 +73,85 @@ export function BookmarkForm({
 }: BookmarkFormProps): ReactNode {
   const isEditing = !!bookmark
 
+  // Determine initial archive preset from existing archived_at
+  const getInitialArchiveState = (): { archivedAt: string; archivePreset: FormState['archivePreset'] } => {
+    if (!bookmark?.archived_at) {
+      return { archivedAt: '', archivePreset: 'none' }
+    }
+    // If there's an existing date, set to custom so user can see/edit it
+    return { archivedAt: bookmark.archived_at, archivePreset: 'custom' }
+  }
+
+  const initialArchiveState = getInitialArchiveState()
+
   const [form, setForm] = useState<FormState>({
     url: bookmark?.url || initialUrl || '',
     title: bookmark?.title || '',
     description: bookmark?.description || '',
     content: bookmark?.content || '',
     tags: bookmark?.tags || initialTags || [],
+    archivedAt: initialArchiveState.archivedAt,
+    archivePreset: initialArchiveState.archivePreset,
   })
 
   // Track if we've already auto-fetched for this initialUrl
   const autoFetchedRef = useRef<string | null>(null)
+
+  // Calculate date from preset
+  const calculatePresetDate = (preset: FormState['archivePreset']): string => {
+    const now = new Date()
+    let date: Date
+
+    switch (preset) {
+      case '1-week':
+        date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 8, 0, 0)
+        break
+      case '1-month':
+        date = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate(), 8, 0, 0)
+        break
+      case 'end-of-month':
+        // Last day of current month at 8:00 AM
+        date = new Date(now.getFullYear(), now.getMonth() + 1, 0, 8, 0, 0)
+        break
+      default:
+        return ''
+    }
+    return date.toISOString()
+  }
+
+  // Handle archive preset change
+  const handleArchivePresetChange = (preset: FormState['archivePreset']): void => {
+    if (preset === 'none') {
+      setForm(prev => ({ ...prev, archivePreset: preset, archivedAt: '' }))
+    } else if (preset === 'custom') {
+      // If switching to custom, keep current date or set a default future date
+      const currentDate = form.archivedAt || calculatePresetDate('1-week')
+      setForm(prev => ({ ...prev, archivePreset: preset, archivedAt: currentDate }))
+    } else {
+      // Calculate date from preset
+      const calculatedDate = calculatePresetDate(preset)
+      setForm(prev => ({ ...prev, archivePreset: preset, archivedAt: calculatedDate }))
+    }
+  }
+
+  // Convert ISO string to datetime-local format for the input
+  const toDatetimeLocalFormat = (isoString: string): string => {
+    if (!isoString) return ''
+    const date = new Date(isoString)
+    // Format as YYYY-MM-DDTHH:MM for datetime-local input
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${year}-${month}-${day}T${hours}:${minutes}`
+  }
+
+  // Convert datetime-local format to ISO string
+  const fromDatetimeLocalFormat = (localString: string): string => {
+    if (!localString) return ''
+    return new Date(localString).toISOString()
+  }
 
   const [errors, setErrors] = useState<FormErrors>({})
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
@@ -260,6 +331,12 @@ export function BookmarkForm({
         if (form.content) updates.content = form.content
         if (JSON.stringify(tagsToSubmit) !== JSON.stringify(bookmark?.tags))
           updates.tags = tagsToSubmit
+        // Include archived_at if changed (compare ISO strings)
+        const newArchivedAt = form.archivedAt || null
+        const oldArchivedAt = bookmark?.archived_at || null
+        if (newArchivedAt !== oldArchivedAt) {
+          updates.archived_at = newArchivedAt
+        }
 
         await onSubmit(updates)
       } else {
@@ -270,6 +347,7 @@ export function BookmarkForm({
           description: form.description || undefined,
           content: form.content || undefined,
           tags: tagsToSubmit,
+          archived_at: form.archivedAt || undefined,
         }
         await onSubmit(createData)
       }
@@ -417,6 +495,52 @@ export function BookmarkForm({
           <span className="helper-text">
             {form.content.length.toLocaleString()}/{config.limits.maxContentLength.toLocaleString()}
           </span>
+        </div>
+      </div>
+
+      {/* Auto-archive field */}
+      <div>
+        <label htmlFor="archive-preset" className="label">
+          Auto-archive
+        </label>
+        <div className="mt-1 space-y-2">
+          <select
+            id="archive-preset"
+            value={form.archivePreset}
+            onChange={(e) => handleArchivePresetChange(e.target.value as FormState['archivePreset'])}
+            disabled={isSubmitting}
+            className="input"
+          >
+            <option value="none">None</option>
+            <option value="1-week">In 1 week</option>
+            <option value="1-month">In 1 month</option>
+            <option value="end-of-month">End of month</option>
+            <option value="custom">Custom date...</option>
+          </select>
+          {form.archivePreset === 'custom' && (
+            <input
+              type="datetime-local"
+              value={toDatetimeLocalFormat(form.archivedAt)}
+              onChange={(e) => setForm(prev => ({
+                ...prev,
+                archivedAt: fromDatetimeLocalFormat(e.target.value),
+              }))}
+              disabled={isSubmitting}
+              className="input"
+            />
+          )}
+          {form.archivedAt && form.archivePreset !== 'custom' && (
+            <p className="helper-text">
+              Will archive on {new Date(form.archivedAt).toLocaleDateString(undefined, {
+                weekday: 'short',
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              })}
+            </p>
+          )}
         </div>
       </div>
 

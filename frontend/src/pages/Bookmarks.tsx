@@ -503,6 +503,15 @@ export function Bookmarks(): ReactNode {
     }
   }
 
+  const handleCancelScheduledArchive = async (bookmark: BookmarkListItem): Promise<void> => {
+    try {
+      await updateMutation.mutateAsync({ id: bookmark.id, data: { archived_at: null } })
+      toast.success('Scheduled archive cancelled')
+    } catch {
+      toast.error('Failed to cancel scheduled archive')
+    }
+  }
+
   const handleFetchMetadata = async (url: string): Promise<{
     title: string | null
     description: string | null
@@ -623,6 +632,7 @@ export function Bookmarks(): ReactNode {
               onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
               onTagClick={handleTagClick}
               onTagRemove={currentView !== 'deleted' ? handleTagRemove : undefined}
+              onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchive : undefined}
               onLinkClick={(b) => trackBookmarkUsage(b.id)}
               isLoading={loadingBookmarkId === bookmark.id}
             />
