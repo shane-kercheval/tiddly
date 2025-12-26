@@ -40,7 +40,7 @@ interface FormState {
   content: string
   tags: string[]
   archivedAt: string  // ISO string or empty
-  archivePreset: 'none' | '1-week' | '1-month' | 'end-of-month' | 'custom'
+  archivePreset: 'none' | '1-week' | '1-month' | 'end-of-month' | '6-months' | '1-year' | 'custom'
 }
 
 interface FormErrors {
@@ -112,6 +112,12 @@ export function BookmarkForm({
       case 'end-of-month':
         // Last day of current month at 8:00 AM
         date = new Date(now.getFullYear(), now.getMonth() + 1, 0, 8, 0, 0)
+        break
+      case '6-months':
+        date = new Date(now.getFullYear(), now.getMonth() + 6, now.getDate(), 8, 0, 0)
+        break
+      case '1-year':
+        date = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate(), 8, 0, 0)
         break
       default:
         return ''
@@ -515,6 +521,8 @@ export function BookmarkForm({
             <option value="1-week">In 1 week</option>
             <option value="1-month">In 1 month</option>
             <option value="end-of-month">End of month</option>
+            <option value="6-months">In 6 months</option>
+            <option value="1-year">In 1 year</option>
             <option value="custom">Custom date...</option>
           </select>
           {form.archivePreset === 'custom' && (

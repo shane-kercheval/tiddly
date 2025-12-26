@@ -406,7 +406,8 @@ async def update_bookmark(
     Raises:
         DuplicateUrlError: If the new URL already exists for this user.
     """
-    bookmark = await get_bookmark(db, user_id, bookmark_id)
+    # Include archived bookmarks - users can edit from the archived view
+    bookmark = await get_bookmark(db, user_id, bookmark_id, include_archived=True)
     if bookmark is None:
         return None
 

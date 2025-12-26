@@ -1580,6 +1580,36 @@ async def test__update_bookmark__wrong_user_returns_none(
     assert test_bookmark.title == 'Example'
 
 
+async def test__update_bookmark__can_update_archived_bookmark(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """
+    Test that update_bookmark can update an already-archived bookmark.
+
+    This is important because the UI shows an edit button in the archived view,
+    so users expect to be able to edit archived bookmark metadata.
+    """
+    # Archive the bookmark
+    await archive_bookmark(db_session, test_user.id, test_bookmark.id)
+    await db_session.flush()
+    await db_session.refresh(test_bookmark)
+
+    # Verify it's archived
+    assert test_bookmark.is_archived is True
+
+    # Try to update the archived bookmark's title
+    updated = await update_bookmark(
+        db_session, test_user.id, test_bookmark.id,
+        BookmarkUpdate(title='Updated Archived Title'),
+    )
+
+    # Should succeed - archived bookmarks should be editable
+    assert updated is not None
+    assert updated.title == 'Updated Archived Title'
+
+
 # =============================================================================
 # escape_ilike Tests
 # =============================================================================

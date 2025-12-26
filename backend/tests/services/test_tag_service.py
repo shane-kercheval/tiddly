@@ -157,6 +157,37 @@ async def test__get_user_tags_with_counts__counts_only_active_bookmarks(
     assert count_dict["active-only"] == 1
 
 
+async def test__get_user_tags_with_counts__includes_future_scheduled_bookmarks(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """
+    Test that future-scheduled bookmarks count as active in tag counts.
+
+    Bookmarks with archived_at in the future are still "active" (not yet archived),
+    so they should be included in tag counts.
+    """
+    from datetime import datetime, timedelta
+
+    # Create a tag
+    scheduled_tag = (await get_or_create_tags(db_session, test_user.id, ["scheduled"]))[0]
+    await db_session.flush()
+
+    # Create a bookmark with future archived_at (scheduled but not yet archived)
+    scheduled_bookmark = Bookmark(user_id=test_user.id, url="https://scheduled.com/")
+    scheduled_bookmark.tag_objects = [scheduled_tag]
+    scheduled_bookmark.archived_at = datetime.now(UTC) + timedelta(days=7)
+
+    db_session.add(scheduled_bookmark)
+    await db_session.flush()
+
+    # Get counts - future-scheduled bookmark should be counted
+    counts = await get_user_tags_with_counts(db_session, test_user.id)
+
+    count_dict = {c.name: c.count for c in counts}
+    assert count_dict["scheduled"] == 1  # Future-scheduled counts as active
+
+
 async def test__get_user_tags_with_counts__includes_zero_count_tags(
     db_session: AsyncSession,
     test_user: User,

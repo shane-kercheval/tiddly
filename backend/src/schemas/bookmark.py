@@ -148,8 +148,9 @@ class BookmarkUpdate(BaseModel):
     tags: list[str] | None = None
     archived_at: datetime | None = Field(
         default=None,
-        description="Schedule auto-archive at this time. Accepts ISO 8601 format with timezone "
-                    "(e.g., '2025-02-01T16:00:00Z'). Stored as UTC. "
+        description="Schedule auto-archive at this time. Omit to leave unchanged; "
+                    "set to null to cancel a scheduled archive. "
+                    "Accepts ISO 8601 format (e.g., '2025-02-01T16:00:00Z'). "
                     "Future dates schedule auto-archive; past dates archive immediately.",
     )
 

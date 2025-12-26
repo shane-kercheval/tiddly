@@ -506,7 +506,6 @@ export function Bookmarks(): ReactNode {
   const handleCancelScheduledArchive = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
       await updateMutation.mutateAsync({ id: bookmark.id, data: { archived_at: null } })
-      toast.success('Scheduled archive cancelled')
     } catch {
       toast.error('Failed to cancel scheduled archive')
     }
