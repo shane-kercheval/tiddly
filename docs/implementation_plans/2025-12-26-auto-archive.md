@@ -157,7 +157,19 @@ class BookmarkUpdate(BaseModel):
 
 No validation needed - if the user sets a past date, the bookmark simply appears in the archived view immediately (same as using the archive endpoint). Future dates schedule auto-archive.
 
-**2. Update `backend/src/services/bookmark_service.py` - `create_bookmark` and `update_bookmark`:**
+**2. Document timezone handling in schema docstrings (for Swagger/OpenAPI):**
+
+Add description to the `archived_at` field:
+```python
+archived_at: datetime | None = Field(
+    default=None,
+    description="Schedule auto-archive at this time. Accepts ISO 8601 format with timezone "
+                "(e.g., '2025-02-01T16:00:00Z'). Stored as UTC. "
+                "Future dates schedule auto-archive; past dates archive immediately."
+)
+```
+
+**3. Update `backend/src/services/bookmark_service.py` - `create_bookmark` and `update_bookmark`:**
 
 Pass through `archived_at` from the schema to the model. The service functions likely already handle arbitrary fields, but verify.
 
@@ -273,8 +285,7 @@ Current date display location (line 344-346):
 </span>
 {/* Show scheduled archive date if set and in the future */}
 {view === 'active' && bookmark.archived_at && new Date(bookmark.archived_at) > new Date() && (
-  <span className="text-xs text-amber-600 flex items-center gap-1">
-    <ClockIcon className="w-3 h-3" />
+  <span className="text-xs text-amber-600">
     Archiving: {formatDate(bookmark.archived_at)}
   </span>
 )}
@@ -283,8 +294,10 @@ Current date display location (line 344-346):
 **Result**: Two lines in bottom-right when scheduled:
 ```
 Created: Jan 15, 2025
-🕐 Archiving: Feb 1, 2025
+Archiving: Feb 1, 2025
 ```
+
+Keep it simple - no icon, just the text in amber color to differentiate from the gray date above.
 
 ### Testing Strategy
 - Test bookmark with future `archived_at` shows "Archiving: [date]"
