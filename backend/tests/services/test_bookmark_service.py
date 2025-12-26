@@ -14,7 +14,6 @@ from schemas.bookmark import BookmarkCreate, BookmarkUpdate
 from services.bookmark_service import (
     ArchivedUrlExistsError,
     DuplicateUrlError,
-    InvalidStateError,
     _check_url_exists,
     archive_bookmark,
     build_filter_from_expression,
@@ -27,6 +26,7 @@ from services.bookmark_service import (
     unarchive_bookmark,
     update_bookmark,
 )
+from services.exceptions import InvalidStateError
 from datetime import UTC
 
 

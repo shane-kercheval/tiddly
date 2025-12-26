@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from models.bookmark import Bookmark
 from models.tag import Tag, bookmark_tags
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate, validate_and_normalize_tags
+from services.exceptions import InvalidStateError
 from services.tag_service import get_or_create_tags, update_bookmark_tags
 from services.utils import escape_ilike
 
@@ -31,13 +32,6 @@ class ArchivedUrlExistsError(Exception):
         self.url = url
         self.existing_bookmark_id = existing_bookmark_id
         super().__init__(f"A bookmark with URL '{url}' exists in archive")
-
-
-class InvalidStateError(Exception):
-    """Raised when an operation is invalid for the bookmark's current state."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(message)
 
 
 def build_filter_from_expression(filter_expression: dict, user_id: int) -> list:

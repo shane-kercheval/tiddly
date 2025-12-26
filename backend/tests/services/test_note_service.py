@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.note import Note
 from models.user import User
 from schemas.note import NoteCreate, NoteUpdate
-from services.bookmark_service import InvalidStateError
+from services.exceptions import InvalidStateError
 from services.note_service import (
     archive_note,
     build_note_filter_from_expression,

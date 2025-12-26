@@ -20,11 +20,8 @@ from schemas.bookmark import (
     MetadataPreviewResponse,
 )
 from services import bookmark_list_service, bookmark_service
-from services.bookmark_service import (
-    ArchivedUrlExistsError,
-    DuplicateUrlError,
-    InvalidStateError,
-)
+from services.bookmark_service import ArchivedUrlExistsError, DuplicateUrlError
+from services.exceptions import InvalidStateError
 from services.url_scraper import scrape_url
 
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])

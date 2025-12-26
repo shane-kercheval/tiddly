@@ -17,7 +17,7 @@ from schemas.note import (
     NoteUpdate,
 )
 from services import bookmark_list_service, note_service
-from services.bookmark_service import InvalidStateError
+from services.exceptions import InvalidStateError
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 

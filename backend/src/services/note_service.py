@@ -10,7 +10,7 @@ from models.note import Note
 from models.tag import Tag, note_tags
 from schemas.bookmark import validate_and_normalize_tags
 from schemas.note import NoteCreate, NoteUpdate
-from services.bookmark_service import InvalidStateError
+from services.exceptions import InvalidStateError
 from services.tag_service import get_or_create_tags, update_note_tags
 from services.utils import escape_ilike
 
