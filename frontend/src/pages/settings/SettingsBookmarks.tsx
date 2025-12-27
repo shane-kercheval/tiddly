@@ -87,18 +87,6 @@ export function SettingsBookmarks(): ReactNode {
     }
   }
 
-  // Tab order handlers
-  const handleSaveTabOrder = async (tabOrder: string[]): Promise<void> => {
-    try {
-      await updateSettings({ tab_order: tabOrder })
-      // Refresh to get the updated computed tab order
-      fetchTabOrder()
-    } catch {
-      toast.error('Failed to save tab order')
-      throw new Error('Failed to save tab order')
-    }
-  }
-
   // Sort override handlers
   const handleResetSortOrders = (): void => {
     clearAllSortOverrides()
@@ -149,16 +137,17 @@ export function SettingsBookmarks(): ReactNode {
         />
       </Section>
 
-      {/* Tab Order Section */}
+      {/* Tab Order Section - temporarily disabled pending section-based editor (M13) */}
       <Section
         title="Sidebar Order"
-        description="Customize the order of items in the sidebar."
+        description="View the current sidebar navigation order."
       >
-        <TabOrderEditor
-          items={computedTabOrder}
-          isLoading={settingsLoading}
-          onSave={handleSaveTabOrder}
-        />
+        <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-4">
+          <p className="text-sm text-gray-600">
+            The sidebar now uses section-based navigation (Shared, Bookmarks, Notes).
+            Section and item reordering will be available in a future update.
+          </p>
+        </div>
       </Section>
     </div>
   )
