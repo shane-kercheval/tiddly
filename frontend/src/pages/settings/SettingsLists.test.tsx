@@ -1,12 +1,12 @@
 /**
- * Tests for SettingsBookmarks page.
+ * Tests for SettingsLists page.
  *
  * Tests the reset sort orders button functionality.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { SettingsBookmarks } from './SettingsBookmarks'
+import { SettingsLists } from './SettingsLists'
 import { useUIPreferencesStore } from '../../stores/uiPreferencesStore'
 import { useListsStore } from '../../stores/listsStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -37,7 +37,7 @@ vi.mock('../../stores/uiPreferencesStore', () => ({
   useUIPreferencesStore: vi.fn(),
 }))
 
-describe('SettingsBookmarks', () => {
+describe('SettingsLists', () => {
   const mockFetchLists = vi.fn()
   const mockFetchTabOrder = vi.fn()
   const mockFetchTags = vi.fn()
@@ -78,7 +78,7 @@ describe('SettingsBookmarks', () => {
 
   describe('reset sort orders button', () => {
     it('should render reset button', () => {
-      render(<SettingsBookmarks />)
+      render(<SettingsLists />)
 
       expect(screen.getByRole('button', { name: /reset cached sort orders/i })).toBeInTheDocument()
     })
@@ -89,7 +89,7 @@ describe('SettingsBookmarks', () => {
         clearAllSortOverrides: mockClearAllSortOverrides,
       } as unknown as ReturnType<typeof useUIPreferencesStore>)
 
-      render(<SettingsBookmarks />)
+      render(<SettingsLists />)
 
       const resetButton = screen.getByRole('button', { name: /reset cached sort orders/i })
       expect(resetButton).toBeDisabled()
@@ -103,7 +103,7 @@ describe('SettingsBookmarks', () => {
         clearAllSortOverrides: mockClearAllSortOverrides,
       } as unknown as ReturnType<typeof useUIPreferencesStore>)
 
-      render(<SettingsBookmarks />)
+      render(<SettingsLists />)
 
       const resetButton = screen.getByRole('button', { name: /reset cached sort orders/i })
       expect(resetButton).not.toBeDisabled()
@@ -118,7 +118,7 @@ describe('SettingsBookmarks', () => {
         clearAllSortOverrides: mockClearAllSortOverrides,
       } as unknown as ReturnType<typeof useUIPreferencesStore>)
 
-      render(<SettingsBookmarks />)
+      render(<SettingsLists />)
 
       const resetButton = screen.getByRole('button', { name: /reset cached sort orders/i })
       expect(resetButton).toHaveAttribute('title', '2 cached sort orders')
@@ -132,7 +132,7 @@ describe('SettingsBookmarks', () => {
         clearAllSortOverrides: mockClearAllSortOverrides,
       } as unknown as ReturnType<typeof useUIPreferencesStore>)
 
-      render(<SettingsBookmarks />)
+      render(<SettingsLists />)
 
       const resetButton = screen.getByRole('button', { name: /reset cached sort orders/i })
       expect(resetButton).toHaveAttribute('title', '1 cached sort order')
@@ -144,7 +144,7 @@ describe('SettingsBookmarks', () => {
         clearAllSortOverrides: mockClearAllSortOverrides,
       } as unknown as ReturnType<typeof useUIPreferencesStore>)
 
-      render(<SettingsBookmarks />)
+      render(<SettingsLists />)
 
       const resetButton = screen.getByRole('button', { name: /reset cached sort orders/i })
       expect(resetButton).toHaveAttribute('title', 'No cached sort orders')
@@ -160,7 +160,7 @@ describe('SettingsBookmarks', () => {
         clearAllSortOverrides: mockClearAllSortOverrides,
       } as unknown as ReturnType<typeof useUIPreferencesStore>)
 
-      render(<SettingsBookmarks />)
+      render(<SettingsLists />)
 
       const resetButton = screen.getByRole('button', { name: /reset cached sort orders/i })
       await user.click(resetButton)
@@ -176,7 +176,7 @@ describe('SettingsBookmarks', () => {
         clearAllSortOverrides: mockClearAllSortOverrides,
       } as unknown as ReturnType<typeof useUIPreferencesStore>)
 
-      render(<SettingsBookmarks />)
+      render(<SettingsLists />)
 
       const resetButton = screen.getByRole('button', { name: /reset cached sort orders/i })
 
@@ -197,19 +197,19 @@ describe('SettingsBookmarks', () => {
 
   describe('page rendering', () => {
     it('should render page title', () => {
-      render(<SettingsBookmarks />)
+      render(<SettingsLists />)
 
       expect(screen.getByRole('heading', { name: 'List Settings' })).toBeInTheDocument()
     })
 
     it('should render Custom Lists section', () => {
-      render(<SettingsBookmarks />)
+      render(<SettingsLists />)
 
       expect(screen.getByRole('heading', { name: 'Custom Lists' })).toBeInTheDocument()
     })
 
     it('should render Sidebar Order section', () => {
-      render(<SettingsBookmarks />)
+      render(<SettingsLists />)
 
       expect(screen.getByRole('heading', { name: 'Sidebar Order' })).toBeInTheDocument()
     })

@@ -14,7 +14,7 @@ import { NoteDetail } from './pages/NoteDetail'
 import { SettingsGeneral } from './pages/settings/SettingsGeneral'
 import { SettingsTokens } from './pages/settings/SettingsTokens'
 import { SettingsMCP } from './pages/settings/SettingsMCP'
-import { SettingsBookmarks } from './pages/settings/SettingsBookmarks'
+import { SettingsLists } from './pages/settings/SettingsLists'
 import { SettingsTags } from './pages/settings/SettingsTags'
 
 /**
@@ -94,7 +94,7 @@ function App(): ReactNode {
                 <Route path="/app/settings/general" element={<SettingsGeneral />} />
                 <Route path="/app/settings/tokens" element={<SettingsTokens />} />
                 <Route path="/app/settings/mcp" element={<SettingsMCP />} />
-                <Route path="/app/settings/lists" element={<SettingsBookmarks />} />
+                <Route path="/app/settings/lists" element={<SettingsLists />} />
                 {/* TODO: Remove this redirect after 2025-06-01 (legacy route support) */}
                 <Route path="/app/settings/bookmarks" element={<Navigate to="/app/settings/lists" replace />} />
                 <Route path="/app/settings/tags" element={<SettingsTags />} />

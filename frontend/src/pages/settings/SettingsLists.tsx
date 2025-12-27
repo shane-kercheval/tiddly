@@ -43,7 +43,7 @@ function Section({ title, description, action, children }: SectionProps): ReactN
 /**
  * Custom lists settings page - Lists and Tab Order.
  */
-export function SettingsBookmarks(): ReactNode {
+export function SettingsLists(): ReactNode {
   const { lists, isLoading: listsLoading, createList, updateList, deleteList } = useListsStore()
   const { computedSections, sectionOrder, isLoading: tabOrderLoading, fetchTabOrder } = useSettingsStore()
   const tags = useTagsStore((state) => state.tags)
@@ -146,7 +146,6 @@ export function SettingsBookmarks(): ReactNode {
           sections={computedSections}
           sectionOrder={sectionOrder}
           isLoading={tabOrderLoading}
-          onSave={fetchTabOrder}
         />
       </Section>
     </div>

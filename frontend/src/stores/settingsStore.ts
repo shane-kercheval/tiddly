@@ -11,6 +11,7 @@ import type {
   TabOrderSection,
   TabOrderItem,
   SectionName,
+  TabOrder,
 } from '../types'
 
 interface SettingsState {
@@ -31,6 +32,7 @@ interface SettingsState {
 interface SettingsActions {
   fetchSettings: () => Promise<void>
   fetchTabOrder: () => Promise<void>
+  updateTabOrder: (tabOrder: TabOrder) => Promise<void>
   updateSettings: (data: UserSettingsUpdate) => Promise<UserSettings>
   clearError: () => void
 }
@@ -88,6 +90,19 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
       const message = err instanceof Error ? err.message : 'Failed to fetch tab order'
       set({ isLoading: false, error: message })
     }
+  },
+
+  updateTabOrder: async (tabOrder: TabOrder) => {
+    await api.put('/settings/tab-order', tabOrder)
+    // Refresh the computed tab order after saving
+    const response = await api.get<ComputedTabOrderResponse>('/settings/tab-order')
+    const sections = response.data.sections
+    const sectionOrder = response.data.section_order
+    set({
+      computedSections: sections,
+      sectionOrder: sectionOrder,
+      computedTabOrder: flattenSections(sections, sectionOrder),
+    })
   },
 
   updateSettings: async (data: UserSettingsUpdate) => {

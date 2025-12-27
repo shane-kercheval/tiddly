@@ -6,12 +6,18 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SectionTabOrderEditor } from './SectionTabOrderEditor'
 import type { TabOrderSection, SectionName } from '../types'
-import { api } from '../services/api'
+import { useSettingsStore } from '../stores/settingsStore'
 
-// Mock the API
-vi.mock('../services/api', () => ({
-  api: {
-    put: vi.fn(),
+// Mock the store
+vi.mock('../stores/settingsStore', () => ({
+  useSettingsStore: vi.fn(),
+}))
+
+// Mock react-hot-toast
+vi.mock('react-hot-toast', () => ({
+  default: {
+    error: vi.fn(),
+    success: vi.fn(),
   },
 }))
 
@@ -48,11 +54,15 @@ const mockSections: TabOrderSection[] = [
 const mockSectionOrder: SectionName[] = ['shared', 'bookmarks', 'notes']
 
 describe('SectionTabOrderEditor', () => {
-  const mockOnSave = vi.fn()
+  const mockUpdateTabOrder = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(api.put).mockResolvedValue({ data: {} })
+    mockUpdateTabOrder.mockResolvedValue(undefined)
+    vi.mocked(useSettingsStore).mockImplementation((selector) => {
+      const state = { updateTabOrder: mockUpdateTabOrder }
+      return selector ? selector(state as ReturnType<typeof useSettingsStore>) : state
+    })
   })
 
   describe('rendering', () => {
@@ -62,7 +72,6 @@ describe('SectionTabOrderEditor', () => {
           sections={[]}
           sectionOrder={[]}
           isLoading={true}
-          onSave={mockOnSave}
         />
       )
 
@@ -75,7 +84,6 @@ describe('SectionTabOrderEditor', () => {
           sections={[]}
           sectionOrder={[]}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -88,7 +96,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -103,7 +110,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -120,7 +126,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -137,7 +142,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -152,7 +156,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -169,7 +172,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -190,7 +192,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -210,7 +211,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -225,7 +225,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -244,7 +243,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -264,7 +262,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -272,7 +269,7 @@ describe('SectionTabOrderEditor', () => {
       expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
     })
 
-    it('should call API and onSave when saving', async () => {
+    it('should call updateTabOrder when saving', async () => {
       const user = userEvent.setup()
 
       render(
@@ -280,7 +277,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -293,11 +289,10 @@ describe('SectionTabOrderEditor', () => {
       await user.click(saveButton)
 
       await waitFor(() => {
-        expect(api.put).toHaveBeenCalledWith('/settings/tab-order', expect.objectContaining({
+        expect(mockUpdateTabOrder).toHaveBeenCalledWith(expect.objectContaining({
           sections: expect.any(Object),
           section_order: expect.any(Array),
         }))
-        expect(mockOnSave).toHaveBeenCalled()
       })
     })
 
@@ -309,7 +304,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -337,7 +331,6 @@ describe('SectionTabOrderEditor', () => {
           sections={mockSections}
           sectionOrder={mockSectionOrder}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 
@@ -351,6 +344,32 @@ describe('SectionTabOrderEditor', () => {
 
       await waitFor(() => {
         expect(screen.queryByRole('button', { name: 'Save Order' })).not.toBeInTheDocument()
+      })
+    })
+
+    it('should show error toast on save failure', async () => {
+      const toast = await import('react-hot-toast')
+      mockUpdateTabOrder.mockRejectedValue(new Error('Network error'))
+      const user = userEvent.setup()
+
+      render(
+        <SectionTabOrderEditor
+          sections={mockSections}
+          sectionOrder={mockSectionOrder}
+          isLoading={false}
+        />
+      )
+
+      // Make a change
+      const moveDownButtons = screen.getAllByTitle('Move section down')
+      await user.click(moveDownButtons[0])
+
+      // Click save
+      const saveButton = screen.getByRole('button', { name: 'Save Order' })
+      await user.click(saveButton)
+
+      await waitFor(() => {
+        expect(toast.default.error).toHaveBeenCalledWith('Failed to save sidebar order')
       })
     })
   })
@@ -371,7 +390,6 @@ describe('SectionTabOrderEditor', () => {
           sections={sectionsWithEmpty}
           sectionOrder={['shared']}
           isLoading={false}
-          onSave={mockOnSave}
         />
       )
 

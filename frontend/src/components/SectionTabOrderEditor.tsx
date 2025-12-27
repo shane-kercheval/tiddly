@@ -4,15 +4,15 @@
  */
 import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
+import toast from 'react-hot-toast'
 import type { TabOrderSection, TabOrder, SectionName, TabOrderSections } from '../types'
-import { ChevronUpIcon, ChevronDownIcon, GripIcon, FolderIcon, BookmarkIcon, NoteIcon } from './icons'
-import { api } from '../services/api'
+import { ChevronUpIcon, ChevronDownIcon, FolderIcon, BookmarkIcon, NoteIcon } from './icons'
+import { useSettingsStore } from '../stores/settingsStore'
 
 interface SectionTabOrderEditorProps {
   sections: TabOrderSection[]
   sectionOrder: SectionName[]
   isLoading: boolean
-  onSave: () => void
 }
 
 /**
@@ -45,8 +45,9 @@ export function SectionTabOrderEditor({
   sections,
   sectionOrder,
   isLoading,
-  onSave,
 }: SectionTabOrderEditorProps): ReactNode {
+  const updateTabOrder = useSettingsStore((state) => state.updateTabOrder)
+
   // Local state for editing
   const [localSectionOrder, setLocalSectionOrder] = useState<SectionName[]>([])
   const [localSectionItems, setLocalSectionItems] = useState<Record<SectionName, string[]>>({
@@ -113,9 +114,10 @@ export function SectionTabOrderEditor({
         sections: localSectionItems as TabOrderSections,
         section_order: localSectionOrder,
       }
-      await api.put('/settings/tab-order', tabOrder)
+      await updateTabOrder(tabOrder)
       setHasChanges(false)
-      onSave()
+    } catch {
+      toast.error('Failed to save sidebar order')
     } finally {
       setIsSaving(false)
     }
@@ -167,11 +169,6 @@ export function SectionTabOrderEditor({
             <div key={sectionName} className="rounded-lg border border-gray-200 overflow-hidden">
               {/* Section header */}
               <div className="flex items-center gap-3 p-3 bg-gray-50 border-b border-gray-200">
-                {/* Grip icon */}
-                <span className="text-gray-300">
-                  <GripIcon />
-                </span>
-
                 {/* Section label */}
                 <span className={`font-semibold text-sm uppercase tracking-wide flex-1 ${SECTION_COLORS[sectionName]}`}>
                   {section.label}
@@ -212,11 +209,6 @@ export function SectionTabOrderEditor({
                         key={itemKey}
                         className="flex items-center gap-3 p-3 pl-8 list-item-hover"
                       >
-                        {/* Grip icon */}
-                        <span className="text-gray-300">
-                          <GripIcon />
-                        </span>
-
                         {/* Item info */}
                         <div className="flex items-center gap-2 flex-1 min-w-0">
                           <span className="text-gray-400">

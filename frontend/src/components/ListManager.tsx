@@ -1,5 +1,5 @@
 /**
- * List manager component for displaying and managing bookmark lists.
+ * List manager component for displaying and managing content lists.
  */
 import { useState } from 'react'
 import type { ReactNode } from 'react'
