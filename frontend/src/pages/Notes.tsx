@@ -602,8 +602,8 @@ export function Notes(): ReactNode {
             >
               {availableSortOptions.map((option) => (
                 <optgroup key={option} label={SORT_LABELS[option]}>
-                  <option value={`${option}-desc`}>{SORT_LABELS[option]} &#8595;</option>
-                  <option value={`${option}-asc`}>{SORT_LABELS[option]} &#8593;</option>
+                  <option value={`${option}-desc`}>{SORT_LABELS[option]} ↓</option>
+                  <option value={`${option}-asc`}>{SORT_LABELS[option]} ↑</option>
                 </optgroup>
               ))}
             </select>

@@ -6,7 +6,7 @@ import type { NoteListItem } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { formatDate, truncate } from '../utils'
 import { ConfirmDeleteButton } from './ui'
-import { NoteIcon, EditIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
+import { NoteIcon, EditIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
 
 interface NoteCardProps {
   note: NoteListItem
@@ -123,9 +123,7 @@ export function NoteCard({
                     title={`Remove tag: ${tag}`}
                     aria-label={`Remove tag ${tag}`}
                   >
-                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <CloseIcon className="w-2.5 h-2.5" />
                   </button>
                 )}
               </div>
