@@ -57,6 +57,8 @@ describe('SettingsBookmarks', () => {
     } as ReturnType<typeof useListsStore>)
 
     vi.mocked(useSettingsStore).mockReturnValue({
+      computedSections: [],
+      sectionOrder: ['shared', 'bookmarks', 'notes'],
       computedTabOrder: [],
       isLoading: false,
       fetchTabOrder: mockFetchTabOrder,
@@ -197,13 +199,13 @@ describe('SettingsBookmarks', () => {
     it('should render page title', () => {
       render(<SettingsBookmarks />)
 
-      expect(screen.getByRole('heading', { name: 'Bookmark Settings' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'List Settings' })).toBeInTheDocument()
     })
 
-    it('should render Bookmark Lists section', () => {
+    it('should render Custom Lists section', () => {
       render(<SettingsBookmarks />)
 
-      expect(screen.getByRole('heading', { name: 'Bookmark Lists' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Custom Lists' })).toBeInTheDocument()
     })
 
     it('should render Sidebar Order section', () => {

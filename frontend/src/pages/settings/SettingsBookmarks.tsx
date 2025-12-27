@@ -1,5 +1,5 @@
 /**
- * Settings page for Bookmark Lists and Tab Order management.
+ * Settings page for Custom Lists and Tab Order management.
  */
 import { useState } from 'react'
 import type { ReactNode } from 'react'
@@ -10,6 +10,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useTagsStore } from '../../stores/tagsStore'
 import { useUIPreferencesStore } from '../../stores/uiPreferencesStore'
 import { ListManager } from '../../components/ListManager'
+import { SectionTabOrderEditor } from '../../components/SectionTabOrderEditor'
 import type { ContentListCreate, ContentListUpdate, ContentList } from '../../types'
 
 /**
@@ -40,11 +41,11 @@ function Section({ title, description, action, children }: SectionProps): ReactN
 }
 
 /**
- * Bookmark settings page - Lists and Tab Order.
+ * Custom lists settings page - Lists and Tab Order.
  */
 export function SettingsBookmarks(): ReactNode {
   const { lists, isLoading: listsLoading, createList, updateList, deleteList } = useListsStore()
-  const { fetchTabOrder } = useSettingsStore()
+  const { computedSections, sectionOrder, isLoading: tabOrderLoading, fetchTabOrder } = useSettingsStore()
   const tags = useTagsStore((state) => state.tags)
   const { sortOverrides, clearAllSortOverrides } = useUIPreferencesStore()
   const hasSortOverrides = Object.keys(sortOverrides).length > 0
@@ -94,15 +95,15 @@ export function SettingsBookmarks(): ReactNode {
   return (
     <div className="max-w-3xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Bookmark Settings</h1>
+        <h1 className="text-2xl font-bold text-gray-900">List Settings</h1>
         <p className="mt-1 text-gray-500">
-          Manage bookmark lists and customize sidebar order.
+          Manage custom lists and customize sidebar order.
         </p>
       </div>
 
-      {/* Bookmark Lists Section */}
+      {/* Custom Lists Section */}
       <Section
-        title="Bookmark Lists"
+        title="Custom Lists"
         description="Create custom lists based on tag filters. Lists appear in the sidebar."
         action={
           <div className="flex items-center gap-2">
@@ -136,17 +137,17 @@ export function SettingsBookmarks(): ReactNode {
         />
       </Section>
 
-      {/* Tab Order Section - temporarily disabled pending section-based editor (M13) */}
+      {/* Tab Order Section */}
       <Section
         title="Sidebar Order"
-        description="View the current sidebar navigation order."
+        description="Customize the order of sections and items in the sidebar."
       >
-        <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-4">
-          <p className="text-sm text-gray-600">
-            The sidebar now uses section-based navigation (Shared, Bookmarks, Notes).
-            Section and item reordering will be available in a future update.
-          </p>
-        </div>
+        <SectionTabOrderEditor
+          sections={computedSections}
+          sectionOrder={sectionOrder}
+          isLoading={tabOrderLoading}
+          onSave={fetchTabOrder}
+        />
       </Section>
     </div>
   )
