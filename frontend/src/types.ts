@@ -227,55 +227,20 @@ export interface ContentListUpdate {
   default_sort_ascending?: boolean | null
 }
 
-// Legacy alias for backwards compatibility during migration
-/** @deprecated Use ContentList instead */
-export type BookmarkList = ContentList
-/** @deprecated Use ContentListCreate instead */
-export type BookmarkListCreate = ContentListCreate
-/** @deprecated Use ContentListUpdate instead */
-export type BookmarkListUpdate = ContentListUpdate
 
 // =============================================================================
 // User Settings Types
 // =============================================================================
 
-/** Valid section names */
-export type SectionName = 'shared' | 'bookmarks' | 'notes'
-
-/** The sections within a tab order structure */
-export interface TabOrderSections {
-  shared: string[]
-  bookmarks: string[]
-  notes: string[]
-}
-
-/**
- * Structured tab order with sections.
- *
- * Example:
- *   {
- *     "sections": {
- *       "shared": ["all", "archived", "trash", "list:456"],
- *       "bookmarks": ["all-bookmarks", "list:123"],
- *       "notes": ["all-notes", "list:234"]
- *     },
- *     "section_order": ["shared", "bookmarks", "notes"]
- *   }
- */
-export interface TabOrder {
-  sections: TabOrderSections
-  section_order: SectionName[]
-}
-
 /** User settings data returned from the API */
 export interface UserSettings {
-  tab_order: TabOrder | null
+  tab_order: string[] | null
   updated_at: string
 }
 
 /** Data for updating user settings */
 export interface UserSettingsUpdate {
-  tab_order?: TabOrder | null
+  tab_order?: string[] | null
 }
 
 /** Tab order item with resolved label */

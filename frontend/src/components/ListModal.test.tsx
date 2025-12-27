@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ListModal } from './ListModal'
-import type { BookmarkList, TagCount } from '../types'
+import type { ContentList, TagCount } from '../types'
 
 const mockSuggestions: TagCount[] = [
   { name: 'react', count: 5 },
@@ -10,9 +10,10 @@ const mockSuggestions: TagCount[] = [
   { name: 'javascript', count: 8 },
 ]
 
-const mockList: BookmarkList = {
+const mockList: ContentList = {
   id: 1,
   name: 'Work Resources',
+  content_types: ['bookmark'],
   filter_expression: {
     groups: [{ tags: ['work', 'resources'], operator: 'AND' }],
     group_operator: 'OR',
@@ -521,7 +522,7 @@ describe('ListModal', () => {
     })
 
     it('should pre-populate sort config when editing list with sort', async () => {
-      const listWithSort: BookmarkList = {
+      const listWithSort: ContentList = {
         ...mockList,
         default_sort_by: 'created_at',
         default_sort_ascending: true,
@@ -547,7 +548,7 @@ describe('ListModal', () => {
     })
 
     it('should pre-populate sort config with ascending false', () => {
-      const listWithSort: BookmarkList = {
+      const listWithSort: ContentList = {
         ...mockList,
         default_sort_by: 'title',
         default_sort_ascending: false,
@@ -604,7 +605,7 @@ describe('ListModal', () => {
     })
 
     it('should clear sort config when changing to system default', async () => {
-      const listWithSort: BookmarkList = {
+      const listWithSort: ContentList = {
         ...mockList,
         default_sort_by: 'title',
         default_sort_ascending: true,

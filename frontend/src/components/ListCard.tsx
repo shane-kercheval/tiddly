@@ -3,15 +3,15 @@
  */
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import type { BookmarkList, FilterExpression } from '../types'
+import type { ContentList, FilterExpression } from '../types'
 import { EditIcon } from './icons'
 import { ConfirmDeleteButton } from './ui'
 import { SORT_LABELS, type SortByOption } from '../constants/sortOptions'
 
 interface ListCardProps {
-  list: BookmarkList
-  onEdit: (list: BookmarkList) => void
-  onDelete: (list: BookmarkList) => Promise<void>
+  list: ContentList
+  onEdit: (list: ContentList) => void
+  onDelete: (list: ContentList) => Promise<void>
 }
 
 /**

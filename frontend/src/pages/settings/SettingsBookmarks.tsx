@@ -11,7 +11,7 @@ import { useTagsStore } from '../../stores/tagsStore'
 import { useUIPreferencesStore } from '../../stores/uiPreferencesStore'
 import { ListManager } from '../../components/ListManager'
 import { TabOrderEditor } from '../../components/TabOrderEditor'
-import type { BookmarkListCreate, BookmarkListUpdate, BookmarkList } from '../../types'
+import type { ContentListCreate, ContentListUpdate, ContentList } from '../../types'
 
 /**
  * Section wrapper component for consistent styling.
@@ -52,7 +52,7 @@ export function SettingsBookmarks(): ReactNode {
   const [showCreateListModal, setShowCreateListModal] = useState(false)
 
   // List handlers
-  const handleCreateList = async (data: BookmarkListCreate): Promise<BookmarkList> => {
+  const handleCreateList = async (data: ContentListCreate): Promise<ContentList> => {
     try {
       const response = await createList(data)
       // Refresh tab order since new list was added
@@ -64,7 +64,7 @@ export function SettingsBookmarks(): ReactNode {
     }
   }
 
-  const handleUpdateList = async (id: number, data: BookmarkListUpdate): Promise<BookmarkList> => {
+  const handleUpdateList = async (id: number, data: ContentListUpdate): Promise<ContentList> => {
     try {
       const response = await updateList(id, data)
       // Refresh tab order in case name changed

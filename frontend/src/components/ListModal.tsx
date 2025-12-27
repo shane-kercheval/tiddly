@@ -3,7 +3,7 @@
  */
 import { useState, useEffect } from 'react'
 import type { ReactNode, FormEvent } from 'react'
-import type { BookmarkList, BookmarkListCreate, BookmarkListUpdate, FilterExpression, TagCount } from '../types'
+import type { ContentList, ContentListCreate, ContentListUpdate, FilterExpression, TagCount } from '../types'
 import { BASE_SORT_OPTIONS, SORT_LABELS, type BaseSortOption } from '../constants/sortOptions'
 import { FilterExpressionBuilder } from './FilterExpressionBuilder'
 import { Modal } from './ui/Modal'
@@ -11,10 +11,10 @@ import { Modal } from './ui/Modal'
 interface ListModalProps {
   isOpen: boolean
   onClose: () => void
-  list?: BookmarkList
+  list?: ContentList
   tagSuggestions: TagCount[]
-  onCreate?: (data: BookmarkListCreate) => Promise<BookmarkList>
-  onUpdate?: (id: number, data: BookmarkListUpdate) => Promise<BookmarkList>
+  onCreate?: (data: ContentListCreate) => Promise<ContentList>
+  onUpdate?: (id: number, data: ContentListUpdate) => Promise<ContentList>
 }
 
 /**
