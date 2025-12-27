@@ -83,7 +83,8 @@ def test__get_default_tab_order__returns_correct_structure() -> None:
 
 
 def test__ensure_tab_order_structure__does_not_mutate_input() -> None:
-    """Test that _ensure_tab_order_structure does not mutate its input dict.
+    """
+    Test that _ensure_tab_order_structure does not mutate its input dict.
 
     This is a regression test for a bug where the function mutated the input
     in-place, which could corrupt SQLAlchemy-tracked JSONB objects.
@@ -219,7 +220,8 @@ async def test__get_tab_order__does_not_mutate_stored_settings(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test that get_tab_order does not mutate the stored tab_order.
+    """
+    Test that get_tab_order does not mutate the stored tab_order.
 
     This is a regression test for a bug where get_tab_order could mutate the
     SQLAlchemy-tracked JSONB object, potentially causing unintended database writes.
