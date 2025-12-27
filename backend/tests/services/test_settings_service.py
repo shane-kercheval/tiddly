@@ -1,4 +1,6 @@
 """Tests for settings service layer functionality."""
+import copy
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,6 +8,7 @@ from models.user import User
 from models.user_settings import UserSettings
 from schemas.user_settings import TabOrder, TabOrderSections, UserSettingsUpdate
 from services.settings_service import (
+    _ensure_tab_order_structure,
     add_list_to_tab_order,
     determine_section_for_list,
     get_default_tab_order,
@@ -72,6 +75,45 @@ def test__get_default_tab_order__returns_correct_structure() -> None:
     assert result["sections"]["bookmarks"] == ["all-bookmarks"]
     assert result["sections"]["notes"] == ["all-notes"]
     assert result["section_order"] == ["shared", "bookmarks", "notes"]
+
+
+# =============================================================================
+# _ensure_tab_order_structure Tests (Mutation Safety)
+# =============================================================================
+
+
+def test__ensure_tab_order_structure__does_not_mutate_input() -> None:
+    """Test that _ensure_tab_order_structure does not mutate its input dict.
+
+    This is a regression test for a bug where the function mutated the input
+    in-place, which could corrupt SQLAlchemy-tracked JSONB objects.
+    """
+    # Create an incomplete tab_order structure
+    original = {"sections": {"shared": ["all"]}}
+    original_copy = copy.deepcopy(original)
+
+    # Call the function
+    result = _ensure_tab_order_structure(original)
+
+    # Original should be unchanged
+    assert original == original_copy
+
+    # Result should have the filled-in defaults
+    assert "bookmarks" in result["sections"]
+    assert "notes" in result["sections"]
+    assert "section_order" in result
+
+
+def test__ensure_tab_order_structure__returns_new_dict() -> None:
+    """Test that _ensure_tab_order_structure returns a new dict, not the input."""
+    original = get_default_tab_order()
+
+    result = _ensure_tab_order_structure(original)
+
+    # Should be a different object
+    assert result is not original
+    # But with the same content
+    assert result == original
 
 
 # =============================================================================
@@ -171,6 +213,37 @@ async def test__get_tab_order__returns_stored_tab_order(
     result = await get_tab_order(db_session, test_user.id)
 
     assert "list:5" in result.sections.bookmarks
+
+
+async def test__get_tab_order__does_not_mutate_stored_settings(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that get_tab_order does not mutate the stored tab_order.
+
+    This is a regression test for a bug where get_tab_order could mutate the
+    SQLAlchemy-tracked JSONB object, potentially causing unintended database writes.
+    """
+    # Create settings with an incomplete structure (missing some sections)
+    incomplete_tab_order = {"sections": {"shared": ["all", "archived", "trash"]}}
+    settings = UserSettings(user_id=test_user.id, tab_order=incomplete_tab_order)
+    db_session.add(settings)
+    await db_session.flush()
+
+    # Store the original value
+    original_stored = copy.deepcopy(settings.tab_order)
+
+    # Call get_tab_order (which fills in defaults)
+    result = await get_tab_order(db_session, test_user.id)
+
+    # The result should have filled-in defaults
+    assert result.sections.bookmarks == ["all-bookmarks"]
+    assert result.sections.notes == ["all-notes"]
+
+    # But the stored settings should NOT have been mutated
+    await db_session.refresh(settings)
+    assert settings.tab_order == original_stored
+    assert "bookmarks" not in settings.tab_order["sections"]
 
 
 # =============================================================================

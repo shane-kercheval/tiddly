@@ -47,15 +47,24 @@ def determine_section_for_list(content_types: list[str]) -> SectionName:
 
 
 def _ensure_tab_order_structure(tab_order: dict | None) -> dict:
-    """Ensure tab_order has the correct structure, filling in defaults."""
+    """
+    Ensure tab_order has the correct structure, filling in defaults.
+
+    Always returns a NEW dict to avoid mutating the input. This makes the
+    function safe to use regardless of whether the caller passes a tracked
+    SQLAlchemy object or not.
+    """
     if tab_order is None:
         return get_default_tab_order()
 
-    # Ensure sections exist
-    if "sections" not in tab_order:
-        tab_order["sections"] = {}
+    # Create a deep copy to avoid mutating the input
+    result = copy.deepcopy(tab_order)
 
-    sections = tab_order["sections"]
+    # Ensure sections exist
+    if "sections" not in result:
+        result["sections"] = {}
+
+    sections = result["sections"]
     if "shared" not in sections:
         sections["shared"] = ["all", "archived", "trash"]
     if "bookmarks" not in sections:
@@ -64,10 +73,10 @@ def _ensure_tab_order_structure(tab_order: dict | None) -> dict:
         sections["notes"] = ["all-notes"]
 
     # Ensure section_order exists
-    if "section_order" not in tab_order:
-        tab_order["section_order"] = list(DEFAULT_SECTION_ORDER)
+    if "section_order" not in result:
+        result["section_order"] = list(DEFAULT_SECTION_ORDER)
 
-    return tab_order
+    return result
 
 
 def _list_key_in_any_section(tab_order: dict, list_key: str) -> str | None:
@@ -150,6 +159,7 @@ async def update_tab_order(
     """
     settings = await get_or_create_settings(db, user_id)
     settings.tab_order = tab_order.model_dump()
+    flag_modified(settings, "tab_order")
     settings.updated_at = func.clock_timestamp()
 
     await db.flush()
@@ -186,10 +196,8 @@ async def add_list_to_tab_order(
     if content_types is None:
         content_types = ["bookmark", "note"]
 
-    # Get or create tab order structure (deep copy to avoid mutation issues)
-    tab_order = _ensure_tab_order_structure(
-        copy.deepcopy(settings.tab_order) if settings.tab_order else None,
-    )
+    # Get or create tab order structure (_ensure_tab_order_structure handles the copy)
+    tab_order = _ensure_tab_order_structure(settings.tab_order)
 
     # Check if list already exists in any section
     if _list_key_in_any_section(tab_order, list_key) is not None:
