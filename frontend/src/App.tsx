@@ -32,6 +32,7 @@ import { SettingsTags } from './pages/settings/SettingsTags'
  *   - /app/content : Unified view - all content (bookmarks + notes)
  *   - /app/content/archived : Unified view - archived content
  *   - /app/content/trash : Unified view - deleted content
+ *   - /app/content/lists/:listId : Custom shared list (mixed types)
  *   - /app/bookmarks : All bookmarks
  *   - /app/bookmarks/archived : Archived bookmarks
  *   - /app/bookmarks/trash : Trash
@@ -78,10 +79,11 @@ function App(): ReactNode {
                 {/* /app root redirects to bookmarks */}
                 <Route path="/app" element={<Navigate to="/app/bookmarks" replace />} />
 
-                {/* Unified content routes (shared views: All, Archived, Trash) */}
+                {/* Unified content routes (shared views: All, Archived, Trash, Lists) */}
                 <Route path="/app/content" element={<AllContent />} />
                 <Route path="/app/content/archived" element={<AllContent />} />
                 <Route path="/app/content/trash" element={<AllContent />} />
+                <Route path="/app/content/lists/:listId" element={<AllContent />} />
 
                 {/* Bookmarks routes */}
                 <Route path="/app/bookmarks" element={<Bookmarks />} />

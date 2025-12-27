@@ -23,13 +23,17 @@ export function getTabRoute(key: string, section: SectionName): string {
   // Custom lists - route based on section
   if (key.startsWith('list:')) {
     const listId = key.replace('list:', '')
-    // Lists in notes section go to notes route, otherwise bookmarks
+    // Lists in notes section go to notes route
     if (section === 'notes') {
       return `/app/notes/lists/${listId}`
     }
-    // For shared and bookmarks sections, use bookmarks route
-    // (shared lists can contain both types, but default to bookmarks view)
-    return `/app/bookmarks/lists/${listId}`
+    // Lists in bookmarks section go to bookmarks route
+    if (section === 'bookmarks') {
+      return `/app/bookmarks/lists/${listId}`
+    }
+    // Lists in shared section go to unified content route
+    // (shared lists can contain both bookmarks and notes)
+    return `/app/content/lists/${listId}`
   }
 
   // Fallback

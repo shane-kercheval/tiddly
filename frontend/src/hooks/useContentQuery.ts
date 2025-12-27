@@ -66,6 +66,9 @@ function buildQueryString(params: ContentSearchParams): string {
   if (params.view) {
     queryParams.set('view', params.view)
   }
+  if (params.list_id !== undefined) {
+    queryParams.set('list_id', String(params.list_id))
+  }
 
   return queryParams.toString()
 }

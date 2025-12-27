@@ -225,6 +225,7 @@ export interface ContentSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
+  list_id?: number
 }
 
 // =============================================================================

@@ -1,14 +1,15 @@
 /**
  * AllContent page - unified view for all content types (bookmarks + notes).
  *
- * Used for the shared views: All, Archived, Trash.
+ * Used for the shared views: All, Archived, Trash, and custom shared lists.
  * Displays both bookmarks and notes in a single unified list.
  */
 import { useState, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useContentQuery } from '../hooks/useContentQuery'
+import { useContentView } from '../hooks/useContentView'
 import { useBookmarks } from '../hooks/useBookmarks'
 import {
   useDeleteBookmark,
@@ -41,20 +42,6 @@ import {
   SharedIcon,
 } from '../components/icons'
 import type { ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem } from '../types'
-
-type ContentView = 'active' | 'archived' | 'deleted'
-
-/**
- * Hook to determine the current view from the URL path.
- */
-function useContentView(): ContentView {
-  const location = useLocation()
-  const path = location.pathname
-
-  if (path === '/app/content/archived') return 'archived'
-  if (path === '/app/content/trash') return 'deleted'
-  return 'active'
-}
 
 /**
  * AllContent page - unified view for all content types.
@@ -100,11 +87,11 @@ export function AllContent(): ReactNode {
     clearFilters: clearTagFilters,
   } = useTagFilterStore()
 
-  // Route-based view
-  const currentView = useContentView()
+  // Route-based view and list ID
+  const { currentView, currentListId } = useContentView('/app/content')
 
   // Per-view sort
-  const viewKey = useMemo(() => getViewKey(currentView, undefined), [currentView])
+  const viewKey = useMemo(() => getViewKey(currentView, currentListId), [currentView, currentListId])
   const { sortBy, sortOrder, setSort, availableSortOptions } = useEffectiveSort(
     viewKey,
     currentView,
@@ -128,8 +115,9 @@ export function AllContent(): ReactNode {
       offset,
       limit: pageSize,
       view: currentView,
+      list_id: currentListId,
     }),
-    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView]
+    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentListId]
   )
 
   // Fetch content with TanStack Query

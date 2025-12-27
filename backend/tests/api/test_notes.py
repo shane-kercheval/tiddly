@@ -886,3 +886,239 @@ async def test_note_list_item_excludes_content(client: AsyncClient) -> None:
 
     for item in response.json()["items"]:
         assert "content" not in item
+
+
+# =============================================================================
+# List ID Filter Tests (ContentList integration)
+# =============================================================================
+
+
+async def test_list_notes_with_list_id(client: AsyncClient) -> None:
+    """Test filtering notes by list_id parameter."""
+    # Create notes with different tags
+    await client.post(
+        "/notes/",
+        json={"title": "Work Priority", "content": "Content", "tags": ["work", "priority"]},
+    )
+    await client.post(
+        "/notes/",
+        json={"title": "Work Only", "content": "Content", "tags": ["work"]},
+    )
+    await client.post(
+        "/notes/",
+        json={"title": "Personal", "content": "Content", "tags": ["personal"]},
+    )
+
+    # Create a list that filters for work AND priority
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Work Priority List",
+            "filter_expression": {
+                "groups": [{"tags": ["work", "priority"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()["id"]
+
+    # Filter notes by list_id
+    response = await client.get(f"/notes/?list_id={list_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Work Priority"
+
+
+async def test_list_notes_with_list_id_complex_filter(client: AsyncClient) -> None:
+    """Test filtering with complex list expression: (work AND priority) OR (urgent)."""
+    # Create notes
+    await client.post(
+        "/notes/",
+        json={"title": "Work Priority", "content": "Content", "tags": ["work", "priority"]},
+    )
+    await client.post(
+        "/notes/",
+        json={"title": "Urgent", "content": "Content", "tags": ["urgent"]},
+    )
+    await client.post(
+        "/notes/",
+        json={"title": "Personal", "content": "Content", "tags": ["personal"]},
+    )
+
+    # Create a list with complex filter
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Priority Tasks",
+            "filter_expression": {
+                "groups": [
+                    {"tags": ["work", "priority"]},
+                    {"tags": ["urgent"]},
+                ],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()["id"]
+
+    # Filter notes by list_id
+    response = await client.get(f"/notes/?list_id={list_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 2
+    titles = [n["title"] for n in data["items"]]
+    assert "Work Priority" in titles
+    assert "Urgent" in titles
+    assert "Personal" not in titles
+
+
+async def test_list_notes_with_list_id_not_found(client: AsyncClient) -> None:
+    """Test that non-existent list_id returns 404."""
+    response = await client.get("/notes/?list_id=99999")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "List not found"
+
+
+async def test_list_notes_with_list_id_and_search(client: AsyncClient) -> None:
+    """Test combining list_id filter with text search."""
+    # Create notes
+    await client.post(
+        "/notes/",
+        json={"title": "Python Work", "content": "Content", "tags": ["work", "coding"]},
+    )
+    await client.post(
+        "/notes/",
+        json={"title": "JavaScript Work", "content": "Content", "tags": ["work", "coding"]},
+    )
+    await client.post(
+        "/notes/",
+        json={"title": "Python Personal", "content": "Content", "tags": ["personal", "coding"]},
+    )
+
+    # Create a list for work+coding
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Work Coding",
+            "filter_expression": {
+                "groups": [{"tags": ["work", "coding"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()["id"]
+
+    # Filter by list AND search for "Python"
+    response = await client.get(f"/notes/?list_id={list_id}&q=python")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Python Work"
+
+
+async def test_list_notes_list_id_combines_with_tags(client: AsyncClient) -> None:
+    """Test that list_id filter and tags parameter are combined with AND logic."""
+    # Create notes
+    await client.post(
+        "/notes/",
+        json={"title": "Work", "content": "Content", "tags": ["work"]},
+    )
+    await client.post(
+        "/notes/",
+        json={"title": "Work Urgent", "content": "Content", "tags": ["work", "urgent"]},
+    )
+    await client.post(
+        "/notes/",
+        json={"title": "Personal", "content": "Content", "tags": ["personal"]},
+    )
+
+    # Create a list for work
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Work List",
+            "filter_expression": {
+                "groups": [{"tags": ["work"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()["id"]
+
+    # Pass both list_id AND tags - should combine with AND logic
+    response = await client.get(f"/notes/?list_id={list_id}&tags=urgent")
+    assert response.status_code == 200
+
+    data = response.json()
+    # Should return only notes matching BOTH work list AND urgent tag
+    assert data["total"] == 1
+    assert data["items"][0]["title"] == "Work Urgent"
+
+
+async def test_list_notes_list_id_and_tags_no_overlap(client: AsyncClient) -> None:
+    """Test that combining list filter and tags with no overlap returns empty."""
+    # Note in work list
+    await client.post(
+        "/notes/",
+        json={"title": "Work", "content": "Content", "tags": ["work"]},
+    )
+    # Note with personal tag (not in work list)
+    await client.post(
+        "/notes/",
+        json={"title": "Personal", "content": "Content", "tags": ["personal"]},
+    )
+
+    # Create work list
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Work",
+            "filter_expression": {"groups": [{"tags": ["work"]}], "group_operator": "OR"},
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()["id"]
+
+    # Filter work list by 'personal' tag - no note has both
+    response = await client.get(f"/notes/?list_id={list_id}&tags=personal")
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+
+
+async def test_list_notes_list_id_empty_results(client: AsyncClient) -> None:
+    """Test list_id filter with no matching notes."""
+    # Create a note
+    await client.post(
+        "/notes/",
+        json={"title": "Something", "content": "Content", "tags": ["other"]},
+    )
+
+    # Create a list for non-existent tags
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Empty List",
+            "filter_expression": {
+                "groups": [{"tags": ["nonexistent"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()["id"]
+
+    # Filter by list - should return empty
+    response = await client.get(f"/notes/?list_id={list_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 0
+    assert data["items"] == []

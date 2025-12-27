@@ -21,8 +21,8 @@ describe('getTabRoute', () => {
       expect(getTabRoute('trash', 'shared')).toBe('/app/content/trash')
     })
 
-    it('returns /app/bookmarks/lists/:id for shared list keys', () => {
-      expect(getTabRoute('list:123', 'shared')).toBe('/app/bookmarks/lists/123')
+    it('returns /app/content/lists/:id for shared list keys', () => {
+      expect(getTabRoute('list:123', 'shared')).toBe('/app/content/lists/123')
     })
   })
 
