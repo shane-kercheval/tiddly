@@ -69,8 +69,8 @@ const mockNote: Note = {
 }
 
 const mockTagSuggestions: TagCount[] = [
-  { tag: 'test', count: 5 },
-  { tag: 'example', count: 3 },
+  { name: 'test', count: 5 },
+  { name: 'example', count: 3 },
 ]
 
 describe('NoteForm', () => {
