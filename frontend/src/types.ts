@@ -232,15 +232,31 @@ export interface ContentListUpdate {
 // User Settings Types
 // =============================================================================
 
+/** Valid section names for tab order */
+export type SectionName = 'shared' | 'bookmarks' | 'notes'
+
+/** Tab order sections structure */
+export interface TabOrderSections {
+  shared: string[]
+  bookmarks: string[]
+  notes: string[]
+}
+
+/** Structured tab order with sections */
+export interface TabOrder {
+  sections: TabOrderSections
+  section_order: SectionName[]
+}
+
 /** User settings data returned from the API */
 export interface UserSettings {
-  tab_order: string[] | null
+  tab_order: TabOrder | null
   updated_at: string
 }
 
 /** Data for updating user settings */
 export interface UserSettingsUpdate {
-  tab_order?: string[] | null
+  tab_order?: TabOrder | null
 }
 
 /** Tab order item with resolved label */
@@ -250,7 +266,21 @@ export interface TabOrderItem {
   type: 'builtin' | 'list'
 }
 
-/** Computed tab order response */
+/** A section in the computed tab order */
+export interface TabOrderSection {
+  name: SectionName
+  label: string
+  items: TabOrderItem[]
+  collapsible: boolean
+}
+
+/** Computed tab order response with sections */
+export interface ComputedTabOrderResponse {
+  sections: TabOrderSection[]
+  section_order: SectionName[]
+}
+
+/** @deprecated Use ComputedTabOrderResponse instead */
 export interface TabOrderResponse {
   items: TabOrderItem[]
 }

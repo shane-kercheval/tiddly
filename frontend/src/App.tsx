@@ -43,7 +43,7 @@ import { SettingsTags } from './pages/settings/SettingsTags'
  *   - /app/settings/general : General UI preferences
  *   - /app/settings/tokens : Personal access tokens
  *   - /app/settings/mcp : MCP integration setup
- *   - /app/settings/bookmarks : Bookmark lists and tab order
+ *   - /app/settings/lists : Content lists and tab order
  *   - /app/settings/tags : Tag management
  *
  * - Legacy redirects (backward compatibility):
@@ -94,7 +94,8 @@ function App(): ReactNode {
                 <Route path="/app/settings/general" element={<SettingsGeneral />} />
                 <Route path="/app/settings/tokens" element={<SettingsTokens />} />
                 <Route path="/app/settings/mcp" element={<SettingsMCP />} />
-                <Route path="/app/settings/bookmarks" element={<SettingsBookmarks />} />
+                <Route path="/app/settings/lists" element={<SettingsBookmarks />} />
+                <Route path="/app/settings/bookmarks" element={<Navigate to="/app/settings/lists" replace />} />
                 <Route path="/app/settings/tags" element={<SettingsTags />} />
               </Route>
             </Route>

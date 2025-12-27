@@ -4,10 +4,25 @@
  */
 import { create } from 'zustand'
 import { api } from '../services/api'
-import type { UserSettings, UserSettingsUpdate, TabOrderResponse, TabOrderItem } from '../types'
+import type {
+  UserSettings,
+  UserSettingsUpdate,
+  ComputedTabOrderResponse,
+  TabOrderSection,
+  TabOrderItem,
+  SectionName,
+} from '../types'
 
 interface SettingsState {
   settings: UserSettings | null
+  /** Computed tab order sections from backend */
+  computedSections: TabOrderSection[]
+  /** Section display order from backend */
+  sectionOrder: SectionName[]
+  /**
+   * Flattened tab order items for backwards compatibility.
+   * @deprecated Use computedSections instead for proper section support.
+   */
   computedTabOrder: TabOrderItem[]
   isLoading: boolean
   error: string | null
@@ -22,9 +37,24 @@ interface SettingsActions {
 
 type SettingsStore = SettingsState & SettingsActions
 
+/**
+ * Flatten all sections' items into a single array for backwards compatibility.
+ */
+function flattenSections(
+  sections: TabOrderSection[],
+  sectionOrder: SectionName[]
+): TabOrderItem[] {
+  return sectionOrder.flatMap((sectionName) => {
+    const section = sections.find((s) => s.name === sectionName)
+    return section?.items ?? []
+  })
+}
+
 export const useSettingsStore = create<SettingsStore>((set) => ({
   // State
   settings: null,
+  computedSections: [],
+  sectionOrder: ['shared', 'bookmarks', 'notes'],
   computedTabOrder: [],
   isLoading: false,
   error: null,
@@ -44,8 +74,16 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   fetchTabOrder: async () => {
     set({ isLoading: true, error: null })
     try {
-      const response = await api.get<TabOrderResponse>('/settings/tab-order')
-      set({ computedTabOrder: response.data.items, isLoading: false })
+      const response = await api.get<ComputedTabOrderResponse>('/settings/tab-order')
+      const sections = response.data.sections
+      const sectionOrder = response.data.section_order
+      set({
+        computedSections: sections,
+        sectionOrder: sectionOrder,
+        // Provide flattened list for backwards compatibility
+        computedTabOrder: flattenSections(sections, sectionOrder),
+        isLoading: false,
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch tab order'
       set({ isLoading: false, error: message })

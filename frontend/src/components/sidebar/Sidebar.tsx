@@ -8,6 +8,7 @@ import { getTabRoute } from './routes'
 import { SidebarSection } from './SidebarSection'
 import { SidebarNavItem } from './SidebarNavItem'
 import { SidebarUserSection } from './SidebarUserSection'
+import type { SectionName } from '../../types'
 
 function BookmarkIcon(): ReactNode {
   return (
@@ -25,6 +26,64 @@ function BookmarkIcon(): ReactNode {
       />
     </svg>
   )
+}
+
+function NoteIcon(): ReactNode {
+  return (
+    <svg
+      className="h-5 w-5 text-amber-600"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+      />
+    </svg>
+  )
+}
+
+function SharedIcon(): ReactNode {
+  return (
+    <svg
+      className="h-5 w-5 text-purple-600"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M6 6.878V6a2.25 2.25 0 0 1 2.25-2.25h7.5A2.25 2.25 0 0 1 18 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 0 0 4.5 9v.878m13.5-3A2.25 2.25 0 0 1 19.5 9v.878m-13.5-3v10.5c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.75"
+      />
+    </svg>
+  )
+}
+
+function getSectionIcon(sectionName: SectionName): ReactNode {
+  switch (sectionName) {
+    case 'shared':
+      return <SharedIcon />
+    case 'bookmarks':
+      return <BookmarkIcon />
+    case 'notes':
+      return <NoteIcon />
+  }
+}
+
+function getSectionVariant(sectionName: SectionName): 'blue' | 'amber' | 'purple' {
+  switch (sectionName) {
+    case 'shared':
+      return 'purple'
+    case 'bookmarks':
+      return 'blue'
+    case 'notes':
+      return 'amber'
+  }
 }
 
 function SettingsIcon(): ReactNode {
@@ -103,33 +162,47 @@ interface SidebarContentProps {
 
 function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): ReactNode {
   const { expandedSections, toggleSection, toggleCollapse } = useSidebarStore()
-  const computedTabOrder = useSettingsStore((state) => state.computedTabOrder)
+  const computedSections = useSettingsStore((state) => state.computedSections)
+  const sectionOrder = useSettingsStore((state) => state.sectionOrder)
 
-  const isBookmarksExpanded = expandedSections.includes('bookmarks')
   const isSettingsExpanded = expandedSections.includes('settings')
+
+  // Build ordered sections from computed data
+  const orderedSections = sectionOrder
+    .map((name) => computedSections.find((s) => s.name === name))
+    .filter((s): s is NonNullable<typeof s> => s !== undefined)
 
   return (
     <div className="flex h-full flex-col">
       {/* Navigation Sections */}
       <nav className="flex-1 space-y-1 px-2">
-        <SidebarSection
-          title="Bookmarks"
-          icon={<BookmarkIcon />}
-          isExpanded={isBookmarksExpanded}
-          onToggle={() => toggleSection('bookmarks')}
-          isCollapsed={isCollapsed}
-        >
-          {computedTabOrder.map((item) => (
-            <SidebarNavItem
-              key={item.key}
-              to={getTabRoute(item.key)}
-              label={item.label}
+        {orderedSections.map((section) => {
+          const isExpanded = expandedSections.includes(section.name)
+          const variant = getSectionVariant(section.name)
+
+          return (
+            <SidebarSection
+              key={section.name}
+              title={section.label}
+              icon={getSectionIcon(section.name)}
+              isExpanded={isExpanded}
+              onToggle={() => toggleSection(section.name)}
               isCollapsed={isCollapsed}
-              onClick={onNavClick}
-              variant="blue"
-            />
-          ))}
-        </SidebarSection>
+              collapsible={section.collapsible}
+            >
+              {section.items.map((item) => (
+                <SidebarNavItem
+                  key={item.key}
+                  to={getTabRoute(item.key, section.name)}
+                  label={item.label}
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  variant={variant}
+                />
+              ))}
+            </SidebarSection>
+          )
+        })}
 
         <SidebarSection
           title="Settings"
@@ -137,6 +210,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           isExpanded={isSettingsExpanded}
           onToggle={() => toggleSection('settings')}
           isCollapsed={isCollapsed}
+          collapsible={true}
         >
           <SidebarNavItem
             to="/app/settings/general"
@@ -145,8 +219,8 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
             onClick={onNavClick}
           />
           <SidebarNavItem
-            to="/app/settings/bookmarks"
-            label="Bookmarks"
+            to="/app/settings/lists"
+            label="Lists"
             isCollapsed={isCollapsed}
             onClick={onNavClick}
           />
