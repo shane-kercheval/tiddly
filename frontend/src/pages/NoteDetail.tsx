@@ -13,7 +13,6 @@ import toast from 'react-hot-toast'
 import { NoteView } from '../components/NoteView'
 import { NoteEditor } from '../components/NoteEditor'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
-import { BackArrowIcon } from '../components/icons'
 import { useNotes } from '../hooks/useNotes'
 import {
   useCreateNote,
@@ -25,6 +24,7 @@ import {
 } from '../hooks/useNoteMutations'
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
+import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import type { Note, NoteCreate, NoteUpdate } from '../types'
 
 type PageMode = 'view' | 'edit' | 'create'
@@ -70,6 +70,7 @@ export function NoteDetail(): ReactNode {
   // Hooks
   const { fetchNote, trackNoteUsage } = useNotes()
   const { tags: tagSuggestions } = useTagsStore()
+  const fullWidthLayout = useUIPreferencesStore((state) => state.fullWidthLayout)
   const createMutation = useCreateNote()
   const updateMutation = useUpdateNote()
   const deleteMutation = useDeleteNote()
@@ -229,17 +230,6 @@ export function NoteDetail(): ReactNode {
     }
   }, [noteId, restoreMutation])
 
-  // Shared back button component
-  const backButton = (
-    <button
-      onClick={handleBack}
-      className="btn-secondary flex items-center gap-2"
-    >
-      <BackArrowIcon />
-      Back
-    </button>
-  )
-
   // Render loading state
   if (isLoading) {
     return <LoadingSpinnerCentered label="Loading note..." />
@@ -253,19 +243,14 @@ export function NoteDetail(): ReactNode {
   // Render create mode
   if (mode === 'create') {
     return (
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-6">{backButton}</div>
-
-        <div className="card">
-          <h2 className="text-lg font-semibold mb-4">New Note</h2>
-          <NoteEditor
-            tagSuggestions={tagSuggestions}
-            onSubmit={handleSubmitCreate}
-            onCancel={handleCancel}
-            isSubmitting={createMutation.isPending}
-            initialTags={initialTags}
-          />
-        </div>
+      <div className={`flex flex-col h-full w-full ${fullWidthLayout ? '' : 'max-w-4xl mx-auto'}`}>
+        <NoteEditor
+          tagSuggestions={tagSuggestions}
+          onSubmit={handleSubmitCreate}
+          onCancel={handleCancel}
+          isSubmitting={createMutation.isPending}
+          initialTags={initialTags}
+        />
       </div>
     )
   }
@@ -278,19 +263,16 @@ export function NoteDetail(): ReactNode {
   // Edit mode
   if (mode === 'edit') {
     return (
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-6">{backButton}</div>
-
-        <div className="card">
-          <h2 className="text-lg font-semibold mb-4">Edit Note</h2>
-          <NoteEditor
-            note={note}
-            tagSuggestions={tagSuggestions}
-            onSubmit={handleSubmitUpdate}
-            onCancel={handleCancel}
-            isSubmitting={updateMutation.isPending}
-          />
-        </div>
+      <div className={`flex flex-col h-full w-full ${fullWidthLayout ? '' : 'max-w-4xl mx-auto'}`}>
+        <NoteEditor
+          note={note}
+          tagSuggestions={tagSuggestions}
+          onSubmit={handleSubmitUpdate}
+          onCancel={handleCancel}
+          isSubmitting={updateMutation.isPending}
+          onArchive={viewState === 'active' ? handleArchive : undefined}
+          onDelete={handleDelete}
+        />
       </div>
     )
   }
@@ -300,6 +282,7 @@ export function NoteDetail(): ReactNode {
     <NoteView
       note={note}
       view={viewState}
+      fullWidth={fullWidthLayout}
       onEdit={viewState !== 'deleted' ? handleEdit : undefined}
       onArchive={viewState === 'active' ? handleArchive : undefined}
       onUnarchive={viewState === 'archived' ? handleUnarchive : undefined}

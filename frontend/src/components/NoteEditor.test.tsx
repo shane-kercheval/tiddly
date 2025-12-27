@@ -357,10 +357,11 @@ describe('NoteEditor', () => {
   })
 
   describe('keyboard shortcut hint', () => {
-    it('should show Cmd+S hint', () => {
+    it('should show keyboard shortcut hint', () => {
       render(<NoteEditor {...defaultProps} />)
 
-      expect(screen.getByText(/Cmd\+S/)).toBeInTheDocument()
+      // Uses ⌘S symbol in the UI
+      expect(screen.getByText(/⌘S/)).toBeInTheDocument()
     })
   })
 

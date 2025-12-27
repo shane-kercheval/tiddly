@@ -17,6 +17,8 @@ interface NoteFormProps {
   view?: 'active' | 'archived' | 'deleted'
   /** Whether to start in edit mode */
   initialEditMode?: boolean
+  /** Whether to use full width layout */
+  fullWidth?: boolean
   /** Available tags for autocomplete */
   tagSuggestions: TagCount[]
   /** Called when navigating back to list */
@@ -52,6 +54,7 @@ export function NoteForm({
   note,
   view = 'active',
   initialEditMode = false,
+  fullWidth = false,
   tagSuggestions,
   onBack,
   onTagClick,
@@ -135,34 +138,16 @@ export function NoteForm({
 
   if (isEditing) {
     return (
-      <div className="max-w-4xl mx-auto">
-        {/* Header with back button */}
-        {onBack && (
-          <div className="mb-6">
-            <button
-              onClick={onBack}
-              className="btn-secondary flex items-center gap-2"
-            >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              Back
-            </button>
-          </div>
-        )}
-
-        <div className="card">
-          <h2 className="text-lg font-semibold mb-4">
-            {note.title ? 'Edit Note' : 'Create Note'}
-          </h2>
-          <NoteEditor
-            note={note}
-            tagSuggestions={tagSuggestions}
-            onSubmit={handleSubmit}
-            onCancel={handleCancel}
-            isSubmitting={updateNoteMutation.isPending}
-          />
-        </div>
+      <div className={`flex flex-col h-full w-full ${fullWidth ? '' : 'max-w-4xl mx-auto'}`}>
+        <NoteEditor
+          note={note}
+          tagSuggestions={tagSuggestions}
+          onSubmit={handleSubmit}
+          onCancel={handleCancel}
+          isSubmitting={updateNoteMutation.isPending}
+          onArchive={view === 'active' && onArchive ? handleArchive : undefined}
+          onDelete={onDelete ? handleDelete : undefined}
+        />
       </div>
     )
   }
@@ -171,6 +156,7 @@ export function NoteForm({
     <NoteView
       note={note}
       view={view}
+      fullWidth={fullWidth}
       onEdit={handleEdit}
       onArchive={onArchive ? handleArchive : undefined}
       onUnarchive={onUnarchive ? handleUnarchive : undefined}

@@ -127,7 +127,8 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        expect(screen.getByText('New Note')).toBeInTheDocument()
+        // Create mode shows the NoteEditor with Create Note button
+        expect(screen.getByText('Create Note')).toBeInTheDocument()
       })
     })
 
@@ -135,17 +136,18 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        expect(screen.getByText('New Note')).toBeInTheDocument()
+        expect(screen.getByText('Create Note')).toBeInTheDocument()
       })
 
       expect(mockFetchNote).not.toHaveBeenCalled()
     })
 
-    it('should have back button in create mode', async () => {
+    it('should have cancel button in create mode', async () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        expect(screen.getByText('Back')).toBeInTheDocument()
+        // Cancel button serves as "back" in edit/create mode
+        expect(screen.getByText('Cancel')).toBeInTheDocument()
       })
     })
 
@@ -222,7 +224,8 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/1/edit')
 
       await waitFor(() => {
-        expect(screen.getByText('Edit Note')).toBeInTheDocument()
+        // Edit mode shows the NoteEditor with Save Changes button
+        expect(screen.getByText('Save Changes')).toBeInTheDocument()
       })
     })
 

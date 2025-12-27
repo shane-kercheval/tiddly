@@ -486,7 +486,7 @@ describe('NoteForm', () => {
       expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument()
     })
 
-    it('should render back button when onBack is provided in edit mode', () => {
+    it('should not render back button in edit mode (Cancel serves this purpose)', () => {
       render(
         <NoteForm
           note={mockNote}
@@ -496,7 +496,9 @@ describe('NoteForm', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument()
+      // In edit mode, Cancel button replaces Back functionality
+      expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument()
     })
 
     it('should call onBack when back button is clicked', async () => {

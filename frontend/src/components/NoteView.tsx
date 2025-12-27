@@ -12,6 +12,7 @@ import { EditIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
 interface NoteViewProps {
   note: Note
   view?: 'active' | 'archived' | 'deleted'
+  fullWidth?: boolean
   onEdit?: () => void
   onArchive?: () => void
   onUnarchive?: () => void
@@ -34,6 +35,7 @@ interface NoteViewProps {
 export function NoteView({
   note,
   view = 'active',
+  fullWidth = false,
   onEdit,
   onArchive,
   onUnarchive,
@@ -43,22 +45,22 @@ export function NoteView({
   onBack,
 }: NoteViewProps): ReactNode {
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Header with back button and actions */}
-      <div className="flex items-center justify-between mb-6">
-        {onBack && (
-          <button
-            onClick={onBack}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back
-          </button>
-        )}
-
+    <div className={`flex flex-col h-full w-full ${fullWidth ? '' : 'max-w-4xl mx-auto'}`}>
+      {/* Fixed header with back button and actions */}
+      <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="btn-secondary flex items-center gap-2"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Back
+            </button>
+          )}
+
           {/* Edit button - shown in active and archived views */}
           {view !== 'deleted' && onEdit && (
             <button
@@ -69,7 +71,9 @@ export function NoteView({
               Edit
             </button>
           )}
+        </div>
 
+        <div className="flex items-center gap-2">
           {/* Archive button - shown in active view */}
           {view === 'active' && onArchive && (
             <button
@@ -120,8 +124,8 @@ export function NoteView({
         </div>
       </div>
 
-      {/* Note content */}
-      <article className="card">
+      {/* Scrollable note content */}
+      <article className="flex-1 overflow-y-auto min-h-0 pr-2">
         {/* Title */}
         <h1 className="text-2xl font-bold text-gray-900 mb-2">
           {note.title}
@@ -159,6 +163,11 @@ export function NoteView({
           <p className="text-gray-600 italic border-l-4 border-gray-200 pl-4 mb-6">
             {note.description}
           </p>
+        )}
+
+        {/* Divider between description/tags and content */}
+        {note.content && (
+          <hr className="border-gray-200 mb-6" />
         )}
 
         {/* Markdown content */}

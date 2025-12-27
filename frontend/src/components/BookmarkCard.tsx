@@ -114,7 +114,7 @@ export function BookmarkCard({
   }
 
   return (
-    <div className="card">
+    <div className="card card-interactive">
       <div className="flex items-start gap-4">
         {/* Main content */}
         <div className="min-w-0 flex-1">

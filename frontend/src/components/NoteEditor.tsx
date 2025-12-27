@@ -13,6 +13,7 @@ import type { TagInputHandle } from './TagInput'
 import type { Note, NoteCreate, NoteUpdate, TagCount } from '../types'
 import { TAG_PATTERN } from '../utils'
 import { config } from '../config'
+import { ArchiveIcon, TrashIcon } from './icons'
 
 /** Key prefix for localStorage draft storage */
 const DRAFT_KEY_PREFIX = 'note_draft_'
@@ -38,6 +39,10 @@ interface NoteEditorProps {
   isSubmitting?: boolean
   /** Initial tags to populate (e.g., from current list filter) */
   initialTags?: string[]
+  /** Called when note is archived (shown in header when provided) */
+  onArchive?: () => void
+  /** Called when note is deleted (shown in header when provided) */
+  onDelete?: () => void
 }
 
 interface FormState {
@@ -120,6 +125,8 @@ export function NoteEditor({
   onCancel,
   isSubmitting = false,
   initialTags,
+  onArchive,
+  onDelete,
 }: NoteEditorProps): ReactNode {
   const isEditing = !!note
 
@@ -303,9 +310,69 @@ export function NoteEditor({
   }
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
-      {/* Draft restoration prompt */}
-      {hasDraft && (
+    <form ref={formRef} onSubmit={handleSubmit} className="flex flex-col h-full">
+      {/* Fixed header with action buttons */}
+      <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isSubmitting}
+            className="btn-secondary"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting || !form.title.trim()}
+            className="btn-primary"
+          >
+            {isSubmitting ? (
+              <span className="flex items-center gap-1.5">
+                <div className="spinner-sm" />
+                Saving...
+              </span>
+            ) : isEditing ? (
+              'Save Changes'
+            ) : (
+              'Create Note'
+            )}
+          </button>
+          <span className="text-xs text-gray-400 ml-2">
+            <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs">⌘S</kbd>
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {onArchive && (
+            <button
+              type="button"
+              onClick={onArchive}
+              className="btn-secondary flex items-center gap-2"
+              title="Archive note"
+            >
+              <ArchiveIcon className="h-4 w-4" />
+              Archive
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              className="btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 flex items-center gap-2"
+              title="Delete note"
+            >
+              <TrashIcon />
+              Delete
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Scrollable form content */}
+      <div className="flex-1 overflow-y-auto min-h-0 space-y-6 pr-2">
+        {/* Draft restoration prompt */}
+        {hasDraft && (
         <div className="alert-info flex items-center justify-between">
           <p className="text-sm">
             You have an unsaved draft from a previous session.
@@ -444,7 +511,7 @@ export function NoteEditor({
         </div>
 
         {showPreview ? (
-          <div className="border border-gray-200 rounded-lg p-4 min-h-[300px] bg-white">
+          <div className="border border-gray-200 rounded-lg p-4 min-h-[200px] bg-white flex-1 overflow-y-auto">
             {form.content ? (
               <div className="prose prose-gray max-w-none">
                 <ReactMarkdown
@@ -461,7 +528,7 @@ export function NoteEditor({
         ) : (
           <div
             ref={editorContainerRef}
-            className={`border rounded-lg overflow-hidden ${errors.content ? 'border-red-300' : 'border-gray-200'}`}
+            className={`border rounded-lg overflow-hidden flex-1 ${errors.content ? 'border-red-300' : 'border-gray-200'}`}
           >
             <CodeMirror
               value={form.content}
@@ -469,7 +536,7 @@ export function NoteEditor({
                 setForm((prev) => ({ ...prev, content: value }))
               }
               extensions={[markdown()]}
-              height="300px"
+              minHeight="200px"
               placeholder="Write your note in markdown..."
               editable={!isSubmitting}
               basicSetup={{
@@ -494,38 +561,6 @@ export function NoteEditor({
           </span>
         </div>
       </div>
-
-      {/* Form actions */}
-      <div className="flex justify-between items-center pt-4">
-        <p className="text-xs text-gray-400">
-          <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs">Cmd+S</kbd> to save
-        </p>
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isSubmitting}
-            className="btn-secondary"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting || !form.title.trim()}
-            className="btn-primary"
-          >
-            {isSubmitting ? (
-              <span className="flex items-center gap-1.5">
-                <div className="spinner-sm" />
-                Saving...
-              </span>
-            ) : isEditing ? (
-              'Save Changes'
-            ) : (
-              'Create Note'
-            )}
-          </button>
-        </div>
       </div>
     </form>
   )
