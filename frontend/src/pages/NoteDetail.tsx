@@ -165,7 +165,6 @@ export function NoteDetail(): ReactNode {
           data: data as NoteUpdate,
         })
         setNote(updatedNote)
-        toast.success('Note saved')
         navigateToView(noteId)
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to save note'

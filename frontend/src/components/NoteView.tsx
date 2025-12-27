@@ -1,6 +1,7 @@
 /**
  * Component for viewing a note with rendered markdown content.
  */
+import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -44,6 +45,32 @@ export function NoteView({
   onTagClick,
   onBack,
 }: NoteViewProps): ReactNode {
+  // Keyboard shortcut: 'e' to edit (when not in input)
+  useEffect(() => {
+    if (!onEdit) return
+
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      // Skip if in an input, textarea, or contenteditable
+      const activeElement = document.activeElement
+      if (
+        activeElement?.tagName === 'INPUT' ||
+        activeElement?.tagName === 'TEXTAREA' ||
+        (activeElement as HTMLElement)?.isContentEditable
+      ) {
+        return
+      }
+
+      // 'e' to edit (without modifiers)
+      if (e.key === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        onEdit()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [onEdit])
+
   return (
     <div className={`flex flex-col h-full w-full ${fullWidth ? '' : 'max-w-4xl mx-auto'}`}>
       {/* Fixed header with back button and actions */}

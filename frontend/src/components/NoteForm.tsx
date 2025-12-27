@@ -84,7 +84,6 @@ export function NoteForm({
           data: data as NoteUpdate,
         })
         setIsEditing(false)
-        toast.success('Note saved')
         onSaveSuccess?.(updatedNote)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to save note'

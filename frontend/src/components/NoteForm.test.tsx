@@ -203,25 +203,6 @@ describe('NoteForm', () => {
       })
     })
 
-    it('should show success toast on successful save', async () => {
-      const user = userEvent.setup()
-      mockMutateAsync.mockResolvedValue({ ...mockNote, title: 'Updated Title' })
-
-      render(
-        <NoteForm
-          note={mockNote}
-          tagSuggestions={mockTagSuggestions}
-          initialEditMode={true}
-        />
-      )
-
-      await user.click(screen.getByRole('button', { name: /save/i }))
-
-      await waitFor(() => {
-        expect(toast.success).toHaveBeenCalledWith('Note saved')
-      })
-    })
-
     it('should show error toast on save failure', async () => {
       const user = userEvent.setup()
       mockMutateAsync.mockRejectedValue(new Error('Network error'))
