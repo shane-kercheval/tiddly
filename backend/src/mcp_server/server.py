@@ -49,12 +49,12 @@ Example workflows:
 
 4. "What notes do I have about the project?"
    - Call `search_notes(query="project")` for text search
-   - Or filter by tag: `search_notes(tags=["work"])`
+   - And/or filter by tag: `search_notes(tags=["project"])`
 
 5. "Create a meeting note"
    - Call `create_note(title="Meeting Notes", content="## Attendees\\n...", tags=["meeting"])`
 
-6. "Search everything for Python content"
+6. "Search my content for Python resources"
    - Call `search_all_content(query="python")` to search both bookmarks and notes
 
 Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
