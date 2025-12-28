@@ -202,4 +202,66 @@ describe('useTabNavigation', () => {
 
     expect(result.current.currentTabKey).toBe('all')
   })
+
+  describe('path-based routes', () => {
+    it('reads list ID from path /app/bookmarks/lists/12', () => {
+      const { result } = renderHook(() => useTabNavigation(), {
+        wrapper: createWrapper(['/app/bookmarks/lists/12']),
+      })
+
+      expect(result.current.currentTabKey).toBe('list:12')
+      expect(result.current.currentView).toBe('active')
+      expect(result.current.currentListId).toBe(12)
+    })
+
+    it('reads list ID from path /app/notes/lists/42', () => {
+      const { result } = renderHook(() => useTabNavigation(), {
+        wrapper: createWrapper(['/app/notes/lists/42']),
+      })
+
+      expect(result.current.currentTabKey).toBe('list:42')
+      expect(result.current.currentView).toBe('active')
+      expect(result.current.currentListId).toBe(42)
+    })
+
+    it('reads list ID from path /app/content/lists/99', () => {
+      const { result } = renderHook(() => useTabNavigation(), {
+        wrapper: createWrapper(['/app/content/lists/99']),
+      })
+
+      expect(result.current.currentTabKey).toBe('list:99')
+      expect(result.current.currentView).toBe('active')
+      expect(result.current.currentListId).toBe(99)
+    })
+
+    it('reads archived from path /app/bookmarks/archived', () => {
+      const { result } = renderHook(() => useTabNavigation(), {
+        wrapper: createWrapper(['/app/bookmarks/archived']),
+      })
+
+      expect(result.current.currentTabKey).toBe('archived')
+      expect(result.current.currentView).toBe('archived')
+      expect(result.current.currentListId).toBeUndefined()
+    })
+
+    it('reads trash from path /app/notes/trash', () => {
+      const { result } = renderHook(() => useTabNavigation(), {
+        wrapper: createWrapper(['/app/notes/trash']),
+      })
+
+      expect(result.current.currentTabKey).toBe('trash')
+      expect(result.current.currentView).toBe('deleted')
+      expect(result.current.currentListId).toBeUndefined()
+    })
+
+    it('prefers query param over path when both present', () => {
+      const { result } = renderHook(() => useTabNavigation(), {
+        wrapper: createWrapper(['/app/bookmarks/lists/12?tab=list:99']),
+      })
+
+      // Query param takes precedence
+      expect(result.current.currentTabKey).toBe('list:99')
+      expect(result.current.currentListId).toBe(99)
+    })
+  })
 })

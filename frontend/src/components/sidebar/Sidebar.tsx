@@ -24,6 +24,9 @@ import { useSidebarStore } from '../../stores/sidebarStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useListsStore } from '../../stores/listsStore'
 import { useTagsStore } from '../../stores/tagsStore'
+import { useTabNavigation } from '../../hooks/useTabNavigation'
+import { queryClient } from '../../queryClient'
+import { invalidateListQueries } from '../../utils/invalidateListQueries'
 import { SidebarGroup } from './SidebarGroup'
 import { SidebarNavItem } from './SidebarNavItem'
 import { SidebarUserSection } from './SidebarUserSection'
@@ -36,6 +39,7 @@ import {
   computedToMinimal,
   customCollisionDetection,
 } from './sidebarDndUtils'
+import { getListRoute } from './routes'
 import { ListModal } from '../ListModal'
 import {
   SettingsIcon,
@@ -110,6 +114,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   const lists = useListsStore((state) => state.lists)
   const deleteList = useListsStore((state) => state.deleteList)
   const tags = useTagsStore((state) => state.tags)
+  const { currentListId, handleTabChange } = useTabNavigation()
 
   // Modal state
   const [isListModalOpen, setIsListModalOpen] = useState(false)
@@ -174,7 +179,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     [lists]
   )
 
-  // Create a new group
+  // Create a new group (added to top of sidebar)
   const handleNewGroup = async (): Promise<void> => {
     if (!sidebar) return
 
@@ -187,7 +192,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
     const updatedSidebar: SidebarOrder = {
       version: SIDEBAR_VERSION,
-      items: [...computedToMinimal(sidebar.items), newGroup],
+      items: [newGroup, ...computedToMinimal(sidebar.items)],
     }
 
     await updateSidebar(updatedSidebar)
@@ -250,6 +255,11 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       await deleteList(listId)
       // Refresh sidebar to remove deleted list
       await fetchSidebar()
+      // Navigate to "All" if the deleted list was currently being viewed
+      if (currentListId === listId) {
+        // Navigate to the unified content view (All)
+        navigate('/app/content')
+      }
     } catch {
       toast.error('Failed to delete list')
     }
@@ -271,6 +281,20 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     const result = await createList(...args)
     // Refresh sidebar to show new list
     await fetchSidebar()
+    // Move the new list to the top of the sidebar
+    const currentSidebar = useSettingsStore.getState().sidebar
+    if (currentSidebar) {
+      const newListItem = { type: 'list' as const, id: result.id }
+      const otherItems = computedToMinimal(currentSidebar.items).filter(
+        (item) => !(item.type === 'list' && item.id === result.id)
+      )
+      await updateSidebar({
+        version: SIDEBAR_VERSION,
+        items: [newListItem, ...otherItems],
+      })
+    }
+    // Navigate to the new list using path-based route
+    navigate(getListRoute(result.id, result.content_types))
     return result
   }
 
@@ -280,6 +304,8 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     const result = await updateListStore(...args)
     // Refresh sidebar to show updated list
     await fetchSidebar()
+    // Invalidate queries for this list since filters may have changed
+    await invalidateListQueries(queryClient, result.id)
     return result
   }
 
