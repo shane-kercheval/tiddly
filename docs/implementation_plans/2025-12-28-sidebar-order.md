@@ -4,7 +4,8 @@
 
 Replace the hardcoded sidebar sections (Notes, Bookmarks, Shared) with a flexible user-defined structure where:
 - Users create **Groups** to organize items (stored inline in JSON, not a separate table)
-- Users can order groups and items freely via drag-and-drop
+- Users can order groups and items freely via drag-and-drop directly in the sidebar
+- All sidebar management (create/edit/delete groups and lists) happens inline - no separate settings page
 - Built-in items (All, Archived, Trash) are orderable like any other item
 - Lists and builtins can exist at root level or inside groups
 - "All Bookmarks" and "All Notes" are removed; content type filtering moves to multi-select chips on All/Archived/Trash
@@ -453,18 +454,22 @@ For groups, use a folder-style icon (e.g., `FolderIcon` from Heroicons).
 
 ---
 
-## Milestone 4: Settings Page - Sidebar Management
+## Milestone 4: In-Sidebar Management & Drag-and-Drop
 
 ### Goal
-Rename "Settings → Lists" to "Settings → Sidebar" and add group management with drag-and-drop reordering.
+Add drag-and-drop reordering and inline management directly in the sidebar (no separate settings page).
 
 ### Success Criteria
-- Settings page renamed to "Sidebar"
-- Users can create/rename/delete groups
-- Users can reorder items via drag-and-drop (no up/down arrows)
+- Users can reorder items via drag-and-drop directly in sidebar
 - Users can drag items into/out of groups
-- List management (create/edit/delete) still works
+- Users can create groups (via button → inline text input)
+- Users can rename groups (click name → inline edit)
+- Users can delete groups (hover icon → confirmation, moves contents to root)
+- Users can create lists (via button → opens ListModal)
+- Users can edit lists (hover icon → opens ListModal)
+- Users can delete lists (hover icon → confirmation)
 - Drag handles visible on hover for discoverability
+- Changes persist immediately (no save button needed)
 
 ### Key Changes
 
@@ -474,50 +479,101 @@ Rename "Settings → Lists" to "Settings → Sidebar" and add group management w
 npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
 ```
 
-**2. Rename `SettingsLists.tsx` → `SettingsSidebar.tsx`**
-
-Update route and navigation.
-
-**3. Add group management UI**
-
-- "Create Group" button
-- Group inline rename (click to edit)
-- Group delete (moves contents to root)
-
-**4. Sidebar order editor with drag-and-drop**
-
-Replace `SectionTabOrderEditor` with new `SidebarOrderEditor`:
+**2. Update `Sidebar.tsx` with drag-and-drop**
 
 ```typescript
-import { DndContext, closestCenter } from '@dnd-kit/core';
+import { DndContext, closestCenter, DragOverlay } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 
-// Key features:
-// - Sortable items at root level
-// - Groups act as droppable containers
-// - Items can be dragged into/out of groups
-// - Drag handle icon (⋮⋮) on hover for discoverability
-// - Save/Reset buttons
+// Wrap sidebar content in DndContext
+// Each item/group is a sortable element
+// Groups are also droppable containers
+// On drag end, call updateSidebar() to persist
 ```
 
-**5. Update settings navigation**
+**3. Add hover actions to `SidebarNavItem.tsx`**
 
-- Rename "Lists" → "Sidebar" in settings nav
+```typescript
+// On hover, show action icons on the right:
+// - Lists: edit icon, delete icon
+// - Groups: delete icon (rename is inline click)
+// - Builtins: no actions (can't edit/delete)
+
+<div className="group flex items-center">
+  <DragHandle className="opacity-0 group-hover:opacity-100" />
+  <span>{item.name}</span>
+  <div className="ml-auto opacity-0 group-hover:opacity-100">
+    {item.type === "list" && (
+      <>
+        <EditIcon onClick={() => openListModal(item.id)} />
+        <DeleteIcon onClick={() => confirmDelete(item.id)} />
+      </>
+    )}
+  </div>
+</div>
+```
+
+**4. Add inline group rename to `SidebarGroup.tsx`**
+
+```typescript
+// Click on group name → editable input
+// Enter/blur → save new name
+// Escape → cancel
+
+const [isEditing, setIsEditing] = useState(false);
+const [editName, setEditName] = useState(group.name);
+
+{isEditing ? (
+  <input
+    value={editName}
+    onChange={(e) => setEditName(e.target.value)}
+    onBlur={handleSave}
+    onKeyDown={handleKeyDown}
+    autoFocus
+  />
+) : (
+  <span onClick={() => setIsEditing(true)}>{group.name}</span>
+)}
+```
+
+**5. Add "New Group" and "New List" buttons**
+
+Add buttons at bottom of sidebar or in a dedicated section:
+
+```typescript
+<div className="mt-auto border-t pt-2">
+  <button onClick={handleNewGroup}>+ New Group</button>
+  <button onClick={() => setListModalOpen(true)}>+ New List</button>
+</div>
+```
+
+"New Group" creates inline with default name "New Group" in edit mode.
+
+**6. Delete deprecated components**
+
+- Delete `SettingsLists.tsx`
+- Delete `SectionTabOrderEditor.tsx`
+- Delete `ListManager.tsx` (functionality moves to sidebar)
+- Remove "Lists" from settings navigation
 
 ### Testing Strategy
-- Test group CRUD operations
 - Test drag-and-drop reordering at root level
 - Test dragging items into groups
 - Test dragging items out of groups to root
-- Test that changes persist after save
-- Test keyboard accessibility (arrow keys + space/enter)
+- Test inline group rename (save on blur/enter, cancel on escape)
+- Test group delete moves contents to root
+- Test list create/edit opens modal
+- Test list delete with confirmation
+- Test changes persist immediately
+- Test keyboard accessibility
 
 ### Dependencies
 - Milestone 3 (sidebar rendering)
 
 ### Risk Factors
 - @dnd-kit nested sortable requires careful setup of droppable zones
-- Ensuring smooth animations during drag operations
+- Balancing hover actions with drag handles (avoid accidental drags)
+- Mobile touch interactions for drag-and-drop
 
 ---
 
@@ -680,9 +736,10 @@ Backend:
 
 Frontend:
 - Remove old types (`TabOrder`, `TabOrderSection`, etc.)
-- Remove `SectionTabOrderEditor` component
 - Remove section-based sidebar logic
 - Remove `/app/bookmarks`, `/app/notes` routes
+
+Note: `SettingsLists.tsx`, `SectionTabOrderEditor.tsx`, and `ListManager.tsx` are deleted in Milestone 4.
 
 **3. Update documentation**
 
@@ -710,7 +767,7 @@ Frontend:
 | 1 | Backend schemas, services, endpoints | None |
 | 2 | Frontend state & API layer | M1 |
 | 3 | Sidebar component rendering | M2 |
-| 4 | Settings page - sidebar management | M3 |
+| 4 | In-sidebar management & drag-and-drop | M3 |
 | 5 | Content type filters & quick actions | M4 |
 | 6 | Migration & cleanup | M5 |
 
@@ -722,3 +779,4 @@ Frontend:
 | Quick-add placement | Two locations: sidebar icons (per type) + hover menu near search in "All" |
 | Content type filter UX | Chips with multi-select (future-proofed for 3 types: bookmark, note, todo) |
 | Reordering UI | Drag-and-drop only with @dnd-kit (no up/down arrows) |
+| Settings page for sidebar | None - all management directly in sidebar (hover actions, inline editing) |
