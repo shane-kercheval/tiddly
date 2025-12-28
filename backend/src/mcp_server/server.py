@@ -13,14 +13,24 @@ from .auth import AuthenticationError, get_bearer_token
 mcp = FastMCP(
     name="Bookmarks MCP Server",
     instructions="""
-A personal bookmarks manager for saving and organizing URLs.
-Automatically fetches page metadata and content for full-text search.
+A personal content manager for saving and organizing bookmarks and notes.
+Supports full-text search, tagging, and markdown notes.
 
 Available tools:
-- `search_bookmarks`: Search by text query and/or filter by tags
+
+**Bookmarks:**
+- `search_bookmarks`: Search bookmarks by text query and/or filter by tags
 - `get_bookmark`: Get full details of a specific bookmark by ID
 - `create_bookmark`: Save a new URL (metadata auto-fetched if not provided)
-- `list_tags`: Get all tags with usage counts
+
+**Notes:**
+- `search_notes`: Search notes by text query and/or filter by tags
+- `get_note`: Get full details of a specific note by ID (includes content)
+- `create_note`: Create a new note with markdown content
+
+**Unified:**
+- `search_all_content`: Search across both bookmarks and notes in one query
+- `list_tags`: Get all tags with usage counts (shared across content types)
 
 Example workflows:
 
@@ -36,6 +46,16 @@ Example workflows:
 3. "Save this article: <url>"
    - Call `create_bookmark(url="<url>", tags=["articles"])`
    - Title/description are auto-fetched if not provided
+
+4. "What notes do I have about the project?"
+   - Call `search_notes(query="project")` for text search
+   - Or filter by tag: `search_notes(tags=["work"])`
+
+5. "Create a meeting note"
+   - Call `create_note(title="Meeting Notes", content="## Attendees\\n...", tags=["meeting"])`
+
+6. "Search everything for Python content"
+   - Call `search_all_content(query="python")` to search both bookmarks and notes
 
 Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
 """.strip(),
@@ -148,6 +168,126 @@ async def search_bookmarks(
 
 
 @mcp.tool(
+    description=(
+        "Search notes with optional text query and tag filtering. "
+        "Returns active notes only."
+    ),
+    annotations={"readOnlyHint": True},
+)
+async def search_notes(
+    query: Annotated[
+        str | None,
+        Field(description="Text to search in title, description, and content"),
+    ] = None,
+    tags: Annotated[list[str] | None, Field(description="Filter by tags")] = None,
+    tag_match: Annotated[
+        Literal["all", "any"],
+        Field(description="Tag matching: 'all' requires ALL tags, 'any' requires ANY tag"),
+    ] = "all",
+    sort_by: Annotated[
+        Literal["created_at", "updated_at", "last_used_at", "title"],
+        Field(description="Field to sort by"),
+    ] = "created_at",
+    sort_order: Annotated[Literal["asc", "desc"], Field(description="Sort direction")] = "desc",
+    limit: Annotated[int, Field(ge=1, le=100, description="Maximum results to return")] = 50,
+    offset: Annotated[
+        int, Field(ge=0, description="Number of results to skip for pagination"),
+    ] = 0,
+) -> dict[str, Any]:
+    """
+    Search and filter notes.
+
+    Examples:
+    - Search for "meeting": query="meeting"
+    - Filter by tag: tags=["work"]
+    - Combine: query="project", tags=["work", "important"], tag_match="all"
+    """
+    client = await _get_http_client()
+    token = _get_token()
+
+    params: dict[str, Any] = {
+        "limit": limit,
+        "offset": offset,
+        "tag_match": tag_match,
+        "sort_by": sort_by,
+        "sort_order": sort_order,
+    }
+    if query:
+        params["q"] = query
+    if tags:
+        params["tags"] = tags
+
+    try:
+        return await api_get(client, "/notes/", token, params)
+    except httpx.HTTPStatusError as e:
+        _handle_api_error(e, "searching notes")
+        raise
+    except httpx.RequestError as e:
+        raise ToolError(f"API unavailable: {e}")
+
+
+@mcp.tool(
+    description=(
+        "Search across all content types (bookmarks and notes) with unified results. "
+        "Returns active content only. Each item has a 'type' field."
+    ),
+    annotations={"readOnlyHint": True},
+)
+async def search_all_content(
+    query: Annotated[
+        str | None,
+        Field(description="Text to search in title, description, URL (bookmarks), and content"),
+    ] = None,
+    tags: Annotated[list[str] | None, Field(description="Filter by tags")] = None,
+    tag_match: Annotated[
+        Literal["all", "any"],
+        Field(description="Tag matching: 'all' requires ALL tags, 'any' requires ANY tag"),
+    ] = "all",
+    sort_by: Annotated[
+        Literal["created_at", "updated_at", "last_used_at", "title"],
+        Field(description="Field to sort by"),
+    ] = "created_at",
+    sort_order: Annotated[Literal["asc", "desc"], Field(description="Sort direction")] = "desc",
+    limit: Annotated[int, Field(ge=1, le=100, description="Maximum results to return")] = 50,
+    offset: Annotated[
+        int, Field(ge=0, description="Number of results to skip for pagination"),
+    ] = 0,
+) -> dict[str, Any]:
+    """
+    Unified search across bookmarks and notes.
+
+    Returns items with a 'type' field ("bookmark" or "note").
+    Bookmark items include 'url', note items include 'version'.
+
+    Examples:
+    - Search all content: query="python"
+    - Filter by tags across all types: tags=["work"]
+    """
+    client = await _get_http_client()
+    token = _get_token()
+
+    params: dict[str, Any] = {
+        "limit": limit,
+        "offset": offset,
+        "tag_match": tag_match,
+        "sort_by": sort_by,
+        "sort_order": sort_order,
+    }
+    if query:
+        params["q"] = query
+    if tags:
+        params["tags"] = tags
+
+    try:
+        return await api_get(client, "/content/", token, params)
+    except httpx.HTTPStatusError as e:
+        _handle_api_error(e, "searching content")
+        raise
+    except httpx.RequestError as e:
+        raise ToolError(f"API unavailable: {e}")
+
+
+@mcp.tool(
     description="Get the full details of a specific bookmark including stored content",
     annotations={"readOnlyHint": True},
 )
@@ -164,6 +304,28 @@ async def get_bookmark(
         if e.response.status_code == 404:
             raise ToolError(f"Bookmark with ID {bookmark_id} not found")
         _handle_api_error(e, f"getting bookmark {bookmark_id}")
+        raise
+    except httpx.RequestError as e:
+        raise ToolError(f"API unavailable: {e}")
+
+
+@mcp.tool(
+    description="Get the full details of a specific note including content",
+    annotations={"readOnlyHint": True},
+)
+async def get_note(
+    note_id: Annotated[int, Field(description="The ID of the note to retrieve")],
+) -> dict[str, Any]:
+    """Get a note by ID. Returns full details including markdown content."""
+    client = await _get_http_client()
+    token = _get_token()
+
+    try:
+        return await api_get(client, f"/notes/{note_id}", token)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise ToolError(f"Note with ID {note_id} not found")
+        _handle_api_error(e, f"getting note {note_id}")
         raise
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
@@ -212,6 +374,40 @@ async def create_bookmark(
             except (ValueError, KeyError, TypeError):
                 raise ToolError("A bookmark with this URL already exists")
         _handle_api_error(e, "creating bookmark")
+        raise
+    except httpx.RequestError as e:
+        raise ToolError(f"API unavailable: {e}")
+
+
+@mcp.tool(
+    description="Create a new note.",
+    annotations={"readOnlyHint": False},
+)
+async def create_note(
+    title: Annotated[str, Field(description="The note title (required)")],
+    description: Annotated[str | None, Field(description="Short description/summary")] = None,
+    content: Annotated[str | None, Field(description="Markdown content of the note")] = None,
+    tags: Annotated[
+        list[str] | None,
+        Field(description="Tags to assign (lowercase with hyphens, e.g., 'meeting-notes')"),
+    ] = None,
+) -> dict[str, Any]:
+    """Create a new note with optional markdown content."""
+    client = await _get_http_client()
+    token = _get_token()
+
+    payload: dict[str, Any] = {"title": title}
+    if description is not None:
+        payload["description"] = description
+    if content is not None:
+        payload["content"] = content
+    if tags is not None:
+        payload["tags"] = tags
+
+    try:
+        return await api_post(client, "/notes/", token, payload)
+    except httpx.HTTPStatusError as e:
+        _handle_api_error(e, "creating note")
         raise
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
