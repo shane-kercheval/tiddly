@@ -39,6 +39,10 @@ async def list_all_content(
         description="View: 'active' (not deleted/archived), 'archived', or 'deleted'",
     ),
     list_id: int | None = Query(default=None, description="Filter by content list ID"),
+    content_types: list[Literal["bookmark", "note"]] | None = Query(
+        default=None,
+        description="Filter by content types (bookmark, note). If not specified, all types are included.",
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> ContentListResponse:
@@ -58,13 +62,14 @@ async def list_all_content(
     """
     # If list_id provided, fetch the list and use its filter expression + content_types
     filter_expression = None
-    content_types: list[str] | None = None
+    effective_content_types: list[str] | None = content_types
     if list_id is not None:
         content_list = await content_list_service.get_list(db, current_user.id, list_id)
         if content_list is None:
             raise HTTPException(status_code=404, detail="List not found")
         filter_expression = content_list.filter_expression
-        content_types = content_list.content_types
+        # List's content_types overrides the query param
+        effective_content_types = content_list.content_types
 
     items, total = await search_all_content(
         db=db,
@@ -78,7 +83,7 @@ async def list_all_content(
         limit=limit,
         view=view,
         filter_expression=filter_expression,
-        content_types=content_types,
+        content_types=effective_content_types,
     )
 
     return ContentListResponse(

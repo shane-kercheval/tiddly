@@ -127,7 +127,7 @@ async def test__user_delete__cascades_to_all_user_data(
     # Create user settings (uses user_id as PK, no separate id)
     settings = UserSettings(
         user_id=user_id,
-        tab_order=["all", "archived"],
+        sidebar_order={"version": 1, "items": [{"type": "builtin", "key": "all"}]},
     )
     db_session.add(settings)
     await db_session.flush()

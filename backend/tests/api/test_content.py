@@ -627,3 +627,105 @@ async def test__list_content_with_list_id__empty_results(
     data = response.json()
     assert data['total'] == 0
     assert data['items'] == []
+
+
+async def test__list_all_content__content_types_param_filters_bookmarks_only(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types param filters to only bookmarks."""
+    # Create a bookmark
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://example.com', 'title': 'Example Bookmark'},
+    )
+    # Create a note
+    await client.post(
+        '/notes/',
+        json={'title': 'Example Note'},
+    )
+
+    # Filter by content_types=bookmark
+    response = await client.get('/content/?content_types=bookmark')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 1
+    assert len(data['items']) == 1
+    assert data['items'][0]['type'] == 'bookmark'
+    assert data['items'][0]['title'] == 'Example Bookmark'
+
+
+async def test__list_all_content__content_types_param_filters_notes_only(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types param filters to only notes."""
+    # Create a bookmark
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://example.com', 'title': 'Example Bookmark'},
+    )
+    # Create a note
+    await client.post(
+        '/notes/',
+        json={'title': 'Example Note'},
+    )
+
+    # Filter by content_types=note
+    response = await client.get('/content/?content_types=note')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 1
+    assert len(data['items']) == 1
+    assert data['items'][0]['type'] == 'note'
+    assert data['items'][0]['title'] == 'Example Note'
+
+
+async def test__list_all_content__content_types_param_accepts_multiple(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types param accepts both bookmark and note."""
+    # Create a bookmark
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://example.com', 'title': 'Example Bookmark'},
+    )
+    # Create a note
+    await client.post(
+        '/notes/',
+        json={'title': 'Example Note'},
+    )
+
+    # Filter by content_types=bookmark&content_types=note (both)
+    response = await client.get('/content/?content_types=bookmark&content_types=note')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 2
+    assert len(data['items']) == 2
+    types = {item['type'] for item in data['items']}
+    assert types == {'bookmark', 'note'}
+
+
+async def test__list_all_content__content_types_param_with_search(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types param works with text search."""
+    # Create content
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://python.org', 'title': 'Python Bookmark'},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'Python Note'},
+    )
+
+    # Search for "Python" but only in bookmarks
+    response = await client.get('/content/?q=python&content_types=bookmark')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 1
+    assert data['items'][0]['type'] == 'bookmark'
+    assert data['items'][0]['title'] == 'Python Bookmark'
