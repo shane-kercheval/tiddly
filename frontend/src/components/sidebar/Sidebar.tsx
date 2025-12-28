@@ -247,12 +247,13 @@ const customCollisionDetection: CollisionDetection = (args) => {
 
     if (rect) {
       const { y } = args.pointerCoordinates
-      // Only treat as drop-into-group if pointer is clearly in the middle
-      const edgeThreshold = 20 // pixels from edge
-      const isInMiddle = y > rect.top + edgeThreshold && y < rect.bottom - edgeThreshold
+      // Only treat as drop-into-group if pointer is over the group HEADER
+      // (not the expanded children area). Header is roughly the top 36px.
+      const headerHeight = 36
+      const isOverHeader = y >= rect.top && y <= rect.top + headerHeight
 
-      if (isInMiddle) {
-        // In the middle of dropzone - treat as drop-into-group
+      if (isOverHeader) {
+        // Over the header - treat as drop-into-group
         return [dropzoneCollision]
       }
     }
