@@ -546,20 +546,36 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
   return (
     <div className="flex h-full flex-col">
-      {/* Quick-add buttons */}
+      {/* Quick-add bar: Group/List on left, Bookmark/Note on right */}
       {!isCollapsed && (
-        <div className="flex items-center gap-1 px-3 pb-1.5 border-b border-gray-200">
-          <span className="text-xs text-gray-500 mr-auto">Quick add:</span>
+        <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200">
+          <button
+            onClick={handleNewGroup}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+            title="New Group"
+          >
+            <PlusIcon className="h-3 w-3" />
+            <span>Group</span>
+          </button>
+          <button
+            onClick={handleNewList}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+            title="New List"
+          >
+            <PlusIcon className="h-3 w-3" />
+            <span>List</span>
+          </button>
+          <div className="flex-1" />
           <button
             onClick={handleQuickAddBookmark}
-            className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            className="p-1.5 rounded-md text-blue-500 hover:bg-blue-50 hover:text-blue-600 transition-colors"
             title="New Bookmark"
           >
             <BookmarkIcon className="h-4 w-4" />
           </button>
           <button
             onClick={handleQuickAddNote}
-            className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            className="p-1.5 rounded-md text-green-500 hover:bg-green-50 hover:text-green-600 transition-colors"
             title="New Note"
           >
             <NoteIcon className="h-4 w-4" />
@@ -579,28 +595,6 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           <SortableContext items={rootItemIds} strategy={verticalListSortingStrategy}>
             {sidebar?.items.map(renderItem)}
           </SortableContext>
-
-          {/* Add Buttons - side by side above Settings */}
-          {!isCollapsed && (
-            <div className="flex items-center gap-1 mt-2 px-1">
-              <button
-                onClick={handleNewGroup}
-                className="flex flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-                title="New Group"
-              >
-                <PlusIcon className="h-3.5 w-3.5" />
-                <span>Group</span>
-              </button>
-              <button
-                onClick={handleNewList}
-                className="flex flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-                title="New List"
-              >
-                <PlusIcon className="h-3.5 w-3.5" />
-                <span>List</span>
-              </button>
-            </div>
-          )}
 
           {/* Settings Section (not draggable) */}
           <div className="mt-4 border-t border-gray-200 pt-4">

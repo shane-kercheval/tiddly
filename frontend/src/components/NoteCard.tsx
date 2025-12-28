@@ -78,7 +78,7 @@ export function NoteCard({
         <div className="min-w-0 flex-1">
           {/* Title row */}
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="shrink-0 w-4 h-4 text-gray-400">
+            <span className="shrink-0 w-4 h-4 text-green-500">
               <NoteIcon className="w-4 h-4" />
             </span>
             <button
