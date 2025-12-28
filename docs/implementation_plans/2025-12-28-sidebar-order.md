@@ -30,10 +30,12 @@ Replace `tab_order` field with `sidebar_order`:
 
 # New structure (sidebar_order)
 {
+  "version": 1,
   "items": [
     { "type": "builtin", "key": "all" },
     {
       "type": "group",
+      "id": "550e8400-e29b-41d4-a716-446655440000",
       "name": "Work",
       "items": [
         { "type": "list", "id": 3 },
@@ -71,10 +73,12 @@ No modifications needed to the ContentList model.
 **GET /settings/sidebar** returns (computed):
 ```json
 {
+  "version": 1,
   "items": [
     { "type": "builtin", "key": "all", "name": "All" },
     {
       "type": "group",
+      "id": "550e8400-e29b-41d4-a716-446655440000",
       "name": "Work",
       "items": [
         { "type": "list", "id": 3, "name": "Python Resources", "content_types": ["bookmark"] },
@@ -91,10 +95,12 @@ No modifications needed to the ContentList model.
 **PUT /settings/sidebar** accepts (minimal):
 ```json
 {
+  "version": 1,
   "items": [
     { "type": "builtin", "key": "all" },
     {
       "type": "group",
+      "id": "550e8400-e29b-41d4-a716-446655440000",
       "name": "Work",
       "items": [
         { "type": "list", "id": 3 },
@@ -128,8 +134,9 @@ Update backend schemas, services, and create new sidebar endpoints.
 
 ```python
 from typing import Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+SIDEBAR_VERSION = 1
 BuiltinKey = Literal["all", "archived", "trash"]
 
 class SidebarBuiltinItem(BaseModel):
@@ -142,12 +149,14 @@ class SidebarListItem(BaseModel):
 
 class SidebarGroup(BaseModel):
     type: Literal["group"]
-    name: str  # 1-100 chars
+    id: str = Field(pattern=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')  # UUID format validation
+    name: str = Field(min_length=1, max_length=100)
     items: list["SidebarListItem | SidebarBuiltinItem"]  # Groups cannot nest
 
 SidebarItem = SidebarBuiltinItem | SidebarListItem | SidebarGroup
 
 class SidebarOrder(BaseModel):
+    version: int = SIDEBAR_VERSION
     items: list[SidebarItem]
 
 # Computed versions (returned by GET)
@@ -160,12 +169,14 @@ class SidebarListItemComputed(SidebarListItem):
 
 class SidebarGroupComputed(BaseModel):
     type: Literal["group"]
+    id: str
     name: str
     items: list[SidebarListItemComputed | SidebarBuiltinItemComputed]
 
 SidebarItemComputed = SidebarBuiltinItemComputed | SidebarListItemComputed | SidebarGroupComputed
 
 class SidebarOrderComputed(BaseModel):
+    version: int
     items: list[SidebarItemComputed]
 ```
 
@@ -180,6 +191,7 @@ class SidebarOrderComputed(BaseModel):
 def get_default_sidebar_order() -> dict:
     """Default sidebar for new users."""
     return {
+        "version": SIDEBAR_VERSION,
         "items": [
             {"type": "builtin", "key": "all"},
             {"type": "builtin", "key": "archived"},
@@ -190,17 +202,19 @@ def get_default_sidebar_order() -> dict:
 def get_computed_sidebar(session, user_id: int) -> SidebarOrderComputed:
     """Fetch sidebar_order and resolve list names/content_types."""
     # 1. Get raw sidebar_order from UserSettings
-    # 2. Fetch all user's lists
+    # 2. Fetch all user's lists from DB
     # 3. Walk the structure, resolving list IDs to names/content_types
-    # 4. Filter out orphaned list references
-    # 5. Add display names for builtins
+    # 4. Filter out orphaned references (lists in sidebar but deleted from DB)
+    # 5. Append orphaned lists (lists in DB but not in sidebar) to root
+    #    - This ensures no list becomes inaccessible
+    # 6. Add display names for builtins
     pass
 
 def update_sidebar_order(session, user_id: int, sidebar_order: SidebarOrder) -> None:
     """Validate and save sidebar structure."""
     # 1. Extract all list IDs from structure
     # 2. Verify all list IDs exist and belong to user
-    # 3. Verify no duplicate items (same list/builtin twice)
+    # 3. Verify no duplicate items (same list/builtin/group twice)
     # 4. Save to UserSettings
     pass
 ```
@@ -232,8 +246,11 @@ When a list is deleted:
 
 ### Testing Strategy
 
-- Unit tests for schema validation (valid/invalid structures)
-- Unit tests for `get_computed_sidebar` (resolves names, filters orphans)
+- Unit tests for schema validation (valid/invalid structures, group UUID required)
+- Unit tests for `get_computed_sidebar`:
+  - Resolves list names and content_types
+  - Filters out deleted list references
+  - Appends orphaned lists (in DB but not in sidebar) to root
 - Unit tests for `update_sidebar_order` (validates list ownership, rejects duplicates)
 - Integration tests for GET/PUT endpoints
 - Test list creation adds to sidebar
@@ -291,6 +308,7 @@ interface SidebarListItem {
 
 interface SidebarGroup {
   type: "group";
+  id: string;  // UUID, generated client-side via crypto.randomUUID()
   name: string;
   items: (SidebarListItem | SidebarBuiltinItem)[];
 }
@@ -298,6 +316,7 @@ interface SidebarGroup {
 type SidebarItem = SidebarBuiltinItem | SidebarListItem | SidebarGroup;
 
 interface SidebarOrder {
+  version: number;
   items: SidebarItem[];
 }
 
@@ -313,6 +332,7 @@ interface SidebarListItemComputed extends SidebarListItem {
 
 interface SidebarGroupComputed {
   type: "group";
+  id: string;
   name: string;
   items: (SidebarListItemComputed | SidebarBuiltinItemComputed)[];
 }
@@ -320,6 +340,7 @@ interface SidebarGroupComputed {
 type SidebarItemComputed = SidebarBuiltinItemComputed | SidebarListItemComputed | SidebarGroupComputed;
 
 interface SidebarOrderComputed {
+  version: number;
   items: SidebarItemComputed[];
 }
 ```
@@ -341,15 +362,15 @@ interface SettingsState {
 ```typescript
 interface SidebarState {
   isCollapsed: boolean;
-  collapsedGroups: string[];  // Group names that are collapsed
+  collapsedGroupIds: string[];  // Group UUIDs that are collapsed
   isMobileOpen: boolean;
 
-  toggleGroupCollapsed: (groupName: string) => void;
-  // Remove: expandedSections (replaced by collapsedGroups)
+  toggleGroupCollapsed: (groupId: string) => void;
+  // Remove: expandedSections (replaced by collapsedGroupIds)
 }
 ```
 
-Note: Using `collapsedGroups` (collapsed by default = false) vs `expandedSections` is a UX choice. Groups start expanded, user can collapse them.
+Note: Using `collapsedGroupIds` (collapsed by default = false) vs `expandedSections` is a UX choice. Groups start expanded, user can collapse them. Using UUIDs (not names) ensures collapsed state persists through renames.
 
 ### Testing Strategy
 - Unit tests for store actions
@@ -384,7 +405,7 @@ Update sidebar components to render the new structure.
 - Iterate over `sidebar.items` and render based on type
 
 ```typescript
-{sidebar.items.map((item, index) => {
+{sidebar.items.map((item) => {
   if (item.type === "builtin") {
     return <SidebarNavItem key={item.key} item={item} />;
   }
@@ -392,7 +413,7 @@ Update sidebar components to render the new structure.
     return <SidebarNavItem key={`list-${item.id}`} item={item} />;
   }
   if (item.type === "group") {
-    return <SidebarGroup key={`group-${item.name}`} group={item} />;
+    return <SidebarGroup key={item.id} group={item} />;
   }
 })}
 ```
@@ -402,7 +423,7 @@ Update sidebar components to render the new structure.
 - Accepts a `SidebarGroupComputed` prop
 - Renders group header with name and collapse toggle
 - Renders child items (lists and builtins only, no nested groups)
-- Uses `useSidebarStore.collapsedGroups` for collapse state
+- Uses `useSidebarStore.collapsedGroupIds` for collapse state (by UUID)
 
 **3. Update `SidebarNavItem.tsx`**
 
@@ -417,7 +438,7 @@ Update sidebar components to render the new structure.
 
 **4. Update `routes.ts`**
 
-Simplify routing - no more section-based logic:
+Simplify routing - all lists now route to `/app/content/lists/:id` regardless of content type:
 
 ```typescript
 function getItemRoute(item: SidebarItemComputed): string {
@@ -429,11 +450,14 @@ function getItemRoute(item: SidebarItemComputed): string {
     }
   }
   if (item.type === "list") {
+    // Unified routing - no more /app/bookmarks/lists or /app/notes/lists
     return `/app/content/lists/${item.id}`;
   }
   // Groups don't have routes - they just contain items
 }
 ```
+
+Note: This replaces the old section-based routing where bookmark-only lists went to `/app/bookmarks/lists/:id`, note-only to `/app/notes/lists/:id`, and mixed to `/app/content/lists/:id`. Now all lists use the unified route.
 
 **5. Group icon**
 
@@ -454,55 +478,32 @@ For groups, use a folder-style icon (e.g., `FolderIcon` from Heroicons).
 
 ---
 
-## Milestone 4: In-Sidebar Management & Drag-and-Drop
+## Milestone 4a: In-Sidebar Management UI
 
 ### Goal
-Add drag-and-drop reordering and inline management directly in the sidebar (no separate settings page).
+Add inline management (create/edit/delete) directly in the sidebar without drag-and-drop.
 
 ### Success Criteria
-- Users can reorder items via drag-and-drop directly in sidebar
-- Users can drag items into/out of groups
 - Users can create groups (via button → inline text input)
 - Users can rename groups (click name → inline edit)
-- Users can delete groups (hover icon → confirmation, moves contents to root)
+- Users can delete groups (hover/tap action → confirmation, moves contents to root)
 - Users can create lists (via button → opens ListModal)
-- Users can edit lists (hover icon → opens ListModal)
-- Users can delete lists (hover icon → confirmation)
-- Drag handles visible on hover for discoverability
-- Changes persist immediately (no save button needed)
+- Users can edit lists (hover/tap action → opens ListModal)
+- Users can delete lists (hover/tap action → confirmation)
+- Mobile: tap to reveal actions (hover doesn't work on touch)
+- Changes persist immediately
 
 ### Key Changes
 
-**1. Install @dnd-kit**
-
-```bash
-npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
-```
-
-**2. Update `Sidebar.tsx` with drag-and-drop**
+**1. Add hover/tap actions to `SidebarNavItem.tsx`**
 
 ```typescript
-import { DndContext, closestCenter, DragOverlay } from '@dnd-kit/core';
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-
-// Wrap sidebar content in DndContext
-// Each item/group is a sortable element
-// Groups are also droppable containers
-// On drag end, call updateSidebar() to persist
-```
-
-**3. Add hover actions to `SidebarNavItem.tsx`**
-
-```typescript
-// On hover, show action icons on the right:
-// - Lists: edit icon, delete icon
-// - Groups: delete icon (rename is inline click)
-// - Builtins: no actions (can't edit/delete)
+// Desktop: show action icons on hover
+// Mobile: tap item to reveal actions, tap elsewhere to hide
 
 <div className="group flex items-center">
-  <DragHandle className="opacity-0 group-hover:opacity-100" />
   <span>{item.name}</span>
-  <div className="ml-auto opacity-0 group-hover:opacity-100">
+  <div className="ml-auto opacity-0 group-hover:opacity-100 md:group-hover:opacity-100">
     {item.type === "list" && (
       <>
         <EditIcon onClick={() => openListModal(item.id)} />
@@ -511,9 +512,12 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
     )}
   </div>
 </div>
+
+// For mobile, track "active" item state and show actions for that item
+// Or use a three-dot menu that's always visible on mobile
 ```
 
-**4. Add inline group rename to `SidebarGroup.tsx`**
+**2. Add inline group rename to `SidebarGroup.tsx`**
 
 ```typescript
 // Click on group name → editable input
@@ -536,7 +540,7 @@ const [editName, setEditName] = useState(group.name);
 )}
 ```
 
-**5. Add "New Group" and "New List" buttons**
+**3. Add "New Group" and "New List" buttons**
 
 Add buttons at bottom of sidebar or in a dedicated section:
 
@@ -545,11 +549,20 @@ Add buttons at bottom of sidebar or in a dedicated section:
   <button onClick={handleNewGroup}>+ New Group</button>
   <button onClick={() => setListModalOpen(true)}>+ New List</button>
 </div>
+
+// handleNewGroup creates group with UUID:
+const handleNewGroup = () => {
+  const newGroup = {
+    type: "group",
+    id: crypto.randomUUID(),
+    name: "New Group",
+    items: []
+  };
+  // Add to sidebar and immediately enter edit mode for name
+};
 ```
 
-"New Group" creates inline with default name "New Group" in edit mode.
-
-**6. Delete deprecated components**
+**4. Delete deprecated components**
 
 - Delete `SettingsLists.tsx`
 - Delete `SectionTabOrderEditor.tsx`
@@ -557,23 +570,129 @@ Add buttons at bottom of sidebar or in a dedicated section:
 - Remove "Lists" from settings navigation
 
 ### Testing Strategy
-- Test drag-and-drop reordering at root level
-- Test dragging items into groups
-- Test dragging items out of groups to root
+- Test group create with UUID generation
 - Test inline group rename (save on blur/enter, cancel on escape)
 - Test group delete moves contents to root
 - Test list create/edit opens modal
 - Test list delete with confirmation
+- Test mobile tap-to-reveal actions
 - Test changes persist immediately
-- Test keyboard accessibility
 
 ### Dependencies
 - Milestone 3 (sidebar rendering)
 
 ### Risk Factors
-- @dnd-kit nested sortable requires careful setup of droppable zones
-- Balancing hover actions with drag handles (avoid accidental drags)
-- Mobile touch interactions for drag-and-drop
+- Mobile UX for revealing actions
+- Empty group handling (allowed - user can delete manually)
+
+---
+
+## Milestone 4b: Drag-and-Drop Reordering
+
+### Goal
+Add drag-and-drop reordering for sidebar items using @dnd-kit.
+
+### Success Criteria
+- Users can reorder items at root level via drag-and-drop
+- Users can drag items into groups
+- Users can drag items out of groups to root
+- Users can reorder items within groups
+- Users can reorder groups themselves
+- Drag handles visible on hover for discoverability
+- Keyboard accessibility (arrow keys + space/enter)
+- Debounced persistence (~300-500ms) to prevent rapid API calls
+
+### Key Changes
+
+**1. Install @dnd-kit**
+
+```bash
+npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
+```
+
+**2. Update `Sidebar.tsx` with drag-and-drop**
+
+```typescript
+import { DndContext, closestCenter, DragOverlay, pointerWithin } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { useSensors, useSensor, PointerSensor, KeyboardSensor } from '@dnd-kit/core';
+
+// Configure sensors for pointer and keyboard
+const sensors = useSensors(
+  useSensor(PointerSensor, {
+    activationConstraint: { distance: 8 }  // Prevent accidental drags
+  }),
+  useSensor(KeyboardSensor)
+);
+
+// Wrap sidebar content in DndContext
+// Use collision detection that works for nested containers
+// Groups are both sortable AND droppable containers
+```
+
+**3. Add drag handles to items**
+
+```typescript
+import { useSortable } from '@dnd-kit/sortable';
+
+// Each item gets a drag handle that appears on hover
+<div className="group flex items-center">
+  <DragHandle
+    className="opacity-0 group-hover:opacity-100 cursor-grab"
+    {...listeners}
+    {...attributes}
+  />
+  <span>{item.name}</span>
+  {/* ... action icons ... */}
+</div>
+```
+
+**4. Implement debounced persistence**
+
+```typescript
+// Debounce sidebar updates to prevent rapid API calls during drag operations
+const debouncedUpdateSidebar = useMemo(
+  () => debounce((sidebar: SidebarOrder) => {
+    updateSidebar(sidebar);
+  }, 300),
+  [updateSidebar]
+);
+
+// On drag end, update local state immediately, debounce API call
+const handleDragEnd = (event: DragEndEvent) => {
+  const newSidebar = computeNewSidebarOrder(event);
+  setSidebarLocal(newSidebar);  // Optimistic update
+  debouncedUpdateSidebar(newSidebar);
+};
+```
+
+**5. Handle nested drag-and-drop**
+
+Groups are special: they can be dragged AND receive dropped items.
+
+```typescript
+// Use @dnd-kit's useDroppable for groups
+// Detect when item is dragged over a group vs between groups
+// Visual feedback: highlight group when item hovers over it
+```
+
+### Testing Strategy
+- Test drag-and-drop reordering at root level
+- Test dragging items into groups (visual feedback, correct placement)
+- Test dragging items out of groups to root
+- Test reordering within groups
+- Test dragging groups to reorder
+- Test keyboard accessibility (Tab to focus, Space to pick up, Arrow to move, Space to drop)
+- Test debounced persistence (rapid drags don't spam API)
+- Test optimistic update with rollback on failure
+
+### Dependencies
+- Milestone 4a (in-sidebar management)
+
+### Risk Factors
+- @dnd-kit nested sortable requires careful collision detection setup
+- Performance with many items during drag operations
+- Touch device drag experience
 
 ---
 
@@ -664,7 +783,7 @@ Add a `+` icon near the search bar that shows options on hover/click:
 - Test old routes redirect properly
 
 ### Dependencies
-- Milestone 4 (settings page)
+- Milestone 4b (drag-and-drop)
 
 ### Risk Factors
 - Chip styling to match existing UI
@@ -767,8 +886,9 @@ Note: `SettingsLists.tsx`, `SectionTabOrderEditor.tsx`, and `ListManager.tsx` ar
 | 1 | Backend schemas, services, endpoints | None |
 | 2 | Frontend state & API layer | M1 |
 | 3 | Sidebar component rendering | M2 |
-| 4 | In-sidebar management & drag-and-drop | M3 |
-| 5 | Content type filters & quick actions | M4 |
+| 4a | In-sidebar management UI | M3 |
+| 4b | Drag-and-drop reordering | M4a |
+| 5 | Content type filters & quick actions | M4b |
 | 6 | Migration & cleanup | M5 |
 
 ## Decisions Made
@@ -780,3 +900,169 @@ Note: `SettingsLists.tsx`, `SectionTabOrderEditor.tsx`, and `ListManager.tsx` ar
 | Content type filter UX | Chips with multi-select (future-proofed for 3 types: bookmark, note, todo) |
 | Reordering UI | Drag-and-drop only with @dnd-kit (no up/down arrows) |
 | Settings page for sidebar | None - all management directly in sidebar (hover actions, inline editing) |
+| Group identification | UUIDs (generated client-side) for robust collapsed state and safe renames |
+| List routing | Unified `/app/content/lists/:id` for all lists regardless of content type |
+| Schema versioning | `version: 1` field for future migrations |
+| Orphan list handling | Append to root (ensures no list becomes inaccessible) |
+| Empty groups | Allowed (user can delete manually) |
+| Concurrent updates | Debounce sidebar updates (~300ms) |
+| Mobile touch actions | Tap to reveal actions or persistent menu icon |
+
+---
+
+## Comprehensive Testing Strategy
+
+### Backend Testing (pytest)
+
+**Schema Validation Tests (`test_sidebar_schemas.py`)**
+```python
+# Valid structures
+def test__sidebar_order__valid_minimal(): ...
+def test__sidebar_order__valid_with_groups(): ...
+def test__sidebar_order__valid_nested_items_in_group(): ...
+
+# Invalid structures
+def test__sidebar_order__rejects_invalid_builtin_key(): ...
+def test__sidebar_order__rejects_invalid_group_uuid(): ...  # Not UUID format
+def test__sidebar_order__rejects_empty_group_name(): ...
+def test__sidebar_order__rejects_group_name_too_long(): ...
+def test__sidebar_order__rejects_nested_groups(): ...  # Groups cannot contain groups
+def test__sidebar_order__rejects_missing_version(): ...
+```
+
+**Service Tests (`test_sidebar_service.py`)**
+```python
+# get_computed_sidebar
+def test__get_computed_sidebar__resolves_list_names(): ...
+def test__get_computed_sidebar__resolves_list_content_types(): ...
+def test__get_computed_sidebar__filters_deleted_list_references(): ...
+def test__get_computed_sidebar__appends_orphan_lists_to_root(): ...
+def test__get_computed_sidebar__returns_default_for_new_user(): ...
+def test__get_computed_sidebar__preserves_group_structure(): ...
+
+# update_sidebar_order
+def test__update_sidebar_order__saves_valid_structure(): ...
+def test__update_sidebar_order__rejects_nonexistent_list_id(): ...
+def test__update_sidebar_order__rejects_other_users_list(): ...
+def test__update_sidebar_order__rejects_duplicate_list(): ...
+def test__update_sidebar_order__rejects_duplicate_builtin(): ...
+def test__update_sidebar_order__allows_duplicate_group_names(): ...  # Groups identified by UUID
+
+# List lifecycle
+def test__create_list__adds_to_sidebar_root(): ...
+def test__delete_list__removes_from_sidebar(): ...
+def test__delete_list__removes_from_group(): ...
+```
+
+**API Integration Tests (`test_sidebar_router.py`)**
+```python
+def test__get_sidebar__returns_computed_structure(): ...
+def test__get_sidebar__requires_auth(): ...
+def test__get_sidebar__rejects_pat_auth(): ...  # Auth0 only
+
+def test__put_sidebar__updates_structure(): ...
+def test__put_sidebar__validates_list_ownership(): ...
+def test__put_sidebar__returns_computed_response(): ...
+```
+
+**Migration Tests (`test_migration.py`)**
+```python
+def test__migrate_tab_order__flattens_sections(): ...
+def test__migrate_tab_order__removes_all_bookmarks_all_notes(): ...
+def test__migrate_tab_order__deduplicates_items(): ...
+def test__migrate_tab_order__ensures_all_builtins_present(): ...
+def test__migrate_tab_order__handles_null_input(): ...
+def test__migrate_tab_order__handles_empty_sections(): ...
+```
+
+### Frontend Testing (Vitest + React Testing Library)
+
+**Type/Schema Tests (`sidebar.test.ts`)**
+```typescript
+// Type guards and validators
+test('isValidSidebarOrder validates correct structure', () => {});
+test('isValidSidebarOrder rejects invalid group UUID', () => {});
+```
+
+**Store Tests (`useSettingsStore.test.ts`)**
+```typescript
+test('fetchSidebar populates sidebar state', async () => {});
+test('updateSidebar sends correct payload', async () => {});
+test('updateSidebar handles API errors gracefully', async () => {});
+```
+
+**Store Tests (`useSidebarStore.test.ts`)**
+```typescript
+test('toggleGroupCollapsed adds group ID to collapsed list', () => {});
+test('toggleGroupCollapsed removes group ID when already collapsed', () => {});
+test('collapsed state persists to localStorage', () => {});
+```
+
+**Component Tests**
+
+`SidebarNavItem.test.tsx`:
+```typescript
+test('renders builtin item with correct icon', () => {});
+test('renders bookmark-only list with BookmarkIcon', () => {});
+test('renders note-only list with DocumentTextIcon', () => {});
+test('renders mixed list with RectangleStackIcon', () => {});
+test('shows edit/delete actions on hover for lists', () => {});
+test('does not show actions for builtins', () => {});
+test('navigates to correct route on click', () => {});
+```
+
+`SidebarGroup.test.tsx`:
+```typescript
+test('renders group with folder icon', () => {});
+test('toggles collapse on chevron click', () => {});
+test('hides children when collapsed', () => {});
+test('inline rename activates on name click', () => {});
+test('inline rename saves on Enter', () => {});
+test('inline rename saves on blur', () => {});
+test('inline rename cancels on Escape', () => {});
+test('delete moves contents to root', () => {});
+```
+
+`Sidebar.test.tsx`:
+```typescript
+test('renders items in correct order', () => {});
+test('renders groups with their children', () => {});
+test('New Group button creates group with UUID', () => {});
+test('New List button opens ListModal', () => {});
+```
+
+**Drag-and-Drop Tests (`SidebarDragDrop.test.tsx`)**
+```typescript
+test('drag handle appears on hover', () => {});
+test('reorder at root level updates sidebar', () => {});
+test('drag into group adds item to group', () => {});
+test('drag out of group moves item to root', () => {});
+test('keyboard navigation works for reordering', () => {});
+test('debounces rapid drag operations', () => {});
+```
+
+**Content Filter Tests (`ContentTypeFilterChips.test.tsx`)**
+```typescript
+test('renders all content type chips', () => {});
+test('clicking chip toggles selection', () => {});
+test('prevents deselecting last chip', () => {});
+test('calls onChange with updated selection', () => {});
+```
+
+**Route Tests**
+```typescript
+test('/app/content/lists/:id renders list view', () => {});
+test('/app/bookmarks/lists/:id redirects to /app/content/lists/:id', () => {});
+test('/app/notes/lists/:id redirects to /app/content/lists/:id', () => {});
+test('/app/bookmarks redirects to /app/content with filter', () => {});
+test('/app/notes redirects to /app/content with filter', () => {});
+```
+
+### End-to-End Testing Recommendations
+
+For critical user flows, consider E2E tests (Playwright/Cypress):
+
+1. **Sidebar Organization Flow**: Create group → rename → add list → reorder → collapse
+2. **Content Filtering Flow**: Navigate to All → filter by type → verify results
+3. **Quick-Add Flow**: Use sidebar quick-add → create bookmark → verify in list
+4. **Migration Verification**: User with old tab_order sees correct sidebar after migration
