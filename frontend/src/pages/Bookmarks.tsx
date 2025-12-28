@@ -22,18 +22,23 @@ import { useEffectiveSort, getViewKey } from '../hooks/useEffectiveSort'
 import { useTagsStore } from '../stores/tagsStore'
 import { useListsStore } from '../stores/listsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
-import { useUIPreferencesStore, PAGE_SIZE_OPTIONS } from '../stores/uiPreferencesStore'
+import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import type { PageSize } from '../stores/uiPreferencesStore'
-import { SORT_LABELS, type SortByOption } from '../constants/sortOptions'
+import type { SortByOption } from '../constants/sortOptions'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
-import { TagFilterInput } from '../components/TagFilterInput'
-import { LoadingSpinnerCentered, ErrorState, EmptyState } from '../components/ui'
+import {
+  LoadingSpinnerCentered,
+  ErrorState,
+  EmptyState,
+  SearchFilterBar,
+  SelectedTagsDisplay,
+  PaginationControls,
+} from '../components/ui'
 import {
   SearchIcon,
   BookmarkIcon,
   PlusIcon,
-  CloseIconFilled,
   ArchiveIcon,
   FolderIcon,
   TrashIcon,
@@ -238,6 +243,14 @@ export function Bookmarks(): ReactNode {
       window.scrollTo({ top: 0, behavior: 'smooth' })
     },
     [updateParams]
+  )
+
+  const handlePageSizeChange = useCallback(
+    (newSize: PageSize) => {
+      setPageSize(newSize)
+      updateParams({ offset: 0 })
+    },
+    [setPageSize, updateParams]
   )
 
   // --------------------------------------------------------------------------
@@ -627,45 +640,16 @@ export function Bookmarks(): ReactNode {
         </div>
 
         {/* Pagination */}
-        {(totalPages > 1 || total > PAGE_SIZE_OPTIONS[0]) && (
-          <div className="mt-8 flex items-center justify-between border-t border-gray-100 pt-4">
-            <button
-              onClick={() => handlePageChange(Math.max(0, offset - pageSize))}
-              disabled={offset === 0}
-              className="btn-secondary"
-            >
-              Previous
-            </button>
-
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-400">
-                Page {currentPage} of {totalPages}
-              </span>
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  const newSize = Number(e.target.value) as PageSize
-                  setPageSize(newSize)
-                  updateParams({ offset: 0 })
-                }}
-                className="appearance-none cursor-pointer rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-1 pr-6 text-xs focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.25rem_center] bg-no-repeat"
-                title="Items per page"
-              >
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>{size} per page</option>
-                ))}
-              </select>
-            </div>
-
-            <button
-              onClick={() => handlePageChange(offset + pageSize)}
-              disabled={!hasMore}
-              className="btn-secondary"
-            >
-              Next
-            </button>
-          </div>
-        )}
+        <PaginationControls
+          currentPage={currentPage}
+          totalPages={totalPages}
+          pageSize={pageSize}
+          hasMore={hasMore}
+          offset={offset}
+          total={total}
+          onPageChange={handlePageChange}
+          onPageSizeChange={handlePageSizeChange}
+        />
       </>
     )
   }
@@ -673,91 +657,42 @@ export function Bookmarks(): ReactNode {
   // Determine if we should show add button (only for active views, not archived/trash)
   const showAddButton = currentView === 'active'
 
+  // Add button element for the left slot
+  const addButton = showAddButton ? (
+    <button
+      onClick={() => setShowAddModal(true)}
+      className="btn-primary shrink-0 p-2.5"
+      title="Add bookmark"
+      aria-label="Add bookmark"
+    >
+      <PlusIcon />
+    </button>
+  ) : undefined
+
   return (
     <div>
       {/* Search and filters */}
       <div className="mb-6 space-y-3">
-        {/* Add button (only in active view), search, and sort row */}
-        <div className="flex items-center gap-3">
-          {showAddButton && (
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="btn-primary shrink-0 p-2.5"
-              title="Add bookmark"
-              aria-label="Add bookmark"
-            >
-              <PlusIcon />
-            </button>
-          )}
-          <div className="relative flex-1">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-              <SearchIcon />
-            </div>
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={searchQuery}
-              onChange={handleSearchChange}
-              placeholder="Search bookmarks..."
-              className="input pl-10"
-            />
-          </div>
-          <TagFilterInput
-            suggestions={tagSuggestions}
-            selectedTags={selectedTags}
-            onTagSelect={handleTagClick}
-            placeholder="Filter by tag..."
-          />
-          <div className="flex items-center gap-1">
-            <select
-              value={`${sortBy}-${sortOrder}`}
-              onChange={handleSortChange}
-              className="appearance-none cursor-pointer rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2.5 pr-8 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.5rem_center] bg-no-repeat"
-            >
-              {availableSortOptions.map((option) => (
-                <optgroup key={option} label={SORT_LABELS[option]}>
-                  <option value={`${option}-desc`}>{SORT_LABELS[option]} ↓</option>
-                  <option value={`${option}-asc`}>{SORT_LABELS[option]} ↑</option>
-                </optgroup>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Selected tags filter */}
-        {selectedTags.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-gray-400">Filtering by:</span>
-            {selectedTags.map((tag) => (
-              <button
-                key={tag}
-                onClick={() => handleRemoveTag(tag)}
-                className="badge-primary inline-flex items-center gap-1 hover:bg-blue-100 transition-colors"
-              >
-                {tag}
-                <CloseIconFilled />
-              </button>
-            ))}
-            {selectedTags.length > 1 && (
-              <>
-                <select
-                  value={tagMatch}
-                  onChange={handleTagMatchChange}
-                  className="appearance-none cursor-pointer rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-1 pr-6 text-xs focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.25rem_center] bg-no-repeat"
-                >
-                  <option value="all">Match all</option>
-                  <option value="any">Match any</option>
-                </select>
-                <button
-                  onClick={handleClearTagFilters}
-                  className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
-                >
-                  Clear
-                </button>
-              </>
-            )}
-          </div>
-        )}
+        <SearchFilterBar
+          searchInputRef={searchInputRef}
+          searchQuery={searchQuery}
+          onSearchChange={handleSearchChange}
+          searchPlaceholder="Search bookmarks..."
+          tagSuggestions={tagSuggestions}
+          selectedTags={selectedTags}
+          onTagSelect={handleTagClick}
+          sortValue={`${sortBy}-${sortOrder}`}
+          onSortChange={handleSortChange}
+          availableSortOptions={availableSortOptions}
+          leftSlot={addButton}
+        />
+        <SelectedTagsDisplay
+          selectedTags={selectedTags}
+          tagMatch={tagMatch}
+          onRemoveTag={handleRemoveTag}
+          onTagMatchChange={handleTagMatchChange}
+          onClearFilters={handleClearTagFilters}
+        />
       </div>
 
       {/* Content */}
