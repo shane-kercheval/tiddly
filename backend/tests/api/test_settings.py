@@ -330,3 +330,103 @@ async def test__list_deletion__removes_from_sidebar(client: AsyncClient) -> None
     response = await client.get("/settings/sidebar")
     list_ids = [item["id"] for item in response.json()["items"] if item["type"] == "list"]
     assert list_id not in list_ids
+
+
+async def test__put_sidebar__rejects_duplicate_group_id(client: AsyncClient) -> None:
+    """Test that duplicate group IDs are rejected."""
+    response = await client.put(
+        "/settings/sidebar",
+        json={
+            "version": 1,
+            "items": [
+                {
+                    "type": "group",
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "name": "Group One",
+                    "items": [],
+                },
+                {
+                    "type": "group",
+                    "id": "550e8400-e29b-41d4-a716-446655440000",  # Same ID
+                    "name": "Group Two",
+                    "items": [],
+                },
+            ],
+        },
+    )
+    assert response.status_code == 400
+    assert "Duplicate group ID" in response.json()["detail"]
+
+
+async def test__list_deletion__removes_from_group_in_sidebar(client: AsyncClient) -> None:
+    """Test that deleting a list removes it from a group in sidebar_order."""
+    # Create a list
+    create_response = await client.post(
+        "/lists/",
+        json={
+            "name": "List In Group",
+            "content_types": ["bookmark"],
+            "filter_expression": {"groups": [{"tags": ["grouped"]}], "group_operator": "OR"},
+        },
+    )
+    list_id = create_response.json()["id"]
+
+    # Put list inside a group in sidebar
+    await client.put(
+        "/settings/sidebar",
+        json={
+            "version": 1,
+            "items": [
+                {"type": "builtin", "key": "all"},
+                {
+                    "type": "group",
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "name": "Work",
+                    "items": [
+                        {"type": "list", "id": list_id},
+                    ],
+                },
+                {"type": "builtin", "key": "archived"},
+                {"type": "builtin", "key": "trash"},
+            ],
+        },
+    )
+
+    # Verify list is in group
+    response = await client.get("/settings/sidebar")
+    groups = [item for item in response.json()["items"] if item["type"] == "group"]
+    assert len(groups) == 1
+    assert len(groups[0]["items"]) == 1
+    assert groups[0]["items"][0]["id"] == list_id
+
+    # Delete the list
+    await client.delete(f"/lists/{list_id}")
+
+    # Verify list is removed from group
+    response = await client.get("/settings/sidebar")
+    groups = [item for item in response.json()["items"] if item["type"] == "group"]
+    assert len(groups) == 1
+    # Group should now be empty (list was removed)
+    assert len(groups[0]["items"]) == 0
+
+
+async def test__get_sidebar__resolves_builtin_display_names(client: AsyncClient) -> None:
+    """Test that builtin items have display names resolved."""
+    response = await client.get("/settings/sidebar")
+    assert response.status_code == 200
+
+    data = response.json()
+    builtins = [item for item in data["items"] if item["type"] == "builtin"]
+
+    # Each builtin should have a name field with proper display name
+    for builtin in builtins:
+        assert "name" in builtin
+        assert builtin["name"]  # Not empty
+
+        # Verify specific display names
+        if builtin["key"] == "all":
+            assert builtin["name"] == "All"
+        elif builtin["key"] == "archived":
+            assert builtin["name"] == "Archived"
+        elif builtin["key"] == "trash":
+            assert builtin["name"] == "Trash"
