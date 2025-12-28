@@ -218,3 +218,236 @@ async def test__search_bookmarks__invalid_token(mock_api) -> None:
     assert result.is_error
     error_text = result.content[0].text.lower()
     assert "invalid" in error_text or "expired" in error_text
+
+
+# --- search_notes tests ---
+
+
+@pytest.mark.asyncio
+async def test__search_notes__basic(
+    mock_api,
+    mcp_client: Client,
+    sample_note_list: dict[str, Any],
+) -> None:
+    """Test basic note search."""
+    mock_api.get("/notes/").mock(
+        return_value=Response(200, json=sample_note_list),
+    )
+
+    result = await mcp_client.call_tool("search_notes", {})
+
+    assert result.data["total"] == 1
+    assert len(result.data["items"]) == 1
+
+
+@pytest.mark.asyncio
+async def test__search_notes__with_query(
+    mock_api,
+    mcp_client: Client,
+    sample_note_list: dict[str, Any],
+) -> None:
+    """Test note search with query parameter."""
+    mock_api.get("/notes/").mock(
+        return_value=Response(200, json=sample_note_list),
+    )
+
+    await mcp_client.call_tool("search_notes", {"query": "meeting"})
+
+    assert "q" in str(mock_api.calls[0].request.url)
+
+
+@pytest.mark.asyncio
+async def test__search_notes__with_tags(
+    mock_api,
+    mcp_client: Client,
+    sample_note_list: dict[str, Any],
+) -> None:
+    """Test note search with tag filtering."""
+    mock_api.get("/notes/").mock(
+        return_value=Response(200, json=sample_note_list),
+    )
+
+    await mcp_client.call_tool(
+        "search_notes",
+        {"tags": ["work", "important"], "tag_match": "any"},
+    )
+
+    request_url = str(mock_api.calls[0].request.url)
+    assert "tags" in request_url
+    assert "tag_match=any" in request_url
+
+
+@pytest.mark.asyncio
+async def test__search_notes__api_unavailable(mock_api, mcp_client: Client) -> None:
+    """Test network error handling for note search."""
+    mock_api.get("/notes/").mock(side_effect=httpx.ConnectError("Connection refused"))
+
+    result = await mcp_client.call_tool("search_notes", {}, raise_on_error=False)
+
+    assert result.is_error
+    assert "unavailable" in result.content[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__search_notes__invalid_token(mock_api) -> None:
+    """Test 401 error handling for invalid token."""
+    from mcp_server.server import mcp
+
+    mock_api.get("/notes/").mock(
+        return_value=Response(401, json={"detail": "Invalid token"}),
+    )
+
+    with patch("mcp_server.server.get_bearer_token") as mock_auth:
+        mock_auth.return_value = "invalid_token"
+        async with Client(transport=mcp) as client:
+            result = await client.call_tool("search_notes", {}, raise_on_error=False)
+
+    assert result.is_error
+    error_text = result.content[0].text.lower()
+    assert "invalid" in error_text or "expired" in error_text
+
+
+# --- get_note tests ---
+
+
+@pytest.mark.asyncio
+async def test__get_note__success(
+    mock_api,
+    mcp_client: Client,
+    sample_note: dict[str, Any],
+) -> None:
+    """Test getting a note by ID."""
+    mock_api.get("/notes/1").mock(
+        return_value=Response(200, json=sample_note),
+    )
+
+    result = await mcp_client.call_tool("get_note", {"note_id": 1})
+
+    assert result.data["id"] == 1
+    assert result.data["title"] == "Test Note"
+    assert result.data["content"] is not None
+
+
+@pytest.mark.asyncio
+async def test__get_note__not_found(mock_api, mcp_client: Client) -> None:
+    """Test 404 error handling for notes."""
+    mock_api.get("/notes/999").mock(
+        return_value=Response(404, json={"detail": "Not found"}),
+    )
+
+    result = await mcp_client.call_tool(
+        "get_note", {"note_id": 999}, raise_on_error=False,
+    )
+
+    assert result.is_error
+    assert "not found" in result.content[0].text.lower()
+
+
+# --- create_note tests ---
+
+
+@pytest.mark.asyncio
+async def test__create_note__success(
+    mock_api,
+    mcp_client: Client,
+    sample_note: dict[str, Any],
+) -> None:
+    """Test creating a note."""
+    mock_api.post("/notes/").mock(
+        return_value=Response(201, json=sample_note),
+    )
+
+    result = await mcp_client.call_tool(
+        "create_note",
+        {
+            "title": "Test Note",
+            "content": "# Markdown Content",
+            "tags": ["test"],
+        },
+    )
+
+    assert result.data["id"] == 1
+    assert result.data["title"] == "Test Note"
+
+
+@pytest.mark.asyncio
+async def test__create_note__minimal(
+    mock_api,
+    mcp_client: Client,
+    sample_note: dict[str, Any],
+) -> None:
+    """Test creating a note with only required title."""
+    mock_api.post("/notes/").mock(
+        return_value=Response(201, json=sample_note),
+    )
+
+    result = await mcp_client.call_tool(
+        "create_note",
+        {"title": "Quick Note"},
+    )
+
+    assert result.data["id"] == 1
+
+
+@pytest.mark.asyncio
+async def test__create_note__api_error(mock_api, mcp_client: Client) -> None:
+    """Test API error handling for note creation."""
+    mock_api.post("/notes/").mock(
+        return_value=Response(400, json={"detail": "Title is required"}),
+    )
+
+    result = await mcp_client.call_tool(
+        "create_note", {"title": ""}, raise_on_error=False,
+    )
+
+    assert result.is_error
+
+
+# --- search_all_content tests ---
+
+
+@pytest.mark.asyncio
+async def test__search_all_content__basic(
+    mock_api,
+    mcp_client: Client,
+    sample_content_list: dict[str, Any],
+) -> None:
+    """Test unified content search."""
+    mock_api.get("/content/").mock(
+        return_value=Response(200, json=sample_content_list),
+    )
+
+    result = await mcp_client.call_tool("search_all_content", {})
+
+    assert result.data["total"] == 2
+    assert len(result.data["items"]) == 2
+    types = [item["type"] for item in result.data["items"]]
+    assert "bookmark" in types
+    assert "note" in types
+
+
+@pytest.mark.asyncio
+async def test__search_all_content__with_query(
+    mock_api,
+    mcp_client: Client,
+    sample_content_list: dict[str, Any],
+) -> None:
+    """Test unified search with query parameter."""
+    mock_api.get("/content/").mock(
+        return_value=Response(200, json=sample_content_list),
+    )
+
+    await mcp_client.call_tool("search_all_content", {"query": "python"})
+
+    assert "q" in str(mock_api.calls[0].request.url)
+
+
+@pytest.mark.asyncio
+async def test__search_all_content__api_unavailable(mock_api, mcp_client: Client) -> None:
+    """Test network error handling for unified search."""
+    mock_api.get("/content/").mock(side_effect=httpx.ConnectError("Connection refused"))
+
+    result = await mcp_client.call_tool("search_all_content", {}, raise_on_error=False)
+
+    assert result.is_error
+    assert "unavailable" in result.content[0].text.lower()
