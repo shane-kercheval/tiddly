@@ -1,7 +1,7 @@
 /**
  * Tests for the Layout component.
  *
- * Key behavior: Layout fetches shared data (tab order, lists, tags) exactly once on mount.
+ * Key behavior: Layout fetches shared data (sidebar, lists, tags) exactly once on mount.
  * This centralized fetching prevents duplicate API calls from child components.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -11,39 +11,23 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { Layout } from './Layout'
 
 // Create mock functions that we can spy on
-const mockFetchTabOrder = vi.fn()
+const mockFetchSidebar = vi.fn()
 const mockFetchLists = vi.fn()
 const mockFetchTags = vi.fn()
 
 vi.mock('../stores/settingsStore', () => ({
   useSettingsStore: (selector?: (state: Record<string, unknown>) => unknown) => {
     const state = {
-      computedTabOrder: [
-        { key: 'all', label: 'All', type: 'builtin' },
-        { key: 'all-bookmarks', label: 'All Bookmarks', type: 'builtin' },
-      ],
-      computedSections: [
-        {
-          name: 'shared',
-          label: 'Shared',
-          items: [{ key: 'all', label: 'All', type: 'builtin' }],
-          collapsible: false,
-        },
-        {
-          name: 'bookmarks',
-          label: 'Bookmarks',
-          items: [{ key: 'all-bookmarks', label: 'All Bookmarks', type: 'builtin' }],
-          collapsible: true,
-        },
-        {
-          name: 'notes',
-          label: 'Notes',
-          items: [{ key: 'all-notes', label: 'All Notes', type: 'builtin' }],
-          collapsible: true,
-        },
-      ],
-      sectionOrder: ['shared', 'bookmarks', 'notes'],
-      fetchTabOrder: mockFetchTabOrder,
+      sidebar: {
+        version: 1,
+        items: [
+          { type: 'builtin', key: 'all', name: 'All' },
+          { type: 'builtin', key: 'archived', name: 'Archived' },
+          { type: 'builtin', key: 'trash', name: 'Trash' },
+          { type: 'list', id: 1, name: 'My List', content_types: ['bookmark', 'note'] },
+        ],
+      },
+      fetchSidebar: mockFetchSidebar,
     }
     return selector ? selector(state) : state
   },
@@ -84,11 +68,14 @@ vi.mock('../stores/sidebarStore', () => ({
     const state = {
       isCollapsed: false,
       isMobileOpen: false,
-      expandedSections: ['bookmarks', 'notes', 'settings'],
+      expandedSections: ['settings'],
+      collapsedGroupIds: [],
       toggleCollapse: vi.fn(),
       toggleMobile: vi.fn(),
       closeMobile: vi.fn(),
       toggleSection: vi.fn(),
+      toggleGroup: vi.fn(),
+      isGroupCollapsed: () => false,
     }
     return selector ? selector(state) : state
   },
@@ -116,10 +103,10 @@ describe('Layout', () => {
   })
 
   describe('centralized data fetching', () => {
-    it('should fetch tab order exactly once on mount', () => {
+    it('should fetch sidebar exactly once on mount', () => {
       renderLayout()
 
-      expect(mockFetchTabOrder).toHaveBeenCalledTimes(1)
+      expect(mockFetchSidebar).toHaveBeenCalledTimes(1)
     })
 
     it('should fetch lists exactly once on mount', () => {
@@ -138,7 +125,7 @@ describe('Layout', () => {
       renderLayout()
 
       // All three should be called exactly once
-      expect(mockFetchTabOrder).toHaveBeenCalledTimes(1)
+      expect(mockFetchSidebar).toHaveBeenCalledTimes(1)
       expect(mockFetchLists).toHaveBeenCalledTimes(1)
       expect(mockFetchTags).toHaveBeenCalledTimes(1)
     })
@@ -151,11 +138,11 @@ describe('Layout', () => {
       expect(screen.getByTestId('test-page')).toBeInTheDocument()
     })
 
-    it('should render the sidebar', () => {
+    it('should render the sidebar with navigation items', () => {
       renderLayout()
 
-      // Sidebar contains the Bookmarks section (appears in both mobile and desktop sidebars)
-      expect(screen.getAllByText('Bookmarks').length).toBeGreaterThanOrEqual(1)
+      // Sidebar contains the builtin "All" item (appears in both mobile and desktop sidebars)
+      expect(screen.getAllByText('All').length).toBeGreaterThanOrEqual(1)
     })
   })
 })

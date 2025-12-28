@@ -29,6 +29,7 @@ import { useEffectiveSort, getViewKey } from '../hooks/useEffectiveSort'
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
+import { useContentTypeFilterStore } from '../stores/contentTypeFilterStore'
 import type { PageSize } from '../stores/uiPreferencesStore'
 import type { SortByOption } from '../constants/sortOptions'
 import { BookmarkCard } from '../components/BookmarkCard'
@@ -40,6 +41,8 @@ import {
   SearchFilterBar,
   SelectedTagsDisplay,
   PaginationControls,
+  ContentTypeFilterChips,
+  QuickAddMenu,
 } from '../components/ui'
 import {
   SearchIcon,
@@ -95,6 +98,10 @@ export function AllContent(): ReactNode {
   // Route-based view and list ID
   const { currentView, currentListId } = useContentView('/app/content')
 
+  // Content type filter - only for builtin views (not custom lists)
+  const { getSelectedTypes, toggleType } = useContentTypeFilterStore()
+  const selectedContentTypes = currentListId === undefined ? getSelectedTypes(currentView) : undefined
+
   // Per-view sort
   const viewKey = useMemo(() => getViewKey(currentView, currentListId), [currentView, currentListId])
   const { sortBy, sortOrder, setSort, availableSortOptions } = useEffectiveSort(
@@ -103,8 +110,9 @@ export function AllContent(): ReactNode {
     undefined
   )
 
-  // Derive hasFilters from search query and tag store
-  const hasFilters = searchQuery.length > 0 || selectedTags.length > 0
+  // Derive hasFilters from search query, tag store, and content type filter
+  const hasContentTypeFilter = selectedContentTypes !== undefined && selectedContentTypes.length < 2
+  const hasFilters = searchQuery.length > 0 || selectedTags.length > 0 || hasContentTypeFilter
 
   // Debounce search query
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
@@ -121,8 +129,9 @@ export function AllContent(): ReactNode {
       limit: pageSize,
       view: currentView,
       list_id: currentListId,
+      content_types: selectedContentTypes,
     }),
-    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentListId]
+    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentListId, selectedContentTypes]
   )
 
   // Fetch content with TanStack Query
@@ -522,6 +531,27 @@ export function AllContent(): ReactNode {
     )
   }
 
+  // Content type toggle handler
+  const handleContentTypeToggle = useCallback(
+    (type: 'bookmark' | 'note') => {
+      toggleType(currentView, type)
+      updateParams({ offset: 0 })
+    },
+    [toggleType, currentView, updateParams]
+  )
+
+  // Quick-add handlers
+  const handleQuickAddBookmark = useCallback((): void => {
+    navigate('/app/bookmarks?action=add')
+  }, [navigate])
+
+  const handleQuickAddNote = useCallback((): void => {
+    navigate('/app/notes/new')
+  }, [navigate])
+
+  // Show quick-add menu only for active view (not archived or deleted)
+  const showQuickAdd = currentView === 'active' && currentListId === undefined
+
   return (
     <div>
       {/* Search and filters */}
@@ -537,7 +567,22 @@ export function AllContent(): ReactNode {
           sortValue={`${sortBy}-${sortOrder}`}
           onSortChange={handleSortChange}
           availableSortOptions={availableSortOptions}
+          leftSlot={
+            showQuickAdd ? (
+              <QuickAddMenu
+                onAddBookmark={handleQuickAddBookmark}
+                onAddNote={handleQuickAddNote}
+              />
+            ) : undefined
+          }
         />
+        {/* Content type filter chips - only for builtin views */}
+        {selectedContentTypes && (
+          <ContentTypeFilterChips
+            selectedTypes={selectedContentTypes}
+            onChange={handleContentTypeToggle}
+          />
+        )}
         <SelectedTagsDisplay
           selectedTags={selectedTags}
           tagMatch={tagMatch}

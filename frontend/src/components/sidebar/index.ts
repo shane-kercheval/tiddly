@@ -1,4 +1,4 @@
 export { Sidebar } from './Sidebar'
-export { SidebarSection } from './SidebarSection'
+export { SidebarGroup } from './SidebarGroup'
 export { SidebarNavItem } from './SidebarNavItem'
 export { SidebarUserSection } from './SidebarUserSection'

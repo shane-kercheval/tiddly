@@ -226,6 +226,7 @@ export interface ContentSearchParams {
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
   list_id?: number
+  content_types?: ContentType[]
 }
 
 // =============================================================================
@@ -279,60 +280,72 @@ export interface ContentListUpdate {
 
 
 // =============================================================================
-// User Settings Types
+// Sidebar Types
 // =============================================================================
 
-/** Valid section names for tab order */
-export type SectionName = 'shared' | 'bookmarks' | 'notes'
+/** Valid built-in sidebar item keys */
+export type BuiltinKey = 'all' | 'archived' | 'trash'
 
-/** Tab order sections structure */
-export interface TabOrderSections {
-  shared: string[]
-  bookmarks: string[]
-  notes: string[]
+/** A built-in sidebar navigation item (input format) */
+export interface SidebarBuiltinItem {
+  type: 'builtin'
+  key: BuiltinKey
 }
 
-/** Structured tab order with sections */
-export interface TabOrder {
-  sections: TabOrderSections
-  section_order: SectionName[]
+/** A user-created list item in the sidebar (input format) */
+export interface SidebarListItem {
+  type: 'list'
+  id: number
 }
 
-/** User settings data returned from the API */
-export interface UserSettings {
-  tab_order: TabOrder | null
-  updated_at: string
+/** A group containing other items in the sidebar (input format) */
+export interface SidebarGroup {
+  type: 'group'
+  id: string // UUID, generated client-side via crypto.randomUUID()
+  name: string
+  items: (SidebarListItem | SidebarBuiltinItem)[]
 }
 
-/** Data for updating user settings */
-export interface UserSettingsUpdate {
-  tab_order?: TabOrder | null
+/** Any sidebar item (input format) */
+export type SidebarItem = SidebarBuiltinItem | SidebarListItem | SidebarGroup
+
+/** Complete sidebar structure (input format for PUT) */
+export interface SidebarOrder {
+  version: number
+  items: SidebarItem[]
 }
 
-/** Tab order item with resolved label */
-export interface TabOrderItem {
-  key: string
-  label: string
-  type: 'builtin' | 'list'
+// Computed versions (from GET response)
+
+/** A built-in item with display name resolved */
+export interface SidebarBuiltinItemComputed extends SidebarBuiltinItem {
+  name: string // "All", "Archived", "Trash"
 }
 
-/** A section in the computed tab order */
-export interface TabOrderSection {
-  name: SectionName
-  label: string
-  items: TabOrderItem[]
-  collapsible: boolean
+/** A list item with name and content types resolved from database */
+export interface SidebarListItemComputed extends SidebarListItem {
+  name: string
+  content_types: string[]
 }
 
-/** Computed tab order response with sections */
-export interface ComputedTabOrderResponse {
-  sections: TabOrderSection[]
-  section_order: SectionName[]
+/** A group with resolved child items */
+export interface SidebarGroupComputed {
+  type: 'group'
+  id: string
+  name: string
+  items: (SidebarListItemComputed | SidebarBuiltinItemComputed)[]
 }
 
-/** @deprecated Use ComputedTabOrderResponse instead */
-export interface TabOrderResponse {
-  items: TabOrderItem[]
+/** Any computed sidebar item */
+export type SidebarItemComputed =
+  | SidebarBuiltinItemComputed
+  | SidebarListItemComputed
+  | SidebarGroupComputed
+
+/** Complete sidebar structure with resolved names (from GET response) */
+export interface SidebarOrderComputed {
+  version: number
+  items: SidebarItemComputed[]
 }
 
 // =============================================================================
