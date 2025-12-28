@@ -224,18 +224,42 @@ const customCollisionDetection: CollisionDetection = (args) => {
     return closestCenter(args)
   }
 
-  // For root-level items, check dropzones first
+  // For root-level items, we need to handle both:
+  // 1. Dropping INTO groups (via dropzones)
+  // 2. Sorting between items (including between groups)
+
+  // Get sortable-only containers (exclude dropzones for pure sorting)
+  const sortableContainers = args.droppableContainers.filter(
+    (container) => !String(container.id).startsWith('dropzone:')
+  )
+
+  // Get sorting collisions (without dropzone interference)
+  const sortingCollisions = closestCenter({ ...args, droppableContainers: sortableContainers })
+
+  // Check if pointer is over a dropzone (for drop-into-group)
   const pointerCollisions = pointerWithin(args)
-  const dropzoneCollisions = pointerCollisions.filter(
+  const dropzoneCollision = pointerCollisions.find(
     (collision) => String(collision.id).startsWith('dropzone:')
   )
 
-  if (dropzoneCollisions.length > 0) {
-    return dropzoneCollisions
+  if (dropzoneCollision && args.pointerCoordinates) {
+    const rect = args.droppableRects.get(dropzoneCollision.id)
+
+    if (rect) {
+      const { y } = args.pointerCoordinates
+      // Only treat as drop-into-group if pointer is clearly in the middle
+      const edgeThreshold = 20 // pixels from edge
+      const isInMiddle = y > rect.top + edgeThreshold && y < rect.bottom - edgeThreshold
+
+      if (isInMiddle) {
+        // In the middle of dropzone - treat as drop-into-group
+        return [dropzoneCollision]
+      }
+    }
   }
 
-  // Otherwise use standard closest center for sortable reordering
-  return closestCenter(args)
+  // Use sorting collisions for placing between items
+  return sortingCollisions
 }
 
 /**
