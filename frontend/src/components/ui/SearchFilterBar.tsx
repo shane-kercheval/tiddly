@@ -12,7 +12,7 @@ import type { TagCount } from '../../types'
 
 interface SearchFilterBarProps {
   /** Ref for the search input (for keyboard shortcuts) */
-  searchInputRef?: RefObject<HTMLInputElement>
+  searchInputRef?: RefObject<HTMLInputElement | null>
   /** Current search query value */
   searchQuery: string
   /** Called when search query changes */
