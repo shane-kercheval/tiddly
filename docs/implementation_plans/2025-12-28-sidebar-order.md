@@ -4,10 +4,11 @@
 
 Replace the hardcoded sidebar sections (Notes, Bookmarks, Shared) with a flexible user-defined structure where:
 - Users create **Groups** to organize items (stored inline in JSON, not a separate table)
-- Users can order groups and items freely
+- Users can order groups and items freely via drag-and-drop
 - Built-in items (All, Archived, Trash) are orderable like any other item
 - Lists and builtins can exist at root level or inside groups
-- "All Bookmarks" and "All Notes" are removed; content type filtering moves to dropdowns on All/Archived/Trash
+- "All Bookmarks" and "All Notes" are removed; content type filtering moves to multi-select chips on All/Archived/Trash
+- Quick-add buttons in sidebar and "All" view for creating bookmarks/notes
 
 ## Data Model
 
@@ -455,83 +456,102 @@ For groups, use a folder-style icon (e.g., `FolderIcon` from Heroicons).
 ## Milestone 4: Settings Page - Sidebar Management
 
 ### Goal
-Rename "Settings → Lists" to "Settings → Sidebar" and add group management.
+Rename "Settings → Lists" to "Settings → Sidebar" and add group management with drag-and-drop reordering.
 
 ### Success Criteria
 - Settings page renamed to "Sidebar"
 - Users can create/rename/delete groups
-- Users can reorder items (drag-drop or up/down arrows)
-- Users can move lists/builtins into/out of groups
+- Users can reorder items via drag-and-drop (no up/down arrows)
+- Users can drag items into/out of groups
 - List management (create/edit/delete) still works
+- Drag handles visible on hover for discoverability
 
 ### Key Changes
 
-**1. Rename `SettingsLists.tsx` → `SettingsSidebar.tsx`**
+**1. Install @dnd-kit**
+
+```bash
+npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
+```
+
+**2. Rename `SettingsLists.tsx` → `SettingsSidebar.tsx`**
 
 Update route and navigation.
 
-**2. Add group management UI**
+**3. Add group management UI**
 
 - "Create Group" button
 - Group inline rename (click to edit)
 - Group delete (moves contents to root)
 
-**3. Sidebar order editor**
+**4. Sidebar order editor with drag-and-drop**
 
 Replace `SectionTabOrderEditor` with new `SidebarOrderEditor`:
 
-- Visual tree of current sidebar structure
-- Drag-and-drop OR up/down arrows for reordering
-- Ability to drag items into/out of groups
-- Save/Reset buttons
+```typescript
+import { DndContext, closestCenter } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 
-**4. Update settings navigation**
+// Key features:
+// - Sortable items at root level
+// - Groups act as droppable containers
+// - Items can be dragged into/out of groups
+// - Drag handle icon (⋮⋮) on hover for discoverability
+// - Save/Reset buttons
+```
+
+**5. Update settings navigation**
 
 - Rename "Lists" → "Sidebar" in settings nav
 
 ### Testing Strategy
 - Test group CRUD operations
-- Test reordering at root level
-- Test moving items into/out of groups
+- Test drag-and-drop reordering at root level
+- Test dragging items into groups
+- Test dragging items out of groups to root
 - Test that changes persist after save
+- Test keyboard accessibility (arrow keys + space/enter)
 
 ### Dependencies
 - Milestone 3 (sidebar rendering)
 
 ### Risk Factors
-- Drag-and-drop complexity (consider starting with up/down arrows)
-- Ensuring sidebar updates reflect immediately
+- @dnd-kit nested sortable requires careful setup of droppable zones
+- Ensuring smooth animations during drag operations
 
 ---
 
 ## Milestone 5: Content Type Filtering & Quick Actions
 
 ### Goal
-Add content type filter dropdowns to All/Archived/Trash and quick-add buttons.
+Add content type filter chips to All/Archived/Trash and quick-add buttons in two locations.
 
 ### Success Criteria
-- All/Archived/Trash show dropdown to filter by content type
+- All/Archived/Trash show filter chips for content types (multi-select)
 - Filter state persists appropriately (URL params or localStorage)
-- Quick-add button (+) in sidebar allows creating notes/bookmarks
+- Quick-add icons in sidebar for each content type (bookmark, note)
+- Quick-add hover menu (+) near search bar in "All" view
 - Removed: "All Bookmarks" and "All Notes" built-in items
 
 ### Key Changes
 
-**1. Content type filter dropdown**
+**1. Content type filter chips**
 
 Add to content pages (All, Archived, Trash):
 
 ```typescript
-<ContentTypeFilter
-  value={selectedTypes}  // ["bookmark", "note"] or subset
+<ContentTypeFilterChips
+  selected={selectedTypes}  // ["bookmark", "note"] or subset
   onChange={setSelectedTypes}
 />
-```
 
-Options:
-- All (both types)
-- Bookmarks only
-- Notes only
+// Renders clickable chips:
+// [Bookmarks ✓] [Notes ✓]
+//
+// Multi-select: clicking toggles each type
+// At least one must be selected
+// Future-proofed for third type (todos)
+```
 
 **2. Update content fetching**
 
@@ -542,36 +562,57 @@ Pass selected content types to `/content` endpoint:
 GET /content?content_types=bookmark,note
 ```
 
-**3. Quick-add button in sidebar**
+**3. Quick-add in sidebar**
 
-Add a `+` button that expands to show:
-- "New Bookmark"
-- "New Note"
+Add icons/buttons for each content type in sidebar (e.g., near the top or in header):
 
-Could be:
-- A floating action button at bottom of sidebar
-- A button in the sidebar header
-- An expandable menu
+```typescript
+// Sidebar header area
+<div className="flex gap-2">
+  <button onClick={openNewBookmarkModal} title="New Bookmark">
+    <BookmarkIcon />
+  </button>
+  <button onClick={openNewNoteModal} title="New Note">
+    <DocumentTextIcon />
+  </button>
+  {/* Future: TodoIcon */}
+</div>
+```
 
-**4. Remove "All Bookmarks" / "All Notes"**
+These create items with no prepopulated tags (unlike creating from within a custom list).
+
+**4. Quick-add in "All" view**
+
+Add a `+` icon near the search bar that shows options on hover/click:
+
+```typescript
+<QuickAddMenu>
+  <QuickAddOption icon={BookmarkIcon} label="New Bookmark" onClick={...} />
+  <QuickAddOption icon={DocumentTextIcon} label="New Note" onClick={...} />
+</QuickAddMenu>
+```
+
+**5. Remove "All Bookmarks" / "All Notes"**
 
 - Remove from default sidebar_order
 - Migration: remove from existing users' sidebar_order
 - Remove related routes (`/app/bookmarks`, `/app/notes`)
-- Update any links pointing to these routes
+- Redirect old routes to `/app/content` with appropriate filter
 
 ### Testing Strategy
-- Test content type filter updates results
-- Test filter persistence
-- Test quick-add buttons open correct modals
-- Verify old routes redirect or 404 appropriately
+- Test content type filter chips toggle correctly
+- Test multi-select behavior (at least one required)
+- Test filter persistence across navigation
+- Test sidebar quick-add opens correct modals (no prepopulated tags)
+- Test "All" view quick-add menu
+- Test old routes redirect properly
 
 ### Dependencies
 - Milestone 4 (settings page)
 
 ### Risk Factors
-- Users may have bookmarked `/app/bookmarks` - consider redirects
-- Filter UX (dropdown vs toggle buttons vs chips)
+- Chip styling to match existing UI
+- Ensuring redirects work for users with bookmarked old routes
 
 ---
 
@@ -581,7 +622,7 @@ Could be:
 Migrate existing users and clean up deprecated code.
 
 ### Success Criteria
-- Existing users' sidebar_order migrated to new structure
+- Existing users' sidebar_order migrated to new structure (flattened to root)
 - All deprecated code removed
 - Documentation updated
 
@@ -589,14 +630,22 @@ Migrate existing users and clean up deprecated code.
 
 **1. Data migration script**
 
-Convert existing `tab_order` to `sidebar_order`:
+Convert existing `tab_order` to `sidebar_order` by flattening all sections to root:
 
 ```python
-def migrate_tab_order(old: dict) -> dict:
-    """Convert old tab_order to new sidebar_order."""
-    items = []
+def migrate_tab_order(old: dict | None) -> dict:
+    """Convert old tab_order to new sidebar_order.
 
-    # Add items from each old section, in section_order
+    Flattens all sections to root level. Users can recreate groups as desired.
+    """
+    if old is None:
+        return get_default_sidebar_order()
+
+    items = []
+    seen_builtins = set()
+    seen_lists = set()
+
+    # Flatten items from each old section, in section_order
     section_order = old.get("section_order", ["shared", "bookmarks", "notes"])
     sections = old.get("sections", {})
 
@@ -604,18 +653,23 @@ def migrate_tab_order(old: dict) -> dict:
         section_items = sections.get(section_name, [])
         for item_key in section_items:
             if item_key in ("all", "archived", "trash"):
-                items.append({"type": "builtin", "key": item_key})
+                if item_key not in seen_builtins:
+                    items.append({"type": "builtin", "key": item_key})
+                    seen_builtins.add(item_key)
             elif item_key.startswith("list:"):
                 list_id = int(item_key.split(":")[1])
-                items.append({"type": "list", "id": list_id})
+                if list_id not in seen_lists:
+                    items.append({"type": "list", "id": list_id})
+                    seen_lists.add(list_id)
             # Skip "all-bookmarks", "all-notes" - they're removed
+
+    # Ensure all builtins are present
+    for builtin in ["all", "archived", "trash"]:
+        if builtin not in seen_builtins:
+            items.append({"type": "builtin", "key": builtin})
 
     return {"items": items}
 ```
-
-Decision needed: Should we preserve section grouping as groups? Options:
-- **Option A**: Flatten everything to root (simpler, users recreate groups)
-- **Option B**: Convert sections to groups if they have custom lists (preserves some structure)
 
 **2. Remove deprecated code**
 
@@ -660,9 +714,11 @@ Frontend:
 | 5 | Content type filters & quick actions | M4 |
 | 6 | Migration & cleanup | M5 |
 
-## Open Questions
+## Decisions Made
 
-1. **Migration strategy**: Flatten existing sections to root, or convert to groups?
-2. **Quick-add button placement**: Sidebar header, floating button, or both?
-3. **Content type filter UX**: Dropdown, toggle buttons, or chips?
-4. **Drag-and-drop**: Implement from start, or begin with up/down arrows?
+| Question | Decision |
+|----------|----------|
+| Migration strategy | Flatten to root (users recreate groups as needed) |
+| Quick-add placement | Two locations: sidebar icons (per type) + hover menu near search in "All" |
+| Content type filter UX | Chips with multi-select (future-proofed for 3 types: bookmark, note, todo) |
+| Reordering UI | Drag-and-drop only with @dnd-kit (no up/down arrows) |
