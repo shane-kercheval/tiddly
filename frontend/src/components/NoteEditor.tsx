@@ -444,6 +444,7 @@ export function NoteEditor({
             <button
               type="button"
               onClick={onArchive}
+              disabled={isSubmitting}
               className="btn-secondary flex items-center gap-2"
               title="Archive note"
             >
@@ -455,6 +456,7 @@ export function NoteEditor({
             <button
               type="button"
               onClick={onDelete}
+              disabled={isSubmitting}
               className="btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 flex items-center gap-2"
               title="Delete note"
             >

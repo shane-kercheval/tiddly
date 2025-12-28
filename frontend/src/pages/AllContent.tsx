@@ -4,12 +4,13 @@
  * Used for the shared views: All, Archived, Trash, and custom shared lists.
  * Displays both bookmarks and notes in a single unified list.
  */
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useCallback, useRef, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useContentQuery } from '../hooks/useContentQuery'
 import { useContentView } from '../hooks/useContentView'
+import { useContentUrlParams } from '../hooks/useContentUrlParams'
 import { useBookmarks } from '../hooks/useBookmarks'
 import {
   useDeleteBookmark,
@@ -57,9 +58,8 @@ export function AllContent(): ReactNode {
   const navigate = useNavigate()
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  // Local search state
-  const [searchQuery, setSearchQuery] = useState('')
-  const [offset, setOffset] = useState(0)
+  // URL params for search and pagination (bookmarkable state)
+  const { searchQuery, offset, updateParams } = useContentUrlParams()
 
   // Non-cacheable utilities
   const { trackBookmarkUsage } = useBookmarks()
@@ -136,28 +136,27 @@ export function AllContent(): ReactNode {
   // Handlers
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      setSearchQuery(e.target.value)
-      setOffset(0)
+      updateParams({ q: e.target.value, offset: 0 })
     },
-    []
+    [updateParams]
   )
 
   const handleTagClick = useCallback(
     (tag: string) => {
       if (!selectedTags.includes(tag)) {
         addTag(tag)
-        setOffset(0)
+        updateParams({ offset: 0 })
       }
     },
-    [selectedTags, addTag]
+    [selectedTags, addTag, updateParams]
   )
 
   const handleRemoveTag = useCallback(
     (tagToRemove: string) => {
       removeTag(tagToRemove)
-      setOffset(0)
+      updateParams({ offset: 0 })
     },
-    [removeTag]
+    [removeTag, updateParams]
   )
 
   const handleTagMatchChange = useCallback(
@@ -169,8 +168,8 @@ export function AllContent(): ReactNode {
 
   const handleClearTagFilters = useCallback(() => {
     clearTagFilters()
-    setOffset(0)
-  }, [clearTagFilters])
+    updateParams({ offset: 0 })
+  }, [clearTagFilters, updateParams])
 
   const handleSortChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -183,10 +182,10 @@ export function AllContent(): ReactNode {
 
   const handlePageChange = useCallback(
     (newOffset: number) => {
-      setOffset(newOffset)
+      updateParams({ offset: newOffset })
       window.scrollTo({ top: 0, behavior: 'smooth' })
     },
-    []
+    [updateParams]
   )
 
   // Bookmark action handlers
@@ -515,7 +514,7 @@ export function AllContent(): ReactNode {
                 onChange={(e) => {
                   const newSize = Number(e.target.value) as PageSize
                   setPageSize(newSize)
-                  setOffset(0)
+                  updateParams({ offset: 0 })
                 }}
                 className="appearance-none cursor-pointer rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-1 pr-6 text-xs focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.25rem_center] bg-no-repeat"
                 title="Items per page"
