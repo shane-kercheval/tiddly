@@ -67,11 +67,14 @@ export interface UseTabNavigationReturn {
  */
 export function useTabNavigation(): UseTabNavigationReturn {
   const [searchParams, setSearchParams] = useSearchParams()
-  const { computedTabOrder } = useSettingsStore()
+  const sidebar = useSettingsStore((state) => state.sidebar)
 
-  // Get tab from URL, fallback to first tab in order or 'all'
-  const currentTabKey = searchParams.get('tab') ||
-    (computedTabOrder.length > 0 ? computedTabOrder[0].key : 'all')
+  // Get tab from URL, fallback to 'all'
+  // Note: The old computedTabOrder is no longer used - sidebar items are now the source of truth
+  const currentTabKey = searchParams.get('tab') || 'all'
+
+  // Unused but kept for compatibility - sidebar structure is now used instead
+  void sidebar
 
   // Derive view and listId from current tab
   const { view: currentView, listId: currentListId } = useMemo(

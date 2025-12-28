@@ -1,0 +1,179 @@
+/**
+ * Utility functions and collision detection for sidebar drag-and-drop.
+ */
+import type { ReactNode } from 'react'
+import { closestCenter, pointerWithin, type CollisionDetection } from '@dnd-kit/core'
+import {
+  SharedIcon,
+  ArchiveIcon,
+  TrashIcon,
+  BookmarkIcon,
+  NoteIcon,
+  ListIcon,
+} from '../icons'
+import type {
+  BuiltinKey,
+  SidebarItemComputed,
+  SidebarBuiltinItemComputed,
+  SidebarListItemComputed,
+  SidebarItem,
+} from '../../types'
+
+/**
+ * Get the appropriate icon for a builtin sidebar item.
+ */
+export function getBuiltinIcon(key: BuiltinKey): ReactNode {
+  switch (key) {
+    case 'all':
+      return <SharedIcon className="h-4 w-4 text-purple-600" />
+    case 'archived':
+      return <ArchiveIcon className="h-4 w-4 text-gray-500" />
+    case 'trash':
+      return <TrashIcon className="h-4 w-4 text-red-500" />
+  }
+}
+
+/**
+ * Get the appropriate icon for a list based on its content types.
+ */
+export function getListIcon(contentTypes: string[]): ReactNode {
+  const hasBookmarks = contentTypes.includes('bookmark')
+  const hasNotes = contentTypes.includes('note')
+
+  if (hasBookmarks && !hasNotes) {
+    return <BookmarkIcon className="h-4 w-4 text-blue-500" />
+  }
+  if (hasNotes && !hasBookmarks) {
+    return <NoteIcon className="h-4 w-4 text-green-500" />
+  }
+  // Both or neither - use shared/list icon
+  return <ListIcon className="h-4 w-4 text-purple-500" />
+}
+
+/**
+ * Get a unique ID for a sidebar item (for drag-and-drop).
+ */
+export function getItemId(item: SidebarItemComputed): string {
+  if (item.type === 'builtin') return `builtin:${item.key}`
+  if (item.type === 'list') return `list:${item.id}`
+  return `group:${item.id}`
+}
+
+/**
+ * Get a unique ID for an item inside a group.
+ * Format: "ingroup:{groupId}:{type}:{key|id}"
+ */
+export function getGroupChildId(
+  groupId: string,
+  child: SidebarBuiltinItemComputed | SidebarListItemComputed
+): string {
+  if (child.type === 'builtin') return `ingroup:${groupId}:builtin:${child.key}`
+  return `ingroup:${groupId}:list:${child.id}`
+}
+
+/**
+ * Parse a group child ID back to its components.
+ * Returns null if not a valid group child ID.
+ */
+export function parseGroupChildId(id: string): {
+  groupId: string
+  type: 'builtin' | 'list'
+  key?: string
+  listId?: number
+} | null {
+  if (!id.startsWith('ingroup:')) return null
+  const parts = id.split(':')
+  if (parts.length !== 4) return null
+  const [, groupId, type, keyOrId] = parts
+  if (type === 'builtin') {
+    return { groupId, type: 'builtin', key: keyOrId }
+  }
+  if (type === 'list') {
+    return { groupId, type: 'list', listId: parseInt(keyOrId, 10) }
+  }
+  return null
+}
+
+/**
+ * Convert computed sidebar back to minimal format for API updates.
+ */
+export function computedToMinimal(items: SidebarItemComputed[]): SidebarItem[] {
+  return items.map((item): SidebarItem => {
+    if (item.type === 'builtin') {
+      return { type: 'builtin', key: item.key }
+    }
+    if (item.type === 'list') {
+      return { type: 'list', id: item.id }
+    }
+    // Group
+    return {
+      type: 'group',
+      id: item.id,
+      name: item.name,
+      items: item.items.map((child) =>
+        child.type === 'builtin'
+          ? { type: 'builtin' as const, key: child.key }
+          : { type: 'list' as const, id: child.id }
+      ),
+    }
+  })
+}
+
+/** Height of group header for drop-into-group detection */
+const GROUP_HEADER_HEIGHT = 36
+
+/**
+ * Custom collision detection for sidebar drag-and-drop.
+ *
+ * Behavior:
+ * - Hover over a group's HEADER -> drop into that group
+ * - Drag within own group -> reorder among siblings
+ * - Everything else -> root-level sorting
+ */
+export const customCollisionDetection: CollisionDetection = (args) => {
+  const activeId = String(args.active.id)
+  const activeGroupChild = parseGroupChildId(activeId)
+  const sourceGroupId = activeGroupChild?.groupId ?? null
+
+  // Get sortable-only collisions (exclude dropzones) for normal sorting
+  const sortableContainers = args.droppableContainers.filter(
+    (container) => !String(container.id).startsWith('dropzone:')
+  )
+  const sortingCollisions = closestCenter({ ...args, droppableContainers: sortableContainers })
+
+  // Check if pointer is over any group's dropzone
+  const dropzoneCollision = pointerWithin(args).find(
+    (collision) => String(collision.id).startsWith('dropzone:')
+  )
+
+  if (dropzoneCollision && args.pointerCoordinates) {
+    const dropzoneGroupId = String(dropzoneCollision.id).replace('dropzone:', '')
+    const rect = args.droppableRects.get(dropzoneCollision.id)
+
+    if (rect) {
+      const { y } = args.pointerCoordinates
+      const isOverHeader = y >= rect.top && y <= rect.top + GROUP_HEADER_HEIGHT
+      const isWithinDropzone = y >= rect.top && y <= rect.bottom
+      const isOwnGroup = sourceGroupId === dropzoneGroupId
+
+      // Over a DIFFERENT group's header -> drop into that group
+      if (isOverHeader && !isOwnGroup) {
+        return [dropzoneCollision]
+      }
+
+      // Within OWN group -> sibling reordering (so items move aside)
+      if (isWithinDropzone && isOwnGroup) {
+        const siblingCollisions = sortingCollisions.filter((collision) => {
+          const parsed = parseGroupChildId(String(collision.id))
+          return parsed && parsed.groupId === sourceGroupId
+        })
+        if (siblingCollisions.length > 0) {
+          return siblingCollisions
+        }
+      }
+    }
+  }
+
+  // Default: root-level sorting
+  return sortingCollisions
+}

@@ -98,26 +98,33 @@ describe('useTabNavigation', () => {
     expect(result.current.currentListId).toBeUndefined()
   })
 
-  it('uses first tab from computedTabOrder when available and no URL param', () => {
+  it('defaults to "all" when no URL param is present', () => {
+    // The old computedTabOrder is no longer used - sidebar items are now the source of truth
+    // and the hook always defaults to 'all' when no tab is specified in the URL
     mockUseSettingsStore.mockReturnValue({
-      computedTabOrder: [
-        { key: 'list:1', label: 'My List' },
-        { key: 'all', label: 'All Bookmarks' },
-      ],
-      fetchTabOrder: vi.fn(),
-      tabOrder: [],
+      sidebar: {
+        version: 1,
+        items: [
+          { type: 'list', id: 1, name: 'My List', content_types: ['bookmark'] },
+          { type: 'builtin', key: 'all', name: 'All' },
+        ],
+      },
+      fetchSidebar: vi.fn(),
+      updateSidebar: vi.fn(),
+      setSidebarOptimistic: vi.fn(),
+      rollbackSidebar: vi.fn(),
       isLoading: false,
       error: null,
-      saveTabOrder: vi.fn(),
+      clearError: vi.fn(),
     })
 
     const { result } = renderHook(() => useTabNavigation(), {
       wrapper: createWrapper(['/bookmarks']),
     })
 
-    expect(result.current.currentTabKey).toBe('list:1')
+    expect(result.current.currentTabKey).toBe('all')
     expect(result.current.currentView).toBe('active')
-    expect(result.current.currentListId).toBe(1)
+    expect(result.current.currentListId).toBeUndefined()
   })
 
   it('reads tab from URL param', () => {

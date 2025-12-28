@@ -1,5 +1,6 @@
 /**
  * Collapsible group in the sidebar with inline editing support.
+ * Includes two-click confirmation for delete to prevent accidental deletions.
  */
 import { useState, useRef, useEffect } from 'react'
 import type { ReactNode, KeyboardEvent } from 'react'
@@ -16,6 +17,9 @@ interface SidebarGroupProps {
   onDelete?: () => void
   children: ReactNode
 }
+
+/** Timeout in ms before delete confirmation resets */
+const DELETE_CONFIRM_TIMEOUT = 3000
 
 function ChevronIcon({ isExpanded }: { isExpanded: boolean }): ReactNode {
   return (
@@ -44,7 +48,10 @@ export function SidebarGroup({
   const isExpanded = !isGroupCollapsed
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState(name)
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const deleteTimeoutRef = useRef<number | null>(null)
+  const deleteButtonRef = useRef<HTMLButtonElement>(null)
 
   // Focus input when entering edit mode
   useEffect(() => {
@@ -53,6 +60,32 @@ export function SidebarGroup({
       inputRef.current.select()
     }
   }, [isEditing])
+
+  // Clear delete timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (deleteTimeoutRef.current) {
+        window.clearTimeout(deleteTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  // Reset delete confirmation when clicking outside
+  useEffect(() => {
+    if (!isConfirmingDelete) return
+
+    const handleClickOutside = (e: MouseEvent): void => {
+      if (deleteButtonRef.current && !deleteButtonRef.current.contains(e.target as Node)) {
+        setIsConfirmingDelete(false)
+        if (deleteTimeoutRef.current) {
+          window.clearTimeout(deleteTimeoutRef.current)
+        }
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [isConfirmingDelete])
 
   const handleSave = (): void => {
     const trimmedName = editName.trim()
@@ -70,6 +103,25 @@ export function SidebarGroup({
     } else if (e.key === 'Escape') {
       setEditName(name)
       setIsEditing(false)
+    }
+  }
+
+  const handleDeleteClick = (e: React.MouseEvent): void => {
+    e.stopPropagation()
+
+    if (isConfirmingDelete) {
+      // Second click - execute delete
+      setIsConfirmingDelete(false)
+      if (deleteTimeoutRef.current) {
+        window.clearTimeout(deleteTimeoutRef.current)
+      }
+      onDelete?.()
+    } else {
+      // First click - show confirmation
+      setIsConfirmingDelete(true)
+      deleteTimeoutRef.current = window.setTimeout(() => {
+        setIsConfirmingDelete(false)
+      }, DELETE_CONFIRM_TIMEOUT)
     }
   }
 
@@ -122,8 +174,8 @@ export function SidebarGroup({
 
         {/* Hover actions - absolutely positioned with solid background */}
         {!isEditing && (onRename || onDelete) && (
-          <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/section:opacity-100 transition-opacity bg-white rounded shadow-sm">
-            {onRename && (
+          <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity bg-white rounded shadow-sm ${isConfirmingDelete ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100'}`}>
+            {onRename && !isConfirmingDelete && (
               <button
                 type="button"
                 onClick={(e) => {
@@ -138,15 +190,21 @@ export function SidebarGroup({
             )}
             {onDelete && (
               <button
+                ref={deleteButtonRef}
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onDelete()
-                }}
-                className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded"
-                title="Delete group"
+                onClick={handleDeleteClick}
+                className={`p-1 rounded transition-colors ${
+                  isConfirmingDelete
+                    ? 'bg-red-100 text-red-600 hover:bg-red-200 px-2'
+                    : 'text-gray-400 hover:text-red-500 hover:bg-gray-100'
+                }`}
+                title={isConfirmingDelete ? 'Click again to confirm' : 'Delete group'}
               >
-                <TrashIcon className="h-3.5 w-3.5" />
+                {isConfirmingDelete ? (
+                  <span className="text-xs font-medium whitespace-nowrap">Delete?</span>
+                ) : (
+                  <TrashIcon className="h-3.5 w-3.5" />
+                )}
               </button>
             )}
           </div>
