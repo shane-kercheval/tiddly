@@ -453,7 +453,7 @@ async def remove_list_from_sidebar(
         settings.sidebar_order = sidebar_order
         flag_modified(settings, "sidebar_order")
         settings.updated_at = func.clock_timestamp()
+        await db.flush()
+        await db.refresh(settings)
 
-    await db.flush()
-    await db.refresh(settings)
     return settings
