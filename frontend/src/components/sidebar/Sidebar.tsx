@@ -188,31 +188,40 @@ const customCollisionDetection: CollisionDetection = (args) => {
   const activeGroupChild = parseGroupChildId(activeId)
 
   if (activeGroupChild) {
-    // Get all collisions using closestCenter (need all containers for proper distance calc)
-    const allCollisions = closestCenter(args)
+    const pointerCollisions = pointerWithin(args)
 
-    // Filter to sibling collisions (same group)
-    const siblingCollisions = allCollisions.filter((collision) => {
-      const collisionId = String(collision.id)
-      const collisionGroupChild = parseGroupChildId(collisionId)
-      return collisionGroupChild && collisionGroupChild.groupId === activeGroupChild.groupId
+    // 1. Check if over a DIFFERENT group's dropzone (moving to another group)
+    const otherGroupDropzone = pointerCollisions.find((collision) => {
+      const id = String(collision.id)
+      if (!id.startsWith('dropzone:')) return false
+      const dropGroupId = id.replace('dropzone:', '')
+      return dropGroupId !== activeGroupChild.groupId
+    })
+    if (otherGroupDropzone) {
+      return [otherGroupDropzone]
+    }
+
+    // 2. Check if we're still over our OWN group's dropzone
+    const ownGroupDropzone = pointerCollisions.find((collision) => {
+      const id = String(collision.id)
+      return id === `dropzone:${activeGroupChild.groupId}`
     })
 
-    if (siblingCollisions.length > 0) {
-      return siblingCollisions
+    if (ownGroupDropzone) {
+      // We're within our group, so prioritize sibling reordering
+      const allCollisions = closestCenter(args)
+      const siblingCollisions = allCollisions.filter((collision) => {
+        const collisionId = String(collision.id)
+        const collisionGroupChild = parseGroupChildId(collisionId)
+        return collisionGroupChild && collisionGroupChild.groupId === activeGroupChild.groupId
+      })
+      if (siblingCollisions.length > 0) {
+        return siblingCollisions
+      }
     }
 
-    // Also check for dropzones (to allow moving to other groups)
-    const pointerCollisions = pointerWithin(args)
-    const dropzoneCollisions = pointerCollisions.filter(
-      (collision) => String(collision.id).startsWith('dropzone:')
-    )
-    if (dropzoneCollisions.length > 0) {
-      return dropzoneCollisions
-    }
-
-    // Fall back to root-level items (to allow dragging out of group)
-    return allCollisions
+    // 3. We're outside our group - allow root-level placement
+    return closestCenter(args)
   }
 
   // For root-level items, check dropzones first
