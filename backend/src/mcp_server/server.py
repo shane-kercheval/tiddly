@@ -1,4 +1,29 @@
-"""FastMCP server for the Bookmarks API."""
+"""
+FastMCP server for the Bookmarks API.
+
+MCP Tool Annotation Reference (from MCP Specification 2025-03-26):
+
+    readOnlyHint (bool, default: False)
+        If true, the tool does not modify its environment.
+
+    destructiveHint (bool, default: True)
+        If true, the tool may perform destructive updates to its environment.
+        If false, the tool performs only additive updates.
+        Only meaningful when readOnlyHint is False.
+
+    idempotentHint (bool, default: False)
+        If true, calling the tool repeatedly with the same arguments
+        will have no additional effect on its environment.
+        Only meaningful when readOnlyHint is False.
+
+    openWorldHint (bool, default: True)
+        If true, this tool may interact with an "open world" of external entities.
+        If false, the tool's domain of interaction is closed.
+        Example: a web search tool is open, a memory tool is not.
+
+Note: Clients MUST treat annotations as untrusted hints unless the server
+is explicitly trusted. These inform UI/UX decisions, not security enforcement.
+"""
 
 from typing import Annotated, Any, Literal, NoReturn
 
@@ -333,7 +358,7 @@ async def get_note(
 
 @mcp.tool(
     description="Create a new bookmark.",
-    annotations={"readOnlyHint": False},
+    annotations={"readOnlyHint": False, "destructiveHint": False},
 )
 async def create_bookmark(
     url: Annotated[str, Field(description="The URL to bookmark")],
@@ -381,7 +406,7 @@ async def create_bookmark(
 
 @mcp.tool(
     description="Create a new note.",
-    annotations={"readOnlyHint": False},
+    annotations={"readOnlyHint": False, "destructiveHint": False},
 )
 async def create_note(
     title: Annotated[str, Field(description="The note title (required)")],
