@@ -157,48 +157,52 @@ export function NoteView({
       {/* Scrollable note content */}
       <article className="flex-1 overflow-y-auto min-h-0 pr-2">
         {/* Title */}
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">
+        <h1 className="text-2xl font-bold text-gray-900 mb-4">
           {note.title}
         </h1>
 
-        {/* Metadata row */}
-        <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
-          <span>Created: {formatDate(note.created_at)}</span>
-          {note.updated_at !== note.created_at && (
-            <span>Updated: {formatDate(note.updated_at)}</span>
+        {/* Metadata card */}
+        <div className="rounded-lg bg-gray-50 border border-gray-200 p-4 mb-6 space-y-3">
+          {/* Tags */}
+          {note.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {note.tags.map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => onTagClick?.(tag)}
+                  className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
+                  title={`Filter by tag: ${tag}`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
           )}
-          {note.version > 1 && (
-            <span className="text-gray-400">v{note.version}</span>
+
+          {/* Dates and version */}
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <span>Created {formatDate(note.created_at)}</span>
+            {note.updated_at !== note.created_at && (
+              <>
+                <span className="text-gray-300">·</span>
+                <span>Updated {formatDate(note.updated_at)}</span>
+              </>
+            )}
+            {note.version > 1 && (
+              <>
+                <span className="text-gray-300">·</span>
+                <span className="text-gray-400">v{note.version}</span>
+              </>
+            )}
+          </div>
+
+          {/* Description */}
+          {note.description && (
+            <p className="text-gray-600 italic">
+              {note.description}
+            </p>
           )}
         </div>
-
-        {/* Tags */}
-        {note.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-6">
-            {note.tags.map((tag) => (
-              <button
-                key={tag}
-                onClick={() => onTagClick?.(tag)}
-                className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
-                title={`Filter by tag: ${tag}`}
-              >
-                {tag}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Description */}
-        {note.description && (
-          <p className="text-gray-600 italic border-l-4 border-gray-200 pl-4 mb-6">
-            {note.description}
-          </p>
-        )}
-
-        {/* Divider between description/tags and content */}
-        {note.content && (
-          <hr className="border-gray-200 mb-6" />
-        )}
 
         {/* Markdown content */}
         {note.content ? (
