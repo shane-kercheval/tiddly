@@ -147,10 +147,20 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     })
   )
 
-  // Get all sortable IDs for the root level
-  const rootItemIds = useMemo(() => {
+  // Get ALL sortable IDs in a flat list (root items + items inside groups)
+  // This enables displacement animations to work across the entire sidebar
+  const allSortableIds = useMemo(() => {
     if (!sidebar) return []
-    return sidebar.items.map(getItemId)
+    const ids: string[] = []
+    for (const item of sidebar.items) {
+      ids.push(getItemId(item))
+      if (item.type === 'group') {
+        for (const child of item.items) {
+          ids.push(getGroupChildId(item.id, child))
+        }
+      }
+    }
+    return ids
   }, [sidebar])
 
   // Debounced sidebar update with error handling and rollback
@@ -622,7 +632,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
         onDragEnd={handleDragEnd}
       >
         <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-2 pt-2">
-          <SortableContext items={rootItemIds} strategy={verticalListSortingStrategy}>
+          <SortableContext items={allSortableIds} strategy={verticalListSortingStrategy}>
             {sidebar?.items.map(renderItem)}
           </SortableContext>
 

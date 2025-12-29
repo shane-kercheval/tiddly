@@ -5,7 +5,7 @@
  */
 import type { ReactNode } from 'react'
 import { useDroppable } from '@dnd-kit/core'
-import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { SidebarGroup } from './SidebarGroup'
 import { SidebarNavItem } from './SidebarNavItem'
@@ -163,9 +163,6 @@ export function SortableGroupItem({
     opacity: isDragging ? 0.5 : 1,
   }
 
-  // Get IDs for children within this group for SortableContext
-  const childIds = item.items.map((child) => getGroupChildId(item.id, child))
-
   return (
     <div ref={setNodeRef} style={style} className="w-full min-w-0 overflow-hidden">
       <GroupDropZone groupId={item.id} isExpanded={!isGroupCollapsed}>
@@ -180,21 +177,19 @@ export function SortableGroupItem({
               onRename={onRenameGroup}
               onDelete={onDeleteGroup}
             >
-              {/* Nested SortableContext for items within this group */}
-              <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
-                {item.items.map((child) => (
-                  <SortableGroupChild
-                    key={getGroupChildId(item.id, child)}
-                    groupId={item.id}
-                    item={child}
-                    isCollapsed={isCollapsed}
-                    onNavClick={onNavClick}
-                    onEdit={child.type === 'list' ? () => onEditList(child.id) : undefined}
-                    onDelete={child.type === 'list' ? () => onDeleteList(child.id) : undefined}
-                    activeId={activeId}
-                  />
-                ))}
-              </SortableContext>
+              {/* Items within group - part of the single flat SortableContext */}
+              {item.items.map((child) => (
+                <SortableGroupChild
+                  key={getGroupChildId(item.id, child)}
+                  groupId={item.id}
+                  item={child}
+                  isCollapsed={isCollapsed}
+                  onNavClick={onNavClick}
+                  onEdit={child.type === 'list' ? () => onEditList(child.id) : undefined}
+                  onDelete={child.type === 'list' ? () => onDeleteList(child.id) : undefined}
+                  activeId={activeId}
+                />
+              ))}
             </SidebarGroup>
           </div>
           {/* Drag handle for groups on right */}
