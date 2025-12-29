@@ -1,10 +1,9 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
-/* Prevent page-level scrolling - scroll happens within content areas */
+/* Full viewport height for app layout */
 html, body, #root {
   height: 100%;
-  overflow: hidden;
 }
 
 @layer components {
