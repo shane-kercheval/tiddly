@@ -53,7 +53,7 @@ export function SettingsFAQ(): ReactNode {
           question="What is the purpose of a list?"
           answer={
             <p>
-              Lists are saved views that automatically filter your content based on tags.
+              Lists are saved views that automatically filter your content based on content type and tags.
               For example, you can create a "Work" list that shows all bookmarks and notes
               tagged with "work". Lists support complex filters using AND/OR logic, so you
               can create views like "items tagged 'python' AND 'tutorial'" or "items tagged
