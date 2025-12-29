@@ -2,9 +2,9 @@
  * Individual navigation link item in the sidebar with optional hover actions.
  * Includes two-click confirmation for delete to prevent accidental deletions.
  */
-import { useState, useEffect, useRef } from 'react'
 import { NavLink } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { useConfirmDelete } from '../../hooks/useConfirmDelete'
 import { EditIcon, TrashIcon } from '../icons'
 
 interface SidebarNavItemProps {
@@ -17,9 +17,6 @@ interface SidebarNavItemProps {
   onDelete?: () => void
 }
 
-/** Timeout in ms before delete confirmation resets */
-const DELETE_CONFIRM_TIMEOUT = 3000
-
 export function SidebarNavItem({
   to,
   label,
@@ -30,55 +27,14 @@ export function SidebarNavItem({
   onDelete,
 }: SidebarNavItemProps): ReactNode {
   const hasActions = onEdit || onDelete
-  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false)
-  const timeoutRef = useRef<number | null>(null)
-  const deleteButtonRef = useRef<HTMLButtonElement>(null)
 
-  // Clear timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        window.clearTimeout(timeoutRef.current)
-      }
-    }
-  }, [])
-
-  // Reset confirmation when clicking outside
-  useEffect(() => {
-    if (!isConfirmingDelete) return
-
-    const handleClickOutside = (e: MouseEvent): void => {
-      if (deleteButtonRef.current && !deleteButtonRef.current.contains(e.target as Node)) {
-        setIsConfirmingDelete(false)
-        if (timeoutRef.current) {
-          window.clearTimeout(timeoutRef.current)
-        }
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [isConfirmingDelete])
-
-  const handleDeleteClick = (e: React.MouseEvent): void => {
-    e.stopPropagation()
-    e.preventDefault()
-
-    if (isConfirmingDelete) {
-      // Second click - execute delete
-      setIsConfirmingDelete(false)
-      if (timeoutRef.current) {
-        window.clearTimeout(timeoutRef.current)
-      }
-      onDelete?.()
-    } else {
-      // First click - show confirmation
-      setIsConfirmingDelete(true)
-      timeoutRef.current = window.setTimeout(() => {
-        setIsConfirmingDelete(false)
-      }, DELETE_CONFIRM_TIMEOUT)
-    }
-  }
+  const {
+    isConfirming: isConfirmingDelete,
+    buttonRef: deleteButtonRef,
+    handleClick: handleDeleteClick,
+  } = useConfirmDelete({
+    onConfirm: () => onDelete?.(),
+  })
 
   return (
     <div className="group/item relative w-full min-w-0 overflow-hidden">

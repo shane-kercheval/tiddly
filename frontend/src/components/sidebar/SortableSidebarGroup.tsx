@@ -172,7 +172,6 @@ export function SortableGroupItem({
         <div className="flex items-center group/groupheader w-full min-w-0">
           <div className="flex-1 min-w-0 overflow-hidden">
             <SidebarGroup
-              id={item.id}
               name={item.name}
               icon={<GroupIcon className="h-5 w-5 text-gray-500" />}
               isCollapsed={isCollapsed}

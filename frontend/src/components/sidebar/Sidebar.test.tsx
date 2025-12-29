@@ -6,7 +6,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
-import { useState, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 
 // Mock the stores before importing Sidebar
 const mockDeleteList = vi.fn()
@@ -86,14 +86,14 @@ import { Sidebar } from './Sidebar'
 // Helper component to observe path changes
 function PathObserver({ onPathChange }: { onPathChange: (path: string) => void }): null {
   const location = useLocation()
-  const [prevPath, setPrevPath] = useState(location.pathname)
+  const prevPathRef = useRef(location.pathname)
 
   useEffect(() => {
-    if (location.pathname !== prevPath) {
-      setPrevPath(location.pathname)
+    if (location.pathname !== prevPathRef.current) {
+      prevPathRef.current = location.pathname
       onPathChange(location.pathname)
     }
-  }, [location.pathname, prevPath, onPathChange])
+  }, [location.pathname, onPathChange])
 
   return null
 }

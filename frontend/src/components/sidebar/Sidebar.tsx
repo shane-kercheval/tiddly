@@ -115,7 +115,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   const lists = useListsStore((state) => state.lists)
   const deleteList = useListsStore((state) => state.deleteList)
   const tags = useTagsStore((state) => state.tags)
-  const { currentListId, handleTabChange } = useTabNavigation()
+  const { currentListId } = useTabNavigation()
 
   // Modal state
   const [isListModalOpen, setIsListModalOpen] = useState(false)
@@ -196,7 +196,11 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       items: [newGroup, ...computedToMinimal(sidebar.items)],
     }
 
-    await updateSidebar(updatedSidebar)
+    try {
+      await updateSidebar(updatedSidebar)
+    } catch {
+      toast.error('Failed to create group')
+    }
   }
 
   // Rename a group
@@ -210,7 +214,11 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       return item
     })
 
-    await updateSidebar({ version: SIDEBAR_VERSION, items: updatedItems })
+    try {
+      await updateSidebar({ version: SIDEBAR_VERSION, items: updatedItems })
+    } catch {
+      toast.error('Failed to rename group')
+    }
   }
 
   // Delete a group (moves contents to root)
@@ -238,7 +246,11 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       return [item]
     })
 
-    await updateSidebar({ version: SIDEBAR_VERSION, items: updatedItems })
+    try {
+      await updateSidebar({ version: SIDEBAR_VERSION, items: updatedItems })
+    } catch {
+      toast.error('Failed to delete group')
+    }
   }
 
   // Open list modal for editing
@@ -600,7 +612,6 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           {/* Settings Section (not draggable) */}
           <div className="mt-4 border-t border-gray-200 pt-4">
             <SidebarGroup
-              id="settings"
               name="Settings"
               icon={<SettingsIcon className="h-5 w-5" />}
               isCollapsed={isCollapsed}

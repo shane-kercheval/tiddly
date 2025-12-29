@@ -4,10 +4,10 @@
  */
 import { useState, useRef, useEffect } from 'react'
 import type { ReactNode, KeyboardEvent } from 'react'
+import { useConfirmDelete } from '../../hooks/useConfirmDelete'
 import { EditIcon, TrashIcon } from '../icons'
 
 interface SidebarGroupProps {
-  id: string
   name: string
   icon?: ReactNode // Optional - only used when sidebar is collapsed
   isCollapsed: boolean
@@ -17,9 +17,6 @@ interface SidebarGroupProps {
   onDelete?: () => void
   children: ReactNode
 }
-
-/** Timeout in ms before delete confirmation resets */
-const DELETE_CONFIRM_TIMEOUT = 3000
 
 function ChevronIcon({ isExpanded }: { isExpanded: boolean }): ReactNode {
   return (
@@ -48,10 +45,15 @@ export function SidebarGroup({
   const isExpanded = !isGroupCollapsed
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState(name)
-  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const deleteTimeoutRef = useRef<number | null>(null)
-  const deleteButtonRef = useRef<HTMLButtonElement>(null)
+
+  const {
+    isConfirming: isConfirmingDelete,
+    buttonRef: deleteButtonRef,
+    handleClick: handleDeleteClick,
+  } = useConfirmDelete({
+    onConfirm: () => onDelete?.(),
+  })
 
   // Focus input when entering edit mode
   useEffect(() => {
@@ -60,32 +62,6 @@ export function SidebarGroup({
       inputRef.current.select()
     }
   }, [isEditing])
-
-  // Clear delete timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (deleteTimeoutRef.current) {
-        window.clearTimeout(deleteTimeoutRef.current)
-      }
-    }
-  }, [])
-
-  // Reset delete confirmation when clicking outside
-  useEffect(() => {
-    if (!isConfirmingDelete) return
-
-    const handleClickOutside = (e: MouseEvent): void => {
-      if (deleteButtonRef.current && !deleteButtonRef.current.contains(e.target as Node)) {
-        setIsConfirmingDelete(false)
-        if (deleteTimeoutRef.current) {
-          window.clearTimeout(deleteTimeoutRef.current)
-        }
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [isConfirmingDelete])
 
   const handleSave = (): void => {
     const trimmedName = editName.trim()
@@ -103,25 +79,6 @@ export function SidebarGroup({
     } else if (e.key === 'Escape') {
       setEditName(name)
       setIsEditing(false)
-    }
-  }
-
-  const handleDeleteClick = (e: React.MouseEvent): void => {
-    e.stopPropagation()
-
-    if (isConfirmingDelete) {
-      // Second click - execute delete
-      setIsConfirmingDelete(false)
-      if (deleteTimeoutRef.current) {
-        window.clearTimeout(deleteTimeoutRef.current)
-      }
-      onDelete?.()
-    } else {
-      // First click - show confirmation
-      setIsConfirmingDelete(true)
-      deleteTimeoutRef.current = window.setTimeout(() => {
-        setIsConfirmingDelete(false)
-      }, DELETE_CONFIRM_TIMEOUT)
     }
   }
 

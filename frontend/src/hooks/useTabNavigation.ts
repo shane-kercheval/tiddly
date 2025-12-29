@@ -9,7 +9,6 @@
  */
 import { useCallback, useMemo } from 'react'
 import { useSearchParams, useLocation } from 'react-router-dom'
-import { useSettingsStore } from '../stores/settingsStore'
 
 export type BookmarkView = 'active' | 'archived' | 'deleted'
 
@@ -95,10 +94,6 @@ export interface UseTabNavigationReturn {
 export function useTabNavigation(): UseTabNavigationReturn {
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
-  const sidebar = useSettingsStore((state) => state.sidebar)
-
-  // Unused but kept for compatibility - sidebar structure is now used instead
-  void sidebar
 
   // Derive current state from URL (supports both query params and path-based routes)
   const { currentTabKey, currentView, currentListId } = useMemo(() => {
