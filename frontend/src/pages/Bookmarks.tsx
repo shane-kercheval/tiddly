@@ -35,6 +35,7 @@ import {
   SearchFilterBar,
   SelectedTagsDisplay,
   PaginationControls,
+  QuickAddMenu,
 } from '../components/ui'
 import {
   SearchIcon,
@@ -690,16 +691,35 @@ export function Bookmarks(): ReactNode {
   // Determine if we should show add button (only for active views, not archived/trash)
   const showAddButton = currentView === 'active'
 
+  // Quick-add handlers
+  const handleQuickAddBookmark = useCallback((): void => {
+    setShowAddModal(true)
+  }, [])
+
+  const handleQuickAddNote = useCallback((): void => {
+    navigate('/app/notes/new')
+  }, [navigate])
+
   // Add button element for the left slot
+  // For custom lists, use QuickAddMenu to support the list's content types
+  // For built-in bookmarks view, use simple button
   const addButton = showAddButton ? (
-    <button
-      onClick={() => setShowAddModal(true)}
-      className="btn-primary shrink-0 p-2.5"
-      title="Add bookmark"
-      aria-label="Add bookmark"
-    >
-      <PlusIcon />
-    </button>
+    currentListId ? (
+      <QuickAddMenu
+        onAddBookmark={handleQuickAddBookmark}
+        onAddNote={handleQuickAddNote}
+        contentTypes={currentList?.content_types}
+      />
+    ) : (
+      <button
+        onClick={() => setShowAddModal(true)}
+        className="btn-primary shrink-0 p-2.5"
+        title="Add bookmark"
+        aria-label="Add bookmark"
+      >
+        <PlusIcon />
+      </button>
+    )
   ) : undefined
 
   return (

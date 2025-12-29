@@ -30,6 +30,7 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useContentTypeFilterStore } from '../stores/contentTypeFilterStore'
+import { useListsStore } from '../stores/listsStore'
 import type { PageSize } from '../stores/uiPreferencesStore'
 import type { SortByOption } from '../constants/sortOptions'
 import { BookmarkCard } from '../components/BookmarkCard'
@@ -97,6 +98,13 @@ export function AllContent(): ReactNode {
 
   // Route-based view and list ID
   const { currentView, currentListId } = useContentView('/app/content')
+
+  // Get current list data for custom lists
+  const { lists } = useListsStore()
+  const currentList = useMemo(
+    () => currentListId !== undefined ? lists.find(l => l.id === currentListId) : undefined,
+    [currentListId, lists]
+  )
 
   // Content type filter - only for builtin views (not custom lists)
   const { getSelectedTypes, toggleType } = useContentTypeFilterStore()
@@ -549,8 +557,12 @@ export function AllContent(): ReactNode {
     navigate('/app/notes/new')
   }, [navigate])
 
-  // Show quick-add menu only for active view (not archived or deleted)
-  const showQuickAdd = currentView === 'active' && currentListId === undefined
+  // Show quick-add menu for active view:
+  // - "All" view (no list selected)
+  // - Custom lists (we'll pass their content_types to filter options)
+  const showQuickAdd = currentView === 'active' && (
+    !currentListId || currentList !== undefined
+  )
 
   return (
     <div>
@@ -572,6 +584,7 @@ export function AllContent(): ReactNode {
               <QuickAddMenu
                 onAddBookmark={handleQuickAddBookmark}
                 onAddNote={handleQuickAddNote}
+                contentTypes={currentList?.content_types}
               />
             ) : undefined
           }

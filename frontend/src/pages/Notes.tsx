@@ -33,6 +33,7 @@ import {
   SearchFilterBar,
   SelectedTagsDisplay,
   PaginationControls,
+  QuickAddMenu,
 } from '../components/ui'
 import {
   SearchIcon,
@@ -532,16 +533,35 @@ export function Notes(): ReactNode {
   // Determine if we should show add button (only for active views, not archived/trash)
   const showAddButton = currentView === 'active'
 
+  // Quick-add handlers
+  const handleQuickAddBookmark = useCallback((): void => {
+    navigate('/app/bookmarks?action=add')
+  }, [navigate])
+
+  const handleQuickAddNote = useCallback((): void => {
+    navigate('/app/notes/new', { state: { initialTags: initialTagsFromList } })
+  }, [navigate, initialTagsFromList])
+
   // Add button element for the left slot
+  // For custom lists, use QuickAddMenu to support the list's content types
+  // For built-in notes view, use simple button
   const addButton = showAddButton ? (
-    <button
-      onClick={() => navigate('/app/notes/new', { state: { initialTags: initialTagsFromList } })}
-      className="btn-primary shrink-0 p-2.5"
-      title="New note"
-      aria-label="New note"
-    >
-      <PlusIcon />
-    </button>
+    currentListId ? (
+      <QuickAddMenu
+        onAddBookmark={handleQuickAddBookmark}
+        onAddNote={handleQuickAddNote}
+        contentTypes={currentList?.content_types}
+      />
+    ) : (
+      <button
+        onClick={() => navigate('/app/notes/new', { state: { initialTags: initialTagsFromList } })}
+        className="btn-primary shrink-0 p-2.5"
+        title="New note"
+        aria-label="New note"
+      >
+        <PlusIcon />
+      </button>
+    )
   ) : undefined
 
   return (
