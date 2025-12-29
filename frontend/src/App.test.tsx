@@ -58,39 +58,33 @@ vi.mock('./stores/tagsStore', () => ({
 vi.mock('./stores/settingsStore', () => ({
   useSettingsStore: (selector?: (state: Record<string, unknown>) => unknown) => {
     const state = {
-      computedTabOrder: [
-        { key: 'all', label: 'All', type: 'builtin' },
-        { key: 'archived', label: 'Archived', type: 'builtin' },
-        { key: 'trash', label: 'Trash', type: 'builtin' },
-        { key: 'all-bookmarks', label: 'All Bookmarks', type: 'builtin' },
-        { key: 'all-notes', label: 'All Notes', type: 'builtin' },
-      ],
-      computedSections: [
-        {
-          name: 'shared',
-          label: 'Shared',
-          items: [
-            { key: 'all', label: 'All', type: 'builtin' },
-            { key: 'archived', label: 'Archived', type: 'builtin' },
-            { key: 'trash', label: 'Trash', type: 'builtin' },
-          ],
-          collapsible: false,
-        },
-        {
-          name: 'bookmarks',
-          label: 'Bookmarks',
-          items: [{ key: 'all-bookmarks', label: 'All Bookmarks', type: 'builtin' }],
-          collapsible: true,
-        },
-        {
-          name: 'notes',
-          label: 'Notes',
-          items: [{ key: 'all-notes', label: 'All Notes', type: 'builtin' }],
-          collapsible: true,
-        },
-      ],
-      sectionOrder: ['shared', 'bookmarks', 'notes'],
-      fetchTabOrder: vi.fn(),
+      sidebar: {
+        version: 1,
+        items: [
+          { type: 'builtin', key: 'all', name: 'All' },
+          { type: 'builtin', key: 'archived', name: 'Archived' },
+          { type: 'builtin', key: 'trash', name: 'Trash' },
+        ],
+      },
+      fetchSidebar: vi.fn(),
+    }
+    return selector ? selector(state) : state
+  },
+}))
+
+vi.mock('./stores/sidebarStore', () => ({
+  useSidebarStore: (selector?: (state: Record<string, unknown>) => unknown) => {
+    const state = {
+      isCollapsed: false,
+      isMobileOpen: false,
+      expandedSections: ['settings'],
+      collapsedGroupIds: [],
+      toggleCollapse: vi.fn(),
+      toggleMobile: vi.fn(),
+      closeMobile: vi.fn(),
+      toggleSection: vi.fn(),
+      toggleGroup: vi.fn(),
+      isGroupCollapsed: () => false,
     }
     return selector ? selector(state) : state
   },
@@ -158,13 +152,13 @@ describe('App', () => {
     )
   })
 
-  it('should show Bookmarks section in sidebar', async () => {
+  it('should show sidebar navigation items', async () => {
     render(<App />)
 
     await waitFor(
       () => {
-        // Sidebar has "Bookmarks" as a section header button
-        expect(screen.getAllByText('Bookmarks').length).toBeGreaterThanOrEqual(1)
+        // Sidebar has "All" builtin navigation item
+        expect(screen.getAllByText('All').length).toBeGreaterThanOrEqual(1)
       },
       { timeout: 3000 }
     )

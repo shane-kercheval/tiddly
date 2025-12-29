@@ -274,7 +274,7 @@ describe('ListCard', () => {
         />
       )
 
-      // First click - shows "Confirm"
+      // First click - shows "Delete?"
       await user.click(screen.getByTitle('Delete list'))
 
       // Second click - confirms delete
@@ -299,14 +299,14 @@ describe('ListCard', () => {
 
       // Click delete button - shows confirm state
       await user.click(screen.getByTitle('Delete list'))
-      expect(screen.getByText('Confirm')).toBeInTheDocument()
+      expect(screen.getByText('Delete?')).toBeInTheDocument()
 
       // Click outside (on the list name)
       await user.click(screen.getByText('Work Resources'))
 
       // Should reset to delete button
       await waitFor(() => {
-        expect(screen.queryByText('Confirm')).not.toBeInTheDocument()
+        expect(screen.queryByText('Delete?')).not.toBeInTheDocument()
       })
 
       expect(onDelete).not.toHaveBeenCalled()

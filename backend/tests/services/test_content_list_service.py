@@ -76,11 +76,11 @@ async def test__create_list__creates_list_with_filter_expression(
     assert result.content_types == ["bookmark", "note"]
 
 
-async def test__create_list__adds_to_tab_order(
+async def test__create_list__adds_to_sidebar_order(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test creating a list adds it to the user's tab_order."""
+    """Test creating a list adds it to the user's sidebar_order."""
     data = ContentListCreate(
         name="My List",
         filter_expression=make_filter_expression([["tag1"]]),
@@ -90,18 +90,20 @@ async def test__create_list__adds_to_tab_order(
 
     settings = await get_settings(db_session, test_user.id)
     assert settings is not None
-    # List should be in shared section (default content_types is ["bookmark", "note"])
-    list_key = f"list:{result.id}"
-    assert list_key in settings.tab_order["sections"]["shared"]
-    # Should be prepended (first in the section)
-    assert settings.tab_order["sections"]["shared"][0] == list_key
+    assert settings.sidebar_order is not None
+    # List should be in the sidebar items
+    list_ids = [
+        item["id"] for item in settings.sidebar_order["items"]
+        if item.get("type") == "list"
+    ]
+    assert result.id in list_ids
 
 
-async def test__create_list__multiple_lists_prepend_in_order(
+async def test__create_list__multiple_lists_append_in_order(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test creating multiple lists prepends each to tab_order."""
+    """Test creating multiple lists appends each to sidebar_order."""
     data1 = ContentListCreate(
         name="First",
         filter_expression=make_filter_expression([["tag1"]]),
@@ -116,11 +118,14 @@ async def test__create_list__multiple_lists_prepend_in_order(
 
     settings = await get_settings(db_session, test_user.id)
     assert settings is not None
-    # Both lists should be in shared section (default content_types)
-    shared_items = settings.tab_order["sections"]["shared"]
-    # Second list should be at the front
-    assert shared_items[0] == f"list:{list2.id}"
-    assert f"list:{list1.id}" in shared_items
+    assert settings.sidebar_order is not None
+    # Both lists should be in sidebar items
+    list_ids = [
+        item["id"] for item in settings.sidebar_order["items"]
+        if item.get("type") == "list"
+    ]
+    assert list1.id in list_ids
+    assert list2.id in list_ids
 
 
 async def test__create_list__normalizes_tags(
@@ -432,29 +437,37 @@ async def test__delete_list__deletes_list(
     assert fetched is None
 
 
-async def test__delete_list__removes_from_tab_order(
+async def test__delete_list__removes_from_sidebar_order(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test delete_list removes the list from tab_order."""
+    """Test delete_list removes the list from sidebar_order."""
     data = ContentListCreate(
         name="To Delete",
         filter_expression=make_filter_expression([["delete"]]),
     )
     created = await create_list(db_session, test_user.id, data)
-    list_key = f"list:{created.id}"
 
-    # Verify it's in tab_order (in shared section for default content_types)
+    # Verify it's in sidebar_order
     settings = await get_settings(db_session, test_user.id)
     assert settings is not None
-    assert list_key in settings.tab_order["sections"]["shared"]
+    assert settings.sidebar_order is not None
+    list_ids = [
+        item["id"] for item in settings.sidebar_order["items"]
+        if item.get("type") == "list"
+    ]
+    assert created.id in list_ids
 
     # Delete
     await delete_list(db_session, test_user.id, created.id)
 
-    # Verify removed from tab_order
+    # Verify removed from sidebar_order
     await db_session.refresh(settings)
-    assert list_key not in settings.tab_order["sections"]["shared"]
+    list_ids = [
+        item["id"] for item in settings.sidebar_order["items"]
+        if item.get("type") == "list"
+    ]
+    assert created.id not in list_ids
 
 
 async def test__delete_list__returns_false_for_nonexistent(

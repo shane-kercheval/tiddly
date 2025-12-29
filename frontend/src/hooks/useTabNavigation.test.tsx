@@ -98,26 +98,33 @@ describe('useTabNavigation', () => {
     expect(result.current.currentListId).toBeUndefined()
   })
 
-  it('uses first tab from computedTabOrder when available and no URL param', () => {
+  it('defaults to "all" when no URL param is present', () => {
+    // The old computedTabOrder is no longer used - sidebar items are now the source of truth
+    // and the hook always defaults to 'all' when no tab is specified in the URL
     mockUseSettingsStore.mockReturnValue({
-      computedTabOrder: [
-        { key: 'list:1', label: 'My List' },
-        { key: 'all', label: 'All Bookmarks' },
-      ],
-      fetchTabOrder: vi.fn(),
-      tabOrder: [],
+      sidebar: {
+        version: 1,
+        items: [
+          { type: 'list', id: 1, name: 'My List', content_types: ['bookmark'] },
+          { type: 'builtin', key: 'all', name: 'All' },
+        ],
+      },
+      fetchSidebar: vi.fn(),
+      updateSidebar: vi.fn(),
+      setSidebarOptimistic: vi.fn(),
+      rollbackSidebar: vi.fn(),
       isLoading: false,
       error: null,
-      saveTabOrder: vi.fn(),
+      clearError: vi.fn(),
     })
 
     const { result } = renderHook(() => useTabNavigation(), {
       wrapper: createWrapper(['/bookmarks']),
     })
 
-    expect(result.current.currentTabKey).toBe('list:1')
+    expect(result.current.currentTabKey).toBe('all')
     expect(result.current.currentView).toBe('active')
-    expect(result.current.currentListId).toBe(1)
+    expect(result.current.currentListId).toBeUndefined()
   })
 
   it('reads tab from URL param', () => {
@@ -194,5 +201,67 @@ describe('useTabNavigation', () => {
     })
 
     expect(result.current.currentTabKey).toBe('all')
+  })
+
+  describe('path-based routes', () => {
+    it('reads list ID from path /app/bookmarks/lists/12', () => {
+      const { result } = renderHook(() => useTabNavigation(), {
+        wrapper: createWrapper(['/app/bookmarks/lists/12']),
+      })
+
+      expect(result.current.currentTabKey).toBe('list:12')
+      expect(result.current.currentView).toBe('active')
+      expect(result.current.currentListId).toBe(12)
+    })
+
+    it('reads list ID from path /app/notes/lists/42', () => {
+      const { result } = renderHook(() => useTabNavigation(), {
+        wrapper: createWrapper(['/app/notes/lists/42']),
+      })
+
+      expect(result.current.currentTabKey).toBe('list:42')
+      expect(result.current.currentView).toBe('active')
+      expect(result.current.currentListId).toBe(42)
+    })
+
+    it('reads list ID from path /app/content/lists/99', () => {
+      const { result } = renderHook(() => useTabNavigation(), {
+        wrapper: createWrapper(['/app/content/lists/99']),
+      })
+
+      expect(result.current.currentTabKey).toBe('list:99')
+      expect(result.current.currentView).toBe('active')
+      expect(result.current.currentListId).toBe(99)
+    })
+
+    it('reads archived from path /app/bookmarks/archived', () => {
+      const { result } = renderHook(() => useTabNavigation(), {
+        wrapper: createWrapper(['/app/bookmarks/archived']),
+      })
+
+      expect(result.current.currentTabKey).toBe('archived')
+      expect(result.current.currentView).toBe('archived')
+      expect(result.current.currentListId).toBeUndefined()
+    })
+
+    it('reads trash from path /app/notes/trash', () => {
+      const { result } = renderHook(() => useTabNavigation(), {
+        wrapper: createWrapper(['/app/notes/trash']),
+      })
+
+      expect(result.current.currentTabKey).toBe('trash')
+      expect(result.current.currentView).toBe('deleted')
+      expect(result.current.currentListId).toBeUndefined()
+    })
+
+    it('prefers query param over path when both present', () => {
+      const { result } = renderHook(() => useTabNavigation(), {
+        wrapper: createWrapper(['/app/bookmarks/lists/12?tab=list:99']),
+      })
+
+      // Query param takes precedence
+      expect(result.current.currentTabKey).toBe('list:99')
+      expect(result.current.currentListId).toBe(99)
+    })
   })
 })

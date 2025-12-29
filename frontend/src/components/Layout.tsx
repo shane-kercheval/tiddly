@@ -16,7 +16,7 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
  * Includes sidebar with navigation and user controls.
  *
  * Responsibilities:
- * - Fetch shared data (tab order, lists, tags) once on mount
+ * - Fetch shared data (sidebar, lists, tags) once on mount
  * - Render sidebar and main content area
  * - Handle global keyboard shortcuts
  */
@@ -24,7 +24,7 @@ export function Layout(): ReactNode {
   const fullWidthLayout = useUIPreferencesStore((state) => state.fullWidthLayout)
   const toggleFullWidthLayout = useUIPreferencesStore((state) => state.toggleFullWidthLayout)
   const toggleSidebar = useSidebarStore((state) => state.toggleCollapse)
-  const fetchTabOrder = useSettingsStore((state) => state.fetchTabOrder)
+  const fetchSidebar = useSettingsStore((state) => state.fetchSidebar)
   const fetchLists = useListsStore((state) => state.fetchLists)
   const fetchTags = useTagsStore((state) => state.fetchTags)
   const [showShortcuts, setShowShortcuts] = useState(false)
@@ -36,11 +36,11 @@ export function Layout(): ReactNode {
   useEffect(() => {
     if (!hasFetchedRef.current) {
       hasFetchedRef.current = true
-      fetchTabOrder()
+      fetchSidebar()
       fetchLists()
       fetchTags()
     }
-  }, [fetchTabOrder, fetchLists, fetchTags])
+  }, [fetchSidebar, fetchLists, fetchTags])
 
   // Global keyboard shortcuts (work on all pages)
   useKeyboardShortcuts({

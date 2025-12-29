@@ -601,19 +601,19 @@ class TestPATRestrictedEndpoints:
         assert "not available for API tokens" in response.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test__settings_tab_order__rejects_pat(
+    async def test__settings_sidebar__rejects_pat(
         self,
         headers_user_a: dict[str, str],
     ) -> None:
-        """Settings tab-order endpoint rejects PATs."""
+        """Settings sidebar endpoint rejects PATs."""
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{API_URL}/settings/tab-order",
+                f"{API_URL}/settings/sidebar",
                 headers=headers_user_a,
             )
 
         assert response.status_code == 403, (
-            f"SECURITY: GET /settings/tab-order should reject PATs with 403. "
+            f"SECURITY: GET /settings/sidebar should reject PATs with 403. "
             f"Got {response.status_code}: {response.text}"
         )
         assert "not available for API tokens" in response.json()["detail"]

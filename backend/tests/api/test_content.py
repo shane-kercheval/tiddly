@@ -627,3 +627,148 @@ async def test__list_content_with_list_id__empty_results(
     data = response.json()
     assert data['total'] == 0
     assert data['items'] == []
+
+
+async def test__list_all_content__content_types_param_filters_bookmarks_only(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types param filters to only bookmarks."""
+    # Create a bookmark
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://example.com', 'title': 'Example Bookmark'},
+    )
+    # Create a note
+    await client.post(
+        '/notes/',
+        json={'title': 'Example Note'},
+    )
+
+    # Filter by content_types=bookmark
+    response = await client.get('/content/?content_types=bookmark')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 1
+    assert len(data['items']) == 1
+    assert data['items'][0]['type'] == 'bookmark'
+    assert data['items'][0]['title'] == 'Example Bookmark'
+
+
+async def test__list_all_content__content_types_param_filters_notes_only(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types param filters to only notes."""
+    # Create a bookmark
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://example.com', 'title': 'Example Bookmark'},
+    )
+    # Create a note
+    await client.post(
+        '/notes/',
+        json={'title': 'Example Note'},
+    )
+
+    # Filter by content_types=note
+    response = await client.get('/content/?content_types=note')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 1
+    assert len(data['items']) == 1
+    assert data['items'][0]['type'] == 'note'
+    assert data['items'][0]['title'] == 'Example Note'
+
+
+async def test__list_all_content__content_types_param_accepts_multiple(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types param accepts both bookmark and note."""
+    # Create a bookmark
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://example.com', 'title': 'Example Bookmark'},
+    )
+    # Create a note
+    await client.post(
+        '/notes/',
+        json={'title': 'Example Note'},
+    )
+
+    # Filter by content_types=bookmark&content_types=note (both)
+    response = await client.get('/content/?content_types=bookmark&content_types=note')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 2
+    assert len(data['items']) == 2
+    types = {item['type'] for item in data['items']}
+    assert types == {'bookmark', 'note'}
+
+
+async def test__list_all_content__content_types_param_with_search(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types param works with text search."""
+    # Create content
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://python.org', 'title': 'Python Bookmark'},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'Python Note'},
+    )
+
+    # Search for "Python" but only in bookmarks
+    response = await client.get('/content/?q=python&content_types=bookmark')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 1
+    assert data['items'][0]['type'] == 'bookmark'
+    assert data['items'][0]['title'] == 'Python Bookmark'
+
+
+async def test__list_all_content__list_id_content_types_overrides_query_param(
+    client: AsyncClient,
+) -> None:
+    """
+    Test that list's content_types overrides the content_types query param.
+
+    When both list_id and content_types query param are provided, the list's
+    content_types takes precedence and the query param is ignored.
+    """
+    # Create bookmark and note with same tag
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://example.com', 'title': 'Example Bookmark', 'tags': ['test']},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'Example Note', 'tags': ['test']},
+    )
+
+    # Create a list that only includes bookmarks
+    response = await client.post(
+        '/lists/',
+        json={
+            'name': 'Bookmarks Only List',
+            'content_types': ['bookmark'],
+            'filter_expression': {'groups': [{'tags': ['test']}], 'group_operator': 'OR'},
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()['id']
+
+    # Query with list_id AND content_types=note
+    # The list's content_types (bookmark) should override the query param (note)
+    response = await client.get(f'/content/?list_id={list_id}&content_types=note')
+    assert response.status_code == 200
+
+    data = response.json()
+    # Should return bookmarks (from list), not notes (from query param)
+    assert data['total'] == 1
+    assert data['items'][0]['type'] == 'bookmark'
+    assert data['items'][0]['title'] == 'Example Bookmark'

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.content_list import ContentList
 from schemas.content_list import ContentListCreate, ContentListUpdate
-from services.settings_service import add_list_to_tab_order, remove_list_from_tab_order
+from services.sidebar_service import add_list_to_sidebar, remove_list_from_sidebar
 
 
 async def create_list(
@@ -13,9 +13,9 @@ async def create_list(
     data: ContentListCreate,
 ) -> ContentList:
     """
-    Create a new content list and add it to the user's tab_order.
+    Create a new content list and add it to the user's sidebar_order.
 
-    The new list is prepended to the beginning of tab_order.
+    The new list is appended to the end of sidebar_order.items.
     """
     content_list = ContentList(
         user_id=user_id,
@@ -29,8 +29,8 @@ async def create_list(
     await db.flush()
     await db.refresh(content_list)
 
-    # Add to tab_order (prepends to appropriate section based on content_types)
-    await add_list_to_tab_order(db, user_id, content_list.id, data.content_types)
+    # Add to sidebar_order (appends to end of items)
+    await add_list_to_sidebar(db, user_id, content_list.id)
 
     return content_list
 
@@ -89,7 +89,7 @@ async def delete_list(
     list_id: int,
 ) -> bool:
     """
-    Delete a content list and remove it from tab_order.
+    Delete a content list and remove it from sidebar_order.
 
     Returns True if deleted, False if not found.
     """
@@ -97,8 +97,8 @@ async def delete_list(
     if content_list is None:
         return False
 
-    # Remove from tab_order first
-    await remove_list_from_tab_order(db, user_id, list_id)
+    # Remove from sidebar_order
+    await remove_list_from_sidebar(db, user_id, list_id)
 
     await db.delete(content_list)
     await db.flush()

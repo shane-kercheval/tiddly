@@ -1,6 +1,6 @@
 /**
  * A delete button that requires two clicks to confirm.
- * First click shows "Confirm", second click executes the delete.
+ * First click shows "Delete?", second click executes the delete.
  * Resets after a timeout or when clicking elsewhere.
  */
 import { useState, useEffect, useRef } from 'react'
@@ -102,7 +102,7 @@ export function ConfirmDeleteButton({
       title={isConfirming ? 'Click again to confirm' : title}
     >
       {isConfirming ? (
-        <span className="inline-flex h-4 items-center text-xs font-medium leading-none">Confirm</span>
+        <span className="inline-flex h-4 items-center text-xs font-medium leading-none">Delete?</span>
       ) : (
         <TrashIcon />
       )}

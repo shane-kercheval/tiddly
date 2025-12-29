@@ -30,7 +30,7 @@ vi.mock('./NoteView', () => ({
       {onUnarchive && <button onClick={onUnarchive}>Unarchive</button>}
       {onDelete && <button onClick={onDelete}>Delete</button>}
       {onRestore && <button onClick={onRestore}>Restore</button>}
-      {onBack && <button onClick={onBack}>Back</button>}
+      {onBack && <button onClick={onBack}>Close</button>}
       {onTagClick && <button onClick={() => onTagClick('test-tag')}>Tag</button>}
     </div>
   )),
@@ -449,8 +449,8 @@ describe('NoteForm', () => {
     })
   })
 
-  describe('back button', () => {
-    it('should render back button when onBack is provided in view mode', () => {
+  describe('close button', () => {
+    it('should render close button when onBack is provided in view mode', () => {
       render(
         <NoteForm
           note={mockNote}
@@ -459,10 +459,10 @@ describe('NoteForm', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument()
     })
 
-    it('should not render back button in edit mode (Cancel serves this purpose)', () => {
+    it('should not render close button in edit mode (Cancel serves this purpose)', () => {
       render(
         <NoteForm
           note={mockNote}
@@ -472,12 +472,12 @@ describe('NoteForm', () => {
         />
       )
 
-      // In edit mode, Cancel button replaces Back functionality
-      expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument()
+      // In edit mode, Cancel button replaces Close functionality
+      expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument()
       expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument()
     })
 
-    it('should call onBack when back button is clicked', async () => {
+    it('should call onBack when close button is clicked', async () => {
       const user = userEvent.setup()
       const onBack = vi.fn()
 
@@ -489,7 +489,7 @@ describe('NoteForm', () => {
         />
       )
 
-      await user.click(screen.getByRole('button', { name: /back/i }))
+      await user.click(screen.getByRole('button', { name: /close/i }))
 
       expect(onBack).toHaveBeenCalled()
     })

@@ -13,38 +13,40 @@ if TYPE_CHECKING:
 
 class UserSettings(Base, TimestampMixin):
     """
-    User settings - stores user preferences like tab order.
+    User settings - stores user preferences like sidebar order.
 
-    Tab Order Format:
-    -----------------
-    The tab_order field stores a structured JSONB object with sections:
+    Sidebar Order Format:
+    ---------------------
+    The sidebar_order field stores a JSONB object with a flat list of items:
 
     {
-        "sections": {
-            "shared": ["all", "archived", "trash", "list:456"],
-            "bookmarks": ["all-bookmarks", "list:123"],
-            "notes": ["all-notes", "list:234"]
-        },
-        "section_order": ["shared", "bookmarks", "notes"]
+        "version": 1,
+        "items": [
+            {"type": "builtin", "key": "all"},
+            {
+                "type": "group",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "Work",
+                "items": [
+                    {"type": "list", "id": 3},
+                    {"type": "list", "id": 7}
+                ]
+            },
+            {"type": "list", "id": 5},
+            {"type": "builtin", "key": "archived"},
+            {"type": "builtin", "key": "trash"}
+        ]
     }
 
-    Section types:
-    - "shared": Cross-type items (All, Archived, Trash) + mixed-content lists
-    - "bookmarks": Bookmark-specific items + bookmark-only lists
-    - "notes": Note-specific items + note-only lists
+    Item types:
+    - builtin: Built-in navigation items (key: "all", "archived", "trash")
+    - list: User-created content lists (id: integer list ID)
+    - group: User-created organizational groups (id: UUID, name: string)
 
-    Built-in keys:
-    - "all": All content (deprecated, use "all-bookmarks" or "all-notes")
-    - "all-bookmarks": All bookmarks view
-    - "all-notes": All notes view
-    - "archived": All archived items (shared section)
-    - "trash": All deleted items (shared section)
-    - "list:{id}": Custom list reference
+    Groups can contain lists and builtins but cannot be nested.
+    Lists and builtins can exist at root level or inside groups.
 
-    Lists are placed in sections based on their content_types:
-    - ["bookmark"] -> bookmarks section
-    - ["note"] -> notes section
-    - ["bookmark", "note"] -> shared section
+    DEPRECATED: tab_order - Old section-based format, kept for migration compatibility.
     """
 
     __tablename__ = "user_settings"
@@ -56,7 +58,12 @@ class UserSettings(Base, TimestampMixin):
     tab_order: Mapped[dict | None] = mapped_column(
         JSONB,
         nullable=True,
-        comment="Structured tab order with sections. See model docstring for format.",
+        comment="DEPRECATED: Old section-based tab order. Use sidebar_order instead.",
+    )
+    sidebar_order: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="User's sidebar structure with groups and items. See model docstring.",
     )
 
     user: Mapped["User"] = relationship("User", back_populates="settings")
