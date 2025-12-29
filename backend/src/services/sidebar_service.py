@@ -1,7 +1,9 @@
 """Service layer for sidebar operations."""
 import copy
+import logging
 
 from fastapi import HTTPException, status
+
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -23,6 +25,8 @@ from schemas.sidebar import (
     SidebarOrderComputed,
 )
 from services.settings_service import get_or_create_settings
+
+logger = logging.getLogger(__name__)
 
 
 def get_default_sidebar_order() -> dict:
@@ -159,6 +163,17 @@ def _compute_items(
                     seen_list_ids.add(list_id)
 
         elif item_type == "group":
+            # Validate required group fields
+            group_id = item.get("id")
+            group_name = item.get("name")
+            if not group_id or not group_name:
+                logger.warning(
+                    "Skipping malformed group in sidebar_order: missing id or name. "
+                    "item=%r",
+                    item,
+                )
+                continue
+
             # Recursively compute group items
             group_items = item.get("items", [])
             computed_group_items = _compute_items(group_items, list_map, seen_list_ids)
@@ -175,8 +190,8 @@ def _compute_items(
             computed.append(
                 SidebarGroupComputed(
                     type="group",
-                    id=item.get("id", ""),
-                    name=item.get("name", ""),
+                    id=group_id,
+                    name=group_name,
                     items=valid_group_items,
                 ),
             )

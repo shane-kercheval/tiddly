@@ -319,6 +319,28 @@ def test__validate_sidebar_order__allows_duplicate_group_names() -> None:
     _validate_sidebar_order(order, set())
 
 
+def test__validate_sidebar_order__rejects_duplicate_list_across_root_and_group() -> None:
+    """Test that a list appearing both at root and inside a group is rejected."""
+    order = SidebarOrder(
+        items=[
+            SidebarListItem(type="list", id=5),
+            SidebarGroup(
+                type="group",
+                id="550e8400-e29b-41d4-a716-446655440000",
+                name="Work",
+                items=[
+                    SidebarListItem(type="list", id=5),  # Duplicate of root list
+                ],
+            ),
+        ],
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        _validate_sidebar_order(order, {5})
+
+    assert exc_info.value.status_code == 400
+    assert "Duplicate list item" in exc_info.value.detail
+
+
 # =============================================================================
 # get_computed_sidebar Tests
 # =============================================================================
