@@ -45,10 +45,8 @@ export function NoteView({
   onTagClick,
   onBack,
 }: NoteViewProps): ReactNode {
-  // Keyboard shortcut: 'e' to edit (when not in input)
+  // Keyboard shortcuts: 'e' to edit, Escape to close
   useEffect(() => {
-    if (!onEdit) return
-
     const handleKeyDown = (e: KeyboardEvent): void => {
       // Skip if in an input, textarea, or contenteditable
       const activeElement = document.activeElement
@@ -60,8 +58,15 @@ export function NoteView({
         return
       }
 
+      // Escape to close
+      if (e.key === 'Escape' && onBack) {
+        e.preventDefault()
+        onBack()
+        return
+      }
+
       // 'e' to edit (without modifiers)
-      if (e.key === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (e.key === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey && onEdit) {
         e.preventDefault()
         onEdit()
       }
@@ -69,7 +74,7 @@ export function NoteView({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onEdit])
+  }, [onEdit, onBack])
 
   return (
     <div className={`flex flex-col h-full w-full ${fullWidth ? '' : 'max-w-4xl mx-auto'}`}>

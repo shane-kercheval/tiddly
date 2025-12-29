@@ -128,7 +128,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
   // Quick-add handlers
   const handleQuickAddBookmark = (): void => {
-    navigate('/app/bookmarks?action=add', { state: { returnTo: location.pathname + location.search } })
+    navigate('/app/content?action=add', { state: { returnTo: location.pathname + location.search } })
     onNavClick?.()
   }
 

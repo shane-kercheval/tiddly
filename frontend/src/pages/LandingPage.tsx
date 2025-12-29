@@ -374,7 +374,7 @@ function AuthenticatedLandingPage(): ReactNode {
 
   // If already authenticated, redirect to app
   if (isAuthenticated) {
-    return <Navigate to="/app/bookmarks" replace />
+    return <Navigate to="/app/content" replace />
   }
 
   return <LandingContent onLogin={() => loginWithRedirect()} />
@@ -388,7 +388,7 @@ function AuthenticatedLandingPage(): ReactNode {
 export function LandingPage(): ReactNode {
   // In dev mode, go straight to app
   if (isDevMode) {
-    return <Navigate to="/app/bookmarks" replace />
+    return <Navigate to="/app/content" replace />
   }
 
   return <AuthenticatedLandingPage />

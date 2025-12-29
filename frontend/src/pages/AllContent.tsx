@@ -1,18 +1,24 @@
 /**
  * AllContent page - unified view for all content types (bookmarks + notes).
  *
- * Used for the shared views: All, Archived, Trash, and custom shared lists.
- * Displays both bookmarks and notes in a single unified list.
+ * This is the main content page for the app, handling:
+ * - All, Archived, Trash views
+ * - Custom lists (any content types)
+ * - Bookmark add/edit modals
+ * - Note navigation with proper return state
  */
-import { useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import type { ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useContentQuery } from '../hooks/useContentQuery'
 import { useContentView } from '../hooks/useContentView'
 import { useContentUrlParams } from '../hooks/useContentUrlParams'
+import { useReturnNavigation } from '../hooks/useReturnNavigation'
 import { useBookmarks } from '../hooks/useBookmarks'
 import {
+  useCreateBookmark,
+  useUpdateBookmark,
   useDeleteBookmark,
   useRestoreBookmark,
   useArchiveBookmark,
@@ -24,6 +30,7 @@ import {
   useArchiveNote,
   useUnarchiveNote,
 } from '../hooks/useNoteMutations'
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useEffectiveSort, getViewKey } from '../hooks/useEffectiveSort'
 import { useTagsStore } from '../stores/tagsStore'
@@ -34,6 +41,7 @@ import { useListsStore } from '../stores/listsStore'
 import type { PageSize } from '../stores/uiPreferencesStore'
 import type { SortByOption } from '../constants/sortOptions'
 import { BookmarkCard } from '../components/BookmarkCard'
+import { BookmarkModal } from '../components/BookmarkModal'
 import { NoteCard } from '../components/NoteCard'
 import {
   LoadingSpinnerCentered,
@@ -51,7 +59,8 @@ import {
   TrashIcon,
   SharedIcon,
 } from '../components/icons'
-import type { ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem } from '../types'
+import type { Bookmark, BookmarkCreate, BookmarkUpdate, ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem } from '../types'
+import { getFirstGroupTags } from '../utils'
 
 /**
  * AllContent page - unified view for all content types.
@@ -61,19 +70,31 @@ import type { ContentListItem, ContentSearchParams, BookmarkListItem, NoteListIt
  * - Search by text (title, description, content)
  * - Filter by tags (AND/OR modes)
  * - Sort by date or title
- * - Navigate to edit pages for individual items
+ * - Bookmark add/edit via modal
+ * - Note navigation with proper return state
  */
 export function AllContent(): ReactNode {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const { createReturnState } = useReturnNavigation()
 
   // URL params for search and pagination (bookmarkable state)
   const { searchQuery, offset, updateParams } = useContentUrlParams()
 
+  // Modal state
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [editingBookmark, setEditingBookmark] = useState<Bookmark | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [pastedUrl, setPastedUrl] = useState<string | undefined>(undefined)
+  const [loadingBookmarkId, setLoadingBookmarkId] = useState<number | null>(null)
+
   // Non-cacheable utilities
-  const { trackBookmarkUsage } = useBookmarks()
+  const { fetchBookmark, fetchMetadata, trackBookmarkUsage } = useBookmarks()
 
   // Mutation hooks
+  const createBookmarkMutation = useCreateBookmark()
+  const updateBookmarkMutation = useUpdateBookmark()
   const deleteBookmarkMutation = useDeleteBookmark()
   const restoreBookmarkMutation = useRestoreBookmark()
   const archiveBookmarkMutation = useArchiveBookmark()
@@ -117,6 +138,53 @@ export function AllContent(): ReactNode {
     currentView,
     undefined
   )
+
+  // Get initial tags from current list's first filter group (for pre-populating new bookmarks)
+  const initialTagsFromList = useMemo(() => {
+    if (!currentListId) return undefined
+    const list = lists.find((l) => l.id === currentListId)
+    return getFirstGroupTags(list)
+  }, [currentListId, lists])
+
+  // Check for action=add query param to auto-open add modal
+  useEffect(() => {
+    if (searchParams.get('action') === 'add') {
+      setShowAddModal(true)
+      // Remove the action param from URL
+      const newParams = new URLSearchParams(searchParams)
+      newParams.delete('action')
+      setSearchParams(newParams, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
+
+  // Helper to close add modal
+  const closeAddModal = useCallback((): void => {
+    setShowAddModal(false)
+    setPastedUrl(undefined)
+  }, [])
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    onNewBookmark: () => {
+      if (currentView === 'active') {
+        setShowAddModal(true)
+      }
+    },
+    onFocusSearch: () => searchInputRef.current?.focus(),
+    onEscape: () => {
+      if (showAddModal) closeAddModal()
+      else if (editingBookmark) setEditingBookmark(null)
+      else if (document.activeElement === searchInputRef.current) {
+        searchInputRef.current?.blur()
+      }
+    },
+    onPasteUrl: (url) => {
+      if (currentView === 'active') {
+        setPastedUrl(url)
+        setShowAddModal(true)
+      }
+    },
+  })
 
   // Derive hasFilters from search query, tag store, and content type filter
   const hasContentTypeFilter = selectedContentTypes !== undefined && selectedContentTypes.length < 2
@@ -219,8 +287,114 @@ export function AllContent(): ReactNode {
   )
 
   // Bookmark action handlers
-  const handleEditBookmark = (bookmark: BookmarkListItem): void => {
-    navigate(`/app/bookmarks/${bookmark.id}/edit`)
+  const handleEditClick = async (bookmark: BookmarkListItem): Promise<void> => {
+    if (loadingBookmarkId === bookmark.id) return
+    setLoadingBookmarkId(bookmark.id)
+    try {
+      const fullBookmark = await fetchBookmark(bookmark.id)
+      setEditingBookmark(fullBookmark)
+    } catch {
+      toast.error('Failed to load bookmark')
+    } finally {
+      setLoadingBookmarkId(null)
+    }
+  }
+
+  const handleAddBookmark = async (data: BookmarkCreate | BookmarkUpdate): Promise<void> => {
+    setIsSubmitting(true)
+    try {
+      await createBookmarkMutation.mutateAsync(data as BookmarkCreate)
+      closeAddModal()
+    } catch (err) {
+      if (err && typeof err === 'object' && 'response' in err) {
+        const axiosError = err as {
+          response?: {
+            status?: number
+            data?: {
+              detail?: string | {
+                message?: string
+                error_code?: string
+                existing_bookmark_id?: number
+              }
+            }
+          }
+        }
+        if (axiosError.response?.status === 409) {
+          const detail = axiosError.response.data?.detail
+          if (typeof detail === 'object' && detail?.error_code === 'ARCHIVED_URL_EXISTS' && detail?.existing_bookmark_id) {
+            const bookmarkId = detail.existing_bookmark_id
+            toast.error(
+              (t) => (
+                <span className="flex items-center gap-2">
+                  This URL is in your archive.
+                  <button
+                    onClick={() => {
+                      toast.dismiss(t.id)
+                      unarchiveBookmarkMutation.mutateAsync(bookmarkId)
+                        .then(() => {
+                          closeAddModal()
+                          toast.success('Bookmark unarchived')
+                        })
+                        .catch(() => {
+                          toast.error('Failed to unarchive bookmark')
+                        })
+                    }}
+                    className="font-medium underline"
+                  >
+                    Unarchive
+                  </button>
+                </span>
+              ),
+              { duration: 8000 }
+            )
+          } else {
+            const message = typeof detail === 'string' ? detail : detail?.message || 'A bookmark with this URL already exists'
+            toast.error(message)
+          }
+          throw err
+        }
+      }
+      toast.error('Failed to add bookmark')
+      throw err
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleEditBookmark = async (data: BookmarkCreate | BookmarkUpdate): Promise<void> => {
+    if (!editingBookmark) return
+    setIsSubmitting(true)
+    try {
+      await updateBookmarkMutation.mutateAsync({ id: editingBookmark.id, data: data as BookmarkUpdate })
+      setEditingBookmark(null)
+    } catch (err) {
+      if (err && typeof err === 'object' && 'response' in err) {
+        const axiosError = err as { response?: { status?: number; data?: { detail?: string } } }
+        if (axiosError.response?.status === 409) {
+          toast.error(axiosError.response.data?.detail || 'A bookmark with this URL already exists')
+          throw err
+        }
+      }
+      toast.error('Failed to update bookmark')
+      throw err
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleFetchMetadata = async (url: string): Promise<{
+    title: string | null
+    description: string | null
+    content: string | null
+    error: string | null
+  }> => {
+    const result = await fetchMetadata(url)
+    return {
+      title: result.title,
+      description: result.description,
+      content: result.content,
+      error: result.error,
+    }
   }
 
   const handleDeleteBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
@@ -302,11 +476,11 @@ export function AllContent(): ReactNode {
 
   // Note action handlers
   const handleViewNote = (note: NoteListItem): void => {
-    navigate(`/app/notes/${note.id}`)
+    navigate(`/app/notes/${note.id}`, { state: createReturnState() })
   }
 
   const handleEditNote = (note: NoteListItem): void => {
-    navigate(`/app/notes/${note.id}/edit`)
+    navigate(`/app/notes/${note.id}/edit`, { state: createReturnState() })
   }
 
   const handleDeleteNote = async (note: NoteListItem): Promise<void> => {
@@ -498,13 +672,14 @@ export function AllContent(): ReactNode {
                 bookmark={toBookmarkListItem(item)}
                 view={currentView}
                 sortBy={sortBy}
-                onEdit={currentView !== 'deleted' ? handleEditBookmark : undefined}
+                onEdit={currentView !== 'deleted' ? handleEditClick : undefined}
                 onDelete={handleDeleteBookmark}
                 onArchive={currentView === 'active' ? handleArchiveBookmark : undefined}
                 onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
                 onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
                 onTagClick={handleTagClick}
                 onLinkClick={(b) => trackBookmarkUsage(b.id)}
+                isLoading={loadingBookmarkId === item.id}
               />
             ) : (
               <NoteCard
@@ -550,19 +725,15 @@ export function AllContent(): ReactNode {
 
   // Quick-add handlers
   const handleQuickAddBookmark = useCallback((): void => {
-    navigate('/app/bookmarks?action=add')
-  }, [navigate])
+    setShowAddModal(true)
+  }, [])
 
   const handleQuickAddNote = useCallback((): void => {
-    navigate('/app/notes/new')
-  }, [navigate])
+    navigate('/app/notes/new', { state: { ...createReturnState(), initialTags: initialTagsFromList } })
+  }, [navigate, createReturnState, initialTagsFromList])
 
-  // Show quick-add menu for active view:
-  // - "All" view (no list selected)
-  // - Custom lists (we'll pass their content_types to filter options)
-  const showQuickAdd = currentView === 'active' && (
-    !currentListId || currentList !== undefined
-  )
+  // Show quick-add menu for active view (All, or any custom list)
+  const showQuickAdd = currentView === 'active'
 
   return (
     <div>
@@ -607,6 +778,29 @@ export function AllContent(): ReactNode {
 
       {/* Content */}
       {renderContent()}
+
+      {/* Add bookmark modal */}
+      <BookmarkModal
+        isOpen={showAddModal}
+        onClose={closeAddModal}
+        tagSuggestions={tagSuggestions}
+        onSubmit={handleAddBookmark}
+        onFetchMetadata={handleFetchMetadata}
+        isSubmitting={isSubmitting}
+        initialUrl={pastedUrl}
+        initialTags={initialTagsFromList}
+      />
+
+      {/* Edit bookmark modal */}
+      <BookmarkModal
+        isOpen={!!editingBookmark}
+        onClose={() => setEditingBookmark(null)}
+        bookmark={editingBookmark || undefined}
+        tagSuggestions={tagSuggestions}
+        onSubmit={handleEditBookmark}
+        onFetchMetadata={handleFetchMetadata}
+        isSubmitting={isSubmitting}
+      />
     </div>
   )
 }
