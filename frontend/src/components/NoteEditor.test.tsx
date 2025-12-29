@@ -155,7 +155,7 @@ describe('NoteEditor', () => {
       })
     })
 
-    it('should call onCancel when Cancel button is clicked', async () => {
+    it('should call onCancel when Cancel button is clicked and form is clean', async () => {
       const onCancel = vi.fn()
       const user = userEvent.setup()
 
@@ -164,6 +164,64 @@ describe('NoteEditor', () => {
       await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
       expect(onCancel).toHaveBeenCalled()
+    })
+  })
+
+  describe('cancel confirmation', () => {
+    it('should immediately cancel when form has no changes', async () => {
+      const onCancel = vi.fn()
+      const user = userEvent.setup()
+
+      render(<NoteEditor {...defaultProps} note={mockNote} onCancel={onCancel} />)
+
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(onCancel).toHaveBeenCalledTimes(1)
+    })
+
+    it('should show confirmation state when form is dirty', async () => {
+      const onCancel = vi.fn()
+      const user = userEvent.setup()
+
+      render(<NoteEditor {...defaultProps} note={mockNote} onCancel={onCancel} />)
+
+      // Make form dirty by changing title
+      await user.clear(screen.getByLabelText(/Title/))
+      await user.type(screen.getByLabelText(/Title/), 'Changed Title')
+
+      // First click should show confirmation
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(onCancel).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+    })
+
+    it('should cancel on second click during confirmation', async () => {
+      const onCancel = vi.fn()
+      const user = userEvent.setup()
+
+      render(<NoteEditor {...defaultProps} note={mockNote} onCancel={onCancel} />)
+
+      // Make form dirty
+      await user.clear(screen.getByLabelText(/Title/))
+      await user.type(screen.getByLabelText(/Title/), 'Changed Title')
+
+      // First click - show confirmation
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(onCancel).not.toHaveBeenCalled()
+
+      // Second click - execute cancel
+      await user.click(screen.getByRole('button', { name: 'Discard changes?' }))
+      expect(onCancel).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('keyboard shortcut hints', () => {
+    it('should show both save and escape shortcuts', () => {
+      render(<NoteEditor {...defaultProps} />)
+
+      expect(screen.getByText('⌘S')).toBeInTheDocument()
+      expect(screen.getByText('Esc')).toBeInTheDocument()
     })
   })
 
@@ -353,15 +411,6 @@ describe('NoteEditor', () => {
       render(<NoteEditor {...defaultProps} />)
 
       expect(screen.getByText(/Supports Markdown/)).toBeInTheDocument()
-    })
-  })
-
-  describe('keyboard shortcut hint', () => {
-    it('should show keyboard shortcut hint', () => {
-      render(<NoteEditor {...defaultProps} />)
-
-      // Uses ⌘S symbol in the UI
-      expect(screen.getByText(/⌘S/)).toBeInTheDocument()
     })
   })
 
