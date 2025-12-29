@@ -158,19 +158,6 @@ describe('App', () => {
     )
   })
 
-  it('should show dev user indicator in dev mode', async () => {
-    render(<App />)
-
-    await waitFor(
-      () => {
-        // Dev User badge appears in sidebar user section
-        const devUserElements = screen.getAllByText(/Dev User/i)
-        expect(devUserElements.length).toBeGreaterThanOrEqual(1)
-      },
-      { timeout: 3000 }
-    )
-  })
-
   it('should show sidebar navigation items', async () => {
     render(<App />)
 

@@ -4,13 +4,16 @@
  * Allows users to configure layout and display options.
  */
 import type { ReactNode } from 'react'
+import { useAuth0 } from '@auth0/auth0-react'
 import { useUIPreferencesStore } from '../../stores/uiPreferencesStore'
+import { isDevMode } from '../../config'
 
 /**
  * General settings page for UI preferences.
  */
 export function SettingsGeneral(): ReactNode {
   const { fullWidthLayout, toggleFullWidthLayout } = useUIPreferencesStore()
+  const { user } = useAuth0()
 
   return (
     <div className="max-w-3xl">
@@ -62,6 +65,29 @@ export function SettingsGeneral(): ReactNode {
                 }`}
               />
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Account Section */}
+      <div className="mt-8 space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Account</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Your account information.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="flex items-center justify-between p-4">
+            <div>
+              <h3 className="text-sm font-medium text-gray-900">Logged in as</h3>
+              {isDevMode ? (
+                <p className="text-sm text-yellow-700 font-medium">Dev User</p>
+              ) : (
+                <p className="text-sm text-gray-500">{user?.email}</p>
+              )}
+            </div>
           </div>
         </div>
       </div>
