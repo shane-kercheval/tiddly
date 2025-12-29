@@ -35,7 +35,9 @@ describe('NoteCard', () => {
     it('should render note description', () => {
       render(<NoteCard note={mockNote} onDelete={vi.fn()} />)
 
-      expect(screen.getByText('A test note description')).toBeInTheDocument()
+      // Description appears twice (mobile inline + desktop block), check at least one exists
+      const descriptions = screen.getAllByText('A test note description')
+      expect(descriptions.length).toBeGreaterThan(0)
     })
 
     it('should render tags', () => {

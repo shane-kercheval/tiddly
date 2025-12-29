@@ -86,140 +86,149 @@ export function NoteCard({
       className={`card card-interactive group ${isClickable ? 'cursor-pointer' : ''}`}
       onClick={isClickable ? handleCardClick : undefined}
     >
-      <div className="flex items-start gap-4">
-        {/* Main content */}
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
+        {/* Row 1 (mobile) / Main content (desktop) */}
         <div className="min-w-0 flex-1">
-          {/* Title row */}
-          <div className="flex items-center gap-2 flex-wrap">
+          {/* Title row - on mobile, description is inline; on desktop, it wraps below */}
+          <div className="flex items-center gap-2 md:flex-wrap">
             <span className="shrink-0 w-4 h-4 text-green-500">
               <NoteIcon className="w-4 h-4" />
             </span>
             <button
               onClick={handleTitleClick}
-              className="text-base font-medium text-gray-900 hover:text-gray-600 transition-colors text-left cursor-pointer"
+              className="text-base font-medium text-gray-900 hover:text-gray-600 transition-colors text-left cursor-pointer shrink-0"
               title="View note"
             >
               {truncate(note.title, 60)}
             </button>
             {note.version > 1 && (
-              <span className="text-xs text-gray-400">v{note.version}</span>
+              <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
+            )}
+            {/* Description inline on mobile, hidden here on desktop */}
+            {previewText && (
+              <span className="text-sm text-gray-500 truncate min-w-0 md:hidden">
+                {previewText}
+              </span>
             )}
           </div>
 
-          {/* Description/Preview */}
+          {/* Description/Preview - desktop only, on separate line */}
           {previewText && (
-            <p className="mt-1 text-sm text-gray-500 truncate">
+            <p className="hidden md:block mt-1 text-sm text-gray-500 truncate">
               {previewText}
             </p>
           )}
         </div>
 
-        {/* Tags */}
-        {note.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 justify-end w-32 shrink-0">
-            {note.tags.map((tag) => (
-              <div key={tag} className="group/tag relative">
-                <button
-                  onClick={(e) => { e.stopPropagation(); onTagClick?.(tag) }}
-                  className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
-                  title={`Filter by tag: ${tag}`}
-                >
-                  {tag}
-                </button>
-                {onTagRemove && (
+        {/* Row 2 (mobile): tags + actions + date */}
+        <div className="flex items-center gap-2 md:contents">
+          {/* Tags */}
+          {note.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
+              {note.tags.map((tag) => (
+                <div key={tag} className="group/tag relative">
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onTagRemove(note, tag)
-                    }}
-                    className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/tag:opacity-100 transition-opacity flex items-center justify-center"
-                    title={`Remove tag: ${tag}`}
-                    aria-label={`Remove tag ${tag}`}
+                    onClick={(e) => { e.stopPropagation(); onTagClick?.(tag) }}
+                    className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
+                    title={`Filter by tag: ${tag}`}
                   >
-                    <CloseIcon className="w-2.5 h-2.5" />
+                    {tag}
                   </button>
-                )}
-              </div>
-            ))}
+                  {onTagRemove && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onTagRemove(note, tag)
+                      }}
+                      className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/tag:opacity-100 transition-opacity flex items-center justify-center"
+                      title={`Remove tag: ${tag}`}
+                      aria-label={`Remove tag ${tag}`}
+                    >
+                      <CloseIcon className="w-2.5 h-2.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Actions and date */}
+          <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
+            <div className="flex items-center">
+              {/* Hover edit indicator - shown on card hover for clickable cards */}
+              {isClickable && (
+                <span
+                  className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity mr-1"
+                  aria-hidden="true"
+                >
+                  {isLoading ? (
+                    <div className="spinner-sm" />
+                  ) : (
+                    <EditIcon />
+                  )}
+                </span>
+              )}
+
+              {/* Archive button - shown in active view */}
+              {view === 'active' && onArchive && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onArchive(note) }}
+                  className="btn-icon"
+                  title="Archive note"
+                  aria-label="Archive note"
+                >
+                  <ArchiveIcon className="h-4 w-4" />
+                </button>
+              )}
+
+              {/* Restore button - shown in archived view (unarchive action) */}
+              {view === 'archived' && onUnarchive && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onUnarchive(note) }}
+                  className="btn-icon"
+                  title="Restore note"
+                  aria-label="Restore note"
+                >
+                  <RestoreIcon />
+                </button>
+              )}
+
+              {/* Restore button - shown in deleted view */}
+              {view === 'deleted' && onRestore && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRestore(note) }}
+                  className="btn-icon"
+                  title="Restore note"
+                  aria-label="Restore note"
+                >
+                  <RestoreIcon />
+                </button>
+              )}
+
+              {/* Delete button - shown in all views */}
+              {/* Use ConfirmDeleteButton for permanent delete in trash view */}
+              {view === 'deleted' ? (
+                <span onClick={(e) => e.stopPropagation()}>
+                  <ConfirmDeleteButton
+                    onConfirm={() => onDelete(note)}
+                    title="Delete permanently"
+                  />
+                </span>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(note) }}
+                  className="btn-icon-danger"
+                  title="Delete note"
+                  aria-label="Delete note"
+                >
+                  <TrashIcon />
+                </button>
+              )}
+            </div>
+            <span className="text-xs text-gray-400">
+              {getDateDisplay()}
+            </span>
           </div>
-        )}
-
-        {/* Actions and date */}
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <div className="flex items-center">
-            {/* Hover edit indicator - shown on card hover for clickable cards */}
-            {isClickable && (
-              <span
-                className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity mr-1"
-                aria-hidden="true"
-              >
-                {isLoading ? (
-                  <div className="spinner-sm" />
-                ) : (
-                  <EditIcon />
-                )}
-              </span>
-            )}
-
-            {/* Archive button - shown in active view */}
-            {view === 'active' && onArchive && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onArchive(note) }}
-                className="btn-icon"
-                title="Archive note"
-                aria-label="Archive note"
-              >
-                <ArchiveIcon className="h-4 w-4" />
-              </button>
-            )}
-
-            {/* Restore button - shown in archived view (unarchive action) */}
-            {view === 'archived' && onUnarchive && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onUnarchive(note) }}
-                className="btn-icon"
-                title="Restore note"
-                aria-label="Restore note"
-              >
-                <RestoreIcon />
-              </button>
-            )}
-
-            {/* Restore button - shown in deleted view */}
-            {view === 'deleted' && onRestore && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onRestore(note) }}
-                className="btn-icon"
-                title="Restore note"
-                aria-label="Restore note"
-              >
-                <RestoreIcon />
-              </button>
-            )}
-
-            {/* Delete button - shown in all views */}
-            {/* Use ConfirmDeleteButton for permanent delete in trash view */}
-            {view === 'deleted' ? (
-              <span onClick={(e) => e.stopPropagation()}>
-                <ConfirmDeleteButton
-                  onConfirm={() => onDelete(note)}
-                  title="Delete permanently"
-                />
-              </span>
-            ) : (
-              <button
-                onClick={(e) => { e.stopPropagation(); onDelete(note) }}
-                className="btn-icon-danger"
-                title="Delete note"
-                aria-label="Delete note"
-              >
-                <TrashIcon />
-              </button>
-            )}
-          </div>
-          <span className="text-xs text-gray-400">
-            {getDateDisplay()}
-          </span>
         </div>
       </div>
     </div>

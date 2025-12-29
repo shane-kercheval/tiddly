@@ -128,11 +128,11 @@ export function BookmarkCard({
       className={`card card-interactive group ${isClickable ? 'cursor-pointer' : ''}`}
       onClick={isClickable ? handleCardClick : undefined}
     >
-      <div className="flex items-start gap-4">
-        {/* Main content */}
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
+        {/* Row 1 (mobile) / Main content (desktop) */}
         <div className="min-w-0 flex-1">
           {/* Title and URL row */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 md:flex-wrap">
             <a
               href={bookmark.url}
               target="_blank"
@@ -155,7 +155,7 @@ export function BookmarkCard({
               target="_blank"
               rel="noopener noreferrer"
               onClick={handleLinkClick}
-              className="text-base font-medium text-gray-900 hover:text-gray-600 transition-colors"
+              className="text-base font-medium text-gray-900 hover:text-gray-600 transition-colors shrink-0"
               title={bookmark.url}
             >
               {truncate(displayTitle, 60)}
@@ -166,7 +166,7 @@ export function BookmarkCard({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={handleLinkClick}
-                className="text-sm text-gray-400 hover:text-gray-600 transition-colors truncate max-w-md"
+                className="text-sm text-gray-400 hover:text-gray-600 transition-colors truncate min-w-0"
                 title={bookmark.url}
               >
                 {urlDisplay}
@@ -174,146 +174,149 @@ export function BookmarkCard({
             )}
           </div>
 
-          {/* Description */}
+          {/* Description - hidden on mobile */}
           {bookmark.description && (
-            <p className="mt-1 text-sm text-gray-500 truncate">
+            <p className="hidden md:block mt-1 text-sm text-gray-500 truncate">
               {bookmark.description}
             </p>
           )}
         </div>
 
-        {/* Tags */}
-        {bookmark.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 justify-end w-32 shrink-0">
-            {bookmark.tags.map((tag) => (
-              <div key={tag} className="group/tag relative">
-                <button
-                  onClick={(e) => { e.stopPropagation(); onTagClick?.(tag) }}
-                  className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
-                  title={`Filter by tag: ${tag}`}
+        {/* Row 2 (mobile): tags + actions + date */}
+        <div className="flex items-center gap-2 md:contents">
+          {/* Tags */}
+          {bookmark.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
+              {bookmark.tags.map((tag) => (
+                <div key={tag} className="group/tag relative">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onTagClick?.(tag) }}
+                    className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
+                    title={`Filter by tag: ${tag}`}
+                  >
+                    {tag}
+                  </button>
+                  {onTagRemove && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onTagRemove(bookmark, tag)
+                      }}
+                      className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/tag:opacity-100 transition-opacity flex items-center justify-center"
+                      title={`Remove tag: ${tag}`}
+                      aria-label={`Remove tag ${tag}`}
+                    >
+                      <CloseIcon className="w-2.5 h-2.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Actions and date */}
+          <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
+            <div className="flex items-center">
+              {/* Hover edit indicator - shown on card hover for clickable cards */}
+              {isClickable && (
+                <span
+                  className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity mr-1"
+                  aria-hidden="true"
                 >
-                  {tag}
+                  {isLoading ? (
+                    <div className="spinner-sm" />
+                  ) : (
+                    <EditIcon />
+                  )}
+                </span>
+              )}
+
+              {/* Copy URL button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
+                className={`btn-icon transition-colors ${copySuccess ? 'text-green-600' : ''}`}
+                title="Copy URL"
+                aria-label="Copy URL"
+              >
+                <CopyIcon />
+              </button>
+
+              {/* Archive button - shown in active view */}
+              {view === 'active' && onArchive && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onArchive(bookmark) }}
+                  className="btn-icon"
+                  title="Archive bookmark"
+                  aria-label="Archive bookmark"
+                >
+                  <ArchiveIcon className="h-4 w-4" />
                 </button>
-                {onTagRemove && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onTagRemove(bookmark, tag)
-                    }}
-                    className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/tag:opacity-100 transition-opacity flex items-center justify-center"
-                    title={`Remove tag: ${tag}`}
-                    aria-label={`Remove tag ${tag}`}
-                  >
-                    <CloseIcon className="w-2.5 h-2.5" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+              )}
 
-        {/* Actions and date */}
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <div className="flex items-center">
-            {/* Hover edit indicator - shown on card hover for clickable cards */}
-            {isClickable && (
-              <span
-                className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity mr-1"
-                aria-hidden="true"
-              >
-                {isLoading ? (
-                  <div className="spinner-sm" />
-                ) : (
-                  <EditIcon />
-                )}
+              {/* Restore button - shown in archived view (unarchive action) */}
+              {view === 'archived' && onUnarchive && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onUnarchive(bookmark) }}
+                  className="btn-icon"
+                  title="Restore bookmark"
+                  aria-label="Restore bookmark"
+                >
+                  <RestoreIcon />
+                </button>
+              )}
+
+              {/* Restore button - shown in deleted view */}
+              {view === 'deleted' && onRestore && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRestore(bookmark) }}
+                  className="btn-icon"
+                  title="Restore bookmark"
+                  aria-label="Restore bookmark"
+                >
+                  <RestoreIcon />
+                </button>
+              )}
+
+              {/* Delete button - shown in all views */}
+              {/* Use ConfirmDeleteButton for permanent delete in trash view */}
+              {view === 'deleted' ? (
+                <span onClick={(e) => e.stopPropagation()}>
+                  <ConfirmDeleteButton
+                    onConfirm={() => onDelete(bookmark)}
+                    title="Delete permanently"
+                  />
+                </span>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(bookmark) }}
+                  className="btn-icon-danger"
+                  title="Delete bookmark"
+                  aria-label="Delete bookmark"
+                >
+                  <TrashIcon />
+                </button>
+              )}
+            </div>
+            <div className="flex flex-col items-end gap-0.5">
+              <span className="text-xs text-gray-400">
+                {getDateDisplay()}
               </span>
-            )}
-
-            {/* Copy URL button */}
-            <button
-              onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
-              className={`btn-icon transition-colors ${copySuccess ? 'text-green-600' : ''}`}
-              title="Copy URL"
-              aria-label="Copy URL"
-            >
-              <CopyIcon />
-            </button>
-
-            {/* Archive button - shown in active view */}
-            {view === 'active' && onArchive && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onArchive(bookmark) }}
-                className="btn-icon"
-                title="Archive bookmark"
-                aria-label="Archive bookmark"
-              >
-                <ArchiveIcon className="h-4 w-4" />
-              </button>
-            )}
-
-            {/* Restore button - shown in archived view (unarchive action) */}
-            {view === 'archived' && onUnarchive && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onUnarchive(bookmark) }}
-                className="btn-icon"
-                title="Restore bookmark"
-                aria-label="Restore bookmark"
-              >
-                <RestoreIcon />
-              </button>
-            )}
-
-            {/* Restore button - shown in deleted view */}
-            {view === 'deleted' && onRestore && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onRestore(bookmark) }}
-                className="btn-icon"
-                title="Restore bookmark"
-                aria-label="Restore bookmark"
-              >
-                <RestoreIcon />
-              </button>
-            )}
-
-            {/* Delete button - shown in all views */}
-            {/* Use ConfirmDeleteButton for permanent delete in trash view */}
-            {view === 'deleted' ? (
-              <span onClick={(e) => e.stopPropagation()}>
-                <ConfirmDeleteButton
-                  onConfirm={() => onDelete(bookmark)}
-                  title="Delete permanently"
-                />
-              </span>
-            ) : (
-              <button
-                onClick={(e) => { e.stopPropagation(); onDelete(bookmark) }}
-                className="btn-icon-danger"
-                title="Delete bookmark"
-                aria-label="Delete bookmark"
-              >
-                <TrashIcon />
-              </button>
-            )}
-          </div>
-          <div className="flex flex-col items-end gap-0.5">
-            <span className="text-xs text-gray-400">
-              {getDateDisplay()}
-            </span>
-            {hasScheduledArchive && bookmark.archived_at && (
-              <span className="flex items-center gap-1 text-xs text-amber-600">
-                <span>Archiving: {formatDate(bookmark.archived_at)}</span>
-                {onCancelScheduledArchive && (
-                  <button
-                    onClick={() => onCancelScheduledArchive(bookmark)}
-                    className="text-amber-500 hover:text-amber-700 transition-colors p-0.5 -m-0.5"
-                    title="Cancel scheduled archive"
-                    aria-label="Cancel scheduled archive"
-                  >
-                    <CloseIcon className="w-3 h-3" />
-                  </button>
-                )}
-              </span>
-            )}
+              {hasScheduledArchive && bookmark.archived_at && (
+                <span className="flex items-center gap-1 text-xs text-amber-600">
+                  <span>Archiving: {formatDate(bookmark.archived_at)}</span>
+                  {onCancelScheduledArchive && (
+                    <button
+                      onClick={() => onCancelScheduledArchive(bookmark)}
+                      className="text-amber-500 hover:text-amber-700 transition-colors p-0.5 -m-0.5"
+                      title="Cancel scheduled archive"
+                      aria-label="Cancel scheduled archive"
+                    >
+                      <CloseIcon className="w-3 h-3" />
+                    </button>
+                  )}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
