@@ -92,11 +92,19 @@ export function BookmarkCard({
 
   // Track usage when link is clicked (unless shift+modifier key is held for silent mode)
   const handleLinkClick = (e: React.MouseEvent): void => {
+    e.stopPropagation() // Prevent card click from triggering edit
     // Skip tracking if shift+cmd/ctrl held (silent mode: open without tracking)
     if (e.shiftKey && (e.metaKey || e.ctrlKey)) {
       return
     }
     onLinkClick?.(bookmark)
+  }
+
+  // Handle card click to trigger edit mode
+  const handleCardClick = (): void => {
+    if (view !== 'deleted' && onEdit) {
+      onEdit(bookmark)
+    }
   }
 
   // Copy URL to clipboard with visual feedback
@@ -113,8 +121,16 @@ export function BookmarkCard({
     }
   }
 
+  const isClickable = view !== 'deleted' && onEdit
+
   return (
-    <div className="card card-interactive">
+    <div
+      className={`card card-interactive group ${isClickable ? 'cursor-pointer' : ''}`}
+      onClick={isClickable ? handleCardClick : undefined}
+      role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardClick() } } : undefined}
+    >
       <div className="flex items-start gap-4">
         {/* Main content */}
         <div className="min-w-0 flex-1">
@@ -173,9 +189,9 @@ export function BookmarkCard({
         {bookmark.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 justify-end w-32 shrink-0">
             {bookmark.tags.map((tag) => (
-              <div key={tag} className="group relative">
+              <div key={tag} className="group/tag relative">
                 <button
-                  onClick={() => onTagClick?.(tag)}
+                  onClick={(e) => { e.stopPropagation(); onTagClick?.(tag) }}
                   className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
                   title={`Filter by tag: ${tag}`}
                 >
@@ -187,7 +203,7 @@ export function BookmarkCard({
                       e.stopPropagation()
                       onTagRemove(bookmark, tag)
                     }}
-                    className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                    className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/tag:opacity-100 transition-opacity flex items-center justify-center"
                     title={`Remove tag: ${tag}`}
                     aria-label={`Remove tag ${tag}`}
                   >
@@ -201,10 +217,24 @@ export function BookmarkCard({
 
         {/* Actions and date */}
         <div className="flex flex-col items-end gap-1 shrink-0">
-          <div className="flex">
+          <div className="flex items-center">
+            {/* Hover edit indicator - shown on card hover for clickable cards */}
+            {isClickable && (
+              <span
+                className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity mr-1"
+                aria-hidden="true"
+              >
+                {isLoading ? (
+                  <div className="spinner-sm" />
+                ) : (
+                  <EditIcon />
+                )}
+              </span>
+            )}
+
             {/* Copy URL button */}
             <button
-              onClick={handleCopyUrl}
+              onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
               className={`btn-icon transition-colors ${copySuccess ? 'text-green-600' : ''}`}
               title="Copy URL"
               aria-label="Copy URL"
@@ -212,27 +242,10 @@ export function BookmarkCard({
               <CopyIcon />
             </button>
 
-            {/* Edit button - shown in active and archived views */}
-            {view !== 'deleted' && onEdit && (
-              <button
-                onClick={() => onEdit(bookmark)}
-                className="btn-icon"
-                title="Edit bookmark"
-                aria-label="Edit bookmark"
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <div className="spinner-sm" />
-                ) : (
-                  <EditIcon />
-                )}
-              </button>
-            )}
-
             {/* Archive button - shown in active view */}
             {view === 'active' && onArchive && (
               <button
-                onClick={() => onArchive(bookmark)}
+                onClick={(e) => { e.stopPropagation(); onArchive(bookmark) }}
                 className="btn-icon"
                 title="Archive bookmark"
                 aria-label="Archive bookmark"
@@ -244,7 +257,7 @@ export function BookmarkCard({
             {/* Restore button - shown in archived view (unarchive action) */}
             {view === 'archived' && onUnarchive && (
               <button
-                onClick={() => onUnarchive(bookmark)}
+                onClick={(e) => { e.stopPropagation(); onUnarchive(bookmark) }}
                 className="btn-icon"
                 title="Restore bookmark"
                 aria-label="Restore bookmark"
@@ -256,7 +269,7 @@ export function BookmarkCard({
             {/* Restore button - shown in deleted view */}
             {view === 'deleted' && onRestore && (
               <button
-                onClick={() => onRestore(bookmark)}
+                onClick={(e) => { e.stopPropagation(); onRestore(bookmark) }}
                 className="btn-icon"
                 title="Restore bookmark"
                 aria-label="Restore bookmark"
@@ -268,13 +281,15 @@ export function BookmarkCard({
             {/* Delete button - shown in all views */}
             {/* Use ConfirmDeleteButton for permanent delete in trash view */}
             {view === 'deleted' ? (
-              <ConfirmDeleteButton
-                onConfirm={() => onDelete(bookmark)}
-                title="Delete permanently"
-              />
+              <span onClick={(e) => e.stopPropagation()}>
+                <ConfirmDeleteButton
+                  onConfirm={() => onDelete(bookmark)}
+                  title="Delete permanently"
+                />
+              </span>
             ) : (
               <button
-                onClick={() => onDelete(bookmark)}
+                onClick={(e) => { e.stopPropagation(); onDelete(bookmark) }}
                 className="btn-icon-danger"
                 title="Delete bookmark"
                 aria-label="Delete bookmark"

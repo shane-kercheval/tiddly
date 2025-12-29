@@ -121,19 +121,6 @@ describe('NoteCard', () => {
   })
 
   describe('action buttons - active view', () => {
-    it('should show edit button in active view', () => {
-      render(
-        <NoteCard
-          note={mockNote}
-          view="active"
-          onDelete={vi.fn()}
-          onEdit={vi.fn()}
-        />
-      )
-
-      expect(screen.getByRole('button', { name: /edit note/i })).toBeInTheDocument()
-    })
-
     it('should show archive button in active view', () => {
       render(
         <NoteCard
@@ -151,24 +138,6 @@ describe('NoteCard', () => {
       render(<NoteCard note={mockNote} view="active" onDelete={vi.fn()} />)
 
       expect(screen.getByRole('button', { name: /delete note/i })).toBeInTheDocument()
-    })
-
-    it('should call onEdit when edit button is clicked', async () => {
-      const onEdit = vi.fn()
-      const user = userEvent.setup()
-
-      render(
-        <NoteCard
-          note={mockNote}
-          view="active"
-          onDelete={vi.fn()}
-          onEdit={onEdit}
-        />
-      )
-
-      await user.click(screen.getByRole('button', { name: /edit note/i }))
-
-      expect(onEdit).toHaveBeenCalledWith(mockNote)
     })
 
     it('should call onArchive when archive button is clicked', async () => {
@@ -202,19 +171,6 @@ describe('NoteCard', () => {
   })
 
   describe('action buttons - archived view', () => {
-    it('should show edit button in archived view', () => {
-      render(
-        <NoteCard
-          note={mockNote}
-          view="archived"
-          onDelete={vi.fn()}
-          onEdit={vi.fn()}
-        />
-      )
-
-      expect(screen.getByRole('button', { name: /edit note/i })).toBeInTheDocument()
-    })
-
     it('should show restore button in archived view', () => {
       render(
         <NoteCard
@@ -274,7 +230,7 @@ describe('NoteCard', () => {
       expect(screen.getByRole('button', { name: /restore note/i })).toBeInTheDocument()
     })
 
-    it('should not show edit button in deleted view', () => {
+    it('should not make card clickable in deleted view', () => {
       render(
         <NoteCard
           note={mockNote}
@@ -284,7 +240,9 @@ describe('NoteCard', () => {
         />
       )
 
-      expect(screen.queryByRole('button', { name: /edit note/i })).not.toBeInTheDocument()
+      // Card should not have cursor-pointer class in deleted view
+      const card = screen.getByRole('button', { name: /test note/i }).closest('.card')
+      expect(card).not.toHaveClass('cursor-pointer')
     })
 
     it('should show confirm delete button in deleted view', () => {
@@ -335,8 +293,8 @@ describe('NoteCard', () => {
   })
 
   describe('loading state', () => {
-    it('should disable edit button and show spinner when isLoading', () => {
-      render(
+    it('should show spinner in hover indicator when isLoading', () => {
+      const { container } = render(
         <NoteCard
           note={mockNote}
           onDelete={vi.fn()}
@@ -345,8 +303,72 @@ describe('NoteCard', () => {
         />
       )
 
-      const editButton = screen.getByRole('button', { name: /edit note/i })
-      expect(editButton).toBeDisabled()
+      // Spinner should be visible in the hover edit indicator
+      expect(container.querySelector('.spinner-sm')).toBeInTheDocument()
+    })
+  })
+
+  describe('card click to edit', () => {
+    it('should call onEdit when card is clicked in active view', async () => {
+      const onEdit = vi.fn()
+      const user = userEvent.setup()
+
+      const { container } = render(
+        <NoteCard
+          note={mockNote}
+          view="active"
+          onDelete={vi.fn()}
+          onEdit={onEdit}
+        />
+      )
+
+      // Click the card directly
+      const card = container.querySelector('.card')
+      await user.click(card!)
+
+      expect(onEdit).toHaveBeenCalledWith(mockNote)
+    })
+
+    it('should call onEdit when card is clicked in archived view', async () => {
+      const onEdit = vi.fn()
+      const user = userEvent.setup()
+
+      const { container } = render(
+        <NoteCard
+          note={mockNote}
+          view="archived"
+          onDelete={vi.fn()}
+          onEdit={onEdit}
+        />
+      )
+
+      const card = container.querySelector('.card')
+      await user.click(card!)
+
+      expect(onEdit).toHaveBeenCalledWith(mockNote)
+    })
+
+    it('should not call onEdit when title is clicked', async () => {
+      const onEdit = vi.fn()
+      const onView = vi.fn()
+      const user = userEvent.setup()
+
+      render(
+        <NoteCard
+          note={mockNote}
+          view="active"
+          onDelete={vi.fn()}
+          onEdit={onEdit}
+          onView={onView}
+        />
+      )
+
+      // Click the title button specifically (title="View note")
+      await user.click(screen.getByTitle('View note'))
+
+      // onView should be called, not onEdit
+      expect(onView).toHaveBeenCalledWith(mockNote)
+      expect(onEdit).not.toHaveBeenCalled()
     })
   })
 })
