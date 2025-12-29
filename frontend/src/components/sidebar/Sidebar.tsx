@@ -147,24 +147,12 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     })
   )
 
-  // Get sortable IDs - conditionally include in-group items based on what's being dragged
-  // When dragging a group, only include root-level items to prevent in-group items
-  // from interfering with displacement calculations
-  const sortableIds = useMemo(() => {
+  // Get root-level sortable IDs only (groups are treated as atomic units)
+  // In-group items have their own nested SortableContext in SortableSidebarGroup
+  const rootItemIds = useMemo(() => {
     if (!sidebar) return []
-    const isDraggingGroup = activeId?.startsWith('group:') ?? false
-    const ids: string[] = []
-    for (const item of sidebar.items) {
-      ids.push(getItemId(item))
-      // Only include in-group items if NOT dragging a group
-      if (item.type === 'group' && !isDraggingGroup) {
-        for (const child of item.items) {
-          ids.push(getGroupChildId(item.id, child))
-        }
-      }
-    }
-    return ids
-  }, [sidebar, activeId])
+    return sidebar.items.map(getItemId)
+  }, [sidebar])
 
   // Debounced sidebar update with error handling and rollback
   const debouncedUpdateSidebar = useMemo(
@@ -635,7 +623,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
         onDragEnd={handleDragEnd}
       >
         <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-2 pt-2">
-          <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+          <SortableContext items={rootItemIds} strategy={verticalListSortingStrategy}>
             {sidebar?.items.map(renderItem)}
           </SortableContext>
 

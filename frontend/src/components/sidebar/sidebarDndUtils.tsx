@@ -119,19 +119,13 @@ export function computedToMinimal(items: SidebarItemComputed[]): SidebarItem[] {
   })
 }
 
-/** Height of group header for drop-into-group detection */
-const GROUP_HEADER_HEIGHT = 36
-
 /**
- * Custom collision detection for sidebar drag-and-drop with flat SortableContext.
+ * Custom collision detection for sidebar drag-and-drop with nested SortableContexts.
  *
  * Behavior:
- * - Pointer in upper portion of a group (header + buffer) from different context -> drop into group
+ * - Pointer anywhere inside a different group's bounds -> drop into that group (dropzone)
  * - Pointer within own group's content area -> reorder among siblings only
- * - Pointer outside all groups OR in lower portion of expanded group -> root-level sorting
- *
- * The flat SortableContext means all items can displace each other, but we filter
- * collisions to only return contextually appropriate targets.
+ * - Pointer outside all groups -> root-level sorting
  */
 export const customCollisionDetection: CollisionDetection = (args) => {
   const activeId = String(args.active.id)
@@ -159,7 +153,6 @@ export const customCollisionDetection: CollisionDetection = (args) => {
 
   // Find which dropzone (if any) the pointer is currently in
   let currentDropzoneGroupId: string | null = null
-  let isInDropzoneArea = false // Pointer is in upper portion where dropzone should activate
 
   for (const collision of dropzoneCollisions) {
     const groupId = String(collision.id).replace('dropzone:', '')
@@ -168,14 +161,6 @@ export const customCollisionDetection: CollisionDetection = (args) => {
       const { y } = args.pointerCoordinates
       if (y >= rect.top && y <= rect.bottom) {
         currentDropzoneGroupId = groupId
-        // Activate dropzone in upper portion: header + some buffer for expanded groups
-        // For collapsed groups (small height), use the whole area
-        // For expanded groups, use header + 50% of remaining space
-        const groupHeight = rect.bottom - rect.top
-        const dropzoneThreshold = groupHeight <= GROUP_HEADER_HEIGHT + 20
-          ? rect.bottom  // Collapsed: whole area
-          : rect.top + GROUP_HEADER_HEIGHT + (groupHeight - GROUP_HEADER_HEIGHT) * 0.5
-        isInDropzoneArea = y <= dropzoneThreshold
         break
       }
     }
@@ -184,9 +169,10 @@ export const customCollisionDetection: CollisionDetection = (args) => {
   const isInOwnGroup = sourceGroupId !== null && sourceGroupId === currentDropzoneGroupId
   const isOverDifferentGroup = currentDropzoneGroupId !== null && !isInOwnGroup
 
-  // Case 1: Over a DIFFERENT group's dropzone area - drop into that group
+  // Case 1: Pointer is inside a DIFFERENT group's bounds -> drop into that group
+  // Dropzone activates for the entire group area
   // Groups cannot be dropped into other groups
-  if (isOverDifferentGroup && isInDropzoneArea && !isDraggingGroup) {
+  if (isOverDifferentGroup && !isDraggingGroup) {
     const dropzoneCollision = dropzoneCollisions.find(
       (c) => String(c.id) === `dropzone:${currentDropzoneGroupId}`
     )
@@ -206,10 +192,9 @@ export const customCollisionDetection: CollisionDetection = (args) => {
     }
   }
 
-  // Case 3: Dragging an in-group item but pointer is OUTSIDE own group
-  // (either outside all groups, or in a different group's expanded content but not header)
+  // Case 3: Dragging an in-group item but pointer is OUTSIDE all groups
   // Return only root-level collisions
-  if (sourceGroupId && !isInOwnGroup) {
+  if (sourceGroupId && !currentDropzoneGroupId) {
     const rootCollisions = getRootCollisions()
     if (rootCollisions.length > 0) {
       return rootCollisions
