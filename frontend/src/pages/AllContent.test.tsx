@@ -451,16 +451,17 @@ describe('AllContent', () => {
         expect(screen.getByLabelText('Restore note')).toBeInTheDocument()
       })
 
-      it('hides Edit button in deleted view', async () => {
+      it('disables card click-to-edit in deleted view', async () => {
         mockContentQueryData = createMockResponse([mockDeletedNote])
-        renderAtRoute('/app/content/trash')
+        const { container } = renderAtRoute('/app/content/trash')
 
         await waitFor(() => {
           expect(screen.getByText('Deleted Note')).toBeInTheDocument()
         })
 
-        // Edit button should not be present in deleted view
-        expect(screen.queryByLabelText('Edit note')).not.toBeInTheDocument()
+        // Card should not have cursor-pointer class in deleted view
+        const card = container.querySelector('.card')
+        expect(card).not.toHaveClass('cursor-pointer')
       })
     })
   })
@@ -488,18 +489,18 @@ describe('AllContent', () => {
       )
     })
 
-    it('navigates to note edit with returnTo state', async () => {
+    it('navigates to note edit with returnTo state when clicking card', async () => {
       const user = userEvent.setup()
       mockContentQueryData = createMockResponse([mockNote])
-      renderAtRoute('/app/content')
+      const { container } = renderAtRoute('/app/content')
 
       await waitFor(() => {
         expect(screen.getByText('Test Note')).toBeInTheDocument()
       })
 
-      // Find the edit button
-      const editButton = screen.getByLabelText('Edit note')
-      await user.click(editButton)
+      // Click on the note card (not the title) to trigger edit
+      const noteCard = container.querySelector('.card')
+      await user.click(noteCard!)
 
       expect(mockNavigate).toHaveBeenCalledWith(
         '/app/notes/2/edit',

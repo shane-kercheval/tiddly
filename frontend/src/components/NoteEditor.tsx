@@ -235,6 +235,8 @@ export function NoteEditor({
 
   const [errors, setErrors] = useState<FormErrors>({})
   const [showPreview, setShowPreview] = useState(false)
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
+  const cancelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Check for existing draft on mount - compute initial value with initializer function
   const [hasDraft, setHasDraft] = useState(() => {
@@ -293,6 +295,51 @@ export function NoteEditor({
     }
   }, [form, note?.id, isDirty])
 
+  // Handle cancel with confirmation if dirty
+  const handleCancelRequest = useCallback((): void => {
+    // Clear any existing timeout
+    if (cancelTimeoutRef.current) {
+      clearTimeout(cancelTimeoutRef.current)
+      cancelTimeoutRef.current = null
+    }
+
+    if (!isDirty) {
+      // No changes, just cancel
+      onCancel()
+      return
+    }
+
+    if (confirmingCancel) {
+      // Already confirming, execute cancel
+      onCancel()
+    } else {
+      // Start confirmation
+      setConfirmingCancel(true)
+      // Auto-reset after 3 seconds
+      cancelTimeoutRef.current = setTimeout(() => {
+        setConfirmingCancel(false)
+      }, 3000)
+    }
+  }, [isDirty, confirmingCancel, onCancel])
+
+  // Cleanup cancel timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (cancelTimeoutRef.current) {
+        clearTimeout(cancelTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  // Reset cancel confirmation state
+  const resetCancelConfirmation = useCallback((): void => {
+    if (cancelTimeoutRef.current) {
+      clearTimeout(cancelTimeoutRef.current)
+      cancelTimeoutRef.current = null
+    }
+    setConfirmingCancel(false)
+  }, [])
+
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
@@ -301,21 +348,26 @@ export function NoteEditor({
         e.preventDefault()
         formRef.current?.requestSubmit()
       }
-      // Escape to cancel - but not when focused in an input, textarea, or the CodeMirror editor
-      if (e.key === 'Escape') {
-        const activeElement = document.activeElement
-        const isInInput = activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA'
-        const isInEditor = editorContainerRef.current?.contains(activeElement as Node)
-
-        if (!isInInput && !isInEditor) {
+      // When confirming cancel: Escape backs out, Enter confirms discard
+      if (confirmingCancel) {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          resetCancelConfirmation()
+        } else if (e.key === 'Enter') {
+          e.preventDefault()
           onCancel()
         }
+        return
+      }
+      // Escape to start cancel (with confirmation if dirty)
+      if (e.key === 'Escape') {
+        handleCancelRequest()
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onCancel])
+  }, [handleCancelRequest, confirmingCancel, resetCancelConfirmation, onCancel])
 
   const restoreDraft = useCallback((): void => {
     const draft = loadDraft(note?.id)
@@ -412,11 +464,14 @@ export function NoteEditor({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={onCancel}
+            onClick={handleCancelRequest}
             disabled={isSubmitting}
-            className="btn-secondary"
+            className={confirmingCancel
+              ? "btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50"
+              : "btn-secondary"
+            }
           >
-            Cancel
+            {confirmingCancel ? 'Discard changes?' : 'Cancel'}
           </button>
           <button
             type="submit"
@@ -434,8 +489,9 @@ export function NoteEditor({
               'Create Note'
             )}
           </button>
-          <span className="text-xs text-gray-400 ml-2">
+          <span className="text-xs text-gray-400 ml-2 flex items-center gap-2">
             <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs">⌘S</kbd>
+            <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs">Esc</kbd>
           </span>
         </div>
 

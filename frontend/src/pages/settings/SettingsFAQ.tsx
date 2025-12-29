@@ -48,6 +48,34 @@ export function SettingsFAQ(): ReactNode {
         </p>
       </div>
 
+      <FAQSection title="Navigation & Interaction">
+        <FAQItem
+          question="What happens when I click the title of an item in a list?"
+          answer={
+            <>
+              <p>
+                <strong>Bookmarks:</strong> Clicking the title or URL opens the bookmark
+                in a new browser tab.
+              </p>
+              <p>
+                <strong>Notes:</strong> Clicking the title opens the note in view mode,
+                where you can read the full content.
+              </p>
+            </>
+          }
+        />
+        <FAQItem
+          question="How do I edit a bookmark or note from the list?"
+          answer={
+            <p>
+              Click anywhere on the row (except the title/URL). A pencil icon appears on hover
+              to indicate the row is clickable. For bookmarks, this opens the edit dialog.
+              For notes, this opens the edit page.
+            </p>
+          }
+        />
+      </FAQSection>
+
       <FAQSection title="Lists & Groups">
         <FAQItem
           question="What is the purpose of a list?"

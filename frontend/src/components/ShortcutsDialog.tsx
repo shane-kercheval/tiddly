@@ -58,6 +58,8 @@ const shortcutGroups: ShortcutGroup[] = [
       { keys: ['\u2318', 'K'], description: 'Insert link' },
       { keys: ['\u2318', '\u21E7', 'X'], description: 'Strikethrough' },
       { keys: ['\u2318', 'S'], description: 'Save' },
+      { keys: ['Esc'], description: 'Cancel / back out of discard prompt' },
+      { keys: ['Enter'], description: 'Confirm discard (when prompted)' },
     ],
   },
 ]
