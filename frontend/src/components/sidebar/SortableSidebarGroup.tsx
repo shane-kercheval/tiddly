@@ -163,7 +163,7 @@ export function SortableGroupItem({
     opacity: isDragging ? 0.5 : 1,
   }
 
-  // Get IDs for children within this group for SortableContext
+  // Get IDs for children within this group for nested SortableContext
   const childIds = item.items.map((child) => getGroupChildId(item.id, child))
 
   return (

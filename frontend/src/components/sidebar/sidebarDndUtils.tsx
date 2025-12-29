@@ -119,61 +119,105 @@ export function computedToMinimal(items: SidebarItemComputed[]): SidebarItem[] {
   })
 }
 
-/** Height of group header for drop-into-group detection */
-const GROUP_HEADER_HEIGHT = 36
-
 /**
- * Custom collision detection for sidebar drag-and-drop.
+ * Custom collision detection for sidebar drag-and-drop with nested SortableContexts.
  *
  * Behavior:
- * - Hover over a group's HEADER -> drop into that group
- * - Drag within own group -> reorder among siblings
- * - Everything else -> root-level sorting
+ * - Pointer anywhere inside a different group's bounds -> drop into that group (dropzone)
+ * - Pointer within own group's content area -> reorder among siblings only
+ * - Pointer outside all groups -> root-level sorting
  */
 export const customCollisionDetection: CollisionDetection = (args) => {
   const activeId = String(args.active.id)
   const activeGroupChild = parseGroupChildId(activeId)
   const sourceGroupId = activeGroupChild?.groupId ?? null
+  const isDraggingGroup = activeId.startsWith('group:')
 
-  // Get sortable-only collisions (exclude dropzones) for normal sorting
+  // Get all sortable collisions (exclude dropzones)
   const sortableContainers = args.droppableContainers.filter(
     (container) => !String(container.id).startsWith('dropzone:')
   )
-  const sortingCollisions = closestCenter({ ...args, droppableContainers: sortableContainers })
+  const allSortingCollisions = closestCenter({ ...args, droppableContainers: sortableContainers })
+
+  // Helper to get root-only collisions
+  const getRootCollisions = () =>
+    allSortingCollisions.filter((collision) => {
+      const id = String(collision.id)
+      return !id.startsWith('ingroup:')
+    })
 
   // Check if pointer is over any group's dropzone
-  const dropzoneCollision = pointerWithin(args).find(
+  const dropzoneCollisions = pointerWithin(args).filter(
     (collision) => String(collision.id).startsWith('dropzone:')
   )
 
-  if (dropzoneCollision && args.pointerCoordinates) {
-    const dropzoneGroupId = String(dropzoneCollision.id).replace('dropzone:', '')
-    const rect = args.droppableRects.get(dropzoneCollision.id)
+  // Find which dropzone (if any) the pointer is currently in
+  let currentDropzoneGroupId: string | null = null
 
-    if (rect) {
+  for (const collision of dropzoneCollisions) {
+    const groupId = String(collision.id).replace('dropzone:', '')
+    const rect = args.droppableRects.get(collision.id)
+    if (rect && args.pointerCoordinates) {
       const { y } = args.pointerCoordinates
-      const isOverHeader = y >= rect.top && y <= rect.top + GROUP_HEADER_HEIGHT
-      const isWithinDropzone = y >= rect.top && y <= rect.bottom
-      const isOwnGroup = sourceGroupId === dropzoneGroupId
-
-      // Over a DIFFERENT group's header -> drop into that group
-      if (isOverHeader && !isOwnGroup) {
-        return [dropzoneCollision]
-      }
-
-      // Within OWN group -> sibling reordering (so items move aside)
-      if (isWithinDropzone && isOwnGroup) {
-        const siblingCollisions = sortingCollisions.filter((collision) => {
-          const parsed = parseGroupChildId(String(collision.id))
-          return parsed && parsed.groupId === sourceGroupId
-        })
-        if (siblingCollisions.length > 0) {
-          return siblingCollisions
-        }
+      if (y >= rect.top && y <= rect.bottom) {
+        currentDropzoneGroupId = groupId
+        break
       }
     }
   }
 
-  // Default: root-level sorting
-  return sortingCollisions
+  const isInOwnGroup = sourceGroupId !== null && sourceGroupId === currentDropzoneGroupId
+  const isOverDifferentGroup = currentDropzoneGroupId !== null && !isInOwnGroup
+
+  // Case 1: Pointer is inside a DIFFERENT group's bounds -> drop into that group
+  // Dropzone activates for the entire group area
+  // Groups cannot be dropped into other groups
+  if (isOverDifferentGroup && !isDraggingGroup) {
+    const dropzoneCollision = dropzoneCollisions.find(
+      (c) => String(c.id) === `dropzone:${currentDropzoneGroupId}`
+    )
+    if (dropzoneCollision) {
+      return [dropzoneCollision]
+    }
+  }
+
+  // Case 2: Within own group - return only sibling collisions for reordering
+  if (isInOwnGroup && sourceGroupId) {
+    const siblingCollisions = allSortingCollisions.filter((collision) => {
+      const parsed = parseGroupChildId(String(collision.id))
+      return parsed && parsed.groupId === sourceGroupId
+    })
+    if (siblingCollisions.length > 0) {
+      return siblingCollisions
+    }
+  }
+
+  // Case 3: Dragging an in-group item but pointer is OUTSIDE all groups
+  // Return only root-level collisions
+  if (sourceGroupId && !currentDropzoneGroupId) {
+    const rootCollisions = getRootCollisions()
+    if (rootCollisions.length > 0) {
+      return rootCollisions
+    }
+  }
+
+  // Case 4: Dragging a root item (list or builtin, not in any group)
+  // Return only root-level collisions
+  if (!sourceGroupId && !isDraggingGroup) {
+    const rootCollisions = getRootCollisions()
+    if (rootCollisions.length > 0) {
+      return rootCollisions
+    }
+  }
+
+  // Case 5: Dragging a group - only allow root-level reordering
+  if (isDraggingGroup) {
+    const rootCollisions = getRootCollisions()
+    if (rootCollisions.length > 0) {
+      return rootCollisions
+    }
+  }
+
+  // Fallback: return root-level collisions only
+  return getRootCollisions()
 }

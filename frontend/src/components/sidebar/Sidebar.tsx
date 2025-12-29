@@ -147,7 +147,8 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     })
   )
 
-  // Get all sortable IDs for the root level
+  // Get root-level sortable IDs only (groups are treated as atomic units)
+  // In-group items have their own nested SortableContext in SortableSidebarGroup
   const rootItemIds = useMemo(() => {
     if (!sidebar) return []
     return sidebar.items.map(getItemId)
