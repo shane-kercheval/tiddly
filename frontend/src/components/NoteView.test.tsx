@@ -103,26 +103,26 @@ describe('NoteView', () => {
     })
   })
 
-  describe('back button', () => {
-    it('should render back button when onBack is provided', () => {
+  describe('close button', () => {
+    it('should render close button when onBack is provided', () => {
       render(<NoteView note={mockNote} onBack={vi.fn()} />)
 
-      expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument()
     })
 
-    it('should not render back button when onBack is not provided', () => {
+    it('should not render close button when onBack is not provided', () => {
       render(<NoteView note={mockNote} />)
 
-      expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument()
     })
 
-    it('should call onBack when back button is clicked', async () => {
+    it('should call onBack when close button is clicked', async () => {
       const onBack = vi.fn()
       const user = userEvent.setup()
 
       render(<NoteView note={mockNote} onBack={onBack} />)
 
-      await user.click(screen.getByRole('button', { name: /back/i }))
+      await user.click(screen.getByRole('button', { name: /close/i }))
 
       expect(onBack).toHaveBeenCalled()
     })

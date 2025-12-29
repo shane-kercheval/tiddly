@@ -295,16 +295,16 @@ describe('NoteDetail page', () => {
   })
 
   describe('navigation', () => {
-    it('should navigate to list when back is clicked', async () => {
+    it('should navigate to list when close is clicked', async () => {
       const user = userEvent.setup()
 
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Back')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
 
-      await user.click(screen.getByText('Back'))
+      await user.click(screen.getByText('Close'))
 
       expect(mockNavigate).toHaveBeenCalledWith('/app/notes')
     })

@@ -62,10 +62,11 @@ export function NoteDetail(): ReactNode {
   const [isLoading, setIsLoading] = useState(mode !== 'create')
   const [error, setError] = useState<string | null>(null)
 
-  // Get initial tags from navigation state or tag filter
-  const locationState = location.state as { initialTags?: string[] } | undefined
+  // Get navigation state
+  const locationState = location.state as { initialTags?: string[]; returnTo?: string } | undefined
   const { selectedTags, addTag } = useTagFilterStore()
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
+  const returnTo = locationState?.returnTo
 
   // Hooks
   const { fetchNote, trackNoteUsage } = useNotes()
@@ -116,12 +117,13 @@ export function NoteDetail(): ReactNode {
 
   // Navigation helpers
   const navigateToList = useCallback((): void => {
-    navigate('/app/notes')
-  }, [navigate])
+    navigate(returnTo ?? '/app/notes')
+  }, [navigate, returnTo])
 
   const navigateToView = useCallback((noteId: number): void => {
-    navigate(`/app/notes/${noteId}`)
-  }, [navigate])
+    // Preserve returnTo state when navigating to view
+    navigate(`/app/notes/${noteId}`, { state: { returnTo } })
+  }, [navigate, returnTo])
 
   const handleBack = useCallback((): void => {
     navigateToList()
@@ -129,9 +131,10 @@ export function NoteDetail(): ReactNode {
 
   const handleEdit = useCallback((): void => {
     if (noteId) {
-      navigate(`/app/notes/${noteId}/edit`)
+      // Preserve returnTo state when navigating to edit
+      navigate(`/app/notes/${noteId}/edit`, { state: { returnTo } })
     }
-  }, [noteId, navigate])
+  }, [noteId, navigate, returnTo])
 
   const handleTagClick = useCallback((tag: string): void => {
     // Navigate to notes list with tag filter
@@ -143,15 +146,16 @@ export function NoteDetail(): ReactNode {
   const handleSubmitCreate = useCallback(
     async (data: NoteCreate | NoteUpdate): Promise<void> => {
       try {
-        const newNote = await createMutation.mutateAsync(data as NoteCreate)
-        navigateToView(newNote.id)
+        await createMutation.mutateAsync(data as NoteCreate)
+        // Navigate back to the originating list if available, otherwise to notes list
+        navigateToList()
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to create note'
         toast.error(message)
         throw err
       }
     },
-    [createMutation, navigateToView]
+    [createMutation, navigateToList]
   )
 
   const handleSubmitUpdate = useCallback(

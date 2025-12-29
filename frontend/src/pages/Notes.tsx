@@ -3,7 +3,7 @@
  */
 import { useState, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useNotes } from '../hooks/useNotes'
 import { useNotesQuery } from '../hooks/useNotesQuery'
@@ -60,6 +60,7 @@ import { getFirstGroupTags } from '../utils'
  */
 export function Notes(): ReactNode {
   const navigate = useNavigate()
+  const location = useLocation()
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   // Loading state for fetching full note
@@ -246,9 +247,9 @@ export function Notes(): ReactNode {
 
   const handleViewNote = useCallback(
     (note: NoteListItem): void => {
-      navigate(`/app/notes/${note.id}`)
+      navigate(`/app/notes/${note.id}`, { state: { returnTo: location.pathname + location.search } })
     },
-    [navigate]
+    [navigate, location.pathname, location.search]
   )
 
   const handleEditClick = useCallback(
@@ -260,14 +261,14 @@ export function Notes(): ReactNode {
       try {
         // Fetch full note to ensure content is available
         await fetchNote(note.id)
-        navigate(`/app/notes/${note.id}/edit`)
+        navigate(`/app/notes/${note.id}/edit`, { state: { returnTo: location.pathname + location.search } })
       } catch {
         toast.error('Failed to load note')
       } finally {
         setLoadingNoteId(null)
       }
     },
-    [loadingNoteId, fetchNote, navigate]
+    [loadingNoteId, fetchNote, navigate, location.pathname, location.search]
   )
 
   const handleDeleteNote = async (note: NoteListItem): Promise<void> => {

@@ -3,7 +3,7 @@
  */
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import type { ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import {
   DndContext,
@@ -104,6 +104,7 @@ interface SidebarContentProps {
 
 function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): ReactNode {
   const navigate = useNavigate()
+  const location = useLocation()
   const { expandedSections, toggleSection, toggleCollapse, isGroupCollapsed, toggleGroup } =
     useSidebarStore()
   const sidebar = useSettingsStore((state) => state.sidebar)
@@ -132,7 +133,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   }
 
   const handleQuickAddNote = (): void => {
-    navigate('/app/notes/new')
+    navigate('/app/notes/new', { state: { returnTo: location.pathname + location.search } })
     onNavClick?.()
   }
 

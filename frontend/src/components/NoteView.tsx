@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeSanitize from 'rehype-sanitize'
 import type { Note } from '../types'
 import { formatDate } from '../utils'
-import { EditIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
+import { EditIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
 
 interface NoteViewProps {
   note: Note
@@ -79,12 +79,10 @@ export function NoteView({
           {onBack && (
             <button
               onClick={onBack}
-              className="btn-secondary flex items-center gap-2"
+              className="btn-secondary flex items-center gap-1"
             >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              Back
+              <CloseIcon className="h-4 w-4" />
+              Close
             </button>
           )}
 
