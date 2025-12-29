@@ -21,8 +21,8 @@ describe('ConfirmDeleteButton', () => {
       const button = screen.getByRole('button')
       expect(button).toBeInTheDocument()
       expect(button).toHaveAttribute('title', 'Delete')
-      // Should contain SVG (trash icon), not "Confirm" text
-      expect(screen.queryByText('Confirm')).not.toBeInTheDocument()
+      // Should contain SVG (trash icon), not "Delete?" text
+      expect(screen.queryByText('Delete?')).not.toBeInTheDocument()
     })
 
     it('uses custom title when provided', () => {
@@ -33,13 +33,13 @@ describe('ConfirmDeleteButton', () => {
   })
 
   describe('two-click confirmation', () => {
-    it('shows Confirm text after first click', () => {
+    it('shows Delete? text after first click', () => {
       render(<ConfirmDeleteButton onConfirm={vi.fn()} />)
 
       const button = screen.getByRole('button')
       fireEvent.click(button)
 
-      expect(screen.getByText('Confirm')).toBeInTheDocument()
+      expect(screen.getByText('Delete?')).toBeInTheDocument()
       expect(button).toHaveAttribute('title', 'Click again to confirm')
     })
 
@@ -71,8 +71,8 @@ describe('ConfirmDeleteButton', () => {
       fireEvent.click(button) // First click
       fireEvent.click(button) // Second click - confirm
 
-      // Should be back to initial state (no "Confirm" text)
-      expect(screen.queryByText('Confirm')).not.toBeInTheDocument()
+      // Should be back to initial state (no "Delete?" text)
+      expect(screen.queryByText('Delete?')).not.toBeInTheDocument()
     })
   })
 
@@ -83,14 +83,14 @@ describe('ConfirmDeleteButton', () => {
       const button = screen.getByRole('button')
       fireEvent.click(button)
 
-      expect(screen.getByText('Confirm')).toBeInTheDocument()
+      expect(screen.getByText('Delete?')).toBeInTheDocument()
 
       // Fast-forward past timeout
       act(() => {
         vi.advanceTimersByTime(3001)
       })
 
-      expect(screen.queryByText('Confirm')).not.toBeInTheDocument()
+      expect(screen.queryByText('Delete?')).not.toBeInTheDocument()
     })
 
     it('uses custom timeout value', () => {
@@ -103,13 +103,13 @@ describe('ConfirmDeleteButton', () => {
       act(() => {
         vi.advanceTimersByTime(999)
       })
-      expect(screen.getByText('Confirm')).toBeInTheDocument()
+      expect(screen.getByText('Delete?')).toBeInTheDocument()
 
       // Should reset after 1000ms
       act(() => {
         vi.advanceTimersByTime(2)
       })
-      expect(screen.queryByText('Confirm')).not.toBeInTheDocument()
+      expect(screen.queryByText('Delete?')).not.toBeInTheDocument()
     })
   })
 
@@ -125,12 +125,12 @@ describe('ConfirmDeleteButton', () => {
       const confirmButton = screen.getByTitle('Delete')
       fireEvent.click(confirmButton)
 
-      expect(screen.getByText('Confirm')).toBeInTheDocument()
+      expect(screen.getByText('Delete?')).toBeInTheDocument()
 
       // Click outside
       fireEvent.mouseDown(screen.getByTestId('other'))
 
-      expect(screen.queryByText('Confirm')).not.toBeInTheDocument()
+      expect(screen.queryByText('Delete?')).not.toBeInTheDocument()
     })
   })
 
@@ -150,7 +150,7 @@ describe('ConfirmDeleteButton', () => {
       fireEvent.click(button)
 
       expect(onConfirm).not.toHaveBeenCalled()
-      expect(screen.queryByText('Confirm')).not.toBeInTheDocument()
+      expect(screen.queryByText('Delete?')).not.toBeInTheDocument()
     })
   })
 

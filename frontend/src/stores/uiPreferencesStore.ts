@@ -57,7 +57,7 @@ export const useUIPreferencesStore = create<UIPreferencesStore>()(
   persist(
     (set, get) => ({
       // State
-      fullWidthLayout: false,
+      fullWidthLayout: true,
       bookmarkSortBy: 'last_used_at',
       bookmarkSortOrder: 'desc',
       sortOverrides: {},

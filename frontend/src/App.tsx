@@ -15,7 +15,6 @@ import { AllContent } from './pages/AllContent'
 import { SettingsGeneral } from './pages/settings/SettingsGeneral'
 import { SettingsTokens } from './pages/settings/SettingsTokens'
 import { SettingsMCP } from './pages/settings/SettingsMCP'
-import { SettingsLists } from './pages/settings/SettingsLists'
 import { SettingsTags } from './pages/settings/SettingsTags'
 
 /**
@@ -105,9 +104,9 @@ function App(): ReactNode {
                 <Route path="/app/settings/general" element={<SettingsGeneral />} />
                 <Route path="/app/settings/tokens" element={<SettingsTokens />} />
                 <Route path="/app/settings/mcp" element={<SettingsMCP />} />
-                <Route path="/app/settings/lists" element={<SettingsLists />} />
-                {/* TODO: Remove this redirect after 2025-06-01 (legacy route support) */}
-                <Route path="/app/settings/bookmarks" element={<Navigate to="/app/settings/lists" replace />} />
+                {/* Legacy redirects for removed settings pages - list management now in sidebar */}
+                <Route path="/app/settings/lists" element={<Navigate to="/app/settings/general" replace />} />
+                <Route path="/app/settings/bookmarks" element={<Navigate to="/app/settings/general" replace />} />
                 <Route path="/app/settings/tags" element={<SettingsTags />} />
               </Route>
             </Route>

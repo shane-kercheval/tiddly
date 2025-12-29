@@ -1,200 +1,230 @@
 """
 Tests for user settings API endpoints.
 
-Tests cover settings retrieval, update, and tab order computation.
+Tests cover sidebar structure retrieval, update, and list integration.
 """
 from httpx import AsyncClient
 
 
-async def test_get_settings_creates_default(client: AsyncClient) -> None:
-    """Test getting settings creates default when none exist."""
-    response = await client.get("/settings/")
+async def test__get_sidebar__returns_default_structure(client: AsyncClient) -> None:
+    """Test getting sidebar returns default structure for new user."""
+    response = await client.get("/settings/sidebar")
     assert response.status_code == 200
 
     data = response.json()
-    assert data["tab_order"] is None  # Default is null
-    assert "updated_at" in data
+    assert "version" in data
+    assert "items" in data
+    assert data["version"] == 1
+
+    # Check default builtins are present with names
+    builtin_keys = [
+        item["key"] for item in data["items"] if item["type"] == "builtin"
+    ]
+    assert "all" in builtin_keys
+    assert "archived" in builtin_keys
+    assert "trash" in builtin_keys
 
 
-async def test_update_settings_tab_order(client: AsyncClient) -> None:
-    """Test updating tab order with new section format."""
-    response = await client.patch(
-        "/settings/",
+async def test__get_sidebar__resolves_list_names(client: AsyncClient) -> None:
+    """Test that list names are resolved in sidebar response."""
+    # Create a list first
+    create_response = await client.post(
+        "/lists/",
         json={
-            "tab_order": {
-                "sections": {
-                    "shared": ["trash", "all", "archived"],
-                    "bookmarks": ["all-bookmarks"],
-                    "notes": ["all-notes"],
-                },
-                "section_order": ["shared", "bookmarks", "notes"],
-            },
+            "name": "My Reading List",
+            "content_types": ["bookmark"],
+            "filter_expression": {"groups": [{"tags": ["reading"]}], "group_operator": "OR"},
+        },
+    )
+    assert create_response.status_code == 201
+    list_id = create_response.json()["id"]
+
+    # Get sidebar
+    response = await client.get("/settings/sidebar")
+    assert response.status_code == 200
+
+    data = response.json()
+
+    # Find the list in items
+    list_items = [item for item in data["items"] if item["type"] == "list"]
+    assert len(list_items) >= 1
+
+    # Find our specific list
+    our_list = next((item for item in list_items if item["id"] == list_id), None)
+    assert our_list is not None
+    assert our_list["name"] == "My Reading List"
+    assert our_list["content_types"] == ["bookmark"]
+
+
+async def test__put_sidebar__updates_structure(client: AsyncClient) -> None:
+    """Test updating sidebar structure."""
+    response = await client.put(
+        "/settings/sidebar",
+        json={
+            "version": 1,
+            "items": [
+                {"type": "builtin", "key": "trash"},
+                {"type": "builtin", "key": "all"},
+                {"type": "builtin", "key": "archived"},
+            ],
         },
     )
     assert response.status_code == 200
 
     data = response.json()
-    assert data["tab_order"]["sections"]["shared"] == ["trash", "all", "archived"]
+    # Order should be preserved
+    assert data["items"][0]["key"] == "trash"
+    assert data["items"][1]["key"] == "all"
+    assert data["items"][2]["key"] == "archived"
 
 
-async def test_update_settings_preserves_unset_fields(client: AsyncClient) -> None:
-    """Test that updating settings only changes provided fields."""
-    # First set tab_order
-    await client.patch(
-        "/settings/",
-        json={
-            "tab_order": {
-                "sections": {
-                    "shared": ["all", "archived", "trash"],
-                    "bookmarks": ["all-bookmarks"],
-                    "notes": ["all-notes"],
-                },
-                "section_order": ["shared", "bookmarks", "notes"],
-            },
-        },
-    )
-
-    # Update with empty body
-    response = await client.patch("/settings/", json={})
-    assert response.status_code == 200
-
-    data = response.json()
-    assert data["tab_order"]["sections"]["shared"] == ["all", "archived", "trash"]
-
-
-async def test_get_tab_order_default(client: AsyncClient) -> None:
-    """Test getting computed tab order returns defaults when no custom order."""
-    response = await client.get("/settings/tab-order")
-    assert response.status_code == 200
-
-    data = response.json()
-
-    # Check we have 3 sections
-    assert len(data["sections"]) == 3
-    assert data["section_order"] == ["shared", "bookmarks", "notes"]
-
-    # Find sections by name
-    sections_by_name = {s["name"]: s for s in data["sections"]}
-
-    # Check shared section
-    shared = sections_by_name["shared"]
-    assert shared["label"] == "Shared"
-    assert shared["collapsible"] is False
-    shared_keys = [item["key"] for item in shared["items"]]
-    assert "all" in shared_keys
-    assert "archived" in shared_keys
-    assert "trash" in shared_keys
-
-    # Check bookmarks section
-    bookmarks = sections_by_name["bookmarks"]
-    assert bookmarks["label"] == "Bookmarks"
-    assert bookmarks["collapsible"] is True
-    bookmark_keys = [item["key"] for item in bookmarks["items"]]
-    assert "all-bookmarks" in bookmark_keys
-
-    # Check notes section
-    notes = sections_by_name["notes"]
-    assert notes["label"] == "Notes"
-    assert notes["collapsible"] is True
-    note_keys = [item["key"] for item in notes["items"]]
-    assert "all-notes" in note_keys
-
-
-async def test_get_tab_order_with_bookmark_only_list(client: AsyncClient) -> None:
-    """Test getting tab order includes bookmark-only list in bookmarks section."""
-    # Create a bookmark-only list
+async def test__put_sidebar__with_groups(client: AsyncClient) -> None:
+    """Test updating sidebar with groups."""
+    # Create a list first
     create_response = await client.post(
         "/lists/",
         json={
             "name": "Work Items",
-            "content_types": ["bookmark"],
+            "content_types": ["bookmark", "note"],
             "filter_expression": {"groups": [{"tags": ["work"]}], "group_operator": "OR"},
         },
     )
     list_id = create_response.json()["id"]
 
-    response = await client.get("/settings/tab-order")
-    assert response.status_code == 200
-
-    data = response.json()
-    sections_by_name = {s["name"]: s for s in data["sections"]}
-
-    # List should be in bookmarks section (prepended before all-bookmarks)
-    bookmarks = sections_by_name["bookmarks"]
-    assert bookmarks["items"][0]["key"] == f"list:{list_id}"
-    assert bookmarks["items"][0]["label"] == "Work Items"
-    assert bookmarks["items"][0]["type"] == "list"
-
-
-async def test_get_tab_order_with_mixed_list(client: AsyncClient) -> None:
-    """Test getting tab order includes mixed list in shared section."""
-    # Create a mixed content type list (default is both)
-    create_response = await client.post(
-        "/lists/",
+    response = await client.put(
+        "/settings/sidebar",
         json={
-            "name": "Research",
-            "content_types": ["bookmark", "note"],
-            "filter_expression": {"groups": [{"tags": ["research"]}], "group_operator": "OR"},
+            "version": 1,
+            "items": [
+                {"type": "builtin", "key": "all"},
+                {
+                    "type": "group",
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "name": "Work",
+                    "items": [
+                        {"type": "list", "id": list_id},
+                    ],
+                },
+                {"type": "builtin", "key": "archived"},
+                {"type": "builtin", "key": "trash"},
+            ],
         },
     )
-    list_id = create_response.json()["id"]
-
-    response = await client.get("/settings/tab-order")
     assert response.status_code == 200
 
     data = response.json()
-    sections_by_name = {s["name"]: s for s in data["sections"]}
+    # Check group is present
+    groups = [item for item in data["items"] if item["type"] == "group"]
+    assert len(groups) == 1
+    assert groups[0]["name"] == "Work"
+    assert len(groups[0]["items"]) == 1
 
-    # List should be in shared section
-    shared = sections_by_name["shared"]
-    list_keys = [item["key"] for item in shared["items"]]
-    assert f"list:{list_id}" in list_keys
 
-
-async def test_get_tab_order_respects_custom_order(client: AsyncClient) -> None:
-    """Test that tab order respects user's custom ordering."""
-    # Create a list first
+async def test__put_sidebar__rejects_duplicate_list(client: AsyncClient) -> None:
+    """Test that duplicate list IDs are rejected."""
+    # Create a list
     create_response = await client.post(
         "/lists/",
         json={
-            "name": "My List",
+            "name": "Test List",
             "content_types": ["bookmark"],
             "filter_expression": {"groups": [{"tags": ["test"]}], "group_operator": "OR"},
         },
     )
     list_id = create_response.json()["id"]
 
-    # Set custom order with list in a different position
-    await client.patch(
-        "/settings/",
+    response = await client.put(
+        "/settings/sidebar",
         json={
-            "tab_order": {
-                "sections": {
-                    "shared": ["trash", "all", "archived"],
-                    "bookmarks": ["all-bookmarks", f"list:{list_id}"],
-                    "notes": ["all-notes"],
-                },
-                "section_order": ["bookmarks", "shared", "notes"],
-            },
+            "version": 1,
+            "items": [
+                {"type": "list", "id": list_id},
+                {"type": "list", "id": list_id},  # Duplicate
+            ],
         },
     )
-
-    response = await client.get("/settings/tab-order")
-    assert response.status_code == 200
-
-    data = response.json()
-    # Check section order is respected
-    assert data["section_order"] == ["bookmarks", "shared", "notes"]
-
-    # Check bookmarks section has list after all-bookmarks
-    sections_by_name = {s["name"]: s for s in data["sections"]}
-    bookmarks = sections_by_name["bookmarks"]
-    assert bookmarks["items"][0]["key"] == "all-bookmarks"
-    assert bookmarks["items"][1]["key"] == f"list:{list_id}"
+    assert response.status_code == 400
+    assert "Duplicate list item" in response.json()["detail"]
 
 
-async def test_get_tab_order_filters_deleted_lists(client: AsyncClient) -> None:
-    """Test that tab order filters out deleted list references."""
+async def test__put_sidebar__rejects_duplicate_builtin(client: AsyncClient) -> None:
+    """Test that duplicate builtin keys are rejected."""
+    response = await client.put(
+        "/settings/sidebar",
+        json={
+            "version": 1,
+            "items": [
+                {"type": "builtin", "key": "all"},
+                {"type": "builtin", "key": "all"},  # Duplicate
+            ],
+        },
+    )
+    assert response.status_code == 400
+    assert "Duplicate builtin item" in response.json()["detail"]
+
+
+async def test__put_sidebar__rejects_nonexistent_list(client: AsyncClient) -> None:
+    """Test that nonexistent list IDs are rejected."""
+    response = await client.put(
+        "/settings/sidebar",
+        json={
+            "version": 1,
+            "items": [
+                {"type": "list", "id": 99999},
+            ],
+        },
+    )
+    assert response.status_code == 400
+    assert "List not found" in response.json()["detail"]
+
+
+async def test__put_sidebar__rejects_invalid_uuid(client: AsyncClient) -> None:
+    """Test that invalid group UUIDs are rejected at schema level."""
+    response = await client.put(
+        "/settings/sidebar",
+        json={
+            "version": 1,
+            "items": [
+                {
+                    "type": "group",
+                    "id": "not-a-uuid",
+                    "name": "Test",
+                    "items": [],
+                },
+            ],
+        },
+    )
+    assert response.status_code == 422  # Validation error
+
+
+async def test__put_sidebar__rejects_nested_groups(client: AsyncClient) -> None:
+    """Test that nested groups are rejected at schema level."""
+    response = await client.put(
+        "/settings/sidebar",
+        json={
+            "version": 1,
+            "items": [
+                {
+                    "type": "group",
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "name": "Outer",
+                    "items": [
+                        {
+                            "type": "group",
+                            "id": "660e8400-e29b-41d4-a716-446655440001",
+                            "name": "Inner",
+                            "items": [],
+                        },
+                    ],
+                },
+            ],
+        },
+    )
+    assert response.status_code == 422  # Validation error
+
+
+async def test__get_sidebar__filters_deleted_lists(client: AsyncClient) -> None:
+    """Test that deleted list references are filtered from sidebar."""
     # Create and delete a list
     create_response = await client.post(
         "/lists/",
@@ -209,92 +239,194 @@ async def test_get_tab_order_filters_deleted_lists(client: AsyncClient) -> None:
     # Delete the list
     await client.delete(f"/lists/{list_id}")
 
-    # Get tab order - deleted list should be filtered out
-    response = await client.get("/settings/tab-order")
+    # Get sidebar - deleted list should not appear
+    response = await client.get("/settings/sidebar")
     assert response.status_code == 200
 
     data = response.json()
-    # Check no section contains the deleted list
-    for section in data["sections"]:
-        keys = [item["key"] for item in section["items"]]
-        assert f"list:{list_id}" not in keys
+    list_ids = [item["id"] for item in data["items"] if item["type"] == "list"]
+    assert list_id not in list_ids
 
 
-async def test_get_tab_order_appends_orphaned_lists(client: AsyncClient) -> None:
-    """Test that lists not in tab_order are appended to the appropriate section."""
-    # Create a list - it will be added to tab_order
+async def test__get_sidebar__appends_orphan_lists(client: AsyncClient) -> None:
+    """Test that lists not in sidebar_order are appended."""
+    # Create a list (automatically added to sidebar)
     create_response = await client.post(
         "/lists/",
         json={
             "name": "New List",
-            "content_types": ["bookmark"],
+            "content_types": ["note"],
             "filter_expression": {"groups": [{"tags": ["new"]}], "group_operator": "OR"},
         },
     )
     list_id = create_response.json()["id"]
 
-    # Override tab_order to NOT include the list (simulating an edge case)
-    await client.patch(
-        "/settings/",
+    # Override sidebar to NOT include the list
+    await client.put(
+        "/settings/sidebar",
         json={
-            "tab_order": {
-                "sections": {
-                    "shared": ["all", "archived", "trash"],
-                    "bookmarks": ["all-bookmarks"],
-                    "notes": ["all-notes"],
-                },
-                "section_order": ["shared", "bookmarks", "notes"],
-            },
+            "version": 1,
+            "items": [
+                {"type": "builtin", "key": "all"},
+            ],
         },
     )
 
-    # Get tab order - the orphaned list should be appended to bookmarks section
-    response = await client.get("/settings/tab-order")
+    # Get sidebar - orphan list should be appended
+    response = await client.get("/settings/sidebar")
     assert response.status_code == 200
 
     data = response.json()
-    sections_by_name = {s["name"]: s for s in data["sections"]}
-
-    # List should be appended to bookmarks section
-    bookmarks = sections_by_name["bookmarks"]
-    assert bookmarks["items"][-1]["key"] == f"list:{list_id}"
-    assert bookmarks["items"][-1]["label"] == "New List"
+    list_items = [item for item in data["items"] if item["type"] == "list"]
+    list_ids = [item["id"] for item in list_items]
+    assert list_id in list_ids
 
 
-async def test_get_raw_tab_order(client: AsyncClient) -> None:
-    """Test getting raw tab order structure."""
-    response = await client.get("/settings/tab-order/raw")
+async def test__list_creation__adds_to_sidebar(client: AsyncClient) -> None:
+    """Test that creating a list adds it to sidebar_order."""
+    # Create a list
+    create_response = await client.post(
+        "/lists/",
+        json={
+            "name": "Auto Added List",
+            "content_types": ["bookmark"],
+            "filter_expression": {"groups": [{"tags": ["auto"]}], "group_operator": "OR"},
+        },
+    )
+    assert create_response.status_code == 201
+    list_id = create_response.json()["id"]
+
+    # Get sidebar
+    response = await client.get("/settings/sidebar")
     assert response.status_code == 200
 
     data = response.json()
-    assert "sections" in data
-    assert "section_order" in data
-    assert data["sections"]["shared"] == ["all", "archived", "trash"]
-    assert data["sections"]["bookmarks"] == ["all-bookmarks"]
-    assert data["sections"]["notes"] == ["all-notes"]
+    list_ids = [item["id"] for item in data["items"] if item["type"] == "list"]
+    assert list_id in list_ids
 
 
-async def test_update_raw_tab_order(client: AsyncClient) -> None:
-    """Test updating raw tab order structure via PUT."""
+async def test__list_deletion__removes_from_sidebar(client: AsyncClient) -> None:
+    """Test that deleting a list removes it from sidebar_order."""
+    # Create a list
+    create_response = await client.post(
+        "/lists/",
+        json={
+            "name": "To Be Deleted",
+            "content_types": ["bookmark"],
+            "filter_expression": {"groups": [{"tags": ["tbd"]}], "group_operator": "OR"},
+        },
+    )
+    list_id = create_response.json()["id"]
+
+    # Verify it's in sidebar
+    response = await client.get("/settings/sidebar")
+    list_ids = [item["id"] for item in response.json()["items"] if item["type"] == "list"]
+    assert list_id in list_ids
+
+    # Delete the list
+    await client.delete(f"/lists/{list_id}")
+
+    # Verify it's removed from sidebar
+    response = await client.get("/settings/sidebar")
+    list_ids = [item["id"] for item in response.json()["items"] if item["type"] == "list"]
+    assert list_id not in list_ids
+
+
+async def test__put_sidebar__rejects_duplicate_group_id(client: AsyncClient) -> None:
+    """Test that duplicate group IDs are rejected."""
     response = await client.put(
-        "/settings/tab-order",
+        "/settings/sidebar",
         json={
-            "sections": {
-                "shared": ["archived", "all", "trash"],
-                "bookmarks": ["all-bookmarks"],
-                "notes": ["all-notes"],
-            },
-            "section_order": ["notes", "shared", "bookmarks"],
+            "version": 1,
+            "items": [
+                {
+                    "type": "group",
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "name": "Group One",
+                    "items": [],
+                },
+                {
+                    "type": "group",
+                    "id": "550e8400-e29b-41d4-a716-446655440000",  # Same ID
+                    "name": "Group Two",
+                    "items": [],
+                },
+            ],
         },
     )
+    assert response.status_code == 400
+    assert "Duplicate group item" in response.json()["detail"]
+
+
+async def test__list_deletion__removes_from_group_in_sidebar(client: AsyncClient) -> None:
+    """Test that deleting a list removes it from a group in sidebar_order."""
+    # Create a list
+    create_response = await client.post(
+        "/lists/",
+        json={
+            "name": "List In Group",
+            "content_types": ["bookmark"],
+            "filter_expression": {"groups": [{"tags": ["grouped"]}], "group_operator": "OR"},
+        },
+    )
+    list_id = create_response.json()["id"]
+
+    # Put list inside a group in sidebar
+    await client.put(
+        "/settings/sidebar",
+        json={
+            "version": 1,
+            "items": [
+                {"type": "builtin", "key": "all"},
+                {
+                    "type": "group",
+                    "id": "550e8400-e29b-41d4-a716-446655440000",
+                    "name": "Work",
+                    "items": [
+                        {"type": "list", "id": list_id},
+                    ],
+                },
+                {"type": "builtin", "key": "archived"},
+                {"type": "builtin", "key": "trash"},
+            ],
+        },
+    )
+
+    # Verify list is in group
+    response = await client.get("/settings/sidebar")
+    groups = [item for item in response.json()["items"] if item["type"] == "group"]
+    assert len(groups) == 1
+    assert len(groups[0]["items"]) == 1
+    assert groups[0]["items"][0]["id"] == list_id
+
+    # Delete the list
+    await client.delete(f"/lists/{list_id}")
+
+    # Verify list is removed from group
+    response = await client.get("/settings/sidebar")
+    groups = [item for item in response.json()["items"] if item["type"] == "group"]
+    assert len(groups) == 1
+    # Group should now be empty (list was removed)
+    assert len(groups[0]["items"]) == 0
+
+
+async def test__get_sidebar__resolves_builtin_display_names(client: AsyncClient) -> None:
+    """Test that builtin items have display names resolved."""
+    response = await client.get("/settings/sidebar")
     assert response.status_code == 200
 
     data = response.json()
-    assert data["sections"]["shared"] == ["archived", "all", "trash"]
-    assert data["section_order"] == ["notes", "shared", "bookmarks"]
+    builtins = [item for item in data["items"] if item["type"] == "builtin"]
 
-    # Verify it persisted
-    get_response = await client.get("/settings/tab-order/raw")
-    assert get_response.status_code == 200
-    get_data = get_response.json()
-    assert get_data["section_order"] == ["notes", "shared", "bookmarks"]
+    # Each builtin should have a name field with proper display name
+    for builtin in builtins:
+        assert "name" in builtin
+        assert builtin["name"]  # Not empty
+
+        # Verify specific display names
+        if builtin["key"] == "all":
+            assert builtin["name"] == "All"
+        elif builtin["key"] == "archived":
+            assert builtin["name"] == "Archived"
+        elif builtin["key"] == "trash":
+            assert builtin["name"] == "Trash"

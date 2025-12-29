@@ -11,6 +11,16 @@ import { Bookmarks } from './Bookmarks'
 import { SORT_LABELS, BASE_SORT_OPTIONS } from '../constants/sortOptions'
 import type { SortByOption, SortOrderOption } from '../constants/sortOptions'
 
+// Mock useNavigate
+const mockNavigate = vi.fn()
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  }
+})
+
 // Mock toast
 vi.mock('react-hot-toast', () => ({
   default: {
@@ -131,9 +141,24 @@ vi.mock('../stores/tagFilterStore', () => ({
 }))
 
 // Helper to render Bookmarks with router
-function renderWithRouter(initialRoute: string = '/app/bookmarks'): void {
+interface RenderOptions {
+  initialRoute?: string
+  state?: Record<string, unknown>
+}
+
+function renderWithRouter(options: RenderOptions | string = '/app/bookmarks'): void {
+  const { initialRoute, state } = typeof options === 'string'
+    ? { initialRoute: options, state: undefined }
+    : { initialRoute: options.initialRoute ?? '/app/bookmarks', state: options.state }
+
+  // Parse the route to separate pathname and search
+  const url = new URL(initialRoute, 'http://localhost')
+  const entry = state
+    ? { pathname: url.pathname, search: url.search, state }
+    : initialRoute
+
   render(
-    <MemoryRouter initialEntries={[initialRoute]}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/app/bookmarks" element={<Bookmarks />} />
         <Route path="/app/bookmarks/archived" element={<Bookmarks />} />
@@ -284,4 +309,66 @@ describe('Bookmarks page sort functionality', () => {
     })
   })
 
+})
+
+describe('Bookmarks page returnTo navigation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+
+    // Reset to default sort state
+    mockEffectiveSort = {
+      sortBy: 'last_used_at',
+      sortOrder: 'desc',
+      setSort: mockSetSort,
+      availableSortOptions: BASE_SORT_OPTIONS,
+    }
+  })
+
+  it('should navigate to returnTo when modal is closed via cancel', async () => {
+    const user = userEvent.setup()
+
+    // Render with action=add and returnTo state
+    renderWithRouter({
+      initialRoute: '/app/bookmarks?action=add',
+      state: { returnTo: '/app/content/lists/5' },
+    })
+
+    // Modal should be open (action=add triggers it)
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    // Close the modal via Cancel button
+    const cancelButton = screen.getByRole('button', { name: /cancel/i })
+    await user.click(cancelButton)
+
+    // Should navigate to returnTo
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/app/content/lists/5')
+    })
+  })
+
+  it('should NOT navigate when modal is closed without returnTo state', async () => {
+    const user = userEvent.setup()
+
+    // Render with action=add but NO returnTo state
+    renderWithRouter({
+      initialRoute: '/app/bookmarks?action=add',
+      state: undefined,
+    })
+
+    // Modal should be open
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    // Close the modal
+    const cancelButton = screen.getByRole('button', { name: /cancel/i })
+    await user.click(cancelButton)
+
+    // Should NOT navigate (only setSearchParams was called, not navigate)
+    await waitFor(() => {
+      expect(mockNavigate).not.toHaveBeenCalled()
+    })
+  })
 })

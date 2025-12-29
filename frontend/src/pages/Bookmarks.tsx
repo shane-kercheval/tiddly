@@ -1,8 +1,9 @@
 /**
  * Bookmarks page - main bookmark list view with search, filter, and CRUD operations.
  */
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import type { ReactNode } from 'react'
+import { useSearchParams, useLocation, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useBookmarksQuery } from '../hooks/useBookmarksQuery'
@@ -61,6 +62,18 @@ import { getFirstGroupTags } from '../utils'
  */
 export function Bookmarks(): ReactNode {
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  // Get returnTo from navigation state (set when coming from sidebar quick-add)
+  // Store in ref because setSearchParams clears location.state
+  const locationState = location.state as { returnTo?: string } | undefined
+  const returnToRef = useRef<string | undefined>(locationState?.returnTo)
+  // Update ref if we get a new returnTo value
+  if (locationState?.returnTo && locationState.returnTo !== returnToRef.current) {
+    returnToRef.current = locationState.returnTo
+  }
 
   // Modal state
   const [showAddModal, setShowAddModal] = useState(false)
@@ -68,6 +81,28 @@ export function Bookmarks(): ReactNode {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [pastedUrl, setPastedUrl] = useState<string | undefined>(undefined)
   const [loadingBookmarkId, setLoadingBookmarkId] = useState<number | null>(null)
+
+  // Check for action=add query param to auto-open add modal
+  useEffect(() => {
+    if (searchParams.get('action') === 'add') {
+      setShowAddModal(true)
+      // Remove the action param from URL
+      const newParams = new URLSearchParams(searchParams)
+      newParams.delete('action')
+      setSearchParams(newParams, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
+
+  // Helper to close add modal and navigate back if coming from another page
+  const closeAddModal = useCallback((): void => {
+    setShowAddModal(false)
+    setPastedUrl(undefined)
+    if (returnToRef.current) {
+      const destination = returnToRef.current
+      returnToRef.current = undefined // Clear after use
+      navigate(destination)
+    }
+  }, [navigate])
 
   // Non-cacheable utilities from useBookmarks
   const { fetchBookmark, fetchMetadata, trackBookmarkUsage } = useBookmarks()
@@ -175,7 +210,7 @@ export function Bookmarks(): ReactNode {
     },
     onFocusSearch: () => searchInputRef.current?.focus(),
     onEscape: () => {
-      if (showAddModal) setShowAddModal(false)
+      if (showAddModal) closeAddModal()
       else if (editingBookmark) setEditingBookmark(null)
       else if (document.activeElement === searchInputRef.current) {
         searchInputRef.current?.blur()
@@ -287,8 +322,7 @@ export function Bookmarks(): ReactNode {
     setIsSubmitting(true)
     try {
       await createMutation.mutateAsync(data as BookmarkCreate)
-      setShowAddModal(false)
-      setPastedUrl(undefined)
+      closeAddModal()
     } catch (err) {
       // Check for duplicate URL error (409 Conflict)
       if (err && typeof err === 'object' && 'response' in err) {
@@ -318,8 +352,7 @@ export function Bookmarks(): ReactNode {
                       toast.dismiss(t.id)
                       unarchiveMutation.mutateAsync(bookmarkId)
                         .then(() => {
-                          setShowAddModal(false)
-                          setPastedUrl(undefined)
+                          closeAddModal()
                           toast.success('Bookmark unarchived')
                         })
                         .catch(() => {
@@ -701,10 +734,7 @@ export function Bookmarks(): ReactNode {
       {/* Add bookmark modal */}
       <BookmarkModal
         isOpen={showAddModal}
-        onClose={() => {
-          setShowAddModal(false)
-          setPastedUrl(undefined)
-        }}
+        onClose={closeAddModal}
         tagSuggestions={tagSuggestions}
         onSubmit={handleAddBookmark}
         onFetchMetadata={handleFetchMetadata}

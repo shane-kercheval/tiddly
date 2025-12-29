@@ -8,7 +8,7 @@ describe('useUIPreferencesStore', () => {
   beforeEach(() => {
     // Reset store state before each test
     useUIPreferencesStore.setState({
-      fullWidthLayout: false,
+      fullWidthLayout: true,
       bookmarkSortBy: 'last_used_at',
       bookmarkSortOrder: 'desc',
       sortOverrides: {},
@@ -16,14 +16,23 @@ describe('useUIPreferencesStore', () => {
   })
 
   describe('initial state', () => {
-    it('has fullWidthLayout as false by default', () => {
+    it('has fullWidthLayout as true by default', () => {
       const { fullWidthLayout } = useUIPreferencesStore.getState()
-      expect(fullWidthLayout).toBe(false)
+      expect(fullWidthLayout).toBe(true)
     })
   })
 
   describe('toggleFullWidthLayout', () => {
+    it('toggles from true to false', () => {
+      const { toggleFullWidthLayout } = useUIPreferencesStore.getState()
+      toggleFullWidthLayout()
+
+      const { fullWidthLayout } = useUIPreferencesStore.getState()
+      expect(fullWidthLayout).toBe(false)
+    })
+
     it('toggles from false to true', () => {
+      useUIPreferencesStore.setState({ fullWidthLayout: false })
       const { toggleFullWidthLayout } = useUIPreferencesStore.getState()
       toggleFullWidthLayout()
 
@@ -31,26 +40,17 @@ describe('useUIPreferencesStore', () => {
       expect(fullWidthLayout).toBe(true)
     })
 
-    it('toggles from true to false', () => {
-      useUIPreferencesStore.setState({ fullWidthLayout: true })
-      const { toggleFullWidthLayout } = useUIPreferencesStore.getState()
-      toggleFullWidthLayout()
-
-      const { fullWidthLayout } = useUIPreferencesStore.getState()
-      expect(fullWidthLayout).toBe(false)
-    })
-
     it('toggles multiple times', () => {
       const { toggleFullWidthLayout } = useUIPreferencesStore.getState()
-
-      toggleFullWidthLayout()
-      expect(useUIPreferencesStore.getState().fullWidthLayout).toBe(true)
 
       toggleFullWidthLayout()
       expect(useUIPreferencesStore.getState().fullWidthLayout).toBe(false)
 
       toggleFullWidthLayout()
       expect(useUIPreferencesStore.getState().fullWidthLayout).toBe(true)
+
+      toggleFullWidthLayout()
+      expect(useUIPreferencesStore.getState().fullWidthLayout).toBe(false)
     })
   })
 
