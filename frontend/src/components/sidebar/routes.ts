@@ -1,5 +1,7 @@
 /**
  * Route generation utilities for sidebar navigation.
+ *
+ * All content routes use the unified /app/content/* pattern.
  */
 
 import type { BuiltinKey } from '../../types'
@@ -21,22 +23,10 @@ export function getBuiltinRoute(key: BuiltinKey): string {
 /**
  * Get the route path for a list sidebar item.
  *
- * The route is determined by the list's content_types:
- * - bookmark only → /app/bookmarks/lists/:id
- * - note only → /app/notes/lists/:id
- * - mixed or other → /app/content/lists/:id
+ * All lists use the unified /app/content/lists/:id route.
+ * The list's content_types configuration determines what content is shown,
+ * not the URL pattern.
  */
-export function getListRoute(listId: number, contentTypes: string[]): string {
-  const isBookmarkOnly =
-    contentTypes.length === 1 && contentTypes[0] === 'bookmark'
-  const isNoteOnly = contentTypes.length === 1 && contentTypes[0] === 'note'
-
-  if (isBookmarkOnly) {
-    return `/app/bookmarks/lists/${listId}`
-  }
-  if (isNoteOnly) {
-    return `/app/notes/lists/${listId}`
-  }
-  // Mixed or other content types go to unified content route
+export function getListRoute(listId: number): string {
   return `/app/content/lists/${listId}`
 }

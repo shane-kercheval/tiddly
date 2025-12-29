@@ -42,6 +42,25 @@ vi.mock('./hooks/useBookmarkMutations', () => ({
   useUnarchiveBookmark: () => ({ mutateAsync: vi.fn() }),
 }))
 
+vi.mock('./hooks/useNoteMutations', () => ({
+  useCreateNote: () => ({ mutateAsync: vi.fn() }),
+  useUpdateNote: () => ({ mutateAsync: vi.fn() }),
+  useDeleteNote: () => ({ mutateAsync: vi.fn() }),
+  useRestoreNote: () => ({ mutateAsync: vi.fn() }),
+  useArchiveNote: () => ({ mutateAsync: vi.fn() }),
+  useUnarchiveNote: () => ({ mutateAsync: vi.fn() }),
+}))
+
+vi.mock('./hooks/useContentQuery', () => ({
+  useContentQuery: () => ({
+    data: { items: [], total: 0, offset: 0, limit: 20, has_more: false },
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
+}))
+
 vi.mock('./stores/tagsStore', () => ({
   useTagsStore: (selector?: (state: Record<string, unknown>) => unknown) => {
     const state = {
@@ -126,14 +145,14 @@ describe('App', () => {
     vi.clearAllMocks()
   })
 
-  it('should render and redirect to bookmarks page in dev mode', async () => {
+  it('should render and redirect to content page in dev mode', async () => {
     render(<App />)
 
-    // In dev mode, the landing page redirects to bookmarks
-    // Wait for the redirect and bookmarks content to appear
+    // In dev mode, the landing page redirects to content
+    // Wait for the redirect and content page to appear
     await waitFor(
       () => {
-        expect(screen.getByPlaceholderText('Search bookmarks...')).toBeInTheDocument()
+        expect(screen.getByPlaceholderText('Search all content...')).toBeInTheDocument()
       },
       { timeout: 3000 }
     )
@@ -164,25 +183,24 @@ describe('App', () => {
     )
   })
 
-  it('should show Add Bookmark button in header', async () => {
+  it('should show quick-add menu', async () => {
     render(<App />)
 
     await waitFor(
       () => {
-        // There are two "Add Bookmark" buttons - one in header and one in empty state
-        const buttons = screen.getAllByText('Add Bookmark')
-        expect(buttons.length).toBeGreaterThanOrEqual(1)
+        // Quick-add menu trigger button
+        expect(screen.getByTestId('quick-add-menu-trigger')).toBeInTheDocument()
       },
       { timeout: 3000 }
     )
   })
 
-  it('should show empty state when no bookmarks exist', async () => {
+  it('should show empty state when no content exists', async () => {
     render(<App />)
 
     await waitFor(
       () => {
-        expect(screen.getByText('No bookmarks yet')).toBeInTheDocument()
+        expect(screen.getByText('No content yet')).toBeInTheDocument()
       },
       { timeout: 3000 }
     )

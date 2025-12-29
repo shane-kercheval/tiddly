@@ -2,9 +2,11 @@
  * QuickAddMenu - dropdown menu for quickly adding bookmarks or notes.
  *
  * Shows a + button that reveals a dropdown with options to add bookmark or note.
+ * When only one content type is available, shows a direct button without dropdown.
  */
 import { useState, useRef, useEffect } from 'react'
 import type { ReactNode } from 'react'
+import type { ContentType } from '../../types'
 import { PlusIcon, BookmarkIcon, NoteIcon } from '../icons'
 
 interface QuickAddMenuProps {
@@ -12,14 +14,23 @@ interface QuickAddMenuProps {
   onAddBookmark: () => void
   /** Called when "New Note" is clicked */
   onAddNote: () => void
+  /** Content types to show options for. Defaults to ['bookmark', 'note'] */
+  contentTypes?: ContentType[]
 }
 
 export function QuickAddMenu({
   onAddBookmark,
   onAddNote,
+  contentTypes,
 }: QuickAddMenuProps): ReactNode {
   const [isOpen, setIsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  // Determine which content types to show
+  const types = contentTypes ?? ['bookmark', 'note']
+  const showBookmark = types.includes('bookmark')
+  const showNote = types.includes('note')
+  const isSingleType = types.length === 1
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -65,6 +76,25 @@ export function QuickAddMenu({
     setIsOpen(false)
   }
 
+  // Single content type: render direct button (same appearance as dropdown trigger)
+  if (isSingleType) {
+    const handleClick = showBookmark ? onAddBookmark : onAddNote
+    const title = showBookmark ? 'Add bookmark' : 'Add note'
+
+    return (
+      <button
+        type="button"
+        onClick={handleClick}
+        className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+        title={title}
+        data-testid="quick-add-single"
+      >
+        <PlusIcon className="h-5 w-5" />
+      </button>
+    )
+  }
+
+  // Multiple content types: render dropdown menu
   return (
     <div ref={menuRef} className="relative">
       <button
@@ -74,28 +104,38 @@ export function QuickAddMenu({
         title="Add new item"
         aria-expanded={isOpen}
         aria-haspopup="true"
+        data-testid="quick-add-menu-trigger"
       >
         <PlusIcon className="h-5 w-5" />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-40 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-          <button
-            type="button"
-            onClick={handleAddBookmark}
-            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-          >
-            <BookmarkIcon className="h-4 w-4 text-gray-500" />
-            <span>New Bookmark</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleAddNote}
-            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-          >
-            <NoteIcon className="h-4 w-4 text-gray-500" />
-            <span>New Note</span>
-          </button>
+        <div
+          className="absolute left-0 top-full z-20 mt-1 w-40 rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+          data-testid="quick-add-menu-dropdown"
+        >
+          {showBookmark && (
+            <button
+              type="button"
+              onClick={handleAddBookmark}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              data-testid="quick-add-bookmark"
+            >
+              <BookmarkIcon className="h-4 w-4 text-gray-500" />
+              <span>New Bookmark</span>
+            </button>
+          )}
+          {showNote && (
+            <button
+              type="button"
+              onClick={handleAddNote}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              data-testid="quick-add-note"
+            >
+              <NoteIcon className="h-4 w-4 text-gray-500" />
+              <span>New Note</span>
+            </button>
+          )}
         </div>
       )}
     </div>

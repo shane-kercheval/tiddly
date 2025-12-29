@@ -128,7 +128,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
   // Quick-add handlers
   const handleQuickAddBookmark = (): void => {
-    navigate('/app/bookmarks?action=add', { state: { returnTo: location.pathname + location.search } })
+    navigate('/app/content?action=add', { state: { returnTo: location.pathname + location.search } })
     onNavClick?.()
   }
 
@@ -307,7 +307,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       })
     }
     // Navigate to the new list using path-based route
-    navigate(getListRoute(result.id, result.content_types))
+    navigate(getListRoute(result.id))
     return result
   }
 
@@ -559,8 +559,8 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
   return (
     <div className="flex h-full flex-col">
-      {/* Quick-add bar: Group/List on left, Bookmark/Note on right */}
-      {!isCollapsed && (
+      {/* Quick-add bar: Group/List on left, Bookmark/Note/Collapse on right */}
+      {!isCollapsed ? (
         <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200">
           <button
             onClick={handleNewGroup}
@@ -592,6 +592,23 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
             title="New Note"
           >
             <NoteIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={toggleCollapse}
+            className="hidden md:block p-1.5 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            title="Collapse sidebar"
+          >
+            <CollapseIcon className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        <div className="hidden md:flex items-center justify-center px-2 py-1.5 border-b border-gray-200">
+          <button
+            onClick={toggleCollapse}
+            className="p-1.5 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            title="Expand sidebar"
+          >
+            <CollapseIcon className="h-4 w-4 rotate-180" />
           </button>
         </div>
       )}
@@ -642,6 +659,12 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
                 isCollapsed={isCollapsed}
                 onClick={onNavClick}
               />
+              <SidebarNavItem
+                to="/app/settings/faq"
+                label="FAQ"
+                isCollapsed={isCollapsed}
+                onClick={onNavClick}
+              />
             </SidebarGroup>
           </div>
         </nav>
@@ -658,24 +681,8 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
         </DragOverlay>
       </DndContext>
 
-      {/* Collapse Toggle (desktop only) */}
-      <div className="hidden border-t border-gray-200 px-2 py-2 md:block">
-        <button
-          onClick={toggleCollapse}
-          className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 ${
-            isCollapsed ? 'justify-center' : ''
-          }`}
-          title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          <CollapseIcon
-            className={`h-4 w-4 transition-transform ${isCollapsed ? 'rotate-180' : ''}`}
-          />
-          {!isCollapsed && <span>Collapse</span>}
-        </button>
-      </div>
-
       {/* User Section */}
-      <div className="border-t border-gray-200 px-2 py-3">
+      <div className="border-t border-gray-200 px-2 h-12 shrink-0 flex items-center overflow-hidden">
         <SidebarUserSection isCollapsed={isCollapsed} />
       </div>
 
@@ -719,7 +726,7 @@ export function Sidebar(): ReactNode {
 
       {/* Mobile sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 transform bg-white shadow-lg transition-transform md:hidden ${
+        className={`fixed inset-y-0 left-0 z-40 w-72 transform bg-white shadow-lg transition-transform md:hidden ${
           isMobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -731,10 +738,10 @@ export function Sidebar(): ReactNode {
       {/* Desktop sidebar */}
       <aside
         className={`hidden h-screen flex-shrink-0 border-r border-gray-200 bg-white transition-all md:block ${
-          isCollapsed ? 'w-16' : 'w-64'
+          isCollapsed ? 'w-16' : 'w-72'
         }`}
       >
-        <div className="h-full pb-4 overflow-hidden">
+        <div className="h-full overflow-hidden">
           <SidebarContent isCollapsed={isCollapsed} />
         </div>
       </aside>

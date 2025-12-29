@@ -306,7 +306,7 @@ describe('NoteDetail page', () => {
 
       await user.click(screen.getByText('Close'))
 
-      expect(mockNavigate).toHaveBeenCalledWith('/app/notes')
+      expect(mockNavigate).toHaveBeenCalledWith('/app/content')
     })
   })
 })

@@ -28,31 +28,16 @@ describe('getBuiltinRoute', () => {
 })
 
 describe('getListRoute', () => {
-  it('returns /app/bookmarks/lists/:id for bookmark-only lists', () => {
-    expect(getListRoute(123, ['bookmark'])).toBe('/app/bookmarks/lists/123')
-  })
-
-  it('returns /app/notes/lists/:id for note-only lists', () => {
-    expect(getListRoute(456, ['note'])).toBe('/app/notes/lists/456')
-  })
-
-  it('returns /app/content/lists/:id for mixed content lists', () => {
-    expect(getListRoute(789, ['bookmark', 'note'])).toBe('/app/content/lists/789')
-  })
-
-  it('returns /app/content/lists/:id for empty content_types', () => {
-    expect(getListRoute(100, [])).toBe('/app/content/lists/100')
+  it('returns /app/content/lists/:id for any list', () => {
+    expect(getListRoute(123)).toBe('/app/content/lists/123')
+    expect(getListRoute(456)).toBe('/app/content/lists/456')
+    expect(getListRoute(789)).toBe('/app/content/lists/789')
   })
 
   it('all list routes start with /app/', () => {
-    const testCases = [
-      { id: 1, contentTypes: ['bookmark'] },
-      { id: 2, contentTypes: ['note'] },
-      { id: 3, contentTypes: ['bookmark', 'note'] },
-      { id: 4, contentTypes: [] },
-    ]
-    for (const { id, contentTypes } of testCases) {
-      expect(getListRoute(id, contentTypes).startsWith('/app/')).toBe(true)
+    const testIds = [1, 2, 3, 4]
+    for (const id of testIds) {
+      expect(getListRoute(id).startsWith('/app/')).toBe(true)
     }
   })
 })

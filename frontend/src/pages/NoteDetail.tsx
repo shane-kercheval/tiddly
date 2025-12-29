@@ -14,6 +14,7 @@ import { NoteView } from '../components/NoteView'
 import { NoteEditor } from '../components/NoteEditor'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { useNotes } from '../hooks/useNotes'
+import { useReturnNavigation } from '../hooks/useReturnNavigation'
 import {
   useCreateNote,
   useUpdateNote,
@@ -63,10 +64,12 @@ export function NoteDetail(): ReactNode {
   const [error, setError] = useState<string | null>(null)
 
   // Get navigation state
-  const locationState = location.state as { initialTags?: string[]; returnTo?: string } | undefined
+  const locationState = location.state as { initialTags?: string[] } | undefined
   const { selectedTags, addTag } = useTagFilterStore()
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
-  const returnTo = locationState?.returnTo
+
+  // Navigation
+  const { navigateBack, returnTo } = useReturnNavigation()
 
   // Hooks
   const { fetchNote, trackNoteUsage } = useNotes()
@@ -116,18 +119,14 @@ export function NoteDetail(): ReactNode {
   }, [mode, noteId, isValidId, fetchNote, trackNoteUsage])
 
   // Navigation helpers
-  const navigateToList = useCallback((): void => {
-    navigate(returnTo ?? '/app/notes')
-  }, [navigate, returnTo])
-
   const navigateToView = useCallback((noteId: number): void => {
     // Preserve returnTo state when navigating to view
     navigate(`/app/notes/${noteId}`, { state: { returnTo } })
   }, [navigate, returnTo])
 
   const handleBack = useCallback((): void => {
-    navigateToList()
-  }, [navigateToList])
+    navigateBack()
+  }, [navigateBack])
 
   const handleEdit = useCallback((): void => {
     if (noteId) {
@@ -139,8 +138,8 @@ export function NoteDetail(): ReactNode {
   const handleTagClick = useCallback((tag: string): void => {
     // Navigate to notes list with tag filter
     addTag(tag)
-    navigateToList()
-  }, [addTag, navigateToList])
+    navigateBack()
+  }, [addTag, navigateBack])
 
   // Action handlers
   const handleSubmitCreate = useCallback(
@@ -148,14 +147,14 @@ export function NoteDetail(): ReactNode {
       try {
         await createMutation.mutateAsync(data as NoteCreate)
         // Navigate back to the originating list if available, otherwise to notes list
-        navigateToList()
+        navigateBack()
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to create note'
         toast.error(message)
         throw err
       }
     },
-    [createMutation, navigateToList]
+    [createMutation, navigateBack]
   )
 
   const handleSubmitUpdate = useCallback(
@@ -180,11 +179,11 @@ export function NoteDetail(): ReactNode {
 
   const handleCancel = useCallback((): void => {
     if (mode === 'create') {
-      navigateToList()
+      navigateBack()
     } else if (noteId) {
       navigateToView(noteId)
     }
-  }, [mode, noteId, navigateToList, navigateToView])
+  }, [mode, noteId, navigateBack, navigateToView])
 
   const handleArchive = useCallback(async (): Promise<void> => {
     if (!noteId) return
@@ -211,11 +210,11 @@ export function NoteDetail(): ReactNode {
     try {
       const isPermanent = viewState === 'deleted'
       await deleteMutation.mutateAsync({ id: noteId, permanent: isPermanent })
-      navigateToList()
+      navigateBack()
     } catch {
       toast.error('Failed to delete note')
     }
-  }, [noteId, viewState, deleteMutation, navigateToList])
+  }, [noteId, viewState, deleteMutation, navigateBack])
 
   const handleRestore = useCallback(async (): Promise<void> => {
     if (!noteId) return
