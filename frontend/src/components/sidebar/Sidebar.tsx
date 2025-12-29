@@ -307,7 +307,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       })
     }
     // Navigate to the new list using path-based route
-    navigate(getListRoute(result.id, result.content_types))
+    navigate(getListRoute(result.id))
     return result
   }
 

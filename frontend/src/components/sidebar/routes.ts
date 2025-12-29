@@ -27,7 +27,6 @@ export function getBuiltinRoute(key: BuiltinKey): string {
  * The list's content_types configuration determines what content is shown,
  * not the URL pattern.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function getListRoute(listId: number, _contentTypes?: string[]): string {
+export function getListRoute(listId: number): string {
   return `/app/content/lists/${listId}`
 }

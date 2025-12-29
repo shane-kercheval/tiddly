@@ -94,7 +94,7 @@ function SortableGroupChild({
   const route =
     item.type === 'builtin'
       ? getBuiltinRoute(item.key)
-      : getListRoute(item.id, item.content_types)
+      : getListRoute(item.id)
 
   return (
     <div ref={setNodeRef} style={style} className="group/item flex w-full items-center min-w-0 overflow-hidden">

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './components/AuthProvider'
@@ -14,6 +14,15 @@ import { SettingsGeneral } from './pages/settings/SettingsGeneral'
 import { SettingsTokens } from './pages/settings/SettingsTokens'
 import { SettingsMCP } from './pages/settings/SettingsMCP'
 import { SettingsTags } from './pages/settings/SettingsTags'
+
+/**
+ * Redirect component for legacy list routes.
+ * Properly substitutes :listId parameter into the new route.
+ */
+function ListRedirect(): ReactNode {
+  const { listId } = useParams<{ listId: string }>()
+  return <Navigate to={`/app/content/lists/${listId}`} replace />
+}
 
 /**
  * Main application component with routing configuration.
@@ -78,7 +87,7 @@ function App(): ReactNode {
                 <Route path="/app/bookmarks" element={<Navigate to="/app/content" replace />} />
                 <Route path="/app/bookmarks/archived" element={<Navigate to="/app/content/archived" replace />} />
                 <Route path="/app/bookmarks/trash" element={<Navigate to="/app/content/trash" replace />} />
-                <Route path="/app/bookmarks/lists/:listId" element={<Navigate to="/app/content/lists/:listId" replace />} />
+                <Route path="/app/bookmarks/lists/:listId" element={<ListRedirect />} />
 
                 {/* Note detail routes */}
                 <Route path="/app/notes/new" element={<NoteDetail />} />
@@ -89,7 +98,7 @@ function App(): ReactNode {
                 <Route path="/app/notes" element={<Navigate to="/app/content" replace />} />
                 <Route path="/app/notes/archived" element={<Navigate to="/app/content/archived" replace />} />
                 <Route path="/app/notes/trash" element={<Navigate to="/app/content/trash" replace />} />
-                <Route path="/app/notes/lists/:listId" element={<Navigate to="/app/content/lists/:listId" replace />} />
+                <Route path="/app/notes/lists/:listId" element={<ListRedirect />} />
 
                 {/* Settings routes */}
                 <Route path="/app/settings" element={<Navigate to="/app/settings/general" replace />} />
