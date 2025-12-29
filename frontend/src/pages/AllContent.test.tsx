@@ -153,10 +153,7 @@ vi.mock('../hooks/useEffectiveSort', () => ({
     sortBy: 'updated_at',
     sortOrder: 'desc',
     setSort: vi.fn(),
-    availableSortOptions: [
-      { value: 'updated_at-desc', label: 'Recently Updated' },
-      { value: 'created_at-desc', label: 'Recently Created' },
-    ],
+    availableSortOptions: ['updated_at', 'created_at', 'last_used_at', 'title'],
   }),
   getViewKey: (view: string, listId?: number) => listId ? `list-${listId}` : view,
 }))

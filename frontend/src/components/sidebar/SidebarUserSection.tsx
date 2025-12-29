@@ -12,7 +12,7 @@ interface SidebarUserSectionProps {
 function UserIcon(): ReactNode {
   return (
     <svg
-      className="h-5 w-5"
+      className="h-4 w-4"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
@@ -55,12 +55,12 @@ export function SidebarUserSection({ isCollapsed }: SidebarUserSectionProps): Re
   if (isDevMode) {
     return (
       <div
-        className={`flex items-center gap-2 rounded-lg px-3 py-2 ${
+        className={`flex items-center gap-2 rounded-lg px-2 py-1 ${
           isCollapsed ? 'justify-center' : ''
         }`}
         title={isCollapsed ? 'Dev User' : undefined}
       >
-        <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-yellow-100 text-yellow-800">
+        <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-yellow-100 text-yellow-800">
           <UserIcon />
         </span>
         {!isCollapsed && (
@@ -71,15 +71,15 @@ export function SidebarUserSection({ isCollapsed }: SidebarUserSectionProps): Re
   }
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col">
       {/* User info */}
       <div
-        className={`flex items-center gap-2 rounded-lg px-3 py-2 ${
+        className={`flex items-center gap-2 rounded-lg px-2 py-1 ${
           isCollapsed ? 'justify-center' : ''
         }`}
         title={isCollapsed ? user?.email : undefined}
       >
-        <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-600">
+        <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-600">
           <UserIcon />
         </span>
         {!isCollapsed && (
@@ -89,7 +89,7 @@ export function SidebarUserSection({ isCollapsed }: SidebarUserSectionProps): Re
       {/* Logout button */}
       <button
         onClick={handleLogout}
-        className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 ${
+        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1 text-sm text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 ${
           isCollapsed ? 'justify-center' : ''
         }`}
         title="Log out"

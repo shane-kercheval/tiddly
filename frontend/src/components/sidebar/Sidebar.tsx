@@ -659,6 +659,12 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
                 isCollapsed={isCollapsed}
                 onClick={onNavClick}
               />
+              <SidebarNavItem
+                to="/app/settings/faq"
+                label="FAQ"
+                isCollapsed={isCollapsed}
+                onClick={onNavClick}
+              />
             </SidebarGroup>
           </div>
         </nav>
@@ -676,7 +682,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       </DndContext>
 
       {/* User Section */}
-      <div className="border-t border-gray-200 px-2 py-3">
+      <div className="border-t border-gray-200 px-2 h-12 shrink-0 flex items-center overflow-hidden">
         <SidebarUserSection isCollapsed={isCollapsed} />
       </div>
 
@@ -735,7 +741,7 @@ export function Sidebar(): ReactNode {
           isCollapsed ? 'w-16' : 'w-72'
         }`}
       >
-        <div className="h-full pb-4 overflow-hidden">
+        <div className="h-full overflow-hidden">
           <SidebarContent isCollapsed={isCollapsed} />
         </div>
       </aside>

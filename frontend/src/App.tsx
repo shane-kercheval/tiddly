@@ -14,6 +14,7 @@ import { SettingsGeneral } from './pages/settings/SettingsGeneral'
 import { SettingsTokens } from './pages/settings/SettingsTokens'
 import { SettingsMCP } from './pages/settings/SettingsMCP'
 import { SettingsTags } from './pages/settings/SettingsTags'
+import { SettingsFAQ } from './pages/settings/SettingsFAQ'
 
 /**
  * Redirect component for legacy list routes.
@@ -47,6 +48,7 @@ function ListRedirect(): ReactNode {
  *   - /app/settings/tokens : Personal access tokens
  *   - /app/settings/mcp : MCP integration setup
  *   - /app/settings/tags : Tag management
+ *   - /app/settings/faq : Frequently asked questions
  *
  * - Legacy redirects:
  *   - /bookmarks, /app/bookmarks/* : Redirects to /app/content
@@ -109,6 +111,7 @@ function App(): ReactNode {
                 <Route path="/app/settings/lists" element={<Navigate to="/app/settings/general" replace />} />
                 <Route path="/app/settings/bookmarks" element={<Navigate to="/app/settings/general" replace />} />
                 <Route path="/app/settings/tags" element={<SettingsTags />} />
+                <Route path="/app/settings/faq" element={<SettingsFAQ />} />
               </Route>
             </Route>
           </Route>
