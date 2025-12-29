@@ -49,13 +49,13 @@ describe('NoteView', () => {
     it('should render created date', () => {
       render(<NoteView note={mockNote} />)
 
-      expect(screen.getByText(/Created:/)).toBeInTheDocument()
+      expect(screen.getByText(/Created/)).toBeInTheDocument()
     })
 
     it('should render updated date when different from created', () => {
       render(<NoteView note={mockNote} />)
 
-      expect(screen.getByText(/Updated:/)).toBeInTheDocument()
+      expect(screen.getByText(/Updated/)).toBeInTheDocument()
     })
 
     it('should not render updated date when same as created', () => {
@@ -65,7 +65,7 @@ describe('NoteView', () => {
       }
       render(<NoteView note={noteWithSameDate} />)
 
-      expect(screen.queryByText(/Updated:/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Updated/)).not.toBeInTheDocument()
     })
 
     it('should show version number when > 1', () => {
