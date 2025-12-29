@@ -331,6 +331,15 @@ export function NoteEditor({
     }
   }, [])
 
+  // Reset cancel confirmation state
+  const resetCancelConfirmation = useCallback((): void => {
+    if (cancelTimeoutRef.current) {
+      clearTimeout(cancelTimeoutRef.current)
+      cancelTimeoutRef.current = null
+    }
+    setConfirmingCancel(false)
+  }, [])
+
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
@@ -339,7 +348,18 @@ export function NoteEditor({
         e.preventDefault()
         formRef.current?.requestSubmit()
       }
-      // Escape to cancel (works everywhere, with confirmation if dirty)
+      // When confirming cancel: Escape backs out, Enter confirms discard
+      if (confirmingCancel) {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          resetCancelConfirmation()
+        } else if (e.key === 'Enter') {
+          e.preventDefault()
+          onCancel()
+        }
+        return
+      }
+      // Escape to start cancel (with confirmation if dirty)
       if (e.key === 'Escape') {
         handleCancelRequest()
       }
@@ -347,7 +367,7 @@ export function NoteEditor({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [handleCancelRequest])
+  }, [handleCancelRequest, confirmingCancel, resetCancelConfirmation, onCancel])
 
   const restoreDraft = useCallback((): void => {
     const draft = loadDraft(note?.id)
