@@ -355,7 +355,7 @@ async def test__put_sidebar__rejects_duplicate_group_id(client: AsyncClient) -> 
         },
     )
     assert response.status_code == 400
-    assert "Duplicate group ID" in response.json()["detail"]
+    assert "Duplicate group item" in response.json()["detail"]
 
 
 async def test__list_deletion__removes_from_group_in_sidebar(client: AsyncClient) -> None:

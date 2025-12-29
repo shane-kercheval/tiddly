@@ -2,8 +2,6 @@
 import copy
 import logging
 
-from fastapi import HTTPException, status
-
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -23,6 +21,11 @@ from schemas.sidebar import (
     SidebarListItemComputed,
     SidebarOrder,
     SidebarOrderComputed,
+)
+from services.exceptions import (
+    SidebarDuplicateItemError,
+    SidebarListNotFoundError,
+    SidebarNestedGroupError,
 )
 from services.settings_service import get_or_create_settings
 
@@ -268,7 +271,9 @@ def _validate_sidebar_order(
         user_list_ids: Set of list IDs that belong to this user.
 
     Raises:
-        HTTPException: If validation fails.
+        SidebarDuplicateItemError: If a duplicate item is found.
+        SidebarListNotFoundError: If a list ID doesn't exist or belong to user.
+        SidebarNestedGroupError: If groups are nested.
     """
     # Extract all items for duplicate checking
     seen_list_ids: set[int] = set()
@@ -279,36 +284,21 @@ def _validate_sidebar_order(
         """Validate a single item and track for duplicates."""
         if isinstance(item, SidebarBuiltinItem):
             if item.key in seen_builtin_keys:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Duplicate builtin item: {item.key}",
-                )
+                raise SidebarDuplicateItemError("builtin", item.key)
             seen_builtin_keys.add(item.key)
 
         elif isinstance(item, SidebarListItem):
             if item.id in seen_list_ids:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Duplicate list item: {item.id}",
-                )
+                raise SidebarDuplicateItemError("list", item.id)
             if item.id not in user_list_ids:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"List not found or not owned by user: {item.id}",
-                )
+                raise SidebarListNotFoundError(item.id)
             seen_list_ids.add(item.id)
 
         elif isinstance(item, SidebarGroup):
             if not allow_groups:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Nested groups are not allowed",
-                )
+                raise SidebarNestedGroupError()
             if item.id in seen_group_ids:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Duplicate group ID: {item.id}",
-                )
+                raise SidebarDuplicateItemError("group", item.id)
             seen_group_ids.add(item.id)
 
             # Validate group children (no nested groups allowed)
@@ -339,7 +329,9 @@ async def update_sidebar_order(
         Updated UserSettings.
 
     Raises:
-        HTTPException: If validation fails (duplicate items, invalid list IDs, etc).
+        SidebarDuplicateItemError: If a duplicate item is found.
+        SidebarListNotFoundError: If a list ID doesn't exist or belong to user.
+        SidebarNestedGroupError: If groups are nested.
     """
     # Validate the structure
     _validate_sidebar_order(sidebar_order, user_list_ids)

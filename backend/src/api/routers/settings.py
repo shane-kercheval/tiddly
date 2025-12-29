@@ -1,11 +1,12 @@
 """User settings endpoints."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_user_auth0_only
 from models.user import User
 from schemas.sidebar import SidebarOrder, SidebarOrderComputed
 from services import content_list_service, sidebar_service
+from services.exceptions import SidebarValidationError
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -58,9 +59,15 @@ async def update_sidebar(
     user_list_ids = {lst.id for lst in lists}
 
     # Update and validate
-    await sidebar_service.update_sidebar_order(
-        db, current_user.id, sidebar, user_list_ids,
-    )
+    try:
+        await sidebar_service.update_sidebar_order(
+            db, current_user.id, sidebar, user_list_ids,
+        )
+    except SidebarValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
     # Return computed sidebar
     return await sidebar_service.get_computed_sidebar(db, current_user.id, lists)

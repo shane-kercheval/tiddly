@@ -41,7 +41,7 @@ async def list_all_content(
     list_id: int | None = Query(default=None, description="Filter by content list ID"),
     content_types: list[Literal["bookmark", "note"]] | None = Query(
         default=None,
-        description="Filter by content types (bookmark, note). If not specified, all types are included.",
+        description="Filter by content types (bookmark, note). If not specified, all types are included.",  # noqa: E501
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),

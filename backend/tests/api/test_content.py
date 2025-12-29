@@ -734,7 +734,8 @@ async def test__list_all_content__content_types_param_with_search(
 async def test__list_all_content__list_id_content_types_overrides_query_param(
     client: AsyncClient,
 ) -> None:
-    """Test that list's content_types overrides the content_types query param.
+    """
+    Test that list's content_types overrides the content_types query param.
 
     When both list_id and content_types query param are provided, the list's
     content_types takes precedence and the query param is ignored.

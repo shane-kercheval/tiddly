@@ -2,7 +2,6 @@
 import copy
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.content_list import ContentList
@@ -14,6 +13,10 @@ from schemas.sidebar import (
     SidebarGroup,
     SidebarListItem,
     SidebarOrder,
+)
+from services.exceptions import (
+    SidebarDuplicateItemError,
+    SidebarListNotFoundError,
 )
 from services.sidebar_service import (
     _ensure_sidebar_order_structure,
@@ -236,11 +239,12 @@ def test__validate_sidebar_order__rejects_duplicate_list() -> None:
             SidebarListItem(type="list", id=1),
         ],
     )
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(SidebarDuplicateItemError) as exc_info:
         _validate_sidebar_order(order, {1})
 
-    assert exc_info.value.status_code == 400
-    assert "Duplicate list item" in exc_info.value.detail
+    assert exc_info.value.item_type == "list"
+    assert exc_info.value.item_id == 1
+    assert "Duplicate list item" in str(exc_info.value)
 
 
 def test__validate_sidebar_order__rejects_duplicate_builtin() -> None:
@@ -251,11 +255,12 @@ def test__validate_sidebar_order__rejects_duplicate_builtin() -> None:
             SidebarBuiltinItem(type="builtin", key="all"),
         ],
     )
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(SidebarDuplicateItemError) as exc_info:
         _validate_sidebar_order(order, set())
 
-    assert exc_info.value.status_code == 400
-    assert "Duplicate builtin item" in exc_info.value.detail
+    assert exc_info.value.item_type == "builtin"
+    assert exc_info.value.item_id == "all"
+    assert "Duplicate builtin item" in str(exc_info.value)
 
 
 def test__validate_sidebar_order__rejects_duplicate_group_id() -> None:
@@ -276,11 +281,12 @@ def test__validate_sidebar_order__rejects_duplicate_group_id() -> None:
             ),
         ],
     )
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(SidebarDuplicateItemError) as exc_info:
         _validate_sidebar_order(order, set())
 
-    assert exc_info.value.status_code == 400
-    assert "Duplicate group ID" in exc_info.value.detail
+    assert exc_info.value.item_type == "group"
+    assert exc_info.value.item_id == "550e8400-e29b-41d4-a716-446655440000"
+    assert "Duplicate group item" in str(exc_info.value)
 
 
 def test__validate_sidebar_order__rejects_nonexistent_list() -> None:
@@ -290,11 +296,11 @@ def test__validate_sidebar_order__rejects_nonexistent_list() -> None:
             SidebarListItem(type="list", id=999),
         ],
     )
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(SidebarListNotFoundError) as exc_info:
         _validate_sidebar_order(order, {1, 2, 3})  # 999 not in set
 
-    assert exc_info.value.status_code == 400
-    assert "List not found" in exc_info.value.detail
+    assert exc_info.value.list_id == 999
+    assert "List not found" in str(exc_info.value)
 
 
 def test__validate_sidebar_order__allows_duplicate_group_names() -> None:
@@ -334,11 +340,12 @@ def test__validate_sidebar_order__rejects_duplicate_list_across_root_and_group()
             ),
         ],
     )
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(SidebarDuplicateItemError) as exc_info:
         _validate_sidebar_order(order, {5})
 
-    assert exc_info.value.status_code == 400
-    assert "Duplicate list item" in exc_info.value.detail
+    assert exc_info.value.item_type == "list"
+    assert exc_info.value.item_id == 5
+    assert "Duplicate list item" in str(exc_info.value)
 
 
 # =============================================================================
@@ -522,12 +529,12 @@ async def test__update_sidebar_order__rejects_other_users_list(
         ],
     )
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(SidebarListNotFoundError) as exc_info:
         await update_sidebar_order(
             db_session, test_user.id, order, set(),  # Empty set = no lists belong to user
         )
 
-    assert exc_info.value.status_code == 400
+    assert exc_info.value.list_id == test_list.id
 
 
 # =============================================================================
