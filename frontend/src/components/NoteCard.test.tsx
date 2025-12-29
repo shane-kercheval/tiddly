@@ -231,7 +231,7 @@ describe('NoteCard', () => {
     })
 
     it('should not make card clickable in deleted view', () => {
-      render(
+      const { container } = render(
         <NoteCard
           note={mockNote}
           view="deleted"
@@ -241,7 +241,7 @@ describe('NoteCard', () => {
       )
 
       // Card should not have cursor-pointer class in deleted view
-      const card = screen.getByRole('button', { name: /test note/i }).closest('.card')
+      const card = container.querySelector('.card')
       expect(card).not.toHaveClass('cursor-pointer')
     })
 

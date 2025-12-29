@@ -127,9 +127,6 @@ export function BookmarkCard({
     <div
       className={`card card-interactive group ${isClickable ? 'cursor-pointer' : ''}`}
       onClick={isClickable ? handleCardClick : undefined}
-      role={isClickable ? 'button' : undefined}
-      tabIndex={isClickable ? 0 : undefined}
-      onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardClick() } } : undefined}
     >
       <div className="flex items-start gap-4">
         {/* Main content */}
