@@ -58,9 +58,9 @@ export function SearchFilterBar({
   leftSlot,
 }: SearchFilterBarProps): ReactNode {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-3 ml-10 md:ml-0">
       {leftSlot}
-      <div className="relative flex-1">
+      <div className="relative flex-1 min-w-[200px]">
         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
           <SearchIcon />
         </div>
