@@ -77,7 +77,7 @@ export function NoteView({
   }, [onEdit, onBack])
 
   return (
-    <div className={`flex flex-col h-full w-full ${fullWidth ? '' : 'max-w-4xl mx-auto'}`}>
+    <div className={`flex flex-col h-full w-full ${fullWidth ? '' : 'max-w-4xl'}`}>
       {/* Fixed header with back button and actions */}
       <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
         <div className="flex items-center gap-2">

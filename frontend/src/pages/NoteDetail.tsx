@@ -239,7 +239,7 @@ export function NoteDetail(): ReactNode {
   // Render create mode
   if (mode === 'create') {
     return (
-      <div className={`flex flex-col h-full w-full ${fullWidthLayout ? '' : 'max-w-4xl mx-auto'}`}>
+      <div className={`flex flex-col h-full w-full ${fullWidthLayout ? '' : 'max-w-4xl'}`}>
         <NoteEditor
           tagSuggestions={tagSuggestions}
           onSubmit={handleSubmitCreate}
@@ -259,7 +259,7 @@ export function NoteDetail(): ReactNode {
   // Edit mode
   if (mode === 'edit') {
     return (
-      <div className={`flex flex-col h-full w-full ${fullWidthLayout ? '' : 'max-w-4xl mx-auto'}`}>
+      <div className={`flex flex-col h-full w-full ${fullWidthLayout ? '' : 'max-w-4xl'}`}>
         <NoteEditor
           note={note}
           tagSuggestions={tagSuggestions}
