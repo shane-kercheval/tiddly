@@ -14,7 +14,7 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
     <div className="min-h-screen bg-white">
       {/* Header */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 sm:px-8 lg:px-12">
-        <div className="text-2xl font-bold text-gray-900">Tiddly</div>
+        <BookmarkIcon className="h-8 w-8 text-gray-900" />
         <button
           onClick={onLogin}
           className="rounded-lg border border-gray-300 px-5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
@@ -27,7 +27,7 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
       <div className="mx-auto max-w-6xl px-6 pb-24 pt-12 sm:px-8 lg:px-12">
         <div className="text-center">
           <div className="mb-8 flex items-center justify-center gap-4">
-            <h1 className="text-7xl font-bold tracking-tight text-gray-900 sm:text-8xl">
+            <h1 className="text-6xl font-bold tracking-tight text-gray-900 sm:text-7xl">
               Tiddly
             </h1>
             <span className="mb-2 self-start rounded-full border-2 border-orange-200 bg-orange-50 px-4 py-1.5 text-sm font-semibold uppercase tracking-wide text-orange-700">
@@ -38,7 +38,7 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
             Your personal knowledge base. Save and organize content with tags, search, and AI integration.
           </p>
           <p className="mx-auto mb-16 text-base text-gray-500">
-            Currently in beta. Things may change as we improve the platform.
+            Currently in beta.
           </p>
           <button
             onClick={onLogin}
@@ -48,146 +48,72 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
           </button>
         </div>
 
-        {/* Product Roadmap */}
-        <div className="mx-auto mt-32 max-w-4xl">
-          <div className="space-y-6">
-            {/* Bookmarks - Available Now */}
-            <div className="flex items-start gap-6 rounded-2xl bg-gray-50 p-8 transition-all hover:bg-gray-100">
-              <div className="flex-shrink-0">
-                <BookmarkIcon className="h-10 w-10 text-gray-900" />
-              </div>
-              <div className="flex-1">
-                <div className="mb-3 flex items-center gap-3">
-                  <h2 className="text-3xl font-bold text-gray-900">Bookmarks</h2>
-                  <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-800">
-                    Available Now
-                  </span>
-                </div>
-                <p className="mb-4 text-lg leading-relaxed text-gray-600">
-                  Full-text search, flexible tagging, and custom lists.
-                  Generate API tokens for CLI access or connect via MCP for AI-powered
-                  organization.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <span className="rounded-lg bg-white px-3 py-1.5 text-sm text-gray-700">
-                    Full-text search
-                  </span>
-                  <span className="rounded-lg bg-white px-3 py-1.5 text-sm text-gray-700">
-                    Tags & lists
-                  </span>
-                  <span className="rounded-lg bg-white px-3 py-1.5 text-sm text-gray-700">
-                    API access
-                  </span>
-                  <span className="rounded-lg bg-white px-3 py-1.5 text-sm text-gray-700">
-                    MCP integration
-                  </span>
-                </div>
-              </div>
+        {/* Content Types */}
+        <div className="mx-auto mt-24 max-w-3xl">
+          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-lg">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-gray-900">Bookmarks</span>
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                Available
+              </span>
             </div>
-
-            {/* Notes - Coming Soon */}
-            <div className="flex items-start gap-6 rounded-2xl border-2 border-dashed border-gray-200 bg-white p-8 opacity-60">
-              <div className="flex-shrink-0">
-                <svg
-                  className="h-10 w-10 text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                  />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <div className="mb-3 flex items-center gap-3">
-                  <h2 className="text-3xl font-bold text-gray-900">Notes</h2>
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600">
-                    Coming Soon
-                  </span>
-                </div>
-                <p className="text-lg leading-relaxed text-gray-600">
-                  Capture thoughts, ideas, and research. Markdown support, linking between
-                  notes and bookmarks, and the same powerful search you love.
-                </p>
-              </div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-gray-900">Notes</span>
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                Available
+              </span>
             </div>
-
-            {/* Todos - Coming Soon */}
-            <div className="flex items-start gap-6 rounded-2xl border-2 border-dashed border-gray-200 bg-white p-8 opacity-60">
-              <div className="flex-shrink-0">
-                <svg
-                  className="h-10 w-10 text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
-                  />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <div className="mb-3 flex items-center gap-3">
-                  <h2 className="text-3xl font-bold text-gray-900">Todos</h2>
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600">
-                    Coming Soon
-                  </span>
-                </div>
-                <p className="text-lg leading-relaxed text-gray-600">
-                  Manage tasks and projects. Link todos to bookmarks and notes. Everything in
-                  one place, organized your way.
-                </p>
-              </div>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">Todos</span>
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+                Coming soon
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Key Features */}
-        <div className="mx-auto mt-32 max-w-4xl">
-          <h2 className="mb-12 text-center text-4xl font-bold text-gray-900">
-            Simple, yet powerful
-          </h2>
-          <div className="grid gap-8 sm:grid-cols-2">
+        {/* Features */}
+        <div className="mx-auto mt-24 max-w-4xl">
+          <div className="grid gap-x-12 gap-y-10 sm:grid-cols-2">
             <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                Search everything
-              </h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Full-text search</h3>
               <p className="text-gray-600">
-                Full-text search across titles, URLs, and page content. Find what you need in
-                seconds, not minutes.
+                Search across titles, descriptions, and content. Filter by tags with AND/OR
+                matching. Sort by date created, modified, or last accessed.
               </p>
             </div>
             <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                Keyboard-first workflow
-              </h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Tags & custom lists</h3>
               <p className="text-gray-600">
-                Navigate, search, and organize efficiently with keyboard shortcuts.
-                Press <kbd className="rounded bg-gray-100 px-2 py-1 text-sm">/</kbd> to start
-                searching.
+                Organize with flexible tags. Create saved lists with complex filter expressions.
+                Rename or delete tags across all content from settings.
               </p>
             </div>
             <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">API & CLI ready</h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Markdown notes</h3>
               <p className="text-gray-600">
-                Generate Personal Access Tokens and integrate with your tools. Automate
-                bookmark creation, search from the command line, or build custom workflows.
+                Write notes with GitHub Flavored Markdown. Live preview, auto-saving drafts,
+                and keyboard shortcuts for formatting.
               </p>
             </div>
             <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                AI-powered with MCP
-              </h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Keyboard shortcuts</h3>
               <p className="text-gray-600">
-                Connect Claude and other AI agents via Model Context Protocol. Let AI help you
-                organize, search, and make sense of your saved content.
+                <kbd className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">Cmd+/</kbd> to see all shortcuts.
+              </p>
+            </div>
+            <div>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">API access</h3>
+              <p className="text-gray-600">
+                Generate Personal Access Tokens for programmatic access. Search, create, and
+                manage content from scripts or CLI tools.
+              </p>
+            </div>
+            <div>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">MCP integration</h3>
+              <p className="text-gray-600">
+                Connect Claude Desktop via Model Context Protocol. Search and create content
+                using natural language through AI agents.
               </p>
             </div>
           </div>
@@ -238,37 +164,34 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
 
             <div>
               <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                Who can access my bookmarks?
+                Who can access my content?
               </h3>
               <p className="text-gray-600">
-                Only you. Your bookmarks are completely private and isolated to your account. We
-                use a multi-tenant database architecture where every bookmark is tied to your
-                user ID. There's no sharing functionality currently - your data is yours alone.
+                Only you. Your bookmarks and notes are completely private and isolated to your
+                account. We use a multi-tenant database architecture where all content is tied
+                to your user ID. There's no sharing functionality - your data is yours alone.
               </p>
             </div>
 
             <div>
               <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                What data do you store about my bookmarks?
+                What data do you store?
               </h3>
               <p className="text-gray-600">
-                We store the URL, title, description, and page content (up to 500KB per
-                bookmark) to enable full-text search. Page content is automatically extracted
-                when you save a bookmark. We also track when bookmarks were created, updated,
-                and last accessed. All stored data is used solely to provide search and
-                organization features.
+                For bookmarks: URL, title, description, and page content (up to 500KB) for
+                full-text search. Content is automatically extracted when you save a bookmark.
+                For notes: title, description, and markdown content (up to 2MB). We track when
+                items were created, updated, and last accessed.
               </p>
             </div>
 
             <div>
               <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                What happens to deleted bookmarks?
+                What happens to deleted items?
               </h3>
               <p className="text-gray-600">
-                Deleted bookmarks go to your Trash where they can be restored. Currently, we
-                don't automatically permanently delete trashed items - they remain in your trash
-                until you manually restore or permanently delete them. In a future version, items
-                in trash will be automatically permanently deleted after 30 days.
+                Deleted bookmarks and notes go to Trash where they can be restored. Items remain
+                in trash until you manually restore or permanently delete them.
               </p>
             </div>
 
@@ -291,9 +214,9 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
               </h3>
               <p className="text-gray-600">
                 MCP (Model Context Protocol) allows AI agents like Claude to interact with your
-                bookmarks. You can connect Claude Desktop or other MCP-compatible tools to
-                search, create, and organize bookmarks using natural language. It requires a
-                Personal Access Token for authentication.
+                content. Connect Claude Desktop or other MCP-compatible tools to search, create,
+                and organize bookmarks and notes using natural language. Requires a Personal
+                Access Token for authentication.
               </p>
             </div>
 
@@ -303,8 +226,7 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
               </h3>
               <p className="text-gray-600">
                 Not yet through the UI, but you can use the REST API with a Personal Access Token
-                to export all your bookmarks programmatically. A built-in export feature is
-                planned for a future update.
+                to export your content programmatically. A built-in export feature is planned.
               </p>
             </div>
 
