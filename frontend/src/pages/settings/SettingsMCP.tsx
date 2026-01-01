@@ -74,7 +74,7 @@ export function SettingsMCP(): ReactNode {
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">MCP Integration</h1>
         <p className="mt-1 text-gray-500">
-          Connect Claude Desktop to your bookmarks using the Model Context Protocol (MCP).
+          Connect Claude Desktop to your bookmarks and notes using the Model Context Protocol (MCP).
         </p>
       </div>
 
@@ -188,8 +188,8 @@ export function SettingsMCP(): ReactNode {
         </p>
         <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
           <p className="text-sm text-blue-800">
-            <strong>Tip:</strong> Start a new conversation and try saying{' '}
-            <em>&quot;Please list my bookmarks&quot;</em> to verify the integration is working.
+            <strong>Tip:</strong> Start a new conversation and try{' '}
+            <em>&quot;Search my bookmarks&quot;</em> or <em>&quot;Create a note&quot;</em> to verify the integration is working.
           </p>
         </div>
       </div>
@@ -197,25 +197,54 @@ export function SettingsMCP(): ReactNode {
       {/* Available Tools */}
       <div className="mb-8">
         <h2 className="text-lg font-semibold text-gray-900 mb-2">Available MCP Tools</h2>
-        <p className="text-gray-600 mb-3">
-          Once connected, Claude can use these tools to interact with your bookmarks:
+        <p className="text-gray-600 mb-4">
+          Once connected, Claude can use these tools to interact with your content:
         </p>
-        <ul className="space-y-2 text-sm text-gray-600">
+
+        {/* Bookmarks */}
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Bookmarks</h3>
+        <ul className="space-y-2 text-sm text-gray-600 mb-4">
           <li className="flex items-start gap-2">
             <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_bookmarks</span>
-            <span>Search your bookmarks by query, tags, or filters</span>
+            <span>Search by text query and/or filter by tags</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_bookmark</span>
-            <span>Get details of a specific bookmark by ID</span>
+            <span>Get full details of a bookmark by ID</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">create_bookmark</span>
-            <span>Create a new bookmark with URL, title, and tags</span>
+            <span>Save a new URL (metadata auto-fetched)</span>
+          </li>
+        </ul>
+
+        {/* Notes */}
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Notes</h3>
+        <ul className="space-y-2 text-sm text-gray-600 mb-4">
+          <li className="flex items-start gap-2">
+            <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_notes</span>
+            <span>Search by text query and/or filter by tags</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_note</span>
+            <span>Get full details of a note by ID</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">create_note</span>
+            <span>Create a new note with markdown content</span>
+          </li>
+        </ul>
+
+        {/* Unified */}
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Unified</h3>
+        <ul className="space-y-2 text-sm text-gray-600">
+          <li className="flex items-start gap-2">
+            <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_all_content</span>
+            <span>Search across bookmarks and notes in one query</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_tags</span>
-            <span>List all your bookmark tags</span>
+            <span>Get all tags with usage counts</span>
           </li>
         </ul>
       </div>
