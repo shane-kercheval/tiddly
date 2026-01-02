@@ -4,6 +4,80 @@
 **Status:** Draft
 **Goal:** Create prompts as first-class entities with their own table, not derived from notes.
 
+---
+
+## References
+
+### MCP Specification
+
+- **Prompts Capability:** https://modelcontextprotocol.io/docs/concepts/prompts
+- **MCP SDK (Python):** https://github.com/modelcontextprotocol/python-sdk
+
+Key concepts from spec:
+- `prompts/list` - Returns list of available prompts with name, description, arguments
+- `prompts/get` - Returns rendered prompt content with provided arguments
+
+**MCP SDK Types (from `mcp.types`):**
+
+```python
+# What we use from the SDK:
+class Prompt(BaseMetadata):
+    name: str                              # Required - prompt identifier (we use slug)
+    description: str | None = None         # Optional
+    arguments: list[PromptArgument] | None = None
+
+class PromptArgument(BaseModel):
+    name: str                              # Required - argument identifier
+    description: str | None = None         # Optional
+    required: bool | None = None           # Optional (None treated as False)
+
+class GetPromptResult(Result):
+    description: str | None = None
+    messages: list[PromptMessage]          # Required - the rendered prompt content
+
+class PromptMessage(BaseModel):
+    role: Literal["user", "assistant"]     # Required
+    content: TextContent | ImageContent | EmbeddedResource
+```
+
+**Low-level Server decorators:**
+```python
+@server.list_prompts()
+async def handle_list() -> list[types.Prompt]:
+    ...
+
+@server.get_prompt()
+async def handle_get(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
+    ...
+```
+
+**Error Codes (JSON-RPC standard):**
+- `INVALID_PARAMS = -32602` - Invalid prompt name, missing required arguments
+- `INTERNAL_ERROR = -32603` - Server errors
+
+**Error handling:**
+```python
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData, INVALID_PARAMS
+
+raise McpError(ErrorData(code=INVALID_PARAMS, message="Prompt not found"))
+```
+
+### Reference Implementation (This Codebase)
+
+The existing Bookmarks MCP Server provides patterns to follow:
+
+| Component | Path | Notes |
+|-----------|------|-------|
+| Server | `backend/src/mcp_server/server.py` | Uses FastMCP (decorator-based) for tools. Prompt server will use low-level SDK for dynamic prompts. |
+| Auth | `backend/src/mcp_server/auth.py` | Bearer token extraction from headers. **Can reuse pattern.** |
+| API Client | `backend/src/mcp_server/api_client.py` | `api_get()`, `api_post()` helpers. **Can reuse directly.** |
+| Tests | `backend/tests/mcp_server/` | Test patterns for tools, auth, API client. |
+
+**Key difference:** The existing server uses FastMCP which requires decorators at import time. For prompts, we need the low-level `mcp.server.lowlevel.Server` to dynamically load prompts from the database at runtime.
+
+---
+
 ## Why Prompt-First?
 
 The original "notes with tag" approach had too many workarounds:
@@ -44,9 +118,9 @@ The original "notes with tag" approach had too many workarounds:
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  POST /prompts/        - Create prompt                   │   │
 │  │  GET /prompts/         - List prompts                    │   │
-│  │  GET /prompts/{slug}   - Get prompt by slug              │   │
-│  │  PATCH /prompts/{slug} - Update prompt                   │   │
-│  │  DELETE /prompts/{slug} - Delete prompt                  │   │
+│  │  GET /prompts/{name}   - Get prompt by name              │   │
+│  │  PATCH /prompts/{name} - Update prompt                   │   │
+│  │  DELETE /prompts/{name} - Delete prompt                  │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
@@ -57,12 +131,13 @@ The original "notes with tag" approach had too many workarounds:
 │  │  prompts                                                 │    │
 │  │  - id (PK)                                              │    │
 │  │  - user_id (FK → users)                                 │    │
-│  │  - slug (unique per user, e.g., "code-review")          │    │
+│  │  - name (unique per user, e.g., "code-review")          │    │
+│  │  - title (optional, e.g., "Code Review Assistant")      │    │
 │  │  - description (optional)                               │    │
 │  │  - content (Jinja2 template)                            │    │
 │  │  - arguments (JSONB): [{name, description, required}]   │    │
 │  │  - created_at, updated_at                               │    │
-│  │  UNIQUE(user_id, slug)                                  │    │
+│  │  UNIQUE(user_id, name)                                  │    │
 │  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -75,12 +150,13 @@ The original "notes with tag" approach had too many workarounds:
 
 Prompts have their own table, model, schemas, and CRUD endpoints. They don't share the notes infrastructure.
 
-### 2. Slug as Primary Identifier
+### 2. Name and Title (Aligned with MCP SDK)
 
-- `slug` IS the prompt name - no separate title field
-- User provides slug directly when creating
-- Unique constraint `(user_id, slug)` enforced by database
-- Update by slug: `PATCH /prompts/{slug}`
+- `name` - Required programmatic identifier (lowercase with hyphens, e.g., "code-review")
+- `title` - Optional human-readable display name (e.g., "Code Review Assistant")
+- Unique constraint `(user_id, name)` enforced by database
+- Update by name: `PATCH /prompts/{name}`
+- MCP clients display `title` if provided, otherwise fall back to `name`
 
 ### 3. No Tag Configuration
 
@@ -144,7 +220,7 @@ class Prompt(Base, TimestampMixin):
 
     __tablename__ = "prompts"
     __table_args__ = (
-        UniqueConstraint("user_id", "slug", name="uq_prompts_user_slug"),
+        UniqueConstraint("user_id", "name", name="uq_prompts_user_name"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -154,11 +230,18 @@ class Prompt(Base, TimestampMixin):
         index=True,
     )
 
-    # Slug is the prompt name, MCP identifier, and URL path
-    slug: Mapped[str] = mapped_column(
+    # Name is the MCP prompt identifier and URL path
+    name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
-        comment="Prompt name and identifier, unique per user (e.g., 'code-review')",
+        comment="Prompt identifier, unique per user (e.g., 'code-review')",
+    )
+
+    # Title is the optional human-readable display name
+    title: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="Optional display title (e.g., 'Code Review Assistant')",
     )
 
     description: Mapped[str | None] = mapped_column(
@@ -206,7 +289,7 @@ make migration message="create prompts table"
 
 The migration should create:
 - `prompts` table with all columns
-- Unique constraint `uq_prompts_user_slug`
+- Unique constraint `uq_prompts_user_name`
 - Foreign key to `users` with cascade delete
 - Index on `user_id`
 
@@ -217,9 +300,9 @@ The migration should create:
 - Test prompt has correct timestamps (created_at, updated_at)
 
 **Unique constraint:**
-- Test unique constraint prevents duplicate slugs for same user
-- Test different users can have same slug
-- Test IntegrityError raised on duplicate (user_id, slug)
+- Test unique constraint prevents duplicate names for same user
+- Test different users can have same name
+- Test IntegrityError raised on duplicate (user_id, name)
 
 **Cascade delete:**
 - Test cascade delete removes prompts when user is deleted
@@ -266,20 +349,25 @@ class PromptArgument(BaseModel):
         default=None,
         description="Description of the argument",
     )
-    required: bool = Field(
-        default=False,
-        description="Whether this argument is required",
+    required: bool | None = Field(
+        default=None,
+        description="Whether this argument is required (None treated as False)",
     )
 
 
 class PromptCreate(BaseModel):
     """Request body for creating a prompt."""
 
-    slug: str = Field(
+    name: str = Field(
         min_length=1,
         max_length=255,
         pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$",
-        description="Prompt name/identifier (lowercase with hyphens, e.g., 'code-review')",
+        description="Prompt identifier (lowercase with hyphens, e.g., 'code-review')",
+    )
+    title: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional display title (e.g., 'Code Review Assistant')",
     )
     description: str | None = Field(
         default=None,
@@ -310,11 +398,16 @@ class PromptCreate(BaseModel):
 class PromptUpdate(BaseModel):
     """Request body for updating a prompt."""
 
-    slug: str | None = Field(
+    name: str | None = Field(
         default=None,
         pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$",
         max_length=255,
-        description="New slug (renames the prompt)",
+        description="New name (renames the prompt)",
+    )
+    title: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Display title",
     )
     description: str | None = None
     content: str | None = None
@@ -337,7 +430,8 @@ class PromptResponse(BaseModel):
     """Response for a prompt."""
 
     id: int
-    slug: str
+    name: str
+    title: str | None
     description: str | None
     content: str | None
     arguments: list[PromptArgument]
@@ -753,6 +847,9 @@ app.include_router(prompts.router)
 ### Goal
 Create the MCP server that serves prompts via HTTP API calls.
 
+### Prerequisites
+- Extract shared code from `mcp_server/` into `mcp_common/` package (or import directly from `mcp_server`)
+
 ### Success Criteria
 - `prompts/list` returns all prompts
 - `prompts/get` renders template with arguments
@@ -760,6 +857,17 @@ Create the MCP server that serves prompts via HTTP API calls.
 - All tests pass
 
 ### Key Changes
+
+#### 4.0 Code Reuse Strategy
+
+Reuse from existing `backend/src/mcp_server/`:
+
+| Reuse | Source | Target |
+|-------|--------|--------|
+| API client helpers | `mcp_server/api_client.py` | Import directly or copy to `prompt_mcp_server/` |
+| Auth pattern | `mcp_server/auth.py` | Adapt for low-level SDK (uses contextvars instead of FastMCP's `get_http_headers`) |
+
+**Note:** The existing auth uses `fastmcp.server.dependencies.get_http_headers()`. The low-level SDK doesn't have this, so we'll use Python's `contextvars` to pass the token from the ASGI handler to the prompt handlers.
 
 #### 4.1 Prompt Server Implementation
 
@@ -776,8 +884,11 @@ Uses low-level MCP SDK for dynamic prompt loading from database.
 import httpx
 from mcp import types
 from mcp.server.lowlevel import Server
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData, INVALID_PARAMS, INTERNAL_ERROR
 
-from mcp_common.api_client import api_get, get_api_base_url, get_default_timeout
+# Reuse API client helpers from existing MCP server
+from mcp_server.api_client import api_get, get_api_base_url, get_default_timeout
 from .auth import get_bearer_token, AuthenticationError
 from .template_renderer import render_template, TemplateRenderError
 
@@ -798,11 +909,21 @@ async def _get_http_client() -> httpx.AsyncClient:
 
 
 def _get_token() -> str:
-    """Get Bearer token from context."""
+    """Get Bearer token from context, raising McpError on failure."""
     try:
         return get_bearer_token()
     except AuthenticationError as e:
-        raise ValueError(str(e))
+        raise McpError(ErrorData(code=INVALID_PARAMS, message=str(e)))
+
+
+def _handle_api_error(e: httpx.HTTPStatusError, context: str = "") -> None:
+    """Translate API errors to MCP errors. Always raises."""
+    status = e.response.status_code
+    if status == 401:
+        raise McpError(ErrorData(code=INVALID_PARAMS, message="Invalid or expired token"))
+    if status == 404:
+        raise McpError(ErrorData(code=INVALID_PARAMS, message=f"{context} not found"))
+    raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"API error: {status}"))
 
 
 @server.list_prompts()
@@ -823,17 +944,17 @@ async def list_prompts() -> list[types.Prompt]:
                     types.PromptArgument(
                         name=arg["name"],
                         description=arg.get("description"),
-                        required=arg.get("required", False),
+                        required=arg.get("required"),
                     )
                     for arg in p.get("arguments", [])
-                ],
+                ] if p.get("arguments") else None,
             )
             for p in prompts
         ]
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 401:
-            raise ValueError("Invalid or expired token")
-        raise ValueError(f"API error: {e.response.status_code}")
+        _handle_api_error(e, "prompts")
+    except httpx.RequestError as e:
+        raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"API unavailable: {e}"))
 
 
 @server.get_prompt()
@@ -864,13 +985,11 @@ async def get_prompt(
             ],
         )
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise ValueError(f"Prompt '{name}' not found")
-        if e.response.status_code == 401:
-            raise ValueError("Invalid or expired token")
-        raise ValueError(f"API error: {e.response.status_code}")
+        _handle_api_error(e, f"Prompt '{name}'")
+    except httpx.RequestError as e:
+        raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"API unavailable: {e}"))
     except TemplateRenderError as e:
-        raise ValueError(str(e))
+        raise McpError(ErrorData(code=INVALID_PARAMS, message=str(e)))
 ```
 
 #### 4.2 Template Renderer
@@ -912,7 +1031,8 @@ def render_template(
         TemplateRenderError: If validation fails or template has errors
     """
     defined_names = {arg["name"] for arg in arguments}
-    required_names = {arg["name"] for arg in arguments if arg.get("required")}
+    # required can be bool | None; treat None as False
+    required_names = {arg["name"] for arg in arguments if arg.get("required") is True}
 
     # Validate no unknown arguments
     unknown = set(provided_args.keys()) - defined_names
@@ -929,7 +1049,7 @@ def render_template(
             f"Missing required argument(s): {', '.join(sorted(missing))}"
         )
 
-    # Build context with None defaults
+    # Build context with None defaults for optional args
     render_context = {arg["name"]: None for arg in arguments}
     render_context.update(provided_args)
 
@@ -1169,7 +1289,7 @@ Features:
 export interface PromptArgument {
   name: string
   description: string | null
-  required: boolean
+  required: boolean | null  // null treated as false
 }
 
 export interface Prompt {
