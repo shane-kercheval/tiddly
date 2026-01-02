@@ -517,12 +517,12 @@ class PromptService:
         Validates template variables match arguments.
 
         Raises:
-            ValueError: If template validation fails or slug already exists.
+            ValueError: If template validation fails or name already exists.
         """
-        # Check slug uniqueness
-        existing = await self.get_by_slug(db, user_id, data.slug)
+        # Check name uniqueness
+        existing = await self.get_by_name(db, user_id, data.name)
         if existing:
-            raise ValueError(f"Prompt with slug '{data.slug}' already exists")
+            raise ValueError(f"Prompt with name '{data.name}' already exists")
 
         # Validate template
         args_as_dicts = [arg.model_dump() for arg in data.arguments]
@@ -530,7 +530,8 @@ class PromptService:
 
         prompt = Prompt(
             user_id=user_id,
-            slug=data.slug,
+            name=data.name,
+            title=data.title,
             description=data.description,
             content=data.content,
             arguments=args_as_dicts,
@@ -540,17 +541,17 @@ class PromptService:
         await db.refresh(prompt)
         return prompt
 
-    async def get_by_slug(
+    async def get_by_name(
         self,
         db: AsyncSession,
         user_id: int,
-        slug: str,
+        name: str,
     ) -> Prompt | None:
-        """Get a prompt by slug."""
+        """Get a prompt by name."""
         result = await db.execute(
             select(Prompt).where(
                 Prompt.user_id == user_id,
-                Prompt.slug == slug,
+                Prompt.name == name,
             )
         )
         return result.scalar_one_or_none()
@@ -600,27 +601,27 @@ class PromptService:
         self,
         db: AsyncSession,
         user_id: int,
-        slug: str,
+        name: str,
         data: PromptUpdate,
     ) -> Prompt | None:
         """
         Update a prompt.
 
         Raises:
-            ValueError: If template validation fails or new slug already exists.
+            ValueError: If template validation fails or new name already exists.
         """
-        prompt = await self.get_by_slug(db, user_id, slug)
+        prompt = await self.get_by_name(db, user_id, name)
         if not prompt:
             return None
 
         update_data = data.model_dump(exclude_unset=True)
 
-        # Check new slug uniqueness if changing
-        if "slug" in update_data and update_data["slug"] != slug:
-            existing = await self.get_by_slug(db, user_id, update_data["slug"])
+        # Check new name uniqueness if changing
+        if "name" in update_data and update_data["name"] != name:
+            existing = await self.get_by_name(db, user_id, update_data["name"])
             if existing:
                 raise ValueError(
-                    f"Prompt with slug '{update_data['slug']}' already exists"
+                    f"Prompt with name '{update_data['name']}' already exists"
                 )
 
         # Validate template with effective values
@@ -650,10 +651,10 @@ class PromptService:
         self,
         db: AsyncSession,
         user_id: int,
-        slug: str,
+        name: str,
     ) -> bool:
         """Delete a prompt. Returns True if deleted."""
-        prompt = await self.get_by_slug(db, user_id, slug)
+        prompt = await self.get_by_name(db, user_id, name)
         if not prompt:
             return False
 
@@ -672,15 +673,15 @@ prompt_service = PromptService()
 - Test create prompt
 - Test list returns all prompts ordered by updated_at
 - Test update prompt
-- Test update with slug rename
+- Test update with name rename
 - Test delete prompt
 
-**Slug validation:**
-- Test create fails on duplicate slug
-- Test update fails on slug collision
-- Test invalid slug format rejected (uppercase, spaces, special chars)
-- Test empty slug rejected
-- Test slug exceeding max length rejected
+**Name validation:**
+- Test create fails on duplicate name
+- Test update fails on name collision
+- Test invalid name format rejected (uppercase, spaces, special chars)
+- Test empty name rejected
+- Test name exceeding max length rejected
 
 **Arguments validation:**
 - Test duplicate argument names rejected
@@ -738,7 +739,8 @@ async def create_prompt(
     """
     Create a new prompt.
 
-    - **slug**: Prompt name/identifier (required, lowercase with hyphens)
+    - **name**: Prompt identifier (required, lowercase with hyphens)
+    - **title**: Optional display title
     - **description**: Optional description
     - **content**: Jinja2 template content
     - **arguments**: List of prompt arguments
@@ -767,29 +769,29 @@ async def list_prompts(
     )
 
 
-@router.get("/{slug}", response_model=PromptResponse)
+@router.get("/{name}", response_model=PromptResponse)
 async def get_prompt(
-    slug: str,
+    name: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptResponse:
-    """Get a prompt by slug."""
-    prompt = await prompt_service.get_by_slug(db, current_user.id, slug)
+    """Get a prompt by name."""
+    prompt = await prompt_service.get_by_name(db, current_user.id, name)
     if not prompt:
         raise HTTPException(status_code=404, detail="Prompt not found")
     return PromptResponse.model_validate(prompt)
 
 
-@router.patch("/{slug}", response_model=PromptResponse)
+@router.patch("/{name}", response_model=PromptResponse)
 async def update_prompt(
-    slug: str,
+    name: str,
     data: PromptUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptResponse:
     """Update a prompt."""
     try:
-        prompt = await prompt_service.update(db, current_user.id, slug, data)
+        prompt = await prompt_service.update(db, current_user.id, name, data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not prompt:
@@ -797,14 +799,14 @@ async def update_prompt(
     return PromptResponse.model_validate(prompt)
 
 
-@router.delete("/{slug}", status_code=204)
+@router.delete("/{name}", status_code=204)
 async def delete_prompt(
-    slug: str,
+    name: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Delete a prompt."""
-    deleted = await prompt_service.delete(db, current_user.id, slug)
+    deleted = await prompt_service.delete(db, current_user.id, name)
     if not deleted:
         raise HTTPException(status_code=404, detail="Prompt not found")
 ```
