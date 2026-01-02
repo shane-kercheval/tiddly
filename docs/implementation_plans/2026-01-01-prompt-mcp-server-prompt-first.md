@@ -22,7 +22,8 @@ Key concepts from spec:
 ```python
 # What we use from the SDK:
 class Prompt(BaseMetadata):
-    name: str                              # Required - prompt identifier (we use slug)
+    name: str                              # Required - prompt identifier
+    title: str | None = None               # Optional - display name for UI
     description: str | None = None         # Optional
     arguments: list[PromptArgument] | None = None
 
@@ -85,8 +86,8 @@ The original "notes with tag" approach had too many workarounds:
 | Problem | Notes-as-Prompts Workaround | Prompt-First Solution |
 |---------|-----------------------------|-----------------------|
 | Identifying prompts | Tag configuration + filtering | Dedicated `prompts` table |
-| Duplicate slugs | Deduplication by `updated_at` | Unique constraint `(user_id, slug)` |
-| Slug collisions | UI warning, "winner" logic | DB enforces uniqueness |
+| Duplicate names | Deduplication by `updated_at` | Unique constraint `(user_id, name)` |
+| Name collisions | UI warning, "winner" logic | DB enforces uniqueness |
 | Conditional validation | Only validate when has prompt tag | Always validate |
 | User confusion | "Which notes are prompts?" | Clear separation |
 | Prompt-specific fields | Nullable `prompt_arguments` on notes | Required fields on prompts |
@@ -172,7 +173,8 @@ Since prompts are their own entity, there's no need to configure which tag ident
 
 | Prompt Field | MCP Field | Notes |
 |--------------|-----------|-------|
-| `slug` | `name` | MCP prompt identifier |
+| `name` | `name` | MCP prompt identifier |
+| `title` | `title` | Optional display name |
 | `description` | `description` | Optional |
 | `content` | Template | Jinja2 template |
 | `arguments` | `arguments` | List of argument definitions |
@@ -186,7 +188,7 @@ Create the `prompts` table with proper constraints.
 
 ### Success Criteria
 - Migration creates `prompts` table
-- Unique constraint on `(user_id, slug)`
+- Unique constraint on `(user_id, name)`
 - All tests pass
 
 ### Key Changes
@@ -965,7 +967,7 @@ async def get_prompt(
     name: str,
     arguments: dict[str, str] | None = None,
 ) -> types.GetPromptResult:
-    """Get and render a prompt by slug."""
+    """Get and render a prompt by name."""
     client = await _get_http_client()
     token = _get_token()
 
@@ -1265,7 +1267,7 @@ Create UI for managing prompts as a first-class feature.
 **File:** `frontend/src/pages/PromptsPage.tsx` (new)
 
 Features:
-- List all prompts with slug, description
+- List all prompts with name, title (if set), description
 - Create new prompt button
 - Click to edit
 - Delete action
@@ -1275,7 +1277,8 @@ Features:
 **File:** `frontend/src/pages/PromptEditorPage.tsx` (new)
 
 Features:
-- Slug input (prompt name)
+- Name input (prompt identifier, validated)
+- Title input (optional display name)
 - Description textarea
 - Content textarea (Jinja2 template)
 - Arguments builder:
@@ -1297,7 +1300,8 @@ export interface PromptArgument {
 
 export interface Prompt {
   id: number
-  slug: string
+  name: string
+  title: string | null
   description: string | null
   content: string | null
   arguments: PromptArgument[]
@@ -1306,14 +1310,16 @@ export interface Prompt {
 }
 
 export interface PromptCreate {
-  slug: string
+  name: string
+  title?: string | null
   description?: string | null
   content?: string | null
   arguments?: PromptArgument[]
 }
 
 export interface PromptUpdate {
-  slug?: string
+  name?: string
+  title?: string | null
   description?: string | null
   content?: string | null
   arguments?: PromptArgument[]
@@ -1331,8 +1337,8 @@ async listPrompts(): Promise<{ items: Prompt[], total: number }> {
   return response.json()
 }
 
-async getPrompt(slug: string): Promise<Prompt> {
-  const response = await this.fetch(`/prompts/${slug}`)
+async getPrompt(name: string): Promise<Prompt> {
+  const response = await this.fetch(`/prompts/${name}`)
   return response.json()
 }
 
@@ -1344,16 +1350,16 @@ async createPrompt(data: PromptCreate): Promise<Prompt> {
   return response.json()
 }
 
-async updatePrompt(slug: string, data: PromptUpdate): Promise<Prompt> {
-  const response = await this.fetch(`/prompts/${slug}`, {
+async updatePrompt(name: string, data: PromptUpdate): Promise<Prompt> {
+  const response = await this.fetch(`/prompts/${name}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   })
   return response.json()
 }
 
-async deletePrompt(slug: string): Promise<void> {
-  await this.fetch(`/prompts/${slug}`, { method: 'DELETE' })
+async deletePrompt(name: string): Promise<void> {
+  await this.fetch(`/prompts/${name}`, { method: 'DELETE' })
 }
 ```
 
