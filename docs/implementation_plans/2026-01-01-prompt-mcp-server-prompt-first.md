@@ -58,7 +58,6 @@ The original "notes with tag" approach had too many workarounds:
 │  │  - id (PK)                                              │    │
 │  │  - user_id (FK → users)                                 │    │
 │  │  - slug (unique per user, e.g., "code-review")          │    │
-│  │  - title (display name, e.g., "Code Review")            │    │
 │  │  - description (optional)                               │    │
 │  │  - content (Jinja2 template)                            │    │
 │  │  - arguments (JSONB): [{name, description, required}]   │    │
@@ -78,8 +77,8 @@ Prompts have their own table, model, schemas, and CRUD endpoints. They don't sha
 
 ### 2. Slug as Primary Identifier
 
-- `slug` is auto-generated from `title` on create (user can override)
-- `slug` is the URL path and MCP prompt name
+- `slug` IS the prompt name - no separate title field
+- User provides slug directly when creating
 - Unique constraint `(user_id, slug)` enforced by database
 - Update by slug: `PATCH /prompts/{slug}`
 
@@ -98,7 +97,6 @@ Since prompts are their own entity, there's no need to configure which tag ident
 | Prompt Field | MCP Field | Notes |
 |--------------|-----------|-------|
 | `slug` | `name` | MCP prompt identifier |
-| `title` | `title` | Display name |
 | `description` | `description` | Optional |
 | `content` | Template | Jinja2 template |
 | `arguments` | `arguments` | List of argument definitions |
@@ -156,18 +154,11 @@ class Prompt(Base, TimestampMixin):
         index=True,
     )
 
-    # Slug is the MCP prompt name and URL identifier
+    # Slug is the prompt name, MCP identifier, and URL path
     slug: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
-        comment="URL-safe identifier, unique per user",
-    )
-
-    # Title is the display name
-    title: Mapped[str] = mapped_column(
-        String(500),
-        nullable=False,
-        comment="Display title for the prompt",
+        comment="Prompt name and identifier, unique per user (e.g., 'code-review')",
     )
 
     description: Mapped[str | None] = mapped_column(
@@ -221,10 +212,17 @@ The migration should create:
 
 ### Testing Strategy
 
+**Model basics:**
 - Test prompt creation with valid data
+- Test prompt has correct timestamps (created_at, updated_at)
+
+**Unique constraint:**
 - Test unique constraint prevents duplicate slugs for same user
 - Test different users can have same slug
-- Test cascade delete when user is deleted
+- Test IntegrityError raised on duplicate (user_id, slug)
+
+**Cascade delete:**
+- Test cascade delete removes prompts when user is deleted
 
 ---
 
@@ -240,7 +238,6 @@ Create Pydantic schemas and service layer for prompt CRUD.
 - Schemas for create, update, response
 - Service with CRUD operations
 - Template validation on save
-- Slug auto-generation from title
 - All tests pass
 
 ### Key Changes
@@ -278,16 +275,11 @@ class PromptArgument(BaseModel):
 class PromptCreate(BaseModel):
     """Request body for creating a prompt."""
 
-    title: str = Field(
+    slug: str = Field(
         min_length=1,
-        max_length=500,
-        description="Display title (slug auto-generated if not provided)",
-    )
-    slug: str | None = Field(
-        default=None,
-        pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$",
         max_length=255,
-        description="URL-safe identifier (auto-generated from title if not provided)",
+        pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$",
+        description="Prompt name/identifier (lowercase with hyphens, e.g., 'code-review')",
     )
     description: str | None = Field(
         default=None,
@@ -318,15 +310,11 @@ class PromptCreate(BaseModel):
 class PromptUpdate(BaseModel):
     """Request body for updating a prompt."""
 
-    title: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=500,
-    )
     slug: str | None = Field(
         default=None,
         pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$",
         max_length=255,
+        description="New slug (renames the prompt)",
     )
     description: str | None = None
     content: str | None = None
@@ -350,7 +338,6 @@ class PromptResponse(BaseModel):
 
     id: int
     slug: str
-    title: str
     description: str | None
     content: str | None
     arguments: list[PromptArgument]
@@ -373,8 +360,6 @@ class PromptListResponse(BaseModel):
 
 ```python
 """Service for prompt CRUD operations."""
-import re
-import unicodedata
 from typing import Any
 
 from jinja2 import Environment, meta, TemplateSyntaxError
@@ -386,28 +371,6 @@ from schemas.prompt import PromptCreate, PromptUpdate
 
 
 _jinja_env = Environment()
-
-
-def slugify(title: str) -> str:
-    """
-    Convert title to URL-safe slug.
-
-    "Code Review" -> "code-review"
-    "My API Helper!" -> "my-api-helper"
-    "Résumé Builder" -> "resume-builder"
-    """
-    # Normalize unicode (é -> e)
-    text = unicodedata.normalize("NFKD", title)
-    text = text.encode("ascii", "ignore").decode("ascii")
-    # Lowercase
-    text = text.lower()
-    # Replace non-alphanumeric with hyphens
-    text = re.sub(r"[^a-z0-9]+", "-", text)
-    # Remove leading/trailing hyphens
-    text = text.strip("-")
-    # Collapse multiple hyphens
-    text = re.sub(r"-+", "-", text)
-    return text or "untitled"
 
 
 def get_template_variables(content: str) -> set[str]:
@@ -457,19 +420,15 @@ class PromptService:
         """
         Create a new prompt.
 
-        Auto-generates slug from title if not provided.
         Validates template variables match arguments.
 
         Raises:
             ValueError: If template validation fails or slug already exists.
         """
-        # Generate slug if not provided
-        slug = data.slug or slugify(data.title)
-
         # Check slug uniqueness
-        existing = await self.get_by_slug(db, user_id, slug)
+        existing = await self.get_by_slug(db, user_id, data.slug)
         if existing:
-            raise ValueError(f"Prompt with slug '{slug}' already exists")
+            raise ValueError(f"Prompt with slug '{data.slug}' already exists")
 
         # Validate template
         args_as_dicts = [arg.model_dump() for arg in data.arguments]
@@ -477,8 +436,7 @@ class PromptService:
 
         prompt = Prompt(
             user_id=user_id,
-            slug=slug,
-            title=data.title,
+            slug=data.slug,
             description=data.description,
             content=data.content,
             arguments=args_as_dicts,
@@ -616,16 +574,30 @@ prompt_service = PromptService()
 
 ### Testing Strategy
 
-- Test slugify with various inputs (unicode, special chars, etc.)
-- Test create with auto-generated slug
-- Test create with custom slug
-- Test create fails on duplicate slug
-- Test template validation on create
-- Test template validation on update
+**CRUD:**
+- Test create prompt
 - Test list returns all prompts ordered by updated_at
-- Test update with slug change
+- Test update prompt
+- Test update with slug rename
+- Test delete prompt
+
+**Slug validation:**
+- Test create fails on duplicate slug
 - Test update fails on slug collision
-- Test delete
+- Test invalid slug format rejected (uppercase, spaces, special chars)
+- Test empty slug rejected
+- Test slug exceeding max length rejected
+
+**Arguments validation:**
+- Test duplicate argument names rejected
+- Test invalid argument name format rejected (must start with letter, lowercase)
+- Test argument name exceeding max length rejected
+
+**Jinja template validation:**
+- Test template with undefined variable rejected on create
+- Test template with undefined variable rejected on update
+- Test invalid Jinja syntax rejected (e.g., `{{ unclosed`)
+- Test valid template with matching arguments passes
 
 ---
 
@@ -672,8 +644,7 @@ async def create_prompt(
     """
     Create a new prompt.
 
-    - **title**: Display title (required)
-    - **slug**: URL-safe identifier (auto-generated from title if not provided)
+    - **slug**: Prompt name/identifier (required, lowercase with hyphens)
     - **description**: Optional description
     - **content**: Jinja2 template content
     - **arguments**: List of prompt arguments
@@ -755,18 +726,25 @@ app.include_router(prompts.router)
 
 ### Testing Strategy
 
-- Test POST creates prompt with auto-generated slug
-- Test POST creates prompt with custom slug
-- Test POST returns 400 on duplicate slug
-- Test POST returns 400 on template validation error
+**CRUD endpoints:**
+- Test POST creates prompt (201)
 - Test GET list returns prompts
 - Test GET by slug returns prompt
 - Test GET by slug returns 404 for non-existent
 - Test PATCH updates prompt
-- Test PATCH returns 400 on slug collision
 - Test PATCH returns 404 for non-existent
-- Test DELETE removes prompt
+- Test DELETE removes prompt (204)
 - Test DELETE returns 404 for non-existent
+
+**Validation errors (400):**
+- Test POST returns 400 on duplicate slug
+- Test POST returns 400 on invalid slug format
+- Test POST returns 400 on duplicate argument names
+- Test POST returns 400 on invalid argument name format
+- Test POST returns 400 on template validation error (undefined var)
+- Test POST returns 400 on invalid Jinja syntax
+- Test PATCH returns 400 on slug collision
+- Test PATCH returns 400 on template validation error
 
 ---
 
@@ -840,7 +818,6 @@ async def list_prompts() -> list[types.Prompt]:
         return [
             types.Prompt(
                 name=p["slug"],
-                title=p["title"],
                 description=p.get("description"),
                 arguments=[
                     types.PromptArgument(
@@ -1122,12 +1099,25 @@ prompt-server:  ## Start Prompt MCP server
 
 ### Testing Strategy
 
+**MCP protocol:**
 - Test `list_prompts()` returns MCP Prompt objects
 - Test `get_prompt()` renders template correctly
+- Test `get_prompt()` for non-existent prompt returns error
+
+**Argument validation at render time:**
 - Test `get_prompt()` with missing required argument errors
 - Test `get_prompt()` with unknown argument errors
-- Test `get_prompt()` for non-existent prompt returns error
-- Test authentication: missing header returns 401
+- Test `get_prompt()` with optional argument omitted succeeds
+
+**Template rendering errors:**
+- Test `get_prompt()` with invalid Jinja syntax in stored template errors
+- Test `get_prompt()` catches UndefinedError at render time
+
+**Authentication:**
+- Test missing Authorization header returns 401
+- Test invalid token returns 401
+
+**Health:**
 - Test health check returns 200
 
 ---
@@ -1152,7 +1142,7 @@ Create UI for managing prompts as a first-class feature.
 **File:** `frontend/src/pages/PromptsPage.tsx` (new)
 
 Features:
-- List all prompts with title, slug, description
+- List all prompts with slug, description
 - Create new prompt button
 - Click to edit
 - Delete action
@@ -1162,7 +1152,7 @@ Features:
 **File:** `frontend/src/pages/PromptEditorPage.tsx` (new)
 
 Features:
-- Title input (slug auto-generated or custom)
+- Slug input (prompt name)
 - Description textarea
 - Content textarea (Jinja2 template)
 - Arguments builder:
@@ -1185,7 +1175,6 @@ export interface PromptArgument {
 export interface Prompt {
   id: number
   slug: string
-  title: string
   description: string | null
   content: string | null
   arguments: PromptArgument[]
@@ -1194,15 +1183,13 @@ export interface Prompt {
 }
 
 export interface PromptCreate {
-  title: string
-  slug?: string | null
+  slug: string
   description?: string | null
   content?: string | null
   arguments?: PromptArgument[]
 }
 
 export interface PromptUpdate {
-  title?: string
   slug?: string
   description?: string | null
   content?: string | null
@@ -1258,7 +1245,6 @@ Add "Prompts" to sidebar navigation with a terminal/command icon.
 - Test edit prompt flow
 - Test delete prompt
 - Test validation errors displayed
-- Test slug auto-generation preview
 
 ---
 
