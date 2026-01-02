@@ -825,21 +825,21 @@ app.include_router(prompts.router)
 **CRUD endpoints:**
 - Test POST creates prompt (201)
 - Test GET list returns prompts
-- Test GET by slug returns prompt
-- Test GET by slug returns 404 for non-existent
+- Test GET by name returns prompt
+- Test GET by name returns 404 for non-existent
 - Test PATCH updates prompt
 - Test PATCH returns 404 for non-existent
 - Test DELETE removes prompt (204)
 - Test DELETE returns 404 for non-existent
 
 **Validation errors (400):**
-- Test POST returns 400 on duplicate slug
-- Test POST returns 400 on invalid slug format
+- Test POST returns 400 on duplicate name
+- Test POST returns 400 on invalid name format
 - Test POST returns 400 on duplicate argument names
 - Test POST returns 400 on invalid argument name format
 - Test POST returns 400 on template validation error (undefined var)
 - Test POST returns 400 on invalid Jinja syntax
-- Test PATCH returns 400 on slug collision
+- Test PATCH returns 400 on name collision
 - Test PATCH returns 400 on template validation error
 
 ---
@@ -940,7 +940,8 @@ async def list_prompts() -> list[types.Prompt]:
 
         return [
             types.Prompt(
-                name=p["slug"],
+                name=p["name"],
+                title=p.get("title"),
                 description=p.get("description"),
                 arguments=[
                     types.PromptArgument(
