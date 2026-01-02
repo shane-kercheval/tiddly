@@ -168,6 +168,19 @@ Since prompts are their own entity, there's no need to configure which tag ident
 - All template variables must have corresponding arguments
 - Validation always happens (not conditional on tags)
 - Duplicate argument names rejected
+- Invalid Jinja2 syntax rejected (e.g., `{{ unclosed` fails immediately)
+
+### Naming Conventions
+
+**Important distinction:**
+- **Prompt names** use hyphens: `code-review`, `explain-code`
+- **Argument names** use underscores: `code_to_review`, `language`
+
+This difference is intentional:
+- Prompt names are URL-friendly identifiers (hyphens preferred)
+- Argument names must be valid Jinja2/Python identifiers (underscores required, hyphens not allowed)
+
+The frontend editor should provide hint text explaining this to users.
 
 ### 5. Prompt Fields → MCP Fields
 
@@ -178,6 +191,34 @@ Since prompts are their own entity, there's no need to configure which tag ident
 | `description` | `description` | Optional |
 | `content` | Template | Jinja2 template |
 | `arguments` | `arguments` | List of argument definitions |
+
+### 6. Rate Limiting
+
+Prompt endpoints follow the same rate limiting tiers as bookmarks:
+
+| Auth Type | Operation | Per Minute | Per Day |
+|-----------|-----------|------------|---------|
+| PAT | Read (GET) | 120 | 2000 |
+| PAT | Write (POST/PATCH/DELETE) | 60 | 2000 |
+| Auth0 | Read | 300 | 4000 |
+| Auth0 | Write | 90 | 4000 |
+
+Rate limiting is applied via the existing `rate_limiter` middleware. No sensitive operations (external HTTP) are performed by prompt endpoints, so the `sensitive` tier is not used.
+
+### 7. Authentication
+
+All prompt endpoints use `get_current_user`, which accepts both Auth0 JWTs and Personal Access Tokens (PATs). This is appropriate because:
+- No external HTTP requests are made (unlike `fetch-metadata`)
+- PAT access enables legitimate automation use cases
+- Rate limiting provides abuse protection
+
+### 8. Port Allocation
+
+| Service | Port | Description |
+|---------|------|-------------|
+| Main API | 8000 | REST API |
+| Bookmarks MCP Server | 8001 | Tools (search, create bookmarks) |
+| **Prompt MCP Server** | **8002** | Prompts capability |
 
 ---
 
@@ -276,14 +317,31 @@ class Prompt(Base, TimestampMixin):
 **File:** `backend/src/models/user.py` (update)
 
 ```python
-# Add relationship
+# Add TYPE_CHECKING import at top of file
+if TYPE_CHECKING:
+    from models.prompt import Prompt  # Add this line
+
+# Add relationship in User class
 prompts: Mapped[list["Prompt"]] = relationship(
     back_populates="user",
     cascade="all, delete-orphan",
 )
 ```
 
-#### 1.3 Create Migration
+#### 1.3 Update Model Exports
+
+**File:** `backend/src/models/__init__.py` (update)
+
+```python
+from models.prompt import Prompt
+
+__all__ = [
+    # ... existing exports ...
+    "Prompt",
+]
+```
+
+#### 1.4 Create Migration
 
 ```bash
 make migration message="create prompts table"
@@ -460,6 +518,7 @@ from typing import Any
 
 from jinja2 import Environment, meta, TemplateSyntaxError
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.prompt import Prompt
@@ -469,28 +528,24 @@ from schemas.prompt import PromptCreate, PromptUpdate
 _jinja_env = Environment()
 
 
-def get_template_variables(content: str) -> set[str]:
-    """Extract variable names from Jinja2 template."""
-    if not content:
-        return set()
-    try:
-        ast = _jinja_env.parse(content)
-        return meta.find_undeclared_variables(ast)
-    except TemplateSyntaxError:
-        return set()
-
-
 def validate_template(content: str | None, arguments: list[dict[str, Any]]) -> None:
     """
-    Validate template variables match defined arguments.
+    Validate Jinja2 template syntax and variables.
 
     Raises:
-        ValueError: If template uses undefined variables.
+        ValueError: If template has invalid syntax or uses undefined variables.
     """
     if not content:
         return
 
-    template_vars = get_template_variables(content)
+    # Validate syntax first - don't swallow syntax errors
+    try:
+        ast = _jinja_env.parse(content)
+    except TemplateSyntaxError as e:
+        raise ValueError(f"Invalid Jinja2 syntax: {e.message}")
+
+    # Check for undefined variables
+    template_vars = meta.find_undeclared_variables(ast)
     if not template_vars:
         return
 
@@ -521,12 +576,7 @@ class PromptService:
         Raises:
             ValueError: If template validation fails or name already exists.
         """
-        # Check name uniqueness
-        existing = await self.get_by_name(db, user_id, data.name)
-        if existing:
-            raise ValueError(f"Prompt with name '{data.name}' already exists")
-
-        # Validate template
+        # Validate template first (fast fail before DB operations)
         args_as_dicts = [arg.model_dump() for arg in data.arguments]
         validate_template(data.content, args_as_dicts)
 
@@ -539,7 +589,16 @@ class PromptService:
             arguments=args_as_dicts,
         )
         db.add(prompt)
-        await db.flush()
+
+        try:
+            await db.flush()
+        except IntegrityError as e:
+            await db.rollback()
+            # Check if it's a unique constraint violation
+            if "uq_prompts_user_name" in str(e.orig):
+                raise ValueError(f"Prompt with name '{data.name}' already exists")
+            raise  # Re-raise unexpected integrity errors
+
         await db.refresh(prompt)
         return prompt
 
@@ -618,14 +677,6 @@ class PromptService:
 
         update_data = data.model_dump(exclude_unset=True)
 
-        # Check new name uniqueness if changing
-        if "name" in update_data and update_data["name"] != name:
-            existing = await self.get_by_name(db, user_id, update_data["name"])
-            if existing:
-                raise ValueError(
-                    f"Prompt with name '{update_data['name']}' already exists"
-                )
-
         # Validate template with effective values
         effective_content = update_data.get("content", prompt.content)
         effective_args = update_data.get("arguments", prompt.arguments)
@@ -639,13 +690,21 @@ class PromptService:
         validate_template(effective_content, args_as_dicts)
 
         # Apply updates
+        new_name = update_data.get("name")
         for field, value in update_data.items():
             if field == "arguments":
                 setattr(prompt, field, args_as_dicts)
             else:
                 setattr(prompt, field, value)
 
-        await db.flush()
+        try:
+            await db.flush()
+        except IntegrityError as e:
+            await db.rollback()
+            if "uq_prompts_user_name" in str(e.orig) and new_name:
+                raise ValueError(f"Prompt with name '{new_name}' already exists")
+            raise
+
         await db.refresh(prompt)
         return prompt
 
@@ -693,8 +752,13 @@ prompt_service = PromptService()
 **Jinja template validation:**
 - Test template with undefined variable rejected on create
 - Test template with undefined variable rejected on update
-- Test invalid Jinja syntax rejected (e.g., `{{ unclosed`)
+- Test invalid Jinja syntax rejected on create (e.g., `{{ unclosed`)
+- Test invalid Jinja syntax rejected on update
 - Test valid template with matching arguments passes
+- Test empty content passes validation
+
+**Concurrency:**
+- Test concurrent creates with same name: one succeeds, one fails with 400
 
 ---
 
@@ -840,9 +904,13 @@ app.include_router(prompts.router)
 - Test POST returns 400 on duplicate argument names
 - Test POST returns 400 on invalid argument name format
 - Test POST returns 400 on template validation error (undefined var)
-- Test POST returns 400 on invalid Jinja syntax
+- Test POST returns 400 on invalid Jinja syntax (e.g., `{{ unclosed`)
 - Test PATCH returns 400 on name collision
 - Test PATCH returns 400 on template validation error
+- Test PATCH returns 400 on invalid Jinja syntax
+
+**Concurrency:**
+- Test concurrent POST with same name: one succeeds (201), one fails (400)
 
 ---
 
@@ -937,7 +1005,9 @@ async def list_prompts() -> list[types.Prompt]:
     token = _get_token()
 
     try:
-        response = await api_get(client, "/prompts/", token)
+        # Use high limit since MCP clients expect all prompts in one call
+        # API max is 100 per request; most users won't have >100 prompts
+        response = await api_get(client, "/prompts/", token, params={"limit": 100})
         prompts = response.get("items", [])
 
         return [
@@ -1092,6 +1162,11 @@ def set_current_token(token: str) -> None:
     _current_token.set(token)
 
 
+def clear_current_token() -> None:
+    """Clear the current request's auth token (call after request completes)."""
+    _current_token.set(None)
+
+
 def get_bearer_token() -> str:
     """Get the Bearer token for the current request."""
     token = _current_token.get()
@@ -1152,9 +1227,11 @@ app = FastAPI(title="Bookmarks Prompt MCP Server", lifespan=lifespan)
 
 async def mcp_asgi_handler(scope: Scope, receive: Receive, send: Send) -> None:
     """Route MCP messages with auth."""
-    from .auth import set_current_token
+    from .auth import set_current_token, clear_current_token
 
-    if not hasattr(scope.get("app").state, "mcp_session_manager"):
+    # Defensive null check for app
+    app = scope.get("app")
+    if not app or not hasattr(app.state, "mcp_session_manager"):
         response = JSONResponse({"error": "MCP server not initialized"}, status_code=503)
         await response(scope, receive, send)
         return
@@ -1162,15 +1239,19 @@ async def mcp_asgi_handler(scope: Scope, receive: Receive, send: Send) -> None:
     headers = dict(scope.get("headers", []))
     auth_header = headers.get(b"authorization", b"").decode()
 
-    if auth_header.lower().startswith("bearer "):
-        set_current_token(auth_header[7:])
-    else:
+    if not auth_header.lower().startswith("bearer "):
         response = JSONResponse({"error": "Missing Authorization header"}, status_code=401)
         await response(scope, receive, send)
         return
 
-    session_manager = scope["app"].state.mcp_session_manager
-    await session_manager.handle_request(scope, receive, send)
+    # Set token for request context
+    set_current_token(auth_header[7:])
+    try:
+        session_manager = app.state.mcp_session_manager
+        await session_manager.handle_request(scope, receive, send)
+    finally:
+        # Clean up token after request (good hygiene for long-lived contexts)
+        clear_current_token()
 
 
 app.mount("/mcp", mcp_asgi_handler)
@@ -1225,22 +1306,31 @@ prompt-server:  ## Start Prompt MCP server
 ### Testing Strategy
 
 **MCP protocol:**
-- Test `list_prompts()` returns MCP Prompt objects
+- Test `list_prompts()` returns MCP Prompt objects with correct fields
+- Test `list_prompts()` includes title when set, omits when null
+- Test `list_prompts()` uses limit=100 (verify API called with param)
 - Test `get_prompt()` renders template correctly
-- Test `get_prompt()` for non-existent prompt returns error
+- Test `get_prompt()` for non-existent prompt returns INVALID_PARAMS error
+- Test `get_prompt()` returns rendered content as PromptMessage with role="user"
 
 **Argument validation at render time:**
-- Test `get_prompt()` with missing required argument errors
-- Test `get_prompt()` with unknown argument errors
-- Test `get_prompt()` with optional argument omitted succeeds
+- Test `get_prompt()` with missing required argument returns INVALID_PARAMS error
+- Test `get_prompt()` with unknown argument returns INVALID_PARAMS error
+- Test `get_prompt()` with optional argument omitted succeeds (uses None)
+- Test `get_prompt()` with empty arguments dict succeeds for prompts with no args
 
 **Template rendering errors:**
-- Test `get_prompt()` with invalid Jinja syntax in stored template errors
+- Test `get_prompt()` with invalid Jinja syntax in stored template returns INVALID_PARAMS error
 - Test `get_prompt()` catches UndefinedError at render time
+- Test `get_prompt()` with empty content returns empty string
 
 **Authentication:**
 - Test missing Authorization header returns 401
-- Test invalid token returns 401
+- Test invalid token returns 401 (API responds with 401)
+- Test valid token passes through to API
+
+**Context cleanup:**
+- Test auth token is cleared after request (verify contextvar reset)
 
 **Health:**
 - Test health check returns 200
@@ -1363,7 +1453,87 @@ async deletePrompt(name: string): Promise<void> {
 }
 ```
 
-#### 5.5 Navigation
+#### 5.5 React Query Hooks
+
+**File:** `frontend/src/hooks/usePrompts.ts` (new)
+
+Follow existing hook patterns (see `useBookmarks.ts`, `useNotes.ts`).
+
+```typescript
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '../services/api'
+import type { Prompt, PromptCreate, PromptUpdate } from '../types'
+
+// Query keys for cache management
+export const promptKeys = {
+  all: ['prompts'] as const,
+  lists: () => [...promptKeys.all, 'list'] as const,
+  list: () => [...promptKeys.lists()] as const,
+  details: () => [...promptKeys.all, 'detail'] as const,
+  detail: (name: string) => [...promptKeys.details(), name] as const,
+}
+
+// List all prompts
+export function usePromptsQuery() {
+  return useQuery({
+    queryKey: promptKeys.list(),
+    queryFn: () => api.listPrompts(),
+  })
+}
+
+// Get single prompt by name
+export function usePromptQuery(name: string) {
+  return useQuery({
+    queryKey: promptKeys.detail(name),
+    queryFn: () => api.getPrompt(name),
+    enabled: !!name,
+  })
+}
+
+// Create prompt mutation
+export function useCreatePrompt() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: PromptCreate) => api.createPrompt(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: promptKeys.lists() })
+    },
+  })
+}
+
+// Update prompt mutation
+export function useUpdatePrompt() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, data }: { name: string; data: PromptUpdate }) =>
+      api.updatePrompt(name, data),
+    onSuccess: (updatedPrompt) => {
+      // Invalidate list and update detail cache
+      queryClient.invalidateQueries({ queryKey: promptKeys.lists() })
+      queryClient.setQueryData(promptKeys.detail(updatedPrompt.name), updatedPrompt)
+    },
+  })
+}
+
+// Delete prompt mutation
+export function useDeletePrompt() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => api.deletePrompt(name),
+    onSuccess: (_, name) => {
+      queryClient.invalidateQueries({ queryKey: promptKeys.lists() })
+      queryClient.removeQueries({ queryKey: promptKeys.detail(name) })
+    },
+  })
+}
+```
+
+**Cache Invalidation Strategy:**
+- Create: Invalidate list (new item appears)
+- Update: Invalidate list + update detail cache (optimistic)
+- Delete: Invalidate list + remove detail cache
+
+#### 5.6 Navigation
 
 Add "Prompts" to sidebar navigation with a terminal/command icon.
 
