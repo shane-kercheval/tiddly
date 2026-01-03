@@ -161,7 +161,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 ```json
 {
   "mcpServers": {
-    "bookmarks": {
+    "notes_bookmarks": {
       "command": "npx",
       "args": [
         "mcp-remote",
