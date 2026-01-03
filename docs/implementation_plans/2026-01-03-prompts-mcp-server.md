@@ -752,7 +752,7 @@ This means:
 
 | Handler | API Call | Returns |
 |---------|----------|---------|
-| `@server.list_prompts()` | `GET /prompts/?limit=100` | `list[types.Prompt]` |
+| `@server.list_prompts()` | `GET /prompts/?limit=200` | `list[types.Prompt]` |
 | `@server.get_prompt()` | `GET /prompts/name/{name}`, then `POST /prompts/{id}/track-usage` | `types.GetPromptResult` |
 | `@server.list_tools()` | None | `list[types.Tool]` with `create_prompt` |
 | `@server.call_tool()` | `POST /prompts/` | `list[types.TextContent]` |
@@ -826,7 +826,7 @@ prompt-server:  ## Start Prompt MCP server
 - `test__list_prompts__returns_prompt_list`
 - `test__list_prompts__empty_list_when_no_prompts`
 - `test__list_prompts__includes_name_title_description_arguments`
-- `test__list_prompts__uses_limit_100`
+- `test__list_prompts__uses_limit_200`
 
 **get_prompt handler:**
 - `test__get_prompt__renders_template_with_arguments`
