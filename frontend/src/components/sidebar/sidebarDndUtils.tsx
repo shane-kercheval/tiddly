@@ -4,7 +4,6 @@
 import type { ReactNode } from 'react'
 import { closestCenter, pointerWithin, type CollisionDetection } from '@dnd-kit/core'
 import {
-  SharedIcon,
   ArchiveIcon,
   TrashIcon,
   BookmarkIcon,
@@ -25,7 +24,7 @@ import type {
 export function getBuiltinIcon(key: BuiltinKey): ReactNode {
   switch (key) {
     case 'all':
-      return <SharedIcon className="h-4 w-4 text-purple-600" />
+      return <ListIcon className="h-4 w-4 text-purple-600" />
     case 'archived':
       return <ArchiveIcon className="h-4 w-4 text-gray-500" />
     case 'trash':

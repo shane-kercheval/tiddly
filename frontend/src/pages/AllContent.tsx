@@ -57,7 +57,7 @@ import {
   SearchIcon,
   ArchiveIcon,
   TrashIcon,
-  SharedIcon,
+  ListIcon,
 } from '../components/icons'
 import type { Bookmark, BookmarkCreate, BookmarkUpdate, ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem } from '../types'
 import { getFirstGroupTags } from '../utils'
@@ -654,7 +654,7 @@ export function AllContent(): ReactNode {
 
       return (
         <EmptyState
-          icon={<SharedIcon />}
+          icon={<ListIcon />}
           title="No content yet"
           description="Create bookmarks or notes to see them here."
         />

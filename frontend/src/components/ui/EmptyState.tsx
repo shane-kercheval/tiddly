@@ -28,7 +28,7 @@ export function EmptyState({
 }: EmptyStateProps): ReactNode {
   return (
     <div className="py-16 text-center">
-      <div className="mx-auto h-10 w-10 text-gray-300">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center text-gray-300 [&>svg]:h-8 [&>svg]:w-8">
         {icon}
       </div>
       <h3 className="mt-4 text-base font-medium text-gray-900">{title}</h3>
