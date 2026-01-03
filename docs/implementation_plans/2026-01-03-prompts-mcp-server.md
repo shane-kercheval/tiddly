@@ -367,8 +367,8 @@ Run after migration is applied.
 ### PromptCreate
 - name (required, pattern: `^[a-z0-9]+(-[a-z0-9]+)*$`, max 255) - **hyphens allowed, underscores NOT allowed**
 - title (optional, max 500)
-- description (optional)
-- content (optional)
+- description (optional, max `settings.max_description_length`)
+- content (optional, max `settings.max_content_length`)
 - arguments (default [])
 - tags (default [], with normalize validator)
 - archived_at (optional datetime)
@@ -384,6 +384,7 @@ Validators:
 
 ### PromptListItem
 - Excludes `content` (can be large)
+- Includes `arguments` (needed for MCP list_prompts)
 - Includes `tags: list[str]` with model_validator extraction
 - Includes all timestamp fields (created_at, updated_at, last_used_at, deleted_at, archived_at)
 
@@ -415,6 +416,8 @@ Validators:
 - `test__prompt_create__duplicate_argument_names_rejected`
 - `test__prompt_create__tags_normalized` - `"Machine Learning"` becomes `"machine-learning"`
 - `test__prompt_create__empty_arguments_list_valid`
+- `test__prompt_create__description_max_length` - uses settings.max_description_length
+- `test__prompt_create__content_max_length` - uses settings.max_content_length
 
 **PromptUpdate validation:**
 - `test__prompt_update__all_fields_optional`
@@ -450,7 +453,7 @@ Required implementations:
 Override methods:
 - `create()` - template validation, tags, name uniqueness
 - `update()` - template validation, tags, name uniqueness
-- `get_by_name()` - custom method for name-based lookup (for MCP server)
+- `get_by_name()` - custom method for name-based lookup (for MCP server); returns only active prompts (excludes deleted AND archived)
 
 Keep `validate_template()` function for Jinja2 syntax and undefined variable validation:
 ```python
@@ -587,10 +590,11 @@ Pattern from `test_note_service.py`. All tests run against database.
 - `test__update__validates_template_syntax`
 - `test__update__validates_template_undefined_variables`
 
-**get_by_name:**
+**get_by_name (returns only active prompts for MCP):**
 - `test__get_by_name__returns_prompt`
 - `test__get_by_name__returns_none_for_nonexistent`
 - `test__get_by_name__returns_none_for_deleted`
+- `test__get_by_name__returns_none_for_archived`
 - `test__get_by_name__returns_none_for_other_users_prompt`
 
 ---
@@ -616,6 +620,16 @@ Pattern from `test_note_service.py`. All tests run against database.
 
 **Note:** Uses `{id}` for CRUD operations (consistent with notes/bookmarks). `/name/{name}` endpoint added for MCP server which looks up prompts by name.
 
+### schemas/content_list.py
+
+Add "prompt" to `ContentType` enum to enable list_id filtering for prompts:
+```python
+class ContentType(str, Enum):
+    BOOKMARK = "bookmark"
+    NOTE = "note"
+    PROMPT = "prompt"  # Add this
+```
+
 ### api/main.py
 
 Register router: `app.include_router(prompts.router)`
@@ -630,7 +644,7 @@ Pattern from `test_notes.py` and `test_bookmarks.py`.
 - `test__create_prompt__validation_error_invalid_name` - 400
 - `test__create_prompt__validation_error_duplicate_arguments` - 400
 - `test__create_prompt__template_syntax_error` - 400
-- `test__create_prompt__name_already_exists` - 409 or 400
+- `test__create_prompt__name_already_exists` - 409
 - `test__create_prompt__unauthenticated` - 401
 
 **List (GET /):**
@@ -663,7 +677,7 @@ Pattern from `test_notes.py` and `test_bookmarks.py`.
 - `test__update_prompt__validation_error` - 400
 - `test__update_prompt__template_syntax_error` - 400
 - `test__update_prompt__not_found` - 404
-- `test__update_prompt__name_conflict` - 409 or 400
+- `test__update_prompt__name_conflict` - 409
 
 **Delete (DELETE /{id}):**
 - `test__delete_prompt__soft_delete_default`
@@ -672,17 +686,17 @@ Pattern from `test_notes.py` and `test_bookmarks.py`.
 
 **Archive (POST /{id}/archive):**
 - `test__archive_prompt__success`
-- `test__archive_prompt__already_archived` - 400 or 409
+- `test__archive_prompt__already_archived` - 409
 - `test__archive_prompt__not_found` - 404
 
 **Unarchive (POST /{id}/unarchive):**
 - `test__unarchive_prompt__success`
-- `test__unarchive_prompt__not_archived` - 400 or 409
+- `test__unarchive_prompt__not_archived` - 409
 - `test__unarchive_prompt__not_found` - 404
 
 **Restore (POST /{id}/restore):**
 - `test__restore_prompt__success`
-- `test__restore_prompt__not_deleted` - 400 or 409
+- `test__restore_prompt__not_deleted` - 409
 - `test__restore_prompt__not_found` - 404
 
 **Track usage (POST /{id}/track-usage):**
@@ -744,8 +758,8 @@ This means:
 | `@server.call_tool()` | `POST /prompts/` | `list[types.TextContent]` |
 
 **Key behaviors:**
-- `list_prompts`: Query API each time (dynamic, no cache)
-- `get_prompt`: Render template with Jinja2, track usage
+- `list_prompts`: Query API each time (dynamic, no cache); limited to 200 prompts
+- `get_prompt`: Render template with Jinja2, track usage (fire-and-forget - don't await track-usage call)
 - `create_prompt` tool: Forward to API, return created prompt name
 
 ### Template Renderer (template_renderer.py)
@@ -778,9 +792,11 @@ Key components:
 
 ### API Client (api_client.py)
 
-**Copy from:** `backend/src/mcp_server/api_client.py`
+**Copy and modify from:** `backend/src/mcp_server/api_client.py`
 
-Same `api_get()` and `api_post()` helpers.
+Same `api_get()` and `api_post()` helpers, but update env var names:
+- `VITE_API_URL` → `PROMPT_MCP_API_BASE_URL`
+- `MCP_API_TIMEOUT` → `PROMPT_MCP_API_TIMEOUT`
 
 ### Makefile
 
@@ -799,6 +815,10 @@ prompt-server:  ## Start Prompt MCP server
 | `PROMPT_MCP_PORT` | `8002` | Server port |
 | `PROMPT_MCP_API_BASE_URL` | `http://localhost:8000` | Main API URL |
 | `PROMPT_MCP_API_TIMEOUT` | `30.0` | API request timeout (seconds) |
+
+### Known Limitations
+
+- **200-prompt limit**: `list_prompts` returns max 200 prompts. Users with more won't see all in Claude Desktop.
 
 ### 5.1 Tests (test_prompt_mcp_server.py)
 
