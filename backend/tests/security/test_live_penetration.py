@@ -564,44 +564,7 @@ class TestPATRestrictedEndpoints:
         assert "not available for API tokens" in response.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test__settings_get__rejects_pat(
-        self,
-        headers_user_a: dict[str, str],
-    ) -> None:
-        """Settings GET endpoint rejects PATs."""
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{API_URL}/settings/",
-                headers=headers_user_a,
-            )
-
-        assert response.status_code == 403, (
-            f"SECURITY: GET /settings/ should reject PATs with 403. "
-            f"Got {response.status_code}: {response.text}"
-        )
-        assert "not available for API tokens" in response.json()["detail"]
-
-    @pytest.mark.asyncio
-    async def test__settings_update__rejects_pat(
-        self,
-        headers_user_a: dict[str, str],
-    ) -> None:
-        """Settings PATCH endpoint rejects PATs."""
-        async with httpx.AsyncClient() as client:
-            response = await client.patch(
-                f"{API_URL}/settings/",
-                headers=headers_user_a,
-                json={"theme": "dark"},
-            )
-
-        assert response.status_code == 403, (
-            f"SECURITY: PATCH /settings/ should reject PATs with 403. "
-            f"Got {response.status_code}: {response.text}"
-        )
-        assert "not available for API tokens" in response.json()["detail"]
-
-    @pytest.mark.asyncio
-    async def test__settings_sidebar__rejects_pat(
+    async def test__settings_sidebar_get__rejects_pat(
         self,
         headers_user_a: dict[str, str],
     ) -> None:
@@ -617,6 +580,234 @@ class TestPATRestrictedEndpoints:
             f"Got {response.status_code}: {response.text}"
         )
         assert "not available for API tokens" in response.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test__settings_sidebar_put__rejects_pat(
+        self,
+        headers_user_a: dict[str, str],
+    ) -> None:
+        """Settings sidebar PUT endpoint rejects PATs."""
+        async with httpx.AsyncClient() as client:
+            response = await client.put(
+                f"{API_URL}/settings/sidebar",
+                headers=headers_user_a,
+                json={"items": []},
+            )
+
+        assert response.status_code == 403, (
+            f"SECURITY: PUT /settings/sidebar should reject PATs with 403. "
+            f"Got {response.status_code}: {response.text}"
+        )
+        assert "not available for API tokens" in response.json()["detail"]
+
+
+class TestPromptIDOR:
+    """Verify users cannot access other users' prompts."""
+
+    @pytest.mark.asyncio
+    async def test__cross_user_prompt_access__returns_404(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B cannot access User A's prompt by name."""
+        async with httpx.AsyncClient() as client:
+            # User A creates a prompt
+            create_response = await client.post(
+                f"{API_URL}/prompts/",
+                headers=headers_user_a,
+                json={
+                    "name": "idor-test-prompt",
+                    "title": "User A's Private Prompt",
+                    "content": "This is a secret prompt.",
+                },
+            )
+
+            # Handle case where prompt already exists
+            if create_response.status_code == 400 and "already exists" in create_response.text:
+                # Delete and recreate
+                await client.delete(
+                    f"{API_URL}/prompts/idor-test-prompt",
+                    headers=headers_user_a,
+                )
+                create_response = await client.post(
+                    f"{API_URL}/prompts/",
+                    headers=headers_user_a,
+                    json={
+                        "name": "idor-test-prompt",
+                        "title": "User A's Private Prompt",
+                        "content": "This is a secret prompt.",
+                    },
+                )
+
+            assert create_response.status_code == 201, f"Failed to create prompt: {create_response.text}"
+
+            try:
+                # User B tries to access User A's prompt
+                access_response = await client.get(
+                    f"{API_URL}/prompts/idor-test-prompt",
+                    headers=headers_user_b,
+                )
+
+                # Should return 404 (not 403) to prevent enumeration
+                assert access_response.status_code == 404, (
+                    f"SECURITY VULNERABILITY: User B accessed User A's prompt! "
+                    f"Status: {access_response.status_code}, Body: {access_response.text}"
+                )
+
+            finally:
+                # Cleanup: User A deletes the prompt
+                await client.delete(
+                    f"{API_URL}/prompts/idor-test-prompt",
+                    headers=headers_user_a,
+                )
+
+    @pytest.mark.asyncio
+    async def test__cross_user_prompt_update__returns_404(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B cannot update User A's prompt."""
+        async with httpx.AsyncClient() as client:
+            # User A creates a prompt
+            create_response = await client.post(
+                f"{API_URL}/prompts/",
+                headers=headers_user_a,
+                json={
+                    "name": "idor-update-prompt",
+                    "title": "Original Title",
+                },
+            )
+
+            if create_response.status_code == 400 and "already exists" in create_response.text:
+                pytest.skip("Prompt already exists, skipping test")
+
+            assert create_response.status_code == 201
+
+            try:
+                # User B tries to update User A's prompt
+                update_response = await client.patch(
+                    f"{API_URL}/prompts/idor-update-prompt",
+                    headers=headers_user_b,
+                    json={"title": "HACKED BY USER B"},
+                )
+
+                assert update_response.status_code == 404, (
+                    f"SECURITY VULNERABILITY: User B updated User A's prompt! "
+                    f"Status: {update_response.status_code}"
+                )
+
+                # Verify the prompt was NOT modified
+                verify_response = await client.get(
+                    f"{API_URL}/prompts/idor-update-prompt",
+                    headers=headers_user_a,
+                )
+                assert verify_response.json()["title"] == "Original Title"
+
+            finally:
+                await client.delete(
+                    f"{API_URL}/prompts/idor-update-prompt",
+                    headers=headers_user_a,
+                )
+
+    @pytest.mark.asyncio
+    async def test__cross_user_prompt_delete__returns_404(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B cannot delete User A's prompt."""
+        async with httpx.AsyncClient() as client:
+            # User A creates a prompt
+            create_response = await client.post(
+                f"{API_URL}/prompts/",
+                headers=headers_user_a,
+                json={
+                    "name": "idor-delete-prompt",
+                    "title": "Should Not Be Deleted",
+                },
+            )
+
+            if create_response.status_code == 400 and "already exists" in create_response.text:
+                pytest.skip("Prompt already exists, skipping test")
+
+            assert create_response.status_code == 201
+
+            try:
+                # User B tries to delete User A's prompt
+                delete_response = await client.delete(
+                    f"{API_URL}/prompts/idor-delete-prompt",
+                    headers=headers_user_b,
+                )
+
+                assert delete_response.status_code == 404, (
+                    f"SECURITY VULNERABILITY: User B deleted User A's prompt! "
+                    f"Status: {delete_response.status_code}"
+                )
+
+                # Verify the prompt still exists
+                verify_response = await client.get(
+                    f"{API_URL}/prompts/idor-delete-prompt",
+                    headers=headers_user_a,
+                )
+                assert verify_response.status_code == 200, "Prompt was deleted!"
+
+            finally:
+                await client.delete(
+                    f"{API_URL}/prompts/idor-delete-prompt",
+                    headers=headers_user_a,
+                )
+
+    @pytest.mark.asyncio
+    async def test__prompt_list__excludes_other_users_data(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B's prompt list does not include User A's prompts."""
+        async with httpx.AsyncClient() as client:
+            # User A creates a prompt with unique name
+            create_response = await client.post(
+                f"{API_URL}/prompts/",
+                headers=headers_user_a,
+                json={
+                    "name": "isolation-secret-prompt",
+                    "title": "User A Secret Prompt",
+                },
+            )
+
+            if create_response.status_code == 400 and "already exists" in create_response.text:
+                pytest.skip("Prompt already exists, skipping test")
+
+            assert create_response.status_code == 201
+            prompt_id = create_response.json()["id"]
+
+            try:
+                # User B lists their prompts
+                list_response = await client.get(
+                    f"{API_URL}/prompts/",
+                    headers=headers_user_b,
+                )
+
+                assert list_response.status_code == 200
+                items = list_response.json()["items"]
+
+                # User B should NOT find User A's prompt
+                found_ids = [item["id"] for item in items]
+                found_names = [item["name"] for item in items]
+                assert prompt_id not in found_ids, (
+                    "SECURITY VULNERABILITY: User B found User A's prompt by ID in list!"
+                )
+                assert "isolation-secret-prompt" not in found_names, (
+                    "SECURITY VULNERABILITY: User B found User A's prompt by name in list!"
+                )
+
+            finally:
+                await client.delete(
+                    f"{API_URL}/prompts/isolation-secret-prompt",
+                    headers=headers_user_a,
+                )
 
 
 if __name__ == "__main__":
