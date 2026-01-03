@@ -15,7 +15,7 @@ const CONFIG_PATH_WINDOWS = '%APPDATA%\\Claude\\claude_desktop_config.json'
 function generateConfig(mcpUrl: string): string {
   const configObj = {
     mcpServers: {
-      bookmarks: {
+      notes_bookmarks: {
         command: 'npx',
         args: [
           'mcp-remote',
