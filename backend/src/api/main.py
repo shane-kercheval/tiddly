@@ -93,8 +93,8 @@ class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
 app_settings = get_settings()
 
 app = FastAPI(
-    title="Bookmarks API",
-    description="A bookmark management system with tagging and search capabilities.",
+    title="Tiddly API",
+    description="A content management system with tagging and search capabilities.",
     version="0.1.0",
     lifespan=lifespan,
 )
