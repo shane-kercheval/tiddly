@@ -533,7 +533,7 @@ async def test__list_content_with_list_id__content_types_param_multiple(
     list_id = response.json()['id']
 
     response = await client.get(
-        f'/content/?list_id={list_id}&content_types=bookmark&content_types=note'
+        f'/content/?list_id={list_id}&content_types=bookmark&content_types=note',
     )
     assert response.status_code == 200
 

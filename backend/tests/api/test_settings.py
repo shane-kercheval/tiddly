@@ -248,8 +248,8 @@ async def test__get_sidebar__filters_deleted_lists(client: AsyncClient) -> None:
     assert list_id not in list_ids
 
 
-async def test__get_sidebar__appends_orphan_lists(client: AsyncClient) -> None:
-    """Test that lists not in sidebar_order are appended."""
+async def test__get_sidebar__prepends_orphan_lists(client: AsyncClient) -> None:
+    """Test that lists not in sidebar_order are prepended."""
     # Create a list (automatically added to sidebar)
     create_response = await client.post(
         "/lists/",
@@ -272,14 +272,13 @@ async def test__get_sidebar__appends_orphan_lists(client: AsyncClient) -> None:
         },
     )
 
-    # Get sidebar - orphan list should be appended
+    # Get sidebar - orphan list should be prepended
     response = await client.get("/settings/sidebar")
     assert response.status_code == 200
 
     data = response.json()
-    list_items = [item for item in data["items"] if item["type"] == "list"]
-    list_ids = [item["id"] for item in list_items]
-    assert list_id in list_ids
+    assert data["items"][0]["type"] == "list"
+    assert data["items"][0]["id"] == list_id
 
 
 async def test__list_creation__adds_to_sidebar(client: AsyncClient) -> None:
@@ -425,7 +424,7 @@ async def test__get_sidebar__resolves_builtin_display_names(client: AsyncClient)
 
         # Verify specific display names
         if builtin["key"] == "all":
-            assert builtin["name"] == "All"
+            assert builtin["name"] == "All Content"
         elif builtin["key"] == "archived":
             assert builtin["name"] == "Archived"
         elif builtin["key"] == "trash":

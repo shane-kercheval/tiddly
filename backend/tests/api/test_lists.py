@@ -75,32 +75,20 @@ async def test_create_list_validates_name(client: AsyncClient) -> None:
 
 
 async def test_create_list_validates_filter_expression(client: AsyncClient) -> None:
-    """Test that filter expression must have at least one group with tags."""
-    # Empty groups
+    """Test that filter expression can be empty (no tag filters)."""
     response = await client.post(
         "/lists/",
         json={
-            "name": "Invalid",
+            "name": "No Filter List",
             "filter_expression": {
                 "groups": [],
                 "group_operator": "OR",
             },
         },
     )
-    assert response.status_code == 422
-
-    # Empty tags in group
-    response = await client.post(
-        "/lists/",
-        json={
-            "name": "Invalid",
-            "filter_expression": {
-                "groups": [{"tags": []}],
-                "group_operator": "OR",
-            },
-        },
-    )
-    assert response.status_code == 422
+    assert response.status_code == 201
+    data = response.json()
+    assert data["filter_expression"]["groups"] == []
 
 
 async def test_create_list_validates_tag_format(client: AsyncClient) -> None:
@@ -120,10 +108,12 @@ async def test_create_list_validates_tag_format(client: AsyncClient) -> None:
 
 
 async def test_get_lists_empty(client: AsyncClient) -> None:
-    """Test getting lists when user has none."""
+    """Test getting lists returns default lists for a new user."""
     response = await client.get("/lists/")
     assert response.status_code == 200
-    assert response.json() == []
+    data = response.json()
+    names = {item["name"] for item in data}
+    assert names == {"All Bookmarks", "All Notes"}
 
 
 async def test_get_lists(client: AsyncClient) -> None:
@@ -148,10 +138,13 @@ async def test_get_lists(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     data = response.json()
-    assert len(data) == 2
-    # Should be ordered by created_at
-    assert data[0]["name"] == "First"
-    assert data[1]["name"] == "Second"
+    custom_lists = [
+        item for item in data if item["name"] not in {"All Bookmarks", "All Notes"}
+    ]
+    assert len(custom_lists) == 2
+    # Should be ordered by created_at for custom lists
+    assert custom_lists[0]["name"] == "First"
+    assert custom_lists[1]["name"] == "Second"
 
 
 async def test_get_list_by_id(client: AsyncClient) -> None:
@@ -490,13 +483,11 @@ async def test_get_lists_includes_sort_fields(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     data = response.json()
-    assert len(data) == 2
-    # First list (created first) has sort config
-    assert data[0]["default_sort_by"] == "title"
-    assert data[0]["default_sort_ascending"] is True
-    # Second list has no sort config
-    assert data[1]["default_sort_by"] is None
-    assert data[1]["default_sort_ascending"] is None
+    by_name = {item["name"]: item for item in data}
+    assert by_name["With Sort"]["default_sort_by"] == "title"
+    assert by_name["With Sort"]["default_sort_ascending"] is True
+    assert by_name["Without Sort"]["default_sort_by"] is None
+    assert by_name["Without Sort"]["default_sort_ascending"] is None
 
 
 async def test_create_list_all_valid_sort_options(client: AsyncClient) -> None:

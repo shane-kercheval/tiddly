@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from schemas.bookmark import validate_and_normalize_tag
+from schemas.validators import validate_and_normalize_tag
 
 
 class TagCount(BaseModel):
