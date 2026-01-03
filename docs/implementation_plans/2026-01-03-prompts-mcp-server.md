@@ -917,7 +917,46 @@ Follow patterns from `useNotes.ts`:
 
 Add "Prompts" to sidebar with terminal/command icon.
 
-### 6.6 Tests
+### 6.6 Settings - MCP Integration Page
+
+Update the MCP Integration settings page to include the new Prompts MCP server.
+
+**Current:** Shows single config for `notes_bookmarks` server (port 8001)
+
+**New:** Add toggle to select which server config to display:
+- **Bookmarks/Notes** - existing `notes_bookmarks` server (port 8001)
+- **Prompts** - new `prompts` server (port 8002)
+- **All** - combined config with both servers
+
+Example "All" config:
+```json
+{
+  "mcpServers": {
+    "notes_bookmarks": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://mcp.tiddly.me/mcp",
+        "--header",
+        "Authorization: Bearer YOUR_TOKEN_HERE"
+      ]
+    },
+    "prompts": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://prompts.tiddly.me/mcp",
+        "--header",
+        "Authorization: Bearer YOUR_TOKEN_HERE"
+      ]
+    }
+  }
+}
+```
+
+Update `generateConfig()` to accept a server selection parameter.
+
+### 6.7 Tests
 
 **Component tests (PromptsPage.test.tsx):**
 - `test__prompts_page__renders_prompt_list`
@@ -945,6 +984,12 @@ Add "Prompts" to sidebar with terminal/command icon.
 - `test__use_create_prompt__invalidates_cache`
 - `test__use_update_prompt__calls_api`
 - `test__use_delete_prompt__calls_api`
+
+**MCP Settings tests (SettingsMCP.test.tsx):**
+- `test__mcp_settings__toggle_bookmarks_notes_shows_single_server`
+- `test__mcp_settings__toggle_prompts_shows_single_server`
+- `test__mcp_settings__toggle_all_shows_both_servers`
+- `test__mcp_settings__generate_config_uses_correct_urls`
 
 ---
 
@@ -996,76 +1041,3 @@ Add missing cascade delete tests to existing service tests, plus new prompt test
 - Domain: `prompts.tiddly.me`
 
 ---
-
-## Implementation Order
-
-1. Migration (`make migration`)
-2. models/tag.py - prompt_tags, Tag.prompts
-3. models/prompt.py
-4. models/user.py - prompts relationship
-5. models/__init__.py
-6. schemas/prompt.py
-7. Run migration (`make migrate`)
-8. **Run Milestone 1 & 2 tests**
-9. services/tag_service.py - prompt functions
-10. services/prompt_service.py
-11. **Run Milestone 3 tests**
-12. api/routers/prompts.py
-13. api/main.py - register router
-14. **Run Milestone 4 tests**
-15. prompt_mcp_server package
-16. **Run Milestone 5 tests**
-17. Frontend types/api/hooks
-18. Frontend pages
-19. **Run Milestone 6 tests**
-20. Security tests
-21. Documentation
-22. Deployment config
-
----
-
-## Files Summary
-
-| File | Action |
-|------|--------|
-| `backend/src/models/tag.py` | Modify |
-| `backend/src/models/prompt.py` | Create |
-| `backend/src/models/user.py` | Modify |
-| `backend/src/models/__init__.py` | Modify |
-| `backend/src/schemas/prompt.py` | Create |
-| `backend/src/services/tag_service.py` | Modify |
-| `backend/src/services/prompt_service.py` | Create |
-| `backend/src/api/routers/prompts.py` | Create |
-| `backend/src/api/main.py` | Modify |
-| `backend/src/prompt_mcp_server/__init__.py` | Create |
-| `backend/src/prompt_mcp_server/__main__.py` | Create |
-| `backend/src/prompt_mcp_server/main.py` | Create |
-| `backend/src/prompt_mcp_server/server.py` | Create |
-| `backend/src/prompt_mcp_server/auth.py` | Create |
-| `backend/src/prompt_mcp_server/template_renderer.py` | Create |
-| `backend/tests/models/test_prompt_model.py` | Create |
-| `backend/tests/schemas/test_prompt_schemas.py` | Create |
-| `backend/tests/services/test_prompt_service.py` | Create |
-| `backend/tests/api/test_prompts_api.py` | Create |
-| `backend/tests/prompt_mcp_server/test_prompt_mcp_server.py` | Create |
-| `backend/tests/security/test_live_penetration.py` | Modify |
-| `frontend/src/types.ts` | Modify |
-| `frontend/src/services/api.ts` | Modify |
-| `frontend/src/hooks/usePrompts.ts` | Create |
-| `frontend/src/pages/PromptsPage.tsx` | Create |
-| `frontend/src/pages/PromptEditorPage.tsx` | Create |
-| `frontend/src/__tests__/pages/PromptsPage.test.tsx` | Create |
-| `frontend/src/__tests__/pages/PromptEditorPage.test.tsx` | Create |
-| `frontend/src/__tests__/hooks/usePrompts.test.ts` | Create |
-| `Makefile` | Modify |
-
----
-
-## Key Patterns
-
-- **Model**: Copy `models/note.py` structure
-- **Service**: Copy `services/note_service.py` structure (extends BaseEntityService)
-- **Schemas**: Copy `schemas/note.py` tag extraction pattern
-- **Router**: Copy `routers/notes.py` endpoint structure
-- **Tests**: Copy `tests/services/test_note_service.py` test categories
-- **MCP Server**: Reference existing `mcp_server/` for auth and API client patterns; use low-level SDK for prompts capability
