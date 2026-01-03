@@ -17,6 +17,237 @@ Prompts are Jinja2 templates with defined arguments, served via MCP protocol for
 
 ---
 
+## References
+
+### MCP Specification
+
+- **Prompts Capability:** https://modelcontextprotocol.io/docs/concepts/prompts
+- **MCP SDK (Python):** https://github.com/modelcontextprotocol/python-sdk
+
+Key concepts from spec:
+- `prompts/list` - Returns list of available prompts with name, description, arguments
+- `prompts/get` - Returns rendered prompt content with provided arguments
+
+**MCP SDK Types (from `mcp.types`):**
+
+```python
+# What we use from the SDK:
+class Prompt(BaseMetadata):
+    name: str                              # Required - prompt identifier
+    title: str | None = None               # Optional - display name for UI
+    description: str | None = None         # Optional
+    arguments: list[PromptArgument] | None = None
+
+class PromptArgument(BaseModel):
+    name: str                              # Required - argument identifier
+    description: str | None = None         # Optional
+    required: bool | None = None           # Optional (None treated as False)
+
+class GetPromptResult(Result):
+    description: str | None = None
+    messages: list[PromptMessage]          # Required - the rendered prompt content
+
+class PromptMessage(BaseModel):
+    role: Literal["user", "assistant"]     # Required
+    content: TextContent | ImageContent | EmbeddedResource
+```
+
+**Low-level Server decorators:**
+```python
+@server.list_prompts()
+async def handle_list() -> list[types.Prompt]:
+    ...
+
+@server.get_prompt()
+async def handle_get(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
+    ...
+```
+
+**Error Codes (JSON-RPC standard):**
+- `INVALID_PARAMS = -32602` - Invalid prompt name, missing required arguments
+- `INTERNAL_ERROR = -32603` - Server errors
+
+**Error handling:**
+```python
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData, INVALID_PARAMS
+
+raise McpError(ErrorData(code=INVALID_PARAMS, message="Prompt not found"))
+```
+
+### Reference Implementation: External (tools_api)
+
+**Location:** `/Users/shanekercheval/repos/reasoning-agent-api/tools_api`
+
+| Component | Path | What to Copy |
+|-----------|------|--------------|
+| MCP Server | `tools_api/mcp_server.py` | `@server.list_prompts()` and `@server.get_prompt()` decorator patterns |
+| Main App | `tools_api/main.py` | `StreamableHTTPSessionManager` setup and ASGI mounting |
+| Template | `tools_api/services/prompts/template.py` | Jinja2 `StrictUndefined` rendering |
+
+**CRITICAL DIFFERENCE: Static vs Dynamic**
+
+| Aspect | tools_api (DON'T copy) | Our approach |
+|--------|------------------------|--------------|
+| Storage | File-based `PromptRegistry._prompts` dict | Database via REST API |
+| Discovery | Static at startup | Dynamic per-request |
+| New prompts | Requires restart | Immediate |
+
+### Reference Implementation: This Codebase
+
+The existing Bookmarks MCP Server provides patterns for auth and API client:
+
+| Component | Path | Notes |
+|-----------|------|-------|
+| Server | `backend/src/mcp_server/server.py` | Uses FastMCP (decorator-based) for tools. Prompt server uses low-level SDK instead. |
+| Auth | `backend/src/mcp_server/auth.py` | Bearer token extraction from headers. Uses `fastmcp.server.dependencies.get_http_headers()` which we CAN'T use with low-level SDK - we use `contextvars` instead. |
+| API Client | `backend/src/mcp_server/api_client.py` | `api_get()`, `api_post()` helpers. **Can copy directly.** |
+| Tests | `backend/tests/mcp_server/` | Test patterns for tools, auth, API client. |
+
+**Key difference:** The existing server uses FastMCP which provides `get_http_headers()` for auth. The low-level SDK doesn't have this, so we extract the token in the ASGI handler and pass it via `contextvars`.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     MCP Client (Claude Desktop)                  │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │ PAT Authentication
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  TWO MCP SERVERS:                                                │
+│                                                                  │
+│  1. mcp.tiddly.me/mcp (port 8001) - Bookmarks/Notes MCP Server  │
+│     - Tools: search_bookmarks, get_bookmark, create_bookmark,   │
+│              search_notes, get_note, create_note, list_tags     │
+│     - For content management via AI assistants                  │
+│                                                                  │
+│  2. prompts.tiddly.me/mcp (port 8002) - Prompt MCP Server       │
+│     - Prompts: list_prompts, get_prompt (MCP prompts capability)│
+│     - Tools: create_prompt (for creating new prompts via AI)    │
+│     - For prompt template management                            │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │ HTTP API
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Main API (api.tiddly.me)                      │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │  POST /prompts/        - Create prompt                   │   │
+│  │  GET /prompts/         - List prompts                    │   │
+│  │  GET /prompts/{id}     - Get prompt by ID                │   │
+│  │  GET /prompts/name/{name} - Get prompt by name           │   │
+│  │  PATCH /prompts/{id}   - Update prompt                   │   │
+│  │  DELETE /prompts/{id}  - Delete prompt                   │   │
+│  │  POST /prompts/{id}/archive - Archive                    │   │
+│  │  POST /prompts/{id}/restore - Restore from trash         │   │
+│  │  POST /prompts/{id}/track-usage - Update last_used_at    │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      PostgreSQL Database                         │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  prompts                                                 │    │
+│  │  - id (PK)                                              │    │
+│  │  - user_id (FK → users, CASCADE)                        │    │
+│  │  - name (unique per user for active, e.g., "code-review")│   │
+│  │  - title (optional, e.g., "Code Review Assistant")      │    │
+│  │  - description (optional)                               │    │
+│  │  - content (Jinja2 template)                            │    │
+│  │  - arguments (JSONB): [{name, description, required}]   │    │
+│  │  - tags (via prompt_tags junction table)                │    │
+│  │  - created_at, updated_at, last_used_at                 │    │
+│  │  - deleted_at, archived_at (soft delete/archive)        │    │
+│  │  PARTIAL UNIQUE(user_id, name) WHERE deleted_at IS NULL │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  prompt_tags (junction table)                           │    │
+│  │  - prompt_id (FK, CASCADE)                              │    │
+│  │  - tag_id (FK, CASCADE)                                 │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Port Allocation
+
+| Service | Port | Domain | Description |
+|---------|------|--------|-------------|
+| Main API | 8000 | api.tiddly.me | REST API |
+| Bookmarks MCP Server | 8001 | mcp.tiddly.me/mcp | Tools for bookmarks/notes |
+| **Prompt MCP Server** | **8002** | **prompts.tiddly.me/mcp** | Prompts capability + create_prompt tool |
+
+---
+
+## Key Design Decisions
+
+### 1. Prompts Use BaseEntityService
+
+Prompts use `BaseEntityService[Prompt]` to get:
+- Soft delete (`deleted_at`) and permanent delete
+- Archive/unarchive (`archived_at`)
+- Tags via junction table
+- Usage tracking (`last_used_at`)
+- View filtering (active, archived, deleted)
+- Full search with filtering, sorting, pagination
+
+This matches the Notes and Bookmarks patterns exactly.
+
+### 2. Naming Conventions
+
+**Important distinction:**
+- **Prompt names** use hyphens: `code-review`, `explain-code`
+- **Argument names** use underscores: `code_to_review`, `language`
+
+This difference is intentional:
+- Prompt names are URL-friendly identifiers (hyphens preferred)
+- Argument names must be valid Jinja2/Python identifiers (underscores required, hyphens not allowed)
+
+The frontend editor should provide hint text explaining this to users.
+
+### 3. Name and Title (Aligned with MCP SDK)
+
+- `name` - Required programmatic identifier (lowercase with hyphens, e.g., "code-review")
+- `title` - Optional human-readable display name (e.g., "Code Review Assistant")
+- Partial unique constraint `(user_id, name)` WHERE `deleted_at IS NULL` enforced by database
+- MCP clients display `title` if provided, otherwise fall back to `name`
+- Sort by title uses `COALESCE(title, name)` so prompts without titles sort by name
+
+### 4. URL Pattern
+
+- Use `{id}` for CRUD operations (consistent with notes/bookmarks, works with BaseEntityService)
+- Add `/name/{name}` endpoint for MCP server lookups (prompts are identified by name in MCP)
+
+### 5. Rate Limiting
+
+Prompt endpoints follow the same rate limiting tiers as bookmarks:
+
+| Auth Type | Operation | Per Minute | Per Day |
+|-----------|-----------|------------|---------|
+| PAT | Read (GET) | 120 | 2000 |
+| PAT | Write (POST/PATCH/DELETE) | 60 | 2000 |
+| Auth0 | Read | 300 | 4000 |
+| Auth0 | Write | 90 | 4000 |
+
+Rate limiting is applied via the existing `rate_limiter` middleware. No sensitive operations (external HTTP) are performed by prompt endpoints, so the `sensitive` tier is not used.
+
+### 6. Authentication
+
+All prompt endpoints use `get_current_user`, which accepts both Auth0 JWTs and Personal Access Tokens (PATs). This is appropriate because:
+- No external HTTP requests are made (unlike `fetch-metadata`)
+- PAT access enables legitimate automation use cases (including MCP server)
+- Rate limiting provides abuse protection
+
+### 7. Template Validation at Save Time
+
+- All template variables must have corresponding arguments
+- Duplicate argument names rejected
+- Invalid Jinja2 syntax rejected (e.g., `{{ unclosed` fails immediately)
+
+---
+
 ## Milestone 1: Database & Models
 
 ### 1.1 Create Migration
@@ -129,12 +360,12 @@ Run after migration is applied.
 **File:** `schemas/prompt.py`
 
 ### PromptArgument
-- name (pattern: `^[a-z][a-z0-9_]*$`, max 100)
+- name (pattern: `^[a-z][a-z0-9_]*$`, max 100) - **underscores allowed, hyphens NOT allowed**
 - description (optional)
 - required (bool, optional, None=False)
 
 ### PromptCreate
-- name (required, pattern: `^[a-z0-9]+(-[a-z0-9]+)*$`, max 255)
+- name (required, pattern: `^[a-z0-9]+(-[a-z0-9]+)*$`, max 255) - **hyphens allowed, underscores NOT allowed**
 - title (optional, max 500)
 - description (optional)
 - content (optional)
@@ -169,14 +400,14 @@ Validators:
 - `test__prompt_argument__valid_name` - lowercase with underscores (e.g., `user_name`, `x`, `a1_b2`)
 - `test__prompt_argument__invalid_name_uppercase` - rejects `UserName`
 - `test__prompt_argument__invalid_name_starts_with_number` - rejects `1name`
-- `test__prompt_argument__invalid_name_has_hyphen` - rejects `user-name`
+- `test__prompt_argument__invalid_name_has_hyphen` - rejects `user-name` (hyphens not valid in Jinja2 identifiers)
 - `test__prompt_argument__name_max_length` - 100 chars accepted, 101 rejected
 - `test__prompt_argument__required_defaults_to_none`
 
 **PromptCreate validation:**
 - `test__prompt_create__valid_name` - lowercase with hyphens (e.g., `my-prompt`, `x`, `a1-b2`)
 - `test__prompt_create__invalid_name_uppercase` - rejects `MyPrompt`
-- `test__prompt_create__invalid_name_underscore` - rejects `my_prompt`
+- `test__prompt_create__invalid_name_underscore` - rejects `my_prompt` (underscores not valid in URL-friendly names)
 - `test__prompt_create__invalid_name_starts_with_hyphen` - rejects `-prompt`
 - `test__prompt_create__invalid_name_ends_with_hyphen` - rejects `prompt-`
 - `test__prompt_create__name_max_length` - 255 chars accepted, 256 rejected
@@ -221,7 +452,42 @@ Override methods:
 - `update()` - template validation, tags, name uniqueness
 - `get_by_name()` - custom method for name-based lookup (for MCP server)
 
-Keep `validate_template()` function for Jinja2 syntax and undefined variable validation.
+Keep `validate_template()` function for Jinja2 syntax and undefined variable validation:
+```python
+from jinja2 import Environment, meta, TemplateSyntaxError
+
+_jinja_env = Environment()
+
+def validate_template(content: str | None, arguments: list[dict[str, Any]]) -> None:
+    """
+    Validate Jinja2 template syntax and variables.
+
+    Raises:
+        ValueError: If template has invalid syntax or uses undefined variables.
+    """
+    if not content:
+        return
+
+    # Validate syntax first
+    try:
+        ast = _jinja_env.parse(content)
+    except TemplateSyntaxError as e:
+        raise ValueError(f"Invalid Jinja2 syntax: {e.message}")
+
+    # Check for undefined variables
+    template_vars = meta.find_undeclared_variables(ast)
+    if not template_vars:
+        return
+
+    defined_args = {arg["name"] for arg in arguments} if arguments else set()
+    undefined = template_vars - defined_args
+
+    if undefined:
+        raise ValueError(
+            f"Template uses undefined variable(s): {', '.join(sorted(undefined))}. "
+            "Add them to arguments or remove from template."
+        )
+```
 
 ### 3.2 services/tag_service.py
 
@@ -314,9 +580,10 @@ Pattern from `test_note_service.py`. All tests run against database.
 
 **Template validation (prompt-specific):**
 - `test__create__validates_template_syntax`
-- `test__create__validates_template_undefined_variables`
+- `test__create__validates_template_undefined_variables` - template uses var not in arguments → error
 - `test__create__allows_empty_content`
 - `test__create__allows_template_with_defined_arguments`
+- `test__create__allows_unused_arguments` - arguments defined but not used in template → OK
 - `test__update__validates_template_syntax`
 - `test__update__validates_template_undefined_variables`
 
@@ -428,29 +695,92 @@ Pattern from `test_notes.py` and `test_bookmarks.py`.
 
 **Package:** `backend/src/prompt_mcp_server/`
 
-Uses low-level MCP SDK for dynamic prompt loading (not FastMCP).
+**Domain:** `prompts.tiddly.me` (separate from `mcp.tiddly.me` which serves bookmarks/notes)
+
+Uses low-level MCP SDK for **dynamic prompt loading** (not FastMCP, not static registry).
+
+### Key Design: No Registry (Dynamic API Calls)
+
+Unlike the tools_api reference implementation which uses a static `PromptRegistry`, we query the REST API on each MCP request:
+
+```
+MCP Client Request (prompts/list)
+    ↓
+prompt_mcp_server (list_prompts handler)
+    ↓
+GET /prompts/?limit=100 (REST API with Bearer token)
+    ↓
+Database query (user's active prompts)
+    ↓
+Return list[types.Prompt] to MCP client
+```
+
+This means:
+- New prompts available immediately after creation (no restart)
+- Each user sees only their own prompts
+- Authentication flows through to API
 
 ### Files
 
 | File | Purpose |
 |------|---------|
 | `__init__.py` | Package marker |
-| `__main__.py` | Entry point |
-| `main.py` | FastAPI app with lifespan |
-| `server.py` | MCP Server with list_prompts/get_prompt handlers |
-| `auth.py` | Context-based token management |
+| `__main__.py` | Entry point (`python -m prompt_mcp_server`) |
+| `main.py` | FastAPI app with lifespan, mounts MCP as ASGI sub-app |
+| `server.py` | MCP Server with list_prompts/get_prompt handlers AND create_prompt tool |
+| `auth.py` | Context-based token management via contextvars |
+| `api_client.py` | HTTP client helpers (copy from mcp_server) |
 | `template_renderer.py` | Jinja2 rendering with validation |
 
-### MCP Handlers
+### MCP Handlers (server.py)
 
-**list_prompts():**
-- Calls `GET /prompts/?limit=100`
-- Returns `list[types.Prompt]`
+**Pattern:** Use `mcp.server.lowlevel.Server` with decorators (see `tools_api/mcp_server.py`)
 
-**get_prompt(name, arguments):**
-- Calls `GET /prompts/name/{name}`
-- Renders template with provided arguments
-- Returns `types.GetPromptResult` with rendered content
+| Handler | API Call | Returns |
+|---------|----------|---------|
+| `@server.list_prompts()` | `GET /prompts/?limit=100` | `list[types.Prompt]` |
+| `@server.get_prompt()` | `GET /prompts/name/{name}`, then `POST /prompts/{id}/track-usage` | `types.GetPromptResult` |
+| `@server.list_tools()` | None | `list[types.Tool]` with `create_prompt` |
+| `@server.call_tool()` | `POST /prompts/` | `list[types.TextContent]` |
+
+**Key behaviors:**
+- `list_prompts`: Query API each time (dynamic, no cache)
+- `get_prompt`: Render template with Jinja2, track usage
+- `create_prompt` tool: Forward to API, return created prompt name
+
+### Template Renderer (template_renderer.py)
+
+**Pattern:** Copy from `tools_api/services/prompts/template.py`
+
+- Use `jinja2.Environment(undefined=StrictUndefined)`
+- Validate unknown arguments rejected
+- Validate required arguments present
+- Return empty string for empty content
+
+### Auth Module (auth.py)
+
+**Pattern:** Use `contextvars` (NOT FastMCP's `get_http_headers()`)
+
+- `set_current_token(token)` - called by ASGI handler before MCP dispatch
+- `get_bearer_token()` - called by MCP handlers to get token
+- `clear_current_token()` - called after MCP dispatch (in finally block)
+
+### Main Application (main.py)
+
+**Pattern:** Combine `tools_api/main.py` ASGI mounting with our auth
+
+Key components:
+- `Settings` with `env_prefix = "PROMPT_MCP_"` for config
+- `lifespan` creates `StreamableHTTPSessionManager(app=server, json_response=True, stateless=True)`
+- `mcp_asgi_handler` extracts Bearer token, sets contextvar, delegates to session manager
+- Mount at `/mcp`
+- Health check at `/health`
+
+### API Client (api_client.py)
+
+**Copy from:** `backend/src/mcp_server/api_client.py`
+
+Same `api_get()` and `api_post()` helpers.
 
 ### Makefile
 
@@ -462,35 +792,61 @@ prompt-server:  ## Start Prompt MCP server
 
 ### Port: 8002
 
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PROMPT_MCP_PORT` | `8002` | Server port |
+| `PROMPT_MCP_API_BASE_URL` | `http://localhost:8000` | Main API URL |
+| `PROMPT_MCP_API_TIMEOUT` | `30.0` | API request timeout (seconds) |
+
 ### 5.1 Tests (test_prompt_mcp_server.py)
 
 **list_prompts handler:**
 - `test__list_prompts__returns_prompt_list`
 - `test__list_prompts__empty_list_when_no_prompts`
-- `test__list_prompts__includes_name_description_arguments`
+- `test__list_prompts__includes_name_title_description_arguments`
+- `test__list_prompts__uses_limit_100`
 
 **get_prompt handler:**
 - `test__get_prompt__renders_template_with_arguments`
 - `test__get_prompt__renders_template_no_arguments`
-- `test__get_prompt__missing_required_argument_error`
-- `test__get_prompt__extra_unknown_argument_error`
-- `test__get_prompt__prompt_not_found_error`
+- `test__get_prompt__missing_required_argument_error` - INVALID_PARAMS
+- `test__get_prompt__extra_unknown_argument_error` - INVALID_PARAMS
+- `test__get_prompt__prompt_not_found_error` - INVALID_PARAMS
 - `test__get_prompt__optional_argument_uses_default`
+- `test__get_prompt__tracks_usage` - verifies POST /prompts/{id}/track-usage called
+- `test__get_prompt__returns_prompt_message_with_user_role`
+
+**create_prompt tool:**
+- `test__create_prompt_tool__creates_prompt`
+- `test__create_prompt_tool__creates_with_arguments`
+- `test__create_prompt_tool__creates_with_tags`
+- `test__create_prompt_tool__validation_error_invalid_name`
+- `test__create_prompt_tool__validation_error_duplicate_name`
+- `test__create_prompt_tool__validation_error_template_syntax`
 
 **Template rendering:**
 - `test__render_template__simple_substitution`
 - `test__render_template__complex_jinja_logic`
 - `test__render_template__syntax_error_returns_error`
+- `test__render_template__empty_content_returns_empty_string`
 
 **Authentication:**
 - `test__auth__valid_token_succeeds`
-- `test__auth__invalid_token_fails`
-- `test__auth__missing_token_fails`
-- `test__auth__expired_token_fails`
+- `test__auth__invalid_token_fails` - 401
+- `test__auth__missing_token_fails` - 401
+- `test__auth__expired_token_fails` - 401
 
 **API client error handling:**
-- `test__api_client__network_error_handled`
+- `test__api_client__network_error_handled` - INTERNAL_ERROR
 - `test__api_client__api_error_response_handled`
+
+**Context cleanup:**
+- `test__auth__token_cleared_after_request`
+
+**Health:**
+- `test__health_check__returns_healthy`
 
 ---
 
@@ -502,7 +858,7 @@ prompt-server:  ## Start Prompt MCP server
 export interface PromptArgument {
   name: string
   description: string | null
-  required: boolean | null
+  required: boolean | null  // null treated as false
 }
 
 export interface Prompt {
@@ -545,11 +901,14 @@ Follow patterns from `useNotes.ts`:
 - Create button
 
 **PromptEditorPage.tsx:**
-- Name input (validated)
+- Name input (validated, hint: "Use lowercase with hyphens, e.g., code-review")
 - Title input (optional)
 - Description textarea
 - Content textarea (Jinja2 template)
 - Arguments builder (add/edit/delete)
+  - Name input (validated, hint: "Use lowercase with underscores, e.g., code_to_review")
+  - Description input
+  - Required checkbox
 - Tags input
 - Save/cancel buttons
 - Validation error display
@@ -603,10 +962,10 @@ Add prompt IDOR tests matching bookmark/note patterns:
 
 ### Cascade Delete Tests
 
-Ensure cascade delete is tested for all entity types:
-- `test_prompt_service.py`: `test__cascade_delete__user_deletion_removes_prompts`
-- `test_note_service.py`: `test__cascade_delete__user_deletion_removes_notes` (added earlier)
-- `test_bookmark_service.py`: `test__cascade_delete__user_deletion_removes_bookmarks` (added earlier)
+Add missing cascade delete tests to existing service tests, plus new prompt test:
+- `test_bookmark_service.py`: Add `test__cascade_delete__user_deletion_removes_bookmarks`
+- `test_note_service.py`: Add `test__cascade_delete__user_deletion_removes_notes`
+- `test_prompt_service.py`: `test__cascade_delete__user_deletion_removes_prompts` (already in Milestone 3)
 
 ### Tag Service Integration
 
@@ -623,6 +982,9 @@ Ensure cascade delete is tested for all entity types:
 - Update README with prompts feature
 - Update CLAUDE.md with prompt endpoints
 - Example prompts
+- Document the two MCP servers:
+  - `mcp.tiddly.me` - Bookmarks/Notes tools
+  - `prompts.tiddly.me` - Prompt templates + create_prompt tool
 
 ### Deployment (README_DEPLOY.md)
 
@@ -631,6 +993,7 @@ Ensure cascade delete is tested for all entity types:
   - `PROMPT_MCP_PORT=8002`
   - `API_BASE_URL`
 - Health check: `/health`
+- Domain: `prompts.tiddly.me`
 
 ---
 
@@ -674,7 +1037,12 @@ Ensure cascade delete is tested for all entity types:
 | `backend/src/services/prompt_service.py` | Create |
 | `backend/src/api/routers/prompts.py` | Create |
 | `backend/src/api/main.py` | Modify |
-| `backend/src/prompt_mcp_server/*` | Create |
+| `backend/src/prompt_mcp_server/__init__.py` | Create |
+| `backend/src/prompt_mcp_server/__main__.py` | Create |
+| `backend/src/prompt_mcp_server/main.py` | Create |
+| `backend/src/prompt_mcp_server/server.py` | Create |
+| `backend/src/prompt_mcp_server/auth.py` | Create |
+| `backend/src/prompt_mcp_server/template_renderer.py` | Create |
 | `backend/tests/models/test_prompt_model.py` | Create |
 | `backend/tests/schemas/test_prompt_schemas.py` | Create |
 | `backend/tests/services/test_prompt_service.py` | Create |
@@ -696,8 +1064,8 @@ Ensure cascade delete is tested for all entity types:
 ## Key Patterns
 
 - **Model**: Copy `models/note.py` structure
-- **Service**: Copy `services/note_service.py` structure
+- **Service**: Copy `services/note_service.py` structure (extends BaseEntityService)
 - **Schemas**: Copy `schemas/note.py` tag extraction pattern
 - **Router**: Copy `routers/notes.py` endpoint structure
 - **Tests**: Copy `tests/services/test_note_service.py` test categories
-- **MCP Server**: Reference existing `mcp_server/` for patterns
+- **MCP Server**: Reference existing `mcp_server/` for auth and API client patterns; use low-level SDK for prompts capability
