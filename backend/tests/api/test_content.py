@@ -475,6 +475,107 @@ async def test__list_content_with_list_id__respects_content_types_notes_only(
     assert data['items'][0]['title'] == 'Work Note'
 
 
+async def test__list_content_with_list_id__filters_by_content_types_param(
+    client: AsyncClient,
+) -> None:
+    """Test that list_id respects the content_types query param within list types."""
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://work.com', 'title': 'Work Bookmark', 'tags': ['work']},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'Work Note', 'tags': ['work']},
+    )
+
+    response = await client.post(
+        '/lists/',
+        json={
+            'name': 'Mixed Work',
+            'content_types': ['bookmark', 'note'],
+            'filter_expression': {'groups': [{'tags': ['work']}], 'group_operator': 'OR'},
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()['id']
+
+    response = await client.get(f'/content/?list_id={list_id}&content_types=note')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 1
+    assert data['items'][0]['type'] == 'note'
+    assert data['items'][0]['title'] == 'Work Note'
+
+
+async def test__list_content_with_list_id__content_types_param_multiple(
+    client: AsyncClient,
+) -> None:
+    """Test that multiple content_types params are honored within a mixed list."""
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://work.com', 'title': 'Work Bookmark', 'tags': ['work']},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'Work Note', 'tags': ['work']},
+    )
+
+    response = await client.post(
+        '/lists/',
+        json={
+            'name': 'Mixed Work Multi',
+            'content_types': ['bookmark', 'note'],
+            'filter_expression': {'groups': [{'tags': ['work']}], 'group_operator': 'OR'},
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()['id']
+
+    response = await client.get(
+        f'/content/?list_id={list_id}&content_types=bookmark&content_types=note'
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 2
+    types = {item['type'] for item in data['items']}
+    assert types == {'bookmark', 'note'}
+
+
+async def test__list_content_with_list_id__content_types_param_matches_list(
+    client: AsyncClient,
+) -> None:
+    """Test that matching content_types param still returns list content."""
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://work.com', 'title': 'Work Bookmark', 'tags': ['work']},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'Work Note', 'tags': ['work']},
+    )
+
+    response = await client.post(
+        '/lists/',
+        json={
+            'name': 'Bookmarks Only Match',
+            'content_types': ['bookmark'],
+            'filter_expression': {'groups': [{'tags': ['work']}], 'group_operator': 'OR'},
+        },
+    )
+    assert response.status_code == 201
+    list_id = response.json()['id']
+
+    response = await client.get(f'/content/?list_id={list_id}&content_types=bookmark')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 1
+    assert data['items'][0]['type'] == 'bookmark'
+    assert data['items'][0]['title'] == 'Work Bookmark'
+
+
 async def test__list_content_with_list_id__not_found(
     client: AsyncClient,
 ) -> None:
@@ -731,14 +832,14 @@ async def test__list_all_content__content_types_param_with_search(
     assert data['items'][0]['title'] == 'Python Bookmark'
 
 
-async def test__list_all_content__list_id_content_types_overrides_query_param(
+async def test__list_all_content__list_id_content_types_intersects_query_param(
     client: AsyncClient,
 ) -> None:
     """
-    Test that list's content_types overrides the content_types query param.
+    Test that list's content_types intersects the content_types query param.
 
     When both list_id and content_types query param are provided, the list's
-    content_types takes precedence and the query param is ignored.
+    content_types act as the upper bound and the query param further filters.
     """
     # Create bookmark and note with same tag
     await client.post(
@@ -763,12 +864,11 @@ async def test__list_all_content__list_id_content_types_overrides_query_param(
     list_id = response.json()['id']
 
     # Query with list_id AND content_types=note
-    # The list's content_types (bookmark) should override the query param (note)
+    # The list's content_types (bookmark) should intersect with query param (note)
     response = await client.get(f'/content/?list_id={list_id}&content_types=note')
     assert response.status_code == 200
 
     data = response.json()
-    # Should return bookmarks (from list), not notes (from query param)
-    assert data['total'] == 1
-    assert data['items'][0]['type'] == 'bookmark'
-    assert data['items'][0]['title'] == 'Example Bookmark'
+    # Intersection is empty, so no items should be returned
+    assert data['total'] == 0
+    assert data['items'] == []

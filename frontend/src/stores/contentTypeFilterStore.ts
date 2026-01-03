@@ -16,13 +16,13 @@ interface ContentTypeFilterState {
   selectedTypes: Record<string, ContentType[]>
 
   /** Get selected types for a view. Returns all types if not set. */
-  getSelectedTypes: (view: string) => ContentType[]
+  getSelectedTypes: (view: string, availableTypes?: ContentType[]) => ContentType[]
 
   /** Toggle a content type for a view. Ensures at least one type is always selected. */
-  toggleType: (view: string, type: ContentType) => void
+  toggleType: (view: string, type: ContentType, availableTypes?: ContentType[]) => void
 
   /** Set content types for a view directly */
-  setTypes: (view: string, types: ContentType[]) => void
+  setTypes: (view: string, types: ContentType[], availableTypes?: ContentType[]) => void
 }
 
 export const useContentTypeFilterStore = create<ContentTypeFilterState>()(
@@ -30,18 +30,22 @@ export const useContentTypeFilterStore = create<ContentTypeFilterState>()(
     (set, get) => ({
       selectedTypes: {},
 
-      getSelectedTypes: (view: string): ContentType[] => {
+      getSelectedTypes: (view: string, availableTypes = ALL_CONTENT_TYPES): ContentType[] => {
+        const resolvedAvailableTypes = availableTypes.length > 0 ? availableTypes : ALL_CONTENT_TYPES
         const types = get().selectedTypes[view]
-        // If not set or empty, return all types
         if (!types || types.length === 0) {
-          return ALL_CONTENT_TYPES
+          return resolvedAvailableTypes
         }
-        return types
+        const filteredTypes = types.filter((type) => resolvedAvailableTypes.includes(type))
+        return filteredTypes.length > 0 ? filteredTypes : resolvedAvailableTypes
       },
 
-      toggleType: (view: string, type: ContentType): void => {
+      toggleType: (view: string, type: ContentType, availableTypes = ALL_CONTENT_TYPES): void => {
         set((state) => {
-          const currentTypes = state.selectedTypes[view] || [...ALL_CONTENT_TYPES]
+          const resolvedAvailableTypes = availableTypes.length > 0 ? availableTypes : ALL_CONTENT_TYPES
+          const currentTypes = state.selectedTypes[view]
+            ? state.selectedTypes[view].filter((currentType) => resolvedAvailableTypes.includes(currentType))
+            : [...resolvedAvailableTypes]
           const isSelected = currentTypes.includes(type)
 
           // If trying to deselect and it's the last one, don't allow
@@ -62,9 +66,10 @@ export const useContentTypeFilterStore = create<ContentTypeFilterState>()(
         })
       },
 
-      setTypes: (view: string, types: ContentType[]): void => {
-        // Ensure at least one type is selected
-        const validTypes = types.length > 0 ? types : ALL_CONTENT_TYPES
+      setTypes: (view: string, types: ContentType[], availableTypes = ALL_CONTENT_TYPES): void => {
+        const resolvedAvailableTypes = availableTypes.length > 0 ? availableTypes : ALL_CONTENT_TYPES
+        const filteredTypes = types.filter((type) => resolvedAvailableTypes.includes(type))
+        const validTypes = filteredTypes.length > 0 ? filteredTypes : resolvedAvailableTypes
         set((state) => ({
           selectedTypes: {
             ...state.selectedTypes,

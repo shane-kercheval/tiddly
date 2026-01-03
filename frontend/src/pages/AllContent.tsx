@@ -36,7 +36,7 @@ import { useEffectiveSort, getViewKey } from '../hooks/useEffectiveSort'
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
-import { useContentTypeFilterStore } from '../stores/contentTypeFilterStore'
+import { useContentTypeFilterStore, ALL_CONTENT_TYPES } from '../stores/contentTypeFilterStore'
 import { useListsStore } from '../stores/listsStore'
 import type { PageSize } from '../stores/uiPreferencesStore'
 import type { SortByOption } from '../constants/sortOptions'
@@ -59,7 +59,7 @@ import {
   TrashIcon,
   ListIcon,
 } from '../components/icons'
-import type { Bookmark, BookmarkCreate, BookmarkUpdate, ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem } from '../types'
+import type { Bookmark, BookmarkCreate, BookmarkUpdate, ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem, ContentType } from '../types'
 import { getFirstGroupTags } from '../utils'
 
 /**
@@ -127,9 +127,18 @@ export function AllContent(): ReactNode {
     [currentListId, lists]
   )
 
-  // Content type filter - only for builtin views (not custom lists)
+  // Content type filter - builtin views always, lists only when multiple types exist
   const { getSelectedTypes, toggleType } = useContentTypeFilterStore()
-  const selectedContentTypes = currentListId === undefined ? getSelectedTypes(currentView) : undefined
+  const availableContentTypes = useMemo(() => {
+    if (currentListId === undefined) return ALL_CONTENT_TYPES
+    const listTypes = currentList?.content_types
+    return listTypes && listTypes.length > 0 ? listTypes : ALL_CONTENT_TYPES
+  }, [currentListId, currentList])
+  const contentTypeFilterKey = currentListId !== undefined ? `list:${currentListId}` : currentView
+  const shouldShowContentTypeFilters = currentListId === undefined || availableContentTypes.length > 1
+  const selectedContentTypes = shouldShowContentTypeFilters
+    ? getSelectedTypes(contentTypeFilterKey, availableContentTypes)
+    : undefined
 
   // Per-view sort
   const viewKey = useMemo(() => getViewKey(currentView, currentListId), [currentView, currentListId])
@@ -187,7 +196,8 @@ export function AllContent(): ReactNode {
   })
 
   // Derive hasFilters from search query, tag store, and content type filter
-  const hasContentTypeFilter = selectedContentTypes !== undefined && selectedContentTypes.length < 2
+  const hasContentTypeFilter = selectedContentTypes !== undefined
+    && selectedContentTypes.length < availableContentTypes.length
   const hasFilters = searchQuery.length > 0 || selectedTags.length > 0 || hasContentTypeFilter
 
   // Debounce search query
@@ -716,11 +726,11 @@ export function AllContent(): ReactNode {
 
   // Content type toggle handler
   const handleContentTypeToggle = useCallback(
-    (type: 'bookmark' | 'note') => {
-      toggleType(currentView, type)
+    (type: ContentType) => {
+      toggleType(contentTypeFilterKey, type, availableContentTypes)
       updateParams({ offset: 0 })
     },
-    [toggleType, currentView, updateParams]
+    [toggleType, contentTypeFilterKey, availableContentTypes, updateParams]
   )
 
   // Quick-add handlers
@@ -760,10 +770,11 @@ export function AllContent(): ReactNode {
             ) : undefined
           }
         />
-        {/* Content type filter chips - only for builtin views */}
+        {/* Content type filter chips */}
         {selectedContentTypes && (
           <ContentTypeFilterChips
             selectedTypes={selectedContentTypes}
+            availableTypes={availableContentTypes}
             onChange={handleContentTypeToggle}
           />
         )}

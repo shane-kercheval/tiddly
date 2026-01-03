@@ -11,6 +11,8 @@ import type { ContentType } from '../../types'
 interface ContentTypeFilterChipsProps {
   /** Currently selected content types */
   selectedTypes: ContentType[]
+  /** Available content types to display */
+  availableTypes?: ContentType[]
   /** Callback when selection changes */
   onChange: (type: ContentType) => void
 }
@@ -21,28 +23,37 @@ interface ChipConfig {
   icon: ReactNode
 }
 
-const CHIP_CONFIGS: ChipConfig[] = [
-  {
+const CHIP_CONFIGS: Record<ContentType, ChipConfig> = {
+  bookmark: {
     type: 'bookmark',
     label: 'Bookmarks',
     icon: <BookmarkIcon className="h-3.5 w-3.5" />,
   },
-  {
+  note: {
     type: 'note',
     label: 'Notes',
     icon: <NoteIcon className="h-3.5 w-3.5" />,
   },
-]
+}
 
 export function ContentTypeFilterChips({
   selectedTypes,
+  availableTypes,
   onChange,
 }: ContentTypeFilterChipsProps): ReactNode {
+  const resolvedTypes = (availableTypes && availableTypes.length > 0)
+    ? availableTypes
+    : (Object.keys(CHIP_CONFIGS) as ContentType[])
+  const sortedTypes = [...resolvedTypes].sort((left, right) => (
+    CHIP_CONFIGS[left].label.localeCompare(CHIP_CONFIGS[right].label)
+  ))
+
   return (
     <div className="flex items-center gap-2">
       <span className="text-xs text-gray-500">Show:</span>
       <div className="flex gap-1.5">
-        {CHIP_CONFIGS.map(({ type, label, icon }) => {
+        {sortedTypes.map((type) => {
+          const { label, icon } = CHIP_CONFIGS[type]
           const isSelected = selectedTypes.includes(type)
           const isOnlySelected = selectedTypes.length === 1 && isSelected
 

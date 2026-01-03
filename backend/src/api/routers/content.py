@@ -58,7 +58,8 @@ async def list_all_content(
 
     When list_id is provided:
     - The list's filter_expression is applied
-    - The list's content_types determines which entity types are returned
+    - The list's content_types act as the upper bound of entity types returned
+    - If content_types query param is provided, results are filtered to the intersection
     """
     # If list_id provided, fetch the list and use its filter expression + content_types
     filter_expression = None
@@ -68,8 +69,14 @@ async def list_all_content(
         if content_list is None:
             raise HTTPException(status_code=404, detail="List not found")
         filter_expression = content_list.filter_expression
-        # List's content_types overrides the query param
-        effective_content_types = content_list.content_types
+        if content_types is None:
+            effective_content_types = content_list.content_types
+        else:
+            effective_content_types = [
+                content_type
+                for content_type in content_types
+                if content_type in content_list.content_types
+            ]
 
     items, total = await search_all_content(
         db=db,
