@@ -58,6 +58,8 @@ import {
   ArchiveIcon,
   TrashIcon,
   ListIcon,
+  BookmarkIcon,
+  NoteIcon,
 } from '../components/icons'
 import type { Bookmark, BookmarkCreate, BookmarkUpdate, ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem, ContentType } from '../types'
 import { getFirstGroupTags } from '../utils'
@@ -714,10 +716,17 @@ export function AllContent(): ReactNode {
         onClick: contentTypeActions[type].onClick,
         variant: 'secondary',
       }))
+      const emptyStateIcon = isSingleType
+        ? (primaryType === 'bookmark'
+          ? <BookmarkIcon />
+          : primaryType === 'note'
+            ? <NoteIcon />
+            : <ListIcon />)
+        : <ListIcon />
 
       return (
         <EmptyState
-          icon={<ListIcon />}
+          icon={emptyStateIcon}
           title={emptyStateTitle}
           description={emptyStateDescription}
           actions={emptyStateActions}
