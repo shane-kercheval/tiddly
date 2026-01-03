@@ -12,7 +12,7 @@ PYTHONPATH := backend/src
 build:  ## Install backend dependencies
 	uv sync
 
-run:  ## Start API server with hot-reload
+api-run:  ## Start API server with hot-reload
 	PYTHONPATH=$(PYTHONPATH) uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 
 ####
@@ -24,11 +24,11 @@ mcp-server:  ## Start MCP server (requires API server running on port 8000)
 ####
 # Frontend Development
 ####
+frontend-run:  ## Start frontend dev server
+	cd frontend && npm run dev
+
 frontend-install:  ## Install frontend dependencies
 	cd frontend && npm install
-
-frontend-dev:  ## Start frontend dev server
-	cd frontend && npm run dev
 
 frontend-build:  ## Build frontend for production
 	cd frontend && npm run build
