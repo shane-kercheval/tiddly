@@ -69,8 +69,8 @@ describe('ListModal', () => {
   })
 
   describe('validation', () => {
-    it('should show error when submitting with no tags', async () => {
-      const onCreate = vi.fn()
+    it('should allow submitting without tag filters', async () => {
+      const onCreate = vi.fn().mockResolvedValue({ id: 1 })
       const user = userEvent.setup()
 
       render(
@@ -89,8 +89,18 @@ describe('ListModal', () => {
       const submitButton = screen.getByRole('button', { name: 'Create List' })
       await user.click(submitButton)
 
-      expect(screen.getByText('At least one tag filter is required')).toBeInTheDocument()
-      expect(onCreate).not.toHaveBeenCalled()
+      await waitFor(() => {
+        expect(onCreate).toHaveBeenCalledWith({
+          name: 'My List',
+          content_types: ['bookmark', 'note'],
+          filter_expression: {
+            groups: [],
+            group_operator: 'OR',
+          },
+          default_sort_by: null,
+          default_sort_ascending: null,
+        })
+      })
     })
 
     it('should disable submit button when name is empty', () => {

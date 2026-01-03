@@ -142,10 +142,19 @@ export function AllContent(): ReactNode {
 
   // Per-view sort
   const viewKey = useMemo(() => getViewKey(currentView, currentListId), [currentView, currentListId])
+  const listDefault = useMemo(
+    () => currentList
+      ? {
+          sortBy: currentList.default_sort_by,
+          ascending: currentList.default_sort_ascending,
+        }
+      : undefined,
+    [currentList]
+  )
   const { sortBy, sortOrder, setSort, availableSortOptions } = useEffectiveSort(
     viewKey,
     currentView,
-    undefined
+    listDefault
   )
 
   // Get initial tags from current list's first filter group (for pre-populating new bookmarks)

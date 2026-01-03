@@ -31,7 +31,7 @@ vi.mock('../../stores/settingsStore', () => ({
       sidebar: {
         version: 1,
         items: [
-          { type: 'builtin', key: 'all', name: 'All' },
+          { type: 'builtin', key: 'all', name: 'All Content' },
           { type: 'list', id: 5, name: 'Test List', content_types: ['bookmark'] },
         ],
       },

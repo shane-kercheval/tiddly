@@ -17,7 +17,7 @@ ListSortByOption = Literal["created_at", "updated_at", "last_used_at", "title"]
 class FilterGroup(BaseModel):
     """A group of tags combined with AND logic."""
 
-    tags: list[str] = Field(min_length=1)
+    tags: list[str] = Field(default_factory=list)
     operator: Literal["AND"] = "AND"
 
     @field_validator("tags", mode="before")
@@ -37,7 +37,7 @@ class FilterExpression(BaseModel):
     Evaluates to: (a AND b) OR (c)
     """
 
-    groups: list[FilterGroup] = Field(min_length=1)
+    groups: list[FilterGroup] = Field(default_factory=list)
     group_operator: Literal["OR"] = "OR"
 
 

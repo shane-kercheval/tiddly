@@ -69,11 +69,6 @@ export function ListModal({
     }
   }, [isOpen, list])
 
-  const validateFilterExpression = (expr: FilterExpression): boolean => {
-    // At least one group must have at least one tag
-    return expr.groups.some((group) => group.tags && group.tags.length > 0)
-  }
-
   const toggleContentType = (type: ContentType): void => {
     setContentTypes((prev) => {
       if (prev.includes(type)) {
@@ -95,11 +90,6 @@ export function ListModal({
 
     if (contentTypes.length === 0) {
       setError('At least one content type must be selected')
-      return
-    }
-
-    if (!validateFilterExpression(filterExpression)) {
-      setError('At least one tag filter is required')
       return
     }
 
