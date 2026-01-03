@@ -15,6 +15,12 @@ interface EmptyStateProps {
     label: string
     onClick: () => void
   }
+  /** Optional action buttons */
+  actions?: Array<{
+    label: string
+    onClick: () => void
+    variant?: 'primary' | 'secondary'
+  }>
 }
 
 /**
@@ -25,7 +31,10 @@ export function EmptyState({
   title,
   description,
   action,
+  actions,
 }: EmptyStateProps): ReactNode {
+  const resolvedActions = actions ?? (action ? [action] : [])
+
   return (
     <div className="py-16 text-center">
       <div className="mx-auto flex h-12 w-12 items-center justify-center text-gray-300 [&>svg]:h-8 [&>svg]:w-8">
@@ -33,13 +42,23 @@ export function EmptyState({
       </div>
       <h3 className="mt-4 text-base font-medium text-gray-900">{title}</h3>
       <p className="mt-1.5 text-sm text-gray-400">{description}</p>
-      {action && (
-        <button
-          onClick={action.onClick}
-          className="btn-primary mt-6"
-        >
-          {action.label}
-        </button>
+      {resolvedActions.length > 0 && (
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          {resolvedActions.map((resolvedAction, index) => {
+            const variant = resolvedAction.variant ?? 'secondary'
+            const className = variant === 'primary' ? 'btn-primary' : 'btn-secondary'
+
+            return (
+              <button
+                key={`${resolvedAction.label}-${index}`}
+                onClick={resolvedAction.onClick}
+                className={className}
+              >
+                {resolvedAction.label}
+              </button>
+            )
+          })}
+        </div>
       )}
     </div>
   )

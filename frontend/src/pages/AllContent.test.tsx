@@ -252,7 +252,9 @@ describe('AllContent', () => {
       await waitFor(() => {
         expect(screen.getByText('No content yet')).toBeInTheDocument()
       })
-      expect(screen.getByText('Create bookmarks or notes to see them here.')).toBeInTheDocument()
+      expect(screen.getByText('Create content to see it here.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'New Note' })).toBeInTheDocument()
     })
 
     it('shows "No archived content" for archived view with no content', async () => {
@@ -304,6 +306,18 @@ describe('AllContent', () => {
       await waitFor(() => {
         expect(screen.getByText('No deleted content found')).toBeInTheDocument()
       })
+    })
+
+    it('shows bookmark-only empty state in custom list view', async () => {
+      mockContentQueryData = createMockResponse([])
+      renderAtRoute('/app/content/lists/1')
+
+      await waitFor(() => {
+        expect(screen.getByText('No bookmarks yet')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Create bookmarks to see them here.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'New Note' })).not.toBeInTheDocument()
     })
   })
 

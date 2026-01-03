@@ -612,6 +612,32 @@ export function AllContent(): ReactNode {
   const currentPage = Math.floor(offset / pageSize) + 1
   const hasMore = offset + items.length < total
 
+  // Quick-add handlers
+  const handleQuickAddBookmark = useCallback((): void => {
+    setShowAddModal(true)
+  }, [])
+
+  const handleQuickAddNote = useCallback((): void => {
+    navigate('/app/notes/new', { state: { ...createReturnState(), initialTags: initialTagsFromList } })
+  }, [navigate, createReturnState, initialTagsFromList])
+
+  const contentTypeActions = useMemo<Record<ContentType, {
+    pluralLabel: string
+    buttonLabel: string
+    onClick: () => void
+  }>>(() => ({
+    bookmark: {
+      pluralLabel: 'bookmarks',
+      buttonLabel: 'New Bookmark',
+      onClick: handleQuickAddBookmark,
+    },
+    note: {
+      pluralLabel: 'notes',
+      buttonLabel: 'New Note',
+      onClick: handleQuickAddNote,
+    },
+  }), [handleQuickAddBookmark, handleQuickAddNote])
+
   // Render content based on state
   const renderContent = (): ReactNode => {
     if (isLoading) {
@@ -671,11 +697,30 @@ export function AllContent(): ReactNode {
         )
       }
 
+      const typeOrder = ALL_CONTENT_TYPES
+      const orderedContentTypes = [...availableContentTypes].sort((left, right) => (
+        typeOrder.indexOf(left) - typeOrder.indexOf(right)
+      ))
+      const isSingleType = orderedContentTypes.length === 1
+      const primaryType = isSingleType ? orderedContentTypes[0] : null
+      const emptyStateTitle = isSingleType && primaryType
+        ? `No ${contentTypeActions[primaryType].pluralLabel} yet`
+        : 'No content yet'
+      const emptyStateDescription = isSingleType && primaryType
+        ? `Create ${contentTypeActions[primaryType].pluralLabel} to see them here.`
+        : 'Create content to see it here.'
+      const emptyStateActions = orderedContentTypes.map((type) => ({
+        label: contentTypeActions[type].buttonLabel,
+        onClick: contentTypeActions[type].onClick,
+        variant: 'secondary',
+      }))
+
       return (
         <EmptyState
           icon={<ListIcon />}
-          title="No content yet"
-          description="Create bookmarks or notes to see them here."
+          title={emptyStateTitle}
+          description={emptyStateDescription}
+          actions={emptyStateActions}
         />
       )
     }
@@ -741,15 +786,6 @@ export function AllContent(): ReactNode {
     },
     [toggleType, contentTypeFilterKey, availableContentTypes, updateParams]
   )
-
-  // Quick-add handlers
-  const handleQuickAddBookmark = useCallback((): void => {
-    setShowAddModal(true)
-  }, [])
-
-  const handleQuickAddNote = useCallback((): void => {
-    navigate('/app/notes/new', { state: { ...createReturnState(), initialTags: initialTagsFromList } })
-  }, [navigate, createReturnState, initialTagsFromList])
 
   // Show quick-add menu for active view (All, or any custom list)
   const showQuickAdd = currentView === 'active'
