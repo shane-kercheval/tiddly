@@ -357,3 +357,74 @@ async def test__cascade_delete__user_deletion_removes_prompts(
     from sqlalchemy import select
     result = await db_session.execute(select(Prompt).where(Prompt.id == prompt_id))
     assert result.scalar_one_or_none() is None
+
+
+# =============================================================================
+# Null Value Handling Tests
+# =============================================================================
+
+
+async def test__update__null_name_ignored(
+    db_session: AsyncSession, user: User, prompt_service: PromptService,
+) -> None:
+    """Test that update with null name is treated as no change."""
+    await prompt_service.create(
+        db_session, user.id,
+        PromptCreate(name="keep-name", title="Original"),
+    )
+
+    # Update with null name - should be ignored
+    updated = await prompt_service.update(
+        db_session, user.id, "keep-name",
+        PromptUpdate(name=None, title="New Title"),
+    )
+
+    assert updated is not None
+    assert updated.name == "keep-name"  # Name unchanged
+    assert updated.title == "New Title"
+
+
+async def test__update__null_arguments_clears(
+    db_session: AsyncSession, user: User, prompt_service: PromptService,
+) -> None:
+    """Test that update with null arguments clears to empty list."""
+    await prompt_service.create(
+        db_session, user.id,
+        PromptCreate(
+            name="has-args",
+            content="Hello {{ name }}",
+            arguments=[{"name": "name"}],
+        ),
+    )
+
+    # Update with null arguments and new content (no variables)
+    updated = await prompt_service.update(
+        db_session, user.id, "has-args",
+        PromptUpdate(arguments=None, content="No variables"),
+    )
+
+    assert updated is not None
+    assert updated.arguments == []
+    assert updated.content == "No variables"
+
+
+async def test__update__null_arguments_validates_template(
+    db_session: AsyncSession, user: User, prompt_service: PromptService,
+) -> None:
+    """Test that clearing arguments fails if template uses variables."""
+    await prompt_service.create(
+        db_session, user.id,
+        PromptCreate(
+            name="template-vars",
+            content="Hello {{ name }}",
+            arguments=[{"name": "name"}],
+        ),
+    )
+
+    # Clearing arguments should fail - template still uses {{ name }}
+    with pytest.raises(ValueError) as exc_info:
+        await prompt_service.update(
+            db_session, user.id, "template-vars",
+            PromptUpdate(arguments=None),
+        )
+    assert "undefined variable" in str(exc_info.value).lower()

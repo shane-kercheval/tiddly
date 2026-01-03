@@ -214,16 +214,25 @@ class PromptService:
 
         update_data = data.model_dump(exclude_unset=True)
 
+        # Handle null values for fields that can't be cleared
+        # name is required and can't be set to None - treat null as "no change"
+        if "name" in update_data and update_data["name"] is None:
+            del update_data["name"]
+
         # Determine effective content and arguments for validation
         effective_content = update_data.get("content", prompt.content)
 
         if "arguments" in update_data:
-            # Convert PromptArgument models to dicts if needed
             args_list = update_data["arguments"]
-            args_as_dicts = [
-                arg.model_dump() if hasattr(arg, "model_dump") else arg
-                for arg in args_list
-            ]
+            # Treat null as empty list (clearing arguments)
+            if args_list is None:
+                args_as_dicts = []
+            else:
+                # Convert PromptArgument models to dicts if needed
+                args_as_dicts = [
+                    arg.model_dump() if hasattr(arg, "model_dump") else arg
+                    for arg in args_list
+                ]
         else:
             args_as_dicts = prompt.arguments
 

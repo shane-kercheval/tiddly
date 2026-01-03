@@ -416,3 +416,79 @@ async def test__delete_prompt__not_found(client: AsyncClient) -> None:
     """Test deleting non-existent prompt returns 404."""
     response = await client.delete("/prompts/nonexistent")
     assert response.status_code == 404
+
+
+# =============================================================================
+# Null Value Edge Case Tests
+# =============================================================================
+
+
+async def test__update_prompt__null_name_ignored(client: AsyncClient) -> None:
+    """Test that PATCH with name: null is treated as no change."""
+    # Create a prompt
+    await client.post("/prompts/", json={"name": "keep-my-name", "title": "Original"})
+
+    # PATCH with null name - should NOT change the name
+    response = await client.patch(
+        "/prompts/keep-my-name",
+        json={"name": None, "title": "Updated Title"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["name"] == "keep-my-name"  # Name unchanged
+    assert data["title"] == "Updated Title"  # Title updated
+
+
+async def test__update_prompt__null_arguments_clears(client: AsyncClient) -> None:
+    """Test that PATCH with arguments: null clears arguments to empty list."""
+    # Create a prompt with arguments
+    await client.post(
+        "/prompts/",
+        json={
+            "name": "has-args",
+            "content": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+
+    # Verify arguments exist
+    response = await client.get("/prompts/has-args")
+    assert len(response.json()["arguments"]) == 1
+
+    # PATCH with null arguments - should clear to empty list
+    # Also need to update content since template validation would fail
+    response = await client.patch(
+        "/prompts/has-args",
+        json={"arguments": None, "content": "No variables here"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["arguments"] == []
+    assert data["content"] == "No variables here"
+
+
+async def test__update_prompt__null_arguments_fails_template_validation(
+    client: AsyncClient,
+) -> None:
+    """Test that clearing arguments fails if template still uses variables."""
+    # Create a prompt with arguments
+    await client.post(
+        "/prompts/",
+        json={
+            "name": "template-with-vars",
+            "content": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+
+    # PATCH with null arguments but keep template - should fail validation
+    response = await client.patch(
+        "/prompts/template-with-vars",
+        json={"arguments": None},  # Template still uses {{ name }}
+    )
+    assert response.status_code == 400
+    assert "undefined variable" in response.json()["detail"].lower()
+
+

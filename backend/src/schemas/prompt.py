@@ -1,6 +1,6 @@
 """Pydantic schemas for prompts."""
 from datetime import datetime
-from typing import Any, Self
+from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -107,20 +107,6 @@ class PromptResponse(BaseModel):
     arguments: list[PromptArgument]
     created_at: datetime
     updated_at: datetime
-
-    @model_validator(mode="before")
-    @classmethod
-    def convert_arguments(cls, data: Any) -> Any:
-        """Convert arguments from JSONB dicts to PromptArgument objects."""
-        # Handle SQLAlchemy model objects
-        if hasattr(data, "__dict__"):
-            data_dict = {}
-            for key in ["id", "name", "title", "description", "content",
-                        "arguments", "created_at", "updated_at"]:
-                if hasattr(data, key):
-                    data_dict[key] = getattr(data, key)
-            return data_dict
-        return data
 
 
 class PromptListResponse(BaseModel):
