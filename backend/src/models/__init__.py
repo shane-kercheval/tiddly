@@ -6,6 +6,7 @@ from models.bookmark import Bookmark
 from models.content_list import ContentList
 from models.note import Note
 from models.note_version import NoteVersion
+from models.prompt import Prompt
 from models.user import User
 from models.user_consent import UserConsent
 from models.user_settings import UserSettings
@@ -17,6 +18,7 @@ __all__ = [
     "ContentList",
     "Note",
     "NoteVersion",
+    "Prompt",
     "Tag",
     "TimestampMixin",
     "User",

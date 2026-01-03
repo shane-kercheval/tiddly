@@ -14,6 +14,7 @@ from api.routers import (
     health,
     lists,
     notes,
+    prompts,
     settings,
     tags,
     tokens,
@@ -136,6 +137,7 @@ app.include_router(users.router)
 app.include_router(consent.router)
 app.include_router(bookmarks.router)
 app.include_router(notes.router)
+app.include_router(prompts.router)
 app.include_router(content.router)
 app.include_router(tags.router)
 app.include_router(tokens.router)
