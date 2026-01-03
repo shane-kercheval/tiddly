@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from core.config import get_settings
 from schemas.validators import (
+    check_duplicate_argument_names,
     validate_and_normalize_tags,
     validate_argument_name,
     validate_description_length,
@@ -46,8 +47,8 @@ class PromptCreate(BaseModel):
     title: str | None = None
     description: str | None = None
     content: str | None = None  # Jinja2 template
-    arguments: list[PromptArgument] = []
-    tags: list[str] = []
+    arguments: list[PromptArgument] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     archived_at: datetime | None = Field(
         default=None,
         description="Schedule auto-archive at this time. Accepts ISO 8601 format with timezone "
@@ -90,16 +91,7 @@ class PromptCreate(BaseModel):
     @model_validator(mode="after")
     def check_duplicate_arguments(self) -> "PromptCreate":
         """Ensure no duplicate argument names."""
-        if not self.arguments:
-            return self
-        names = [arg.name for arg in self.arguments]
-        duplicates = [name for name in names if names.count(name) > 1]
-        if duplicates:
-            unique_duplicates = sorted(set(duplicates))
-            raise ValueError(
-                f"Duplicate argument name(s): {', '.join(unique_duplicates)}. "
-                "Each argument must have a unique name.",
-            )
+        check_duplicate_argument_names(self.arguments)
         return self
 
 
@@ -157,16 +149,7 @@ class PromptUpdate(BaseModel):
     @model_validator(mode="after")
     def check_duplicate_arguments(self) -> "PromptUpdate":
         """Ensure no duplicate argument names if arguments provided."""
-        if self.arguments is None:
-            return self
-        names = [arg.name for arg in self.arguments]
-        duplicates = [name for name in names if names.count(name) > 1]
-        if duplicates:
-            unique_duplicates = sorted(set(duplicates))
-            raise ValueError(
-                f"Duplicate argument name(s): {', '.join(unique_duplicates)}. "
-                "Each argument must have a unique name.",
-            )
+        check_duplicate_argument_names(self.arguments)
         return self
 
 

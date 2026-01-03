@@ -72,10 +72,12 @@ async def test__put_sidebar__updates_structure(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     data = response.json()
-    # Order should be preserved
-    assert data["items"][0]["key"] == "trash"
-    assert data["items"][1]["key"] == "all"
-    assert data["items"][2]["key"] == "archived"
+    # Filter to builtins only (orphan lists may be prepended)
+    builtins = [item for item in data["items"] if item["type"] == "builtin"]
+    # Order among builtins should be preserved
+    assert builtins[0]["key"] == "trash"
+    assert builtins[1]["key"] == "all"
+    assert builtins[2]["key"] == "archived"
 
 
 async def test__put_sidebar__with_groups(client: AsyncClient) -> None:
@@ -272,13 +274,21 @@ async def test__get_sidebar__prepends_orphan_lists(client: AsyncClient) -> None:
         },
     )
 
-    # Get sidebar - orphan list should be prepended
+    # Get sidebar - orphan lists should be prepended before builtins
     response = await client.get("/settings/sidebar")
     assert response.status_code == 200
 
     data = response.json()
-    assert data["items"][0]["type"] == "list"
-    assert data["items"][0]["id"] == list_id
+    # Find all list items that appear before the first builtin
+    # (these are the prepended orphan lists)
+    orphan_list_ids = []
+    for item in data["items"]:
+        if item["type"] == "list":
+            orphan_list_ids.append(item["id"])
+        elif item["type"] == "builtin":
+            break  # Stop at first builtin
+    # Our created list should be among the prepended orphans
+    assert list_id in orphan_list_ids
 
 
 async def test__list_creation__adds_to_sidebar(client: AsyncClient) -> None:

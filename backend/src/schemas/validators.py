@@ -130,24 +130,47 @@ def validate_argument_name(name: str) -> str:
         name: The argument name to validate.
 
     Returns:
-        The validated name.
+        The validated name (trimmed).
 
     Raises:
         ValueError: If name is empty, too long, or has invalid format.
     """
     settings = get_settings()
-    if not name:
+    trimmed = name.strip()
+    if not trimmed:
         raise ValueError("Argument name cannot be empty")
-    if len(name) > settings.max_argument_name_length:
+    if len(trimmed) > settings.max_argument_name_length:
         max_len = settings.max_argument_name_length
         raise ValueError(
             f"Argument name exceeds maximum length of {max_len} characters "
-            f"(got {len(name)} characters).",
+            f"(got {len(trimmed)} characters).",
         )
-    if not ARGUMENT_NAME_PATTERN.match(name):
+    if not ARGUMENT_NAME_PATTERN.match(trimmed):
         raise ValueError(
-            f"Invalid argument name format: '{name}'. "
+            f"Invalid argument name format: '{trimmed}'. "
             "Must start with a lowercase letter and contain only lowercase letters, "
             "numbers, and underscores (e.g., 'code_to_review').",
         )
-    return name
+    return trimmed
+
+
+def check_duplicate_argument_names(arguments: list | None) -> None:
+    """
+    Check for duplicate argument names in a list of arguments.
+
+    Args:
+        arguments: List of argument objects with 'name' attribute, or None.
+
+    Raises:
+        ValueError: If duplicate argument names are found.
+    """
+    if not arguments:
+        return
+    names = [arg.name for arg in arguments]
+    duplicates = [name for name in names if names.count(name) > 1]
+    if duplicates:
+        unique_duplicates = sorted(set(duplicates))
+        raise ValueError(
+            f"Duplicate argument name(s): {', '.join(unique_duplicates)}. "
+            "Each argument must have a unique name.",
+        )
