@@ -163,8 +163,8 @@ describe('App', () => {
 
     await waitFor(
       () => {
-        // Sidebar has "All" builtin navigation item
-        expect(screen.getAllByText('All').length).toBeGreaterThanOrEqual(1)
+        // Sidebar has "All Content" builtin navigation item
+        expect(screen.getAllByText('All Content').length).toBeGreaterThanOrEqual(1)
       },
       { timeout: 3000 }
     )

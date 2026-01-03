@@ -193,6 +193,7 @@ const mockToggleType = vi.fn()
 let mockSelectedContentTypes: ('bookmark' | 'note')[] = ['bookmark', 'note']
 
 vi.mock('../stores/contentTypeFilterStore', () => ({
+  ALL_CONTENT_TYPES: ['bookmark', 'note'],
   useContentTypeFilterStore: () => ({
     getSelectedTypes: () => mockSelectedContentTypes,
     toggleType: mockToggleType,
@@ -670,7 +671,11 @@ describe('AllContent', () => {
       const bookmarksChip = screen.getByRole('button', { name: /bookmarks/i })
       await user.click(bookmarksChip)
 
-      expect(mockToggleType).toHaveBeenCalledWith('active', 'bookmark')
+      expect(mockToggleType).toHaveBeenCalledWith(
+        'active',
+        'bookmark',
+        ['bookmark', 'note']
+      )
     })
   })
 

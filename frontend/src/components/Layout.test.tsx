@@ -141,8 +141,8 @@ describe('Layout', () => {
     it('should render the sidebar with navigation items', () => {
       renderLayout()
 
-      // Sidebar contains the builtin "All" item (appears in both mobile and desktop sidebars)
-      expect(screen.getAllByText('All').length).toBeGreaterThanOrEqual(1)
+      // Sidebar contains the builtin "All Content" item (appears in both mobile and desktop sidebars)
+      expect(screen.getAllByText('All Content').length).toBeGreaterThanOrEqual(1)
     })
   })
 })
