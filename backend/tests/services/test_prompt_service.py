@@ -483,3 +483,81 @@ async def test__update__null_arguments_validates_template(
             PromptUpdate(arguments=None),
         )
     assert "undefined variable" in str(exc_info.value).lower()
+
+
+# =============================================================================
+# User Isolation Tests
+# =============================================================================
+
+
+async def test__list__excludes_other_users_prompts(
+    db_session: AsyncSession, prompt_service: PromptService,
+) -> None:
+    """Test that list only returns the current user's prompts."""
+    # Create two users
+    user1 = User(auth0_id="user1|isolation", email="user1@example.com")
+    user2 = User(auth0_id="user2|isolation", email="user2@example.com")
+    db_session.add(user1)
+    db_session.add(user2)
+    await db_session.flush()
+
+    # Create prompts for both users
+    await prompt_service.create(db_session, user1.id, PromptCreate(name="user1-prompt"))
+    await prompt_service.create(db_session, user2.id, PromptCreate(name="user2-prompt"))
+
+    # List should only return user1's prompts
+    prompts, total = await prompt_service.list(db_session, user1.id)
+
+    assert total == 1
+    assert prompts[0].name == "user1-prompt"
+
+
+async def test__update__wrong_user_returns_none(
+    db_session: AsyncSession, user: User, prompt_service: PromptService,
+) -> None:
+    """Test that update returns None for wrong user."""
+    # Create a prompt for test user
+    await prompt_service.create(
+        db_session, user.id,
+        PromptCreate(name="user-prompt", title="Original"),
+    )
+
+    # Create another user
+    other_user = User(auth0_id="other|user", email="other@example.com")
+    db_session.add(other_user)
+    await db_session.flush()
+
+    # Try to update test_user's prompt as other_user
+    result = await prompt_service.update(
+        db_session, other_user.id, "user-prompt",
+        PromptUpdate(title="Hacked"),
+    )
+
+    assert result is None
+
+    # Verify original prompt unchanged
+    original = await prompt_service.get_by_name(db_session, user.id, "user-prompt")
+    assert original is not None
+    assert original.title == "Original"
+
+
+async def test__delete__wrong_user_returns_false(
+    db_session: AsyncSession, user: User, prompt_service: PromptService,
+) -> None:
+    """Test that delete returns False for wrong user."""
+    # Create a prompt for test user
+    await prompt_service.create(db_session, user.id, PromptCreate(name="protected"))
+
+    # Create another user
+    other_user = User(auth0_id="attacker|user", email="attacker@example.com")
+    db_session.add(other_user)
+    await db_session.flush()
+
+    # Try to delete test_user's prompt as other_user
+    result = await prompt_service.delete(db_session, other_user.id, "protected")
+
+    assert result is False
+
+    # Verify prompt still exists
+    original = await prompt_service.get_by_name(db_session, user.id, "protected")
+    assert original is not None

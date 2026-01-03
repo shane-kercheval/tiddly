@@ -2181,3 +2181,83 @@ async def test__update_bookmark__can_clear_archived_at(
     assert updated is not None
     assert updated.archived_at is None
     assert updated.is_archived is False
+
+
+# =============================================================================
+# User Isolation Tests
+# =============================================================================
+
+
+async def test__search_bookmarks__excludes_other_users_bookmarks(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that search only returns the current user's bookmarks."""
+    # Create another user
+    other_user = User(auth0_id='other-user-isolation', email='other-isolation@example.com')
+    db_session.add(other_user)
+    await db_session.flush()
+
+    # Create bookmarks for both users
+    bookmark1 = Bookmark(user_id=test_user.id, url='https://my-bookmark.com/')
+    bookmark2 = Bookmark(user_id=other_user.id, url='https://other-user-bookmark.com/')
+    db_session.add_all([bookmark1, bookmark2])
+    await db_session.flush()
+
+    # Search should only return test_user's bookmark
+    bookmarks, total = await bookmark_service.search(db_session, test_user.id)
+
+    assert total == 1
+    assert bookmarks[0].url == 'https://my-bookmark.com/'
+
+
+async def test__get_bookmark__returns_none_for_other_users_bookmark(
+    db_session: AsyncSession,
+) -> None:
+    """Test that get_bookmark returns None when trying to access another user's bookmark."""
+    # Create two users
+    user1 = User(auth0_id='user1-isolation', email='user1-isolation@example.com')
+    user2 = User(auth0_id='user2-isolation', email='user2-isolation@example.com')
+    db_session.add_all([user1, user2])
+    await db_session.flush()
+
+    # Create bookmark for user1
+    bookmark = Bookmark(user_id=user1.id, url='https://user1-bookmark.com/')
+    db_session.add(bookmark)
+    await db_session.flush()
+
+    # Try to get user1's bookmark as user2
+    result = await bookmark_service.get(db_session, user2.id, bookmark.id)
+
+    assert result is None
+
+
+# =============================================================================
+# Cascade Delete Tests
+# =============================================================================
+
+
+async def test__cascade_delete__user_deletion_removes_bookmarks(
+    db_session: AsyncSession,
+) -> None:
+    """Test that deleting a user cascades to delete their bookmarks."""
+    # Create user and bookmark
+    user = User(auth0_id='cascade|test', email='cascade@example.com')
+    db_session.add(user)
+    await db_session.flush()
+
+    bookmark = Bookmark(
+        user_id=user.id,
+        url='https://cascade-test.com/',
+    )
+    db_session.add(bookmark)
+    await db_session.flush()
+    bookmark_id = bookmark.id
+
+    # Delete user
+    await db_session.delete(user)
+    await db_session.flush()
+
+    # Bookmark should be gone (cascade delete)
+    result = await db_session.execute(select(Bookmark).where(Bookmark.id == bookmark_id))
+    assert result.scalar_one_or_none() is None
