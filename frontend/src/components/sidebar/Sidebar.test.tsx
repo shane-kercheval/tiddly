@@ -15,7 +15,16 @@ const mockFetchSidebar = vi.fn()
 vi.mock('../../stores/listsStore', () => ({
   useListsStore: (selector: (state: Record<string, unknown>) => unknown) => {
     const state = {
-      lists: [{ id: 5, name: 'Test List' }],
+      lists: [{
+        id: 5,
+        name: 'Test List',
+        content_types: ['bookmark'],
+        filter_expression: { groups: [{ tags: ['work', 'urgent'], operator: 'AND' }], group_operator: 'OR' },
+        default_sort_by: null,
+        default_sort_ascending: null,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+      }],
       deleteList: mockDeleteList,
       createList: vi.fn(),
       updateList: vi.fn(),
@@ -84,25 +93,46 @@ vi.mock('../../utils/invalidateListQueries', () => ({
 import { Sidebar } from './Sidebar'
 
 // Helper component to observe path changes
-function PathObserver({ onPathChange }: { onPathChange: (path: string) => void }): null {
+function PathObserver({
+  onPathChange,
+  onLocationChange,
+}: {
+  onPathChange?: (path: string) => void
+  onLocationChange?: (location: ReturnType<typeof useLocation>) => void
+}): null {
   const location = useLocation()
   const prevPathRef = useRef(location.pathname)
+  const prevSearchRef = useRef(location.search)
 
   useEffect(() => {
-    if (location.pathname !== prevPathRef.current) {
+    const pathChanged = location.pathname !== prevPathRef.current
+    const searchChanged = location.search !== prevSearchRef.current
+
+    if (pathChanged) {
       prevPathRef.current = location.pathname
-      onPathChange(location.pathname)
+      onPathChange?.(location.pathname)
     }
-  }, [location.pathname, onPathChange])
+
+    if (pathChanged || searchChanged) {
+      prevSearchRef.current = location.search
+      onLocationChange?.(location)
+    }
+  }, [location.pathname, location.search, location.state, onPathChange, onLocationChange])
 
   return null
 }
 
-function createWrapper(initialEntries: string[], onPathChange?: (path: string) => void) {
+function createWrapper(
+  initialEntries: string[],
+  onPathChange?: (path: string) => void,
+  onLocationChange?: (location: ReturnType<typeof useLocation>) => void
+) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <MemoryRouter initialEntries={initialEntries}>
-        {onPathChange && <PathObserver onPathChange={onPathChange} />}
+        {(onPathChange || onLocationChange) && (
+          <PathObserver onPathChange={onPathChange} onLocationChange={onLocationChange} />
+        )}
         {children}
       </MemoryRouter>
     )
@@ -183,6 +213,49 @@ describe('Sidebar', () => {
       // Path should NOT have changed since we weren't viewing list:5
       await new Promise((resolve) => setTimeout(resolve, 100))
       expect(pathChanges.length).toBe(0)
+    })
+  })
+
+  describe('quick add navigation', () => {
+    it('uses the current list route when adding a bookmark from a list view', async () => {
+      const user = userEvent.setup()
+      const locations: ReturnType<typeof useLocation>[] = []
+
+      render(<Sidebar />, {
+        wrapper: createWrapper(['/app/content/lists/5?foo=bar'], undefined, (location) => {
+          locations.push(location)
+        }),
+      })
+
+      await user.click(screen.getByTitle('New Bookmark'))
+
+      await waitFor(() => {
+        const lastLocation = locations[locations.length - 1]
+        expect(lastLocation?.pathname).toBe('/app/content/lists/5')
+        expect(lastLocation?.search).toBe('?foo=bar&action=add')
+      })
+    })
+
+    it('passes list tags when creating a note from a list view', async () => {
+      const user = userEvent.setup()
+      const locations: ReturnType<typeof useLocation>[] = []
+
+      render(<Sidebar />, {
+        wrapper: createWrapper(['/app/content/lists/5'], undefined, (location) => {
+          locations.push(location)
+        }),
+      })
+
+      await user.click(screen.getByTitle('New Note'))
+
+      await waitFor(() => {
+        const lastLocation = locations[locations.length - 1]
+        expect(lastLocation?.pathname).toBe('/app/notes/new')
+        expect(lastLocation?.state).toMatchObject({
+          returnTo: '/app/content/lists/5',
+          initialTags: ['work', 'urgent'],
+        })
+      })
     })
   })
 })

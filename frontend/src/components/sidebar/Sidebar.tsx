@@ -27,6 +27,7 @@ import { useTagsStore } from '../../stores/tagsStore'
 import { useTabNavigation } from '../../hooks/useTabNavigation'
 import { queryClient } from '../../queryClient'
 import { invalidateListQueries } from '../../utils/invalidateListQueries'
+import { getFirstGroupTags } from '../../utils'
 import { SidebarGroup } from './SidebarGroup'
 import { SidebarNavItem } from './SidebarNavItem'
 import { SidebarUserSection } from './SidebarUserSection'
@@ -117,6 +118,12 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   const tags = useTagsStore((state) => state.tags)
   const { currentListId } = useTabNavigation()
 
+  const currentList = useMemo(
+    () => currentListId !== undefined ? lists.find((list) => list.id === currentListId) : undefined,
+    [currentListId, lists]
+  )
+  const initialTagsFromList = useMemo(() => getFirstGroupTags(currentList), [currentList])
+
   // Modal state
   const [isListModalOpen, setIsListModalOpen] = useState(false)
   const [editingList, setEditingList] = useState<ContentList | undefined>(undefined)
@@ -128,12 +135,25 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
   // Quick-add handlers
   const handleQuickAddBookmark = (): void => {
-    navigate('/app/content?action=add', { state: { returnTo: location.pathname + location.search } })
+    const basePath = currentListId !== undefined ? getListRoute(currentListId) : '/app/content'
+    const searchParams = new URLSearchParams(location.search)
+    searchParams.set('action', 'add')
+    const search = searchParams.toString()
+
+    navigate(
+      { pathname: basePath, search: search ? `?${search}` : '' },
+      { state: { returnTo: location.pathname + location.search } }
+    )
     onNavClick?.()
   }
 
   const handleQuickAddNote = (): void => {
-    navigate('/app/notes/new', { state: { returnTo: location.pathname + location.search } })
+    navigate('/app/notes/new', {
+      state: {
+        returnTo: location.pathname + location.search,
+        initialTags: initialTagsFromList,
+      },
+    })
     onNavClick?.()
   }
 
