@@ -89,6 +89,25 @@ async def test__create_prompt__invalid_name_format(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+async def test__create_prompt__empty_name_rejected(client: AsyncClient) -> None:
+    """Test that empty name is rejected."""
+    response = await client.post(
+        "/prompts/",
+        json={"name": ""},
+    )
+    assert response.status_code == 422
+
+
+async def test__create_prompt__name_too_long_rejected(client: AsyncClient) -> None:
+    """Test that name exceeding max length (255) is rejected."""
+    long_name = "a" * 256  # 256 chars exceeds 255 limit
+    response = await client.post(
+        "/prompts/",
+        json={"name": long_name},
+    )
+    assert response.status_code == 422
+
+
 async def test__create_prompt__duplicate_name_rejected(client: AsyncClient) -> None:
     """Test that duplicate name for same user is rejected."""
     # Create first prompt
@@ -141,6 +160,19 @@ async def test__create_prompt__invalid_argument_name_format(client: AsyncClient)
         json={
             "name": "invalid-arg2",
             "arguments": [{"name": "my-code", "required": True}],
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test__create_prompt__argument_name_too_long_rejected(client: AsyncClient) -> None:
+    """Test that argument name exceeding max length (100) is rejected."""
+    long_arg_name = "a" * 101  # 101 chars exceeds 100 limit
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "long-arg-name",
+            "arguments": [{"name": long_arg_name, "required": True}],
         },
     )
     assert response.status_code == 422

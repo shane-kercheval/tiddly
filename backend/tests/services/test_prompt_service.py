@@ -34,7 +34,7 @@ def test__validate_template__all_variables_defined_passes() -> None:
 
 def test__validate_template__undefined_variable_raises() -> None:
     """Test that undefined variable raises ValueError."""
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:  # noqa: PT011
         validate_template(
             "Hello {{ undefined }}",
             [],
@@ -45,7 +45,7 @@ def test__validate_template__undefined_variable_raises() -> None:
 
 def test__validate_template__multiple_undefined_variables() -> None:
     """Test that multiple undefined variables are reported."""
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:  # noqa: PT011
         validate_template(
             "Hello {{ foo }} and {{ bar }}",
             [],
@@ -56,7 +56,7 @@ def test__validate_template__multiple_undefined_variables() -> None:
 
 def test__validate_template__invalid_syntax_raises() -> None:
     """Test that invalid Jinja2 syntax raises ValueError."""
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:  # noqa: PT011
         validate_template(
             "Hello {{ unclosed",
             [],
@@ -66,7 +66,7 @@ def test__validate_template__invalid_syntax_raises() -> None:
 
 def test__validate_template__invalid_syntax_nested() -> None:
     """Test that nested invalid syntax is caught."""
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:  # noqa: PT011
         validate_template(
             "{% if foo %}{{ bar",
             [],
@@ -131,9 +131,31 @@ async def test__create__duplicate_name_raises(
     data = PromptCreate(name="duplicate")
     await prompt_service.create(db_session, user.id, data)
 
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:  # noqa: PT011
         await prompt_service.create(db_session, user.id, data)
     assert "already exists" in str(exc_info.value)
+
+
+async def test__create__different_users_same_name_allowed(
+    db_session: AsyncSession, prompt_service: PromptService,
+) -> None:
+    """Test that different users can have prompts with the same name."""
+    # Create two users
+    user1 = User(auth0_id="user1|test", email="user1@example.com")
+    user2 = User(auth0_id="user2|test", email="user2@example.com")
+    db_session.add(user1)
+    db_session.add(user2)
+    await db_session.flush()
+
+    # Both users can create prompts with the same name
+    data = PromptCreate(name="shared-name")
+    prompt1 = await prompt_service.create(db_session, user1.id, data)
+    prompt2 = await prompt_service.create(db_session, user2.id, data)
+
+    assert prompt1.id != prompt2.id
+    assert prompt1.name == prompt2.name == "shared-name"
+    assert prompt1.user_id == user1.id
+    assert prompt2.user_id == user2.id
 
 
 async def test__create__invalid_template_raises(
@@ -146,7 +168,7 @@ async def test__create__invalid_template_raises(
         arguments=[],
     )
 
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:  # noqa: PT011
         await prompt_service.create(db_session, user.id, data)
     assert "undefined variable" in str(exc_info.value).lower()
 
@@ -180,6 +202,39 @@ async def test__get_by_name__wrong_user(
 
     # Different user ID should not find it
     found = await prompt_service.get_by_name(db_session, user.id + 1, "user-scoped")
+    assert found is None
+
+
+async def test__get_by_id__found(
+    db_session: AsyncSession, user: User, prompt_service: PromptService,
+) -> None:
+    """Test getting a prompt by ID."""
+    data = PromptCreate(name="find-by-id")
+    created = await prompt_service.create(db_session, user.id, data)
+
+    found = await prompt_service.get_by_id(db_session, user.id, created.id)
+    assert found is not None
+    assert found.id == created.id
+    assert found.name == "find-by-id"
+
+
+async def test__get_by_id__not_found(
+    db_session: AsyncSession, user: User, prompt_service: PromptService,
+) -> None:
+    """Test getting non-existent prompt by ID returns None."""
+    found = await prompt_service.get_by_id(db_session, user.id, 99999)
+    assert found is None
+
+
+async def test__get_by_id__wrong_user(
+    db_session: AsyncSession, user: User, prompt_service: PromptService,
+) -> None:
+    """Test that get_by_id is scoped to user."""
+    data = PromptCreate(name="id-scoped")
+    created = await prompt_service.create(db_session, user.id, data)
+
+    # Different user ID should not find it
+    found = await prompt_service.get_by_id(db_session, user.id + 1, created.id)
     assert found is None
 
 
@@ -263,7 +318,7 @@ async def test__update__rename_collision_raises(
     await prompt_service.create(db_session, user.id, PromptCreate(name="prompt-a"))
     await prompt_service.create(db_session, user.id, PromptCreate(name="prompt-b"))
 
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:  # noqa: PT011
         await prompt_service.update(
             db_session, user.id, "prompt-a",
             PromptUpdate(name="prompt-b"),
@@ -296,7 +351,7 @@ async def test__update__template_validation(
     )
 
     # Update with undefined variable should fail
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:  # noqa: PT011
         await prompt_service.update(
             db_session, user.id, "template-test",
             PromptUpdate(content="{{ undefined }}"),
@@ -422,7 +477,7 @@ async def test__update__null_arguments_validates_template(
     )
 
     # Clearing arguments should fail - template still uses {{ name }}
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:  # noqa: PT011
         await prompt_service.update(
             db_session, user.id, "template-vars",
             PromptUpdate(arguments=None),
