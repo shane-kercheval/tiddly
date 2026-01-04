@@ -73,19 +73,15 @@ export function NoteCard({
     onView?.(note)
   }
 
-  // Handle card click to trigger edit mode
+  // Handle card click to go to view mode
   const handleCardClick = (): void => {
-    if (view !== 'deleted' && onEdit) {
-      onEdit(note)
-    }
+    onView?.(note)
   }
-
-  const isClickable = view !== 'deleted' && onEdit
 
   return (
     <div
-      className={`card card-interactive group ${isClickable ? 'cursor-pointer' : ''}`}
-      onClick={isClickable ? handleCardClick : undefined}
+      className={`card card-interactive group ${onView ? 'cursor-pointer' : ''}`}
+      onClick={onView ? handleCardClick : undefined}
     >
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
         {/* Row 1 (mobile) / Main content (desktop) */}
@@ -97,7 +93,7 @@ export function NoteCard({
             </span>
             <button
               onClick={handleTitleClick}
-              className="text-base font-medium text-gray-900 hover:text-gray-600 transition-colors text-left cursor-pointer shrink-0"
+              className="text-base font-medium text-gray-900 text-left cursor-pointer shrink-0"
               title="View note"
             >
               {truncate(note.title, 60)}
@@ -156,18 +152,20 @@ export function NoteCard({
           {/* Actions and date */}
           <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
             <div className="flex items-center">
-              {/* Hover edit indicator - shown on card hover for clickable cards */}
-              {isClickable && (
-                <span
-                  className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity mr-1"
-                  aria-hidden="true"
+              {/* Edit button - shown in active and archived views */}
+              {view !== 'deleted' && onEdit && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onEdit(note) }}
+                  className="btn-icon"
+                  title="Edit note"
+                  aria-label="Edit note"
                 >
                   {isLoading ? (
                     <div className="spinner-sm" />
                   ) : (
                     <EditIcon />
                   )}
-                </span>
+                </button>
               )}
 
               {/* Archive button - shown in active view */}

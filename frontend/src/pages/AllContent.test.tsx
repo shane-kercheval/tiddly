@@ -493,7 +493,8 @@ describe('AllContent', () => {
         expect(screen.getByLabelText('Restore note')).toBeInTheDocument()
       })
 
-      it('disables card click-to-edit in deleted view', async () => {
+      it('allows card click to view in deleted view', async () => {
+        const user = userEvent.setup()
         mockContentQueryData = createMockResponse([mockDeletedNote])
         const { container } = renderAtRoute('/app/content/trash')
 
@@ -501,9 +502,20 @@ describe('AllContent', () => {
           expect(screen.getByText('Deleted Note')).toBeInTheDocument()
         })
 
-        // Card should not have cursor-pointer class in deleted view
+        // Card should have cursor-pointer class - deleted items are still viewable
         const card = container.querySelector('.card')
-        expect(card).not.toHaveClass('cursor-pointer')
+        expect(card).toHaveClass('cursor-pointer')
+
+        // Clicking should navigate to view mode (not edit)
+        await user.click(card!)
+        expect(mockNavigate).toHaveBeenCalledWith(
+          '/app/notes/4',
+          expect.objectContaining({
+            state: expect.objectContaining({
+              returnTo: '/app/content/trash',
+            }),
+          })
+        )
       })
     })
   })
@@ -531,7 +543,7 @@ describe('AllContent', () => {
       )
     })
 
-    it('navigates to note edit with returnTo state when clicking card', async () => {
+    it('navigates to note view with returnTo state when clicking card', async () => {
       const user = userEvent.setup()
       mockContentQueryData = createMockResponse([mockNote])
       const { container } = renderAtRoute('/app/content')
@@ -540,12 +552,12 @@ describe('AllContent', () => {
         expect(screen.getByText('Test Note')).toBeInTheDocument()
       })
 
-      // Click on the note card (not the title) to trigger edit
+      // Click on the note card to view it (card click now goes to view, not edit)
       const noteCard = container.querySelector('.card')
       await user.click(noteCard!)
 
       expect(mockNavigate).toHaveBeenCalledWith(
-        '/app/notes/2/edit',
+        '/app/notes/2',
         expect.objectContaining({
           state: expect.objectContaining({
             returnTo: '/app/content',

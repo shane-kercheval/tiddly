@@ -305,9 +305,9 @@ describe('PromptCard', () => {
     })
   })
 
-  describe('card click to edit', () => {
-    it('should call onEdit when card is clicked in active view', async () => {
-      const onEdit = vi.fn()
+  describe('card click to view', () => {
+    it('should call onView when card is clicked in active view', async () => {
+      const onView = vi.fn()
       const user = userEvent.setup()
 
       const { container } = render(
@@ -315,7 +315,7 @@ describe('PromptCard', () => {
           prompt={mockPrompt}
           view="active"
           onDelete={vi.fn()}
-          onEdit={onEdit}
+          onView={onView}
         />
       )
 
@@ -323,11 +323,11 @@ describe('PromptCard', () => {
       const card = container.querySelector('.card')
       await user.click(card!)
 
-      expect(onEdit).toHaveBeenCalledWith(mockPrompt)
+      expect(onView).toHaveBeenCalledWith(mockPrompt)
     })
 
-    it('should call onEdit when card is clicked in archived view', async () => {
-      const onEdit = vi.fn()
+    it('should call onView when card is clicked in archived view', async () => {
+      const onView = vi.fn()
       const user = userEvent.setup()
 
       const { container } = render(
@@ -335,22 +335,22 @@ describe('PromptCard', () => {
           prompt={mockPrompt}
           view="archived"
           onDelete={vi.fn()}
-          onEdit={onEdit}
+          onView={onView}
         />
       )
 
       const card = container.querySelector('.card')
       await user.click(card!)
 
-      expect(onEdit).toHaveBeenCalledWith(mockPrompt)
+      expect(onView).toHaveBeenCalledWith(mockPrompt)
     })
 
-    it('should not call onEdit when title is clicked', async () => {
+    it('should not call onEdit when card is clicked (edit only via button)', async () => {
       const onEdit = vi.fn()
       const onView = vi.fn()
       const user = userEvent.setup()
 
-      render(
+      const { container } = render(
         <PromptCard
           prompt={mockPrompt}
           view="active"
@@ -360,8 +360,9 @@ describe('PromptCard', () => {
         />
       )
 
-      // Click the title button specifically (title="View prompt")
-      await user.click(screen.getByTitle('View prompt'))
+      // Click the card
+      const card = container.querySelector('.card')
+      await user.click(card!)
 
       // onView should be called, not onEdit
       expect(onView).toHaveBeenCalledWith(mockPrompt)

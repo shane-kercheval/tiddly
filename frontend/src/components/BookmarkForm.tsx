@@ -1,7 +1,7 @@
 /**
  * Form component for adding or editing a bookmark.
  */
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import { TagInput } from './TagInput'
 import type { TagInputHandle } from './TagInput'
@@ -147,9 +147,21 @@ export function BookmarkForm({
   const [errors, setErrors] = useState<FormErrors>({})
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
   const [showFetchSuccess, setShowFetchSuccess] = useState(false)
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
   const tagInputRef = useRef<TagInputHandle>(null)
   const contentRef = useRef<HTMLTextAreaElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Track if form has unsaved changes
+  const isDirty =
+    form.url !== (bookmark?.url || initialUrl || '') ||
+    form.title !== (bookmark?.title || '') ||
+    form.description !== (bookmark?.description || '') ||
+    form.content !== (bookmark?.content || '') ||
+    JSON.stringify(form.tags) !== JSON.stringify(bookmark?.tags || initialTags || []) ||
+    form.archivedAt !== (bookmark?.archived_at || '')
 
   // Track previous URL to detect changes
   const prevUrlRef = useRef(form.url)
@@ -208,14 +220,82 @@ export function BookmarkForm({
     }
   }, [initialUrl, onFetchMetadata])
 
-  // Cleanup timeout on unmount
+  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (successTimeoutRef.current) {
         clearTimeout(successTimeoutRef.current)
       }
+      if (cancelTimeoutRef.current) {
+        clearTimeout(cancelTimeoutRef.current)
+      }
     }
   }, [])
+
+  // Handle cancel with confirmation if dirty
+  const handleCancelRequest = useCallback((): void => {
+    // Clear any existing timeout
+    if (cancelTimeoutRef.current) {
+      clearTimeout(cancelTimeoutRef.current)
+      cancelTimeoutRef.current = null
+    }
+
+    if (!isDirty) {
+      // No changes, just cancel
+      onCancel()
+      return
+    }
+
+    if (confirmingCancel) {
+      // Already confirming, execute cancel
+      onCancel()
+    } else {
+      // Start confirmation
+      setConfirmingCancel(true)
+      // Auto-reset after 3 seconds
+      cancelTimeoutRef.current = setTimeout(() => {
+        setConfirmingCancel(false)
+      }, 3000)
+    }
+  }, [isDirty, confirmingCancel, onCancel])
+
+  // Reset cancel confirmation state
+  const resetCancelConfirmation = useCallback((): void => {
+    if (cancelTimeoutRef.current) {
+      clearTimeout(cancelTimeoutRef.current)
+      cancelTimeoutRef.current = null
+    }
+    setConfirmingCancel(false)
+  }, [])
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      // Cmd+S or Ctrl+S to save
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        formRef.current?.requestSubmit()
+      }
+      // When confirming cancel: Escape backs out, Enter confirms discard
+      if (confirmingCancel) {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          resetCancelConfirmation()
+        } else if (e.key === 'Enter') {
+          e.preventDefault()
+          onCancel()
+        }
+        return
+      }
+      // Escape to start cancel (with confirmation if dirty)
+      if (e.key === 'Escape') {
+        handleCancelRequest()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [handleCancelRequest, confirmingCancel, resetCancelConfirmation, onCancel])
 
   const handleFetchMetadata = async (): Promise<void> => {
     if (!form.url.trim()) {
@@ -359,17 +439,20 @@ export function BookmarkForm({
   }, [form.content])
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col h-full">
+    <form ref={formRef} onSubmit={handleSubmit} className="flex flex-col h-full">
       {/* Fixed header with action buttons */}
       <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={onCancel}
+            onClick={handleCancelRequest}
             disabled={isSubmitting}
-            className="btn-secondary"
+            className={confirmingCancel
+              ? "btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50"
+              : "btn-secondary"
+            }
           >
-            Cancel
+            {confirmingCancel ? 'Discard changes?' : 'Cancel'}
           </button>
           <button
             type="submit"
