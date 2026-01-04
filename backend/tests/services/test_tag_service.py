@@ -1,9 +1,12 @@
 """Tests for tag service layer functionality."""
+from datetime import UTC
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
+from models.prompt import Prompt
 from models.tag import Tag
 from models.user import User
 from services.tag_service import (
@@ -14,8 +17,8 @@ from services.tag_service import (
     get_tag_by_name,
     get_user_tags_with_counts,
     rename_tag,
+    update_prompt_tags,
 )
-from datetime import UTC
 
 
 @pytest.fixture
@@ -261,6 +264,174 @@ async def test__get_user_tags_with_counts__sorted_by_count_then_name(
     # apple and zebra both have count 1, should be alphabetical
     assert counts[1].name == "apple"
     assert counts[2].name == "zebra"
+
+
+async def test__get_user_tags_with_counts__includes_prompt_tags(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that tag counts include prompts along with bookmarks."""
+    # Create a shared tag
+    shared_tag = (await get_or_create_tags(db_session, test_user.id, ["shared"]))[0]
+    prompt_only_tag = (await get_or_create_tags(db_session, test_user.id, ["prompt-only"]))[0]
+    await db_session.flush()
+
+    # Create an active bookmark with the shared tag
+    bookmark = Bookmark(user_id=test_user.id, url="https://example.com/")
+    bookmark.tag_objects = [shared_tag]
+    db_session.add(bookmark)
+
+    # Create an active prompt with both tags
+    prompt = Prompt(
+        user_id=test_user.id,
+        name="test-prompt",
+        arguments=[],
+    )
+    prompt.tag_objects = [shared_tag, prompt_only_tag]
+    db_session.add(prompt)
+    await db_session.flush()
+
+    # Get counts
+    counts = await get_user_tags_with_counts(db_session, test_user.id)
+
+    count_dict = {c.name: c.count for c in counts}
+    # shared: 2 (1 bookmark + 1 prompt)
+    assert count_dict["shared"] == 2
+    # prompt-only: 1 (1 prompt)
+    assert count_dict["prompt-only"] == 1
+
+
+async def test__get_user_tags_with_counts__excludes_archived_and_deleted_prompts(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that tag counts exclude archived and deleted prompts."""
+    from datetime import datetime, timedelta
+
+    # Create tags
+    shared_tag = (await get_or_create_tags(db_session, test_user.id, ["prompt-shared"]))[0]
+    await db_session.flush()
+
+    # Create active prompt
+    active_prompt = Prompt(
+        user_id=test_user.id,
+        name="active-prompt",
+        arguments=[],
+    )
+    active_prompt.tag_objects = [shared_tag]
+
+    # Create archived prompt
+    archived_prompt = Prompt(
+        user_id=test_user.id,
+        name="archived-prompt",
+        arguments=[],
+    )
+    archived_prompt.tag_objects = [shared_tag]
+    archived_prompt.archived_at = datetime.now(UTC) - timedelta(hours=1)
+
+    # Create deleted prompt
+    deleted_prompt = Prompt(
+        user_id=test_user.id,
+        name="deleted-prompt",
+        arguments=[],
+    )
+    deleted_prompt.tag_objects = [shared_tag]
+    deleted_prompt.deleted_at = datetime.now(UTC)
+
+    db_session.add_all([active_prompt, archived_prompt, deleted_prompt])
+    await db_session.flush()
+
+    # Get counts - only active prompt should be counted
+    counts = await get_user_tags_with_counts(db_session, test_user.id)
+
+    count_dict = {c.name: c.count for c in counts}
+    # Only the active prompt should count
+    assert count_dict["prompt-shared"] == 1
+
+
+async def test__update_prompt_tags__updates_tags(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that update_prompt_tags correctly updates a prompt's tags."""
+    from sqlalchemy.orm import selectinload
+
+    # Create a prompt
+    prompt = Prompt(
+        user_id=test_user.id,
+        name="taggable-prompt",
+        arguments=[],
+    )
+    prompt.tag_objects = []  # Initialize to avoid lazy load on assignment
+    db_session.add(prompt)
+    await db_session.flush()
+
+    # Re-fetch with eager loading before updating
+    result = await db_session.execute(
+        select(Prompt)
+        .options(selectinload(Prompt.tag_objects))
+        .where(Prompt.id == prompt.id),
+    )
+    prompt = result.scalar_one()
+
+    # Update tags
+    await update_prompt_tags(db_session, prompt, ["new-tag-1", "new-tag-2"])
+    await db_session.flush()
+
+    # Re-fetch with eager loading to verify
+    result = await db_session.execute(
+        select(Prompt)
+        .options(selectinload(Prompt.tag_objects))
+        .where(Prompt.id == prompt.id),
+    )
+    fetched_prompt = result.scalar_one()
+
+    tag_names = [t.name for t in fetched_prompt.tag_objects]
+    assert "new-tag-1" in tag_names
+    assert "new-tag-2" in tag_names
+    assert len(tag_names) == 2
+
+
+async def test__update_prompt_tags__clears_tags_with_empty_list(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that update_prompt_tags can clear tags with an empty list."""
+    from sqlalchemy.orm import selectinload
+
+    # Create a prompt with tags
+    tags = await get_or_create_tags(db_session, test_user.id, ["initial-tag"])
+    prompt = Prompt(
+        user_id=test_user.id,
+        name="prompt-to-clear",
+        arguments=[],
+    )
+    prompt.tag_objects = tags
+    db_session.add(prompt)
+    await db_session.flush()
+
+    # Verify initial state with eager loading
+    result = await db_session.execute(
+        select(Prompt)
+        .options(selectinload(Prompt.tag_objects))
+        .where(Prompt.id == prompt.id),
+    )
+    fetched_prompt = result.scalar_one()
+    assert len(fetched_prompt.tag_objects) == 1
+
+    # Clear tags
+    await update_prompt_tags(db_session, fetched_prompt, [])
+    await db_session.flush()
+
+    # Re-fetch with eager loading
+    result = await db_session.execute(
+        select(Prompt)
+        .options(selectinload(Prompt.tag_objects))
+        .where(Prompt.id == prompt.id),
+    )
+    fetched_prompt = result.scalar_one()
+
+    assert len(fetched_prompt.tag_objects) == 0
 
 
 # =============================================================================

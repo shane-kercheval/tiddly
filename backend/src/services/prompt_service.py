@@ -38,6 +38,13 @@ def validate_template(content: str | None, arguments: list[dict[str, Any]]) -> N
 
     Raises:
         ValueError: If template has invalid syntax or uses undefined variables.
+
+    Note:
+        This validation uses meta.find_undeclared_variables() which also flags Jinja2
+        built-in globals (e.g., range, loop, cycler, namespace) as "undefined" if used.
+        Currently, templates should use simple {{ variable }} substitution. If control
+        structures with builtins are needed, add a JINJA_BUILTINS allowlist to exclude
+        from the undefined check.
     """
     if not content:
         return
@@ -49,6 +56,9 @@ def validate_template(content: str | None, arguments: list[dict[str, Any]]) -> N
         raise ValueError(f"Invalid Jinja2 syntax: {e.message}") from e
 
     # Check for undefined variables
+    # Note: This will flag Jinja2 builtins (range, loop, etc.) as undefined.
+    # For simple variable substitution templates, this is fine. If builtins are
+    # needed in the future, add an allowlist here.
     template_vars = meta.find_undeclared_variables(ast)
     if not template_vars:
         return
@@ -191,11 +201,17 @@ class PromptService(BaseEntityService[Prompt]):
         new_tags = update_data.pop("tags", None)
 
         # Handle arguments - convert Pydantic models to dicts if present
-        if "arguments" in update_data and update_data["arguments"] is not None:
-            update_data["arguments"] = [
-                arg.model_dump() if hasattr(arg, "model_dump") else arg
-                for arg in update_data["arguments"]
-            ]
+        # Note: arguments=None means "no change" since the model is nullable=False.
+        # To clear arguments, send arguments=[] explicitly.
+        if "arguments" in update_data:
+            if update_data["arguments"] is None:
+                # Treat None as "no change" - remove from update_data
+                del update_data["arguments"]
+            else:
+                update_data["arguments"] = [
+                    arg.model_dump() if hasattr(arg, "model_dump") else arg
+                    for arg in update_data["arguments"]
+                ]
 
         # Determine final content and arguments for validation
         # Use updated values if provided, otherwise use existing values

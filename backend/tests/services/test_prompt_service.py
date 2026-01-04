@@ -213,6 +213,54 @@ async def test__update__partial_update_preserves_other_fields(
     assert updated.arguments == original_arguments
 
 
+async def test__update__arguments_none_preserves_existing(
+    db_session: AsyncSession,
+    test_user: User,
+    test_prompt: Prompt,
+) -> None:
+    """Test that arguments=None is treated as 'no change' and preserves existing arguments."""
+    original_arguments = test_prompt.arguments
+    assert len(original_arguments) > 0  # test_prompt has arguments
+
+    # Explicitly set arguments=None via model construction
+    data = PromptUpdate(title="New Title")
+    # Manually set arguments to None to simulate {"arguments": null} in JSON
+    data_dict = data.model_dump(exclude_unset=True)
+    data_dict["arguments"] = None
+
+    # Reconstruct with arguments=None explicitly set
+    data_with_none = PromptUpdate.model_validate(data_dict)
+    updated = await prompt_service.update(db_session, test_user.id, test_prompt.id, data_with_none)
+
+    assert updated is not None
+    assert updated.title == "New Title"
+    # Arguments should be preserved, not set to None
+    assert updated.arguments == original_arguments
+    assert updated.arguments is not None
+
+
+async def test__update__arguments_empty_list_clears_arguments(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that arguments=[] explicitly clears arguments."""
+    # Create a prompt without template variables so clearing arguments is valid
+    data = PromptCreate(
+        name="prompt-with-args",
+        content="Hello World!",  # No template variables
+        arguments=[PromptArgument(name="unused_arg")],
+    )
+    prompt = await prompt_service.create(db_session, test_user.id, data)
+    assert len(prompt.arguments) == 1
+
+    # Now clear arguments with empty list
+    update_data = PromptUpdate(arguments=[])
+    updated = await prompt_service.update(db_session, test_user.id, prompt.id, update_data)
+
+    assert updated is not None
+    assert updated.arguments == []
+
+
 async def test__update__rejects_name_change_to_existing(
     db_session: AsyncSession,
     test_user: User,
