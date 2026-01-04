@@ -1393,18 +1393,17 @@ Add missing cascade delete tests to existing service tests, plus new prompt test
 
 - Update README with prompts feature
 - Update CLAUDE.md with prompt endpoints
-- Example prompts
 - Document the two MCP servers:
   - `mcp.tiddly.me/mcp` - Bookmarks/Notes tools
   - `prompts.tiddly.me/mcp` - Prompt templates + create_prompt tool
 
 ### Deployment (README_DEPLOY.md)
 
+- Update README_DEPLOY.md with prompt MCP server deployment (similar to existing bookmark/note MCP server)
 - Add prompt-mcp service to Railway
-- Environment variables:
+- Environment variables (not sure if they are used for this mcp server, check exactly what is needed):
   - `PROMPT_MCP_PORT=8002`
   - `API_BASE_URL`
-- Health check: `/health`
-- Domain: `prompts.tiddly.me`
+- Domain: `prompts.tiddly.me/mcp`
 
 ---
