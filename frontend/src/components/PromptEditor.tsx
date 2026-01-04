@@ -18,7 +18,7 @@ Prompts are reusable templates exposed to **MCP clients** (Claude Desktop, Claud
 
 Create prompts here, then use them directly from your AI tools by configuring MCP access by following instructions in the Settings > MCP Integration.
 
-Templates combine Markdown with **Jinja2** syntax for dynamic content. Define arguments above, then reference them in your template.
+Templates combine Markdown with **Jinja2** syntax for dynamic content. Define arguments above, then reference them in your template. Simple prompts do not require arguments or jinja. 
 
 ## Using Variables
 
