@@ -587,170 +587,178 @@ export function PromptEditor({
           </div>
         )}
 
-        {/* Name and Tags row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Name field - required (2/3 width on desktop) */}
-          <div className="md:col-span-2">
-            <label htmlFor="name" className="label">
-              Name <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              id="name"
-              value={form.name}
-              onChange={(e) => {
-                setForm((prev) => ({ ...prev, name: e.target.value.toLowerCase() }))
-                if (errors.name) {
-                  setErrors((prev) => ({ ...prev, name: undefined }))
-                }
-              }}
-              placeholder="code-review"
-              disabled={isSubmitting}
-              maxLength={config.limits.maxPromptNameLength}
-              className={`input mt-1 font-mono ${errors.name ? 'input-error' : ''}`}
-              autoFocus
-            />
-            <p className="helper-text">
-              Lowercase letters, numbers, hyphens (e.g., code-review)
-            </p>
-            {errors.name && <p className="error-text">{errors.name}</p>}
-          </div>
-
-          {/* Tags field (1/3 width on desktop) */}
-          <div>
-            <label htmlFor="tags" className="label">
-              Tags
-            </label>
-            <div className="mt-1">
-              <TagInput
-                ref={tagInputRef}
-                id="tags"
-                value={form.tags}
-                onChange={(tags) => setForm((prev) => ({ ...prev, tags }))}
-                suggestions={tagSuggestions}
-                placeholder="Add tags..."
+        <section className="rounded-2xl border border-gray-200 bg-gray-50/60 p-4 md:p-5 space-y-5">
+          {/* Name, Title, Tags row */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+            <div className="md:col-span-6 lg:col-span-3">
+              <label htmlFor="name" className="label">
+                Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                id="name"
+                value={form.name}
+                onChange={(e) => {
+                  setForm((prev) => ({ ...prev, name: e.target.value.toLowerCase() }))
+                  if (errors.name) {
+                    setErrors((prev) => ({ ...prev, name: undefined }))
+                  }
+                }}
+                placeholder="code-review"
                 disabled={isSubmitting}
-                error={errors.tags}
+                maxLength={config.limits.maxPromptNameLength}
+                className={`input mt-1 font-mono ${errors.name ? 'input-error' : ''}`}
+                autoFocus
               />
+              <p className="helper-text">
+                Lowercase letters, numbers, hyphens (e.g., code-review)
+              </p>
+              {errors.name && <p className="error-text">{errors.name}</p>}
+            </div>
+
+            <div className="md:col-span-6 lg:col-span-3">
+              <label htmlFor="title" className="label">
+                Title
+              </label>
+              <input
+                type="text"
+                id="title"
+                value={form.title}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, title: e.target.value }))
+                }
+                placeholder="Code Review Template"
+                disabled={isSubmitting}
+                maxLength={config.limits.maxTitleLength}
+                className={`input mt-1 ${errors.title ? 'input-error' : ''}`}
+              />
+              <p className="helper-text">
+                Optional human-readable name for display purposes.
+              </p>
+              {errors.title && <p className="error-text">{errors.title}</p>}
+            </div>
+
+            <div className="md:col-span-12 lg:col-span-6">
+              <label htmlFor="tags" className="label">
+                Tags
+              </label>
+              <div className="mt-1">
+                <TagInput
+                  ref={tagInputRef}
+                  id="tags"
+                  value={form.tags}
+                  onChange={(tags) => setForm((prev) => ({ ...prev, tags }))}
+                  suggestions={tagSuggestions}
+                  placeholder="Add tags..."
+                  disabled={isSubmitting}
+                  error={errors.tags}
+                />
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Title field - optional */}
-        <div>
-          <label htmlFor="title" className="label">
-            Title
-          </label>
-          <input
-            type="text"
-            id="title"
-            value={form.title}
-            onChange={(e) =>
-              setForm((prev) => ({ ...prev, title: e.target.value }))
-            }
-            placeholder="Code Review Template"
-            disabled={isSubmitting}
-            maxLength={config.limits.maxTitleLength}
-            className={`input mt-1 ${errors.title ? 'input-error' : ''}`}
-          />
-          <p className="helper-text">
-            Optional human-readable name for display purposes.
-          </p>
-          {errors.title && <p className="error-text">{errors.title}</p>}
-        </div>
+          {/* Description row */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+            <div className="md:col-span-12">
+              <label htmlFor="description" className="label">
+                Description
+              </label>
+              <textarea
+                id="description"
+                value={form.description}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, description: e.target.value }))
+                }
+                placeholder="Brief description of when to use this prompt..."
+                rows={2}
+                disabled={isSubmitting}
+                maxLength={config.limits.maxDescriptionLength}
+                className={`input mt-1 ${errors.description ? 'input-error' : ''}`}
+              />
+              <div className="flex justify-between items-center">
+                {errors.description ? (
+                  <p className="error-text">{errors.description}</p>
+                ) : (
+                  <span />
+                )}
+                <span className="helper-text">
+                  {form.description.length.toLocaleString()}/{config.limits.maxDescriptionLength.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
 
-        {/* Description field - optional */}
-        <div>
-          <label htmlFor="description" className="label">
-            Description
-          </label>
-          <textarea
-            id="description"
-            value={form.description}
-            onChange={(e) =>
-              setForm((prev) => ({ ...prev, description: e.target.value }))
-            }
-            placeholder="Brief description of when to use this prompt..."
-            rows={2}
-            disabled={isSubmitting}
-            maxLength={config.limits.maxDescriptionLength}
-            className={`input mt-1 ${errors.description ? 'input-error' : ''}`}
-          />
-          <div className="flex justify-between items-center">
-            {errors.description ? (
-              <p className="error-text">{errors.description}</p>
-            ) : (
-              <span />
+          {/* Arguments builder */}
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="label">Arguments</label>
+              <button
+                type="button"
+                onClick={addArgument}
+                disabled={isSubmitting}
+                className="btn-icon"
+                title="Add argument"
+                aria-label="Add argument"
+              >
+                <PlusIcon className="h-4 w-4" />
+              </button>
+            </div>
+
+            {errors.arguments && (
+              <p className="error-text mb-2">{errors.arguments}</p>
             )}
-            <span className="helper-text">
-              {form.description.length.toLocaleString()}/{config.limits.maxDescriptionLength.toLocaleString()}
-            </span>
-          </div>
-        </div>
 
-        {/* Arguments builder */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="label">Arguments</label>
-            <button
-              type="button"
-              onClick={addArgument}
-              disabled={isSubmitting}
-              className="btn-secondary text-sm py-1 px-2 flex items-center gap-1"
-            >
-              <PlusIcon className="h-3.5 w-3.5" />
-              Add Argument
-            </button>
-          </div>
+            {form.arguments.length === 0 ? (
+              <p className="text-sm text-gray-500 italic">
+                No arguments defined. Arguments are passed by either the human or AI when using the prompt and can be referenced in the template using jinja syntax.
+              </p>
+            ) : (
+              <div className="divide-y divide-gray-200">
+                {form.arguments.map((arg, index) => (
+                  <div
+                    key={index}
+                    className="py-3 first:pt-0 last:pb-0"
+                  >
+                    <div className="flex items-start gap-3">
+                      {/* Reorder buttons */}
+                      <div className="flex flex-col gap-0.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => moveArgument(index, 'up')}
+                          disabled={index === 0 || isSubmitting}
+                          className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                          title="Move up"
+                        >
+                          <ChevronUpIcon className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveArgument(index, 'down')}
+                          disabled={index === form.arguments.length - 1 || isSubmitting}
+                          className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                          title="Move down"
+                        >
+                          <ChevronDownIcon className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
 
-          {errors.arguments && (
-            <p className="error-text mb-2">{errors.arguments}</p>
-          )}
-
-          {form.arguments.length === 0 ? (
-            <p className="text-sm text-gray-500 italic">
-              No arguments defined. Arguments allow customization when using the prompt.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {form.arguments.map((arg, index) => (
-                <div
-                  key={index}
-                  className="rounded-lg border border-gray-200 p-3 bg-gray-50"
-                >
-                  <div className="flex items-start gap-3">
-                    {/* Reorder buttons */}
-                    <div className="flex flex-col gap-0.5 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => moveArgument(index, 'up')}
-                        disabled={index === 0 || isSubmitting}
-                        className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
-                        title="Move up"
-                      >
-                        <ChevronUpIcon className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveArgument(index, 'down')}
-                        disabled={index === form.arguments.length - 1 || isSubmitting}
-                        className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
-                        title="Move down"
-                      >
-                        <ChevronDownIcon className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-
-                    {/* Argument fields */}
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-2">
+                      {/* Argument fields */}
+                      <div className="flex-1 flex flex-wrap items-center gap-2">
                         <input
                           type="text"
                           value={arg.name}
                           onChange={(e) => updateArgument(index, 'name', e.target.value.toLowerCase())}
                           placeholder="argument_name"
                           disabled={isSubmitting}
-                          className="input py-1.5 font-mono text-sm flex-1"
+                          className="input py-1.5 font-mono text-sm min-w-[140px] flex-[1]"
+                        />
+                        <input
+                          type="text"
+                          value={arg.description || ''}
+                          onChange={(e) => updateArgument(index, 'description', e.target.value || null)}
+                          placeholder="Description (optional)"
+                          disabled={isSubmitting}
+                          className="input py-1.5 text-sm min-w-[220px] flex-[4]"
                         />
                         <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
                           <input
@@ -762,36 +770,26 @@ export function PromptEditor({
                           />
                           Required
                         </label>
+                        <button
+                          type="button"
+                          onClick={() => removeArgument(index)}
+                          disabled={isSubmitting}
+                          className="btn-icon-danger"
+                          title="Remove argument"
+                        >
+                          <CloseIcon className="h-4 w-4" />
+                        </button>
                       </div>
-                      <input
-                        type="text"
-                        value={arg.description || ''}
-                        onChange={(e) => updateArgument(index, 'description', e.target.value || null)}
-                        placeholder="Description (optional)"
-                        disabled={isSubmitting}
-                        className="input py-1.5 text-sm w-full"
-                      />
                     </div>
-
-                    {/* Remove button */}
-                    <button
-                      type="button"
-                      onClick={() => removeArgument(index)}
-                      disabled={isSubmitting}
-                      className="p-1 text-gray-400 hover:text-red-500 transition-colors"
-                      title="Remove argument"
-                    >
-                      <CloseIcon className="h-4 w-4" />
-                    </button>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="helper-text mt-2">
-            Use lowercase with underscores for argument names (e.g., code_to_review, file_path)
-          </p>
-        </div>
+                ))}
+              </div>
+            )}
+            <p className="helper-text mt-2">
+              Use lowercase with underscores for argument names (e.g., code_to_review, file_path)
+            </p>
+          </div>
+        </section>
 
         {/* Content field - Jinja2 template with markdown */}
         <MarkdownEditor
