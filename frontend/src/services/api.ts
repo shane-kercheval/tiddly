@@ -11,6 +11,8 @@ export const api = axios.create({
   baseURL: config.apiUrl,
 })
 
+let isLoggingOut = false
+
 /**
  * Token getter function type - provided by Auth0 context.
  */
@@ -62,6 +64,8 @@ export function setupAuthInterceptor(
   getAccessToken: GetAccessTokenFn,
   onAuthError: OnAuthErrorFn
 ): void {
+  isLoggingOut = false
+
   // Request interceptor - add auth token (production only)
   api.interceptors.request.use(
     async (requestConfig: InternalAxiosRequestConfig) => {
@@ -85,7 +89,10 @@ export function setupAuthInterceptor(
     (error: AxiosError) => {
       if (error.response?.status === 401 && !isDevMode) {
         // Token expired or invalid - trigger logout/re-login
-        onAuthError()
+        if (!isLoggingOut) {
+          isLoggingOut = true
+          onAuthError()
+        }
       }
       if (error.response?.status === 429) {
         // Rate limit exceeded - show user-friendly message

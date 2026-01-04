@@ -4,6 +4,7 @@ import { useConsentStore } from '../stores/consentStore'
 import { ConsentDialog } from './ConsentDialog'
 import { isDevMode } from '../config'
 import { LoadingSpinnerCentered } from './ui'
+import { useAuthStatus } from '../hooks/useAuthStatus'
 
 /**
  * App container component for all authenticated app routes.
@@ -18,6 +19,7 @@ import { LoadingSpinnerCentered } from './ui'
  * - Allows smooth local development
  */
 export function AppLayout(): ReactNode {
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuthStatus()
   const { needsConsent, isLoading, error, checkConsent } = useConsentStore()
 
   useEffect(() => {
@@ -26,15 +28,23 @@ export function AppLayout(): ReactNode {
       return
     }
 
+    if (isAuthLoading || !isAuthenticated) {
+      return
+    }
+
     // Check consent on mount (cached for session)
     checkConsent().catch((err) => {
       console.error('Failed to check consent:', err)
     })
-  }, [checkConsent])
+  }, [checkConsent, isAuthLoading, isAuthenticated])
 
   // In dev mode, never show consent dialog
   if (isDevMode) {
     return <Outlet />
+  }
+
+  if (isAuthLoading || !isAuthenticated) {
+    return <LoadingSpinnerCentered label="Authenticating..." />
   }
 
   // Show loading state while checking consent (initial check only)
