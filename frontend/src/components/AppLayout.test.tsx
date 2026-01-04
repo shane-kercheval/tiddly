@@ -49,6 +49,7 @@ describe('AppLayout', () => {
     mockUseAuthStatus.mockReturnValue({
       isAuthenticated: true,
       isLoading: false,
+      error: null,
     })
   })
 
@@ -88,6 +89,7 @@ describe('AppLayout', () => {
       mockUseAuthStatus.mockReturnValue({
         isAuthenticated: false,
         isLoading: true,
+        error: null,
       })
 
       renderAppLayout()
@@ -106,6 +108,7 @@ describe('AppLayout', () => {
       mockUseAuthStatus.mockReturnValue({
         isAuthenticated: false,
         isLoading: false,
+        error: null,
       })
 
       renderAppLayout()

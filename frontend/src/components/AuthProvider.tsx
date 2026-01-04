@@ -12,16 +12,16 @@ interface AuthProviderProps {
 
 function AuthStatusProviderDev({ children }: AuthProviderProps): ReactNode {
   return (
-    <AuthStatusProvider value={{ isAuthenticated: true, isLoading: false }}>
+    <AuthStatusProvider value={{ isAuthenticated: true, isLoading: false, error: null }}>
       {children}
     </AuthStatusProvider>
   )
 }
 
 function AuthStatusProviderProd({ children }: AuthProviderProps): ReactNode {
-  const { isAuthenticated, isLoading } = useAuth0()
+  const { isAuthenticated, isLoading, error } = useAuth0()
   return (
-    <AuthStatusProvider value={{ isAuthenticated, isLoading }}>
+    <AuthStatusProvider value={{ isAuthenticated, isLoading, error: error ?? null }}>
       {children}
     </AuthStatusProvider>
   )

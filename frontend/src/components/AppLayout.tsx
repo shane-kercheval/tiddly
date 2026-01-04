@@ -43,10 +43,6 @@ export function AppLayout(): ReactNode {
     return <Outlet />
   }
 
-  if (isAuthLoading || !isAuthenticated) {
-    return <LoadingSpinnerCentered label="Authenticating..." />
-  }
-
   // Show loading state while checking consent (initial check only)
   if (isLoading && needsConsent === null) {
     return <LoadingSpinnerCentered label="Loading..." />

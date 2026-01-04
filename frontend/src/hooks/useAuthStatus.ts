@@ -3,6 +3,7 @@ import { createContext, useContext } from 'react'
 export interface AuthStatus {
   isAuthenticated: boolean
   isLoading: boolean
+  error: Error | null
 }
 
 export const AuthStatusContext = createContext<AuthStatus | null>(null)
