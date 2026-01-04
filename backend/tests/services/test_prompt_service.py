@@ -62,8 +62,8 @@ async def test__create__creates_prompt_with_required_fields(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test creating a prompt with only required fields."""
-    data = PromptCreate(name="minimal-prompt")
+    """Test creating a prompt with only required fields (name and content)."""
+    data = PromptCreate(name="minimal-prompt", content="Minimal content")
     prompt = await prompt_service.create(db_session, test_user.id, data)
 
     assert prompt.id is not None
@@ -71,7 +71,7 @@ async def test__create__creates_prompt_with_required_fields(
     assert prompt.user_id == test_user.id
     assert prompt.title is None
     assert prompt.description is None
-    assert prompt.content is None
+    assert prompt.content == "Minimal content"
     assert prompt.arguments == []
 
 
@@ -108,6 +108,7 @@ async def test__create__creates_prompt_with_tags(
     """Test creating a prompt with tags."""
     data = PromptCreate(
         name="tagged-prompt",
+        content="Test content",
         tags=["coding", "python", "ai"],
     )
     prompt = await prompt_service.create(db_session, test_user.id, data)
@@ -125,7 +126,7 @@ async def test__create__rejects_duplicate_name_for_user(
     test_prompt: Prompt,
 ) -> None:
     """Test that creating a prompt with duplicate name raises NameConflictError."""
-    data = PromptCreate(name=test_prompt.name)
+    data = PromptCreate(name=test_prompt.name, content="Test content")
 
     with pytest.raises(NameConflictError) as exc_info:
         await prompt_service.create(db_session, test_user.id, data)
@@ -140,7 +141,7 @@ async def test__create__allows_duplicate_name_different_users(
     test_prompt: Prompt,
 ) -> None:
     """Test that different users can have prompts with the same name."""
-    data = PromptCreate(name=test_prompt.name)
+    data = PromptCreate(name=test_prompt.name, content="Test content")
     prompt = await prompt_service.create(db_session, other_user.id, data)
 
     assert prompt.name == test_prompt.name
@@ -244,17 +245,17 @@ async def test__update__arguments_empty_list_clears_arguments(
     test_user: User,
 ) -> None:
     """Test that arguments=[] explicitly clears arguments."""
-    # Create a prompt without template variables so clearing arguments is valid
+    # Create a prompt with a template variable and matching argument
     data = PromptCreate(
         name="prompt-with-args",
-        content="Hello World!",  # No template variables
-        arguments=[PromptArgument(name="unused_arg")],
+        content="Hello {{ name }}!",
+        arguments=[PromptArgument(name="name")],
     )
     prompt = await prompt_service.create(db_session, test_user.id, data)
     assert len(prompt.arguments) == 1
 
-    # Now clear arguments with empty list
-    update_data = PromptUpdate(arguments=[])
+    # Now clear arguments and content together
+    update_data = PromptUpdate(arguments=[], content="Hello World!")
     updated = await prompt_service.update(db_session, test_user.id, prompt.id, update_data)
 
     assert updated is not None
@@ -268,7 +269,7 @@ async def test__update__rejects_name_change_to_existing(
 ) -> None:
     """Test that updating name to an existing name raises NameConflictError."""
     # Create another prompt
-    data1 = PromptCreate(name="another-prompt")
+    data1 = PromptCreate(name="another-prompt", content="Test content")
     another = await prompt_service.create(db_session, test_user.id, data1)
     await db_session.flush()
 
@@ -285,7 +286,7 @@ async def test__update__allows_name_change_to_soft_deleted_name(
 ) -> None:
     """Test that a name can be reused after the original is soft-deleted."""
     # Create another prompt and soft-delete it
-    data1 = PromptCreate(name="reusable-name")
+    data1 = PromptCreate(name="reusable-name", content="Test content")
     another = await prompt_service.create(db_session, test_user.id, data1)
     await db_session.flush()
     await prompt_service.delete(db_session, test_user.id, another.id)
@@ -372,7 +373,7 @@ async def test__soft_delete__frees_name_for_reuse(
     await db_session.flush()
 
     # Should be able to create new prompt with same name
-    data = PromptCreate(name=original_name)
+    data = PromptCreate(name=original_name, content="Test content")
     new_prompt = await prompt_service.create(db_session, test_user.id, data)
 
     assert new_prompt.name == original_name
@@ -421,13 +422,13 @@ async def test__search__view_active_excludes_deleted_and_archived(
 ) -> None:
     """Test that view='active' excludes both deleted and archived prompts."""
     p1 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="active-prompt"),
+        db_session, test_user.id, PromptCreate(name="active-prompt", content="Test content"),
     )
     p2 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="deleted-prompt"),
+        db_session, test_user.id, PromptCreate(name="deleted-prompt", content="Test content"),
     )
     p3 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="archived-prompt"),
+        db_session, test_user.id, PromptCreate(name="archived-prompt", content="Test content"),
     )
     await db_session.flush()
 
@@ -447,10 +448,10 @@ async def test__search__view_archived_returns_only_archived(
 ) -> None:
     """Test that view='archived' returns only archived prompts."""
     await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="active-prompt"),
+        db_session, test_user.id, PromptCreate(name="active-prompt", content="Test content"),
     )
     p2 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="archived-prompt"),
+        db_session, test_user.id, PromptCreate(name="archived-prompt", content="Test content"),
     )
     await db_session.flush()
 
@@ -469,10 +470,10 @@ async def test__search__view_deleted_returns_only_deleted(
 ) -> None:
     """Test that view='deleted' returns only deleted prompts."""
     await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="active-prompt"),
+        db_session, test_user.id, PromptCreate(name="active-prompt", content="Test content"),
     )
     p2 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="deleted-prompt"),
+        db_session, test_user.id, PromptCreate(name="deleted-prompt", content="Test content"),
     )
     await db_session.flush()
 
@@ -639,10 +640,10 @@ async def test__search__filters_by_single_tag(
 ) -> None:
     """Test filtering by a single tag."""
     p1 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="tagged-prompt", tags=["python"]),
+        db_session, test_user.id, PromptCreate(name="tagged-prompt", content="Test content", tags=["python"]),
     )
     await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="untagged-prompt"),
+        db_session, test_user.id, PromptCreate(name="untagged-prompt", content="Test content"),
     )
     await db_session.flush()
 
@@ -660,10 +661,10 @@ async def test__search__filters_by_multiple_tags_match_all(
 ) -> None:
     """Test filtering by multiple tags with match_all (AND)."""
     p1 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="both-tags", tags=["python", "ai"]),
+        db_session, test_user.id, PromptCreate(name="both-tags", content="Test content", tags=["python", "ai"]),
     )
     await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="python-only", tags=["python"]),
+        db_session, test_user.id, PromptCreate(name="python-only", content="Test content", tags=["python"]),
     )
     await db_session.flush()
 
@@ -681,13 +682,13 @@ async def test__search__filters_by_multiple_tags_match_any(
 ) -> None:
     """Test filtering by multiple tags with match_any (OR)."""
     p1 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="python-prompt", tags=["python"]),
+        db_session, test_user.id, PromptCreate(name="python-prompt", content="Test content", tags=["python"]),
     )
     p2 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="ai-prompt", tags=["ai"]),
+        db_session, test_user.id, PromptCreate(name="ai-prompt", content="Test content", tags=["ai"]),
     )
     await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="java-prompt", tags=["java"]),
+        db_session, test_user.id, PromptCreate(name="java-prompt", content="Test content", tags=["java"]),
     )
     await db_session.flush()
 
@@ -707,7 +708,7 @@ async def test__search__tag_filter_returns_empty_for_no_match(
 ) -> None:
     """Test that tag filter returns empty when no prompts match."""
     await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="tagged-prompt", tags=["python"]),
+        db_session, test_user.id, PromptCreate(name="tagged-prompt", content="Test content", tags=["python"]),
     )
     await db_session.flush()
 
@@ -732,13 +733,13 @@ async def test__search__sort_by_created_at_desc(
     import asyncio
 
     p1 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="first-prompt"),
+        db_session, test_user.id, PromptCreate(name="first-prompt", content="Test content"),
     )
     await db_session.flush()
     await asyncio.sleep(0.01)
 
     p2 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="second-prompt"),
+        db_session, test_user.id, PromptCreate(name="second-prompt", content="Test content"),
     )
     await db_session.flush()
 
@@ -758,13 +759,13 @@ async def test__search__sort_by_created_at_asc(
     import asyncio
 
     p1 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="first-prompt"),
+        db_session, test_user.id, PromptCreate(name="first-prompt", content="Test content"),
     )
     await db_session.flush()
     await asyncio.sleep(0.01)
 
     p2 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="second-prompt"),
+        db_session, test_user.id, PromptCreate(name="second-prompt", content="Test content"),
     )
     await db_session.flush()
 
@@ -783,11 +784,11 @@ async def test__search__sort_by_title_uses_coalesce(
     """Test that sorting by title uses COALESCE with name for null titles."""
     # Prompt without title (should sort by name)
     p1 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="zebra-prompt"),
+        db_session, test_user.id, PromptCreate(name="zebra-prompt", content="Test content"),
     )
     # Prompt with title
     p2 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="aaa-prompt", title="Alpha Title"),
+        db_session, test_user.id, PromptCreate(name="aaa-prompt", content="Test content", title="Alpha Title"),
     )
     await db_session.flush()
 
@@ -811,10 +812,10 @@ async def test__search__search_matches_name(
 ) -> None:
     """Test that text search finds matches in name."""
     p1 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="python-helper"),
+        db_session, test_user.id, PromptCreate(name="python-helper", content="Test content"),
     )
     await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="javascript-helper"),
+        db_session, test_user.id, PromptCreate(name="javascript-helper", content="Test content"),
     )
     await db_session.flush()
 
@@ -830,10 +831,10 @@ async def test__search__search_matches_title(
 ) -> None:
     """Test that text search finds matches in title."""
     p1 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="prompt-1", title="Python Expert"),
+        db_session, test_user.id, PromptCreate(name="prompt-1", content="Test content", title="Python Expert"),
     )
     await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="prompt-2", title="JavaScript Expert"),
+        db_session, test_user.id, PromptCreate(name="prompt-2", content="Test content", title="JavaScript Expert"),
     )
     await db_session.flush()
 
@@ -850,11 +851,11 @@ async def test__search__search_matches_description(
     """Test that text search finds matches in description."""
     p1 = await prompt_service.create(
         db_session, test_user.id,
-        PromptCreate(name="prompt-1", description="Helps with Python code"),
+        PromptCreate(name="prompt-1", content="Test content", description="Helps with Python code"),
     )
     await prompt_service.create(
         db_session, test_user.id,
-        PromptCreate(name="prompt-2", description="Helps with JavaScript code"),
+        PromptCreate(name="prompt-2", content="Test content", description="Helps with JavaScript code"),
     )
     await db_session.flush()
 
@@ -891,7 +892,7 @@ async def test__search__search_case_insensitive(
 ) -> None:
     """Test that text search is case insensitive."""
     p1 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="python-helper"),
+        db_session, test_user.id, PromptCreate(name="python-helper", content="Test content"),
     )
     await db_session.flush()
 
@@ -907,7 +908,7 @@ async def test__search__search_partial_match(
 ) -> None:
     """Test that text search supports partial matches."""
     p1 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="code-review-helper"),
+        db_session, test_user.id, PromptCreate(name="code-review-helper", content="Test content"),
     )
     await db_session.flush()
 
@@ -929,7 +930,7 @@ async def test__search__pagination_offset(
     """Test pagination with offset."""
     for i in range(5):
         await prompt_service.create(
-            db_session, test_user.id, PromptCreate(name=f"prompt-{i}"),
+            db_session, test_user.id, PromptCreate(name=f"prompt-{i}", content="Test content"),
         )
     await db_session.flush()
 
@@ -948,7 +949,7 @@ async def test__search__pagination_limit(
     """Test pagination with limit."""
     for i in range(5):
         await prompt_service.create(
-            db_session, test_user.id, PromptCreate(name=f"prompt-{i}"),
+            db_session, test_user.id, PromptCreate(name=f"prompt-{i}", content="Test content"),
         )
     await db_session.flush()
 
@@ -967,7 +968,7 @@ async def test__search__returns_total_count(
     """Test that total count reflects all matching items before pagination."""
     for i in range(10):
         await prompt_service.create(
-            db_session, test_user.id, PromptCreate(name=f"prompt-{i}"),
+            db_session, test_user.id, PromptCreate(name=f"prompt-{i}", content="Test content"),
         )
     await db_session.flush()
 
@@ -991,10 +992,10 @@ async def test__search__excludes_other_users_prompts(
 ) -> None:
     """Test that search only returns the current user's prompts."""
     p1 = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="my-prompt"),
+        db_session, test_user.id, PromptCreate(name="my-prompt", content="Test content"),
     )
     await prompt_service.create(
-        db_session, other_user.id, PromptCreate(name="other-prompt"),
+        db_session, other_user.id, PromptCreate(name="other-prompt", content="Test content"),
     )
     await db_session.flush()
 
@@ -1011,7 +1012,7 @@ async def test__get__returns_none_for_other_users_prompt(
 ) -> None:
     """Test that get returns None for another user's prompt."""
     p1 = await prompt_service.create(
-        db_session, other_user.id, PromptCreate(name="other-prompt"),
+        db_session, other_user.id, PromptCreate(name="other-prompt", content="Test content"),
     )
     await db_session.flush()
 
@@ -1027,7 +1028,7 @@ async def test__update__returns_none_for_other_users_prompt(
 ) -> None:
     """Test that update returns None for another user's prompt."""
     p1 = await prompt_service.create(
-        db_session, other_user.id, PromptCreate(name="other-prompt"),
+        db_session, other_user.id, PromptCreate(name="other-prompt", content="Test content"),
     )
     await db_session.flush()
 
@@ -1045,7 +1046,7 @@ async def test__delete__returns_false_for_other_users_prompt(
 ) -> None:
     """Test that delete returns False for another user's prompt."""
     p1 = await prompt_service.create(
-        db_session, other_user.id, PromptCreate(name="other-prompt"),
+        db_session, other_user.id, PromptCreate(name="other-prompt", content="Test content"),
     )
     await db_session.flush()
 
@@ -1069,10 +1070,10 @@ async def test__cascade_delete__user_deletion_removes_prompts(
     await db_session.flush()
 
     await prompt_service.create(
-        db_session, user.id, PromptCreate(name="prompt-1"),
+        db_session, user.id, PromptCreate(name="prompt-1", content="Test content"),
     )
     await prompt_service.create(
-        db_session, user.id, PromptCreate(name="prompt-2"),
+        db_session, user.id, PromptCreate(name="prompt-2", content="Test content"),
     )
     await db_session.flush()
 
@@ -1110,17 +1111,20 @@ def test__validate_template__undefined_variable() -> None:
         validate_template("Hello {{ name }}!", [])
 
 
-def test__validate_template__empty_content() -> None:
-    """Test that empty content passes validation."""
-    validate_template("", [])
-    validate_template(None, [])
-    # Should not raise
+def test__validate_template__empty_content_rejected() -> None:
+    """Test that empty content is rejected."""
+    with pytest.raises(ValueError, match="Template content is required"):
+        validate_template("", [])
+    with pytest.raises(ValueError, match="Template content is required"):
+        validate_template(None, [])
+    with pytest.raises(ValueError, match="Template content is required"):
+        validate_template("   ", [])  # Whitespace-only also rejected
 
 
-def test__validate_template__unused_arguments_allowed() -> None:
-    """Test that unused arguments are allowed."""
-    validate_template("Hello World!", [{"name": "unused_arg"}])
-    # Should not raise
+def test__validate_template__unused_arguments_rejected() -> None:
+    """Test that unused arguments are rejected."""
+    with pytest.raises(ValueError, match="Unused argument"):
+        validate_template("Hello World!", [{"name": "unused_arg"}])
 
 
 async def test__create__validates_template_syntax(
@@ -1152,15 +1156,14 @@ async def test__create__validates_template_undefined_variables(
         await prompt_service.create(db_session, test_user.id, data)
 
 
-async def test__create__allows_empty_content(
+async def test__create__rejects_empty_content(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test that create allows empty content."""
+    """Test that create rejects empty content."""
     data = PromptCreate(name="empty-content-prompt", content="")
-    prompt = await prompt_service.create(db_session, test_user.id, data)
-
-    assert prompt.content == ""
+    with pytest.raises(ValueError, match="Template content is required"):
+        await prompt_service.create(db_session, test_user.id, data)
 
 
 async def test__create__allows_template_with_defined_arguments(
@@ -1182,19 +1185,18 @@ async def test__create__allows_template_with_defined_arguments(
     assert len(prompt.arguments) == 2
 
 
-async def test__create__allows_unused_arguments(
+async def test__create__rejects_unused_arguments(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test that create allows arguments that aren't used in template."""
+    """Test that create rejects arguments that aren't used in template."""
     data = PromptCreate(
         name="unused-args-prompt",
         content="Hello World!",
         arguments=[PromptArgument(name="unused_arg")],
     )
-    prompt = await prompt_service.create(db_session, test_user.id, data)
-
-    assert len(prompt.arguments) == 1
+    with pytest.raises(ValueError, match="Unused argument"):
+        await prompt_service.create(db_session, test_user.id, data)
 
 
 async def test__update__validates_template_syntax(

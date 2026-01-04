@@ -232,8 +232,11 @@ describe('Sidebar', () => {
 
       await waitFor(() => {
         const lastLocation = locations[locations.length - 1]
-        expect(lastLocation?.pathname).toBe('/app/content/lists/5')
-        expect(lastLocation?.search).toBe('?foo=bar&action=add')
+        expect(lastLocation?.pathname).toBe('/app/bookmarks/new')
+        expect(lastLocation?.state).toMatchObject({
+          returnTo: '/app/content/lists/5?foo=bar',
+          initialTags: ['work', 'urgent'],
+        })
       })
     })
 

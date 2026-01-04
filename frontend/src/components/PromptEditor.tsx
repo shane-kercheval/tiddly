@@ -368,8 +368,10 @@ export function PromptEditor({
       newErrors.description = `Description exceeds ${config.limits.maxDescriptionLength.toLocaleString()} characters`
     }
 
-    // Validate content length
-    if (form.content.length > config.limits.maxPromptContentLength) {
+    // Content is required
+    if (!form.content.trim()) {
+      newErrors.content = 'Template content is required'
+    } else if (form.content.length > config.limits.maxPromptContentLength) {
       newErrors.content = `Content exceeds ${config.limits.maxPromptContentLength.toLocaleString()} characters`
     }
 
@@ -399,7 +401,8 @@ export function PromptEditor({
     // Validate template variables match arguments
     if (form.content && !newErrors.arguments) {
       // Extract Jinja2 variables: {{ var }}, {{ var|filter }}, {%- if var %}, etc.
-      const variablePattern = /\{\{[\s-]*([a-z_][a-z0-9_]*)[\s|}/%-]/gi
+      // Note: In the character class, } must be first or escaped to be treated as literal
+      const variablePattern = /\{\{[\s-]*([a-z_][a-z0-9_]*)[\s|%/}-]/gi
       const controlPattern = /\{%[-\s]*(?:if|elif|for|set|with)[\s]+([a-z_][a-z0-9_]*)/gi
       const templateVars = new Set<string>()
 

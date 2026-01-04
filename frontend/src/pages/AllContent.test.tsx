@@ -4,7 +4,6 @@
  * Covers:
  * - View-specific empty states
  * - QuickAddMenu visibility
- * - URL action parameter handling
  * - View-specific action buttons
  * - Content type rendering (bookmarks vs notes)
  * - Note navigation with return state
@@ -108,22 +107,16 @@ vi.mock('../hooks/useContentQuery', () => ({
 
 vi.mock('../hooks/useBookmarks', () => ({
   useBookmarks: () => ({
-    fetchBookmark: vi.fn().mockResolvedValue(mockBookmark),
-    fetchMetadata: vi.fn().mockResolvedValue({ title: null, description: null, content: null, error: null }),
     trackBookmarkUsage: vi.fn(),
   }),
 }))
 
-const mockCreateBookmark = vi.fn()
-const mockUpdateBookmark = vi.fn()
 const mockDeleteBookmark = vi.fn()
 const mockRestoreBookmark = vi.fn()
 const mockArchiveBookmark = vi.fn()
 const mockUnarchiveBookmark = vi.fn()
 
 vi.mock('../hooks/useBookmarkMutations', () => ({
-  useCreateBookmark: () => ({ mutateAsync: mockCreateBookmark, isPending: false }),
-  useUpdateBookmark: () => ({ mutateAsync: mockUpdateBookmark, isPending: false }),
   useDeleteBookmark: () => ({ mutateAsync: mockDeleteBookmark, isPending: false }),
   useRestoreBookmark: () => ({ mutateAsync: mockRestoreBookmark, isPending: false }),
   useArchiveBookmark: () => ({ mutateAsync: mockArchiveBookmark, isPending: false }),
@@ -413,42 +406,6 @@ describe('AllContent', () => {
       await waitFor(() => {
         expect(screen.getByTestId('quick-add-single')).toBeInTheDocument()
       })
-    })
-  })
-
-  describe('URL action parameter', () => {
-    it('opens add modal when ?action=add is in URL', async () => {
-      mockContentQueryData = createMockResponse([])
-      renderAtRoute('/app/content?action=add')
-
-      await waitFor(() => {
-        // Modal should be open - look for the form elements
-        expect(screen.getByPlaceholderText('https://example.com')).toBeInTheDocument()
-      })
-    })
-
-    it('prepopulates tags for list view when ?action=add is in URL', async () => {
-      mockContentQueryData = createMockResponse([])
-      renderAtRoute('/app/content/lists/1?action=add')
-
-      await waitFor(() => {
-        expect(screen.getByPlaceholderText('https://example.com')).toBeInTheDocument()
-      })
-
-      expect(screen.getByText('list-tag-1')).toBeInTheDocument()
-      expect(screen.getByText('list-tag-2')).toBeInTheDocument()
-    })
-
-    it('does not prepopulate list tags for all content', async () => {
-      mockContentQueryData = createMockResponse([])
-      renderAtRoute('/app/content?action=add')
-
-      await waitFor(() => {
-        expect(screen.getByPlaceholderText('https://example.com')).toBeInTheDocument()
-      })
-
-      expect(screen.queryByText('list-tag-1')).not.toBeInTheDocument()
-      expect(screen.queryByText('list-tag-2')).not.toBeInTheDocument()
     })
   })
 

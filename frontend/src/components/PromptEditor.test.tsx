@@ -132,9 +132,10 @@ describe('PromptEditor', () => {
       const nameInput = screen.getByLabelText(/name/i)
       await user.type(nameInput, 'valid-prompt-name')
 
-      // Clear default content to avoid template variable validation errors
+      // Set simple content (content is required, clear default template variables)
       const contentEditor = screen.getByTestId('markdown-editor')
       await user.clear(contentEditor)
+      await user.type(contentEditor, 'Test content')
 
       const submitButton = screen.getByRole('button', { name: /create prompt/i })
       await user.click(submitButton)
@@ -177,9 +178,10 @@ describe('PromptEditor', () => {
       const nameInput = screen.getByLabelText(/name/i)
       await user.type(nameInput, '123-prompt')
 
-      // Clear default content to avoid template variable validation errors
+      // Set simple content (content is required, clear default template variables)
       const contentEditor = screen.getByTestId('markdown-editor')
       await user.clear(contentEditor)
+      await user.type(contentEditor, 'Test content')
 
       const submitButton = screen.getByRole('button', { name: /create prompt/i })
       await user.click(submitButton)
@@ -385,34 +387,30 @@ describe('PromptEditor', () => {
     })
 
     it('should accept valid argument name pattern (lowercase with underscores)', async () => {
+      // Test that argument names with underscores are valid
+      // We use an existing prompt to avoid complexity with template validation
+      const promptWithUnderscoreArg: Prompt = {
+        ...mockPrompt,
+        content: 'Hello {{ user_name }}',
+        arguments: [{ name: 'user_name', description: 'Name with underscore', required: true }],
+      }
       const user = userEvent.setup()
       const onSubmit = vi.fn().mockResolvedValue(undefined)
 
       render(
         <PromptEditor
+          prompt={promptWithUnderscoreArg}
           tagSuggestions={mockTagSuggestions}
           onSubmit={onSubmit}
           onCancel={vi.fn()}
         />
       )
 
-      // Add a valid prompt name
-      const nameInput = screen.getByLabelText(/name/i)
-      await user.type(nameInput, 'test-prompt')
+      // Verify argument with underscore is shown
+      expect(screen.getByDisplayValue('user_name')).toBeInTheDocument()
 
-      // Clear default content and set content that uses the argument
-      const contentEditor = screen.getByTestId('markdown-editor')
-      await user.clear(contentEditor)
-      await user.type(contentEditor, 'Hello {{ valid_arg_name }}')
-
-      // Add an argument with valid name
-      const addArgButton = screen.getByRole('button', { name: /add argument/i })
-      await user.click(addArgButton)
-
-      const argInput = screen.getByPlaceholderText('argument_name')
-      await user.type(argInput, 'valid_arg_name')
-
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      // Submit the form
+      const submitButton = screen.getByRole('button', { name: /save changes/i })
       await user.click(submitButton)
 
       await waitFor(() => {
@@ -910,10 +908,11 @@ describe('PromptEditor', () => {
         />
       )
 
-      // Fill in name and clear default content to avoid template validation errors
+      // Fill in name and set simple content (content is required)
       await user.type(screen.getByLabelText(/name/i), 'submit-test')
       const contentEditor = screen.getByTestId('markdown-editor')
       await user.clear(contentEditor)
+      await user.type(contentEditor, 'Test content')
       await user.click(screen.getByRole('button', { name: /create prompt/i }))
 
       await waitFor(() => {

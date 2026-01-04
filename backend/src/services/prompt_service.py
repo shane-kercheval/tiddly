@@ -33,11 +33,12 @@ def validate_template(content: str | None, arguments: list[dict[str, Any]]) -> N
     Validate Jinja2 template syntax and variables.
 
     Args:
-        content: The Jinja2 template content.
+        content: The Jinja2 template content (required, cannot be empty).
         arguments: List of argument definitions with 'name' keys.
 
     Raises:
-        ValueError: If template has invalid syntax or uses undefined variables.
+        ValueError: If content is empty, template has invalid syntax,
+                    uses undefined variables, or has unused arguments.
 
     Note:
         This validation uses meta.find_undeclared_variables() which also flags Jinja2
@@ -46,8 +47,11 @@ def validate_template(content: str | None, arguments: list[dict[str, Any]]) -> N
         structures with builtins are needed, add a JINJA_BUILTINS allowlist to exclude
         from the undefined check.
     """
-    if not content:
-        return
+    # Content is required - a prompt without content is useless
+    if not content or not content.strip():
+        raise ValueError("Template content is required.")
+
+    defined_args = {arg["name"] for arg in arguments} if arguments else set()
 
     # Validate syntax first
     try:
@@ -60,16 +64,21 @@ def validate_template(content: str | None, arguments: list[dict[str, Any]]) -> N
     # For simple variable substitution templates, this is fine. If builtins are
     # needed in the future, add an allowlist here.
     template_vars = meta.find_undeclared_variables(ast)
-    if not template_vars:
-        return
 
-    defined_args = {arg["name"] for arg in arguments} if arguments else set()
+    # Check for undefined variables (used in template but not in arguments)
     undefined = template_vars - defined_args
-
     if undefined:
         raise ValueError(
             f"Template uses undefined variable(s): {', '.join(sorted(undefined))}. "
             "Add them to arguments or remove from template.",
+        )
+
+    # Check for unused arguments (defined but not used in template)
+    unused = defined_args - template_vars
+    if unused:
+        raise ValueError(
+            f"Unused argument(s): {', '.join(sorted(unused))}. "
+            "Remove them or use in template.",
         )
 
 
