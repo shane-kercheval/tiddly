@@ -229,6 +229,42 @@ describe('Sidebar', () => {
       await new Promise((resolve) => setTimeout(resolve, 100))
       expect(pathChanges.length).toBe(0)
     })
+
+    it('should NOT navigate away when delete fails while viewing the list', async () => {
+      const user = userEvent.setup()
+      const pathChanges: string[] = []
+
+      // Make delete fail
+      mockDeleteList.mockRejectedValue(new Error('API error'))
+
+      // Start viewing list:5
+      render(<Sidebar />, {
+        wrapper: createWrapper(['/app/bookmarks/lists/5'], (path) => {
+          pathChanges.push(path)
+        }),
+      })
+
+      // Find the delete buttons
+      const deleteButtons = screen.getAllByTitle('Delete list')
+      await user.click(deleteButtons[0])
+
+      // Second click - confirms delete
+      const confirmButtons = screen.getAllByTitle('Click again to confirm')
+      await user.click(confirmButtons[0])
+
+      // Wait for delete attempt and rollback
+      await waitFor(() => {
+        expect(mockDeleteList).toHaveBeenCalledWith(5)
+      })
+
+      await waitFor(() => {
+        expect(mockRollbackSidebar).toHaveBeenCalled()
+      })
+
+      // User should NOT have been navigated away - they stay on the list page
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(pathChanges.length).toBe(0)
+    })
   })
 
   describe('quick add navigation', () => {
