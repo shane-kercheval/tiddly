@@ -14,7 +14,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from starlette.routing import Mount, Route
+from starlette.routing import Route
 
 from .auth import clear_current_token, set_current_token
 from .server import cleanup, init_http_client, server
@@ -31,6 +31,30 @@ session_manager = StreamableHTTPSessionManager(
 async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001
     """Health check endpoint."""
     return JSONResponse({"status": "healthy"})
+
+
+class MCPRouteHandler:
+    """
+    ASGI wrapper that routes /mcp and /mcp/* to the MCP session manager.
+
+    This avoids Starlette's Mount redirect behavior (307 from /mcp to /mcp/)
+    by handling path normalization ourselves.
+    """
+
+    def __init__(self, session_manager: StreamableHTTPSessionManager) -> None:
+        self.session_manager = session_manager
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        """Route MCP requests, normalizing path for the session manager."""
+        # The session manager expects paths relative to its mount point
+        # Rewrite /mcp or /mcp/* to / or /* respectively
+        path = scope.get("path", "")
+        if path == "/mcp":
+            scope = {**scope, "path": "/"}
+        elif path.startswith("/mcp/"):
+            scope = {**scope, "path": path[4:]}  # Strip "/mcp" prefix
+
+        await self.session_manager.handle_request(scope, receive, send)
 
 
 class AuthMiddleware:
@@ -82,11 +106,17 @@ async def lifespan(app: Starlette):  # noqa: ARG001, ANN201
     await cleanup()
 
 
+# Create ASGI handler for MCP routes
+mcp_handler = MCPRouteHandler(session_manager)
+
 # Create the Starlette application
 app = Starlette(
     routes=[
         Route("/health", health_check, methods=["GET"]),
-        Mount("/mcp", app=session_manager.handle_request),
+        # Handle /mcp exactly (no trailing slash)
+        Route("/mcp", mcp_handler, methods=["GET", "POST", "DELETE"]),
+        # Handle /mcp/* with any sub-path
+        Route("/mcp/{path:path}", mcp_handler, methods=["GET", "POST", "DELETE"]),
     ],
     middleware=[Middleware(AuthMiddleware)],
     lifespan=lifespan,
