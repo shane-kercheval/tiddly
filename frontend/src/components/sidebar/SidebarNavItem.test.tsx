@@ -2,7 +2,7 @@
  * Tests for SidebarNavItem component.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { ReactNode } from 'react'
@@ -248,7 +248,9 @@ describe('SidebarNavItem', () => {
       expect(screen.getByText('Delete?')).toBeInTheDocument()
 
       // Advance timers past the default timeout (3000ms)
-      vi.advanceTimersByTime(3100)
+      await act(async () => {
+        vi.advanceTimersByTime(3100)
+      })
 
       // Should reset to initial state
       await waitFor(() => {
