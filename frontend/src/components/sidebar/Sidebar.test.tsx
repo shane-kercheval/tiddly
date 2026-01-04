@@ -193,7 +193,7 @@ describe('Sidebar', () => {
       })
 
       // Verify navigated to /app/content (the "All" route)
-      // With optimistic updates, navigation happens immediately (before API call)
+      // Navigation happens after successful deletion (sidebar update is optimistic, navigation is not)
       await waitFor(() => {
         expect(pathChanges).toContain('/app/content')
       })

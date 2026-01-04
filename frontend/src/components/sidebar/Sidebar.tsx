@@ -310,20 +310,20 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
         })
     }
 
-    // Optimistically remove from sidebar
+    // Optimistically remove from sidebar (instant visual feedback)
     if (sidebar) {
       const optimisticItems = removeListFromItems(sidebar.items)
       setSidebarOptimistic(optimisticItems)
     }
 
-    // Navigate early if we're viewing the deleted list (better UX)
-    if (currentListId === listId) {
-      navigate('/app/content')
-    }
+    const wasViewingDeletedList = currentListId === listId
 
     try {
       await deleteList(listId)
-      // No need to fetchSidebar - we've already updated optimistically
+      // Navigate after successful deletion (not before, to avoid confusing state on failure)
+      if (wasViewingDeletedList) {
+        navigate('/app/content')
+      }
     } catch {
       rollbackSidebar()
       toast.error('Failed to delete list')
@@ -405,12 +405,12 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       const result = await updateListStore(...args)
       // Invalidate queries for this list since filters may have changed
       await invalidateListQueries(queryClient, result.id)
-      // Fetch sidebar to ensure we have accurate server state
-      // (in case the API modified anything we didn't expect)
-      await fetchSidebar()
       return result
     } catch (error) {
       rollbackSidebar()
+      // Re-throw so ListModal can display the error in its form UI and manage button state.
+      // This differs from other handlers that swallow errors and show toasts, because
+      // modal-based operations need error propagation for proper form state management.
       throw error
     }
   }
