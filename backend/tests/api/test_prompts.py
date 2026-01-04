@@ -426,13 +426,7 @@ async def test__get_prompt__not_found(client: AsyncClient) -> None:
     assert response.json()["detail"] == "Prompt not found"
 
 
-async def test__get_prompt__other_users_prompt(client: AsyncClient) -> None:
-    """Test that getting another user's prompt returns 404."""
-    # The test client uses a fixed user, so we can't directly test this
-    # This would require a second authenticated client
-    # For now, we test the basic 404 case
-    response = await client.get("/prompts/99999")
-    assert response.status_code == 404
+# Note: Cross-user isolation (IDOR) tests are in Milestone 7: test_live_penetration.py
 
 
 # =============================================================================

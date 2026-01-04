@@ -238,7 +238,9 @@ class PromptService(BaseEntityService[Prompt]):
             await db.rollback()
             # Check if it's a name uniqueness violation
             if "uq_prompt_user_name_active" in str(e):
-                raise NameConflictError(data.name) from e
+                # Use data.name if provided, otherwise fall back to prompt.name
+                conflict_name = data.name if data.name else prompt.name
+                raise NameConflictError(conflict_name) from e
             raise
 
         await self._refresh_with_tags(db, prompt)

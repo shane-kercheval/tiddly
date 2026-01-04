@@ -91,3 +91,47 @@ async def test_health_endpoint_does_not_require_auth(
     """Test that /health endpoint works without authentication."""
     response = await auth_required_client.get("/health")
     assert response.status_code == 200
+
+
+# =============================================================================
+# Prompts Authentication Tests
+# =============================================================================
+
+
+async def test__prompts__create_without_token_returns_401(
+    auth_required_client: AsyncClient,
+) -> None:
+    """Test that POST /prompts/ returns 401 when no token is provided."""
+    response = await auth_required_client.post(
+        "/prompts/",
+        json={"name": "test-prompt"},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Not authenticated"
+
+
+async def test__prompts__list_without_token_returns_401(
+    auth_required_client: AsyncClient,
+) -> None:
+    """Test that GET /prompts/ returns 401 when no token is provided."""
+    response = await auth_required_client.get("/prompts/")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Not authenticated"
+
+
+async def test__prompts__get_without_token_returns_401(
+    auth_required_client: AsyncClient,
+) -> None:
+    """Test that GET /prompts/{id} returns 401 when no token is provided."""
+    response = await auth_required_client.get("/prompts/1")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Not authenticated"
+
+
+async def test__prompts__get_by_name_without_token_returns_401(
+    auth_required_client: AsyncClient,
+) -> None:
+    """Test that GET /prompts/name/{name} returns 401 when no token is provided."""
+    response = await auth_required_client.get("/prompts/name/test-prompt")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Not authenticated"
