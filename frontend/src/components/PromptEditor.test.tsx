@@ -935,9 +935,10 @@ describe('PromptEditor', () => {
         />
       )
 
-      expect(screen.getByLabelText(/name/i)).toHaveValue('test-prompt')
+      // Use exact label match or input id to avoid collision with argument fields
+      expect(screen.getByRole('textbox', { name: /^name/i })).toHaveValue('test-prompt')
       expect(screen.getByLabelText(/^title$/i)).toHaveValue('Test Prompt')
-      expect(screen.getByLabelText(/description/i)).toHaveValue('A test description')
+      expect(screen.getByLabelText(/^description$/i)).toHaveValue('A test description')
       expect(screen.getByLabelText(/template content/i)).toHaveValue('Hello {{ name }}')
     })
 
