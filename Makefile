@@ -1,4 +1,4 @@
-.PHONY: tests build run mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli
+.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli
 
 -include .env
 export
@@ -18,10 +18,10 @@ api-run:  ## Start API server with hot-reload
 ####
 # MCP Servers
 ####
-mcp-server:  ## Start Bookmarks/Notes MCP server (port 8001, requires API on 8000)
+content-mcp-server:  ## Start Content MCP server (port 8001, requires API on 8000)
 	PYTHONPATH=$(PYTHONPATH) uv run python -m mcp_server
 
-prompt-server:  ## Start Prompt MCP server (port 8002, requires API on 8000)
+prompt-mcp-server:  ## Start Prompt MCP server (port 8002, requires API on 8000)
 	PYTHONPATH=$(PYTHONPATH) uv run python -m prompt_mcp_server
 
 ####

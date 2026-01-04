@@ -119,12 +119,12 @@ The existing Bookmarks MCP Server provides patterns for auth and API client:
 ┌─────────────────────────────────────────────────────────────────┐
 │  TWO MCP SERVERS:                                                │
 │                                                                  │
-│  1. mcp.tiddly.me/mcp (port 8001) - Bookmarks/Notes MCP Server  │
+│  1. content-mcp.tiddly.me/mcp (port 8001) - Content MCP Server  │
 │     - Tools: search_bookmarks, get_bookmark, create_bookmark,   │
 │              search_notes, get_note, create_note, list_tags     │
 │     - For content management via AI assistants                  │
 │                                                                  │
-│  2. prompts.tiddly.me/mcp (port 8002) - Prompt MCP Server       │
+│  2. prompts-mcp.tiddly.me/mcp (port 8002) - Prompt MCP Server   │
 │     - Prompts: list_prompts, get_prompt (MCP prompts capability)│
 │     - Tools: create_prompt (for creating new prompts via AI)    │
 │     - For prompt template management                            │
@@ -176,8 +176,8 @@ The existing Bookmarks MCP Server provides patterns for auth and API client:
 | Service | Port | Domain | Description |
 |---------|------|--------|-------------|
 | Main API | 8000 | api.tiddly.me | REST API |
-| Bookmarks MCP Server | 8001 | mcp.tiddly.me/mcp | Tools for bookmarks/notes |
-| **Prompt MCP Server** | **8002** | **prompts.tiddly.me/mcp** | Prompts capability + create_prompt tool |
+| Content MCP Server | 8001 | content-mcp.tiddly.me/mcp | Tools for bookmarks/notes |
+| **Prompt MCP Server** | **8002** | **prompts-mcp.tiddly.me/mcp** | Prompts capability + create_prompt tool |
 
 ---
 
@@ -743,7 +743,7 @@ Pattern from `test_notes.py` and `test_bookmarks.py`.
 
 **Package:** `backend/src/prompt_mcp_server/`
 
-**Domain:** `prompts.tiddly.me` (separate from `mcp.tiddly.me` which serves bookmarks/notes)
+**Domain:** `prompts-mcp.tiddly.me` (separate from `content-mcp.tiddly.me` which serves bookmarks/notes)
 
 Uses low-level MCP SDK for **dynamic prompt loading** (not FastMCP, not static registry).
 
@@ -1303,7 +1303,7 @@ Example "All" config:
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://mcp.tiddly.me/mcp",
+        "https://content-mcp.tiddly.me/mcp",
         "--header",
         "Authorization: Bearer YOUR_TOKEN_HERE"
       ]
@@ -1312,7 +1312,7 @@ Example "All" config:
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://prompts.tiddly.me/mcp",
+        "https://prompts-mcp.tiddly.me/mcp",
         "--header",
         "Authorization: Bearer YOUR_TOKEN_HERE"
       ]
@@ -1389,21 +1389,78 @@ Add missing cascade delete tests to existing service tests, plus new prompt test
 
 ## Milestone 8: Documentation & Deployment
 
-### Documentation
+### 8.1 Update README.md
 
-- Update README with prompts feature
-- Update CLAUDE.md with prompt endpoints
-- Document the two MCP servers:
-  - `mcp.tiddly.me/mcp` - Bookmarks/Notes tools
-  - `prompts.tiddly.me/mcp` - Prompt templates + create_prompt tool
+1. Add "Prompts" to Features list:
+   - Jinja2 templates with defined arguments
+   - MCP prompt capability for AI assistants
 
-### Deployment (README_DEPLOY.md)
+2. Add Prompt MCP Server section under existing MCP Server section:
+   - Command: `make prompt-mcp-server` (port 8002)
+   - Exposes prompts via MCP prompts capability
+   - Tool: `create_prompt`
 
-- Update README_DEPLOY.md with prompt MCP server deployment (similar to existing bookmark/note MCP server)
-- Add prompt-mcp service to Railway
-- Environment variables (not sure if they are used for this mcp server, check exactly what is needed):
-  - `PROMPT_MCP_PORT=8002`
-  - `API_BASE_URL`
-- Domain: `prompts.tiddly.me/mcp`
+3. Rebrand existing MCP server as "Content MCP Server" (for bookmarks/notes)
+
+4. Add combined Claude Desktop config example showing both servers
+
+### 8.2 Update README_DEPLOY.md
+
+1. Update Architecture table:
+   - Rename `mcp` → `content-mcp` with description "Content MCP server (bookmarks/notes)"
+   - Add `prompt-mcp` row: "Prompt MCP server for AI agents"
+
+2. Add prompt-mcp service configuration (Step 4):
+   - **Settings → Source:** Rename to `prompt-mcp`, Enable Wait for CI
+   - **Settings → Build:** Same as content-mcp (`uv sync --no-dev`, Watch: `backend/**`, `pyproject.toml`)
+   - **Settings → Deploy:** `cd backend/src && uv run python -m prompt_mcp_server`
+   - **Settings → Networking:** Generate Domain
+
+3. Add prompt-mcp environment variables (Step 5):
+   ```
+   PROMPT_MCP_API_BASE_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
+   ```
+   Note: Railway provides `PORT` automatically - no manual port config needed.
+
+4. Update frontend variables to include:
+   ```
+   VITE_PROMPT_MCP_URL=https://${{prompt-mcp.RAILWAY_PUBLIC_DOMAIN}}
+   ```
+
+5. Update "Verify Deployment" with prompt-mcp check
+
+6. Update manual deploy commands to include `railway up -s prompt-mcp`
+
+### 8.3 Update CLAUDE.md
+
+1. Add `make prompt-mcp-server` to Common Commands section
+
+2. Add Prompts MCP Server to Architecture section:
+   - Package location: `backend/src/prompt_mcp_server/`
+   - Low-level MCP SDK (not FastMCP) for prompts capability
+   - Handlers: list_prompts, get_prompt
+   - Tool: create_prompt
+
+3. Prompt endpoints follow same patterns as notes/bookmarks (BaseEntityService, rate limiting, auth)
+
+### Environment Variables Summary
+
+**Local development:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PROMPT_MCP_PORT` | `8002` | Local dev port |
+| `PROMPT_MCP_API_BASE_URL` | `http://localhost:8000` | API URL |
+| `PROMPT_MCP_API_TIMEOUT` | `30.0` | API timeout (seconds) |
+
+**Railway (PaaS):**
+- `PORT` provided automatically by Railway
+- Only need `PROMPT_MCP_API_BASE_URL` pointing to API service
+
+### Two MCP Servers Architecture
+
+| Server | Local Port | Domain | Purpose |
+|--------|------------|--------|---------|
+| Content MCP | 8001 | content-mcp.tiddly.me/mcp | Tools for bookmarks/notes |
+| Prompt MCP | 8002 | prompts-mcp.tiddly.me/mcp | Prompts capability + create_prompt tool |
 
 ---

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A bookmark management system with tagging and search capabilities. Multi-tenant architecture with Auth0 authentication (bypassed in VITE_DEV_MODE).
+A content management system for bookmarks, notes, and prompts with tagging and search capabilities. Multi-tenant architecture with Auth0 authentication (bypassed in VITE_DEV_MODE). Prompts are Jinja2 templates exposed via MCP for AI assistants.
 
 ## Common Commands
 
@@ -19,8 +19,9 @@ make tests              # Run linting + all tests (backend + frontend)
 # Run a single backend test
 uv run pytest backend/tests/path/to/test_file.py::test_function_name -v
 
-# MCP Server (Model Context Protocol)
-make mcp-server         # Start MCP server (port 8001, requires API on 8000)
+# MCP Servers (Model Context Protocol)
+make content-mcp-server   # Start Content MCP server (port 8001, requires API on 8000)
+make prompt-mcp-server    # Start Prompt MCP server (port 8002, requires API on 8000)
 
 # Frontend (from frontend/ directory)
 npm install             # Install dependencies
@@ -47,21 +48,25 @@ make migration message="description"  # Create new migration
 - **api/**: FastAPI routers and dependencies
   - `main.py`: App entry point, CORS config, router registration
   - `dependencies.py`: Re-exports auth dependencies and session/settings getters
-  - `routers/`: Endpoint handlers (bookmarks, users, tags, tokens, health)
+  - `routers/`: Endpoint handlers (bookmarks, notes, prompts, users, tags, tokens, health)
 - **core/**: Configuration, authentication, rate limiting, and caching
   - `config.py`: Settings and environment configuration
   - `auth.py`: JWT/PAT validation and user authentication
   - `redis.py`: Redis client wrapper with graceful fallback
   - `rate_limiter.py`: Tiered rate limiting (sliding + fixed window)
   - `auth_cache.py`: User lookup caching with 5-minute TTL
-- **models/**: SQLAlchemy ORM models (User, Bookmark, ApiToken)
+- **models/**: SQLAlchemy ORM models (User, Bookmark, Note, Prompt, ApiToken)
 - **schemas/**: Pydantic request/response schemas
-- **services/**: Business logic (bookmark_service, token_service, url_scraper)
+- **services/**: Business logic (bookmark_service, note_service, prompt_service, token_service, url_scraper)
 - **db/**: Database session management and Alembic migrations
-- **mcp_server/**: MCP (Model Context Protocol) server for AI agent access
-  - `server.py`: FastMCP server with tools (search_bookmarks, get_bookmark, create_bookmark, list_tags)
+- **mcp_server/**: Content MCP server for bookmarks/notes (uses FastMCP)
+  - `server.py`: Tools for search_bookmarks, get_bookmark, create_bookmark, search_notes, get_note, create_note, list_tags
   - `auth.py`: Bearer token extraction from MCP request headers
   - `api_client.py`: HTTP client helpers for API requests
+- **prompt_mcp_server/**: Prompt MCP server (uses low-level MCP SDK for prompts capability)
+  - `server.py`: list_prompts, get_prompt handlers + create_prompt tool
+  - `template_renderer.py`: Jinja2 template rendering with StrictUndefined
+  - `auth.py`: Context-based token management via contextvars
 
 ### Frontend (`frontend/src/`)
 - React 19 + TypeScript + Vite + Tailwind CSS
@@ -73,6 +78,7 @@ make migration message="description"  # Create new migration
 
 ### Key Patterns
 - All database tables include `user_id` for multi-tenancy
+- Bookmarks, Notes, and Prompts use `BaseEntityService` for consistent CRUD, soft delete, archive, tags, and search
 - Tests use testcontainers for PostgreSQL with transaction rollback isolation
 - `VITE_DEV_MODE=true` bypasses authentication for local development
 - Personal Access Tokens (PATs) prefixed with `bm_` for programmatic API access

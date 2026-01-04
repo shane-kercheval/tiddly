@@ -7,7 +7,8 @@ Deploy the Bookmarks application to Railway using Railpack (Railway's auto-build
 | Service | Description | Root Directory |
 |---------|-------------|----------------|
 | **api** | FastAPI backend | `/` |
-| **mcp** | MCP server for AI agents | `/` |
+| **content-mcp** | Content MCP server (bookmarks/notes) | `/` |
+| **prompt-mcp** | Prompt MCP server (prompts capability) | `/` |
 | **frontend** | React SPA | `/frontend` |
 | **Postgres** | PostgreSQL database | (managed by Railway) |
 | **Redis** | Rate limiting and auth cache | (managed by Railway) |
@@ -63,10 +64,10 @@ Redis is used for:
 
 ### Step 3: Create Services
 
-Create 3 services, each connected to your GitHub repo:
+Create 4 services, each connected to your GitHub repo:
 
 1. Click **+ Create** → **GitHub Repo** → Select `bookmarks`
-2. Repeat 2 more times (you'll have 3 services all pointing to the same repo)
+2. Repeat 3 more times (you'll have 4 services all pointing to the same repo)
 
 ### Step 4: Configure Each Service
 
@@ -88,10 +89,10 @@ Click on each service → **Settings** tab → Configure as follows:
 **Settings → Networking:**
 - Click **Generate Domain**
 
-#### MCP Service
+#### Content MCP Service
 
 **Settings → Source:**
-- Rename service to `mcp`
+- Rename service to `content-mcp`
 - Enable **Wait for CI**
 
 **Settings → Build:**
@@ -100,6 +101,22 @@ Click on each service → **Settings** tab → Configure as follows:
 
 **Settings → Deploy:**
 - Start Command: `cd backend/src && uv run python -m mcp_server`
+
+**Settings → Networking:**
+- Click **Generate Domain**
+
+#### Prompt MCP Service
+
+**Settings → Source:**
+- Rename service to `prompt-mcp`
+- Enable **Wait for CI**
+
+**Settings → Build:**
+- Build Command: `uv sync --no-dev`
+- Watch Paths: `backend/**`, `pyproject.toml`
+
+**Settings → Deploy:**
+- Start Command: `cd backend/src && uv run python -m prompt_mcp_server`
 
 **Settings → Networking:**
 - Click **Generate Domain**
@@ -146,10 +163,18 @@ To set DATABASE_URL:
 4. Add `DATABASE_URL` and paste the copied value
 5. Change `postgresql://` to `postgresql+asyncpg://` at the start of the URL
 
-#### MCP Service Variables
+#### Content MCP Service Variables
 
 ```
 VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
+```
+
+**Note:** Railway automatically provides the `PORT` variable - do not set it manually.
+
+#### Prompt MCP Service Variables
+
+```
+PROMPT_MCP_API_BASE_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 ```
 
 **Note:** Railway automatically provides the `PORT` variable - do not set it manually.
@@ -158,7 +183,8 @@ VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 
 ```
 VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
-VITE_MCP_URL=https://${{mcp.RAILWAY_PUBLIC_DOMAIN}}
+VITE_MCP_URL=https://${{content-mcp.RAILWAY_PUBLIC_DOMAIN}}
+VITE_PROMPT_MCP_URL=https://${{prompt-mcp.RAILWAY_PUBLIC_DOMAIN}}
 VITE_AUTH0_DOMAIN=<your-auth0-domain>
 VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
 VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
@@ -219,7 +245,8 @@ Push your changes to `main` branch. With **Wait for CI** enabled, Railway will:
 
 1. **API:** Visit `https://<api-domain>/docs` - should show FastAPI docs
 2. **Frontend:** Visit `https://<frontend-domain>` - should show login page
-3. **MCP:** Visit `https://<mcp-domain>/mcp` - should respond to MCP requests
+3. **Content MCP:** Visit `https://<content-mcp-domain>/mcp` - should respond to MCP requests
+4. **Prompt MCP:** Visit `https://<prompt-mcp-domain>/mcp` - should respond to MCP requests
 
 ---
 
@@ -258,9 +285,10 @@ Push to `main` branch - Railway auto-deploys from connected GitHub repo.
 
 For manual deploy:
 ```bash
-railway up -s api      # Deploy API
-railway up -s frontend # Deploy frontend
-railway up -s mcp      # Deploy MCP
+railway up -s api         # Deploy API
+railway up -s frontend    # Deploy frontend
+railway up -s content-mcp # Deploy Content MCP
+railway up -s prompt-mcp  # Deploy Prompt MCP
 ```
 
 ---
@@ -280,7 +308,8 @@ To run migrations manually (if needed):
 ```bash
 railway logs -s api
 railway logs -s frontend
-railway logs -s mcp
+railway logs -s content-mcp
+railway logs -s prompt-mcp
 ```
 
 Or use Railway dashboard → Click service → **Logs** tab
