@@ -8,7 +8,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from models.bookmark import Bookmark
 from models.note import Note
 from models.tag import Tag, bookmark_tags, note_tags
-from schemas.bookmark import validate_and_normalize_tags
+from schemas.validators import validate_and_normalize_tags
 from schemas.content import ContentListItem
 from services.utils import build_tag_filter_from_expression, escape_ilike
 

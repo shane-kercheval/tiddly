@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from schemas.bookmark import validate_and_normalize_tags
+from schemas.validators import validate_and_normalize_tags
 
 # Valid content types for lists
 ContentType = Literal["bookmark", "note"]
