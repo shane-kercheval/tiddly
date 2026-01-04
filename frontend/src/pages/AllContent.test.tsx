@@ -140,6 +140,20 @@ vi.mock('../hooks/useNoteMutations', () => ({
   useUnarchiveNote: () => ({ mutateAsync: mockUnarchiveNote, isPending: false }),
 }))
 
+const mockDeletePrompt = vi.fn()
+const mockRestorePrompt = vi.fn()
+const mockArchivePrompt = vi.fn()
+const mockUnarchivePrompt = vi.fn()
+
+vi.mock('../hooks/usePromptMutations', () => ({
+  useCreatePrompt: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdatePrompt: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeletePrompt: () => ({ mutateAsync: mockDeletePrompt, isPending: false }),
+  useRestorePrompt: () => ({ mutateAsync: mockRestorePrompt, isPending: false }),
+  useArchivePrompt: () => ({ mutateAsync: mockArchivePrompt, isPending: false }),
+  useUnarchivePrompt: () => ({ mutateAsync: mockUnarchivePrompt, isPending: false }),
+}))
+
 vi.mock('../hooks/useKeyboardShortcuts', () => ({
   useKeyboardShortcuts: () => {},
 }))
@@ -190,10 +204,10 @@ vi.mock('../stores/uiPreferencesStore', () => ({
 }))
 
 const mockToggleType = vi.fn()
-let mockSelectedContentTypes: ('bookmark' | 'note')[] = ['bookmark', 'note']
+let mockSelectedContentTypes: ('bookmark' | 'note' | 'prompt')[] = ['bookmark', 'note', 'prompt']
 
 vi.mock('../stores/contentTypeFilterStore', () => ({
-  ALL_CONTENT_TYPES: ['bookmark', 'note'],
+  ALL_CONTENT_TYPES: ['bookmark', 'note', 'prompt'],
   useContentTypeFilterStore: () => ({
     getSelectedTypes: () => mockSelectedContentTypes,
     toggleType: mockToggleType,
@@ -268,7 +282,7 @@ describe('AllContent', () => {
     mockContentQueryLoading = false
     mockContentQueryError = null
     mockSelectedTags = []
-    mockSelectedContentTypes = ['bookmark', 'note']
+    mockSelectedContentTypes = ['bookmark', 'note', 'prompt']
   })
 
   describe('view-specific empty states', () => {
@@ -282,6 +296,7 @@ describe('AllContent', () => {
       expect(screen.getByText('Create content to see it here.')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'New Note' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'New Prompt' })).toBeInTheDocument()
     })
 
     it('shows "No archived content" for archived view with no content', async () => {
@@ -739,7 +754,7 @@ describe('AllContent', () => {
       expect(mockToggleType).toHaveBeenCalledWith(
         'active',
         'bookmark',
-        ['bookmark', 'note']
+        ['bookmark', 'note', 'prompt']
       )
     })
   })

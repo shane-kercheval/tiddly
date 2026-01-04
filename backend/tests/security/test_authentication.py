@@ -10,10 +10,15 @@ NOTE: These tests run against the deployed environment via SECURITY_TEST_API_URL
 since the test suite runs in DEV_MODE by default.
 """
 import os
+from pathlib import Path
 
 import httpx
 import pytest
+from dotenv import load_dotenv
 
+# Load .env file from project root
+_project_root = Path(__file__).parent.parent.parent.parent
+load_dotenv(_project_root / ".env")
 
 # Configuration - must be set via environment variable
 API_URL = os.environ.get("SECURITY_TEST_API_URL", "")
@@ -30,6 +35,8 @@ class TestAuthenticationEnforcementDeployed:
 
     @pytest.mark.parametrize(("endpoint", "method"), [
         ("/bookmarks/", "GET"),
+        ("/notes/", "GET"),
+        ("/prompts/", "GET"),
         ("/users/me", "GET"),
         ("/tokens/", "GET"),
         ("/tags/", "GET"),

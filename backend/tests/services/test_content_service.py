@@ -1,7 +1,7 @@
 """
 Tests for unified content service layer.
 
-Tests the search_all_content function that combines bookmarks and notes
+Tests the search_all_content function that combines bookmarks, notes, and prompts
 into a unified list with proper pagination and sorting.
 """
 import pytest
@@ -10,13 +10,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.user import User
 from schemas.bookmark import BookmarkCreate
 from schemas.note import NoteCreate
+from schemas.prompt import PromptCreate
 from services.bookmark_service import BookmarkService
 from services.content_service import search_all_content
 from services.note_service import NoteService
+from services.prompt_service import PromptService
 
 
 bookmark_service = BookmarkService()
 note_service = NoteService()
+prompt_service = PromptService()
 
 
 @pytest.fixture
@@ -625,3 +628,406 @@ async def test__search_all_content__content_item_fields_are_populated(
     assert note_item.version == 1
     assert note_item.created_at is not None
     assert 'note-tag' in note_item.tags
+
+
+# =============================================================================
+# Prompt Tests
+# =============================================================================
+
+
+async def test__search_all_content__returns_prompts(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that search returns prompts along with bookmarks and notes."""
+    # Create one of each type
+    bookmark_data = BookmarkCreate(url='https://example.com', title='Bookmark')
+    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+
+    note_data = NoteCreate(title='Note')
+    await note_service.create(db_session, test_user.id, note_data)
+
+    prompt_data = PromptCreate(name='test-prompt', title='Prompt Title')
+    await prompt_service.create(db_session, test_user.id, prompt_data)
+
+    await db_session.flush()
+
+    items, total = await search_all_content(db_session, test_user.id)
+
+    assert total == 3
+    types = {item.type for item in items}
+    assert types == {'bookmark', 'note', 'prompt'}
+
+
+async def test__search_all_content__prompt_has_correct_fields(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that prompt-specific fields are populated correctly."""
+    prompt_data = PromptCreate(
+        name='code-review',
+        title='Code Review Prompt',
+        description='A prompt for reviewing code',
+        arguments=[
+            {'name': 'code', 'description': 'Code to review', 'required': True},
+            {'name': 'language', 'description': None, 'required': False},
+        ],
+        tags=['code', 'review'],
+    )
+    prompt = await prompt_service.create(db_session, test_user.id, prompt_data)
+    await db_session.flush()
+
+    items, _ = await search_all_content(db_session, test_user.id)
+
+    prompt_item = next(item for item in items if item.type == 'prompt')
+
+    assert prompt_item.id == prompt.id
+    assert prompt_item.type == 'prompt'
+    assert prompt_item.title == 'Code Review Prompt'
+    assert prompt_item.description == 'A prompt for reviewing code'
+    assert prompt_item.name == 'code-review'
+    assert len(prompt_item.arguments) == 2
+    assert prompt_item.arguments[0]['name'] == 'code'
+    assert prompt_item.arguments[0]['required'] is True
+    assert set(prompt_item.tags) == {'code', 'review'}
+    # Prompt-specific: no url or version
+    assert prompt_item.url is None
+    assert prompt_item.version is None
+
+
+async def test__search_all_content__content_types_filter_prompts_only(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test filtering to only return prompts."""
+    bookmark_data = BookmarkCreate(url='https://test.com', title='Bookmark')
+    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+
+    note_data = NoteCreate(title='Note')
+    await note_service.create(db_session, test_user.id, note_data)
+
+    prompt_data = PromptCreate(name='my-prompt', title='My Prompt')
+    await prompt_service.create(db_session, test_user.id, prompt_data)
+
+    await db_session.flush()
+
+    # Filter to only prompts
+    items, total = await search_all_content(
+        db_session, test_user.id, content_types=['prompt'],
+    )
+
+    assert total == 1
+    assert items[0].type == 'prompt'
+    assert items[0].name == 'my-prompt'
+
+
+async def test__search_all_content__content_types_filter_excludes_prompts(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test filtering to exclude prompts."""
+    bookmark_data = BookmarkCreate(url='https://test.com', title='Bookmark')
+    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+
+    note_data = NoteCreate(title='Note')
+    await note_service.create(db_session, test_user.id, note_data)
+
+    prompt_data = PromptCreate(name='my-prompt')
+    await prompt_service.create(db_session, test_user.id, prompt_data)
+
+    await db_session.flush()
+
+    # Filter to only bookmarks and notes
+    items, total = await search_all_content(
+        db_session, test_user.id, content_types=['bookmark', 'note'],
+    )
+
+    assert total == 2
+    types = {item.type for item in items}
+    assert types == {'bookmark', 'note'}
+
+
+async def test__search_all_content__content_types_multiple_combinations(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test various content_types filter combinations."""
+    bookmark_data = BookmarkCreate(url='https://test.com', title='Bookmark')
+    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+
+    note_data = NoteCreate(title='Note')
+    await note_service.create(db_session, test_user.id, note_data)
+
+    prompt_data = PromptCreate(name='prompt')
+    await prompt_service.create(db_session, test_user.id, prompt_data)
+
+    await db_session.flush()
+
+    # Test bookmark + prompt
+    items, total = await search_all_content(
+        db_session, test_user.id, content_types=['bookmark', 'prompt'],
+    )
+    assert total == 2
+    assert {item.type for item in items} == {'bookmark', 'prompt'}
+
+    # Test note + prompt
+    items, total = await search_all_content(
+        db_session, test_user.id, content_types=['note', 'prompt'],
+    )
+    assert total == 2
+    assert {item.type for item in items} == {'note', 'prompt'}
+
+    # Test all three
+    items, total = await search_all_content(
+        db_session, test_user.id, content_types=['bookmark', 'note', 'prompt'],
+    )
+    assert total == 3
+
+
+async def test__search_all_content__prompt_view_active(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that view='active' works correctly for prompts."""
+    # Create active, archived, and deleted prompts
+    active_prompt = PromptCreate(name='active-prompt')
+    active = await prompt_service.create(db_session, test_user.id, active_prompt)
+
+    archived_prompt = PromptCreate(name='archived-prompt')
+    archived = await prompt_service.create(db_session, test_user.id, archived_prompt)
+
+    deleted_prompt = PromptCreate(name='deleted-prompt')
+    deleted = await prompt_service.create(db_session, test_user.id, deleted_prompt)
+
+    await db_session.flush()
+
+    # Archive and delete
+    await prompt_service.archive(db_session, test_user.id, archived.id)
+    await prompt_service.delete(db_session, test_user.id, deleted.id)
+    await db_session.flush()
+
+    # Search active prompts
+    items, total = await search_all_content(
+        db_session, test_user.id, view='active', content_types=['prompt'],
+    )
+
+    assert total == 1
+    assert items[0].name == 'active-prompt'
+
+
+async def test__search_all_content__prompt_view_archived(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that view='archived' returns archived prompts."""
+    active_prompt = PromptCreate(name='active-prompt')
+    await prompt_service.create(db_session, test_user.id, active_prompt)
+
+    archived_prompt = PromptCreate(name='archived-prompt')
+    archived = await prompt_service.create(db_session, test_user.id, archived_prompt)
+
+    await db_session.flush()
+    await prompt_service.archive(db_session, test_user.id, archived.id)
+    await db_session.flush()
+
+    items, total = await search_all_content(
+        db_session, test_user.id, view='archived', content_types=['prompt'],
+    )
+
+    assert total == 1
+    assert items[0].name == 'archived-prompt'
+
+
+async def test__search_all_content__prompt_view_deleted(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that view='deleted' returns deleted prompts."""
+    active_prompt = PromptCreate(name='active-prompt')
+    await prompt_service.create(db_session, test_user.id, active_prompt)
+
+    deleted_prompt = PromptCreate(name='deleted-prompt')
+    deleted = await prompt_service.create(db_session, test_user.id, deleted_prompt)
+
+    await db_session.flush()
+    await prompt_service.delete(db_session, test_user.id, deleted.id)
+    await db_session.flush()
+
+    items, total = await search_all_content(
+        db_session, test_user.id, view='deleted', content_types=['prompt'],
+    )
+
+    assert total == 1
+    assert items[0].name == 'deleted-prompt'
+
+
+async def test__search_all_content__prompt_text_search_in_name(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that text search finds prompts by name."""
+    prompt1 = PromptCreate(name='code-review-prompt')
+    await prompt_service.create(db_session, test_user.id, prompt1)
+
+    prompt2 = PromptCreate(name='bug-report-prompt')
+    await prompt_service.create(db_session, test_user.id, prompt2)
+
+    await db_session.flush()
+
+    items, total = await search_all_content(
+        db_session, test_user.id, query='code-review',
+    )
+
+    assert total == 1
+    assert items[0].name == 'code-review-prompt'
+
+
+async def test__search_all_content__prompt_text_search_in_content(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that text search finds prompts by content."""
+    prompt1 = PromptCreate(
+        name='prompt1',
+        content='Please review the following Python code',
+    )
+    await prompt_service.create(db_session, test_user.id, prompt1)
+
+    prompt2 = PromptCreate(
+        name='prompt2',
+        content='Write a JavaScript function',
+    )
+    await prompt_service.create(db_session, test_user.id, prompt2)
+
+    await db_session.flush()
+
+    items, total = await search_all_content(
+        db_session, test_user.id, query='Python',
+    )
+
+    assert total == 1
+    assert items[0].name == 'prompt1'
+
+
+async def test__search_all_content__prompt_tag_filter(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that tag filtering works for prompts."""
+    prompt1 = PromptCreate(name='prompt1', tags=['code', 'review'])
+    await prompt_service.create(db_session, test_user.id, prompt1)
+
+    prompt2 = PromptCreate(name='prompt2', tags=['writing'])
+    await prompt_service.create(db_session, test_user.id, prompt2)
+
+    await db_session.flush()
+
+    # Filter by 'code' tag
+    items, total = await search_all_content(
+        db_session, test_user.id, tags=['code'], content_types=['prompt'],
+    )
+
+    assert total == 1
+    assert items[0].name == 'prompt1'
+
+
+async def test__search_all_content__prompt_excludes_other_users(
+    db_session: AsyncSession,
+    test_user: User,
+    other_user: User,
+) -> None:
+    """Test that prompts from other users are excluded."""
+    my_prompt = PromptCreate(name='my-prompt')
+    await prompt_service.create(db_session, test_user.id, my_prompt)
+
+    other_prompt = PromptCreate(name='other-prompt')
+    await prompt_service.create(db_session, other_user.id, other_prompt)
+
+    await db_session.flush()
+
+    items, total = await search_all_content(
+        db_session, test_user.id, content_types=['prompt'],
+    )
+
+    assert total == 1
+    assert items[0].name == 'my-prompt'
+
+
+async def test__search_all_content__prompt_with_empty_arguments(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that prompts with no arguments work correctly."""
+    prompt_data = PromptCreate(name='no-args-prompt')
+    await prompt_service.create(db_session, test_user.id, prompt_data)
+    await db_session.flush()
+
+    items, _ = await search_all_content(db_session, test_user.id)
+
+    prompt_item = next(item for item in items if item.type == 'prompt')
+    assert prompt_item.arguments == []
+
+
+async def test__search_all_content__mixed_content_sorting(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that sorting works correctly across all content types."""
+    import asyncio
+
+    # Create with delays to ensure different created_at times
+    bookmark_data = BookmarkCreate(url='https://first.com', title='First')
+    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    note_data = NoteCreate(title='Second')
+    await note_service.create(db_session, test_user.id, note_data)
+    await db_session.flush()
+
+    await asyncio.sleep(0.01)
+
+    prompt_data = PromptCreate(name='third')
+    await prompt_service.create(db_session, test_user.id, prompt_data)
+    await db_session.flush()
+
+    # Sort by created_at desc (newest first)
+    items, _ = await search_all_content(
+        db_session, test_user.id, sort_by='created_at', sort_order='desc',
+    )
+
+    # Prompt should be first (created last)
+    assert items[0].type == 'prompt'
+    assert items[1].type == 'note'
+    assert items[2].type == 'bookmark'
+
+
+async def test__search_all_content__prompt_pagination(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test pagination with prompts."""
+    # Create 5 prompts
+    for i in range(5):
+        prompt_data = PromptCreate(name=f'prompt-{i}')
+        await prompt_service.create(db_session, test_user.id, prompt_data)
+    await db_session.flush()
+
+    # Get first page
+    items, total = await search_all_content(
+        db_session, test_user.id, offset=0, limit=2, content_types=['prompt'],
+    )
+
+    assert total == 5
+    assert len(items) == 2
+
+    # Get second page
+    items2, total = await search_all_content(
+        db_session, test_user.id, offset=2, limit=2, content_types=['prompt'],
+    )
+
+    assert total == 5
+    assert len(items2) == 2
+    # Ensure different prompts
+    assert items[0].name != items2[0].name

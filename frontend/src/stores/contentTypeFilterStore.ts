@@ -1,7 +1,7 @@
 /**
  * Zustand store for content type filter state.
  *
- * Manages which content types (bookmark, note) are shown in the All/Archived/Trash views.
+ * Manages which content types (bookmark, note, prompt) are shown in the All/Archived/Trash views.
  * State persists to localStorage per view.
  */
 import { create } from 'zustand'
@@ -9,7 +9,10 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type { ContentType } from '../types'
 
 /** All available content types */
-export const ALL_CONTENT_TYPES: ContentType[] = ['bookmark', 'note']
+export const ALL_CONTENT_TYPES: ContentType[] = ['bookmark', 'note', 'prompt']
+
+/** Current storage version - increment when adding new content types */
+const STORAGE_VERSION = 2
 
 interface ContentTypeFilterState {
   /** Selected content types per view (active, archived, deleted) */
@@ -80,7 +83,28 @@ export const useContentTypeFilterStore = create<ContentTypeFilterState>()(
     }),
     {
       name: 'content-type-filter',
+      version: STORAGE_VERSION,
       storage: createJSONStorage(() => localStorage),
+      migrate: (persistedState: unknown, version: number) => {
+        const state = persistedState as { selectedTypes: Record<string, ContentType[]> }
+
+        // Migration from version 1 (or no version) to version 2:
+        // Add 'prompt' to all existing selected types arrays
+        if (version < 2 && state?.selectedTypes) {
+          const migratedTypes: Record<string, ContentType[]> = {}
+          for (const [view, types] of Object.entries(state.selectedTypes)) {
+            // Add 'prompt' if not already present
+            if (Array.isArray(types) && !types.includes('prompt')) {
+              migratedTypes[view] = [...types, 'prompt']
+            } else {
+              migratedTypes[view] = types
+            }
+          }
+          return { ...state, selectedTypes: migratedTypes }
+        }
+
+        return state
+      },
     }
   )
 )

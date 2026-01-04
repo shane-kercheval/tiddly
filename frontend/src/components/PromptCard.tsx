@@ -1,44 +1,44 @@
 /**
- * Component for displaying a single note card in list view.
+ * Component for displaying a single prompt card in list view.
  */
 import type { ReactNode } from 'react'
-import type { NoteListItem } from '../types'
+import type { PromptListItem } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { formatDate, truncate } from '../utils'
 import { ConfirmDeleteButton } from './ui'
-import { NoteIcon, EditIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
+import { PromptIcon, EditIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
 
-interface NoteCardProps {
-  note: NoteListItem
+interface PromptCardProps {
+  prompt: PromptListItem
   view?: 'active' | 'archived' | 'deleted'
   sortBy?: SortByOption
-  onView?: (note: NoteListItem) => void
-  onEdit?: (note: NoteListItem) => void
-  onDelete: (note: NoteListItem) => void
-  onArchive?: (note: NoteListItem) => void
-  onUnarchive?: (note: NoteListItem) => void
-  onRestore?: (note: NoteListItem) => void
+  onView?: (prompt: PromptListItem) => void
+  onEdit?: (prompt: PromptListItem) => void
+  onDelete: (prompt: PromptListItem) => void
+  onArchive?: (prompt: PromptListItem) => void
+  onUnarchive?: (prompt: PromptListItem) => void
+  onRestore?: (prompt: PromptListItem) => void
   onTagClick?: (tag: string) => void
-  onTagRemove?: (note: NoteListItem, tag: string) => void
+  onTagRemove?: (prompt: PromptListItem, tag: string) => void
   /** Whether the edit action is currently loading */
   isLoading?: boolean
 }
 
 /**
- * NoteCard displays a single note with its metadata.
+ * PromptCard displays a single prompt with its metadata.
  *
  * Features:
- * - Clickable title opens note view
+ * - Clickable title opens prompt view
  * - Context-aware action buttons based on view:
  *   - active: edit, archive, delete
  *   - archived: edit, restore, delete
  *   - deleted: restore, permanent delete
  * - Clickable tags for filtering
- * - Shows description or truncated content preview
+ * - Shows name (unique identifier) and title (display name)
  */
-export function NoteCard({
-  note,
+export function PromptCard({
+  prompt,
   view = 'active',
   sortBy = 'created_at',
   onView,
@@ -50,33 +50,35 @@ export function NoteCard({
   onTagClick,
   onTagRemove,
   isLoading = false,
-}: NoteCardProps): ReactNode {
-  // Display description if present, otherwise show truncated content preview
-  const previewText = note.description || ''
+}: PromptCardProps): ReactNode {
+  // Display title if present, otherwise use name
+  const displayName = prompt.title || prompt.name
+  // Show description if present
+  const previewText = prompt.description || ''
 
   // Dynamic date display based on current sort option
   const getDateDisplay = (): string => {
     switch (sortBy) {
       case 'updated_at':
-        return `Modified: ${formatDate(note.updated_at)}`
+        return `Modified: ${formatDate(prompt.updated_at)}`
       case 'last_used_at':
-        return `Used: ${formatDate(note.last_used_at)}`
+        return `Used: ${formatDate(prompt.last_used_at)}`
       case 'created_at':
       case 'title':
       default:
-        return `Created: ${formatDate(note.created_at)}`
+        return `Created: ${formatDate(prompt.created_at)}`
     }
   }
 
   const handleTitleClick = (e: React.MouseEvent): void => {
     e.stopPropagation() // Prevent card click from triggering edit
-    onView?.(note)
+    onView?.(prompt)
   }
 
   // Handle card click to trigger edit mode
   const handleCardClick = (): void => {
     if (view !== 'deleted' && onEdit) {
-      onEdit(note)
+      onEdit(prompt)
     }
   }
 
@@ -92,18 +94,19 @@ export function NoteCard({
         <div className="min-w-0 flex-1">
           {/* Title row - on mobile, description is inline; on desktop, it wraps below */}
           <div className="flex items-center gap-2 md:flex-wrap">
-            <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.note}`}>
-              <NoteIcon className="w-4 h-4" />
+            <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.prompt}`}>
+              <PromptIcon className="w-4 h-4" />
             </span>
             <button
               onClick={handleTitleClick}
               className="text-base font-medium text-gray-900 hover:text-gray-600 transition-colors text-left cursor-pointer shrink-0"
-              title="View note"
+              title="View prompt"
             >
-              {truncate(note.title, 60)}
+              {truncate(displayName, 60)}
             </button>
-            {note.version > 1 && (
-              <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
+            {/* Show name in parentheses if title is different */}
+            {prompt.title && prompt.title !== prompt.name && (
+              <span className="text-xs text-gray-400 shrink-0 font-mono">{prompt.name}</span>
             )}
             {/* Description inline on mobile, hidden here on desktop */}
             {previewText && (
@@ -124,9 +127,9 @@ export function NoteCard({
         {/* Row 2 (mobile): tags + actions + date */}
         <div className="flex items-center gap-2 md:contents">
           {/* Tags */}
-          {note.tags.length > 0 && (
+          {prompt.tags.length > 0 && (
             <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
-              {note.tags.map((tag) => (
+              {prompt.tags.map((tag) => (
                 <div key={tag} className="group/tag relative">
                   <button
                     onClick={(e) => { e.stopPropagation(); onTagClick?.(tag) }}
@@ -139,7 +142,7 @@ export function NoteCard({
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        onTagRemove(note, tag)
+                        onTagRemove(prompt, tag)
                       }}
                       className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/tag:opacity-100 transition-opacity flex items-center justify-center"
                       title={`Remove tag: ${tag}`}
@@ -173,10 +176,10 @@ export function NoteCard({
               {/* Archive button - shown in active view */}
               {view === 'active' && onArchive && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); onArchive(note) }}
+                  onClick={(e) => { e.stopPropagation(); onArchive(prompt) }}
                   className="btn-icon"
-                  title="Archive note"
-                  aria-label="Archive note"
+                  title="Archive prompt"
+                  aria-label="Archive prompt"
                 >
                   <ArchiveIcon className="h-4 w-4" />
                 </button>
@@ -185,10 +188,10 @@ export function NoteCard({
               {/* Restore button - shown in archived view (unarchive action) */}
               {view === 'archived' && onUnarchive && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); onUnarchive(note) }}
+                  onClick={(e) => { e.stopPropagation(); onUnarchive(prompt) }}
                   className="btn-icon"
-                  title="Restore note"
-                  aria-label="Restore note"
+                  title="Restore prompt"
+                  aria-label="Restore prompt"
                 >
                   <RestoreIcon />
                 </button>
@@ -197,10 +200,10 @@ export function NoteCard({
               {/* Restore button - shown in deleted view */}
               {view === 'deleted' && onRestore && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); onRestore(note) }}
+                  onClick={(e) => { e.stopPropagation(); onRestore(prompt) }}
                   className="btn-icon"
-                  title="Restore note"
-                  aria-label="Restore note"
+                  title="Restore prompt"
+                  aria-label="Restore prompt"
                 >
                   <RestoreIcon />
                 </button>
@@ -211,16 +214,16 @@ export function NoteCard({
               {view === 'deleted' ? (
                 <span onClick={(e) => e.stopPropagation()}>
                   <ConfirmDeleteButton
-                    onConfirm={() => onDelete(note)}
+                    onConfirm={() => onDelete(prompt)}
                     title="Delete permanently"
                   />
                 </span>
               ) : (
                 <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(note) }}
+                  onClick={(e) => { e.stopPropagation(); onDelete(prompt) }}
                   className="btn-icon-danger"
-                  title="Delete note"
-                  aria-label="Delete note"
+                  title="Delete prompt"
+                  aria-label="Delete prompt"
                 >
                   <TrashIcon />
                 </button>

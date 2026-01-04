@@ -8,6 +8,7 @@ import {
   TrashIcon,
   BookmarkIcon,
   NoteIcon,
+  PromptIcon,
   ListIcon,
 } from '../icons'
 import type {
@@ -17,6 +18,7 @@ import type {
   SidebarListItemComputed,
   SidebarItem,
 } from '../../types'
+import { CONTENT_TYPE_ICON_COLORS } from '../../constants/contentTypeStyles'
 
 /**
  * Get the appropriate icon for a builtin sidebar item.
@@ -34,18 +36,30 @@ export function getBuiltinIcon(key: BuiltinKey): ReactNode {
 
 /**
  * Get the appropriate icon for a list based on its content types.
+ * Single type shows type-specific icon, multiple types show shared/list icon.
  */
 export function getListIcon(contentTypes: string[]): ReactNode {
   const hasBookmarks = contentTypes.includes('bookmark')
   const hasNotes = contentTypes.includes('note')
+  const hasPrompts = contentTypes.includes('prompt')
 
-  if (hasBookmarks && !hasNotes) {
-    return <BookmarkIcon className="h-4 w-4 text-blue-500" />
+  // Count how many types are present
+  const typeCount = [hasBookmarks, hasNotes, hasPrompts].filter(Boolean).length
+
+  // Single type - show type-specific icon
+  if (typeCount === 1) {
+    if (hasBookmarks) {
+      return <BookmarkIcon className={`h-4 w-4 ${CONTENT_TYPE_ICON_COLORS.bookmark}`} />
+    }
+    if (hasNotes) {
+      return <NoteIcon className={`h-4 w-4 ${CONTENT_TYPE_ICON_COLORS.note}`} />
+    }
+    if (hasPrompts) {
+      return <PromptIcon className={`h-4 w-4 ${CONTENT_TYPE_ICON_COLORS.prompt}`} />
+    }
   }
-  if (hasNotes && !hasBookmarks) {
-    return <NoteIcon className="h-4 w-4 text-green-500" />
-  }
-  // Both or neither - use shared/list icon
+
+  // Multiple types or none - use shared/list icon
   return <ListIcon className="h-4 w-4 text-purple-500" />
 }
 

@@ -145,7 +145,7 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
               </p>
               <p className="mb-3 text-gray-600">
                 We don't use client-side encryption (end-to-end encryption) because it would
-                prevent full-text search across your bookmarks, notes, and todos. Search
+                prevent full-text search across your bookmarks, notes, prompts, and tasks. Search
                 functionality requires the server to be able to read and index your content.
               </p>
               <p className="mb-3 text-gray-600">

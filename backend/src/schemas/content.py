@@ -1,6 +1,6 @@
 """Pydantic schemas for unified content endpoints."""
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -9,12 +9,12 @@ class ContentListItem(BaseModel):
     """
     Unified content item for list views.
 
-    This schema represents both bookmarks and notes in a unified format.
+    This schema represents bookmarks, notes, and prompts in a unified format.
     The `type` field indicates the content type, and type-specific fields
-    (url for bookmarks, version for notes) may be None for other types.
+    may be None for other types.
     """
 
-    type: Literal["bookmark", "note"]
+    type: Literal["bookmark", "note", "prompt"]
     id: int
     title: str | None
     description: str | None
@@ -25,11 +25,15 @@ class ContentListItem(BaseModel):
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
 
-    # Bookmark-specific (None for notes)
+    # Bookmark-specific (None for notes/prompts)
     url: str | None = None
 
-    # Note-specific (None for bookmarks)
+    # Note-specific (None for bookmarks/prompts)
     version: int | None = None
+
+    # Prompt-specific (None for bookmarks/notes)
+    name: str | None = None
+    arguments: list[dict[str, Any]] | None = None
 
 
 class ContentListResponse(BaseModel):

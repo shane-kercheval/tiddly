@@ -9,23 +9,47 @@ import { config } from '../../config'
 const CONFIG_PATH_MAC = '~/Library/Application\\ Support/Claude/claude_desktop_config.json'
 const CONFIG_PATH_WINDOWS = '%APPDATA%\\Claude\\claude_desktop_config.json'
 
+interface McpServerConfig {
+  command: string
+  args: string[]
+}
+
 /**
- * Generate the Claude Desktop config JSON.
+ * Generate the Claude Desktop config JSON based on enabled servers.
  */
-function generateConfig(mcpUrl: string): string {
-  const configObj = {
-    mcpServers: {
-      notes_bookmarks: {
-        command: 'npx',
-        args: [
-          'mcp-remote',
-          `${mcpUrl}/mcp`,
-          '--header',
-          'Authorization: Bearer YOUR_TOKEN_HERE',
-        ],
-      },
-    },
+function generateConfig(options: {
+  enableBookmarks: boolean
+  enablePrompts: boolean
+  mcpUrl: string
+  promptMcpUrl: string
+}): string {
+  const servers: Record<string, McpServerConfig> = {}
+
+  if (options.enableBookmarks) {
+    servers.notes_bookmarks = {
+      command: 'npx',
+      args: [
+        'mcp-remote',
+        `${options.mcpUrl}/mcp`,
+        '--header',
+        'Authorization: Bearer YOUR_TOKEN_HERE',
+      ],
+    }
   }
+
+  if (options.enablePrompts) {
+    servers.prompts = {
+      command: 'npx',
+      args: [
+        'mcp-remote',
+        `${options.promptMcpUrl}/mcp`,
+        '--header',
+        'Authorization: Bearer YOUR_TOKEN_HERE',
+      ],
+    }
+  }
+
+  const configObj = { mcpServers: servers }
   return JSON.stringify(configObj, null, 2)
 }
 
@@ -36,8 +60,15 @@ export function SettingsMCP(): ReactNode {
   const [copiedConfig, setCopiedConfig] = useState(false)
   const [copiedPathMac, setCopiedPathMac] = useState(false)
   const [copiedPathWin, setCopiedPathWin] = useState(false)
+  const [enableBookmarks, setEnableBookmarks] = useState(true)
+  const [enablePrompts, setEnablePrompts] = useState(true)
 
-  const exampleConfig = generateConfig(config.mcpUrl)
+  const exampleConfig = generateConfig({
+    enableBookmarks,
+    enablePrompts,
+    mcpUrl: config.mcpUrl,
+    promptMcpUrl: config.promptMcpUrl,
+  })
 
   const handleCopyConfig = async (): Promise<void> => {
     try {
@@ -149,10 +180,51 @@ export function SettingsMCP(): ReactNode {
         </div>
       </div>
 
-      {/* Step 3: Add config */}
+      {/* Step 3: Select Servers */}
       <div className="mb-8">
         <h2 className="text-lg font-semibold text-gray-900 mb-2">
-          Step 3: Add MCP Server Configuration
+          Step 3: Select MCP Servers
+        </h2>
+        <p className="text-gray-600 mb-3">
+          Choose which MCP servers to enable:
+        </p>
+        <div className="space-y-3">
+          <label className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={enableBookmarks}
+              onChange={(e) => setEnableBookmarks(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <div>
+              <span className="font-medium text-gray-900">Bookmarks & Notes</span>
+              <p className="text-sm text-gray-500">Search, create, and manage bookmarks and notes</p>
+            </div>
+          </label>
+          <label className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={enablePrompts}
+              onChange={(e) => setEnablePrompts(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <div>
+              <span className="font-medium text-gray-900">Prompts</span>
+              <p className="text-sm text-gray-500">Access your saved prompts as MCP prompts with argument support</p>
+            </div>
+          </label>
+        </div>
+        {!enableBookmarks && !enablePrompts && (
+          <p className="mt-2 text-sm text-amber-600">
+            Select at least one server to generate a configuration.
+          </p>
+        )}
+      </div>
+
+      {/* Step 4: Add config */}
+      <div className="mb-8">
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">
+          Step 4: Add MCP Server Configuration
         </h2>
         <p className="text-gray-600 mb-3">
           Add the following to your Claude Desktop config file:
@@ -178,10 +250,10 @@ export function SettingsMCP(): ReactNode {
         </p>
       </div>
 
-      {/* Step 4: Restart */}
+      {/* Step 5: Restart */}
       <div className="mb-8">
         <h2 className="text-lg font-semibold text-gray-900 mb-2">
-          Step 4: Restart Claude Desktop
+          Step 5: Restart Claude Desktop
         </h2>
         <p className="text-gray-600 mb-3">
           After saving the config file, restart Claude Desktop to load the MCP server.
@@ -237,7 +309,7 @@ export function SettingsMCP(): ReactNode {
 
         {/* Unified */}
         <h3 className="text-sm font-semibold text-gray-700 mb-2">Unified</h3>
-        <ul className="space-y-2 text-sm text-gray-600">
+        <ul className="space-y-2 text-sm text-gray-600 mb-4">
           <li className="flex items-start gap-2">
             <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_all_content</span>
             <span>Search across bookmarks and notes in one query</span>
@@ -245,6 +317,22 @@ export function SettingsMCP(): ReactNode {
           <li className="flex items-start gap-2">
             <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_tags</span>
             <span>Get all tags with usage counts</span>
+          </li>
+        </ul>
+
+        {/* Prompts Server */}
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Prompts Server</h3>
+        <p className="text-sm text-gray-500 mb-2">
+          The prompts server exposes your saved prompts as MCP prompts that Claude can use directly.
+        </p>
+        <ul className="space-y-2 text-sm text-gray-600">
+          <li className="flex items-start gap-2">
+            <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_prompts</span>
+            <span>List all available prompts with their arguments</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_prompt</span>
+            <span>Get a prompt rendered with provided argument values</span>
           </li>
         </ul>
       </div>

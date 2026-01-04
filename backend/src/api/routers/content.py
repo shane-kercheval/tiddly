@@ -1,7 +1,7 @@
 """
 Router for unified content endpoints.
 
-Provides endpoints for searching across all content types (bookmarks, notes)
+Provides endpoints for searching across all content types (bookmarks, notes, prompts)
 with unified pagination and sorting.
 """
 from typing import Literal
@@ -39,18 +39,18 @@ async def list_all_content(
         description="View: 'active' (not deleted/archived), 'archived', or 'deleted'",
     ),
     list_id: int | None = Query(default=None, description="Filter by content list ID"),
-    content_types: list[Literal["bookmark", "note"]] | None = Query(
+    content_types: list[Literal["bookmark", "note", "prompt"]] | None = Query(
         default=None,
-        description="Filter by content types (bookmark, note). If not specified, all types are included.",  # noqa: E501
+        description="Filter by content types (bookmark, note, prompt). If not specified, all types are included.",  # noqa: E501
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> ContentListResponse:
     """
-    List all content (bookmarks and notes) with unified pagination.
+    List all content (bookmarks, notes, and prompts) with unified pagination.
 
     Returns a unified list of content items sorted by the specified field.
-    Each item includes a `type` field indicating whether it's a "bookmark" or "note".
+    Each item includes a `type` field indicating whether it's a "bookmark", "note", or "prompt".
 
     Use this endpoint for:
     - Shared "All", "Archived", and "Trash" views (no list_id)

@@ -113,7 +113,7 @@ async def test_get_lists_empty(client: AsyncClient) -> None:
     assert response.status_code == 200
     data = response.json()
     names = {item["name"] for item in data}
-    assert names == {"All Bookmarks", "All Notes"}
+    assert names == {"All Bookmarks", "All Notes", "All Prompts"}
 
 
 async def test_get_lists(client: AsyncClient) -> None:
@@ -139,7 +139,7 @@ async def test_get_lists(client: AsyncClient) -> None:
 
     data = response.json()
     custom_lists = [
-        item for item in data if item["name"] not in {"All Bookmarks", "All Notes"}
+        item for item in data if item["name"] not in {"All Bookmarks", "All Notes", "All Prompts"}
     ]
     assert len(custom_lists) == 2
     # Should be ordered by created_at for custom lists

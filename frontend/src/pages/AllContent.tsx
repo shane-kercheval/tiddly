@@ -1,11 +1,11 @@
 /**
- * AllContent page - unified view for all content types (bookmarks + notes).
+ * AllContent page - unified view for all content types (bookmarks + notes + prompts).
  *
  * This is the main content page for the app, handling:
  * - All, Archived, Trash views
  * - Custom lists (any content types)
  * - Bookmark add/edit modals
- * - Note navigation with proper return state
+ * - Note/Prompt navigation with proper return state
  */
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import type { ReactNode } from 'react'
@@ -30,6 +30,12 @@ import {
   useArchiveNote,
   useUnarchiveNote,
 } from '../hooks/useNoteMutations'
+import {
+  useDeletePrompt,
+  useRestorePrompt,
+  useArchivePrompt,
+  useUnarchivePrompt,
+} from '../hooks/usePromptMutations'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useEffectiveSort, getViewKey } from '../hooks/useEffectiveSort'
@@ -43,6 +49,7 @@ import type { SortByOption } from '../constants/sortOptions'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { BookmarkModal } from '../components/BookmarkModal'
 import { NoteCard } from '../components/NoteCard'
+import { PromptCard } from '../components/PromptCard'
 import {
   LoadingSpinnerCentered,
   ErrorState,
@@ -60,8 +67,9 @@ import {
   ListIcon,
   BookmarkIcon,
   NoteIcon,
+  PromptIcon,
 } from '../components/icons'
-import type { Bookmark, BookmarkCreate, BookmarkUpdate, ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem, ContentType } from '../types'
+import type { Bookmark, BookmarkCreate, BookmarkUpdate, ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem, PromptListItem, ContentType } from '../types'
 import { getFirstGroupTags } from '../utils'
 
 /**
@@ -105,6 +113,10 @@ export function AllContent(): ReactNode {
   const restoreNoteMutation = useRestoreNote()
   const archiveNoteMutation = useArchiveNote()
   const unarchiveNoteMutation = useUnarchiveNote()
+  const deletePromptMutation = useDeletePrompt()
+  const restorePromptMutation = useRestorePrompt()
+  const archivePromptMutation = useArchivePrompt()
+  const unarchivePromptMutation = useUnarchivePrompt()
 
   const { tags: tagSuggestions } = useTagsStore()
   const { pageSize, setPageSize } = useUIPreferencesStore()
@@ -581,6 +593,92 @@ export function AllContent(): ReactNode {
     }
   }
 
+  // Prompt action handlers
+  const handleViewPrompt = (prompt: PromptListItem): void => {
+    navigate(`/app/prompts/${prompt.id}`, { state: createReturnState() })
+  }
+
+  const handleEditPrompt = (prompt: PromptListItem): void => {
+    navigate(`/app/prompts/${prompt.id}/edit`, { state: createReturnState() })
+  }
+
+  const handleDeletePrompt = async (prompt: PromptListItem): Promise<void> => {
+    if (currentView === 'deleted') {
+      try {
+        await deletePromptMutation.mutateAsync({ id: prompt.id, permanent: true })
+      } catch {
+        toast.error('Failed to delete prompt')
+      }
+      return
+    }
+
+    try {
+      await deletePromptMutation.mutateAsync({ id: prompt.id })
+      toast.success(
+        (t) => (
+          <span className="flex items-center gap-2">
+            Prompt deleted.
+            <button
+              onClick={() => {
+                toast.dismiss(t.id)
+                restorePromptMutation.mutateAsync(prompt.id)
+                  .catch(() => toast.error("Couldn't undo"))
+              }}
+              className="font-medium underline"
+            >
+              Undo
+            </button>
+          </span>
+        ),
+        { duration: 5000 }
+      )
+    } catch {
+      toast.error('Failed to delete prompt')
+    }
+  }
+
+  const handleArchivePrompt = async (prompt: PromptListItem): Promise<void> => {
+    try {
+      await archivePromptMutation.mutateAsync(prompt.id)
+      toast.success(
+        (t) => (
+          <span className="flex items-center gap-2">
+            Prompt archived.
+            <button
+              onClick={() => {
+                toast.dismiss(t.id)
+                unarchivePromptMutation.mutateAsync(prompt.id)
+                  .catch(() => toast.error("Couldn't undo"))
+              }}
+              className="font-medium underline"
+            >
+              Undo
+            </button>
+          </span>
+        ),
+        { duration: 5000 }
+      )
+    } catch {
+      toast.error('Failed to archive prompt')
+    }
+  }
+
+  const handleUnarchivePrompt = async (prompt: PromptListItem): Promise<void> => {
+    try {
+      await unarchivePromptMutation.mutateAsync(prompt.id)
+    } catch {
+      toast.error('Failed to unarchive prompt')
+    }
+  }
+
+  const handleRestorePrompt = async (prompt: PromptListItem): Promise<void> => {
+    try {
+      await restorePromptMutation.mutateAsync(prompt.id)
+    } catch {
+      toast.error('Failed to restore prompt')
+    }
+  }
+
   // Convert ContentListItem to type-specific item for card components
   const toBookmarkListItem = (item: ContentListItem): BookmarkListItem => ({
     id: item.id,
@@ -609,6 +707,20 @@ export function AllContent(): ReactNode {
     version: item.version || 1,
   })
 
+  const toPromptListItem = (item: ContentListItem): PromptListItem => ({
+    id: item.id,
+    name: item.name || '',
+    title: item.title,
+    description: item.description,
+    tags: item.tags,
+    arguments: item.arguments || [],
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+    last_used_at: item.last_used_at,
+    deleted_at: item.deleted_at,
+    archived_at: item.archived_at,
+  })
+
   // Pagination calculations
   const totalPages = Math.ceil(total / pageSize)
   const currentPage = Math.floor(offset / pageSize) + 1
@@ -621,6 +733,10 @@ export function AllContent(): ReactNode {
 
   const handleQuickAddNote = useCallback((): void => {
     navigate('/app/notes/new', { state: { ...createReturnState(), initialTags: initialTagsFromList } })
+  }, [navigate, createReturnState, initialTagsFromList])
+
+  const handleQuickAddPrompt = useCallback((): void => {
+    navigate('/app/prompts/new', { state: { ...createReturnState(), initialTags: initialTagsFromList } })
   }, [navigate, createReturnState, initialTagsFromList])
 
   const contentTypeActions = useMemo<Record<ContentType, {
@@ -638,7 +754,12 @@ export function AllContent(): ReactNode {
       buttonLabel: 'New Note',
       onClick: handleQuickAddNote,
     },
-  }), [handleQuickAddBookmark, handleQuickAddNote])
+    prompt: {
+      pluralLabel: 'prompts',
+      buttonLabel: 'New Prompt',
+      onClick: handleQuickAddPrompt,
+    },
+  }), [handleQuickAddBookmark, handleQuickAddNote, handleQuickAddPrompt])
 
   // Render content based on state
   const renderContent = (): ReactNode => {
@@ -721,7 +842,9 @@ export function AllContent(): ReactNode {
           ? <BookmarkIcon />
           : primaryType === 'note'
             ? <NoteIcon />
-            : <ListIcon />)
+            : primaryType === 'prompt'
+              ? <PromptIcon />
+              : <ListIcon />)
         : <ListIcon />
 
       return (
@@ -738,23 +861,43 @@ export function AllContent(): ReactNode {
       <>
         {/* Content list */}
         <div>
-          {items.map((item) => (
-            item.type === 'bookmark' ? (
-              <BookmarkCard
-                key={`bookmark-${item.id}`}
-                bookmark={toBookmarkListItem(item)}
-                view={currentView}
-                sortBy={sortBy}
-                onEdit={currentView !== 'deleted' ? handleEditClick : undefined}
-                onDelete={handleDeleteBookmark}
-                onArchive={currentView === 'active' ? handleArchiveBookmark : undefined}
-                onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
-                onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
-                onTagClick={handleTagClick}
-                onLinkClick={(b) => trackBookmarkUsage(b.id)}
-                isLoading={loadingBookmarkId === item.id}
-              />
-            ) : (
+          {items.map((item) => {
+            if (item.type === 'bookmark') {
+              return (
+                <BookmarkCard
+                  key={`bookmark-${item.id}`}
+                  bookmark={toBookmarkListItem(item)}
+                  view={currentView}
+                  sortBy={sortBy}
+                  onEdit={currentView !== 'deleted' ? handleEditClick : undefined}
+                  onDelete={handleDeleteBookmark}
+                  onArchive={currentView === 'active' ? handleArchiveBookmark : undefined}
+                  onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
+                  onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
+                  onTagClick={handleTagClick}
+                  onLinkClick={(b) => trackBookmarkUsage(b.id)}
+                  isLoading={loadingBookmarkId === item.id}
+                />
+              )
+            }
+            if (item.type === 'prompt') {
+              return (
+                <PromptCard
+                  key={`prompt-${item.id}`}
+                  prompt={toPromptListItem(item)}
+                  view={currentView}
+                  sortBy={sortBy}
+                  onView={handleViewPrompt}
+                  onEdit={currentView !== 'deleted' ? handleEditPrompt : undefined}
+                  onDelete={handleDeletePrompt}
+                  onArchive={currentView === 'active' ? handleArchivePrompt : undefined}
+                  onUnarchive={currentView === 'archived' ? handleUnarchivePrompt : undefined}
+                  onRestore={currentView === 'deleted' ? handleRestorePrompt : undefined}
+                  onTagClick={handleTagClick}
+                />
+              )
+            }
+            return (
               <NoteCard
                 key={`note-${item.id}`}
                 note={toNoteListItem(item)}
@@ -769,7 +912,7 @@ export function AllContent(): ReactNode {
                 onTagClick={handleTagClick}
               />
             )
-          ))}
+          })}
         </div>
 
         {/* Pagination */}
@@ -819,6 +962,7 @@ export function AllContent(): ReactNode {
               <QuickAddMenu
                 onAddBookmark={handleQuickAddBookmark}
                 onAddNote={handleQuickAddNote}
+                onAddPrompt={handleQuickAddPrompt}
                 contentTypes={currentList?.content_types}
               />
             ) : undefined

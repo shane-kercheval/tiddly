@@ -1,11 +1,11 @@
 /**
  * Content type filter chips for selecting which content types to display.
  *
- * Renders clickable chips for each content type (Bookmarks, Notes).
+ * Renders clickable chips for each content type (Bookmarks, Notes, Prompts).
  * Multi-select behavior with at least one type required.
  */
 import type { ReactNode } from 'react'
-import { BookmarkIcon, NoteIcon } from '../icons'
+import { BookmarkIcon, NoteIcon, PromptIcon } from '../icons'
 import type { ContentType } from '../../types'
 
 interface ContentTypeFilterChipsProps {
@@ -33,6 +33,11 @@ const CHIP_CONFIGS: Record<ContentType, ChipConfig> = {
     type: 'note',
     label: 'Notes',
     icon: <NoteIcon className="h-3.5 w-3.5" />,
+  },
+  prompt: {
+    type: 'prompt',
+    label: 'Prompts',
+    icon: <PromptIcon className="h-3.5 w-3.5" />,
   },
 }
 

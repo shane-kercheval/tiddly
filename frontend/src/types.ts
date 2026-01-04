@@ -185,12 +185,12 @@ export interface BookmarkSearchParams {
 /**
  * Unified content item for list views.
  *
- * This type represents both bookmarks and notes in a unified format.
+ * This type represents bookmarks, notes, and prompts in a unified format.
  * The `type` field indicates the content type, and type-specific fields
- * (url for bookmarks, version for notes) may be null for other types.
+ * may be null for other types.
  */
 export interface ContentListItem {
-  type: 'bookmark' | 'note'
+  type: 'bookmark' | 'note' | 'prompt'
   id: number
   title: string | null
   description: string | null
@@ -200,10 +200,13 @@ export interface ContentListItem {
   last_used_at: string
   deleted_at: string | null
   archived_at: string | null
-  // Bookmark-specific (null for notes)
+  // Bookmark-specific (null for notes/prompts)
   url: string | null
-  // Note-specific (null for bookmarks)
+  // Note-specific (null for bookmarks/prompts)
   version: number | null
+  // Prompt-specific (null for bookmarks/notes)
+  name: string | null
+  arguments: PromptArgument[] | null
 }
 
 /** Paginated list response from GET /content/ */
@@ -234,7 +237,7 @@ export interface ContentSearchParams {
 // =============================================================================
 
 /** Valid content types for lists */
-export type ContentType = 'bookmark' | 'note'
+export type ContentType = 'bookmark' | 'note' | 'prompt'
 
 /** A group of tags combined with AND logic */
 export interface FilterGroup {
@@ -371,4 +374,87 @@ export interface TokenCreateResponse extends Token {
 export interface TokenCreate {
   name: string
   expires_in_days?: number
+}
+
+// =============================================================================
+// Prompt Types
+// =============================================================================
+
+/**
+ * Prompt argument definition.
+ * Argument names must be valid Jinja2 identifiers (lowercase with underscores).
+ */
+export interface PromptArgument {
+  name: string
+  description: string | null
+  required: boolean | null  // null treated as false
+}
+
+/**
+ * Prompt item in list responses (excludes content for performance).
+ */
+export interface PromptListItem {
+  id: number
+  name: string
+  title: string | null
+  description: string | null
+  arguments: PromptArgument[]  // Needed for display and MCP
+  tags: string[]
+  created_at: string
+  updated_at: string
+  last_used_at: string
+  deleted_at: string | null
+  archived_at: string | null
+}
+
+/**
+ * Full prompt data (includes content).
+ * Content is a Jinja2 template.
+ */
+export interface Prompt extends PromptListItem {
+  content: string | null
+}
+
+/** Data for creating a new prompt */
+export interface PromptCreate {
+  name: string  // Required, lowercase with hyphens
+  title?: string | null
+  description?: string | null
+  content?: string | null
+  arguments?: PromptArgument[]
+  tags?: string[]
+  archived_at?: string | null
+}
+
+/** Data for updating an existing prompt */
+export interface PromptUpdate {
+  name?: string
+  title?: string | null
+  description?: string | null
+  content?: string | null
+  arguments?: PromptArgument[]
+  tags?: string[]
+  archived_at?: string | null
+}
+
+/** Paginated list response from GET /prompts/ */
+export interface PromptListResponse {
+  items: PromptListItem[]
+  total: number
+  offset: number
+  limit: number
+  has_more: boolean
+}
+
+/** Search and filter parameters for listing prompts */
+export interface PromptSearchParams {
+  q?: string
+  tags?: string[]
+  tag_match?: 'all' | 'any'
+  sort_by?: 'created_at' | 'updated_at' | 'last_used_at' | 'title' | 'archived_at' | 'deleted_at'
+  sort_order?: 'asc' | 'desc'
+  offset?: number
+  limit?: number
+  view?: 'active' | 'archived' | 'deleted'
+  list_id?: number
 }

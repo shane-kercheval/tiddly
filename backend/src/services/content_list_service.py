@@ -40,6 +40,7 @@ async def ensure_default_lists(db: AsyncSession, user_id: int) -> None:
     default_definitions = [
         {"name": "All Bookmarks", "content_types": ["bookmark"]},
         {"name": "All Notes", "content_types": ["note"]},
+        {"name": "All Prompts", "content_types": ["prompt"]},
     ]
     default_names = [definition["name"] for definition in default_definitions]
 
