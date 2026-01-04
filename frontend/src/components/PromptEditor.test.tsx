@@ -132,6 +132,10 @@ describe('PromptEditor', () => {
       const nameInput = screen.getByLabelText(/name/i)
       await user.type(nameInput, 'valid-prompt-name')
 
+      // Clear default content to avoid template variable validation errors
+      const contentEditor = screen.getByTestId('markdown-editor')
+      await user.clear(contentEditor)
+
       const submitButton = screen.getByRole('button', { name: /create prompt/i })
       await user.click(submitButton)
 
@@ -172,6 +176,10 @@ describe('PromptEditor', () => {
 
       const nameInput = screen.getByLabelText(/name/i)
       await user.type(nameInput, '123-prompt')
+
+      // Clear default content to avoid template variable validation errors
+      const contentEditor = screen.getByTestId('markdown-editor')
+      await user.clear(contentEditor)
 
       const submitButton = screen.getByRole('button', { name: /create prompt/i })
       await user.click(submitButton)
@@ -392,6 +400,11 @@ describe('PromptEditor', () => {
       const nameInput = screen.getByLabelText(/name/i)
       await user.type(nameInput, 'test-prompt')
 
+      // Clear default content and set content that uses the argument
+      const contentEditor = screen.getByTestId('markdown-editor')
+      await user.clear(contentEditor)
+      await user.type(contentEditor, 'Hello {{ valid_arg_name }}')
+
       // Add an argument with valid name
       const addArgButton = screen.getByRole('button', { name: /add argument/i })
       await user.click(addArgButton)
@@ -511,8 +524,9 @@ describe('PromptEditor', () => {
       const nameInput = screen.getByLabelText(/name/i)
       await user.type(nameInput, 'test-prompt')
 
-      // Add content exceeding 100,000 characters
-      const contentTextarea = screen.getByLabelText(/template content/i)
+      // Clear default content first, then add content exceeding 100,000 characters
+      const contentTextarea = screen.getByTestId('markdown-editor')
+      await user.clear(contentTextarea)
       const longContent = 'a'.repeat(100001)
       // Use paste to avoid typing 100k+ characters
       await user.click(contentTextarea)
@@ -896,8 +910,10 @@ describe('PromptEditor', () => {
         />
       )
 
-      // Fill in name and submit
+      // Fill in name and clear default content to avoid template validation errors
       await user.type(screen.getByLabelText(/name/i), 'submit-test')
+      const contentEditor = screen.getByTestId('markdown-editor')
+      await user.clear(contentEditor)
       await user.click(screen.getByRole('button', { name: /create prompt/i }))
 
       await waitFor(() => {
