@@ -24,7 +24,8 @@ interface ShortcutGroup {
   shortcuts: Shortcut[]
 }
 
-const shortcutGroups: ShortcutGroup[] = [
+// Left column groups: Actions, Navigation, View
+const leftColumnGroups: ShortcutGroup[] = [
   {
     title: 'Actions',
     shortcuts: [
@@ -49,9 +50,12 @@ const shortcutGroups: ShortcutGroup[] = [
       { keys: ['\u2318', '/'], description: 'Show shortcuts' },
     ],
   },
+]
+
+// Right column: Markdown Editor only
+const rightColumnGroups: ShortcutGroup[] = [
   {
-    title: 'Editor',
-    subtitle: 'When editing notes or prompts',
+    title: 'Markdown Editor',
     shortcuts: [
       { keys: ['\u2325', 'Z'], description: 'Toggle word wrap' },
       { keys: ['\u2318', 'B'], description: 'Bold' },
@@ -73,6 +77,48 @@ function KeyBadge({ children }: { children: ReactNode }): ReactNode {
     <kbd className="inline-flex min-w-[24px] items-center justify-center rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 font-mono text-xs font-medium text-gray-700 shadow-sm">
       {children}
     </kbd>
+  )
+}
+
+/**
+ * Renders a group of shortcuts with a title.
+ */
+function ShortcutGroupSection({ group }: { group: ShortcutGroup }): ReactNode {
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-2">
+        <div className="flex-1 border-t border-gray-100" />
+        <div className="shrink-0 text-center">
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+            {group.title}
+          </h3>
+          {group.subtitle && (
+            <p className="text-xs text-gray-400 normal-case">{group.subtitle}</p>
+          )}
+        </div>
+        <div className="flex-1 border-t border-gray-100" />
+      </div>
+      <ul className="space-y-1.5">
+        {group.shortcuts.map((shortcut, index) => (
+          <li
+            key={index}
+            className="flex items-center justify-between py-1"
+          >
+            <span className="text-sm text-gray-700">{shortcut.description}</span>
+            <div className="flex items-center gap-1">
+              {shortcut.keys.map((key, keyIndex) => (
+                <span key={keyIndex} className="flex items-center gap-1">
+                  {keyIndex > 0 && (
+                    <span className="text-xs text-gray-400">+</span>
+                  )}
+                  <KeyBadge>{key}</KeyBadge>
+                </span>
+              ))}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -132,7 +178,7 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
     >
       <div
         ref={dialogRef}
-        className="modal-content max-w-sm"
+        className="modal-content max-w-sm md:max-w-[720px]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -161,44 +207,20 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
           </button>
         </div>
 
-        {/* Body */}
-        <div className="px-4 py-3 space-y-4">
-          {shortcutGroups.map((group) => (
-            <div key={group.title}>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="flex-1 border-t border-gray-100" />
-                <div className="shrink-0 text-center">
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    {group.title}
-                  </h3>
-                  {group.subtitle && (
-                    <p className="text-xs text-gray-400 normal-case">{group.subtitle}</p>
-                  )}
-                </div>
-                <div className="flex-1 border-t border-gray-100" />
-              </div>
-              <ul className="space-y-1.5">
-                {group.shortcuts.map((shortcut, index) => (
-                  <li
-                    key={index}
-                    className="flex items-center justify-between py-1"
-                  >
-                    <span className="text-sm text-gray-700">{shortcut.description}</span>
-                    <div className="flex items-center gap-1">
-                      {shortcut.keys.map((key, keyIndex) => (
-                        <span key={keyIndex} className="flex items-center gap-1">
-                          {keyIndex > 0 && (
-                            <span className="text-xs text-gray-400">+</span>
-                          )}
-                          <KeyBadge>{key}</KeyBadge>
-                        </span>
-                      ))}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+        {/* Body - two columns on desktop, one on mobile */}
+        <div className="px-4 py-3 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+          {/* Left column: Actions, Navigation, View */}
+          <div className="space-y-4">
+            {leftColumnGroups.map((group) => (
+              <ShortcutGroupSection key={group.title} group={group} />
+            ))}
+          </div>
+          {/* Right column: Editor */}
+          <div className="space-y-4">
+            {rightColumnGroups.map((group) => (
+              <ShortcutGroupSection key={group.title} group={group} />
+            ))}
+          </div>
         </div>
 
       </div>
