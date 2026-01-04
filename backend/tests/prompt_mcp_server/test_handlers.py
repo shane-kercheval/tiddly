@@ -18,6 +18,8 @@ from prompt_mcp_server.server import (
     handle_list_tools,
 )
 
+from .conftest import make_list_prompts_request
+
 
 # --- list_prompts tests ---
 
@@ -28,17 +30,18 @@ async def test__list_prompts__returns_prompt_list(
     mock_auth,  # noqa: ARG001 - needed for side effect
     sample_prompt_list: dict[str, Any],
 ) -> None:
-    """Test list_prompts returns MCP Prompt objects."""
+    """Test list_prompts returns MCP ListPromptsResult with prompts."""
     mock_api.get("/prompts/").mock(
         return_value=Response(200, json=sample_prompt_list),
     )
 
-    result = await handle_list_prompts()
+    result = await handle_list_prompts(make_list_prompts_request())
 
-    assert len(result) == 1
-    assert result[0].name == "code-review"
-    assert result[0].title == "Code Review Assistant"
-    assert result[0].description == "Reviews code and provides feedback"
+    assert len(result.prompts) == 1
+    assert result.prompts[0].name == "code-review"
+    assert result.prompts[0].title == "Code Review Assistant"
+    assert result.prompts[0].description == "Reviews code and provides feedback"
+    assert result.nextCursor is None  # No more pages
 
 
 @pytest.mark.asyncio
@@ -52,9 +55,10 @@ async def test__list_prompts__empty_list_when_no_prompts(
         return_value=Response(200, json=sample_prompt_list_empty),
     )
 
-    result = await handle_list_prompts()
+    result = await handle_list_prompts(make_list_prompts_request())
 
-    assert len(result) == 0
+    assert len(result.prompts) == 0
+    assert result.nextCursor is None
 
 
 @pytest.mark.asyncio
@@ -68,29 +72,93 @@ async def test__list_prompts__includes_arguments(
         return_value=Response(200, json=sample_prompt_list),
     )
 
-    result = await handle_list_prompts()
+    result = await handle_list_prompts(make_list_prompts_request())
 
-    assert result[0].arguments is not None
-    assert len(result[0].arguments) == 2
-    assert result[0].arguments[0].name == "language"
-    assert result[0].arguments[0].required is True
-    assert result[0].arguments[1].name == "code"
+    assert result.prompts[0].arguments is not None
+    assert len(result.prompts[0].arguments) == 2
+    assert result.prompts[0].arguments[0].name == "language"
+    assert result.prompts[0].arguments[0].required is True
+    assert result.prompts[0].arguments[1].name == "code"
 
 
 @pytest.mark.asyncio
-async def test__list_prompts__uses_limit_200(
+async def test__list_prompts__uses_limit_100_and_offset_0(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
     sample_prompt_list: dict[str, Any],
 ) -> None:
-    """Test list_prompts uses limit=200."""
+    """Test list_prompts uses limit=100 and offset=0 by default."""
     mock_api.get("/prompts/").mock(
         return_value=Response(200, json=sample_prompt_list),
     )
 
-    await handle_list_prompts()
+    await handle_list_prompts(make_list_prompts_request())
 
-    assert "limit=200" in str(mock_api.calls[0].request.url)
+    url = str(mock_api.calls[0].request.url)
+    assert "limit=100" in url
+    assert "offset=0" in url
+
+
+@pytest.mark.asyncio
+async def test__list_prompts__returns_next_cursor_when_has_more(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test list_prompts returns nextCursor when has_more=True."""
+    response_with_more = {
+        "items": [{"name": "prompt-1", "arguments": []}],
+        "total": 150,
+        "offset": 0,
+        "limit": 100,
+        "has_more": True,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_with_more),
+    )
+
+    result = await handle_list_prompts(make_list_prompts_request())
+
+    assert result.nextCursor == "100"  # Next page starts at offset 100
+
+
+@pytest.mark.asyncio
+async def test__list_prompts__uses_cursor_as_offset(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test list_prompts uses cursor value as offset parameter."""
+    response = {
+        "items": [{"name": "prompt-101", "arguments": []}],
+        "total": 150,
+        "offset": 100,
+        "limit": 100,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response),
+    )
+
+    result = await handle_list_prompts(make_list_prompts_request(cursor="100"))
+
+    # Verify offset=100 was passed to API
+    url = str(mock_api.calls[0].request.url)
+    assert "offset=100" in url
+    # No more pages
+    assert result.nextCursor is None
+
+
+@pytest.mark.asyncio
+async def test__list_prompts__invalid_cursor_returns_error(
+    mock_api,  # noqa: ARG001 - needed for fixture
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test list_prompts returns error for invalid cursor."""
+    from mcp.shared.exceptions import McpError
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_list_prompts(make_list_prompts_request(cursor="not-a-number"))
+
+    assert "Invalid cursor" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -101,7 +169,7 @@ async def test__list_prompts__api_unavailable(mock_api, mock_auth) -> None:  # n
     mock_api.get("/prompts/").mock(side_effect=httpx.ConnectError("Connection refused"))
 
     with pytest.raises(McpError) as exc_info:
-        await handle_list_prompts()
+        await handle_list_prompts(make_list_prompts_request())
 
     assert "unavailable" in str(exc_info.value).lower()
 
@@ -481,7 +549,7 @@ async def test__list_prompts__no_token_error(mock_api) -> None:  # noqa: ARG001
     clear_current_token()  # Ensure no token
 
     with pytest.raises(McpError) as exc_info:
-        await handle_list_prompts()
+        await handle_list_prompts(make_list_prompts_request())
 
     assert "token" in str(exc_info.value).lower()
 
@@ -496,7 +564,7 @@ async def test__list_prompts__invalid_token_error(mock_api, mock_auth) -> None: 
     )
 
     with pytest.raises(McpError) as exc_info:
-        await handle_list_prompts()
+        await handle_list_prompts(make_list_prompts_request())
 
     assert "Invalid" in str(exc_info.value) or "expired" in str(exc_info.value).lower()
 

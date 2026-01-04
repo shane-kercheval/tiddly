@@ -5,8 +5,15 @@ from unittest.mock import patch
 
 import pytest
 import respx
+from mcp import types
 
 from prompt_mcp_server import server as server_module
+
+
+def make_list_prompts_request(cursor: str | None = None) -> types.ListPromptsRequest:
+    """Create a ListPromptsRequest with optional cursor for testing."""
+    params = types.PaginatedRequestParams(cursor=cursor) if cursor else None
+    return types.ListPromptsRequest(method="prompts/list", params=params)
 
 
 @pytest.fixture
@@ -114,7 +121,7 @@ def sample_prompt_list(sample_prompt: dict[str, Any]) -> dict[str, Any]:
         "items": [sample_prompt],
         "total": 1,
         "offset": 0,
-        "limit": 200,
+        "limit": 100,
         "has_more": False,
     }
 
@@ -126,6 +133,6 @@ def sample_prompt_list_empty() -> dict[str, Any]:
         "items": [],
         "total": 0,
         "offset": 0,
-        "limit": 200,
+        "limit": 100,
         "has_more": False,
     }

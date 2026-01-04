@@ -154,23 +154,42 @@ def _handle_api_error(e: httpx.HTTPStatusError, context: str = "") -> None:
         ) from e
 
 
+# Page size for list_prompts pagination (API maximum is 100)
+_LIST_PROMPTS_PAGE_SIZE = 100
+
+
 @server.list_prompts()
-async def handle_list_prompts() -> list[types.Prompt]:
+async def handle_list_prompts(
+    request: types.ListPromptsRequest,
+) -> types.ListPromptsResult:
     """
     List available prompts for the authenticated user.
 
     Queries the REST API each time (dynamic, no cache).
-    Limited to 200 prompts.
+    Supports cursor-based pagination per MCP spec.
+    Cursor is the offset value as a string.
     """
     client = await _get_http_client()
     token = _get_token()
+
+    # Parse cursor as offset (cursor is opaque to client, we use offset)
+    cursor = request.params.cursor if request.params else None
+    try:
+        offset = int(cursor) if cursor else 0
+    except ValueError:
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message=f"Invalid cursor: {cursor}",
+            ),
+        ) from None
 
     try:
         result = await api_get(
             client,
             "/prompts/",
             token,
-            params={"limit": 200},
+            params={"limit": _LIST_PROMPTS_PAGE_SIZE, "offset": offset},
         )
     except httpx.HTTPStatusError as e:
         _handle_api_error(e, "listing prompts")
@@ -205,7 +224,14 @@ async def handle_list_prompts() -> list[types.Prompt]:
             ),
         )
 
-    return prompts
+    # Calculate next cursor if more results exist
+    has_more = result.get("has_more", False)
+    next_cursor = str(offset + _LIST_PROMPTS_PAGE_SIZE) if has_more else None
+
+    return types.ListPromptsResult(
+        prompts=prompts,
+        nextCursor=next_cursor,
+    )
 
 
 @server.get_prompt()
