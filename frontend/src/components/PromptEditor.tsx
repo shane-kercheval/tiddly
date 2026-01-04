@@ -396,6 +396,36 @@ export function PromptEditor({
       argNames.add(arg.name)
     }
 
+    // Validate template variables match arguments
+    if (form.content && !newErrors.arguments) {
+      // Extract Jinja2 variables: {{ var }}, {{ var|filter }}, {%- if var %}, etc.
+      const variablePattern = /\{\{[\s-]*([a-z_][a-z0-9_]*)[\s|}/%-]/gi
+      const controlPattern = /\{%[-\s]*(?:if|elif|for|set|with)[\s]+([a-z_][a-z0-9_]*)/gi
+      const templateVars = new Set<string>()
+
+      let match
+      while ((match = variablePattern.exec(form.content)) !== null) {
+        templateVars.add(match[1].toLowerCase())
+      }
+      while ((match = controlPattern.exec(form.content)) !== null) {
+        templateVars.add(match[1].toLowerCase())
+      }
+
+      // Check for undefined variables (used in template but not in arguments)
+      const undefinedVars = [...templateVars].filter(v => !argNames.has(v))
+      if (undefinedVars.length > 0) {
+        newErrors.content = `Template uses undefined variable(s): ${undefinedVars.join(', ')}. Add them to arguments or remove from template.`
+      }
+
+      // Check for unused arguments (defined but not used in template)
+      if (!newErrors.content) {
+        const unusedArgs = [...argNames].filter(a => !templateVars.has(a))
+        if (unusedArgs.length > 0) {
+          newErrors.arguments = `Unused argument(s): ${unusedArgs.join(', ')}. Remove them or use in template.`
+        }
+      }
+    }
+
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }

@@ -27,6 +27,7 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import type { Prompt, PromptCreate, PromptUpdate } from '../types'
+import { getApiErrorMessage } from '../utils'
 
 type PageMode = 'view' | 'edit' | 'create'
 type PromptViewState = 'active' | 'archived' | 'deleted'
@@ -149,8 +150,7 @@ export function PromptDetail(): ReactNode {
         // Navigate back to the originating list if available
         navigateBack()
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to create prompt'
-        toast.error(message)
+        toast.error(getApiErrorMessage(err, 'Failed to create prompt'))
         throw err
       }
     },
@@ -169,8 +169,7 @@ export function PromptDetail(): ReactNode {
         setPrompt(updatedPrompt)
         navigateToView(promptId)
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to save prompt'
-        toast.error(message)
+        toast.error(getApiErrorMessage(err, 'Failed to save prompt'))
         throw err
       }
     },

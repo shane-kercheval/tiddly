@@ -1,6 +1,41 @@
 /**
  * Utility functions for the bookmarks application.
  */
+import type { AxiosError } from 'axios'
+
+// ============================================================================
+// Error Utilities
+// ============================================================================
+
+/**
+ * Extract a user-friendly error message from an API error.
+ * Handles axios errors with response.data.detail format (FastAPI standard).
+ *
+ * @param error - The error object (axios error, Error, or unknown)
+ * @param fallback - Fallback message if no specific message found
+ * @returns User-friendly error message
+ */
+export function getApiErrorMessage(error: unknown, fallback: string = 'An error occurred'): string {
+  // Handle axios errors with response data
+  if (error && typeof error === 'object' && 'response' in error) {
+    const axiosError = error as AxiosError<{ detail?: string | { msg: string }[] }>
+    const detail = axiosError.response?.data?.detail
+    if (typeof detail === 'string') {
+      return detail
+    }
+    // Handle validation errors (array of {msg: string})
+    if (Array.isArray(detail) && detail.length > 0 && detail[0].msg) {
+      return detail.map(d => d.msg).join('. ')
+    }
+  }
+
+  // Handle standard Error objects
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return fallback
+}
 
 // ============================================================================
 // Date Utilities
