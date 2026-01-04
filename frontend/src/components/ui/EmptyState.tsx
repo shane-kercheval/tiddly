@@ -3,6 +3,12 @@
  */
 import type { ReactNode } from 'react'
 
+interface EmptyStateAction {
+  label: string
+  onClick: () => void
+  variant?: 'primary' | 'secondary'
+}
+
 interface EmptyStateProps {
   /** Icon to display (SVG element) */
   icon: ReactNode
@@ -11,16 +17,9 @@ interface EmptyStateProps {
   /** Description text */
   description: string
   /** Optional action button */
-  action?: {
-    label: string
-    onClick: () => void
-  }
+  action?: EmptyStateAction
   /** Optional action buttons */
-  actions?: Array<{
-    label: string
-    onClick: () => void
-    variant?: 'primary' | 'secondary'
-  }>
+  actions?: EmptyStateAction[]
 }
 
 /**
@@ -33,7 +32,7 @@ export function EmptyState({
   action,
   actions,
 }: EmptyStateProps): ReactNode {
-  const resolvedActions = actions ?? (action ? [action] : [])
+  const resolvedActions: EmptyStateAction[] = actions ?? (action ? [action] : [])
 
   return (
     <div className="py-16 text-center">

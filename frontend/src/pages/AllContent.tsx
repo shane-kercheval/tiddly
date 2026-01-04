@@ -714,7 +714,7 @@ export function AllContent(): ReactNode {
       const emptyStateActions = orderedContentTypes.map((type) => ({
         label: contentTypeActions[type].buttonLabel,
         onClick: contentTypeActions[type].onClick,
-        variant: 'secondary',
+        variant: 'secondary' as const,
       }))
       const emptyStateIcon = isSingleType
         ? (primaryType === 'bookmark'

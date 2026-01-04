@@ -117,7 +117,7 @@ function PathObserver({
       prevSearchRef.current = location.search
       onLocationChange?.(location)
     }
-  }, [location.pathname, location.search, location.state, onPathChange, onLocationChange])
+  }, [location, location.pathname, location.search, location.state, onPathChange, onLocationChange])
 
   return null
 }
