@@ -435,6 +435,26 @@ Validators:
 
 ## Milestone 3: Service Layer
 
+### Design Decisions
+
+**1. Name Conflict Handling**
+- During `create()` and `update()`, if a duplicate name is detected (via `IntegrityError` from partial unique index), raise a `NameConflictError` exception
+- Router converts this to 409 Conflict with clear error message: "A prompt with name 'x' already exists"
+- Consistent with `TagAlreadyExistsError` pattern in `tag_service.py`
+
+**2. Template Validation Timing**
+- Validate whenever `content` OR `arguments` changes in `update()`
+- Use the **final merged state**: updated values merged with unchanged existing values
+- Example: If removing an argument that's still used in existing content → validation fails
+- Example: If adding `{{new_var}}` to content without adding the argument → validation fails
+
+**3. Import Consistency**
+- Import `validate_and_normalize_tags` from `schemas.validators` (canonical location)
+- Fix existing incorrect imports from `schemas.bookmark` in: `base_entity_service.py`, `tag_service.py`, `content_service.py`, `content_list.py`
+
+**4. Type Hint Updates**
+- Update `update_entity_tags()` in `tag_service.py` to accept `Bookmark | Note | Prompt`
+
 ### 3.1 services/prompt_service.py
 
 **PromptService(BaseEntityService[Prompt])**
@@ -451,9 +471,18 @@ Required implementations:
 - `_get_sort_columns()` - standard + title with `func.coalesce(Prompt.title, Prompt.name)`
 
 Override methods:
-- `create()` - template validation, tags, name uniqueness
-- `update()` - template validation, tags, name uniqueness
+- `create()` - template validation, tags, name uniqueness (catch `IntegrityError` → `NameConflictError`)
+- `update()` - template validation on merged state, tags, name uniqueness
 - `get_by_name()` - custom method for name-based lookup (for MCP server); returns only active prompts (excludes deleted AND archived)
+
+**Exception class:**
+```python
+class NameConflictError(Exception):
+    """Raised when a prompt name conflicts with an existing active prompt."""
+    def __init__(self, name: str) -> None:
+        self.name = name
+        super().__init__(f"A prompt with name '{name}' already exists")
+```
 
 Keep `validate_template()` function for Jinja2 syntax and undefined variable validation:
 ```python
@@ -495,8 +524,10 @@ def validate_template(content: str | None, arguments: list[dict[str, Any]]) -> N
 ### 3.2 services/tag_service.py
 
 Add:
-- `update_prompt_tags()` function
+- `update_prompt_tags()` function (alias for `update_entity_tags`)
 - Update `get_user_tags_with_counts()` to include prompt tag counts
+- Update `update_entity_tags()` type hint: `entity: Bookmark | Note | Prompt`
+- Import `Prompt` model
 
 ### 3.3 Tests (test_prompt_service.py)
 
@@ -506,13 +537,13 @@ Pattern from `test_note_service.py`. All tests run against database.
 - `test__create__creates_prompt_with_required_fields`
 - `test__create__creates_prompt_with_all_fields`
 - `test__create__creates_prompt_with_tags`
-- `test__create__rejects_duplicate_name_for_user`
+- `test__create__rejects_duplicate_name_for_user` - raises `NameConflictError`
 - `test__create__allows_duplicate_name_different_users`
 - `test__get__returns_prompt_by_id`
 - `test__get__returns_none_for_nonexistent`
 - `test__update__updates_all_fields`
 - `test__update__partial_update_preserves_other_fields`
-- `test__update__rejects_name_change_to_existing`
+- `test__update__rejects_name_change_to_existing` - raises `NameConflictError`
 - `test__update__allows_name_change_to_soft_deleted_name`
 - `test__delete__soft_deletes_by_default`
 - `test__delete__permanent_delete_removes_from_db`
@@ -589,6 +620,9 @@ Pattern from `test_note_service.py`. All tests run against database.
 - `test__create__allows_unused_arguments` - arguments defined but not used in template → OK
 - `test__update__validates_template_syntax`
 - `test__update__validates_template_undefined_variables`
+- `test__update__validates_when_removing_argument_still_used` - removing argument that's used in existing content → error
+- `test__update__validates_when_adding_template_var_without_argument` - adding `{{new_var}}` to content without adding argument → error
+- `test__update__validates_merged_state_content_and_arguments` - both content and arguments change, validates final merged state
 
 **get_by_name (returns only active prompts for MCP):**
 - `test__get_by_name__returns_prompt`
