@@ -172,7 +172,7 @@ export function PromptView({
         </div>
 
         {/* Metadata card */}
-        <div className="rounded-lg bg-gray-50 border border-gray-200 p-4 mb-6 space-y-3">
+        <div className="rounded-lg bg-gray-50 border border-gray-200 p-4 mb-6 space-y-4">
           {/* Tags */}
           {prompt.tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
@@ -206,58 +206,53 @@ export function PromptView({
               {prompt.description}
             </p>
           )}
-        </div>
 
-        {/* Arguments section */}
-        {hasArguments && (
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-3">
-              Arguments ({prompt.arguments.length})
-            </h2>
-            <div className="space-y-2">
-              {/* Required arguments first */}
-              {requiredArgs.map((arg) => (
-                <div key={arg.name} className="rounded-lg border border-gray-200 p-3 bg-white">
-                  <div className="flex items-center gap-2 mb-1">
-                    <code className="text-sm font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
-                      {arg.name}
-                    </code>
-                    <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">
-                      required
-                    </span>
+          {/* Arguments */}
+          {hasArguments && (
+            <div className="pt-2 border-t border-gray-200">
+              <h3 className="text-sm font-medium text-gray-700 mb-2">
+                Arguments ({prompt.arguments.length})
+              </h3>
+              <div className="space-y-2">
+                {/* Required arguments first */}
+                {requiredArgs.map((arg) => (
+                  <div key={arg.name} className="rounded border border-gray-200 p-2 bg-white">
+                    <div className="flex items-center gap-2">
+                      <code className="text-sm font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
+                        {arg.name}
+                      </code>
+                      <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">
+                        required
+                      </span>
+                    </div>
+                    {arg.description && (
+                      <p className="text-sm text-gray-600 mt-1">{arg.description}</p>
+                    )}
                   </div>
-                  {arg.description && (
-                    <p className="text-sm text-gray-600">{arg.description}</p>
-                  )}
-                </div>
-              ))}
-              {/* Optional arguments */}
-              {optionalArgs.map((arg) => (
-                <div key={arg.name} className="rounded-lg border border-gray-200 p-3 bg-white">
-                  <div className="flex items-center gap-2 mb-1">
-                    <code className="text-sm font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
-                      {arg.name}
-                    </code>
-                    <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                      optional
-                    </span>
+                ))}
+                {/* Optional arguments */}
+                {optionalArgs.map((arg) => (
+                  <div key={arg.name} className="rounded border border-gray-200 p-2 bg-white">
+                    <div className="flex items-center gap-2">
+                      <code className="text-sm font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
+                        {arg.name}
+                      </code>
+                      <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                        optional
+                      </span>
+                    </div>
+                    {arg.description && (
+                      <p className="text-sm text-gray-600 mt-1">{arg.description}</p>
+                    )}
                   </div>
-                  {arg.description && (
-                    <p className="text-sm text-gray-600">{arg.description}</p>
-                  )}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Template content */}
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">
-            Template
-          </h2>
-          <MarkdownViewer content={prompt.content} emptyText="No template content" />
-        </div>
+        <MarkdownViewer content={prompt.content} emptyText="No template content" />
       </article>
     </div>
   )
