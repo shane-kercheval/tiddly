@@ -1,5 +1,5 @@
 /**
- * Tests for Sidebar delete navigation behavior.
+ * Tests for Sidebar behavior including optimistic updates.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -11,6 +11,9 @@ import { useRef, useEffect } from 'react'
 // Mock the stores before importing Sidebar
 const mockDeleteList = vi.fn()
 const mockFetchSidebar = vi.fn()
+const mockUpdateSidebar = vi.fn()
+const mockSetSidebarOptimistic = vi.fn()
+const mockRollbackSidebar = vi.fn()
 
 vi.mock('../../stores/listsStore', () => ({
   useListsStore: (selector: (state: Record<string, unknown>) => unknown) => {
@@ -35,22 +38,36 @@ vi.mock('../../stores/listsStore', () => ({
 }))
 
 vi.mock('../../stores/settingsStore', () => ({
-  useSettingsStore: (selector: (state: Record<string, unknown>) => unknown) => {
-    const state = {
-      sidebar: {
-        version: 1,
-        items: [
-          { type: 'builtin', key: 'all', name: 'All Content' },
-          { type: 'list', id: 5, name: 'Test List', content_types: ['bookmark'] },
-        ],
-      },
-      fetchSidebar: mockFetchSidebar,
-      updateSidebar: vi.fn().mockResolvedValue(undefined),
-      setSidebarOptimistic: vi.fn(),
-      rollbackSidebar: vi.fn(),
+  useSettingsStore: Object.assign(
+    (selector: (state: Record<string, unknown>) => unknown) => {
+      const state = {
+        sidebar: {
+          version: 1,
+          items: [
+            { type: 'builtin', key: 'all', name: 'All Content' },
+            { type: 'list', id: 5, name: 'Test List', content_types: ['bookmark'] },
+          ],
+        },
+        fetchSidebar: mockFetchSidebar,
+        updateSidebar: mockUpdateSidebar,
+        setSidebarOptimistic: mockSetSidebarOptimistic,
+        rollbackSidebar: mockRollbackSidebar,
+      }
+      return selector(state)
+    },
+    // Add getState for direct store access in handleCreateList
+    {
+      getState: () => ({
+        sidebar: {
+          version: 1,
+          items: [
+            { type: 'builtin', key: 'all', name: 'All Content' },
+            { type: 'list', id: 5, name: 'Test List', content_types: ['bookmark'] },
+          ],
+        },
+      }),
     }
-    return selector(state)
-  },
+  ),
 }))
 
 vi.mock('../../stores/tagsStore', () => ({
@@ -144,6 +161,7 @@ describe('Sidebar', () => {
     vi.clearAllMocks()
     mockDeleteList.mockResolvedValue(undefined)
     mockFetchSidebar.mockResolvedValue(undefined)
+    mockUpdateSidebar.mockResolvedValue(undefined)
   })
 
   describe('delete list navigation', () => {
@@ -174,11 +192,8 @@ describe('Sidebar', () => {
         expect(mockDeleteList).toHaveBeenCalledWith(5)
       })
 
-      await waitFor(() => {
-        expect(mockFetchSidebar).toHaveBeenCalled()
-      })
-
       // Verify navigated to /app/content (the "All" route)
+      // With optimistic updates, navigation happens immediately (before API call)
       await waitFor(() => {
         expect(pathChanges).toContain('/app/content')
       })
@@ -259,6 +274,163 @@ describe('Sidebar', () => {
         expect(lastLocation?.state).toMatchObject({
           returnTo: '/app/content/lists/5',
           initialTags: ['work', 'urgent'],
+        })
+      })
+    })
+  })
+
+  describe('optimistic updates', () => {
+    describe('create group', () => {
+      it('calls setSidebarOptimistic before updateSidebar', async () => {
+        const user = userEvent.setup()
+        const callOrder: string[] = []
+
+        mockSetSidebarOptimistic.mockImplementation(() => {
+          callOrder.push('setSidebarOptimistic')
+        })
+        mockUpdateSidebar.mockImplementation(() => {
+          callOrder.push('updateSidebar')
+          return Promise.resolve(undefined)
+        })
+
+        render(<Sidebar />, {
+          wrapper: createWrapper(['/app/content']),
+        })
+
+        // Click the "Group" button to create a new group
+        const groupButtons = screen.getAllByTitle('New Group')
+        await user.click(groupButtons[0])
+
+        await waitFor(() => {
+          expect(mockSetSidebarOptimistic).toHaveBeenCalled()
+        })
+
+        await waitFor(() => {
+          expect(mockUpdateSidebar).toHaveBeenCalled()
+        })
+
+        // Verify optimistic update happens before API call
+        expect(callOrder).toEqual(['setSidebarOptimistic', 'updateSidebar'])
+      })
+
+      it('calls setSidebarOptimistic with new group at the beginning', async () => {
+        const user = userEvent.setup()
+
+        render(<Sidebar />, {
+          wrapper: createWrapper(['/app/content']),
+        })
+
+        const groupButtons = screen.getAllByTitle('New Group')
+        await user.click(groupButtons[0])
+
+        await waitFor(() => {
+          expect(mockSetSidebarOptimistic).toHaveBeenCalled()
+        })
+
+        // Verify the new group is added to the front
+        const optimisticItems = mockSetSidebarOptimistic.mock.calls[0][0]
+        expect(optimisticItems[0].type).toBe('group')
+        expect(optimisticItems[0].name).toBe('New Group')
+        expect(optimisticItems[0].items).toEqual([])
+      })
+
+      it('calls rollbackSidebar when updateSidebar fails', async () => {
+        const user = userEvent.setup()
+
+        mockUpdateSidebar.mockRejectedValue(new Error('API error'))
+
+        render(<Sidebar />, {
+          wrapper: createWrapper(['/app/content']),
+        })
+
+        const groupButtons = screen.getAllByTitle('New Group')
+        await user.click(groupButtons[0])
+
+        await waitFor(() => {
+          expect(mockRollbackSidebar).toHaveBeenCalled()
+        })
+      })
+    })
+
+    describe('delete list', () => {
+      it('calls setSidebarOptimistic before deleteList API call', async () => {
+        const user = userEvent.setup()
+        const callOrder: string[] = []
+
+        mockSetSidebarOptimistic.mockImplementation(() => {
+          callOrder.push('setSidebarOptimistic')
+        })
+        mockDeleteList.mockImplementation(() => {
+          callOrder.push('deleteList')
+          return Promise.resolve(undefined)
+        })
+
+        render(<Sidebar />, {
+          wrapper: createWrapper(['/app/content']),
+        })
+
+        // Find the delete buttons
+        const deleteButtons = screen.getAllByTitle('Delete list')
+        await user.click(deleteButtons[0])
+
+        // Second click - confirms delete
+        const confirmButtons = screen.getAllByTitle('Click again to confirm')
+        await user.click(confirmButtons[0])
+
+        await waitFor(() => {
+          expect(mockSetSidebarOptimistic).toHaveBeenCalled()
+        })
+
+        await waitFor(() => {
+          expect(mockDeleteList).toHaveBeenCalled()
+        })
+
+        // Verify optimistic update happens before API call
+        expect(callOrder).toEqual(['setSidebarOptimistic', 'deleteList'])
+      })
+
+      it('calls setSidebarOptimistic with list removed', async () => {
+        const user = userEvent.setup()
+
+        render(<Sidebar />, {
+          wrapper: createWrapper(['/app/content']),
+        })
+
+        const deleteButtons = screen.getAllByTitle('Delete list')
+        await user.click(deleteButtons[0])
+
+        const confirmButtons = screen.getAllByTitle('Click again to confirm')
+        await user.click(confirmButtons[0])
+
+        await waitFor(() => {
+          expect(mockSetSidebarOptimistic).toHaveBeenCalled()
+        })
+
+        // Verify the list is removed from sidebar
+        const optimisticItems = mockSetSidebarOptimistic.mock.calls[0][0]
+        const listItem = optimisticItems.find(
+          (item: { type: string; id?: number }) => item.type === 'list' && item.id === 5
+        )
+        expect(listItem).toBeUndefined()
+      })
+
+      it('calls rollbackSidebar when deleteList fails', async () => {
+        const user = userEvent.setup()
+
+        mockDeleteList.mockRejectedValue(new Error('API error'))
+
+        render(<Sidebar />, {
+          wrapper: createWrapper(['/app/content']),
+        })
+
+        const deleteButtons = screen.getAllByTitle('Delete list')
+        await user.click(deleteButtons[0])
+
+        const confirmButtons = screen.getAllByTitle('Click again to confirm')
+        await user.click(confirmButtons[0])
+
+        await waitFor(() => {
+          expect(mockRollbackSidebar).toHaveBeenCalled()
         })
       })
     })

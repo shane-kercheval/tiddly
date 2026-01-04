@@ -58,7 +58,6 @@ import type {
   SidebarListItemComputed,
   SidebarGroupComputed,
   SidebarOrder,
-  SidebarGroup as SidebarGroupType,
   ContentList,
 } from '../../types'
 
@@ -209,48 +208,56 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     [lists]
   )
 
-  // Create a new group (added to top of sidebar)
+  // Create a new group (added to top of sidebar) - optimistic update
   const handleNewGroup = async (): Promise<void> => {
     if (!sidebar) return
 
-    const newGroup: SidebarGroupType = {
+    const newGroupComputed: SidebarGroupComputed = {
       type: 'group',
       id: crypto.randomUUID(),
       name: 'New Group',
       items: [],
     }
 
+    // Optimistically add to UI
+    const optimisticItems = [newGroupComputed, ...sidebar.items]
+    setSidebarOptimistic(optimisticItems)
+
     const updatedSidebar: SidebarOrder = {
       version: SIDEBAR_VERSION,
-      items: [newGroup, ...computedToMinimal(sidebar.items)],
+      items: computedToMinimal(optimisticItems),
     }
 
     try {
       await updateSidebar(updatedSidebar)
     } catch {
+      rollbackSidebar()
       toast.error('Failed to create group')
     }
   }
 
-  // Rename a group
+  // Rename a group - optimistic update
   const handleRenameGroup = async (groupId: string, newName: string): Promise<void> => {
     if (!sidebar) return
 
-    const updatedItems = computedToMinimal(sidebar.items).map((item) => {
+    // Optimistically update UI
+    const optimisticItems = sidebar.items.map((item) => {
       if (item.type === 'group' && item.id === groupId) {
         return { ...item, name: newName }
       }
       return item
     })
+    setSidebarOptimistic(optimisticItems)
 
     try {
-      await updateSidebar({ version: SIDEBAR_VERSION, items: updatedItems })
+      await updateSidebar({ version: SIDEBAR_VERSION, items: computedToMinimal(optimisticItems) })
     } catch {
+      rollbackSidebar()
       toast.error('Failed to rename group')
     }
   }
 
-  // Delete a group (moves contents to root)
+  // Delete a group (moves contents to root) - optimistic update
   const handleDeleteGroup = async (groupId: string): Promise<void> => {
     if (!sidebar) return
 
@@ -260,24 +267,19 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
     if (!group) return
 
-    // Extract items from group and add to root, then remove group
-    const groupItemsMinimal = group.items.map((child) =>
-      child.type === 'builtin'
-        ? { type: 'builtin' as const, key: child.key }
-        : { type: 'list' as const, id: child.id }
-    )
-
-    const updatedItems = computedToMinimal(sidebar.items).flatMap((item) => {
+    // Optimistically update UI - replace group with its contents
+    const optimisticItems = sidebar.items.flatMap((item) => {
       if (item.type === 'group' && item.id === groupId) {
-        // Replace group with its contents
-        return groupItemsMinimal
+        return item.items // Return the group's children directly
       }
       return [item]
     })
+    setSidebarOptimistic(optimisticItems)
 
     try {
-      await updateSidebar({ version: SIDEBAR_VERSION, items: updatedItems })
+      await updateSidebar({ version: SIDEBAR_VERSION, items: computedToMinimal(optimisticItems) })
     } catch {
+      rollbackSidebar()
       toast.error('Failed to delete group')
     }
   }
@@ -291,18 +293,39 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     }
   }
 
-  // Delete a list (confirmation is handled in SidebarNavItem)
+  // Delete a list (confirmation is handled in SidebarNavItem) - optimistic update
   const handleDeleteList = async (listId: number): Promise<void> => {
+    // Helper to recursively remove list from sidebar items (including from groups)
+    const removeListFromItems = (items: SidebarItemComputed[]): SidebarItemComputed[] => {
+      return items
+        .filter((item) => !(item.type === 'list' && item.id === listId))
+        .map((item) => {
+          if (item.type === 'group') {
+            return {
+              ...item,
+              items: item.items.filter((child) => !(child.type === 'list' && child.id === listId)),
+            }
+          }
+          return item
+        })
+    }
+
+    // Optimistically remove from sidebar
+    if (sidebar) {
+      const optimisticItems = removeListFromItems(sidebar.items)
+      setSidebarOptimistic(optimisticItems)
+    }
+
+    // Navigate early if we're viewing the deleted list (better UX)
+    if (currentListId === listId) {
+      navigate('/app/content')
+    }
+
     try {
       await deleteList(listId)
-      // Refresh sidebar to remove deleted list
-      await fetchSidebar()
-      // Navigate to "All" if the deleted list was currently being viewed
-      if (currentListId === listId) {
-        // Navigate to the unified content view (All)
-        navigate('/app/content')
-      }
+      // No need to fetchSidebar - we've already updated optimistically
     } catch {
+      rollbackSidebar()
       toast.error('Failed to delete list')
     }
   }
@@ -343,12 +366,53 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   const handleUpdateList = async (
     ...args: Parameters<typeof updateListStore>
   ): Promise<Awaited<ReturnType<typeof updateListStore>>> => {
-    const result = await updateListStore(...args)
-    // Refresh sidebar to show updated list
-    await fetchSidebar()
-    // Invalidate queries for this list since filters may have changed
-    await invalidateListQueries(queryClient, result.id)
-    return result
+    const [listId, data] = args
+
+    // Helper to update list in sidebar items (including in groups)
+    const updateListInItems = (
+      items: SidebarItemComputed[],
+      id: number,
+      updates: { name?: string; content_types?: string[] }
+    ): SidebarItemComputed[] => {
+      return items.map((item) => {
+        if (item.type === 'list' && item.id === id) {
+          return { ...item, ...updates }
+        }
+        if (item.type === 'group') {
+          return {
+            ...item,
+            items: item.items.map((child) =>
+              child.type === 'list' && child.id === id
+                ? { ...child, ...updates }
+                : child
+            ),
+          }
+        }
+        return item
+      })
+    }
+
+    // Optimistically update sidebar if we have name or content_types changes
+    if (sidebar && (data.name || data.content_types)) {
+      const optimisticItems = updateListInItems(sidebar.items, listId, {
+        name: data.name,
+        content_types: data.content_types,
+      })
+      setSidebarOptimistic(optimisticItems)
+    }
+
+    try {
+      const result = await updateListStore(...args)
+      // Invalidate queries for this list since filters may have changed
+      await invalidateListQueries(queryClient, result.id)
+      // Fetch sidebar to ensure we have accurate server state
+      // (in case the API modified anything we didn't expect)
+      await fetchSidebar()
+      return result
+    } catch (error) {
+      rollbackSidebar()
+      throw error
+    }
   }
 
   // Drag handlers

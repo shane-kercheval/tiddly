@@ -21,22 +21,38 @@ async def test__health_check__returns_healthy() -> None:
 
 @pytest.mark.asyncio
 async def test__mcp_endpoint__exists() -> None:
-    """Test that MCP endpoint is mounted."""
-    from prompt_mcp_server.main import app
+    """Test that MCP endpoint is mounted and accepts requests without trailing slash."""
+    from contextlib import asynccontextmanager
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-    ) as client:
-        # MCP endpoint expects POST with proper JSON-RPC format
-        # Without proper initialization, we get an error but the endpoint exists
-        response = await client.post(
-            "/mcp",
-            json={"jsonrpc": "2.0", "method": "ping", "id": 1},
-        )
+    from prompt_mcp_server.main import app, session_manager
 
-    # The endpoint exists (not 404)
-    assert response.status_code != 404
+    # Use lifespan context to properly initialize the session manager
+    @asynccontextmanager
+    async def lifespan_context():
+        async with session_manager.run():
+            yield
+
+    async with lifespan_context():
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            # Test /mcp without trailing slash works (no redirect)
+            response = await client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0.0"},
+                }},
+                headers={"Accept": "application/json"},
+            )
+
+            # The endpoint exists and responds (not a redirect or 404)
+            assert response.status_code == 200
+            data = response.json()
+            assert data.get("jsonrpc") == "2.0"
+            assert "result" in data
 
 
 @pytest.mark.asyncio
