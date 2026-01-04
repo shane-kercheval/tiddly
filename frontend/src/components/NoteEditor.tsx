@@ -455,28 +455,50 @@ export function NoteEditor({
         </div>
       )}
 
-      {/* Title field - required */}
-      <div>
-        <label htmlFor="title" className="label">
-          Title <span className="text-red-500">*</span>
-        </label>
-        <input
-          type="text"
-          id="title"
-          value={form.title}
-          onChange={(e) => {
-            setForm((prev) => ({ ...prev, title: e.target.value }))
-            if (errors.title) {
-              setErrors((prev) => ({ ...prev, title: undefined }))
-            }
-          }}
-          placeholder="Note title"
-          disabled={isSubmitting}
-          maxLength={config.limits.maxTitleLength}
-          className={`input mt-1 ${errors.title ? 'input-error' : ''}`}
-          autoFocus
-        />
-        {errors.title && <p className="error-text">{errors.title}</p>}
+      {/* Title and Tags row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Title field - required (2/3 width on desktop) */}
+        <div className="md:col-span-2">
+          <label htmlFor="title" className="label">
+            Title <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            id="title"
+            value={form.title}
+            onChange={(e) => {
+              setForm((prev) => ({ ...prev, title: e.target.value }))
+              if (errors.title) {
+                setErrors((prev) => ({ ...prev, title: undefined }))
+              }
+            }}
+            placeholder="Note title"
+            disabled={isSubmitting}
+            maxLength={config.limits.maxTitleLength}
+            className={`input mt-1 ${errors.title ? 'input-error' : ''}`}
+            autoFocus
+          />
+          {errors.title && <p className="error-text">{errors.title}</p>}
+        </div>
+
+        {/* Tags field (1/3 width on desktop) */}
+        <div>
+          <label htmlFor="tags" className="label">
+            Tags
+          </label>
+          <div className="mt-1">
+            <TagInput
+              ref={tagInputRef}
+              id="tags"
+              value={form.tags}
+              onChange={(tags) => setForm((prev) => ({ ...prev, tags }))}
+              suggestions={tagSuggestions}
+              placeholder="Add tags..."
+              disabled={isSubmitting}
+              error={errors.tags}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Description field - optional */}
@@ -506,28 +528,6 @@ export function NoteEditor({
             {form.description.length.toLocaleString()}/{config.limits.maxDescriptionLength.toLocaleString()}
           </span>
         </div>
-      </div>
-
-      {/* Tags field */}
-      <div>
-        <label htmlFor="tags" className="label">
-          Tags
-        </label>
-        <div className="mt-1">
-          <TagInput
-            ref={tagInputRef}
-            id="tags"
-            value={form.tags}
-            onChange={(tags) => setForm((prev) => ({ ...prev, tags }))}
-            suggestions={tagSuggestions}
-            placeholder="Add tags..."
-            disabled={isSubmitting}
-            error={errors.tags}
-          />
-        </div>
-        <p className="helper-text">
-          Type and press Enter to add. Use lowercase letters, numbers, and hyphens.
-        </p>
       </div>
 
       {/* Content field with preview toggle */}

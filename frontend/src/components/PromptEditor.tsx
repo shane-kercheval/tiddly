@@ -557,31 +557,53 @@ export function PromptEditor({
           </div>
         )}
 
-        {/* Name field - required */}
-        <div>
-          <label htmlFor="name" className="label">
-            Name <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            id="name"
-            value={form.name}
-            onChange={(e) => {
-              setForm((prev) => ({ ...prev, name: e.target.value.toLowerCase() }))
-              if (errors.name) {
-                setErrors((prev) => ({ ...prev, name: undefined }))
-              }
-            }}
-            placeholder="code-review"
-            disabled={isSubmitting}
-            maxLength={config.limits.maxPromptNameLength}
-            className={`input mt-1 font-mono ${errors.name ? 'input-error' : ''}`}
-            autoFocus
-          />
-          <p className="helper-text">
-            Use lowercase letters, numbers, and hyphens. Must start and end with a letter or number (e.g., code-review)
-          </p>
-          {errors.name && <p className="error-text">{errors.name}</p>}
+        {/* Name and Tags row */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Name field - required (2/3 width on desktop) */}
+          <div className="md:col-span-2">
+            <label htmlFor="name" className="label">
+              Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              id="name"
+              value={form.name}
+              onChange={(e) => {
+                setForm((prev) => ({ ...prev, name: e.target.value.toLowerCase() }))
+                if (errors.name) {
+                  setErrors((prev) => ({ ...prev, name: undefined }))
+                }
+              }}
+              placeholder="code-review"
+              disabled={isSubmitting}
+              maxLength={config.limits.maxPromptNameLength}
+              className={`input mt-1 font-mono ${errors.name ? 'input-error' : ''}`}
+              autoFocus
+            />
+            <p className="helper-text">
+              Lowercase letters, numbers, hyphens (e.g., code-review)
+            </p>
+            {errors.name && <p className="error-text">{errors.name}</p>}
+          </div>
+
+          {/* Tags field (1/3 width on desktop) */}
+          <div>
+            <label htmlFor="tags" className="label">
+              Tags
+            </label>
+            <div className="mt-1">
+              <TagInput
+                ref={tagInputRef}
+                id="tags"
+                value={form.tags}
+                onChange={(tags) => setForm((prev) => ({ ...prev, tags }))}
+                suggestions={tagSuggestions}
+                placeholder="Add tags..."
+                disabled={isSubmitting}
+                error={errors.tags}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Title field - optional */}
@@ -738,28 +760,6 @@ export function PromptEditor({
           )}
           <p className="helper-text mt-2">
             Use lowercase with underscores for argument names (e.g., code_to_review, file_path)
-          </p>
-        </div>
-
-        {/* Tags field */}
-        <div>
-          <label htmlFor="tags" className="label">
-            Tags
-          </label>
-          <div className="mt-1">
-            <TagInput
-              ref={tagInputRef}
-              id="tags"
-              value={form.tags}
-              onChange={(tags) => setForm((prev) => ({ ...prev, tags }))}
-              suggestions={tagSuggestions}
-              placeholder="Add tags..."
-              disabled={isSubmitting}
-              error={errors.tags}
-            />
-          </div>
-          <p className="helper-text">
-            Type and press Enter to add. Use lowercase letters, numbers, and hyphens.
           </p>
         </div>
 

@@ -159,38 +159,32 @@ export function PromptView({
 
       {/* Scrollable prompt content */}
       <article className="flex-1 overflow-y-auto min-h-0 pr-2">
-        {/* Title and name */}
-        <div className="mb-4">
-          <h1 className="text-2xl font-bold text-gray-900">
-            {displayName}
-          </h1>
-          {prompt.title && prompt.title !== prompt.name && (
-            <p className="text-sm text-gray-500 font-mono mt-1">
-              {prompt.name}
-            </p>
-          )}
-        </div>
+        {/* Title row - inline with metadata on desktop */}
+        <div className="flex flex-col md:flex-row md:items-center md:gap-4 mb-2">
+          <div className="shrink-0">
+            <h1 className="text-2xl font-bold text-gray-900">
+              {displayName}
+            </h1>
+            {prompt.title && prompt.title !== prompt.name && (
+              <p className="text-sm text-gray-500 font-mono">
+                {prompt.name}
+              </p>
+            )}
+          </div>
 
-        {/* Metadata card */}
-        <div className="rounded-lg bg-gray-50 border border-gray-200 p-4 mb-6 space-y-4">
-          {/* Tags */}
-          {prompt.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {prompt.tags.map((tag) => (
-                <button
-                  key={tag}
-                  onClick={() => onTagClick?.(tag)}
-                  className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
-                  title={`Filter by tag: ${tag}`}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Dates */}
-          <div className="flex items-center gap-2 text-sm text-gray-500">
+          {/* Inline metadata */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500 mt-1 md:mt-0">
+            {prompt.tags.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => onTagClick?.(tag)}
+                className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
+                title={`Filter by tag: ${tag}`}
+              >
+                {tag}
+              </button>
+            ))}
+            {prompt.tags.length > 0 && <span className="text-gray-300">·</span>}
             <span>Created {formatDate(prompt.created_at)}</span>
             {prompt.updated_at !== prompt.created_at && (
               <>
@@ -199,57 +193,48 @@ export function PromptView({
               </>
             )}
           </div>
-
-          {/* Description */}
-          {prompt.description && (
-            <p className="text-gray-600 italic">
-              {prompt.description}
-            </p>
-          )}
-
-          {/* Arguments */}
-          {hasArguments && (
-            <div className="pt-2 border-t border-gray-200">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">
-                Arguments ({prompt.arguments.length})
-              </h3>
-              <div className="space-y-2">
-                {/* Required arguments first */}
-                {requiredArgs.map((arg) => (
-                  <div key={arg.name} className="rounded border border-gray-200 p-2 bg-white">
-                    <div className="flex items-center gap-2">
-                      <code className="text-sm font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
-                        {arg.name}
-                      </code>
-                      <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">
-                        required
-                      </span>
-                    </div>
-                    {arg.description && (
-                      <p className="text-sm text-gray-600 mt-1">{arg.description}</p>
-                    )}
-                  </div>
-                ))}
-                {/* Optional arguments */}
-                {optionalArgs.map((arg) => (
-                  <div key={arg.name} className="rounded border border-gray-200 p-2 bg-white">
-                    <div className="flex items-center gap-2">
-                      <code className="text-sm font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
-                        {arg.name}
-                      </code>
-                      <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                        optional
-                      </span>
-                    </div>
-                    {arg.description && (
-                      <p className="text-sm text-gray-600 mt-1">{arg.description}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
+
+        {/* Description */}
+        {prompt.description && (
+          <p className="text-sm text-gray-600 italic mb-3">
+            {prompt.description}
+          </p>
+        )}
+
+        {/* Arguments - compact list */}
+        {hasArguments && (
+          <div className="mb-5">
+            <span className="text-sm text-gray-500">Arguments:</span>
+            <div className="space-y-2 mt-2">
+              {requiredArgs.map((arg) => (
+                <div key={arg.name} className="flex items-center gap-2 flex-wrap">
+                  <code className="font-mono text-purple-700 bg-purple-50 px-2 py-1 rounded text-sm">
+                    {arg.name}
+                  </code>
+                  <span className="text-sm text-red-600">(required)</span>
+                  {arg.description && (
+                    <span className="text-gray-600 text-sm">— {arg.description}</span>
+                  )}
+                </div>
+              ))}
+              {optionalArgs.map((arg) => (
+                <div key={arg.name} className="flex items-center gap-2 flex-wrap">
+                  <code className="font-mono text-gray-600 bg-gray-100 px-2 py-1 rounded text-sm">
+                    {arg.name}
+                  </code>
+                  <span className="text-sm text-gray-400">(optional)</span>
+                  {arg.description && (
+                    <span className="text-gray-600 text-sm">— {arg.description}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Divider */}
+        <div className="border-t border-gray-200 mb-4" />
 
         {/* Template content */}
         <MarkdownViewer content={prompt.content} emptyText="No template content" />
