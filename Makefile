@@ -16,10 +16,13 @@ api-run:  ## Start API server with hot-reload
 	PYTHONPATH=$(PYTHONPATH) uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 
 ####
-# MCP Server
+# MCP Servers
 ####
-mcp-server:  ## Start MCP server (requires API server running on port 8000)
+mcp-server:  ## Start Bookmarks/Notes MCP server (port 8001, requires API on 8000)
 	PYTHONPATH=$(PYTHONPATH) uv run python -m mcp_server
+
+prompt-server:  ## Start Prompt MCP server (port 8002, requires API on 8000)
+	PYTHONPATH=$(PYTHONPATH) uv run python -m prompt_mcp_server
 
 ####
 # Frontend Development

@@ -747,16 +747,37 @@ Pattern from `test_notes.py` and `test_bookmarks.py`.
 
 Uses low-level MCP SDK for **dynamic prompt loading** (not FastMCP, not static registry).
 
+### Research Findings (2026-01-03)
+
+Based on review of MCP Python SDK documentation, GitHub issues, and examples:
+
+**SDK Imports Confirmed:**
+- `from mcp.server.lowlevel import Server` - low-level server class
+- `from mcp.server.streamable_http_manager import StreamableHTTPSessionManager` - ASGI transport
+- `import mcp.types as types` - Protocol types (Prompt, PromptArgument, GetPromptResult, etc.)
+
+**Key References:**
+- [MCP Prompts Specification](https://modelcontextprotocol.io/specification/2025-06-18/server/prompts)
+- [Low-level Server source](https://github.com/modelcontextprotocol/python-sdk/blob/main/src/mcp/server/lowlevel/server.py)
+- [Stateless HTTP example](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples/servers/simple-streamablehttp-stateless)
+- [ASGI mounting docs](https://github.com/modelcontextprotocol/python-sdk/issues/1484)
+- [HTTP headers in low-level servers](https://github.com/modelcontextprotocol/python-sdk/issues/750)
+
+**Why Low-Level SDK (not FastMCP):**
+- FastMCP's `get_http_headers()` uses internal ContextVars tightly coupled to FastMCP
+- Low-level SDK gives us control over authentication flow
+- We need custom auth middleware before MCP dispatch
+
 ### Key Design: No Registry (Dynamic API Calls)
 
-Unlike the tools_api reference implementation which uses a static `PromptRegistry`, we query the REST API on each MCP request:
+Unlike static prompt registries, we query the REST API on each MCP request:
 
 ```
 MCP Client Request (prompts/list)
     ↓
 prompt_mcp_server (list_prompts handler)
     ↓
-GET /prompts/?limit=100 (REST API with Bearer token)
+GET /prompts/?limit=200 (REST API with Bearer token)
     ↓
 Database query (user's active prompts)
     ↓
@@ -774,15 +795,42 @@ This means:
 |------|---------|
 | `__init__.py` | Package marker |
 | `__main__.py` | Entry point (`python -m prompt_mcp_server`) |
-| `main.py` | FastAPI app with lifespan, mounts MCP as ASGI sub-app |
+| `main.py` | Starlette app with lifespan, mounts MCP as ASGI sub-app |
 | `server.py` | MCP Server with list_prompts/get_prompt handlers AND create_prompt tool |
 | `auth.py` | Context-based token management via contextvars |
 | `api_client.py` | HTTP client helpers (copy from mcp_server) |
 | `template_renderer.py` | Jinja2 rendering with validation |
 
+**Note:** Use Starlette (not FastAPI) - MCP SDK examples use Starlette and FastAPI adds unnecessary overhead for an MCP-only server.
+
 ### MCP Handlers (server.py)
 
-**Pattern:** Use `mcp.server.lowlevel.Server` with decorators (see `tools_api/mcp_server.py`)
+**Pattern:** Use `mcp.server.lowlevel.Server` with decorators
+
+```python
+from mcp.server.lowlevel import Server
+import mcp.types as types
+
+server = Server("prompt-mcp-server")
+
+@server.list_prompts()
+async def handle_list_prompts() -> list[types.Prompt]:
+    # Return list[types.Prompt] - SDK wraps in ListPromptsResult automatically
+    ...
+
+@server.get_prompt()
+async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
+    # SDK extracts name and arguments from request params
+    ...
+
+@server.list_tools()
+async def handle_list_tools() -> list[types.Tool]:
+    ...
+
+@server.call_tool()
+async def handle_call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
+    ...
+```
 
 | Handler | API Call | Returns |
 |---------|----------|---------|
@@ -793,36 +841,122 @@ This means:
 
 **Key behaviors:**
 - `list_prompts`: Query API each time (dynamic, no cache); limited to 200 prompts
-- `get_prompt`: Render template with Jinja2, track usage (fire-and-forget - don't await track-usage call)
+- `get_prompt`: Render template with Jinja2, track usage via `asyncio.create_task()` (fire-and-forget)
 - `create_prompt` tool: Forward to API, return created prompt name
 
-### Template Renderer (template_renderer.py)
+**Error Handling (JSON-RPC standard):**
+```python
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData, INVALID_PARAMS, INTERNAL_ERROR
 
-**Pattern:** Copy from `tools_api/services/prompts/template.py`
+# For invalid prompt name, missing required args, etc.
+raise McpError(ErrorData(code=INVALID_PARAMS, message="Prompt not found"))
+
+# For server errors
+raise McpError(ErrorData(code=INTERNAL_ERROR, message="API unavailable"))
+```
+
+### Template Renderer (template_renderer.py)
 
 - Use `jinja2.Environment(undefined=StrictUndefined)`
 - Validate unknown arguments rejected
 - Validate required arguments present
 - Return empty string for empty content
 
+```python
+from jinja2 import Environment, StrictUndefined, TemplateSyntaxError, UndefinedError
+
+_jinja_env = Environment(undefined=StrictUndefined)
+
+def render_template(
+    content: str | None,
+    arguments: dict[str, str] | None,
+    defined_args: list[dict],
+) -> str:
+    """Render Jinja2 template with argument validation."""
+    if not content:
+        return ""
+
+    # Validate required args present
+    # Validate no unknown args passed
+    # Render with StrictUndefined
+    ...
+```
+
 ### Auth Module (auth.py)
 
-**Pattern:** Use `contextvars` (NOT FastMCP's `get_http_headers()`)
+**Pattern:** Use Python `contextvars` for request-scoped token storage
 
-- `set_current_token(token)` - called by ASGI handler before MCP dispatch
-- `get_bearer_token()` - called by MCP handlers to get token
-- `clear_current_token()` - called after MCP dispatch (in finally block)
+```python
+from contextvars import ContextVar
+
+_current_token: ContextVar[str | None] = ContextVar("current_token", default=None)
+
+def set_current_token(token: str) -> None:
+    """Set token for current request context."""
+    _current_token.set(token)
+
+def get_bearer_token() -> str:
+    """Get token from current request context."""
+    token = _current_token.get()
+    if not token:
+        raise AuthenticationError("No authentication token in context")
+    return token
+
+def clear_current_token() -> None:
+    """Clear token after request completes."""
+    _current_token.set(None)
+```
 
 ### Main Application (main.py)
 
-**Pattern:** Combine `tools_api/main.py` ASGI mounting with our auth
+**Pattern:** Starlette with lifespan context manager and auth middleware
 
-Key components:
-- `Settings` with `env_prefix = "PROMPT_MCP_"` for config
-- `lifespan` creates `StreamableHTTPSessionManager(app=server, json_response=True, stateless=True)`
-- `mcp_asgi_handler` extracts Bearer token, sets contextvar, delegates to session manager
-- Mount at `/mcp`
-- Health check at `/health`
+```python
+from contextlib import asynccontextmanager
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.routing import Mount, Route
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+
+from .server import server
+from .auth import set_current_token, clear_current_token
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Extract Bearer token and set in context before MCP dispatch."""
+    async def dispatch(self, request, call_next):
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            set_current_token(auth_header[7:])
+        try:
+            return await call_next(request)
+        finally:
+            clear_current_token()
+
+session_manager = StreamableHTTPSessionManager(
+    app=server,
+    event_store=None,
+    json_response=True,
+    stateless=True,
+)
+
+@asynccontextmanager
+async def lifespan(app):
+    async with session_manager.run():
+        yield
+
+app = Starlette(
+    routes=[
+        Route("/health", health_check),
+        Mount("/mcp", app=session_manager.handle_request),
+    ],
+    middleware=[Middleware(AuthMiddleware)],
+    lifespan=lifespan,
+)
+```
+
+**Important:** The lifespan must call `session_manager.run()` - without this, requests fail with "Task group is not initialized".
 
 ### API Client (api_client.py)
 
@@ -837,7 +971,7 @@ Same `api_get()` and `api_post()` helpers, but update env var names:
 Add target:
 ```makefile
 prompt-server:  ## Start Prompt MCP server
-	cd backend && uv run python -m prompt_mcp_server
+	PYTHONPATH=$(PYTHONPATH) uv run python -m prompt_mcp_server
 ```
 
 ### Port: 8002
@@ -853,6 +987,14 @@ prompt-server:  ## Start Prompt MCP server
 ### Known Limitations
 
 - **200-prompt limit**: `list_prompts` returns max 200 prompts. Users with more won't see all in Claude Desktop.
+- **SDK known issue**: HTTP headers can sometimes come from wrong request in session ([issue #750](https://github.com/modelcontextprotocol/python-sdk/issues/750)). Our middleware approach with contextvars should avoid this.
+
+### Testing Strategy
+
+For low-level SDK with prompts capability:
+- **Unit tests**: Mock API client calls, test handlers directly by calling decorated functions
+- **Integration tests**: Use `httpx.AsyncClient` with ASGI app for full request flow
+- **Do NOT use FastMCP's `Client`** - it's designed for FastMCP tools, not low-level prompts
 
 ### 5.1 Tests (test_prompt_mcp_server.py)
 
@@ -1082,8 +1224,8 @@ Add missing cascade delete tests to existing service tests, plus new prompt test
 - Update CLAUDE.md with prompt endpoints
 - Example prompts
 - Document the two MCP servers:
-  - `mcp.tiddly.me` - Bookmarks/Notes tools
-  - `prompts.tiddly.me` - Prompt templates + create_prompt tool
+  - `mcp.tiddly.me/mcp` - Bookmarks/Notes tools
+  - `prompts.tiddly.me/mcp` - Prompt templates + create_prompt tool
 
 ### Deployment (README_DEPLOY.md)
 
