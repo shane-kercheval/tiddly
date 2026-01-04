@@ -9,14 +9,14 @@ SETUP:
 2. Generate a PAT for each user via the web UI
 3. Add to your .env file:
 
+    SECURITY_TEST_API_URL=https://your-deployed-api.com
     SECURITY_TEST_USER_A_PAT=bm_xxxxxxxxxxxxxxxx
     SECURITY_TEST_USER_B_PAT=bm_yyyyyyyyyyyyyyyy
 
-4. Run: uv run pytest backend/tests/security/test_live_penetration.py -v
-
-Tests are skipped if the environment variables are not set (e.g., in CI/CD).
-
 IMPORTANT: The two PATs MUST be from DIFFERENT user accounts.
+
+RUN:
+    make pen_tests
 """
 import os
 from pathlib import Path
@@ -26,7 +26,7 @@ import pytest
 from dotenv import load_dotenv
 
 # Load .env file from project root
-_project_root = Path(__file__).parent.parent.parent.parent
+_project_root = Path(__file__).parent.parent.parent.parent.parent
 load_dotenv(_project_root / ".env")
 
 # Configuration - all must be set via environment variables
@@ -34,11 +34,13 @@ API_URL = os.environ.get("SECURITY_TEST_API_URL", "")
 USER_A_PAT = os.environ.get("SECURITY_TEST_USER_A_PAT", "")
 USER_B_PAT = os.environ.get("SECURITY_TEST_USER_B_PAT", "")
 
-# Skip all tests if required env vars not configured
-pytestmark = pytest.mark.skipif(
-    not API_URL or not USER_A_PAT or not USER_B_PAT,
-    reason="Live penetration tests require SECURITY_TEST_API_URL, SECURITY_TEST_USER_A_PAT, and SECURITY_TEST_USER_B_PAT in .env",
-)
+# Fail fast if required env vars not configured
+if not API_URL:
+    raise ValueError("SECURITY_TEST_API_URL must be set in .env to run deployed tests")
+if not USER_A_PAT:
+    raise ValueError("SECURITY_TEST_USER_A_PAT must be set in .env to run deployed tests")
+if not USER_B_PAT:
+    raise ValueError("SECURITY_TEST_USER_B_PAT must be set in .env to run deployed tests")
 
 
 @pytest.fixture
