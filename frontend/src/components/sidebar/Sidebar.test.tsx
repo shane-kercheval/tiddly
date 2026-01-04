@@ -227,7 +227,8 @@ describe('Sidebar', () => {
         }),
       })
 
-      await user.click(screen.getByTitle('New Bookmark'))
+      const bookmarkButtons = screen.getAllByTitle('New Bookmark')
+      await user.click(bookmarkButtons[0])
 
       await waitFor(() => {
         const lastLocation = locations[locations.length - 1]
@@ -246,7 +247,8 @@ describe('Sidebar', () => {
         }),
       })
 
-      await user.click(screen.getByTitle('New Note'))
+      const noteButtons = screen.getAllByTitle('New Note')
+      await user.click(noteButtons[0])
 
       await waitFor(() => {
         const lastLocation = locations[locations.length - 1]
