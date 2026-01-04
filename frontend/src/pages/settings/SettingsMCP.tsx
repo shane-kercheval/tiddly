@@ -189,33 +189,92 @@ export function SettingsMCP(): ReactNode {
           Choose which MCP servers to enable:
         </p>
         <div className="space-y-3">
-          <label className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              checked={enableBookmarks}
-              onChange={(e) => setEnableBookmarks(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <div>
-              <span className="font-medium text-gray-900">Bookmarks & Notes</span>
-              <p className="text-sm text-gray-500">Search, create, and manage bookmarks and notes</p>
+          {/* Bookmarks & Notes Card */}
+          <div
+            className={`relative rounded-lg border-2 p-4 transition-colors cursor-pointer ${
+              enableBookmarks
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-200 bg-white hover:border-gray-300'
+            }`}
+            onClick={() => setEnableBookmarks(!enableBookmarks)}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 rounded-lg p-2 ${enableBookmarks ? 'bg-blue-100' : 'bg-gray-100'}`}>
+                  <svg className={`h-5 w-5 ${enableBookmarks ? 'text-blue-600' : 'text-gray-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                  </svg>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-900">Bookmarks & Notes</span>
+                  <p className="text-sm text-gray-500 mt-0.5">Allow AI agents to search and create bookmarks and notes.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enableBookmarks}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setEnableBookmarks(!enableBookmarks)
+                }}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                  enableBookmarks ? 'bg-blue-600' : 'bg-gray-200'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    enableBookmarks ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
-          </label>
-          <label className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              checked={enablePrompts}
-              onChange={(e) => setEnablePrompts(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <div>
-              <span className="font-medium text-gray-900">Prompts</span>
-              <p className="text-sm text-gray-500">Access your saved prompts as MCP prompts with argument support</p>
+          </div>
+
+          {/* Prompts Card */}
+          <div
+            className={`relative rounded-lg border-2 p-4 transition-colors cursor-pointer ${
+              enablePrompts
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-200 bg-white hover:border-gray-300'
+            }`}
+            onClick={() => setEnablePrompts(!enablePrompts)}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 rounded-lg p-2 ${enablePrompts ? 'bg-blue-100' : 'bg-gray-100'}`}>
+                  <svg className={`h-5 w-5 ${enablePrompts ? 'text-blue-600' : 'text-gray-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                  </svg>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-900">Prompts</span>
+                  <p className="text-sm text-gray-500 mt-0.5">Allow AI agents to create and use your prompts.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enablePrompts}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setEnablePrompts(!enablePrompts)
+                }}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                  enablePrompts ? 'bg-blue-600' : 'bg-gray-200'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    enablePrompts ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
-          </label>
+          </div>
         </div>
         {!enableBookmarks && !enablePrompts && (
-          <p className="mt-2 text-sm text-amber-600">
+          <p className="mt-3 text-sm text-amber-600">
             Select at least one server to generate a configuration.
           </p>
         )}
