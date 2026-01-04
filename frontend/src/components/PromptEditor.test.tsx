@@ -97,7 +97,7 @@ describe('PromptEditor', () => {
       await user.click(submitButton)
 
       // Should show validation error
-      expect(screen.getByText(/must start with a letter and contain only lowercase/i)).toBeInTheDocument()
+      expect(screen.getByText(/must use lowercase letters, numbers, and hyphens only/i)).toBeInTheDocument()
       expect(onSubmit).not.toHaveBeenCalled()
     })
 
@@ -141,9 +141,10 @@ describe('PromptEditor', () => {
       expect(nameInput).toHaveValue('uppercase')
     })
 
-    it('should reject name starting with number', async () => {
+    it('should accept name starting with number', async () => {
+      // The backend pattern ^[a-z0-9]+(-[a-z0-9]+)*$ allows starting with a number
       const user = userEvent.setup()
-      const onSubmit = vi.fn()
+      const onSubmit = vi.fn().mockResolvedValue(undefined)
 
       render(
         <PromptEditor
@@ -159,8 +160,110 @@ describe('PromptEditor', () => {
       const submitButton = screen.getByRole('button', { name: /create prompt/i })
       await user.click(submitButton)
 
-      expect(screen.getByText(/must start with a letter/i)).toBeInTheDocument()
+      await waitFor(() => {
+        expect(onSubmit).toHaveBeenCalled()
+      })
+    })
+
+    it('should reject name with trailing hyphen', async () => {
+      const user = userEvent.setup()
+      const onSubmit = vi.fn()
+
+      render(
+        <PromptEditor
+          tagSuggestions={mockTagSuggestions}
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+        />
+      )
+
+      const nameInput = screen.getByLabelText(/name/i)
+      await user.type(nameInput, 'code-review-')
+
+      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      await user.click(submitButton)
+
+      // The error text contains the full validation message
+      const errorElement = screen.getByText(/Name must use lowercase letters/i)
+      expect(errorElement).toHaveClass('error-text')
       expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it('should reject name with leading hyphen', async () => {
+      const user = userEvent.setup()
+      const onSubmit = vi.fn()
+
+      render(
+        <PromptEditor
+          tagSuggestions={mockTagSuggestions}
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+        />
+      )
+
+      const nameInput = screen.getByLabelText(/name/i)
+      await user.type(nameInput, '-code-review')
+
+      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      await user.click(submitButton)
+
+      expect(screen.getByText(/must use lowercase letters, numbers, and hyphens only/i)).toBeInTheDocument()
+      expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it('should reject name with consecutive hyphens', async () => {
+      const user = userEvent.setup()
+      const onSubmit = vi.fn()
+
+      render(
+        <PromptEditor
+          tagSuggestions={mockTagSuggestions}
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+        />
+      )
+
+      const nameInput = screen.getByLabelText(/name/i)
+      await user.type(nameInput, 'code--review')
+
+      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      await user.click(submitButton)
+
+      expect(screen.getByText(/must use lowercase letters, numbers, and hyphens only/i)).toBeInTheDocument()
+      expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it('should have maxLength attribute set to 255 for name input', () => {
+      render(
+        <PromptEditor
+          tagSuggestions={mockTagSuggestions}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      const nameInput = screen.getByLabelText(/name/i)
+      expect(nameInput).toHaveAttribute('maxLength', '255')
+    })
+
+    it('should truncate name input to max length (255)', async () => {
+      const user = userEvent.setup()
+
+      render(
+        <PromptEditor
+          tagSuggestions={mockTagSuggestions}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      const nameInput = screen.getByLabelText(/name/i)
+      // Try to type more than 255 characters - browser will truncate
+      const longName = 'a'.repeat(300)
+      await user.type(nameInput, longName)
+
+      // Should be truncated to 255
+      expect(nameInput).toHaveValue('a'.repeat(255))
     })
   })
 
@@ -287,6 +390,38 @@ describe('PromptEditor', () => {
         expect(onSubmit).toHaveBeenCalled()
       })
     })
+
+    it('should reject argument name exceeding max length (100)', async () => {
+      const user = userEvent.setup()
+      const onSubmit = vi.fn()
+
+      render(
+        <PromptEditor
+          tagSuggestions={mockTagSuggestions}
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+        />
+      )
+
+      // Add a valid prompt name
+      const nameInput = screen.getByLabelText(/name/i)
+      await user.type(nameInput, 'test-prompt')
+
+      // Add an argument
+      const addArgButton = screen.getByRole('button', { name: /add argument/i })
+      await user.click(addArgButton)
+
+      // Fill in argument name exceeding 100 characters
+      const argInput = screen.getByPlaceholderText('argument_name')
+      const longArgName = 'a'.repeat(101)
+      await user.type(argInput, longArgName)
+
+      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      await user.click(submitButton)
+
+      expect(screen.getByText(/exceeds 100 characters/i)).toBeInTheDocument()
+      expect(onSubmit).not.toHaveBeenCalled()
+    })
   })
 
   describe('argument management', () => {
@@ -340,6 +475,68 @@ describe('PromptEditor', () => {
 
       await user.click(requiredCheckbox)
       expect(requiredCheckbox).toBeChecked()
+    })
+  })
+
+  describe('content validation', () => {
+    it('should reject content exceeding max length (100,000)', async () => {
+      const user = userEvent.setup()
+      const onSubmit = vi.fn()
+
+      render(
+        <PromptEditor
+          tagSuggestions={mockTagSuggestions}
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+        />
+      )
+
+      // Add a valid prompt name
+      const nameInput = screen.getByLabelText(/name/i)
+      await user.type(nameInput, 'test-prompt')
+
+      // Add content exceeding 100,000 characters
+      const contentTextarea = screen.getByLabelText(/template content/i)
+      const longContent = 'a'.repeat(100001)
+      // Use paste to avoid typing 100k+ characters
+      await user.click(contentTextarea)
+      await user.paste(longContent)
+
+      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      await user.click(submitButton)
+
+      expect(screen.getByText(/content exceeds 100,000 characters/i)).toBeInTheDocument()
+      expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it('should show character count for content field', () => {
+      render(
+        <PromptEditor
+          tagSuggestions={mockTagSuggestions}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      // Should show 0/100,000 initially
+      expect(screen.getByText('0/100,000')).toBeInTheDocument()
+    })
+
+    it('should update character count as content changes', async () => {
+      const user = userEvent.setup()
+
+      render(
+        <PromptEditor
+          tagSuggestions={mockTagSuggestions}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      const contentTextarea = screen.getByLabelText(/template content/i)
+      await user.type(contentTextarea, 'Hello World!')
+
+      expect(screen.getByText('12/100,000')).toBeInTheDocument()
     })
   })
 

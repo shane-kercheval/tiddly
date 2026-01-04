@@ -15,6 +15,9 @@ export const config = {
   limits: {
     maxContentLength: parseInt(import.meta.env.VITE_MAX_CONTENT_LENGTH || '512000', 10),
     maxNoteContentLength: parseInt(import.meta.env.VITE_MAX_NOTE_CONTENT_LENGTH || '500000', 10),
+    maxPromptContentLength: parseInt(import.meta.env.VITE_MAX_PROMPT_CONTENT_LENGTH || '100000', 10),
+    maxPromptNameLength: parseInt(import.meta.env.VITE_MAX_PROMPT_NAME_LENGTH || '255', 10),
+    maxArgumentNameLength: parseInt(import.meta.env.VITE_MAX_ARGUMENT_NAME_LENGTH || '100', 10),
     maxDescriptionLength: parseInt(import.meta.env.VITE_MAX_DESCRIPTION_LENGTH || '2000', 10),
     maxTitleLength: parseInt(import.meta.env.VITE_MAX_TITLE_LENGTH || '500', 10),
   },

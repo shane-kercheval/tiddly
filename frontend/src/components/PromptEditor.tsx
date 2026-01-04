@@ -13,8 +13,12 @@ import { ArchiveIcon, TrashIcon, PlusIcon, ChevronUpIcon, ChevronDownIcon, Close
 /** Key prefix for localStorage draft storage */
 const DRAFT_KEY_PREFIX = 'prompt_draft_'
 
-/** Regex for validating prompt names (lowercase with hyphens) */
-const PROMPT_NAME_PATTERN = /^[a-z][a-z0-9-]*$/
+/**
+ * Regex for validating prompt names.
+ * Must start and end with alphanumeric, hyphens only between segments.
+ * Matches backend: ^[a-z0-9]+(-[a-z0-9]+)*$
+ */
+const PROMPT_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
 /** Regex for validating argument names (lowercase with underscores) */
 const ARG_NAME_PATTERN = /^[a-z][a-z0-9_]*$/
@@ -340,10 +344,10 @@ export function PromptEditor({
     // Name is required
     if (!form.name.trim()) {
       newErrors.name = 'Name is required'
+    } else if (form.name.length > config.limits.maxPromptNameLength) {
+      newErrors.name = `Name must be ${config.limits.maxPromptNameLength} characters or less`
     } else if (!PROMPT_NAME_PATTERN.test(form.name)) {
-      newErrors.name = 'Name must start with a letter and contain only lowercase letters, numbers, and hyphens'
-    } else if (form.name.length > 100) {
-      newErrors.name = 'Name must be 100 characters or less'
+      newErrors.name = 'Name must use lowercase letters, numbers, and hyphens only. Must start and end with a letter or number (e.g., code-review)'
     }
 
     if (form.title && form.title.length > config.limits.maxTitleLength) {
@@ -354,12 +358,21 @@ export function PromptEditor({
       newErrors.description = `Description exceeds ${config.limits.maxDescriptionLength.toLocaleString()} characters`
     }
 
+    // Validate content length
+    if (form.content.length > config.limits.maxPromptContentLength) {
+      newErrors.content = `Content exceeds ${config.limits.maxPromptContentLength.toLocaleString()} characters`
+    }
+
     // Validate arguments
     const argNames = new Set<string>()
     for (let i = 0; i < form.arguments.length; i++) {
       const arg = form.arguments[i]
       if (!arg.name.trim()) {
         newErrors.arguments = `Argument ${i + 1} name is required`
+        break
+      }
+      if (arg.name.length > config.limits.maxArgumentNameLength) {
+        newErrors.arguments = `Argument "${arg.name}" exceeds ${config.limits.maxArgumentNameLength} characters`
         break
       }
       if (!ARG_NAME_PATTERN.test(arg.name)) {
@@ -551,12 +564,12 @@ export function PromptEditor({
             }}
             placeholder="code-review"
             disabled={isSubmitting}
-            maxLength={100}
+            maxLength={config.limits.maxPromptNameLength}
             className={`input mt-1 font-mono ${errors.name ? 'input-error' : ''}`}
             autoFocus
           />
           <p className="helper-text">
-            Use lowercase with hyphens (e.g., code-review, bug-report)
+            Use lowercase letters, numbers, and hyphens. Must start and end with a letter or number (e.g., code-review)
           </p>
           {errors.name && <p className="error-text">{errors.name}</p>}
         </div>
@@ -759,11 +772,16 @@ Example: Please review the following code:
 {{ code_to_review }}"
             rows={12}
             disabled={isSubmitting}
-            className="input mt-1 font-mono text-sm"
+            className={`input mt-1 font-mono text-sm ${errors.content ? 'input-error' : ''}`}
           />
-          <p className="helper-text">
-            Jinja2 template. Use {"{{ variable_name }}"} for arguments. Supports conditionals and loops.
-          </p>
+          <div className="flex justify-between items-center">
+            <p className="helper-text">
+              Jinja2 template. Use {"{{ variable_name }}"} for arguments.
+            </p>
+            <span className="helper-text">
+              {form.content.length.toLocaleString()}/{config.limits.maxPromptContentLength.toLocaleString()}
+            </span>
+          </div>
           {errors.content && <p className="error-text">{errors.content}</p>}
         </div>
       </div>
