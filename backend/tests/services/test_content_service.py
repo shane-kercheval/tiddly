@@ -647,7 +647,7 @@ async def test__search_all_content__returns_prompts(
     note_data = NoteCreate(title='Note')
     await note_service.create(db_session, test_user.id, note_data)
 
-    prompt_data = PromptCreate(name='test-prompt', title='Prompt Title')
+    prompt_data = PromptCreate(name='test-prompt', title='Prompt Title', content='Prompt content')
     await prompt_service.create(db_session, test_user.id, prompt_data)
 
     await db_session.flush()
@@ -668,6 +668,7 @@ async def test__search_all_content__prompt_has_correct_fields(
         name='code-review',
         title='Code Review Prompt',
         description='A prompt for reviewing code',
+        content='Review this {{ code }} in {{ language }}',
         arguments=[
             {'name': 'code', 'description': 'Code to review', 'required': True},
             {'name': 'language', 'description': None, 'required': False},
@@ -706,7 +707,7 @@ async def test__search_all_content__content_types_filter_prompts_only(
     note_data = NoteCreate(title='Note')
     await note_service.create(db_session, test_user.id, note_data)
 
-    prompt_data = PromptCreate(name='my-prompt', title='My Prompt')
+    prompt_data = PromptCreate(name='my-prompt', title='My Prompt', content='My prompt content')
     await prompt_service.create(db_session, test_user.id, prompt_data)
 
     await db_session.flush()
@@ -732,7 +733,7 @@ async def test__search_all_content__content_types_filter_excludes_prompts(
     note_data = NoteCreate(title='Note')
     await note_service.create(db_session, test_user.id, note_data)
 
-    prompt_data = PromptCreate(name='my-prompt')
+    prompt_data = PromptCreate(name='my-prompt', content='Prompt content')
     await prompt_service.create(db_session, test_user.id, prompt_data)
 
     await db_session.flush()
@@ -758,7 +759,7 @@ async def test__search_all_content__content_types_multiple_combinations(
     note_data = NoteCreate(title='Note')
     await note_service.create(db_session, test_user.id, note_data)
 
-    prompt_data = PromptCreate(name='prompt')
+    prompt_data = PromptCreate(name='prompt', content='Prompt content')
     await prompt_service.create(db_session, test_user.id, prompt_data)
 
     await db_session.flush()
@@ -790,13 +791,13 @@ async def test__search_all_content__prompt_view_active(
 ) -> None:
     """Test that view='active' works correctly for prompts."""
     # Create active, archived, and deleted prompts
-    active_prompt = PromptCreate(name='active-prompt')
+    active_prompt = PromptCreate(name='active-prompt', content='Active content')
     await prompt_service.create(db_session, test_user.id, active_prompt)
 
-    archived_prompt = PromptCreate(name='archived-prompt')
+    archived_prompt = PromptCreate(name='archived-prompt', content='Archived content')
     archived = await prompt_service.create(db_session, test_user.id, archived_prompt)
 
-    deleted_prompt = PromptCreate(name='deleted-prompt')
+    deleted_prompt = PromptCreate(name='deleted-prompt', content='Deleted content')
     deleted = await prompt_service.create(db_session, test_user.id, deleted_prompt)
 
     await db_session.flush()
@@ -820,10 +821,10 @@ async def test__search_all_content__prompt_view_archived(
     test_user: User,
 ) -> None:
     """Test that view='archived' returns archived prompts."""
-    active_prompt = PromptCreate(name='active-prompt')
+    active_prompt = PromptCreate(name='active-prompt', content='Active content')
     await prompt_service.create(db_session, test_user.id, active_prompt)
 
-    archived_prompt = PromptCreate(name='archived-prompt')
+    archived_prompt = PromptCreate(name='archived-prompt', content='Archived content')
     archived = await prompt_service.create(db_session, test_user.id, archived_prompt)
 
     await db_session.flush()
@@ -843,10 +844,10 @@ async def test__search_all_content__prompt_view_deleted(
     test_user: User,
 ) -> None:
     """Test that view='deleted' returns deleted prompts."""
-    active_prompt = PromptCreate(name='active-prompt')
+    active_prompt = PromptCreate(name='active-prompt', content='Active content')
     await prompt_service.create(db_session, test_user.id, active_prompt)
 
-    deleted_prompt = PromptCreate(name='deleted-prompt')
+    deleted_prompt = PromptCreate(name='deleted-prompt', content='Deleted content')
     deleted = await prompt_service.create(db_session, test_user.id, deleted_prompt)
 
     await db_session.flush()
@@ -866,10 +867,10 @@ async def test__search_all_content__prompt_text_search_in_name(
     test_user: User,
 ) -> None:
     """Test that text search finds prompts by name."""
-    prompt1 = PromptCreate(name='code-review-prompt')
+    prompt1 = PromptCreate(name='code-review-prompt', content='Content 1')
     await prompt_service.create(db_session, test_user.id, prompt1)
 
-    prompt2 = PromptCreate(name='bug-report-prompt')
+    prompt2 = PromptCreate(name='bug-report-prompt', content='Content 2')
     await prompt_service.create(db_session, test_user.id, prompt2)
 
     await db_session.flush()
@@ -914,10 +915,10 @@ async def test__search_all_content__prompt_tag_filter(
     test_user: User,
 ) -> None:
     """Test that tag filtering works for prompts."""
-    prompt1 = PromptCreate(name='prompt1', tags=['code', 'review'])
+    prompt1 = PromptCreate(name='prompt1', content='Content 1', tags=['code', 'review'])
     await prompt_service.create(db_session, test_user.id, prompt1)
 
-    prompt2 = PromptCreate(name='prompt2', tags=['writing'])
+    prompt2 = PromptCreate(name='prompt2', content='Content 2', tags=['writing'])
     await prompt_service.create(db_session, test_user.id, prompt2)
 
     await db_session.flush()
@@ -937,10 +938,10 @@ async def test__search_all_content__prompt_excludes_other_users(
     other_user: User,
 ) -> None:
     """Test that prompts from other users are excluded."""
-    my_prompt = PromptCreate(name='my-prompt')
+    my_prompt = PromptCreate(name='my-prompt', content='My content')
     await prompt_service.create(db_session, test_user.id, my_prompt)
 
-    other_prompt = PromptCreate(name='other-prompt')
+    other_prompt = PromptCreate(name='other-prompt', content='Other content')
     await prompt_service.create(db_session, other_user.id, other_prompt)
 
     await db_session.flush()
@@ -958,7 +959,7 @@ async def test__search_all_content__prompt_with_empty_arguments(
     test_user: User,
 ) -> None:
     """Test that prompts with no arguments work correctly."""
-    prompt_data = PromptCreate(name='no-args-prompt')
+    prompt_data = PromptCreate(name='no-args-prompt', content='Simple content without variables')
     await prompt_service.create(db_session, test_user.id, prompt_data)
     await db_session.flush()
 
@@ -988,7 +989,7 @@ async def test__search_all_content__mixed_content_sorting(
 
     await asyncio.sleep(0.01)
 
-    prompt_data = PromptCreate(name='third')
+    prompt_data = PromptCreate(name='third', content='Third content')
     await prompt_service.create(db_session, test_user.id, prompt_data)
     await db_session.flush()
 
@@ -1010,7 +1011,7 @@ async def test__search_all_content__prompt_pagination(
     """Test pagination with prompts."""
     # Create 5 prompts
     for i in range(5):
-        prompt_data = PromptCreate(name=f'prompt-{i}')
+        prompt_data = PromptCreate(name=f'prompt-{i}', content=f'Content {i}')
         await prompt_service.create(db_session, test_user.id, prompt_data)
     await db_session.flush()
 

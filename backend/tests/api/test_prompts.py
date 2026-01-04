@@ -56,10 +56,10 @@ async def test__create_prompt__success(client: AsyncClient, db_session: AsyncSes
 
 
 async def test__create_prompt__minimal(client: AsyncClient) -> None:
-    """Test creating a prompt with only name (minimal required data)."""
+    """Test creating a prompt with name and content (minimal required data)."""
     response = await client.post(
         "/prompts/",
-        json={"name": "minimal-prompt"},
+        json={"name": "minimal-prompt", "content": "Hello world"},
     )
     assert response.status_code == 201
 
@@ -67,9 +67,19 @@ async def test__create_prompt__minimal(client: AsyncClient) -> None:
     assert data["name"] == "minimal-prompt"
     assert data["title"] is None
     assert data["description"] is None
-    assert data["content"] is None
+    assert data["content"] == "Hello world"
     assert data["arguments"] == []
     assert data["tags"] == []
+
+
+async def test__create_prompt__content_required(client: AsyncClient) -> None:
+    """Test that content is required for prompt creation."""
+    response = await client.post(
+        "/prompts/",
+        json={"name": "no-content-prompt"},
+    )
+    assert response.status_code == 400
+    assert "content is required" in response.json()["detail"].lower()
 
 
 async def test__create_prompt__with_tags(client: AsyncClient) -> None:
@@ -78,6 +88,7 @@ async def test__create_prompt__with_tags(client: AsyncClient) -> None:
         "/prompts/",
         json={
             "name": "tagged-prompt",
+            "content": "Test content",
             "tags": ["code-review", "testing"],
         },
     )
@@ -167,13 +178,13 @@ async def test__create_prompt__name_already_exists(client: AsyncClient) -> None:
     # Create first prompt
     await client.post(
         "/prompts/",
-        json={"name": "duplicate-name"},
+        json={"name": "duplicate-name", "content": "First content"},
     )
 
     # Try to create second with same name
     response = await client.post(
         "/prompts/",
-        json={"name": "duplicate-name"},
+        json={"name": "duplicate-name", "content": "Second content"},
     )
     assert response.status_code == 409
     assert response.json()["detail"]["error_code"] == "NAME_CONFLICT"
@@ -185,6 +196,7 @@ async def test__create_prompt__normalizes_tags(client: AsyncClient) -> None:
         "/prompts/",
         json={
             "name": "tag-normalize-test",
+            "content": "Test content",
             "tags": ["Python", "FASTAPI", "Web-Dev"],
         },
     )
@@ -200,6 +212,7 @@ async def test__create_prompt__with_future_archived_at(client: AsyncClient) -> N
         "/prompts/",
         json={
             "name": "scheduled-prompt",
+            "content": "Test content",
             "archived_at": future_date,
         },
     )
@@ -220,7 +233,7 @@ async def test__list_prompts__returns_paginated_list(client: AsyncClient) -> Non
     for i in range(3):
         await client.post(
             "/prompts/",
-            json={"name": f"list-prompt-{i}"},
+            json={"name": f"list-prompt-{i}", "content": f"Content {i}"},
         )
 
     response = await client.get("/prompts/")
@@ -254,11 +267,11 @@ async def test__list_prompts__excludes_content_in_list_items(client: AsyncClient
 
 async def test__list_prompts__search_query_filters(client: AsyncClient) -> None:
     """Test prompt search by query."""
-    await client.post("/prompts/", json={"name": "python-review"})
-    await client.post("/prompts/", json={"name": "javascript-guide"})
+    await client.post("/prompts/", json={"name": "python-review", "content": "Content 1"})
+    await client.post("/prompts/", json={"name": "javascript-guide", "content": "Content 2"})
     await client.post(
         "/prompts/",
-        json={"name": "code-helper", "description": "Helps with Python code"},
+        json={"name": "code-helper", "content": "Content 3", "description": "Helps with Python code"},
     )
 
     response = await client.get("/prompts/", params={"q": "Python"})
@@ -269,9 +282,9 @@ async def test__list_prompts__search_query_filters(client: AsyncClient) -> None:
 
 async def test__list_prompts__tag_filter(client: AsyncClient) -> None:
     """Test prompt filtering by tags."""
-    await client.post("/prompts/", json={"name": "tagged-1", "tags": ["python", "web"]})
-    await client.post("/prompts/", json={"name": "tagged-2", "tags": ["python"]})
-    await client.post("/prompts/", json={"name": "untagged"})
+    await client.post("/prompts/", json={"name": "tagged-1", "content": "C1", "tags": ["python", "web"]})
+    await client.post("/prompts/", json={"name": "tagged-2", "content": "C2", "tags": ["python"]})
+    await client.post("/prompts/", json={"name": "untagged", "content": "C3"})
 
     # Filter by single tag
     response = await client.get("/prompts/", params={"tags": ["python"]})
@@ -286,9 +299,9 @@ async def test__list_prompts__tag_filter(client: AsyncClient) -> None:
 
 async def test__list_prompts__tag_match_any(client: AsyncClient) -> None:
     """Test tag filtering with OR mode."""
-    await client.post("/prompts/", json={"name": "py", "tags": ["python"]})
-    await client.post("/prompts/", json={"name": "js", "tags": ["javascript"]})
-    await client.post("/prompts/", json={"name": "none", "tags": []})
+    await client.post("/prompts/", json={"name": "py", "content": "C1", "tags": ["python"]})
+    await client.post("/prompts/", json={"name": "js", "content": "C2", "tags": ["javascript"]})
+    await client.post("/prompts/", json={"name": "none", "content": "C3", "tags": []})
 
     response = await client.get(
         "/prompts/",
@@ -300,9 +313,9 @@ async def test__list_prompts__tag_match_any(client: AsyncClient) -> None:
 
 async def test__list_prompts__sort_by_title(client: AsyncClient) -> None:
     """Test sorting prompts by title."""
-    await client.post("/prompts/", json={"name": "b-prompt", "title": "Banana"})
-    await client.post("/prompts/", json={"name": "a-prompt", "title": "Apple"})
-    await client.post("/prompts/", json={"name": "c-prompt", "title": "Cherry"})
+    await client.post("/prompts/", json={"name": "b-prompt", "content": "C1", "title": "Banana"})
+    await client.post("/prompts/", json={"name": "a-prompt", "content": "C2", "title": "Apple"})
+    await client.post("/prompts/", json={"name": "c-prompt", "content": "C3", "title": "Cherry"})
 
     # Sort ascending
     response = await client.get("/prompts/", params={"sort_by": "title", "sort_order": "asc"})
@@ -313,9 +326,9 @@ async def test__list_prompts__sort_by_title(client: AsyncClient) -> None:
 
 async def test__list_prompts__sort_by_title_uses_name_fallback(client: AsyncClient) -> None:
     """Test that sorting by title uses name as fallback for null titles."""
-    await client.post("/prompts/", json={"name": "beta"})  # No title
-    await client.post("/prompts/", json={"name": "alpha"})  # No title
-    await client.post("/prompts/", json={"name": "gamma", "title": "Gamma Title"})
+    await client.post("/prompts/", json={"name": "beta", "content": "C1"})  # No title
+    await client.post("/prompts/", json={"name": "alpha", "content": "C2"})  # No title
+    await client.post("/prompts/", json={"name": "gamma", "content": "C3", "title": "Gamma Title"})
 
     response = await client.get("/prompts/", params={"sort_by": "title", "sort_order": "asc"})
     assert response.status_code == 200
@@ -328,11 +341,11 @@ async def test__list_prompts__view_archived(client: AsyncClient) -> None:
     """Test that archived view returns only archived prompts."""
     # Create and archive some prompts
     for i in range(2):
-        response = await client.post("/prompts/", json={"name": f"archive-{i}"})
+        response = await client.post("/prompts/", json={"name": f"archive-{i}", "content": f"C{i}"})
         await client.post(f"/prompts/{response.json()['id']}/archive")
 
     # Create an active prompt
-    await client.post("/prompts/", json={"name": "active"})
+    await client.post("/prompts/", json={"name": "active", "content": "Active content"})
 
     response = await client.get("/prompts/", params={"view": "archived"})
     assert response.status_code == 200
@@ -345,11 +358,11 @@ async def test__list_prompts__view_deleted(client: AsyncClient) -> None:
     """Test that deleted view returns only soft-deleted prompts."""
     # Create and delete some prompts
     for i in range(2):
-        response = await client.post("/prompts/", json={"name": f"delete-{i}"})
+        response = await client.post("/prompts/", json={"name": f"delete-{i}", "content": f"C{i}"})
         await client.delete(f"/prompts/{response.json()['id']}")
 
     # Create an active prompt
-    await client.post("/prompts/", json={"name": "active"})
+    await client.post("/prompts/", json={"name": "active", "content": "Active content"})
 
     response = await client.get("/prompts/", params={"view": "deleted"})
     assert response.status_code == 200
@@ -364,7 +377,7 @@ async def test__list_prompts__pagination(client: AsyncClient) -> None:
     for i in range(5):
         await client.post(
             "/prompts/",
-            json={"name": f"paginate-{i}"},
+            json={"name": f"paginate-{i}", "content": f"Content {i}"},
         )
 
     # Test limit
@@ -460,7 +473,7 @@ async def test__get_prompt_by_name__deleted_prompt(client: AsyncClient) -> None:
     """Test that deleted prompts are not returned by name lookup."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "deleted-prompt"},
+        json={"name": "deleted-prompt", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
     await client.delete(f"/prompts/{prompt_id}")
@@ -473,7 +486,7 @@ async def test__get_prompt_by_name__archived_prompt(client: AsyncClient) -> None
     """Test that archived prompts are not returned by name lookup."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "archived-prompt"},
+        json={"name": "archived-prompt", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
     await client.post(f"/prompts/{prompt_id}/archive")
@@ -515,6 +528,7 @@ async def test__update_prompt__partial_update(client: AsyncClient) -> None:
         "/prompts/",
         json={
             "name": "partial-test",
+            "content": "Content",
             "title": "Original Title",
             "description": "Original description",
         },
@@ -537,7 +551,7 @@ async def test__update_prompt__update_tags(client: AsyncClient) -> None:
     """Test updating prompt tags."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "tag-update", "tags": ["original"]},
+        json={"name": "tag-update", "content": "Content", "tags": ["original"]},
     )
     prompt_id = create_response.json()["id"]
 
@@ -553,7 +567,7 @@ async def test__update_prompt__clear_tags_with_empty_list(client: AsyncClient) -
     """Test clearing tags by sending empty list."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "clear-tags", "tags": ["some-tag"]},
+        json={"name": "clear-tags", "content": "Content", "tags": ["some-tag"]},
     )
     prompt_id = create_response.json()["id"]
 
@@ -569,7 +583,7 @@ async def test__update_prompt__validation_error(client: AsyncClient) -> None:
     """Test that invalid update data returns 422."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "validation-test"},
+        json={"name": "validation-test", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -585,7 +599,7 @@ async def test__update_prompt__template_syntax_error(client: AsyncClient) -> Non
     """Test that template syntax error on update returns 400."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "template-update"},
+        json={"name": "template-update", "content": "Original content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -610,8 +624,8 @@ async def test__update_prompt__not_found(client: AsyncClient) -> None:
 async def test__update_prompt__name_conflict(client: AsyncClient) -> None:
     """Test that updating to an existing name returns 409."""
     # Create two prompts
-    await client.post("/prompts/", json={"name": "existing-name"})
-    create_response = await client.post("/prompts/", json={"name": "other-name"})
+    await client.post("/prompts/", json={"name": "existing-name", "content": "C1"})
+    create_response = await client.post("/prompts/", json={"name": "other-name", "content": "C2"})
     prompt_id = create_response.json()["id"]
 
     # Try to rename to existing name
@@ -627,7 +641,7 @@ async def test__update_prompt__updates_updated_at(client: AsyncClient) -> None:
     """Test that updating a prompt updates the updated_at timestamp."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "timestamp-test"},
+        json={"name": "timestamp-test", "content": "Content"},
     )
     original_updated_at = create_response.json()["updated_at"]
     prompt_id = create_response.json()["id"]
@@ -651,7 +665,7 @@ async def test__delete_prompt__soft_delete_default(client: AsyncClient) -> None:
     """Test soft deleting a prompt."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "to-delete"},
+        json={"name": "to-delete", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -669,7 +683,7 @@ async def test__delete_prompt__permanent_delete(
     """Test permanently deleting a prompt."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "permanent-delete"},
+        json={"name": "permanent-delete", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -699,7 +713,7 @@ async def test__archive_prompt__success(client: AsyncClient) -> None:
     """Test archiving a prompt."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "to-archive"},
+        json={"name": "to-archive", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -716,7 +730,7 @@ async def test__archive_prompt__already_archived(client: AsyncClient) -> None:
     """Test that archiving an already-archived prompt is idempotent."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "already-archived"},
+        json={"name": "already-archived", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -742,7 +756,7 @@ async def test__unarchive_prompt__success(client: AsyncClient) -> None:
     """Test unarchiving a prompt."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "to-unarchive"},
+        json={"name": "to-unarchive", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -761,7 +775,7 @@ async def test__unarchive_prompt__not_archived(client: AsyncClient) -> None:
     """Test that unarchiving a non-archived prompt returns 400."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "not-archived"},
+        json={"name": "not-archived", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -785,7 +799,7 @@ async def test__restore_prompt__success(client: AsyncClient) -> None:
     """Test restoring a deleted prompt."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "to-restore"},
+        json={"name": "to-restore", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -804,7 +818,7 @@ async def test__restore_prompt__not_deleted(client: AsyncClient) -> None:
     """Test that restoring a non-deleted prompt returns 400."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "not-deleted"},
+        json={"name": "not-deleted", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -823,7 +837,7 @@ async def test__restore_prompt__clears_both_timestamps(client: AsyncClient) -> N
     """Test that restore clears both deleted_at and archived_at."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "archived-then-deleted"},
+        json={"name": "archived-then-deleted", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -845,7 +859,7 @@ async def test__track_usage__success(client: AsyncClient) -> None:
     """Test tracking prompt usage."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "track-me"},
+        json={"name": "track-me", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
     original_last_used = create_response.json()["last_used_at"]
@@ -871,7 +885,7 @@ async def test__track_usage__works_on_archived(client: AsyncClient) -> None:
     """Test that track-usage works on archived prompts."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "archived-track"},
+        json={"name": "archived-track", "content": "Content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -899,14 +913,14 @@ async def test__list_prompts__view_active_excludes_deleted_and_archived(
 ) -> None:
     """Test that active view excludes deleted and archived prompts."""
     # Create prompts in different states
-    active_resp = await client.post("/prompts/", json={"name": "active-prompt"})
+    active_resp = await client.post("/prompts/", json={"name": "active-prompt", "content": "C1"})
     active_id = active_resp.json()["id"]
 
-    archived_resp = await client.post("/prompts/", json={"name": "to-archive"})
+    archived_resp = await client.post("/prompts/", json={"name": "to-archive", "content": "C2"})
     archived_id = archived_resp.json()["id"]
     await client.post(f"/prompts/{archived_id}/archive")
 
-    deleted_resp = await client.post("/prompts/", json={"name": "to-delete"})
+    deleted_resp = await client.post("/prompts/", json={"name": "to-delete", "content": "C3"})
     deleted_id = deleted_resp.json()["id"]
     await client.delete(f"/prompts/{deleted_id}")
 
@@ -930,15 +944,15 @@ async def test__list_prompts__with_list_id(client: AsyncClient) -> None:
     # Create prompts with different tags
     await client.post(
         "/prompts/",
-        json={"name": "work-priority", "tags": ["work", "priority"]},
+        json={"name": "work-priority", "content": "C1", "tags": ["work", "priority"]},
     )
     await client.post(
         "/prompts/",
-        json={"name": "work-only", "tags": ["work"]},
+        json={"name": "work-only", "content": "C2", "tags": ["work"]},
     )
     await client.post(
         "/prompts/",
-        json={"name": "personal", "tags": ["personal"]},
+        json={"name": "personal", "content": "C3", "tags": ["personal"]},
     )
 
     # Create a list that filters for work AND priority
@@ -1006,7 +1020,7 @@ async def test__update_prompt__validates_when_adding_undefined_var(
     """Test that adding template var without argument fails."""
     create_response = await client.post(
         "/prompts/",
-        json={"name": "var-add-test"},
+        json={"name": "var-add-test", "content": "Original content"},
     )
     prompt_id = create_response.json()["id"]
 
@@ -1056,6 +1070,7 @@ async def test__create_prompt__argument_name_with_underscore(client: AsyncClient
         "/prompts/",
         json={
             "name": "underscore-args",
+            "content": "Hello {{ user_name }}, here is {{ code_block }}",
             "arguments": [{"name": "user_name"}, {"name": "code_block"}],
         },
     )

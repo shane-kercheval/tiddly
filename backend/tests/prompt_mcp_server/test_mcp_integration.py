@@ -205,7 +205,7 @@ async def test__create_prompt_tool__duplicate_name_error(
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
             "create_prompt",
-            {"name": test_prompt["name"]},  # Already exists
+            {"name": test_prompt["name"], "content": "Some content"},  # Name already exists
         )
 
     assert "already exists" in str(exc_info.value)
