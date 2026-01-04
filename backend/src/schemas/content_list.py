@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from schemas.validators import validate_and_normalize_tags
 
 # Valid content types for lists
-ContentType = Literal["bookmark", "note"]
+ContentType = Literal["bookmark", "note", "prompt"]
 
 # Sort options for list defaults
 # Note: archived_at/deleted_at are valid for bookmarks API but NOT for list defaults
