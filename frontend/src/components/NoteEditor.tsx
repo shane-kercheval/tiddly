@@ -455,80 +455,80 @@ export function NoteEditor({
         </div>
       )}
 
-      {/* Title and Tags row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Title field - required (2/3 width on desktop) */}
-        <div className="md:col-span-2">
-          <label htmlFor="title" className="label">
-            Title <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            id="title"
-            value={form.title}
-            onChange={(e) => {
-              setForm((prev) => ({ ...prev, title: e.target.value }))
-              if (errors.title) {
-                setErrors((prev) => ({ ...prev, title: undefined }))
-              }
-            }}
-            placeholder="Note title"
-            disabled={isSubmitting}
-            maxLength={config.limits.maxTitleLength}
-            className={`input mt-1 ${errors.title ? 'input-error' : ''}`}
-            autoFocus
-          />
-          {errors.title && <p className="error-text">{errors.title}</p>}
-        </div>
-
-        {/* Tags field (1/3 width on desktop) */}
-        <div>
-          <label htmlFor="tags" className="label">
-            Tags
-          </label>
-          <div className="mt-1">
-            <TagInput
-              ref={tagInputRef}
-              id="tags"
-              value={form.tags}
-              onChange={(tags) => setForm((prev) => ({ ...prev, tags }))}
-              suggestions={tagSuggestions}
-              placeholder="Add tags..."
+      <section className="rounded-2xl border border-gray-200 bg-gray-50/60 p-4 md:p-5 space-y-5">
+        {/* Title and Tags row */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+          <div className="md:col-span-6 lg:col-span-6">
+            <label htmlFor="title" className="label">
+              Title <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              id="title"
+              value={form.title}
+              onChange={(e) => {
+                setForm((prev) => ({ ...prev, title: e.target.value }))
+                if (errors.title) {
+                  setErrors((prev) => ({ ...prev, title: undefined }))
+                }
+              }}
+              placeholder="Note title"
               disabled={isSubmitting}
-              error={errors.tags}
+              maxLength={config.limits.maxTitleLength}
+              className={`input mt-1 ${errors.title ? 'input-error' : ''}`}
+              autoFocus
             />
+            {errors.title && <p className="error-text">{errors.title}</p>}
+          </div>
+
+          <div className="md:col-span-6 lg:col-span-6">
+            <label htmlFor="tags" className="label">
+              Tags
+            </label>
+            <div className="mt-1">
+              <TagInput
+                ref={tagInputRef}
+                id="tags"
+                value={form.tags}
+                onChange={(tags) => setForm((prev) => ({ ...prev, tags }))}
+                suggestions={tagSuggestions}
+                placeholder="Add tags..."
+                disabled={isSubmitting}
+                error={errors.tags}
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Description field - optional */}
-      <div>
-        <label htmlFor="description" className="label">
-          Description
-        </label>
-        <textarea
-          id="description"
-          value={form.description}
-          onChange={(e) =>
-            setForm((prev) => ({ ...prev, description: e.target.value }))
-          }
-          placeholder="Brief summary or metadata..."
-          rows={2}
-          disabled={isSubmitting}
-          maxLength={config.limits.maxDescriptionLength}
-          className={`input mt-1 ${errors.description ? 'input-error' : ''}`}
-        />
-        <div className="flex justify-between items-center">
-          {errors.description ? (
-            <p className="error-text">{errors.description}</p>
-          ) : (
-            <span />
-          )}
-          <span className="helper-text">
-            {form.description.length.toLocaleString()}/{config.limits.maxDescriptionLength.toLocaleString()}
-          </span>
+        {/* Description field - optional */}
+        <div>
+          <label htmlFor="description" className="label">
+            Description
+          </label>
+          <textarea
+            id="description"
+            value={form.description}
+            onChange={(e) =>
+              setForm((prev) => ({ ...prev, description: e.target.value }))
+            }
+            placeholder="Brief summary or metadata..."
+            rows={2}
+            disabled={isSubmitting}
+            maxLength={config.limits.maxDescriptionLength}
+            className={`input mt-1 ${errors.description ? 'input-error' : ''}`}
+          />
+          <div className="flex justify-between items-center">
+            {errors.description ? (
+              <p className="error-text">{errors.description}</p>
+            ) : (
+              <span />
+            )}
+            <span className="helper-text">
+              {form.description.length.toLocaleString()}/{config.limits.maxDescriptionLength.toLocaleString()}
+            </span>
+          </div>
         </div>
-      </div>
+      </section>
 
       {/* Content field with preview toggle */}
       <MarkdownEditor
