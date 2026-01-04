@@ -9,7 +9,7 @@ import type { Bookmark, BookmarkCreate, BookmarkUpdate, TagCount } from '../type
 import { normalizeUrl, isValidUrl, TAG_PATTERN, calculateArchivePresetDate } from '../utils'
 import type { ArchivePreset } from '../utils'
 import { config } from '../config'
-import { ArchiveIcon, TrashIcon } from './icons'
+import { ArchiveIcon, TrashIcon, RestoreIcon } from './icons'
 
 interface BookmarkFormProps {
   /** Existing bookmark when editing, undefined when creating */
@@ -22,6 +22,8 @@ interface BookmarkFormProps {
   onCancel: () => void
   /** Called when bookmark is archived (shown in header when provided) */
   onArchive?: () => void
+  /** Called when bookmark is unarchived (shown in header when provided) */
+  onUnarchive?: () => void
   /** Called when bookmark is deleted (shown in header when provided) */
   onDelete?: () => void
   /** Function to fetch metadata for a URL */
@@ -73,6 +75,7 @@ export function BookmarkForm({
   onSubmit,
   onCancel,
   onArchive,
+  onUnarchive,
   onDelete,
   onFetchMetadata,
   isSubmitting = false,
@@ -397,6 +400,18 @@ export function BookmarkForm({
             >
               <ArchiveIcon className="h-4 w-4" />
               Archive
+            </button>
+          )}
+          {onUnarchive && (
+            <button
+              type="button"
+              onClick={onUnarchive}
+              disabled={isSubmitting}
+              className="btn-secondary flex items-center gap-2"
+              title="Restore bookmark"
+            >
+              <RestoreIcon />
+              Restore
             </button>
           )}
           {onDelete && (

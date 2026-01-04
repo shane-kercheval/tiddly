@@ -189,20 +189,22 @@ export function PromptDetail(): ReactNode {
     try {
       const archivedPrompt = await archiveMutation.mutateAsync(promptId)
       setPrompt(archivedPrompt)
+      navigateBack()
     } catch {
       toast.error('Failed to archive prompt')
     }
-  }, [promptId, archiveMutation])
+  }, [promptId, archiveMutation, navigateBack])
 
   const handleUnarchive = useCallback(async (): Promise<void> => {
     if (!promptId) return
     try {
       const unarchivedPrompt = await unarchiveMutation.mutateAsync(promptId)
       setPrompt(unarchivedPrompt)
+      navigateBack()
     } catch {
       toast.error('Failed to unarchive prompt')
     }
-  }, [promptId, unarchiveMutation])
+  }, [promptId, unarchiveMutation, navigateBack])
 
   const handleDelete = useCallback(async (): Promise<void> => {
     if (!promptId) return
@@ -220,10 +222,11 @@ export function PromptDetail(): ReactNode {
     try {
       const restoredPrompt = await restoreMutation.mutateAsync(promptId)
       setPrompt(restoredPrompt)
+      navigateBack()
     } catch {
       toast.error('Failed to restore prompt')
     }
-  }, [promptId, restoreMutation])
+  }, [promptId, restoreMutation, navigateBack])
 
   // Render loading state
   if (isLoading) {
