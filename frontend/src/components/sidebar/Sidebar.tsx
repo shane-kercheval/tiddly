@@ -50,6 +50,7 @@ import {
   PlusIcon,
   BookmarkIcon,
   NoteIcon,
+  PromptIcon,
 } from '../icons'
 import type {
   SidebarItemComputed,
@@ -146,6 +147,16 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
   const handleQuickAddNote = (): void => {
     navigate('/app/notes/new', {
+      state: {
+        returnTo: location.pathname + location.search,
+        initialTags: initialTagsFromList,
+      },
+    })
+    onNavClick?.()
+  }
+
+  const handleQuickAddPrompt = (): void => {
+    navigate('/app/prompts/new', {
       state: {
         returnTo: location.pathname + location.search,
         initialTags: initialTagsFromList,
@@ -610,6 +621,13 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
             title="New Note"
           >
             <NoteIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={handleQuickAddPrompt}
+            className="p-1.5 rounded-md text-orange-500 hover:bg-orange-50 hover:text-orange-600 transition-colors"
+            title="New Prompt"
+          >
+            <PromptIcon className="h-4 w-4" />
           </button>
           <button
             onClick={toggleCollapse}

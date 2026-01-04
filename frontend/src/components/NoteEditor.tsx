@@ -14,6 +14,34 @@ import { ArchiveIcon, TrashIcon } from './icons'
 /** Key prefix for localStorage draft storage */
 const DRAFT_KEY_PREFIX = 'note_draft_'
 
+/** Key for persisting editor wrap text preference */
+const WRAP_TEXT_KEY = 'editor_wrap_text'
+
+/**
+ * Load wrap text preference from localStorage.
+ * Defaults to true (wrap on) if not set.
+ */
+function loadWrapTextPreference(): boolean {
+  try {
+    const stored = localStorage.getItem(WRAP_TEXT_KEY)
+    // Default to true if not set
+    return stored === null ? true : stored === 'true'
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Save wrap text preference to localStorage.
+ */
+function saveWrapTextPreference(wrap: boolean): void {
+  try {
+    localStorage.setItem(WRAP_TEXT_KEY, String(wrap))
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 interface DraftData {
   title: string
   description: string
@@ -136,6 +164,12 @@ export function NoteEditor({
   const [errors, setErrors] = useState<FormErrors>({})
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const cancelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [wrapText, setWrapText] = useState(loadWrapTextPreference)
+
+  const handleWrapTextChange = (wrap: boolean): void => {
+    setWrapText(wrap)
+    saveWrapTextPreference(wrap)
+  }
 
   // Check for existing draft on mount - compute initial value with initializer function
   const [hasDraft, setHasDraft] = useState(() => {
@@ -536,6 +570,8 @@ export function NoteEditor({
         label="Content"
         maxLength={config.limits.maxNoteContentLength}
         errorMessage={errors.content}
+        wrapText={wrapText}
+        onWrapTextChange={handleWrapTextChange}
       />
       </div>
     </form>

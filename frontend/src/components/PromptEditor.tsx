@@ -12,16 +12,70 @@ import { config } from '../config'
 import { ArchiveIcon, TrashIcon, PlusIcon, ChevronUpIcon, ChevronDownIcon, CloseIcon } from './icons'
 
 /** Default template content for new prompts */
-const DEFAULT_PROMPT_CONTENT = `{%- if context %}
-## Context
-{{ context }}
-{%- endif %}
+const DEFAULT_PROMPT_CONTENT = `# Getting Started with Prompts
 
-## Task
-{{ task }}`
+Prompts are reusable templates exposed to **MCP clients** (Claude Desktop, Claude Code, Cursor, etc.).
+
+Create prompts here, then use them directly from your AI tools by configuring MCP access by following instructions in the Settings > MCP Integration.
+
+Templates combine Markdown with **Jinja2** syntax for dynamic content. Define arguments above, then reference them in your template.
+
+## Using Variables
+
+Reference arguments with double braces: \`{{ variable_name }}\`
+
+Example: "Please review {{ code_snippet }} for bugs."
+
+## Conditional Content
+
+Use \`{% if %}\` / \`{% endif %}\` to include content only when an argument is provided:
+
+\`\`\`
+{%- if context %}
+Context: {{ context }}
+{%- endif %}
+\`\`\`
+
+The \`-\` in \`{%-\` trims whitespace, keeping output clean when conditions are false.
+
+## Tips
+
+- Add arguments using the + button above
+- Mark arguments as "Required" if they must always be provided
+- Use descriptive argument names like \`code_to_review\` or \`target_language\`
+
+Delete this template and write your own prompt!`
 
 /** Key prefix for localStorage draft storage */
 const DRAFT_KEY_PREFIX = 'prompt_draft_'
+
+/** Key for persisting editor wrap text preference */
+const WRAP_TEXT_KEY = 'editor_wrap_text'
+
+/**
+ * Load wrap text preference from localStorage.
+ * Defaults to true (wrap on) if not set.
+ */
+function loadWrapTextPreference(): boolean {
+  try {
+    const stored = localStorage.getItem(WRAP_TEXT_KEY)
+    // Default to true if not set
+    return stored === null ? true : stored === 'true'
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Save wrap text preference to localStorage.
+ */
+function saveWrapTextPreference(wrap: boolean): void {
+  try {
+    localStorage.setItem(WRAP_TEXT_KEY, String(wrap))
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 /**
  * Regex for validating prompt names.
@@ -164,6 +218,12 @@ export function PromptEditor({
   const [errors, setErrors] = useState<FormErrors>({})
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const cancelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [wrapText, setWrapText] = useState(loadWrapTextPreference)
+
+  const handleWrapTextChange = (wrap: boolean): void => {
+    setWrapText(wrap)
+    saveWrapTextPreference(wrap)
+  }
 
   // Check for existing draft on mount
   const [hasDraft, setHasDraft] = useState(() => {
@@ -801,6 +861,8 @@ export function PromptEditor({
           helperText={'Jinja2 template with Markdown. Use {{ variable_name }} for arguments.'}
           maxLength={config.limits.maxPromptContentLength}
           errorMessage={errors.content}
+          wrapText={wrapText}
+          onWrapTextChange={handleWrapTextChange}
         />
       </div>
     </form>

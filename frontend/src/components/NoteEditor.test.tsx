@@ -271,20 +271,23 @@ describe('NoteEditor', () => {
       const user = userEvent.setup()
       render(<NoteEditor {...defaultProps} note={mockNote} />)
 
-      // Start in edit mode
-      expect(screen.getByTestId('codemirror-mock')).toBeInTheDocument()
+      // Start in edit mode - editor visible
+      const editor = screen.getByTestId('codemirror-mock')
+      expect(editor).toBeInTheDocument()
+      expect(editor.parentElement).not.toHaveClass('hidden')
 
       // Click Preview
       await user.click(screen.getByRole('button', { name: 'Preview' }))
 
-      // Should show rendered markdown (react-markdown output)
-      expect(screen.queryByTestId('codemirror-mock')).not.toBeInTheDocument()
+      // Editor stays in DOM (to preserve undo history) but is hidden
+      expect(screen.getByTestId('codemirror-mock')).toBeInTheDocument()
+      expect(screen.getByTestId('codemirror-mock').parentElement).toHaveClass('hidden')
       expect(screen.getByText('Hello')).toBeInTheDocument() // h1 rendered
 
       // Click Edit to go back
       await user.click(screen.getByRole('button', { name: 'Edit' }))
 
-      expect(screen.getByTestId('codemirror-mock')).toBeInTheDocument()
+      expect(screen.getByTestId('codemirror-mock').parentElement).not.toHaveClass('hidden')
     })
 
     it('should show "No content to preview" when content is empty', async () => {

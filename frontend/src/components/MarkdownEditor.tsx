@@ -2,13 +2,12 @@
  * Reusable markdown editor component with edit/preview toggle.
  * Uses CodeMirror for editing and ReactMarkdown for preview.
  */
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
-import { keymap } from '@codemirror/view'
+import { keymap, EditorView } from '@codemirror/view'
 import type { KeyBinding } from '@codemirror/view'
-import type { EditorView } from '@codemirror/view'
 import { Prec } from '@codemirror/state'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -35,6 +34,10 @@ interface MarkdownEditorProps {
   maxLength?: number
   /** Error message to display */
   errorMessage?: string
+  /** Whether to wrap long lines (default: false) */
+  wrapText?: boolean
+  /** Called when wrap text setting changes */
+  onWrapTextChange?: (wrap: boolean) => void
 }
 
 /**
@@ -102,40 +105,55 @@ function dispatchGlobalShortcut(key: string, metaKey: boolean): void {
 }
 
 /**
- * CodeMirror keybindings for markdown formatting.
- * For global shortcuts, we consume the event (return true) to prevent
- * CodeMirror's default handling, then dispatch to global handlers.
+ * Create CodeMirror keybindings for markdown formatting.
+ * Includes optional wrap toggle shortcut (Alt+Z, matching VS Code).
  */
-const markdownKeyBindings: KeyBinding[] = [
-  // Formatting shortcuts
-  { key: 'Mod-b', run: (view) => wrapWithMarkers(view, '**', '**') },
-  { key: 'Mod-i', run: (view) => wrapWithMarkers(view, '*', '*') },
-  { key: 'Mod-k', run: (view) => insertLink(view) },
-  { key: 'Mod-Shift-x', run: (view) => wrapWithMarkers(view, '~~', '~~') },
-  // Pass through to global handlers (consume event, then dispatch globally)
-  {
-    key: 'Mod-/',
-    run: () => {
-      dispatchGlobalShortcut('/', true)
-      return true // Consume to prevent CodeMirror's comment toggle
+function createMarkdownKeyBindings(onToggleWrap?: () => void): KeyBinding[] {
+  const bindings: KeyBinding[] = [
+    // Formatting shortcuts
+    { key: 'Mod-b', run: (view) => wrapWithMarkers(view, '**', '**') },
+    { key: 'Mod-i', run: (view) => wrapWithMarkers(view, '*', '*') },
+    { key: 'Mod-k', run: (view) => insertLink(view) },
+    { key: 'Mod-Shift-x', run: (view) => wrapWithMarkers(view, '~~', '~~') },
+    // Pass through to global handlers (consume event, then dispatch globally)
+    {
+      key: 'Mod-/',
+      run: () => {
+        dispatchGlobalShortcut('/', true)
+        return true // Consume to prevent CodeMirror's comment toggle
+      },
     },
-  },
-  {
-    key: 'Mod-\\',
-    run: () => {
-      dispatchGlobalShortcut('\\', true)
-      return true
+    {
+      key: 'Mod-\\',
+      run: () => {
+        dispatchGlobalShortcut('\\', true)
+        return true
+      },
     },
-  },
-]
+  ]
+
+  // Add wrap toggle shortcut if callback provided (Alt+Z, like VS Code)
+  if (onToggleWrap) {
+    bindings.push({
+      key: 'Alt-z',
+      run: () => {
+        onToggleWrap()
+        return true
+      },
+    })
+  }
+
+  return bindings
+}
 
 /**
  * MarkdownEditor provides a CodeMirror-based markdown editor with preview toggle.
  *
  * Features:
  * - CodeMirror editor with markdown syntax highlighting
- * - Preview mode with rendered markdown
+ * - Preview mode with rendered markdown (editor stays mounted to preserve undo history)
  * - Keyboard shortcuts for formatting (Cmd+B, Cmd+I, Cmd+K)
+ * - Optional text wrapping
  * - Character counter
  * - Error state styling
  */
@@ -150,9 +168,45 @@ export function MarkdownEditor({
   label = 'Content',
   maxLength,
   errorMessage,
+  wrapText = false,
+  onWrapTextChange,
 }: MarkdownEditorProps): ReactNode {
   const [showPreview, setShowPreview] = useState(false)
   const editorContainerRef = useRef<HTMLDivElement>(null)
+
+  // Toggle wrap callback for keyboard shortcut
+  const handleToggleWrap = useCallback(() => {
+    onWrapTextChange?.(!wrapText)
+  }, [onWrapTextChange, wrapText])
+
+  // Global keyboard handler for Alt+Z (Option+Z on Mac) to toggle wrap
+  // Uses capture phase to intercept before macOS converts to special character (Ω)
+  useEffect(() => {
+    if (!onWrapTextChange) return
+
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      // Alt+Z (Option+Z on Mac) - toggle word wrap
+      // Check both 'z' and 'Ω' (the character macOS produces with Option+Z)
+      if (e.altKey && (e.key.toLowerCase() === 'z' || e.key === 'Ω' || e.code === 'KeyZ')) {
+        e.preventDefault()
+        e.stopPropagation()
+        handleToggleWrap()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown, true) // capture phase
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
+  }, [onWrapTextChange, handleToggleWrap])
+
+  // Build extensions array with optional line wrapping and keybindings
+  const extensions = useMemo(() => {
+    const bindings = createMarkdownKeyBindings()
+    const exts = [markdown(), Prec.highest(keymap.of(bindings))]
+    if (wrapText) {
+      exts.push(EditorView.lineWrapping)
+    }
+    return exts
+  }, [wrapText])
 
   return (
     <div>
@@ -161,6 +215,20 @@ export function MarkdownEditor({
           {label}
         </label>
         <div className="flex items-center gap-2">
+          {onWrapTextChange && (
+            <label
+              className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer mr-2"
+              title="Toggle word wrap (⌥Z)"
+            >
+              <input
+                type="checkbox"
+                checked={wrapText}
+                onChange={(e) => onWrapTextChange(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-gray-300 text-gray-600 focus:ring-gray-500/20"
+              />
+              Wrap
+            </label>
+          )}
           <button
             type="button"
             onClick={() => setShowPreview(false)}
@@ -186,7 +254,29 @@ export function MarkdownEditor({
         </div>
       </div>
 
-      {showPreview ? (
+      {/* Editor - always mounted to preserve undo history */}
+      <div
+        ref={editorContainerRef}
+        className={`border rounded-lg overflow-hidden flex-1 ${hasError ? 'border-red-300' : 'border-gray-200'} ${showPreview ? 'hidden' : ''}`}
+      >
+        <CodeMirror
+          value={value}
+          onChange={onChange}
+          extensions={extensions}
+          minHeight={minHeight}
+          placeholder={placeholder}
+          editable={!disabled}
+          basicSetup={{
+            lineNumbers: false,
+            foldGutter: false,
+            highlightActiveLine: true,
+          }}
+          className="text-sm"
+        />
+      </div>
+
+      {/* Preview - only rendered when active */}
+      {showPreview && (
         <div
           className="border border-gray-200 rounded-lg p-4 bg-white flex-1 overflow-y-auto"
           style={{ minHeight }}
@@ -204,27 +294,8 @@ export function MarkdownEditor({
             <p className="text-gray-400 italic">No content to preview</p>
           )}
         </div>
-      ) : (
-        <div
-          ref={editorContainerRef}
-          className={`border rounded-lg overflow-hidden flex-1 ${hasError ? 'border-red-300' : 'border-gray-200'}`}
-        >
-          <CodeMirror
-            value={value}
-            onChange={onChange}
-            extensions={[markdown(), Prec.highest(keymap.of(markdownKeyBindings))]}
-            minHeight={minHeight}
-            placeholder={placeholder}
-            editable={!disabled}
-            basicSetup={{
-              lineNumbers: false,
-              foldGutter: false,
-              highlightActiveLine: true,
-            }}
-            className="text-sm"
-          />
-        </div>
       )}
+
       <div className="flex justify-between items-center mt-1">
         {errorMessage ? (
           <p className="error-text">{errorMessage}</p>

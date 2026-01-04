@@ -51,8 +51,9 @@ const shortcutGroups: ShortcutGroup[] = [
   },
   {
     title: 'Editor',
-    subtitle: 'When editing notes',
+    subtitle: 'When editing notes or prompts',
     shortcuts: [
+      { keys: ['\u2325', 'Z'], description: 'Toggle word wrap' },
       { keys: ['\u2318', 'B'], description: 'Bold' },
       { keys: ['\u2318', 'I'], description: 'Italic' },
       { keys: ['\u2318', 'K'], description: 'Insert link' },
