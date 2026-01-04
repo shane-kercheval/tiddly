@@ -11,6 +11,7 @@ import { usePromptDraft } from '../hooks/usePromptDraft'
 import type { DraftData } from '../hooks/usePromptDraft'
 import type { Prompt, PromptCreate, PromptUpdate, PromptArgument, TagCount } from '../types'
 import { TAG_PATTERN } from '../utils'
+import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { config } from '../config'
 import { ArchiveIcon, TrashIcon } from './icons'
 
@@ -269,6 +270,8 @@ export function PromptEditor({
   // Handler for ArgumentsBuilder changes
   const handleArgumentsChange = useCallback((args: PromptArgument[]): void => {
     setForm((prev) => ({ ...prev, arguments: args }))
+    // Clear arguments error when user modifies arguments
+    setErrors((prev) => ({ ...prev, arguments: undefined }))
   }, [])
 
   const validate = (): boolean => {
@@ -321,47 +324,24 @@ export function PromptEditor({
       argNames.add(arg.name)
     }
 
-    // Validate template variables match arguments
+    // Validate template variables match arguments using AST-based extraction
     if (form.content && !newErrors.arguments) {
-      // Extract Jinja2 variables used in the template.
-      // We capture the ROOT variable name (before dots, filters, brackets).
-      //
-      // Patterns:
-      // 1. {{ var }}, {{ var.attr }}, {{ var['key'] }}, {{ var | filter }}
-      //    → Capture 'var' (the root identifier)
-      // 2. {% for item in items %} → Capture 'items' (the iterable, not loop var)
-      // 3. {% if var %}, {% elif var %} → Capture 'var'
-      //
-      // Note: We intentionally don't capture:
-      // - Loop variables (e.g., 'item' in 'for item in items')
-      // - Variables defined with {% set %}
-      const templateVars = new Set<string>()
+      const { variables: templateVars, error: parseError } = extractTemplateVariables(form.content)
 
-      // Pattern for {{ expressions }} - captures root variable
-      // Matches: {{ var }}, {{ var.x }}, {{ var|filter }}, {{ var['x'] }}
-      const expressionPattern = /\{\{[\s-]*([a-z_][a-z0-9_]*)/gi
-      let match
-      while ((match = expressionPattern.exec(form.content)) !== null) {
-        templateVars.add(match[1].toLowerCase())
-      }
+      if (parseError) {
+        newErrors.content = `Template syntax error: ${parseError}`
+      } else {
+        // Check for undefined variables (used in template but not in arguments)
+        const undefinedVars = [...templateVars].filter(v => !argNames.has(v))
+        if (undefinedVars.length > 0) {
+          newErrors.content = `Template uses undefined variable(s): ${undefinedVars.join(', ')}. Add them to arguments or remove from template.`
+        }
 
-      // Pattern for {% for x in iterable %} - captures the iterable, not loop variable
-      const forLoopPattern = /\{%[-\s]*for\s+\w+(?:\s*,\s*\w+)?\s+in\s+([a-z_][a-z0-9_]*)/gi
-      while ((match = forLoopPattern.exec(form.content)) !== null) {
-        templateVars.add(match[1].toLowerCase())
-      }
-
-      // Pattern for {% if/elif var %} - captures condition variables
-      // Also handles {% if var.attr %} and {% if var is defined %}
-      const conditionalPattern = /\{%[-\s]*(?:if|elif)\s+([a-z_][a-z0-9_]*)/gi
-      while ((match = conditionalPattern.exec(form.content)) !== null) {
-        templateVars.add(match[1].toLowerCase())
-      }
-
-      // Check for undefined variables (used in template but not in arguments)
-      const undefinedVars = [...templateVars].filter(v => !argNames.has(v))
-      if (undefinedVars.length > 0) {
-        newErrors.content = `Template uses undefined variable(s): ${undefinedVars.join(', ')}. Add them to arguments or remove from template.`
+        // Check for unused arguments (defined but not used in template) - warning only
+        const unusedArgs = [...argNames].filter(a => !templateVars.has(a))
+        if (unusedArgs.length > 0) {
+          newErrors.arguments = `Unused argument(s): ${unusedArgs.join(', ')}. Remove them or use in template.`
+        }
       }
     }
 
@@ -637,7 +617,13 @@ export function PromptEditor({
         {/* Content field - Jinja2 template with markdown */}
         <MarkdownEditor
           value={form.content}
-          onChange={(value) => setForm((prev) => ({ ...prev, content: value }))}
+          onChange={(value) => {
+            setForm((prev) => ({ ...prev, content: value }))
+            // Clear content error when user modifies content
+            if (errors.content) {
+              setErrors((prev) => ({ ...prev, content: undefined }))
+            }
+          }}
           disabled={isSubmitting}
           hasError={!!errors.content}
           minHeight="300px"

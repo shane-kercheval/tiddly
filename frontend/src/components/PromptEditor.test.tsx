@@ -449,6 +449,92 @@ describe('PromptEditor', () => {
       expect(screen.getByText(/exceeds 100 characters/i)).toBeInTheDocument()
       expect(onSubmit).not.toHaveBeenCalled()
     })
+
+    it('should show error for unused arguments not referenced in template', async () => {
+      const user = userEvent.setup()
+      const onSubmit = vi.fn()
+
+      render(
+        <PromptEditor
+          tagSuggestions={mockTagSuggestions}
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+        />
+      )
+
+      // Add a valid prompt name
+      await user.type(screen.getByLabelText(/name/i), 'test-prompt')
+
+      // Add an argument
+      await user.click(screen.getByRole('button', { name: /add argument/i }))
+      await user.type(screen.getByPlaceholderText('argument_name'), 'unused_arg')
+
+      // Set template content that doesn't use the argument
+      const contentInput = screen.getByTestId('markdown-editor')
+      await user.clear(contentInput)
+      await user.type(contentInput, 'Hello world')
+
+      // Try to submit
+      await user.click(screen.getByRole('button', { name: /create prompt/i }))
+
+      expect(screen.getByText(/unused argument.*unused_arg/i)).toBeInTheDocument()
+      expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it('should show error for undefined variables in template', async () => {
+      const user = userEvent.setup()
+      const onSubmit = vi.fn()
+
+      // Use a prompt with existing content to avoid default template
+      const promptWithContent = {
+        ...mockPrompt,
+        content: 'Hello {{ undefined_var }}',
+        arguments: [],
+      }
+
+      render(
+        <PromptEditor
+          prompt={promptWithContent}
+          tagSuggestions={mockTagSuggestions}
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+        />
+      )
+
+      // Try to submit
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      expect(screen.getByText(/undefined variable.*undefined_var/i)).toBeInTheDocument()
+      expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it('should pass validation when arguments match template variables', async () => {
+      const user = userEvent.setup()
+      const onSubmit = vi.fn().mockResolvedValue({})
+
+      // Use a prompt with matching argument and template variable
+      const promptWithMatchingArg = {
+        ...mockPrompt,
+        content: 'Hello {{ name }}',
+        arguments: [{ name: 'name', description: 'The name', required: true }],
+      }
+
+      render(
+        <PromptEditor
+          prompt={promptWithMatchingArg}
+          tagSuggestions={mockTagSuggestions}
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+        />
+      )
+
+      // Submit - should succeed since argument matches template variable
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      await waitFor(() => {
+        expect(onSubmit).toHaveBeenCalled()
+      })
+    })
   })
 
   describe('argument management', () => {
