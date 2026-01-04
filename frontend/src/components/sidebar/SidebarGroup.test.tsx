@@ -2,7 +2,7 @@
  * Tests for SidebarGroup component.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SidebarGroup } from './SidebarGroup'
 
@@ -428,7 +428,9 @@ describe('SidebarGroup', () => {
       await user.click(screen.getByTitle('Delete group'))
       expect(screen.getByText('Delete?')).toBeInTheDocument()
 
-      vi.advanceTimersByTime(3100)
+      await act(async () => {
+        vi.advanceTimersByTime(3100)
+      })
 
       await waitFor(() => {
         expect(screen.queryByText('Delete?')).not.toBeInTheDocument()

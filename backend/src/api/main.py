@@ -14,6 +14,7 @@ from api.routers import (
     health,
     lists,
     notes,
+    prompts,
     settings,
     tags,
     tokens,
@@ -93,8 +94,8 @@ class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
 app_settings = get_settings()
 
 app = FastAPI(
-    title="Bookmarks API",
-    description="A bookmark management system with tagging and search capabilities.",
+    title="Tiddly API",
+    description="A content management system with tagging and search capabilities.",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -136,6 +137,7 @@ app.include_router(users.router)
 app.include_router(consent.router)
 app.include_router(bookmarks.router)
 app.include_router(notes.router)
+app.include_router(prompts.router)
 app.include_router(content.router)
 app.include_router(tags.router)
 app.include_router(tokens.router)

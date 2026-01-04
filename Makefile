@@ -1,4 +1,4 @@
-.PHONY: tests build run mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli
+.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli
 
 -include .env
 export
@@ -12,23 +12,26 @@ PYTHONPATH := backend/src
 build:  ## Install backend dependencies
 	uv sync
 
-run:  ## Start API server with hot-reload
+api-run:  ## Start API server with hot-reload
 	PYTHONPATH=$(PYTHONPATH) uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 
 ####
-# MCP Server
+# MCP Servers
 ####
-mcp-server:  ## Start MCP server (requires API server running on port 8000)
+content-mcp-server:  ## Start Content MCP server (port 8001, requires API on 8000)
 	PYTHONPATH=$(PYTHONPATH) uv run python -m mcp_server
+
+prompt-mcp-server:  ## Start Prompt MCP server (port 8002, requires API on 8000)
+	PYTHONPATH=$(PYTHONPATH) uv run python -m prompt_mcp_server
 
 ####
 # Frontend Development
 ####
+frontend-run:  ## Start frontend dev server
+	cd frontend && npm run dev
+
 frontend-install:  ## Install frontend dependencies
 	cd frontend && npm install
-
-frontend-dev:  ## Start frontend dev server
-	cd frontend && npm run dev
 
 frontend-build:  ## Build frontend for production
 	cd frontend && npm run build
@@ -81,8 +84,8 @@ backend-lint:  ## Run ruff linter on backend
 	uv run ruff check backend/src --fix --unsafe-fixes
 	uv run ruff check backend/tests --fix --unsafe-fixes
 
-backend-tests:  ## Run backend unit tests with coverage (excludes live pen tests)
-	uv run coverage run -m pytest --durations=20 backend/tests --ignore=backend/tests/security/test_live_penetration.py
+backend-tests:  ## Run backend unit tests with coverage (excludes deployed security tests)
+	uv run coverage run -m pytest --durations=20 backend/tests --ignore=backend/tests/security/deployed
 	uv run coverage html
 
 backend-verify: backend-lint backend-tests
@@ -91,8 +94,8 @@ lint: backend-lint frontend-lint
 
 tests: backend-verify frontend-verify
 
-pen_tests:  ## Run live penetration tests (requires SECURITY_TEST_USER_A_PAT and SECURITY_TEST_USER_B_PAT in .env)
-	uv run pytest backend/tests/security/test_live_penetration.py -v
+pen_tests:  ## Run deployed security tests (requires SECURITY_TEST_* env vars in .env)
+	uv run pytest backend/tests/security/deployed -v
 
 dependency-audit:  ## Run audits to check for vulnerable dependencies
 	uv run pip-audit

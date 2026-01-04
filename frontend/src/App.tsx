@@ -8,7 +8,9 @@ import { Layout } from './components/Layout'
 import { LandingPage } from './pages/LandingPage'
 import { PrivacyPolicy } from './pages/PrivacyPolicy'
 import { TermsOfService } from './pages/TermsOfService'
+import { BookmarkDetail } from './pages/BookmarkDetail'
 import { NoteDetail } from './pages/NoteDetail'
+import { PromptDetail } from './pages/PromptDetail'
 import { AllContent } from './pages/AllContent'
 import { SettingsGeneral } from './pages/settings/SettingsGeneral'
 import { SettingsTokens } from './pages/settings/SettingsTokens'
@@ -27,13 +29,19 @@ import { SettingsFAQ } from './pages/settings/SettingsFAQ'
  *
  * - App routes (authentication + consent required):
  *   - /app : Redirects to /app/content
- *   - /app/content : Unified view - all content (bookmarks + notes)
+ *   - /app/content : Unified view - all content (bookmarks + notes + prompts)
  *   - /app/content/archived : Archived content
  *   - /app/content/trash : Deleted content
  *   - /app/content/lists/:listId : Custom list
+ *   - /app/bookmarks/new : Create new bookmark
+ *   - /app/bookmarks/:id : Edit bookmark
+ *   - /app/bookmarks/:id/edit : Edit bookmark
  *   - /app/notes/new : Create new note
  *   - /app/notes/:id : View note
  *   - /app/notes/:id/edit : Edit note
+ *   - /app/prompts/new : Create new prompt
+ *   - /app/prompts/:id : View prompt
+ *   - /app/prompts/:id/edit : Edit prompt
  *   - /app/settings : Redirects to /app/settings/general
  *   - /app/settings/general : General UI preferences
  *   - /app/settings/tokens : Personal access tokens
@@ -65,10 +73,20 @@ function App(): ReactNode {
                 <Route path="/app/content/trash" element={<AllContent />} />
                 <Route path="/app/content/lists/:listId" element={<AllContent />} />
 
+                {/* Bookmark detail routes */}
+                <Route path="/app/bookmarks/new" element={<BookmarkDetail />} />
+                <Route path="/app/bookmarks/:id" element={<BookmarkDetail />} />
+                <Route path="/app/bookmarks/:id/edit" element={<BookmarkDetail />} />
+
                 {/* Note detail routes */}
                 <Route path="/app/notes/new" element={<NoteDetail />} />
                 <Route path="/app/notes/:id" element={<NoteDetail />} />
                 <Route path="/app/notes/:id/edit" element={<NoteDetail />} />
+
+                {/* Prompt detail routes */}
+                <Route path="/app/prompts/new" element={<PromptDetail />} />
+                <Route path="/app/prompts/:id" element={<PromptDetail />} />
+                <Route path="/app/prompts/:id/edit" element={<PromptDetail />} />
 
                 {/* Settings routes */}
                 <Route path="/app/settings" element={<Navigate to="/app/settings/general" replace />} />

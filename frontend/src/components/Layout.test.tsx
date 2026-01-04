@@ -21,7 +21,7 @@ vi.mock('../stores/settingsStore', () => ({
       sidebar: {
         version: 1,
         items: [
-          { type: 'builtin', key: 'all', name: 'All' },
+          { type: 'builtin', key: 'all', name: 'All Content' },
           { type: 'builtin', key: 'archived', name: 'Archived' },
           { type: 'builtin', key: 'trash', name: 'Trash' },
           { type: 'list', id: 1, name: 'My List', content_types: ['bookmark', 'note'] },
@@ -141,8 +141,8 @@ describe('Layout', () => {
     it('should render the sidebar with navigation items', () => {
       renderLayout()
 
-      // Sidebar contains the builtin "All" item (appears in both mobile and desktop sidebars)
-      expect(screen.getAllByText('All').length).toBeGreaterThanOrEqual(1)
+      // Sidebar contains the builtin "All Content" item (appears in both mobile and desktop sidebars)
+      expect(screen.getAllByText('All Content').length).toBeGreaterThanOrEqual(1)
     })
   })
 })

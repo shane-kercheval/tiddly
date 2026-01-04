@@ -82,7 +82,7 @@ export function ConsentDialog(): ReactNode {
             .
           </p>
           <p className="text-sm text-gray-700 mt-3 leading-relaxed">
-            We collect and store your content (e.g. bookmarks, notes, todos, etc.), email address, and aggregated usage data to provide the service.
+            We collect and store your content (e.g. bookmarks, notes, prompts, tasks, etc.), email address, and aggregated usage data to provide the service.
             Tiddly is currently in <span className="font-semibold">beta</span> - data loss is possible.
           </p>
         </div>

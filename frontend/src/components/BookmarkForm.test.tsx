@@ -668,4 +668,139 @@ describe('BookmarkForm', () => {
       })
     })
   })
+
+  describe('cancel confirmation', () => {
+    it('should cancel immediately when form is not dirty', async () => {
+      const onCancel = vi.fn()
+      const user = userEvent.setup()
+
+      render(<BookmarkForm {...defaultProps} bookmark={mockBookmark} onCancel={onCancel} />)
+
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(onCancel).toHaveBeenCalledTimes(1)
+    })
+
+    it('should show confirmation state when form is dirty', async () => {
+      const onCancel = vi.fn()
+      const user = userEvent.setup()
+
+      render(<BookmarkForm {...defaultProps} bookmark={mockBookmark} onCancel={onCancel} />)
+
+      // Make form dirty by changing title
+      await user.clear(screen.getByLabelText(/Title/))
+      await user.type(screen.getByLabelText(/Title/), 'Changed Title')
+
+      // First click should show confirmation
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(onCancel).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+    })
+
+    it('should cancel on second click during confirmation', async () => {
+      const onCancel = vi.fn()
+      const user = userEvent.setup()
+
+      render(<BookmarkForm {...defaultProps} bookmark={mockBookmark} onCancel={onCancel} />)
+
+      // Make form dirty
+      await user.clear(screen.getByLabelText(/Title/))
+      await user.type(screen.getByLabelText(/Title/), 'Changed Title')
+
+      // First click - show confirmation
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(onCancel).not.toHaveBeenCalled()
+
+      // Second click - execute cancel
+      await user.click(screen.getByRole('button', { name: 'Discard changes?' }))
+      expect(onCancel).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('keyboard shortcuts', () => {
+    it('should support Cmd+S to save', async () => {
+      const user = userEvent.setup()
+      const onSubmit = vi.fn().mockResolvedValue(undefined)
+
+      render(<BookmarkForm {...defaultProps} onSubmit={onSubmit} />)
+
+      // Type a URL to make form valid
+      await user.type(screen.getByLabelText(/URL/), 'https://example.com')
+
+      // Test Cmd+S shortcut
+      await user.keyboard('{Meta>}s{/Meta}')
+
+      await waitFor(() => {
+        expect(onSubmit).toHaveBeenCalled()
+      })
+    })
+
+    it('should support Escape to cancel when form is not dirty', async () => {
+      const onCancel = vi.fn()
+      const user = userEvent.setup()
+
+      render(<BookmarkForm {...defaultProps} bookmark={mockBookmark} onCancel={onCancel} />)
+
+      await user.keyboard('{Escape}')
+
+      expect(onCancel).toHaveBeenCalledTimes(1)
+    })
+
+    it('should show confirmation on Escape when form is dirty', async () => {
+      const onCancel = vi.fn()
+      const user = userEvent.setup()
+
+      render(<BookmarkForm {...defaultProps} bookmark={mockBookmark} onCancel={onCancel} />)
+
+      // Make form dirty
+      await user.clear(screen.getByLabelText(/Title/))
+      await user.type(screen.getByLabelText(/Title/), 'Changed Title')
+
+      // Press Escape - should show confirmation
+      await user.keyboard('{Escape}')
+
+      expect(onCancel).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+    })
+
+    it('should cancel on Enter during confirmation', async () => {
+      const onCancel = vi.fn()
+      const user = userEvent.setup()
+
+      render(<BookmarkForm {...defaultProps} bookmark={mockBookmark} onCancel={onCancel} />)
+
+      // Make form dirty
+      await user.clear(screen.getByLabelText(/Title/))
+      await user.type(screen.getByLabelText(/Title/), 'Changed Title')
+
+      // Press Escape to start confirmation
+      await user.keyboard('{Escape}')
+      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+
+      // Press Enter to confirm discard
+      await user.keyboard('{Enter}')
+      expect(onCancel).toHaveBeenCalledTimes(1)
+    })
+
+    it('should reset confirmation on Escape during confirmation', async () => {
+      const onCancel = vi.fn()
+      const user = userEvent.setup()
+
+      render(<BookmarkForm {...defaultProps} bookmark={mockBookmark} onCancel={onCancel} />)
+
+      // Make form dirty
+      await user.clear(screen.getByLabelText(/Title/))
+      await user.type(screen.getByLabelText(/Title/), 'Changed Title')
+
+      // Press Escape to start confirmation
+      await user.keyboard('{Escape}')
+      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+
+      // Press Escape again to cancel the confirmation
+      await user.keyboard('{Escape}')
+      expect(onCancel).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+    })
+  })
 })

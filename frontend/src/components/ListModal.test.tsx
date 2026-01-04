@@ -69,8 +69,8 @@ describe('ListModal', () => {
   })
 
   describe('validation', () => {
-    it('should show error when submitting with no tags', async () => {
-      const onCreate = vi.fn()
+    it('should allow submitting without tag filters', async () => {
+      const onCreate = vi.fn().mockResolvedValue({ id: 1 })
       const user = userEvent.setup()
 
       render(
@@ -89,8 +89,18 @@ describe('ListModal', () => {
       const submitButton = screen.getByRole('button', { name: 'Create List' })
       await user.click(submitButton)
 
-      expect(screen.getByText('At least one tag filter is required')).toBeInTheDocument()
-      expect(onCreate).not.toHaveBeenCalled()
+      await waitFor(() => {
+        expect(onCreate).toHaveBeenCalledWith({
+          name: 'My List',
+          content_types: ['bookmark', 'note'],
+          filter_expression: {
+            groups: [],
+            group_operator: 'OR',
+          },
+          default_sort_by: null,
+          default_sort_ascending: null,
+        })
+      })
     })
 
     it('should disable submit button when name is empty', () => {
@@ -660,9 +670,10 @@ describe('ListModal', () => {
       expect(screen.getByText('Content Types')).toBeInTheDocument()
       expect(screen.getByLabelText('Bookmarks')).toBeInTheDocument()
       expect(screen.getByLabelText('Notes')).toBeInTheDocument()
+      expect(screen.getByLabelText('Prompts')).toBeInTheDocument()
     })
 
-    it('should default to both types checked for new list', () => {
+    it('should default to Bookmarks and Notes checked for new list', () => {
       render(
         <ListModal
           isOpen={true}
@@ -673,6 +684,7 @@ describe('ListModal', () => {
 
       expect(screen.getByLabelText('Bookmarks')).toBeChecked()
       expect(screen.getByLabelText('Notes')).toBeChecked()
+      expect(screen.getByLabelText('Prompts')).not.toBeChecked()
     })
 
     it('should populate content types from existing list', () => {
@@ -692,6 +704,27 @@ describe('ListModal', () => {
 
       expect(screen.getByLabelText('Bookmarks')).toBeChecked()
       expect(screen.getByLabelText('Notes')).not.toBeChecked()
+      expect(screen.getByLabelText('Prompts')).not.toBeChecked()
+    })
+
+    it('should populate content types for prompt-only list', () => {
+      const promptOnlyList: ContentList = {
+        ...mockList,
+        content_types: ['prompt'],
+      }
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          list={promptOnlyList}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      expect(screen.getByLabelText('Bookmarks')).not.toBeChecked()
+      expect(screen.getByLabelText('Notes')).not.toBeChecked()
+      expect(screen.getByLabelText('Prompts')).toBeChecked()
     })
 
     it('should allow toggling content types', async () => {
@@ -705,16 +738,22 @@ describe('ListModal', () => {
         />
       )
 
-      // Both should be checked by default
+      // Bookmarks and Notes checked by default, Prompts unchecked
       expect(screen.getByLabelText('Bookmarks')).toBeChecked()
       expect(screen.getByLabelText('Notes')).toBeChecked()
+      expect(screen.getByLabelText('Prompts')).not.toBeChecked()
+
+      // Check Prompts
+      await user.click(screen.getByLabelText('Prompts'))
+      expect(screen.getByLabelText('Prompts')).toBeChecked()
 
       // Uncheck Notes
       await user.click(screen.getByLabelText('Notes'))
       expect(screen.getByLabelText('Notes')).not.toBeChecked()
 
-      // Bookmarks should still be checked
+      // Bookmarks and Prompts should still be checked
       expect(screen.getByLabelText('Bookmarks')).toBeChecked()
+      expect(screen.getByLabelText('Prompts')).toBeChecked()
     })
 
     it('should not allow unchecking the last content type', async () => {
@@ -735,6 +774,27 @@ describe('ListModal', () => {
       // Try to uncheck Bookmarks - should be disabled
       const bookmarksCheckbox = screen.getByLabelText('Bookmarks')
       expect(bookmarksCheckbox).toBeDisabled()
+    })
+
+    it('should not allow unchecking last content type when only Prompts is checked', async () => {
+      const promptOnlyList: ContentList = {
+        ...mockList,
+        content_types: ['prompt'],
+      }
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          list={promptOnlyList}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      // Prompts should be checked and disabled (can't uncheck last type)
+      const promptsCheckbox = screen.getByLabelText('Prompts')
+      expect(promptsCheckbox).toBeChecked()
+      expect(promptsCheckbox).toBeDisabled()
     })
 
     it('should submit with modified content types', async () => {
@@ -810,6 +870,125 @@ describe('ListModal', () => {
         expect(onUpdate).toHaveBeenCalledWith(1, {
           name: 'Work Resources',
           content_types: ['bookmark', 'note'],
+          filter_expression: mockList.filter_expression,
+          default_sort_by: null,
+          default_sort_ascending: null,
+        })
+      })
+    })
+
+    it('should submit with prompts-only content type', async () => {
+      const onCreate = vi.fn().mockResolvedValue({
+        id: 1,
+        name: 'Test',
+        content_types: ['prompt'],
+        filter_expression: {},
+        created_at: '',
+        updated_at: '',
+      })
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+          onCreate={onCreate}
+        />
+      )
+
+      // Enter name
+      await user.type(screen.getByLabelText('List Name'), 'Prompts Only')
+
+      // Uncheck Bookmarks and Notes, check Prompts
+      await user.click(screen.getByLabelText('Prompts'))
+      await user.click(screen.getByLabelText('Bookmarks'))
+      await user.click(screen.getByLabelText('Notes'))
+
+      // Submit
+      await user.click(screen.getByRole('button', { name: 'Create List' }))
+
+      await waitFor(() => {
+        expect(onCreate).toHaveBeenCalledWith({
+          name: 'Prompts Only',
+          content_types: ['prompt'],
+          filter_expression: {
+            groups: [],
+            group_operator: 'OR',
+          },
+          default_sort_by: null,
+          default_sort_ascending: null,
+        })
+      })
+    })
+
+    it('should submit with all three content types', async () => {
+      const onCreate = vi.fn().mockResolvedValue({
+        id: 1,
+        name: 'Test',
+        content_types: ['bookmark', 'note', 'prompt'],
+        filter_expression: {},
+        created_at: '',
+        updated_at: '',
+      })
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          tagSuggestions={mockSuggestions}
+          onCreate={onCreate}
+        />
+      )
+
+      // Enter name
+      await user.type(screen.getByLabelText('List Name'), 'Everything')
+
+      // Check Prompts (Bookmarks and Notes already checked by default)
+      await user.click(screen.getByLabelText('Prompts'))
+
+      // Submit
+      await user.click(screen.getByRole('button', { name: 'Create List' }))
+
+      await waitFor(() => {
+        expect(onCreate).toHaveBeenCalledWith({
+          name: 'Everything',
+          content_types: ['bookmark', 'note', 'prompt'],
+          filter_expression: {
+            groups: [],
+            group_operator: 'OR',
+          },
+          default_sort_by: null,
+          default_sort_ascending: null,
+        })
+      })
+    })
+
+    it('should update list to add prompts content type', async () => {
+      const onUpdate = vi.fn().mockResolvedValue(mockList)
+      const user = userEvent.setup()
+
+      render(
+        <ListModal
+          isOpen={true}
+          onClose={vi.fn()}
+          list={mockList}
+          tagSuggestions={mockSuggestions}
+          onUpdate={onUpdate}
+        />
+      )
+
+      // Check Prompts (mockList has only bookmark)
+      await user.click(screen.getByLabelText('Prompts'))
+
+      // Submit
+      await user.click(screen.getByText('Save Changes'))
+
+      await waitFor(() => {
+        expect(onUpdate).toHaveBeenCalledWith(1, {
+          name: 'Work Resources',
+          content_types: ['bookmark', 'prompt'],
           filter_expression: mockList.filter_expression,
           default_sort_by: null,
           default_sort_ascending: null,

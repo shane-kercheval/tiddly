@@ -4,6 +4,7 @@
 import type { ReactNode } from 'react'
 import type { NoteListItem } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
+import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { formatDate, truncate } from '../utils'
 import { ConfirmDeleteButton } from './ui'
 import { NoteIcon, EditIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
@@ -72,31 +73,27 @@ export function NoteCard({
     onView?.(note)
   }
 
-  // Handle card click to trigger edit mode
+  // Handle card click to go to view mode
   const handleCardClick = (): void => {
-    if (view !== 'deleted' && onEdit) {
-      onEdit(note)
-    }
+    onView?.(note)
   }
-
-  const isClickable = view !== 'deleted' && onEdit
 
   return (
     <div
-      className={`card card-interactive group ${isClickable ? 'cursor-pointer' : ''}`}
-      onClick={isClickable ? handleCardClick : undefined}
+      className={`card card-interactive group ${onView ? 'cursor-pointer' : ''}`}
+      onClick={onView ? handleCardClick : undefined}
     >
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
         {/* Row 1 (mobile) / Main content (desktop) */}
         <div className="min-w-0 flex-1">
           {/* Title row - on mobile, description is inline; on desktop, it wraps below */}
           <div className="flex items-center gap-2 md:flex-wrap">
-            <span className="shrink-0 w-4 h-4 text-green-500">
+            <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.note}`}>
               <NoteIcon className="w-4 h-4" />
             </span>
             <button
               onClick={handleTitleClick}
-              className="text-base font-medium text-gray-900 hover:text-gray-600 transition-colors text-left cursor-pointer shrink-0"
+              className="text-base font-medium text-gray-900 text-left cursor-pointer shrink-0"
               title="View note"
             >
               {truncate(note.title, 60)}
@@ -155,18 +152,20 @@ export function NoteCard({
           {/* Actions and date */}
           <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
             <div className="flex items-center">
-              {/* Hover edit indicator - shown on card hover for clickable cards */}
-              {isClickable && (
-                <span
-                  className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity mr-1"
-                  aria-hidden="true"
+              {/* Edit button - shown in active and archived views */}
+              {view !== 'deleted' && onEdit && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onEdit(note) }}
+                  className="btn-icon"
+                  title="Edit note"
+                  aria-label="Edit note"
                 >
                   {isLoading ? (
                     <div className="spinner-sm" />
                   ) : (
                     <EditIcon />
                   )}
-                </span>
+                </button>
               )}
 
               {/* Archive button - shown in active view */}

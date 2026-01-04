@@ -62,7 +62,7 @@ describe('sidebarDndUtils', () => {
       const item: SidebarBuiltinItemComputed = {
         type: 'builtin',
         key: 'all',
-        name: 'All',
+        name: 'All Content',
       }
       expect(getItemId(item)).toBe('builtin:all')
     })
@@ -89,7 +89,7 @@ describe('sidebarDndUtils', () => {
 
     it('should handle all builtin keys', () => {
       const builtins: SidebarBuiltinItemComputed[] = [
-        { type: 'builtin', key: 'all', name: 'All' },
+        { type: 'builtin', key: 'all', name: 'All Content' },
         { type: 'builtin', key: 'archived', name: 'Archived' },
         { type: 'builtin', key: 'trash', name: 'Trash' },
       ]
@@ -189,7 +189,7 @@ describe('sidebarDndUtils', () => {
   describe('computedToMinimal', () => {
     it('should convert builtin items correctly', () => {
       const items: SidebarItemComputed[] = [
-        { type: 'builtin', key: 'all', name: 'All' },
+        { type: 'builtin', key: 'all', name: 'All Content' },
         { type: 'builtin', key: 'archived', name: 'Archived' },
       ]
 
@@ -249,7 +249,7 @@ describe('sidebarDndUtils', () => {
 
     it('should handle mixed items at root level', () => {
       const items: SidebarItemComputed[] = [
-        { type: 'builtin', key: 'all', name: 'All' },
+        { type: 'builtin', key: 'all', name: 'All Content' },
         { type: 'list', id: 1, name: 'Test', content_types: [] },
         {
           type: 'group',
@@ -347,7 +347,7 @@ describe('sidebarDndUtils', () => {
       const builtinChild: SidebarBuiltinItemComputed = {
         type: 'builtin',
         key: 'all',
-        name: 'All',
+        name: 'All Content',
       }
 
       const groupId = 'another-group'

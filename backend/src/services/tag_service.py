@@ -6,9 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
 from models.note import Note
-from models.tag import Tag, bookmark_tags, note_tags
-from schemas.bookmark import validate_and_normalize_tags
+from models.prompt import Prompt
+from models.tag import Tag, bookmark_tags, note_tags, prompt_tags
 from schemas.tag import TagCount
+from schemas.validators import validate_and_normalize_tags
 
 
 class TagNotFoundError(Exception):
@@ -81,7 +82,7 @@ async def get_user_tags_with_counts(
     """
     Get all tags for a user with their usage counts.
 
-    Counts include active bookmarks and notes (not deleted or archived).
+    Counts include active bookmarks, notes, and prompts (not deleted or archived).
     Future-scheduled items (archived_at in future) count as active.
 
     Args:
@@ -120,9 +121,25 @@ async def get_user_tags_with_counts(
         .scalar_subquery()
     )
 
-    # Combined count from both bookmarks and notes
+    # Subquery for counting active prompts per tag
+    prompt_count_subq = (
+        select(func.count(prompt_tags.c.prompt_id))
+        .select_from(prompt_tags)
+        .join(Prompt, prompt_tags.c.prompt_id == Prompt.id)
+        .where(
+            prompt_tags.c.tag_id == Tag.id,
+            Prompt.deleted_at.is_(None),
+            ~Prompt.is_archived,
+        )
+        .correlate(Tag)
+        .scalar_subquery()
+    )
+
+    # Combined count from bookmarks, notes, and prompts
     total_count = (
-        func.coalesce(bookmark_count_subq, 0) + func.coalesce(note_count_subq, 0)
+        func.coalesce(bookmark_count_subq, 0)
+        + func.coalesce(note_count_subq, 0)
+        + func.coalesce(prompt_count_subq, 0)
     ).label("count")
 
     query = (
@@ -133,7 +150,7 @@ async def get_user_tags_with_counts(
     )
 
     if not include_zero_count:
-        # Only include tags that have at least one active bookmark or note
+        # Only include tags that have at least one active bookmark, note, or prompt
         query = query.having(total_count > 0)
 
     result = await db.execute(query)
@@ -247,17 +264,17 @@ async def delete_tag(
 
 async def update_entity_tags(
     db: AsyncSession,
-    entity: Bookmark | Note,
+    entity: Bookmark | Note | Prompt,
     tag_names: list[str],
 ) -> None:
     """
     Update an entity's tags using the junction table.
 
-    Clears existing tags and sets new ones. Works with both Bookmarks and Notes.
+    Clears existing tags and sets new ones. Works with Bookmarks, Notes, and Prompts.
 
     Args:
         db: Database session.
-        entity: The bookmark or note to update.
+        entity: The bookmark, note, or prompt to update.
         tag_names: New list of tag names.
     """
     # Get or create the tag objects
@@ -271,7 +288,7 @@ async def update_entity_tags(
     await db.flush()
 
 
-# Backward-compatible aliases
+# Type-specific aliases for clarity
 async def update_bookmark_tags(
     db: AsyncSession,
     bookmark: Bookmark,
@@ -288,3 +305,12 @@ async def update_note_tags(
 ) -> None:
     """Update a note's tags. Alias for update_entity_tags."""
     await update_entity_tags(db, note, tag_names)
+
+
+async def update_prompt_tags(
+    db: AsyncSession,
+    prompt: Prompt,
+    tag_names: list[str],
+) -> None:
+    """Update a prompt's tags. Alias for update_entity_tags."""
+    await update_entity_tags(db, prompt, tag_names)

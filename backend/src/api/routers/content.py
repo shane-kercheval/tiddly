@@ -1,7 +1,7 @@
 """
 Router for unified content endpoints.
 
-Provides endpoints for searching across all content types (bookmarks, notes)
+Provides endpoints for searching across all content types (bookmarks, notes, prompts)
 with unified pagination and sorting.
 """
 from typing import Literal
@@ -39,18 +39,18 @@ async def list_all_content(
         description="View: 'active' (not deleted/archived), 'archived', or 'deleted'",
     ),
     list_id: int | None = Query(default=None, description="Filter by content list ID"),
-    content_types: list[Literal["bookmark", "note"]] | None = Query(
+    content_types: list[Literal["bookmark", "note", "prompt"]] | None = Query(
         default=None,
-        description="Filter by content types (bookmark, note). If not specified, all types are included.",  # noqa: E501
+        description="Filter by content types (bookmark, note, prompt). If not specified, all types are included.",  # noqa: E501
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> ContentListResponse:
     """
-    List all content (bookmarks and notes) with unified pagination.
+    List all content (bookmarks, notes, and prompts) with unified pagination.
 
     Returns a unified list of content items sorted by the specified field.
-    Each item includes a `type` field indicating whether it's a "bookmark" or "note".
+    Each item includes a `type` field indicating whether it's a "bookmark", "note", or "prompt".
 
     Use this endpoint for:
     - Shared "All", "Archived", and "Trash" views (no list_id)
@@ -58,7 +58,8 @@ async def list_all_content(
 
     When list_id is provided:
     - The list's filter_expression is applied
-    - The list's content_types determines which entity types are returned
+    - The list's content_types act as the upper bound of entity types returned
+    - If content_types query param is provided, results are filtered to the intersection
     """
     # If list_id provided, fetch the list and use its filter expression + content_types
     filter_expression = None
@@ -68,8 +69,14 @@ async def list_all_content(
         if content_list is None:
             raise HTTPException(status_code=404, detail="List not found")
         filter_expression = content_list.filter_expression
-        # List's content_types overrides the query param
-        effective_content_types = content_list.content_types
+        if content_types is None:
+            effective_content_types = content_list.content_types
+        else:
+            effective_content_types = [
+                content_type
+                for content_type in content_types
+                if content_type in content_list.content_types
+            ]
 
     items, total = await search_all_content(
         db=db,

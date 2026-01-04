@@ -124,7 +124,7 @@ class SidebarOrderComputed(BaseModel):
 # =============================================================================
 
 BUILTIN_DISPLAY_NAMES: dict[BuiltinKey, str] = {
-    "all": "All",
+    "all": "All Content",
     "archived": "Archived",
     "trash": "Trash",
 }

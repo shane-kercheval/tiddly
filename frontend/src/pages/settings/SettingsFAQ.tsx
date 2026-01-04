@@ -247,13 +247,101 @@ export function SettingsFAQ(): ReactNode {
           }
         />
         <FAQItem
+          question="How do I keep my PAT secure?"
+          answer={
+            <>
+              <p>
+                Treat PATs like passwords. Never share them, commit them to version control,
+                or expose them in client-side code. Store them in environment variables or
+                a secret manager.
+              </p>
+              <p>
+                If you suspect a token has been exposed, delete it immediately in Settings → Tokens
+                and create a new one.
+              </p>
+            </>
+          }
+        />
+        <FAQItem
           question="What is MCP integration?"
           answer={
             <p>
-              MCP (Model Context Protocol) allows AI assistants like Claude to interact with
-              your bookmarks and notes. Once configured, you can ask Claude to search your
-              bookmarks, create new ones, or help organize your content using natural language.
+              MCP (Model Context Protocol) is an open standard that allows AI assistants to
+              securely access external tools and data. Once configured, you can ask AI agents
+              to search your bookmarks, create notes, use your prompt templates, and more—all
+              through natural language.
             </p>
+          }
+        />
+        <FAQItem
+          question="Which MCP clients are supported?"
+          answer={
+            <p>
+              Any MCP-compatible client works, including Claude Desktop, Claude Code, Cursor,
+              and others. The setup instructions in Settings → MCP Integration use Claude Desktop
+              as an example, but the configuration is similar for other clients.
+            </p>
+          }
+        />
+        <FAQItem
+          question="Why are there two MCP servers?"
+          answer={
+            <>
+              <p>
+                <strong>Content Server:</strong> Lets AI agents interact with your data—searching,
+                creating, and managing your bookmarks and notes.
+              </p>
+              <p>
+                <strong>Prompt Server:</strong> Provides AI agents with your reusable prompt
+                templates. Agents can use your saved prompts and create new ones.
+              </p>
+              <p>
+                They serve different purposes, so you can enable one or both based on your needs.
+              </p>
+            </>
+          }
+        />
+        <FAQItem
+          question="Do I need separate tokens for each MCP server?"
+          answer={
+            <p>
+              It's not required, but recommended if you enable both servers. Using separate tokens
+              lets you revoke access to one server without affecting the other, and makes it
+              easier to track usage.
+            </p>
+          }
+        />
+        <FAQItem
+          question="What can AI agents do with my content?"
+          answer={
+            <>
+              <p>
+                <strong>Content Server tools:</strong> Search bookmarks and notes by text or tags,
+                get full details of specific items, create new bookmarks (with auto-fetched metadata)
+                and notes, and list all your tags.
+              </p>
+              <p>
+                <strong>Prompt Server tools:</strong> List available prompts, use prompts with
+                variable substitution, and create new prompt templates.
+              </p>
+            </>
+          }
+        />
+        <FAQItem
+          question="What are prompt templates with variables?"
+          answer={
+            <>
+              <p>
+                Prompts can include variables using Jinja2 syntax, like{' '}
+                <code className="bg-gray-100 px-1 rounded">{'{{ topic }}'}</code>. When an AI agent
+                uses the prompt, it provides values for these variables, and the final prompt is
+                rendered with those values substituted in.
+              </p>
+              <p>
+                This lets you create reusable prompts like "Explain {'{{ topic }}'} in simple terms"
+                that work for any topic the agent provides.
+              </p>
+            </>
           }
         />
       </FAQSection>

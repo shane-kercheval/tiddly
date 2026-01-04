@@ -100,11 +100,12 @@ export function BookmarkCard({
     onLinkClick?.(bookmark)
   }
 
-  // Handle card click to trigger edit mode
+  // Handle card click to open bookmark URL
   const handleCardClick = (): void => {
-    if (view !== 'deleted' && onEdit) {
-      onEdit(bookmark)
-    }
+    // Track usage
+    onLinkClick?.(bookmark)
+    // Open in new tab
+    window.open(bookmark.url, '_blank', 'noopener,noreferrer')
   }
 
   // Copy URL to clipboard with visual feedback
@@ -121,12 +122,10 @@ export function BookmarkCard({
     }
   }
 
-  const isClickable = view !== 'deleted' && onEdit
-
   return (
     <div
-      className={`card card-interactive group ${isClickable ? 'cursor-pointer' : ''}`}
-      onClick={isClickable ? handleCardClick : undefined}
+      className="card card-interactive group cursor-pointer"
+      onClick={handleCardClick}
     >
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
         {/* Row 1 (mobile) / Main content (desktop) */}
@@ -155,7 +154,7 @@ export function BookmarkCard({
               target="_blank"
               rel="noopener noreferrer"
               onClick={handleLinkClick}
-              className="text-base font-medium text-gray-900 hover:text-gray-600 transition-colors shrink-0"
+              className="text-base font-medium text-gray-900 shrink-0"
               title={bookmark.url}
             >
               {truncate(displayTitle, 60)}
@@ -166,7 +165,7 @@ export function BookmarkCard({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={handleLinkClick}
-                className="text-sm text-gray-400 hover:text-gray-600 transition-colors truncate min-w-0"
+                className="text-sm text-gray-400 truncate min-w-0"
                 title={bookmark.url}
               >
                 {urlDisplay}
@@ -217,20 +216,6 @@ export function BookmarkCard({
           {/* Actions and date */}
           <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
             <div className="flex items-center">
-              {/* Hover edit indicator - shown on card hover for clickable cards */}
-              {isClickable && (
-                <span
-                  className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity mr-1"
-                  aria-hidden="true"
-                >
-                  {isLoading ? (
-                    <div className="spinner-sm" />
-                  ) : (
-                    <EditIcon />
-                  )}
-                </span>
-              )}
-
               {/* Copy URL button */}
               <button
                 onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
@@ -240,6 +225,22 @@ export function BookmarkCard({
               >
                 <CopyIcon />
               </button>
+
+              {/* Edit button - shown in active and archived views */}
+              {view !== 'deleted' && onEdit && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onEdit(bookmark) }}
+                  className="btn-icon"
+                  title="Edit bookmark"
+                  aria-label="Edit bookmark"
+                >
+                  {isLoading ? (
+                    <div className="spinner-sm" />
+                  ) : (
+                    <EditIcon />
+                  )}
+                </button>
+              )}
 
               {/* Archive button - shown in active view */}
               {view === 'active' && onArchive && (

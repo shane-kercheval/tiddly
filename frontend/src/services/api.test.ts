@@ -4,6 +4,13 @@ import { config } from '../config'
 import { useConsentStore } from '../stores/consentStore'
 import toast from 'react-hot-toast'
 
+vi.mock('../config', () => ({
+  config: {
+    apiUrl: 'http://localhost:8000',
+  },
+  isDevMode: false,
+}))
+
 // Mock the consent store
 vi.mock('../stores/consentStore', () => ({
   useConsentStore: {
@@ -178,6 +185,29 @@ describe('setupAuthInterceptor', () => {
       }
 
       expect(toast.error).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('401 response handling', () => {
+    it('only calls onAuthError once for repeated 401s', async () => {
+      const mockGetToken = vi.fn().mockResolvedValue('test-token')
+      const mockOnAuthError = vi.fn()
+      setupAuthInterceptor(mockGetToken, mockOnAuthError)
+
+      const handlers = (api.interceptors.response as unknown as { handlers: AxiosInterceptorHandler[] }).handlers
+      const errorHandler = handlers[handlers.length - 1]?.rejected
+
+      const mock401Error = {
+        response: { status: 401 },
+        isAxiosError: true,
+      }
+
+      if (errorHandler) {
+        await expect(errorHandler(mock401Error)).rejects.toEqual(mock401Error)
+        await expect(errorHandler(mock401Error)).rejects.toEqual(mock401Error)
+      }
+
+      expect(mockOnAuthError).toHaveBeenCalledTimes(1)
     })
   })
 })

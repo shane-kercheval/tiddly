@@ -103,7 +103,7 @@ describe('useContentTypeFilterStore', () => {
 
       const { selectedTypes } = useContentTypeFilterStore.getState()
       // Should have all types except 'note' (which was toggled off from the initial all-selected state)
-      expect(selectedTypes['all']).toEqual(['bookmark'])
+      expect(selectedTypes['all']).toEqual(['bookmark', 'prompt'])
     })
 
     it('does not affect other views when toggling one view', () => {
@@ -129,15 +129,21 @@ describe('useContentTypeFilterStore', () => {
 
       // Toggle off note
       toggleType('all', 'note')
-      expect(getSelectedTypes('all')).toEqual(['bookmark'])
+      expect(getSelectedTypes('all')).toEqual(['bookmark', 'prompt'])
 
       // Toggle note back on
       toggleType('all', 'note')
       expect(getSelectedTypes('all')).toContain('bookmark')
       expect(getSelectedTypes('all')).toContain('note')
+      expect(getSelectedTypes('all')).toContain('prompt')
 
       // Toggle off bookmark
       toggleType('all', 'bookmark')
+      expect(getSelectedTypes('all')).toContain('note')
+      expect(getSelectedTypes('all')).toContain('prompt')
+
+      // Toggle off prompt too
+      toggleType('all', 'prompt')
       expect(getSelectedTypes('all')).toEqual(['note'])
 
       // Try to toggle off note (should be prevented - last type)
@@ -196,13 +202,14 @@ describe('useContentTypeFilterStore', () => {
   })
 
   describe('ALL_CONTENT_TYPES constant', () => {
-    it('contains bookmark and note types', () => {
+    it('contains bookmark, note, and prompt types', () => {
       expect(ALL_CONTENT_TYPES).toContain('bookmark')
       expect(ALL_CONTENT_TYPES).toContain('note')
+      expect(ALL_CONTENT_TYPES).toContain('prompt')
     })
 
-    it('has exactly 2 types', () => {
-      expect(ALL_CONTENT_TYPES).toHaveLength(2)
+    it('has exactly 3 types', () => {
+      expect(ALL_CONTENT_TYPES).toHaveLength(3)
     })
   })
 
@@ -227,6 +234,102 @@ describe('useContentTypeFilterStore', () => {
 
       // 'archived' view should still have default (all types)
       expect(getSelectedTypes('archived')).toEqual(ALL_CONTENT_TYPES)
+    })
+  })
+
+  describe('migration', () => {
+    it('migrates v1 state to v2 by adding prompt to existing selections', () => {
+      // Simulate v1 persisted state (no prompt type)
+      const v1State = {
+        selectedTypes: {
+          all: ['bookmark', 'note'],
+          archived: ['bookmark'],
+          deleted: ['note'],
+        },
+      }
+
+      // Get the persist config to access migrate function
+      const persistConfig = (useContentTypeFilterStore as unknown as {
+        persist: { getOptions: () => { migrate: (state: unknown, version: number) => unknown } }
+      }).persist.getOptions()
+
+      // Run migration from version 1 to version 2
+      const migratedState = persistConfig.migrate(v1State, 1) as {
+        selectedTypes: Record<string, string[]>
+      }
+
+      // All views should have 'prompt' added
+      expect(migratedState.selectedTypes['all']).toContain('bookmark')
+      expect(migratedState.selectedTypes['all']).toContain('note')
+      expect(migratedState.selectedTypes['all']).toContain('prompt')
+      expect(migratedState.selectedTypes['archived']).toContain('bookmark')
+      expect(migratedState.selectedTypes['archived']).toContain('prompt')
+      expect(migratedState.selectedTypes['deleted']).toContain('note')
+      expect(migratedState.selectedTypes['deleted']).toContain('prompt')
+    })
+
+    it('does not duplicate prompt if already present in v1 state', () => {
+      // Edge case: v1 state somehow has prompt already
+      const v1State = {
+        selectedTypes: {
+          all: ['bookmark', 'note', 'prompt'],
+        },
+      }
+
+      const persistConfig = (useContentTypeFilterStore as unknown as {
+        persist: { getOptions: () => { migrate: (state: unknown, version: number) => unknown } }
+      }).persist.getOptions()
+
+      const migratedState = persistConfig.migrate(v1State, 1) as {
+        selectedTypes: Record<string, string[]>
+      }
+
+      // Should not have duplicate prompts
+      const promptCount = migratedState.selectedTypes['all'].filter((t) => t === 'prompt').length
+      expect(promptCount).toBe(1)
+    })
+
+    it('does not modify v2 state during migration', () => {
+      const v2State = {
+        selectedTypes: {
+          all: ['bookmark'],
+        },
+      }
+
+      const persistConfig = (useContentTypeFilterStore as unknown as {
+        persist: { getOptions: () => { migrate: (state: unknown, version: number) => unknown } }
+      }).persist.getOptions()
+
+      // Migrating from v2 should not modify state
+      const migratedState = persistConfig.migrate(v2State, 2) as {
+        selectedTypes: Record<string, string[]>
+      }
+
+      expect(migratedState.selectedTypes['all']).toEqual(['bookmark'])
+    })
+
+    it('handles empty state during migration', () => {
+      const emptyState = { selectedTypes: {} }
+
+      const persistConfig = (useContentTypeFilterStore as unknown as {
+        persist: { getOptions: () => { migrate: (state: unknown, version: number) => unknown } }
+      }).persist.getOptions()
+
+      const migratedState = persistConfig.migrate(emptyState, 1) as {
+        selectedTypes: Record<string, string[]>
+      }
+
+      expect(migratedState.selectedTypes).toEqual({})
+    })
+
+    it('handles null/undefined state during migration', () => {
+      const persistConfig = (useContentTypeFilterStore as unknown as {
+        persist: { getOptions: () => { migrate: (state: unknown, version: number) => unknown } }
+      }).persist.getOptions()
+
+      // Should not throw on null state
+      expect(() => persistConfig.migrate(null, 1)).not.toThrow()
+      expect(() => persistConfig.migrate(undefined, 1)).not.toThrow()
     })
   })
 })

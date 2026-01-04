@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from models.bookmark import Bookmark
     from models.content_list import ContentList
     from models.note import Note
+    from models.prompt import Prompt
     from models.tag import Tag
     from models.user_consent import UserConsent
     from models.user_settings import UserSettings
@@ -35,6 +36,10 @@ class User(Base, TimestampMixin):
         cascade="all, delete-orphan",
     )
     notes: Mapped[list["Note"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    prompts: Mapped[list["Prompt"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )

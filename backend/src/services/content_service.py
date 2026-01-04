@@ -1,14 +1,16 @@
-"""Service layer for unified content operations across bookmarks and notes."""
+"""Service layer for unified content operations across bookmarks, notes, and prompts."""
 from typing import Any, Literal
 
-from sqlalchemy import Row, Table, and_, exists, func, literal, or_, select, union_all
+from sqlalchemy import Row, Table, and_, cast, exists, func, literal, or_, select, union_all
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from models.bookmark import Bookmark
 from models.note import Note
-from models.tag import Tag, bookmark_tags, note_tags
-from schemas.bookmark import validate_and_normalize_tags
+from models.prompt import Prompt
+from models.tag import Tag, bookmark_tags, note_tags, prompt_tags
+from schemas.validators import validate_and_normalize_tags
 from schemas.content import ContentListItem
 from services.utils import build_tag_filter_from_expression, escape_ilike
 
@@ -74,19 +76,23 @@ async def _get_tags_for_items(
     user_id: int,
     bookmark_ids: list[int],
     note_ids: list[int],
+    prompt_ids: list[int] | None = None,
 ) -> dict[tuple[str, int], list[str]]:
     """
-    Fetch tags for a list of bookmarks and notes.
+    Fetch tags for a list of bookmarks, notes, and prompts.
 
     Returns a dict mapping (type, id) -> list of tag names.
     """
     result: dict[tuple[str, int], list[str]] = {}
+    prompt_ids = prompt_ids or []
 
     # Initialize empty lists for all items
     for bid in bookmark_ids:
         result[("bookmark", bid)] = []
     for nid in note_ids:
         result[("note", nid)] = []
+    for pid in prompt_ids:
+        result[("prompt", pid)] = []
 
     if bookmark_ids:
         # Fetch bookmark tags
@@ -116,6 +122,20 @@ async def _get_tags_for_items(
         for note_id, tag_name in rows:
             result[("note", note_id)].append(tag_name)
 
+    if prompt_ids:
+        # Fetch prompt tags
+        query = (
+            select(prompt_tags.c.prompt_id, Tag.name)
+            .join(Tag, prompt_tags.c.tag_id == Tag.id)
+            .where(
+                prompt_tags.c.prompt_id.in_(prompt_ids),
+                Tag.user_id == user_id,
+            )
+        )
+        rows = await db.execute(query)
+        for prompt_id, tag_name in rows:
+            result[("prompt", prompt_id)].append(tag_name)
+
     return result
 
 
@@ -134,6 +154,8 @@ def _row_to_content_item(row: Row, tags: list[str]) -> ContentListItem:
         archived_at=row.archived_at,
         url=row.url if row.type == "bookmark" else None,
         version=row.version if row.type == "note" else None,
+        name=row.name if row.type == "prompt" else None,
+        arguments=row.arguments if row.type == "prompt" else None,
     )
 
 
@@ -154,7 +176,7 @@ async def search_all_content(
     content_types: list[str] | None = None,
 ) -> tuple[list[ContentListItem], int]:
     """
-    Search all content (bookmarks and notes) with unified pagination.
+    Search all content (bookmarks, notes, and prompts) with unified pagination.
 
     Args:
         db: Database session.
@@ -172,8 +194,8 @@ async def search_all_content(
             - "archived": Archived but not deleted.
             - "deleted": Soft-deleted (includes deleted+archived).
         filter_expression: Optional filter expression from a content list.
-        content_types: Optional list of content types to include ("bookmark", "note").
-            If None, includes both. Used by content lists to filter entity types.
+        content_types: Optional list of content types to include ("bookmark", "note", "prompt").
+            If None, includes all. Used by content lists to filter entity types.
 
     Returns:
         Tuple of (list of ContentListItems, total count).
@@ -184,9 +206,10 @@ async def search_all_content(
     # Determine which content types to include
     include_bookmarks = content_types is None or "bookmark" in content_types
     include_notes = content_types is None or "note" in content_types
+    include_prompts = content_types is None or "prompt" in content_types
 
     # If no content types to include, return empty
-    if not include_bookmarks and not include_notes:
+    if not include_bookmarks and not include_notes and not include_prompts:
         return [], 0
 
     subqueries = []
@@ -221,6 +244,8 @@ async def search_all_content(
                 Bookmark.archived_at.label("archived_at"),
                 Bookmark.url.label("url"),
                 literal(None).label("version"),
+                literal(None).label("name"),
+                cast(literal(None), JSONB).label("arguments"),
             )
             .where(and_(*bookmark_filters))
         )
@@ -253,10 +278,46 @@ async def search_all_content(
                 Note.archived_at.label("archived_at"),
                 literal(None).label("url"),
                 Note.version.label("version"),
+                literal(None).label("name"),
+                cast(literal(None), JSONB).label("arguments"),
             )
             .where(and_(*note_filters))
         )
         subqueries.append(note_subq)
+
+    # Build prompt subquery if needed
+    if include_prompts:
+        prompt_filters = _apply_entity_filters(
+            filters=[Prompt.user_id == user_id],
+            model=Prompt,
+            junction_table=prompt_tags,
+            text_search_fields=[Prompt.name, Prompt.title, Prompt.description, Prompt.content],
+            view=view,
+            query=query,
+            normalized_tags=normalized_tags,
+            tag_match=tag_match,
+            user_id=user_id,
+            filter_expression=filter_expression,
+        )
+        prompt_subq = (
+            select(
+                literal("prompt").label("type"),
+                Prompt.id.label("id"),
+                Prompt.title.label("title"),
+                Prompt.description.label("description"),
+                Prompt.created_at.label("created_at"),
+                Prompt.updated_at.label("updated_at"),
+                Prompt.last_used_at.label("last_used_at"),
+                Prompt.deleted_at.label("deleted_at"),
+                Prompt.archived_at.label("archived_at"),
+                literal(None).label("url"),
+                literal(None).label("version"),
+                Prompt.name.label("name"),
+                Prompt.arguments.label("arguments"),
+            )
+            .where(and_(*prompt_filters))
+        )
+        subqueries.append(prompt_subq)
 
     # Combine subqueries
     if len(subqueries) == 1:
@@ -286,9 +347,10 @@ async def search_all_content(
     # Collect IDs for tag fetching
     bookmark_ids = [row.id for row in rows if row.type == "bookmark"]
     note_ids = [row.id for row in rows if row.type == "note"]
+    prompt_ids = [row.id for row in rows if row.type == "prompt"]
 
     # Fetch tags for all items
-    tags_map = await _get_tags_for_items(db, user_id, bookmark_ids, note_ids)
+    tags_map = await _get_tags_for_items(db, user_id, bookmark_ids, note_ids, prompt_ids)
 
     # Convert rows to ContentListItems
     items = [

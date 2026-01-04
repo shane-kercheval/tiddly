@@ -2,9 +2,29 @@ import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import { useEffect, type ReactNode } from 'react'
 import { config, isDevMode } from '../config'
 import { setupAuthInterceptor } from '../services/api'
+import { useConsentStore } from '../stores/consentStore'
+import { queryClient } from '../queryClient'
+import { AuthStatusProvider } from './AuthStatusProvider'
 
 interface AuthProviderProps {
   children: ReactNode
+}
+
+function AuthStatusProviderDev({ children }: AuthProviderProps): ReactNode {
+  return (
+    <AuthStatusProvider value={{ isAuthenticated: true, isLoading: false, error: null }}>
+      {children}
+    </AuthStatusProvider>
+  )
+}
+
+function AuthStatusProviderProd({ children }: AuthProviderProps): ReactNode {
+  const { isAuthenticated, isLoading, error } = useAuth0()
+  return (
+    <AuthStatusProvider value={{ isAuthenticated, isLoading, error: error ?? null }}>
+      {children}
+    </AuthStatusProvider>
+  )
 }
 
 /**
@@ -12,15 +32,20 @@ interface AuthProviderProps {
  */
 function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
   const { getAccessTokenSilently, logout } = useAuth0()
+  const resetConsent = useConsentStore((state) => state.reset)
 
   useEffect(() => {
     if (!isDevMode) {
       setupAuthInterceptor(
         () => getAccessTokenSilently(),
-        () => logout({ logoutParams: { returnTo: window.location.origin } })
+        () => {
+          resetConsent()
+          queryClient.clear()
+          logout({ logoutParams: { returnTo: window.location.origin } })
+        }
       )
     }
-  }, [getAccessTokenSilently, logout])
+  }, [getAccessTokenSilently, logout, resetConsent])
 
   return children
 }
@@ -32,7 +57,7 @@ function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
 export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   // In dev mode, skip Auth0 entirely
   if (isDevMode) {
-    return children
+    return <AuthStatusProviderDev>{children}</AuthStatusProviderDev>
   }
 
   return (
@@ -46,7 +71,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       cacheLocation="localstorage"
       useRefreshTokens={true}
     >
-      <AuthInterceptorSetup>{children}</AuthInterceptorSetup>
+      <AuthInterceptorSetup>
+        <AuthStatusProviderProd>{children}</AuthStatusProviderProd>
+      </AuthInterceptorSetup>
     </Auth0Provider>
   )
 }

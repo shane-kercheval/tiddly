@@ -75,32 +75,20 @@ async def test_create_list_validates_name(client: AsyncClient) -> None:
 
 
 async def test_create_list_validates_filter_expression(client: AsyncClient) -> None:
-    """Test that filter expression must have at least one group with tags."""
-    # Empty groups
+    """Test that filter expression can be empty (no tag filters)."""
     response = await client.post(
         "/lists/",
         json={
-            "name": "Invalid",
+            "name": "No Filter List",
             "filter_expression": {
                 "groups": [],
                 "group_operator": "OR",
             },
         },
     )
-    assert response.status_code == 422
-
-    # Empty tags in group
-    response = await client.post(
-        "/lists/",
-        json={
-            "name": "Invalid",
-            "filter_expression": {
-                "groups": [{"tags": []}],
-                "group_operator": "OR",
-            },
-        },
-    )
-    assert response.status_code == 422
+    assert response.status_code == 201
+    data = response.json()
+    assert data["filter_expression"]["groups"] == []
 
 
 async def test_create_list_validates_tag_format(client: AsyncClient) -> None:
@@ -120,10 +108,12 @@ async def test_create_list_validates_tag_format(client: AsyncClient) -> None:
 
 
 async def test_get_lists_empty(client: AsyncClient) -> None:
-    """Test getting lists when user has none."""
+    """Test getting lists returns default lists for a new user."""
     response = await client.get("/lists/")
     assert response.status_code == 200
-    assert response.json() == []
+    data = response.json()
+    names = {item["name"] for item in data}
+    assert names == {"All Bookmarks", "All Notes", "All Prompts"}
 
 
 async def test_get_lists(client: AsyncClient) -> None:
@@ -148,10 +138,13 @@ async def test_get_lists(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     data = response.json()
-    assert len(data) == 2
-    # Should be ordered by created_at
-    assert data[0]["name"] == "First"
-    assert data[1]["name"] == "Second"
+    custom_lists = [
+        item for item in data if item["name"] not in {"All Bookmarks", "All Notes", "All Prompts"}
+    ]
+    assert len(custom_lists) == 2
+    # Should be ordered by created_at for custom lists
+    assert custom_lists[0]["name"] == "First"
+    assert custom_lists[1]["name"] == "Second"
 
 
 async def test_get_list_by_id(client: AsyncClient) -> None:
@@ -490,13 +483,11 @@ async def test_get_lists_includes_sort_fields(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     data = response.json()
-    assert len(data) == 2
-    # First list (created first) has sort config
-    assert data[0]["default_sort_by"] == "title"
-    assert data[0]["default_sort_ascending"] is True
-    # Second list has no sort config
-    assert data[1]["default_sort_by"] is None
-    assert data[1]["default_sort_ascending"] is None
+    by_name = {item["name"]: item for item in data}
+    assert by_name["With Sort"]["default_sort_by"] == "title"
+    assert by_name["With Sort"]["default_sort_ascending"] is True
+    assert by_name["Without Sort"]["default_sort_by"] is None
+    assert by_name["Without Sort"]["default_sort_ascending"] is None
 
 
 async def test_create_list_all_valid_sort_options(client: AsyncClient) -> None:
@@ -517,3 +508,151 @@ async def test_create_list_all_valid_sort_options(client: AsyncClient) -> None:
         )
         assert response.status_code == 201
         assert response.json()["default_sort_by"] == sort_by
+
+
+# =============================================================================
+# Content Types API Tests
+# =============================================================================
+
+
+async def test_create_list_with_prompt_content_type(client: AsyncClient) -> None:
+    """Test creating a list for prompts only."""
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "My Prompts",
+            "content_types": ["prompt"],
+            "filter_expression": {"groups": [], "group_operator": "OR"},
+        },
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["content_types"] == ["prompt"]
+
+
+async def test_create_list_with_all_content_types(client: AsyncClient) -> None:
+    """Test creating a list with all three content types."""
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Everything",
+            "content_types": ["bookmark", "note", "prompt"],
+            "filter_expression": {"groups": [], "group_operator": "OR"},
+        },
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert set(data["content_types"]) == {"bookmark", "note", "prompt"}
+
+
+async def test_create_list_with_bookmark_and_prompt(client: AsyncClient) -> None:
+    """Test creating a list with bookmark and prompt content types."""
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Bookmarks and Prompts",
+            "content_types": ["bookmark", "prompt"],
+            "filter_expression": {"groups": [], "group_operator": "OR"},
+        },
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert set(data["content_types"]) == {"bookmark", "prompt"}
+
+
+async def test_create_list_with_note_and_prompt(client: AsyncClient) -> None:
+    """Test creating a list with note and prompt content types."""
+    response = await client.post(
+        "/lists/",
+        json={
+            "name": "Notes and Prompts",
+            "content_types": ["note", "prompt"],
+            "filter_expression": {"groups": [], "group_operator": "OR"},
+        },
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert set(data["content_types"]) == {"note", "prompt"}
+
+
+async def test_update_list_add_prompt_content_type(client: AsyncClient) -> None:
+    """Test adding prompt to existing list's content types."""
+    # Create list without prompt
+    create_response = await client.post(
+        "/lists/",
+        json={
+            "name": "Test",
+            "content_types": ["bookmark"],
+            "filter_expression": {"groups": [], "group_operator": "OR"},
+        },
+    )
+    list_id = create_response.json()["id"]
+
+    # Update to include prompt
+    response = await client.patch(
+        f"/lists/{list_id}",
+        json={"content_types": ["bookmark", "prompt"]},
+    )
+    assert response.status_code == 200
+    assert set(response.json()["content_types"]) == {"bookmark", "prompt"}
+
+
+async def test_update_list_change_to_prompt_only(client: AsyncClient) -> None:
+    """Test changing a list to prompt-only content type."""
+    # Create list with bookmark
+    create_response = await client.post(
+        "/lists/",
+        json={
+            "name": "Test",
+            "content_types": ["bookmark", "note"],
+            "filter_expression": {"groups": [], "group_operator": "OR"},
+        },
+    )
+    list_id = create_response.json()["id"]
+
+    # Update to prompt only
+    response = await client.patch(
+        f"/lists/{list_id}",
+        json={"content_types": ["prompt"]},
+    )
+    assert response.status_code == 200
+    assert response.json()["content_types"] == ["prompt"]
+
+
+async def test_get_list_includes_prompt_content_type(client: AsyncClient) -> None:
+    """Test that get list response includes prompt content type."""
+    # Create a list with prompt
+    create_response = await client.post(
+        "/lists/",
+        json={
+            "name": "Prompt List",
+            "content_types": ["prompt"],
+            "filter_expression": {"groups": [], "group_operator": "OR"},
+        },
+    )
+    list_id = create_response.json()["id"]
+
+    # Get the list
+    response = await client.get(f"/lists/{list_id}")
+    assert response.status_code == 200
+    assert response.json()["content_types"] == ["prompt"]
+
+
+async def test_get_lists_includes_prompt_content_types(client: AsyncClient) -> None:
+    """Test that get lists response includes prompt content types."""
+    # Create list with prompt
+    await client.post(
+        "/lists/",
+        json={
+            "name": "With Prompt",
+            "content_types": ["bookmark", "prompt"],
+            "filter_expression": {"groups": [], "group_operator": "OR"},
+        },
+    )
+
+    response = await client.get("/lists/")
+    assert response.status_code == 200
+
+    data = response.json()
+    by_name = {item["name"]: item for item in data}
+    assert set(by_name["With Prompt"]["content_types"]) == {"bookmark", "prompt"}

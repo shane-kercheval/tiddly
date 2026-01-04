@@ -2181,3 +2181,36 @@ async def test__update_bookmark__can_clear_archived_at(
     assert updated is not None
     assert updated.archived_at is None
     assert updated.is_archived is False
+
+
+# =============================================================================
+# Cascade Delete Tests
+# =============================================================================
+
+
+async def test__cascade_delete__user_deletion_removes_bookmarks(
+    db_session: AsyncSession,
+) -> None:
+    """Test that deleting a user removes all their bookmarks."""
+    # Create a user with bookmarks
+    user = User(auth0_id="cascade-test-user-bm", email="cascade-bm@example.com")
+    db_session.add(user)
+    await db_session.flush()
+
+    await bookmark_service.create(
+        db_session, user.id, BookmarkCreate(url="https://cascade-test-1.com/"),
+    )
+    await bookmark_service.create(
+        db_session, user.id, BookmarkCreate(url="https://cascade-test-2.com/"),
+    )
+    await db_session.flush()
+
+    # Delete the user
+    await db_session.delete(user)
+    await db_session.flush()
+
+    # Verify bookmarks are gone
+    result = await db_session.execute(
+        select(Bookmark).where(Bookmark.user_id == user.id),
+    )
+    assert result.scalars().all() == []

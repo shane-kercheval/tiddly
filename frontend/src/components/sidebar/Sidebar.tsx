@@ -27,6 +27,7 @@ import { useTagsStore } from '../../stores/tagsStore'
 import { useTabNavigation } from '../../hooks/useTabNavigation'
 import { queryClient } from '../../queryClient'
 import { invalidateListQueries } from '../../utils/invalidateListQueries'
+import { getFirstGroupTags } from '../../utils'
 import { SidebarGroup } from './SidebarGroup'
 import { SidebarNavItem } from './SidebarNavItem'
 import { SidebarUserSection } from './SidebarUserSection'
@@ -49,6 +50,7 @@ import {
   PlusIcon,
   BookmarkIcon,
   NoteIcon,
+  PromptIcon,
 } from '../icons'
 import type {
   SidebarItemComputed,
@@ -117,6 +119,12 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   const tags = useTagsStore((state) => state.tags)
   const { currentListId } = useTabNavigation()
 
+  const currentList = useMemo(
+    () => currentListId !== undefined ? lists.find((list) => list.id === currentListId) : undefined,
+    [currentListId, lists]
+  )
+  const initialTagsFromList = useMemo(() => getFirstGroupTags(currentList), [currentList])
+
   // Modal state
   const [isListModalOpen, setIsListModalOpen] = useState(false)
   const [editingList, setEditingList] = useState<ContentList | undefined>(undefined)
@@ -128,12 +136,32 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
   // Quick-add handlers
   const handleQuickAddBookmark = (): void => {
-    navigate('/app/content?action=add', { state: { returnTo: location.pathname + location.search } })
+    navigate('/app/bookmarks/new', {
+      state: {
+        returnTo: location.pathname + location.search,
+        initialTags: initialTagsFromList,
+      },
+    })
     onNavClick?.()
   }
 
   const handleQuickAddNote = (): void => {
-    navigate('/app/notes/new', { state: { returnTo: location.pathname + location.search } })
+    navigate('/app/notes/new', {
+      state: {
+        returnTo: location.pathname + location.search,
+        initialTags: initialTagsFromList,
+      },
+    })
+    onNavClick?.()
+  }
+
+  const handleQuickAddPrompt = (): void => {
+    navigate('/app/prompts/new', {
+      state: {
+        returnTo: location.pathname + location.search,
+        initialTags: initialTagsFromList,
+      },
+    })
     onNavClick?.()
   }
 
@@ -593,6 +621,13 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
             title="New Note"
           >
             <NoteIcon className="h-4 w-4" />
+          </button>
+          <button
+            onClick={handleQuickAddPrompt}
+            className="p-1.5 rounded-md text-orange-500 hover:bg-orange-50 hover:text-orange-600 transition-colors"
+            title="New Prompt"
+          >
+            <PromptIcon className="h-4 w-4" />
           </button>
           <button
             onClick={toggleCollapse}

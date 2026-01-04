@@ -310,9 +310,9 @@ describe('NoteCard', () => {
     })
   })
 
-  describe('card click to edit', () => {
-    it('should call onEdit when card is clicked in active view', async () => {
-      const onEdit = vi.fn()
+  describe('card click to view', () => {
+    it('should call onView when card is clicked in active view', async () => {
+      const onView = vi.fn()
       const user = userEvent.setup()
 
       const { container } = render(
@@ -320,7 +320,7 @@ describe('NoteCard', () => {
           note={mockNote}
           view="active"
           onDelete={vi.fn()}
-          onEdit={onEdit}
+          onView={onView}
         />
       )
 
@@ -328,11 +328,11 @@ describe('NoteCard', () => {
       const card = container.querySelector('.card')
       await user.click(card!)
 
-      expect(onEdit).toHaveBeenCalledWith(mockNote)
+      expect(onView).toHaveBeenCalledWith(mockNote)
     })
 
-    it('should call onEdit when card is clicked in archived view', async () => {
-      const onEdit = vi.fn()
+    it('should call onView when card is clicked in archived view', async () => {
+      const onView = vi.fn()
       const user = userEvent.setup()
 
       const { container } = render(
@@ -340,22 +340,22 @@ describe('NoteCard', () => {
           note={mockNote}
           view="archived"
           onDelete={vi.fn()}
-          onEdit={onEdit}
+          onView={onView}
         />
       )
 
       const card = container.querySelector('.card')
       await user.click(card!)
 
-      expect(onEdit).toHaveBeenCalledWith(mockNote)
+      expect(onView).toHaveBeenCalledWith(mockNote)
     })
 
-    it('should not call onEdit when title is clicked', async () => {
+    it('should not call onEdit when card is clicked (edit only via button)', async () => {
       const onEdit = vi.fn()
       const onView = vi.fn()
       const user = userEvent.setup()
 
-      render(
+      const { container } = render(
         <NoteCard
           note={mockNote}
           view="active"
@@ -365,8 +365,9 @@ describe('NoteCard', () => {
         />
       )
 
-      // Click the title button specifically (title="View note")
-      await user.click(screen.getByTitle('View note'))
+      // Click the card
+      const card = container.querySelector('.card')
+      await user.click(card!)
 
       // onView should be called, not onEdit
       expect(onView).toHaveBeenCalledWith(mockNote)

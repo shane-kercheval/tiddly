@@ -9,6 +9,8 @@ OWASP Reference: A01:2021 - Broken Access Control
 from httpx import AsyncClient
 
 from models.bookmark import Bookmark
+from models.note import Note
+from models.prompt import Prompt
 
 
 class TestBookmarkIDOR:
@@ -145,3 +147,159 @@ class TestTagIDOR:
         # Returns 404 regardless of whether tag exists for other users
         # This prevents user enumeration
         assert response.status_code == 404
+
+
+class TestNoteIDOR:
+    """Test IDOR protection for note resources."""
+
+    async def test__get_note__returns_404_for_other_users_note(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_note: Note,
+    ) -> None:
+        """User B cannot access User A's note via direct ID access."""
+        response = await client_as_user_b.get(f"/notes/{user_a_note.id}")
+
+        # Should return 404, not 403 (to prevent ID enumeration)
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Note not found"
+
+    async def test__update_note__returns_404_for_other_users_note(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_note: Note,
+    ) -> None:
+        """User B cannot update User A's note."""
+        response = await client_as_user_b.patch(
+            f"/notes/{user_a_note.id}",
+            json={"title": "Hacked by User B"},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Note not found"
+
+    async def test__delete_note__returns_404_for_other_users_note(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_note: Note,
+    ) -> None:
+        """User B cannot delete User A's note."""
+        response = await client_as_user_b.delete(f"/notes/{user_a_note.id}")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Note not found"
+
+    async def test__archive_note__returns_404_for_other_users_note(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_note: Note,
+    ) -> None:
+        """User B cannot archive User A's note."""
+        response = await client_as_user_b.post(
+            f"/notes/{user_a_note.id}/archive",
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Note not found"
+
+    async def test__list_notes__excludes_other_users_data(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_note: Note,
+        user_b_note: Note,
+    ) -> None:
+        """User B's list does not include User A's notes."""
+        # User B's list should only contain their own notes
+        response_b = await client_as_user_b.get("/notes/")
+        assert response_b.status_code == 200
+        notes_b = response_b.json()["items"]
+        note_ids_b = [n["id"] for n in notes_b]
+
+        # User B sees their own note
+        assert user_b_note.id in note_ids_b
+        # User B does NOT see User A's note
+        assert user_a_note.id not in note_ids_b
+
+
+class TestPromptIDOR:
+    """Test IDOR protection for prompt resources."""
+
+    async def test__get_prompt__returns_404_for_other_users_prompt(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_prompt: Prompt,
+    ) -> None:
+        """User B cannot access User A's prompt via direct ID access."""
+        response = await client_as_user_b.get(f"/prompts/{user_a_prompt.id}")
+
+        # Should return 404, not 403 (to prevent ID enumeration)
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Prompt not found"
+
+    async def test__get_prompt_by_name__returns_404_for_other_users_prompt(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_prompt: Prompt,
+    ) -> None:
+        """User B cannot access User A's prompt via name lookup."""
+        response = await client_as_user_b.get(f"/prompts/name/{user_a_prompt.name}")
+
+        # Should return 404 - cannot discover prompts by name
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Prompt not found"
+
+    async def test__update_prompt__returns_404_for_other_users_prompt(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_prompt: Prompt,
+    ) -> None:
+        """User B cannot update User A's prompt."""
+        response = await client_as_user_b.patch(
+            f"/prompts/{user_a_prompt.id}",
+            json={"content": "Hacked by User B"},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Prompt not found"
+
+    async def test__delete_prompt__returns_404_for_other_users_prompt(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_prompt: Prompt,
+    ) -> None:
+        """User B cannot delete User A's prompt."""
+        response = await client_as_user_b.delete(f"/prompts/{user_a_prompt.id}")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Prompt not found"
+
+    async def test__archive_prompt__returns_404_for_other_users_prompt(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_prompt: Prompt,
+    ) -> None:
+        """User B cannot archive User A's prompt."""
+        response = await client_as_user_b.post(
+            f"/prompts/{user_a_prompt.id}/archive",
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Prompt not found"
+
+    async def test__list_prompts__excludes_other_users_data(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_prompt: Prompt,
+        user_b_prompt: Prompt,
+    ) -> None:
+        """User B's list does not include User A's prompts."""
+        # User B's list should only contain their own prompts
+        response_b = await client_as_user_b.get("/prompts/")
+        assert response_b.status_code == 200
+        prompts_b = response_b.json()["items"]
+        prompt_ids_b = [p["id"] for p in prompts_b]
+
+        # User B sees their own prompt
+        assert user_b_prompt.id in prompt_ids_b
+        # User B does NOT see User A's prompt
+        assert user_a_prompt.id not in prompt_ids_b

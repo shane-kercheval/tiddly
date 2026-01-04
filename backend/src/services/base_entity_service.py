@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
 from models.tag import Tag
-from schemas.bookmark import validate_and_normalize_tags
+from schemas.validators import validate_and_normalize_tags
 from services.exceptions import InvalidStateError
 from services.utils import build_tag_filter_from_expression, escape_ilike
 

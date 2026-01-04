@@ -1,66 +1,19 @@
 """Pydantic schemas for bookmark endpoints."""
-import re
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from core.config import get_settings
-
-# Tag format: lowercase alphanumeric with hyphens (e.g., 'machine-learning', 'web-dev')
-# Note: This pattern is intentionally duplicated in the frontend (frontend/src/utils.ts)
-# for immediate UX feedback. Backend validation ensures security. Keep both in sync.
-TAG_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-
-
-def validate_and_normalize_tag(tag: str) -> str:
-    """
-    Normalize and validate a single tag.
-
-    Args:
-        tag: The tag string to validate.
-
-    Returns:
-        The normalized tag (lowercase, trimmed).
-
-    Raises:
-        ValueError: If tag is empty or has invalid format.
-    """
-    normalized = tag.lower().strip()
-    if not normalized:
-        raise ValueError("Tag name cannot be empty")
-    if not TAG_PATTERN.match(normalized):
-        raise ValueError(
-            f"Invalid tag format: '{normalized}'. "
-            "Use lowercase letters, numbers, and hyphens only (e.g., 'machine-learning').",
-        )
-    return normalized
-
-
-def validate_and_normalize_tags(tags: list[str]) -> list[str]:
-    """
-    Normalize and validate a list of tags.
-
-    Args:
-        tags: List of tag strings to validate.
-
-    Returns:
-        List of normalized tags (lowercase, trimmed), with empty strings filtered out.
-
-    Raises:
-        ValueError: If any tag has invalid format.
-    """
-    normalized = []
-    for tag in tags:
-        trimmed = tag.lower().strip()
-        if not trimmed:
-            continue  # Skip empty tags silently
-        normalized.append(validate_and_normalize_tag(trimmed))
-    return normalized
+from schemas.validators import (
+    validate_and_normalize_tags,
+    validate_description_length,
+    validate_title_length,
+)
 
 
 def validate_content_length(content: str | None) -> str | None:
-    """Validate that content doesn't exceed maximum length."""
+    """Validate that bookmark content doesn't exceed maximum length."""
     settings = get_settings()
     if content is not None and len(content) > settings.max_content_length:
         raise ValueError(
@@ -68,29 +21,6 @@ def validate_content_length(content: str | None) -> str | None:
             f"(got {len(content):,} characters). Consider summarizing the content.",
         )
     return content
-
-
-def validate_description_length(description: str | None) -> str | None:
-    """Validate that description doesn't exceed maximum length."""
-    settings = get_settings()
-    if description is not None and len(description) > settings.max_description_length:
-        max_len = settings.max_description_length
-        raise ValueError(
-            f"Description exceeds maximum length of {max_len:,} characters "
-            f"(got {len(description):,} characters).",
-        )
-    return description
-
-
-def validate_title_length(title: str | None) -> str | None:
-    """Validate that title doesn't exceed maximum length."""
-    settings = get_settings()
-    if title is not None and len(title) > settings.max_title_length:
-        raise ValueError(
-            f"Title exceeds maximum length of {settings.max_title_length:,} characters "
-            f"(got {len(title):,} characters).",
-        )
-    return title
 
 
 class BookmarkCreate(BaseModel):

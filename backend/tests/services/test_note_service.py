@@ -1801,3 +1801,36 @@ async def test__get_note__returns_none_for_other_users_note(
     result = await note_service.get(db_session, user2.id, note.id)
 
     assert result is None
+
+
+# =============================================================================
+# Cascade Delete Tests
+# =============================================================================
+
+
+async def test__cascade_delete__user_deletion_removes_notes(
+    db_session: AsyncSession,
+) -> None:
+    """Test that deleting a user removes all their notes."""
+    # Create a user with notes
+    user = User(auth0_id="cascade-test-user-notes", email="cascade-notes@example.com")
+    db_session.add(user)
+    await db_session.flush()
+
+    await note_service.create(
+        db_session, user.id, NoteCreate(title="Note 1", content="Test content"),
+    )
+    await note_service.create(
+        db_session, user.id, NoteCreate(title="Note 2", content="Test content"),
+    )
+    await db_session.flush()
+
+    # Delete the user
+    await db_session.delete(user)
+    await db_session.flush()
+
+    # Verify notes are gone
+    result = await db_session.execute(
+        select(Note).where(Note.user_id == user.id),
+    )
+    assert result.scalars().all() == []

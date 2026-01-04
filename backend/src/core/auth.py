@@ -23,7 +23,7 @@ from core.rate_limiter import check_rate_limit
 from db.session import get_async_session
 from models.user import User
 from schemas.cached_user import CachedUser
-from services import token_service
+from services import token_service, user_service
 
 logger = logging.getLogger(__name__)
 
@@ -160,12 +160,8 @@ async def get_or_create_user(
     user = result.scalar_one_or_none()
 
     if user is None:
-        user = User(auth0_id=auth0_id, email=email)
-        db.add(user)
         try:
-            await db.flush()
-            # New user has no consent - set explicitly to avoid lazy load
-            user.consent = None
+            user = await user_service.create_user_with_defaults(db, auth0_id, email)
         except IntegrityError:
             # Race condition: another request created the user between our SELECT
             # and INSERT. Rollback and fetch the existing user.

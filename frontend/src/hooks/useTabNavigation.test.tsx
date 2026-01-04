@@ -76,7 +76,7 @@ describe('useTabNavigation', () => {
   beforeEach(() => {
     mockUseSettingsStore.mockReturnValue({
       computedTabOrder: [
-        { key: 'all', label: 'All Bookmarks' },
+        { key: 'all', label: 'All Content' },
         { key: 'archived', label: 'Archived' },
         { key: 'trash', label: 'Trash' },
       ],
@@ -106,7 +106,7 @@ describe('useTabNavigation', () => {
         version: 1,
         items: [
           { type: 'list', id: 1, name: 'My List', content_types: ['bookmark'] },
-          { type: 'builtin', key: 'all', name: 'All' },
+          { type: 'builtin', key: 'all', name: 'All Content' },
         ],
       },
       fetchSidebar: vi.fn(),

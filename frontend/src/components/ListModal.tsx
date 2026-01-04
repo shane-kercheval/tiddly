@@ -69,11 +69,6 @@ export function ListModal({
     }
   }, [isOpen, list])
 
-  const validateFilterExpression = (expr: FilterExpression): boolean => {
-    // At least one group must have at least one tag
-    return expr.groups.some((group) => group.tags && group.tags.length > 0)
-  }
-
   const toggleContentType = (type: ContentType): void => {
     setContentTypes((prev) => {
       if (prev.includes(type)) {
@@ -95,11 +90,6 @@ export function ListModal({
 
     if (contentTypes.length === 0) {
       setError('At least one content type must be selected')
-      return
-    }
-
-    if (!validateFilterExpression(filterExpression)) {
-      setError('At least one tag filter is required')
       return
     }
 
@@ -191,6 +181,16 @@ export function ListModal({
                 disabled={isSubmitting || (contentTypes.length === 1 && contentTypes.includes('note'))}
               />
               Notes
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={contentTypes.includes('prompt')}
+                onChange={() => toggleContentType('prompt')}
+                className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900/10"
+                disabled={isSubmitting || (contentTypes.length === 1 && contentTypes.includes('prompt'))}
+              />
+              Prompts
             </label>
           </div>
           <p className="mt-1 text-xs text-gray-400">

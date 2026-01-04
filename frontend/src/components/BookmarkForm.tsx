@@ -1,7 +1,7 @@
 /**
  * Form component for adding or editing a bookmark.
  */
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import { TagInput } from './TagInput'
 import type { TagInputHandle } from './TagInput'
@@ -9,6 +9,7 @@ import type { Bookmark, BookmarkCreate, BookmarkUpdate, TagCount } from '../type
 import { normalizeUrl, isValidUrl, TAG_PATTERN, calculateArchivePresetDate } from '../utils'
 import type { ArchivePreset } from '../utils'
 import { config } from '../config'
+import { ArchiveIcon, TrashIcon, RestoreIcon } from './icons'
 
 interface BookmarkFormProps {
   /** Existing bookmark when editing, undefined when creating */
@@ -19,6 +20,12 @@ interface BookmarkFormProps {
   onSubmit: (data: BookmarkCreate | BookmarkUpdate) => Promise<void>
   /** Called when user cancels */
   onCancel: () => void
+  /** Called when bookmark is archived (shown in header when provided) */
+  onArchive?: () => void
+  /** Called when bookmark is unarchived (shown in header when provided) */
+  onUnarchive?: () => void
+  /** Called when bookmark is deleted (shown in header when provided) */
+  onDelete?: () => void
   /** Function to fetch metadata for a URL */
   onFetchMetadata?: (url: string) => Promise<{
     title: string | null
@@ -67,6 +74,9 @@ export function BookmarkForm({
   tagSuggestions,
   onSubmit,
   onCancel,
+  onArchive,
+  onUnarchive,
+  onDelete,
   onFetchMetadata,
   isSubmitting = false,
   initialUrl,
@@ -137,8 +147,21 @@ export function BookmarkForm({
   const [errors, setErrors] = useState<FormErrors>({})
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
   const [showFetchSuccess, setShowFetchSuccess] = useState(false)
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
   const tagInputRef = useRef<TagInputHandle>(null)
+  const contentRef = useRef<HTMLTextAreaElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Track if form has unsaved changes
+  const isDirty =
+    form.url !== (bookmark?.url || initialUrl || '') ||
+    form.title !== (bookmark?.title || '') ||
+    form.description !== (bookmark?.description || '') ||
+    form.content !== (bookmark?.content || '') ||
+    JSON.stringify(form.tags) !== JSON.stringify(bookmark?.tags || initialTags || []) ||
+    form.archivedAt !== (bookmark?.archived_at || '')
 
   // Track previous URL to detect changes
   const prevUrlRef = useRef(form.url)
@@ -197,14 +220,82 @@ export function BookmarkForm({
     }
   }, [initialUrl, onFetchMetadata])
 
-  // Cleanup timeout on unmount
+  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (successTimeoutRef.current) {
         clearTimeout(successTimeoutRef.current)
       }
+      if (cancelTimeoutRef.current) {
+        clearTimeout(cancelTimeoutRef.current)
+      }
     }
   }, [])
+
+  // Handle cancel with confirmation if dirty
+  const handleCancelRequest = useCallback((): void => {
+    // Clear any existing timeout
+    if (cancelTimeoutRef.current) {
+      clearTimeout(cancelTimeoutRef.current)
+      cancelTimeoutRef.current = null
+    }
+
+    if (!isDirty) {
+      // No changes, just cancel
+      onCancel()
+      return
+    }
+
+    if (confirmingCancel) {
+      // Already confirming, execute cancel
+      onCancel()
+    } else {
+      // Start confirmation
+      setConfirmingCancel(true)
+      // Auto-reset after 3 seconds
+      cancelTimeoutRef.current = setTimeout(() => {
+        setConfirmingCancel(false)
+      }, 3000)
+    }
+  }, [isDirty, confirmingCancel, onCancel])
+
+  // Reset cancel confirmation state
+  const resetCancelConfirmation = useCallback((): void => {
+    if (cancelTimeoutRef.current) {
+      clearTimeout(cancelTimeoutRef.current)
+      cancelTimeoutRef.current = null
+    }
+    setConfirmingCancel(false)
+  }, [])
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      // Cmd+S or Ctrl+S to save
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        formRef.current?.requestSubmit()
+      }
+      // When confirming cancel: Escape backs out, Enter confirms discard
+      if (confirmingCancel) {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          resetCancelConfirmation()
+        } else if (e.key === 'Enter') {
+          e.preventDefault()
+          onCancel()
+        }
+        return
+      }
+      // Escape to start cancel (with confirmation if dirty)
+      if (e.key === 'Escape') {
+        handleCancelRequest()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [handleCancelRequest, confirmingCancel, resetCancelConfirmation, onCancel])
 
   const handleFetchMetadata = async (): Promise<void> => {
     if (!form.url.trim()) {
@@ -254,6 +345,12 @@ export function BookmarkForm({
     } finally {
       setIsFetchingMetadata(false)
     }
+  }
+
+  const resizeContent = (): void => {
+    if (!contentRef.current) return
+    contentRef.current.style.height = 'auto'
+    contentRef.current.style.height = `${contentRef.current.scrollHeight}px`
   }
 
   const validate = (): boolean => {
@@ -337,8 +434,85 @@ export function BookmarkForm({
     }
   }
 
+  useEffect(() => {
+    resizeContent()
+  }, [form.content])
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form ref={formRef} onSubmit={handleSubmit} className="flex flex-col h-full">
+      {/* Fixed header with action buttons */}
+      <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleCancelRequest}
+            disabled={isSubmitting}
+            className={confirmingCancel
+              ? "btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50"
+              : "btn-secondary"
+            }
+          >
+            {confirmingCancel ? 'Discard changes?' : 'Cancel'}
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting || (!isEditing && !form.url.trim())}
+            className="btn-primary"
+          >
+            {isSubmitting ? (
+              <span className="flex items-center gap-1.5">
+                <div className="spinner-sm" />
+                Saving...
+              </span>
+            ) : isEditing ? (
+              'Save Changes'
+            ) : (
+              'Add Bookmark'
+            )}
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {onArchive && (
+            <button
+              type="button"
+              onClick={onArchive}
+              disabled={isSubmitting}
+              className="btn-secondary flex items-center gap-2"
+              title="Archive bookmark"
+            >
+              <ArchiveIcon className="h-4 w-4" />
+              Archive
+            </button>
+          )}
+          {onUnarchive && (
+            <button
+              type="button"
+              onClick={onUnarchive}
+              disabled={isSubmitting}
+              className="btn-secondary flex items-center gap-2"
+              title="Restore bookmark"
+            >
+              <RestoreIcon />
+              Restore
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={isSubmitting}
+              className="btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 flex items-center gap-2"
+              title="Delete bookmark"
+            >
+              <TrashIcon />
+              Delete
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto min-h-0 space-y-4 pr-2">
       {/* General error */}
       {errors.general && (
         <div className="alert-warning">
@@ -413,7 +587,7 @@ export function BookmarkForm({
           onChange={(e) =>
             setForm((prev) => ({ ...prev, description: e.target.value }))
           }
-          placeholder="Add a description..."
+          placeholder="Short summary displayed in lists and used in search results."
           rows={3}
           disabled={isSubmitting}
           maxLength={config.limits.maxDescriptionLength}
@@ -431,26 +605,72 @@ export function BookmarkForm({
         </div>
       </div>
 
-      {/* Tags field */}
-      <div>
-        <label htmlFor="tags" className="label">
-          Tags
-        </label>
-        <div className="mt-1">
-          <TagInput
-            ref={tagInputRef}
-            id="tags"
-            value={form.tags}
-            onChange={(tags) => setForm((prev) => ({ ...prev, tags }))}
-            suggestions={tagSuggestions}
-            placeholder="Add tags..."
-            disabled={isSubmitting}
-            error={errors.tags}
-          />
+      {/* Tags and Auto-archive row */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div className="md:col-span-7">
+          <label htmlFor="tags" className="label">
+            Tags
+          </label>
+          <div className="mt-1">
+            <TagInput
+              ref={tagInputRef}
+              id="tags"
+              value={form.tags}
+              onChange={(tags) => setForm((prev) => ({ ...prev, tags }))}
+              suggestions={tagSuggestions}
+              placeholder="Add tags..."
+              disabled={isSubmitting}
+              error={errors.tags}
+            />
+          </div>
         </div>
-        <p className="helper-text">
-          Type and press Enter to add. Use lowercase letters, numbers, and hyphens.
-        </p>
+
+        <div className="md:col-span-5">
+          <label htmlFor="archive-preset" className="label">
+            Auto-archive
+          </label>
+          <div className="mt-1 space-y-2">
+            <select
+              id="archive-preset"
+              value={form.archivePreset}
+              onChange={(e) => handleArchivePresetChange(e.target.value as FormState['archivePreset'])}
+              disabled={isSubmitting}
+              className="input"
+            >
+              <option value="none">None</option>
+              <option value="1-week">In 1 week</option>
+              <option value="1-month">In 1 month</option>
+              <option value="end-of-month">End of month</option>
+              <option value="6-months">In 6 months</option>
+              <option value="1-year">In 1 year</option>
+              <option value="custom">Custom date...</option>
+            </select>
+            {form.archivePreset === 'custom' && (
+              <input
+                type="datetime-local"
+                value={toDatetimeLocalFormat(form.archivedAt)}
+                onChange={(e) => setForm(prev => ({
+                  ...prev,
+                  archivedAt: fromDatetimeLocalFormat(e.target.value),
+                }))}
+                disabled={isSubmitting}
+                className="input"
+              />
+            )}
+            {form.archivedAt && form.archivePreset !== 'custom' && (
+              <p className="helper-text">
+                Will archive on {new Date(form.archivedAt).toLocaleDateString(undefined, {
+                  weekday: 'short',
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Content field */}
@@ -459,100 +679,27 @@ export function BookmarkForm({
           Content
         </label>
         <textarea
+          ref={contentRef}
           id="content"
           value={form.content}
           onChange={(e) =>
             setForm((prev) => ({ ...prev, content: e.target.value }))
           }
-          placeholder="Page content (auto-filled when fetching metadata, or paste for private URLs)..."
-          rows={4}
+          placeholder="Content is only used in search results. Auto-filled from public URLs or paste for private pages."
           disabled={isSubmitting}
-          className={`input mt-1 text-sm ${errors.content ? 'input-error' : ''}`}
+          className={`input mt-1 text-sm resize-none overflow-hidden ${errors.content ? 'input-error' : ''}`}
         />
         <div className="flex justify-between items-center">
-          <p className="helper-text">
-            {errors.content || 'Auto-populated from public URLs or paste manually for private pages.'}
-          </p>
+          {errors.content ? (
+            <p className="error-text">{errors.content}</p>
+          ) : (
+            <span />
+          )}
           <span className="helper-text">
             {form.content.length.toLocaleString()}/{config.limits.maxContentLength.toLocaleString()}
           </span>
         </div>
       </div>
-
-      {/* Auto-archive field */}
-      <div>
-        <label htmlFor="archive-preset" className="label">
-          Auto-archive
-        </label>
-        <div className="mt-1 space-y-2">
-          <select
-            id="archive-preset"
-            value={form.archivePreset}
-            onChange={(e) => handleArchivePresetChange(e.target.value as FormState['archivePreset'])}
-            disabled={isSubmitting}
-            className="input"
-          >
-            <option value="none">None</option>
-            <option value="1-week">In 1 week</option>
-            <option value="1-month">In 1 month</option>
-            <option value="end-of-month">End of month</option>
-            <option value="6-months">In 6 months</option>
-            <option value="1-year">In 1 year</option>
-            <option value="custom">Custom date...</option>
-          </select>
-          {form.archivePreset === 'custom' && (
-            <input
-              type="datetime-local"
-              value={toDatetimeLocalFormat(form.archivedAt)}
-              onChange={(e) => setForm(prev => ({
-                ...prev,
-                archivedAt: fromDatetimeLocalFormat(e.target.value),
-              }))}
-              disabled={isSubmitting}
-              className="input"
-            />
-          )}
-          {form.archivedAt && form.archivePreset !== 'custom' && (
-            <p className="helper-text">
-              Will archive on {new Date(form.archivedAt).toLocaleDateString(undefined, {
-                weekday: 'short',
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit',
-              })}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Form actions */}
-      <div className="flex justify-end gap-3 pt-4">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={isSubmitting}
-          className="btn-secondary"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={isSubmitting || (!isEditing && !form.url.trim())}
-          className="btn-primary"
-        >
-          {isSubmitting ? (
-            <span className="flex items-center gap-1.5">
-              <div className="spinner-sm" />
-              Saving...
-            </span>
-          ) : isEditing ? (
-            'Save Changes'
-          ) : (
-            'Add Bookmark'
-          )}
-        </button>
       </div>
     </form>
   )

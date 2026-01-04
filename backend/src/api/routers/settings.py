@@ -27,7 +27,7 @@ async def get_sidebar(
     - Groups with their child items resolved
 
     Lists that exist in the database but are not in the sidebar structure
-    (orphaned lists) are appended to the root level.
+    (orphaned lists) are prepended to the root level.
 
     Lists referenced in the sidebar but deleted from the database are
     automatically filtered out.

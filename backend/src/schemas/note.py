@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from core.config import get_settings
-from schemas.bookmark import (
+from schemas.validators import (
     validate_and_normalize_tags,
     validate_description_length,
     validate_title_length,

@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.content_list import ContentList
-from schemas.content_list import ContentListCreate, ContentListUpdate
+from schemas.content_list import ContentListCreate, ContentListUpdate, FilterExpression
 from services.sidebar_service import add_list_to_sidebar, remove_list_from_sidebar
 
 
@@ -33,6 +33,38 @@ async def create_list(
     await add_list_to_sidebar(db, user_id, content_list.id)
 
     return content_list
+
+
+async def ensure_default_lists(db: AsyncSession, user_id: int) -> None:
+    """Ensure default content lists exist for a user."""
+    default_definitions = [
+        {"name": "All Bookmarks", "content_types": ["bookmark"]},
+        {"name": "All Notes", "content_types": ["note"]},
+        {"name": "All Prompts", "content_types": ["prompt"]},
+    ]
+    default_names = [definition["name"] for definition in default_definitions]
+
+    existing_query = select(ContentList.name).where(
+        ContentList.user_id == user_id,
+        ContentList.name.in_(default_names),
+    )
+    existing_result = await db.execute(existing_query)
+    existing_names = set(existing_result.scalars().all())
+
+    for definition in default_definitions:
+        if definition["name"] in existing_names:
+            continue
+        await create_list(
+            db,
+            user_id,
+            ContentListCreate(
+                name=definition["name"],
+                content_types=definition["content_types"],
+                filter_expression=FilterExpression(),
+                default_sort_by="last_used_at",
+                default_sort_ascending=False,
+            ),
+        )
 
 
 async def get_lists(db: AsyncSession, user_id: int) -> list[ContentList]:
