@@ -1048,8 +1048,32 @@ For low-level SDK with prompts capability:
 
 ## Milestone 6: Frontend
 
+**Important:** Prompts are a **content type** like bookmarks and notes, integrated into the unified content system. They appear in the "All" view, have filter chips, and follow the same patterns.
+
+### 6.0 Backend Prerequisites
+
+Before frontend work, update the backend to support "All Prompts" default list:
+
+**6.0.1 Update `ensure_default_lists` in `content_list_service.py`:**
+```python
+default_definitions = [
+    {"name": "All Bookmarks", "content_types": ["bookmark"]},
+    {"name": "All Notes", "content_types": ["note"]},
+    {"name": "All Prompts", "content_types": ["prompt"]},  # Add this
+]
+```
+
+**6.0.2 Create migration for existing users:**
+Run `make migration message="add all prompts default list"` and follow the pattern from `c3057bc6a3a9_add_default_content_lists.py` to add "All Prompts" for existing users.
+
 ### 6.1 Types (frontend/src/types.ts)
 
+Add `'prompt'` to `ContentType`:
+```typescript
+export type ContentType = 'bookmark' | 'note' | 'prompt'
+```
+
+Add prompt interfaces:
 ```typescript
 export interface PromptArgument {
   name: string
@@ -1057,13 +1081,12 @@ export interface PromptArgument {
   required: boolean | null  // null treated as false
 }
 
-export interface Prompt {
+export interface PromptListItem {
   id: number
   name: string
   title: string | null
   description: string | null
-  content: string | null
-  arguments: PromptArgument[]
+  arguments: PromptArgument[]  // Needed for display
   tags: string[]
   created_at: string
   updated_at: string
@@ -1071,49 +1094,197 @@ export interface Prompt {
   deleted_at: string | null
   archived_at: string | null
 }
+
+export interface Prompt extends PromptListItem {
+  content: string | null  // Jinja2 template
+}
+
+export interface PromptCreate {
+  name: string
+  title?: string | null
+  description?: string | null
+  content?: string | null
+  arguments?: PromptArgument[]
+  tags?: string[]
+  archived_at?: string | null
+}
+
+export interface PromptUpdate {
+  name?: string
+  title?: string | null
+  description?: string | null
+  content?: string | null
+  arguments?: PromptArgument[]
+  tags?: string[]
+  archived_at?: string | null
+}
+
+export interface PromptListResponse {
+  items: PromptListItem[]
+  total: number
+  offset: number
+  limit: number
+  has_more: boolean
+}
+
+export interface PromptSearchParams {
+  q?: string
+  tags?: string[]
+  tag_match?: 'all' | 'any'
+  sort_by?: 'created_at' | 'updated_at' | 'last_used_at' | 'title' | 'archived_at' | 'deleted_at'
+  sort_order?: 'asc' | 'desc'
+  offset?: number
+  limit?: number
+  view?: 'active' | 'archived' | 'deleted'
+  list_id?: number
+}
 ```
 
-### 6.2 API Service (frontend/src/services/api.ts)
+Update `ContentListItem` to include prompt-specific fields:
+```typescript
+export interface ContentListItem {
+  type: 'bookmark' | 'note' | 'prompt'
+  // ... existing fields ...
+  // Prompt-specific (null for bookmarks/notes)
+  arguments: PromptArgument[] | null
+}
+```
 
-Add prompt CRUD methods using `{id}` for update/delete.
+### 6.2 Content Type Store (frontend/src/stores/contentTypeFilterStore.ts)
 
-### 6.3 React Query Hooks (frontend/src/hooks/usePrompts.ts)
+Update `ALL_CONTENT_TYPES`:
+```typescript
+export const ALL_CONTENT_TYPES: ContentType[] = ['bookmark', 'note', 'prompt']
+```
 
-Follow patterns from `useNotes.ts`:
-- `usePromptsQuery()` - list with search/filter
-- `usePromptQuery(id)` - single prompt
+### 6.3 Icons (frontend/src/components/icons/index.tsx)
+
+Add `PromptIcon` (terminal/command style):
+```typescript
+export const PromptIcon = ({ className = 'h-full w-full' }: IconProps): ReactNode => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={1.5}
+      d="m6.75 7.5 3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0 0 21 18V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v12a2.25 2.25 0 0 0 2.25 2.25Z"
+    />
+  </svg>
+)
+```
+
+### 6.4 Content Type Filter Chips (frontend/src/components/ui/ContentTypeFilterChips.tsx)
+
+Add prompt to `CHIP_CONFIGS`:
+```typescript
+const CHIP_CONFIGS: Record<ContentType, ChipConfig> = {
+  bookmark: { ... },
+  note: { ... },
+  prompt: {
+    type: 'prompt',
+    label: 'Prompts',
+    icon: <PromptIcon className="h-3.5 w-3.5" />,
+  },
+}
+```
+
+### 6.5 PromptCard Component (frontend/src/components/PromptCard.tsx)
+
+Create `PromptCard` following `NoteCard` pattern:
+- Display name, title (if different), description, argument count, tags
+- Actions: view, edit, archive, delete, restore based on view state
+- Click navigates to detail page
+
+### 6.6 React Query Hooks
+
+**usePrompts.ts** - Non-cacheable utilities:
+- `fetchPrompt(id)` - Fetch single prompt with content
+- `trackPromptUsage(id)` - Fire-and-forget usage tracking
+
+**usePromptsQuery.ts** - Cached list queries:
+- `promptKeys` - Query key factory
+- `usePromptsQuery(params)` - List with pagination/filters
+
+**usePromptMutations.ts** - Mutations with cache invalidation:
 - `useCreatePrompt()`
 - `useUpdatePrompt()`
 - `useDeletePrompt()`
 - `useArchivePrompt()`
+- `useUnarchivePrompt()`
 - `useRestorePrompt()`
 
-### 6.4 Pages
+### 6.7 PromptDetail Page (frontend/src/pages/PromptDetail.tsx)
 
-**PromptsPage.tsx:**
-- List all prompts with name, title, description, tags
-- Search/filter controls
-- View switcher (active/archived/deleted)
-- Create button
+Single page handling view/edit/create modes (following `NoteDetail.tsx` pattern):
 
-**PromptEditorPage.tsx:**
+**Routes:**
+- `/app/prompts/new` - Create mode
+- `/app/prompts/:id` - View mode
+- `/app/prompts/:id/edit` - Edit mode
+
+**View Mode (PromptView component):**
+- Display name, title, description, content (syntax highlighted), arguments list, tags
+- Actions: edit, archive, delete, restore based on state
+
+**Edit/Create Mode (PromptEditor component):**
 - Name input (validated, hint: "Use lowercase with hyphens, e.g., code-review")
 - Title input (optional)
 - Description textarea
-- Content textarea (Jinja2 template)
-- Arguments builder (add/edit/delete)
+- Content textarea (Jinja2 template, monospace font)
+- **Arguments builder** (add/edit/delete):
   - Name input (validated, hint: "Use lowercase with underscores, e.g., code_to_review")
   - Description input
   - Required checkbox
-- Tags input
+  - Reorder capability (drag or up/down buttons)
+- Tags input with suggestions
 - Save/cancel buttons
-- Validation error display
+- Validation error display (template errors, duplicate arguments, etc.)
 
-### 6.5 Navigation
+### 6.8 AllContent Integration (frontend/src/pages/AllContent.tsx)
 
-Add "Prompts" to sidebar with terminal/command icon.
+Update to handle prompts:
+- Import `usePromptMutations` hooks
+- Add prompt action handlers (view, edit, delete, archive, etc.)
+- Add `toPromptListItem()` converter
+- Render `PromptCard` for prompt items
+- Update `contentTypeActions` with prompt quick-add
 
-### 6.6 Settings - MCP Integration Page
+### 6.9 Sidebar Quick-Add (frontend/src/components/sidebar/Sidebar.tsx)
+
+Add prompt quick-add button in the quick-add bar:
+```tsx
+<button
+  onClick={handleQuickAddPrompt}
+  className="p-1.5 rounded-md text-purple-500 hover:bg-purple-50 hover:text-purple-600 transition-colors"
+  title="New Prompt"
+>
+  <PromptIcon className="h-4 w-4" />
+</button>
+```
+
+### 6.10 Routes (frontend/src/App.tsx)
+
+Add prompt routes:
+```tsx
+{/* Prompt detail routes */}
+<Route path="/app/prompts/new" element={<PromptDetail />} />
+<Route path="/app/prompts/:id" element={<PromptDetail />} />
+<Route path="/app/prompts/:id/edit" element={<PromptDetail />} />
+```
+
+### 6.11 Config (frontend/src/config.ts)
+
+Add prompt MCP URL:
+```typescript
+export const config = {
+  apiUrl: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  mcpUrl: import.meta.env.VITE_MCP_URL || 'http://localhost:8001',
+  promptMcpUrl: import.meta.env.VITE_PROMPT_MCP_URL || 'http://localhost:8002',
+  // ...
+}
+```
+
+### 6.12 Settings - MCP Integration Page (frontend/src/pages/settings/SettingsMCP.tsx)
 
 Update the MCP Integration settings page to include the new Prompts MCP server.
 
@@ -1152,28 +1323,28 @@ Example "All" config:
 
 Update `generateConfig()` to accept a server selection parameter.
 
-### 6.7 Tests
+### 6.13 Tests
 
-**Component tests (PromptsPage.test.tsx):**
-- `test__prompts_page__renders_prompt_list`
-- `test__prompts_page__displays_empty_state`
-- `test__prompts_page__search_filters_list`
-- `test__prompts_page__view_switcher_changes_view`
-- `test__prompts_page__create_button_navigates`
-- `test__prompts_page__click_prompt_navigates_to_editor`
+**Component tests (PromptCard.test.tsx):**
+- `test__prompt_card__renders_name_and_title`
+- `test__prompt_card__shows_argument_count`
+- `test__prompt_card__click_navigates_to_detail`
+- `test__prompt_card__shows_archive_action_in_active_view`
+- `test__prompt_card__shows_restore_action_in_deleted_view`
 
-**Component tests (PromptEditorPage.test.tsx):**
-- `test__prompt_editor__renders_empty_for_new`
-- `test__prompt_editor__loads_existing_prompt`
-- `test__prompt_editor__name_validation_error_displayed`
-- `test__prompt_editor__add_argument`
-- `test__prompt_editor__remove_argument`
-- `test__prompt_editor__duplicate_argument_name_error`
-- `test__prompt_editor__save_calls_api`
-- `test__prompt_editor__cancel_navigates_back`
-- `test__prompt_editor__displays_api_error`
+**Component tests (PromptDetail.test.tsx):**
+- `test__prompt_detail__renders_view_mode`
+- `test__prompt_detail__renders_edit_mode`
+- `test__prompt_detail__renders_create_mode`
+- `test__prompt_detail__name_validation_error_displayed`
+- `test__prompt_detail__add_argument`
+- `test__prompt_detail__remove_argument`
+- `test__prompt_detail__duplicate_argument_name_error`
+- `test__prompt_detail__save_calls_api`
+- `test__prompt_detail__cancel_navigates_back`
+- `test__prompt_detail__displays_api_error`
 
-**Hook tests (usePrompts.test.ts):**
+**Hook tests (usePromptMutations.test.ts):**
 - `test__use_prompts_query__fetches_prompts`
 - `test__use_prompts_query__includes_search_params`
 - `test__use_create_prompt__calls_api`
