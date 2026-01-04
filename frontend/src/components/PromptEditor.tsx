@@ -5,10 +5,20 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import { TagInput } from './TagInput'
 import type { TagInputHandle } from './TagInput'
+import { MarkdownEditor } from './MarkdownEditor'
 import type { Prompt, PromptCreate, PromptUpdate, PromptArgument, TagCount } from '../types'
 import { TAG_PATTERN } from '../utils'
 import { config } from '../config'
 import { ArchiveIcon, TrashIcon, PlusIcon, ChevronUpIcon, ChevronDownIcon, CloseIcon } from './icons'
+
+/** Default template content for new prompts */
+const DEFAULT_PROMPT_CONTENT = `{%- if context %}
+## Context
+{{ context }}
+{%- endif %}
+
+## Task
+{{ task }}`
 
 /** Key prefix for localStorage draft storage */
 const DRAFT_KEY_PREFIX = 'prompt_draft_'
@@ -146,7 +156,7 @@ export function PromptEditor({
     name: prompt?.name || '',
     title: prompt?.title || '',
     description: prompt?.description || '',
-    content: prompt?.content || '',
+    content: prompt?.content ?? (isEditing ? '' : DEFAULT_PROMPT_CONTENT),
     arguments: prompt?.arguments || [],
     tags: prompt?.tags || initialTags || [],
   })
@@ -753,37 +763,18 @@ export function PromptEditor({
           </p>
         </div>
 
-        {/* Content field - Jinja2 template */}
-        <div>
-          <label htmlFor="content" className="label">
-            Template Content
-          </label>
-          <textarea
-            id="content"
-            value={form.content}
-            onChange={(e) =>
-              setForm((prev) => ({ ...prev, content: e.target.value }))
-            }
-            placeholder="Write your prompt template here...
-
-Use {{ argument_name }} for Jinja2 variable substitution.
-Example: Please review the following code:
-
-{{ code_to_review }}"
-            rows={12}
-            disabled={isSubmitting}
-            className={`input mt-1 font-mono text-sm ${errors.content ? 'input-error' : ''}`}
-          />
-          <div className="flex justify-between items-center">
-            <p className="helper-text">
-              Jinja2 template. Use {"{{ variable_name }}"} for arguments.
-            </p>
-            <span className="helper-text">
-              {form.content.length.toLocaleString()}/{config.limits.maxPromptContentLength.toLocaleString()}
-            </span>
-          </div>
-          {errors.content && <p className="error-text">{errors.content}</p>}
-        </div>
+        {/* Content field - Jinja2 template with markdown */}
+        <MarkdownEditor
+          value={form.content}
+          onChange={(value) => setForm((prev) => ({ ...prev, content: value }))}
+          disabled={isSubmitting}
+          hasError={!!errors.content}
+          minHeight="300px"
+          label="Template Content"
+          helperText={'Jinja2 template with Markdown. Use {{ variable_name }} for arguments.'}
+          maxLength={config.limits.maxPromptContentLength}
+          errorMessage={errors.content}
+        />
       </div>
     </form>
   )

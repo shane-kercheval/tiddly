@@ -6,6 +6,7 @@ import type { ReactNode } from 'react'
 import type { Prompt } from '../types'
 import { formatDate } from '../utils'
 import { EditIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
+import { MarkdownViewer } from './MarkdownEditor'
 
 interface PromptViewProps {
   prompt: Prompt
@@ -255,15 +256,7 @@ export function PromptView({
           <h2 className="text-lg font-semibold text-gray-900 mb-3">
             Template
           </h2>
-          {prompt.content ? (
-            <div className="rounded-lg border border-gray-200 bg-gray-900 p-4 overflow-x-auto">
-              <pre className="text-sm text-gray-100 font-mono whitespace-pre-wrap">
-                {prompt.content}
-              </pre>
-            </div>
-          ) : (
-            <p className="text-gray-400 italic">No template content</p>
-          )}
+          <MarkdownViewer content={prompt.content} emptyText="No template content" />
         </div>
       </article>
     </div>

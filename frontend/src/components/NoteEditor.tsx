@@ -3,17 +3,9 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ReactNode, FormEvent } from 'react'
-import CodeMirror from '@uiw/react-codemirror'
-import { markdown } from '@codemirror/lang-markdown'
-import { keymap } from '@codemirror/view'
-import type { KeyBinding } from '@codemirror/view'
-import type { EditorView } from '@codemirror/view'
-import { Prec } from '@codemirror/state'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeSanitize from 'rehype-sanitize'
 import { TagInput } from './TagInput'
 import type { TagInputHandle } from './TagInput'
+import { MarkdownEditor } from './MarkdownEditor'
 import type { Note, NoteCreate, NoteUpdate, TagCount } from '../types'
 import { TAG_PATTERN } from '../utils'
 import { config } from '../config'
@@ -112,98 +104,6 @@ function clearDraft(noteId?: number): void {
 }
 
 /**
- * Wrap selected text with markdown markers.
- * If no selection, insert markers and place cursor between them.
- */
-function wrapWithMarkers(view: EditorView, before: string, after: string): boolean {
-  const { state } = view
-  const { from, to } = state.selection.main
-  const selectedText = state.sliceDoc(from, to)
-
-  if (selectedText) {
-    // Wrap selected text
-    view.dispatch({
-      changes: { from, to, insert: `${before}${selectedText}${after}` },
-      selection: { anchor: from + before.length, head: to + before.length },
-    })
-  } else {
-    // No selection - insert markers and place cursor between them
-    view.dispatch({
-      changes: { from, insert: `${before}${after}` },
-      selection: { anchor: from + before.length },
-    })
-  }
-  return true
-}
-
-/**
- * Insert a markdown link. If text is selected, use it as the link text.
- */
-function insertLink(view: EditorView): boolean {
-  const { state } = view
-  const { from, to } = state.selection.main
-  const selectedText = state.sliceDoc(from, to)
-
-  if (selectedText) {
-    // Use selected text as link text, place cursor in URL position
-    const linkText = `[${selectedText}](url)`
-    view.dispatch({
-      changes: { from, to, insert: linkText },
-      selection: { anchor: from + selectedText.length + 3, head: from + selectedText.length + 6 },
-    })
-  } else {
-    // Insert empty link template, place cursor in text position
-    view.dispatch({
-      changes: { from, insert: '[text](url)' },
-      selection: { anchor: from + 1, head: from + 5 },
-    })
-  }
-  return true
-}
-
-/**
- * Dispatch a keyboard event to the document for global handlers to catch.
- * Used to pass shortcuts through from CodeMirror to global handlers.
- */
-function dispatchGlobalShortcut(key: string, metaKey: boolean): void {
-  const event = new KeyboardEvent('keydown', {
-    key,
-    metaKey,
-    ctrlKey: !metaKey, // Use ctrlKey on non-Mac
-    bubbles: true,
-  })
-  document.dispatchEvent(event)
-}
-
-/**
- * CodeMirror keybindings for markdown formatting.
- * For global shortcuts, we consume the event (return true) to prevent
- * CodeMirror's default handling, then dispatch to global handlers.
- */
-const markdownKeyBindings: KeyBinding[] = [
-  // Formatting shortcuts
-  { key: 'Mod-b', run: (view) => wrapWithMarkers(view, '**', '**') },
-  { key: 'Mod-i', run: (view) => wrapWithMarkers(view, '*', '*') },
-  { key: 'Mod-k', run: (view) => insertLink(view) },
-  { key: 'Mod-Shift-x', run: (view) => wrapWithMarkers(view, '~~', '~~') },
-  // Pass through to global handlers (consume event, then dispatch globally)
-  {
-    key: 'Mod-/',
-    run: () => {
-      dispatchGlobalShortcut('/', true)
-      return true // Consume to prevent CodeMirror's comment toggle
-    },
-  },
-  {
-    key: 'Mod-\\',
-    run: () => {
-      dispatchGlobalShortcut('\\', true)
-      return true
-    },
-  },
-]
-
-/**
  * NoteEditor provides a form for creating or editing notes.
  *
  * Features:
@@ -234,7 +134,6 @@ export function NoteEditor({
   })
 
   const [errors, setErrors] = useState<FormErrors>({})
-  const [showPreview, setShowPreview] = useState(false)
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const cancelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -264,7 +163,6 @@ export function NoteEditor({
   const tagInputRef = useRef<TagInputHandle>(null)
   const draftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
-  const editorContainerRef = useRef<HTMLDivElement>(null)
 
   // Auto-save draft every 30 seconds, but only when form has changes
   useEffect(() => {
@@ -633,88 +531,16 @@ export function NoteEditor({
       </div>
 
       {/* Content field with preview toggle */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <label htmlFor="content" className="label">
-            Content
-          </label>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowPreview(false)}
-              className={`text-sm px-2 py-1 rounded ${
-                !showPreview
-                  ? 'bg-gray-200 text-gray-900'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowPreview(true)}
-              className={`text-sm px-2 py-1 rounded ${
-                showPreview
-                  ? 'bg-gray-200 text-gray-900'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Preview
-            </button>
-          </div>
-        </div>
-
-        {showPreview ? (
-          <div className="border border-gray-200 rounded-lg p-4 min-h-[200px] bg-white flex-1 overflow-y-auto">
-            {form.content ? (
-              <div className="prose prose-gray max-w-none">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeSanitize]}
-                >
-                  {form.content}
-                </ReactMarkdown>
-              </div>
-            ) : (
-              <p className="text-gray-400 italic">No content to preview</p>
-            )}
-          </div>
-        ) : (
-          <div
-            ref={editorContainerRef}
-            className={`border rounded-lg overflow-hidden flex-1 ${errors.content ? 'border-red-300' : 'border-gray-200'}`}
-          >
-            <CodeMirror
-              value={form.content}
-              onChange={(value) =>
-                setForm((prev) => ({ ...prev, content: value }))
-              }
-              extensions={[markdown(), Prec.highest(keymap.of(markdownKeyBindings))]}
-              minHeight="200px"
-              placeholder="Write your note in markdown..."
-              editable={!isSubmitting}
-              basicSetup={{
-                lineNumbers: false,
-                foldGutter: false,
-                highlightActiveLine: true,
-              }}
-              className="text-sm"
-            />
-          </div>
-        )}
-        <div className="flex justify-between items-center mt-1">
-          {errors.content ? (
-            <p className="error-text">{errors.content}</p>
-          ) : (
-            <p className="helper-text">
-              Supports Markdown: **bold**, *italic*, `code`, [links](url), lists, tables, etc.
-            </p>
-          )}
-          <span className="helper-text">
-            {form.content.length.toLocaleString()}/{config.limits.maxNoteContentLength.toLocaleString()}
-          </span>
-        </div>
-      </div>
+      <MarkdownEditor
+        value={form.content}
+        onChange={(value) => setForm((prev) => ({ ...prev, content: value }))}
+        disabled={isSubmitting}
+        hasError={!!errors.content}
+        minHeight="200px"
+        label="Content"
+        maxLength={config.limits.maxNoteContentLength}
+        errorMessage={errors.content}
+      />
       </div>
     </form>
   )

@@ -23,6 +23,24 @@ vi.mock('./TagInput', () => ({
   )),
 }))
 
+// Mock MarkdownEditor to simplify testing (CodeMirror uses contenteditable)
+vi.mock('./MarkdownEditor', () => ({
+  MarkdownEditor: vi.fn(({ value, onChange, disabled, label, maxLength, errorMessage }) => (
+    <div>
+      <label htmlFor="content">{label}</label>
+      <textarea
+        id="content"
+        data-testid="markdown-editor"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+      />
+      <span>{value.length.toLocaleString()}/{maxLength?.toLocaleString()}</span>
+      {errorMessage && <p className="error-text">{errorMessage}</p>}
+    </div>
+  )),
+}))
+
 const mockTagSuggestions: TagCount[] = [
   { name: 'test', count: 5 },
   { name: 'example', count: 3 },
@@ -516,8 +534,8 @@ describe('PromptEditor', () => {
         />
       )
 
-      // Should show 0/100,000 initially
-      expect(screen.getByText('0/100,000')).toBeInTheDocument()
+      // Should show character count (new prompts have default content)
+      expect(screen.getByText(/\/100,000/)).toBeInTheDocument()
     })
 
     it('should update character count as content changes', async () => {
@@ -532,6 +550,8 @@ describe('PromptEditor', () => {
       )
 
       const contentTextarea = screen.getByLabelText(/template content/i)
+      // Clear the default content and type new content
+      await user.clear(contentTextarea)
       await user.type(contentTextarea, 'Hello World!')
 
       expect(screen.getByText('12/100,000')).toBeInTheDocument()
@@ -555,7 +575,10 @@ describe('PromptEditor', () => {
       await user.type(screen.getByLabelText(/name/i), 'my-prompt')
       await user.type(screen.getByLabelText(/^title$/i), 'My Prompt')
       await user.type(screen.getByLabelText(/description/i), 'A description')
-      await user.type(screen.getByLabelText(/template content/i), 'Hello world')
+      // Clear default content and type new content
+      const contentTextarea = screen.getByLabelText(/template content/i)
+      await user.clear(contentTextarea)
+      await user.type(contentTextarea, 'Hello world')
 
       // Submit
       await user.click(screen.getByRole('button', { name: /create prompt/i }))
@@ -632,8 +655,10 @@ describe('PromptEditor', () => {
       const user = userEvent.setup()
       const onCancel = vi.fn()
 
+      // Use an existing prompt so the form matches the prompt data (not dirty)
       render(
         <PromptEditor
+          prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
           onSubmit={vi.fn()}
           onCancel={onCancel}

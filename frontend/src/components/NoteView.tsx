@@ -3,12 +3,10 @@
  */
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeSanitize from 'rehype-sanitize'
 import type { Note } from '../types'
 import { formatDate } from '../utils'
 import { EditIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
+import { MarkdownViewer } from './MarkdownEditor'
 
 interface NoteViewProps {
   note: Note
@@ -205,18 +203,7 @@ export function NoteView({
         </div>
 
         {/* Markdown content */}
-        {note.content ? (
-          <div className="prose prose-gray max-w-none">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeSanitize]}
-            >
-              {note.content}
-            </ReactMarkdown>
-          </div>
-        ) : (
-          <p className="text-gray-400 italic">No content</p>
-        )}
+        <MarkdownViewer content={note.content} emptyText="No content" />
       </article>
     </div>
   )
