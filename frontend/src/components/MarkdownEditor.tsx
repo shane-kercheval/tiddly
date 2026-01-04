@@ -192,7 +192,7 @@ export function MarkdownEditor({
           style={{ minHeight }}
         >
           {value ? (
-            <div className="prose prose-gray max-w-none">
+            <div className="prose prose-sm prose-gray max-w-none">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeSanitize]}
@@ -261,7 +261,7 @@ export function MarkdownViewer({
   }
 
   return (
-    <div className="prose prose-gray max-w-none">
+    <div className="prose prose-sm prose-gray max-w-none">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeSanitize]}
