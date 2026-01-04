@@ -203,9 +203,36 @@ vi.mock('../stores/contentTypeFilterStore', () => ({
 vi.mock('../stores/listsStore', () => ({
   useListsStore: () => ({
     lists: [
-      { id: 1, name: 'Reading List', content_types: ['bookmark'], filters: [] },
-      { id: 2, name: 'Ideas', content_types: ['note'], filters: [] },
-      { id: 3, name: 'Mixed', content_types: ['bookmark', 'note'], filters: [] },
+      {
+        id: 1,
+        name: 'Reading List',
+        content_types: ['bookmark'],
+        filter_expression: { groups: [{ tags: ['list-tag-1', 'list-tag-2'], operator: 'AND' }], group_operator: 'OR' },
+        default_sort_by: null,
+        default_sort_ascending: null,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+      },
+      {
+        id: 2,
+        name: 'Ideas',
+        content_types: ['note'],
+        filter_expression: { groups: [], group_operator: 'OR' },
+        default_sort_by: null,
+        default_sort_ascending: null,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+      },
+      {
+        id: 3,
+        name: 'Mixed',
+        content_types: ['bookmark', 'note'],
+        filter_expression: { groups: [], group_operator: 'OR' },
+        default_sort_by: null,
+        default_sort_ascending: null,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+      },
     ],
   }),
 }))
@@ -379,6 +406,30 @@ describe('AllContent', () => {
         // Modal should be open - look for the form elements
         expect(screen.getByPlaceholderText('https://example.com')).toBeInTheDocument()
       })
+    })
+
+    it('prepopulates tags for list view when ?action=add is in URL', async () => {
+      mockContentQueryData = createMockResponse([])
+      renderAtRoute('/app/content/lists/1?action=add')
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('https://example.com')).toBeInTheDocument()
+      })
+
+      expect(screen.getByText('list-tag-1')).toBeInTheDocument()
+      expect(screen.getByText('list-tag-2')).toBeInTheDocument()
+    })
+
+    it('does not prepopulate list tags for all content', async () => {
+      mockContentQueryData = createMockResponse([])
+      renderAtRoute('/app/content?action=add')
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('https://example.com')).toBeInTheDocument()
+      })
+
+      expect(screen.queryByText('list-tag-1')).not.toBeInTheDocument()
+      expect(screen.queryByText('list-tag-2')).not.toBeInTheDocument()
     })
   })
 
