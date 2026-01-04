@@ -134,6 +134,31 @@ describe('extractTemplateVariables', () => {
       expect(variables).toEqual(new Set(['users']))
       expect(variables.has('user')).toBe(false)
     })
+
+    it('should flag loop variable as undefined when used outside loop', () => {
+      const { variables } = extractTemplateVariables(
+        '{% for user in users %}{{ user }}{% endfor %}{{ user }}'
+      )
+      // 'users' is the iterable, 'user' outside the loop is undefined
+      expect(variables).toEqual(new Set(['users', 'user']))
+    })
+
+    it('should handle nested loops with same variable name correctly', () => {
+      const { variables } = extractTemplateVariables(
+        '{% for item in outer %}{% for item in inner %}{{ item }}{% endfor %}{% endfor %}{{ item }}'
+      )
+      // 'outer' and 'inner' are iterables
+      // 'item' outside both loops is undefined
+      expect(variables).toEqual(new Set(['outer', 'inner', 'item']))
+    })
+
+    it('should not have loop variable available in for-else clause', () => {
+      const { variables } = extractTemplateVariables(
+        '{% for item in items %}{{ item }}{% else %}{{ item }}{% endfor %}'
+      )
+      // 'items' is iterable, 'item' in else clause is undefined
+      expect(variables).toEqual(new Set(['items', 'item']))
+    })
   })
 
   describe('conditionals - basic', () => {
