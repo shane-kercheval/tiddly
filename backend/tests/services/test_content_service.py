@@ -791,7 +791,7 @@ async def test__search_all_content__prompt_view_active(
     """Test that view='active' works correctly for prompts."""
     # Create active, archived, and deleted prompts
     active_prompt = PromptCreate(name='active-prompt')
-    active = await prompt_service.create(db_session, test_user.id, active_prompt)
+    await prompt_service.create(db_session, test_user.id, active_prompt)
 
     archived_prompt = PromptCreate(name='archived-prompt')
     archived = await prompt_service.create(db_session, test_user.id, archived_prompt)

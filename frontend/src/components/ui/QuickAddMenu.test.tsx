@@ -9,6 +9,7 @@ describe('QuickAddMenu', () => {
   const defaultProps = {
     onAddBookmark: vi.fn(),
     onAddNote: vi.fn(),
+    onAddPrompt: vi.fn(),
   }
 
   beforeEach(() => {

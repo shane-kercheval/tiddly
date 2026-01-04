@@ -38,11 +38,9 @@ const mockPrompt: Prompt = {
   tags: ['test'],
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
-  last_used_at: null,
+  last_used_at: '2024-01-01T00:00:00Z',
   deleted_at: null,
   archived_at: null,
-  version: 1,
-  user_id: 'user-123',
 }
 
 describe('PromptEditor', () => {
