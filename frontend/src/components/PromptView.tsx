@@ -158,7 +158,7 @@ export function PromptView({
       </div>
 
       {/* Scrollable prompt content */}
-      <article className="flex-1 overflow-y-auto min-h-0 pr-2">
+      <article className="flex-1 overflow-y-auto min-h-0 pr-2 pt-2">
         {/* Title row - inline with metadata on desktop */}
         <div className="flex flex-col md:flex-row md:items-center md:gap-4 mb-2">
           <div className="shrink-0">
@@ -234,10 +234,12 @@ export function PromptView({
         )}
 
         {/* Divider */}
-        <div className="border-t border-gray-200 mb-4" />
+        <div className="border-t border-gray-200 mt-8" />
 
         {/* Template content */}
-        <MarkdownViewer content={prompt.content} emptyText="No template content" />
+        <div className="pt-10">
+          <MarkdownViewer content={prompt.content} emptyText="No template content" />
+        </div>
       </article>
     </div>
   )

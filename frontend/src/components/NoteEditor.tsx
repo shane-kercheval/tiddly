@@ -387,10 +387,6 @@ export function NoteEditor({
               'Create Note'
             )}
           </button>
-          <span className="text-xs text-gray-400 ml-2 flex items-center gap-2">
-            <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs">⌘S</kbd>
-            <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-xs">Esc</kbd>
-          </span>
         </div>
 
         <div className="flex items-center gap-2">
