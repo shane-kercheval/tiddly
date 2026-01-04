@@ -18,7 +18,9 @@ from schemas.validators import (
 def validate_prompt_content_length(content: str | None) -> str | None:
     """Validate that prompt content doesn't exceed maximum length (100KB)."""
     settings = get_settings()
-    if content is not None and len(content) > settings.max_prompt_content_length:
+    if content is None:
+        return content
+    if len(content) > settings.max_prompt_content_length:
         raise ValueError(
             f"Content exceeds maximum length of {settings.max_prompt_content_length:,} characters "
             f"(got {len(content):,} characters).",
@@ -46,7 +48,7 @@ class PromptCreate(BaseModel):
     name: str
     title: str | None = None
     description: str | None = None
-    content: str | None = None  # Jinja2 template
+    content: str  # Jinja2 template (required)
     arguments: list[PromptArgument] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     archived_at: datetime | None = Field(

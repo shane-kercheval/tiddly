@@ -48,3 +48,43 @@ def test__token_context__isolated_per_context() -> None:
     clear_current_token()
     with pytest.raises(AuthenticationError):
         get_bearer_token()
+
+
+@pytest.mark.asyncio
+async def test__token_context__isolated_between_concurrent_tasks() -> None:
+    """
+    Test that tokens are properly isolated between concurrent async tasks.
+
+    This verifies that contextvars provides proper task-level isolation,
+    preventing token leakage between concurrent requests.
+    """
+    import asyncio
+
+    results: dict[str, str | None] = {}
+    errors: dict[str, str] = {}
+
+    async def task_with_token(task_id: str, token: str) -> None:
+        """Simulate a request task that sets and reads its token."""
+        set_current_token(token)
+        # Yield to allow other tasks to run
+        await asyncio.sleep(0.01)
+        try:
+            # Should still see its own token, not another task's
+            results[task_id] = get_bearer_token()
+        except AuthenticationError as e:
+            errors[task_id] = str(e)
+        finally:
+            clear_current_token()
+
+    # Run multiple concurrent tasks with different tokens
+    await asyncio.gather(
+        task_with_token("task_a", "token_for_a"),
+        task_with_token("task_b", "token_for_b"),
+        task_with_token("task_c", "token_for_c"),
+    )
+
+    # Each task should have seen its own token
+    assert results.get("task_a") == "token_for_a", "Task A token leaked"
+    assert results.get("task_b") == "token_for_b", "Task B token leaked"
+    assert results.get("task_c") == "token_for_c", "Task C token leaked"
+    assert not errors, f"Unexpected errors: {errors}"

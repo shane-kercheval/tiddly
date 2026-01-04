@@ -24,11 +24,27 @@ logger = logging.getLogger(__name__)
 # Create the MCP server
 server = Server("prompt-mcp-server")
 
-# Module-level client for connection reuse (can be overridden in tests)
+# Module-level client for connection reuse
+# Initialized by init_http_client() in lifespan, closed by cleanup()
 _http_client: httpx.AsyncClient | None = None
 
 # Background tasks set to prevent garbage collection
 _background_tasks: set[asyncio.Task] = set()
+
+
+async def init_http_client() -> None:
+    """
+    Initialize the HTTP client for API requests.
+
+    Called by the lifespan handler in main.py at startup.
+    This ensures the client is ready before any requests arrive.
+    """
+    global _http_client  # noqa: PLW0603
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            base_url=get_api_base_url(),
+            timeout=get_default_timeout(),
+        )
 
 
 async def cleanup() -> None:
@@ -52,13 +68,16 @@ async def cleanup() -> None:
     _background_tasks.clear()
 
 
-async def _get_http_client() -> httpx.AsyncClient:
-    """Get or create the HTTP client for API requests."""
-    global _http_client  # noqa: PLW0603
+def get_http_client() -> httpx.AsyncClient:
+    """
+    Get the HTTP client for API requests.
+
+    The client must be initialized by init_http_client() before use.
+    Raises RuntimeError if called before initialization.
+    """
     if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(
-            base_url=get_api_base_url(),
-            timeout=get_default_timeout(),
+        raise RuntimeError(
+            "HTTP client not initialized. Call init_http_client() first.",
         )
     return _http_client
 
@@ -169,7 +188,7 @@ async def handle_list_prompts(
     Supports cursor-based pagination per MCP spec.
     Cursor is the offset value as a string.
     """
-    client = await _get_http_client()
+    client = get_http_client()
     token = _get_token()
 
     # Parse cursor as offset (cursor is opaque to client, we use offset)
@@ -245,7 +264,7 @@ async def handle_get_prompt(
     Fetches the prompt from the API, renders the Jinja2 template
     with provided arguments, and tracks usage (fire-and-forget).
     """
-    client = await _get_http_client()
+    client = get_http_client()
     token = _get_token()
 
     # Fetch prompt by name
@@ -352,8 +371,8 @@ async def handle_list_tools() -> list[types.Tool]:
                     "content": {
                         "type": "string",
                         "description": (
-                            "Jinja2 template content. Use {{ variable_name }} for placeholders. "
-                            "Variables must be defined in the arguments list."
+                            "Jinja2 template content (required). Use {{ variable_name }} for "
+                            "placeholders. Variables must be defined in the arguments list."
                         ),
                     },
                     "arguments": {
@@ -390,7 +409,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": "Optional tags for categorization (lowercase with hyphens)",
                     },
                 },
-                "required": ["name"],
+                "required": ["name", "content"],
             },
         ),
     ]
@@ -411,7 +430,7 @@ async def handle_call_tool(
         )
 
     arguments = arguments or {}
-    client = await _get_http_client()
+    client = get_http_client()
     token = _get_token()
 
     # Build payload for API

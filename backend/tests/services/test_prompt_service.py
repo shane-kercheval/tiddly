@@ -148,6 +148,35 @@ async def test__create__allows_duplicate_name_different_users(
     assert prompt.user_id == other_user.id
 
 
+async def test__create__duplicate_name_second_attempt_fails(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """
+    Test that a second create with the same name fails with NameConflictError.
+
+    This tests that the database unique constraint is properly enforced and
+    translated to a NameConflictError by the service layer.
+
+    Note: True concurrent race condition testing would require separate database
+    sessions, which is complex with the test fixtures. The database partial
+    unique index (uq_prompt_user_name_active) provides the actual protection.
+    """
+    data1 = PromptCreate(name="duplicate-test-prompt", content="First content")
+    data2 = PromptCreate(name="duplicate-test-prompt", content="Second content")
+
+    # First create should succeed
+    prompt = await prompt_service.create(db_session, test_user.id, data1)
+    assert prompt.name == "duplicate-test-prompt"
+    await db_session.flush()
+
+    # Second create with same name should raise NameConflictError
+    with pytest.raises(NameConflictError) as exc_info:
+        await prompt_service.create(db_session, test_user.id, data2)
+
+    assert "duplicate-test-prompt" in str(exc_info.value)
+
+
 async def test__get__returns_prompt_by_id(
     db_session: AsyncSession,
     test_user: User,
@@ -1337,3 +1366,89 @@ async def test__get_by_name__returns_none_for_other_users_prompt(
     result = await prompt_service.get_by_name(db_session, other_user.id, test_prompt.name)
 
     assert result is None
+
+
+# =============================================================================
+# Jinja2 Control Structures Tests
+# =============================================================================
+
+
+async def test__create__allows_jinja_conditionals(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that templates with {% if %} conditionals are accepted."""
+    data = PromptCreate(
+        name="conditional-template",
+        content="Hello{% if name %}, {{ name }}{% endif %}!",
+        arguments=[PromptArgument(name="name", required=False)],
+    )
+    prompt = await prompt_service.create(db_session, test_user.id, data)
+
+    assert prompt.content is not None
+    assert "{% if" in prompt.content
+
+
+async def test__create__allows_jinja_loops(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that templates with {% for %} loops are accepted."""
+    data = PromptCreate(
+        name="loop-template",
+        content="Items:{% for item in items %}\n- {{ item }}{% endfor %}",
+        arguments=[PromptArgument(name="items", required=True)],
+    )
+    prompt = await prompt_service.create(db_session, test_user.id, data)
+
+    assert prompt.content is not None
+    assert "{% for" in prompt.content
+
+
+async def test__create__allows_jinja_loop_variable(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that templates can use the 'loop' special variable in for loops."""
+    data = PromptCreate(
+        name="loop-var-template",
+        content="{% for item in items %}{{ loop.index }}. {{ item }}\n{% endfor %}",
+        arguments=[PromptArgument(name="items", required=True)],
+    )
+    prompt = await prompt_service.create(db_session, test_user.id, data)
+
+    assert prompt.content is not None
+    assert "loop.index" in prompt.content
+
+
+async def test__create__allows_complex_jinja_template(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that complex templates with multiple Jinja constructs are accepted."""
+    content = """# {{ title }}
+
+{% if description %}
+{{ description }}
+{% endif %}
+
+## Tasks
+{% for task in tasks %}
+{{ loop.index }}. {{ task }}{% if loop.last %}
+
+Done!{% endif %}
+{% endfor %}
+"""
+    data = PromptCreate(
+        name="complex-template",
+        content=content,
+        arguments=[
+            PromptArgument(name="title", required=True),
+            PromptArgument(name="description", required=False),
+            PromptArgument(name="tasks", required=True),
+        ],
+    )
+    prompt = await prompt_service.create(db_session, test_user.id, data)
+
+    assert prompt.content is not None
+    assert len(prompt.arguments) == 3

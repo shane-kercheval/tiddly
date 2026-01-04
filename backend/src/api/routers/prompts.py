@@ -94,7 +94,7 @@ async def list_prompts(
         )
     except ValueError as e:
         # Tag validation errors from validate_and_normalize_tags
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     items = [PromptListItem.model_validate(p) for p in prompts]
     has_more = offset + len(items) < total
     return PromptListResponse(

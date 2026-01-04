@@ -17,14 +17,18 @@ def make_list_prompts_request(cursor: str | None = None) -> types.ListPromptsReq
 
 
 @pytest.fixture
-def mock_api() -> respx.MockRouter:
+async def mock_api() -> respx.MockRouter:
     """Context manager for mocking API responses."""
     # Reset the module-level HTTP client to ensure respx captures requests
     server_module._http_client = None
     with respx.mock(base_url="http://localhost:8000") as respx_mock:
+        # Initialize HTTP client within respx context so it uses the mock transport
+        await server_module.init_http_client()
         yield respx_mock
     # Clean up after test
-    server_module._http_client = None
+    if server_module._http_client is not None:
+        await server_module._http_client.aclose()
+        server_module._http_client = None
 
 
 @pytest.fixture

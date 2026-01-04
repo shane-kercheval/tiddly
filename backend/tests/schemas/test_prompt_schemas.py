@@ -76,55 +76,55 @@ class TestPromptCreate:
         """Valid prompt names should be accepted."""
         valid_names = ["x", "my-prompt", "a1-b2", "code-review", "explain-code"]
         for name in valid_names:
-            prompt = PromptCreate(name=name)
+            prompt = PromptCreate(name=name, content="Test content")
             assert prompt.name == name
 
     def test__prompt_create__invalid_name_uppercase(self) -> None:
         """Uppercase letters in prompt name should be rejected."""
         with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="MyPrompt")
+            PromptCreate(name="MyPrompt", content="Test content")
         assert "Invalid prompt name format" in str(exc_info.value)
 
     def test__prompt_create__invalid_name_underscore(self) -> None:
         """Underscores in prompt name should be rejected."""
         with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="my_prompt")
+            PromptCreate(name="my_prompt", content="Test content")
         assert "Invalid prompt name format" in str(exc_info.value)
 
     def test__prompt_create__invalid_name_starts_with_hyphen(self) -> None:
         """Prompt names starting with hyphen should be rejected."""
         with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="-prompt")
+            PromptCreate(name="-prompt", content="Test content")
         assert "Invalid prompt name format" in str(exc_info.value)
 
     def test__prompt_create__invalid_name_ends_with_hyphen(self) -> None:
         """Prompt names ending with hyphen should be rejected."""
         with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="prompt-")
+            PromptCreate(name="prompt-", content="Test content")
         assert "Invalid prompt name format" in str(exc_info.value)
 
     def test__prompt_create__name_max_length(self) -> None:
         """Prompt name at max length (255) should be accepted, over should be rejected."""
         # 255 chars accepted
         long_name = "a" * 255
-        prompt = PromptCreate(name=long_name)
+        prompt = PromptCreate(name=long_name, content="Test content")
         assert prompt.name == long_name
 
         # 256 chars rejected
         with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="a" * 256)
+            PromptCreate(name="a" * 256, content="Test content")
         assert "exceeds maximum length" in str(exc_info.value)
 
     def test__prompt_create__title_max_length(self) -> None:
         """Title at max length (500) should be accepted, over should be rejected."""
         # 500 chars accepted
         long_title = "a" * 500
-        prompt = PromptCreate(name="test", title=long_title)
+        prompt = PromptCreate(name="test", content="Test content", title=long_title)
         assert prompt.title == long_title
 
         # 501 chars rejected
         with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="test", title="a" * 501)
+            PromptCreate(name="test", content="Test content", title="a" * 501)
         assert "exceeds maximum length" in str(exc_info.value)
 
     def test__prompt_create__duplicate_argument_names_rejected(self) -> None:
@@ -132,6 +132,7 @@ class TestPromptCreate:
         with pytest.raises(ValidationError) as exc_info:
             PromptCreate(
                 name="test",
+                content="Test content",
                 arguments=[
                     PromptArgument(name="code"),
                     PromptArgument(name="language"),
@@ -145,6 +146,7 @@ class TestPromptCreate:
         """Tags should be normalized to lowercase."""
         prompt = PromptCreate(
             name="test",
+            content="Test content",
             tags=["Machine-Learning", "web-dev", "AI"],
         )
         assert "machine-learning" in prompt.tags
@@ -153,19 +155,19 @@ class TestPromptCreate:
 
     def test__prompt_create__empty_arguments_list_valid(self) -> None:
         """Empty arguments list should be valid."""
-        prompt = PromptCreate(name="test", arguments=[])
+        prompt = PromptCreate(name="test", content="Test content", arguments=[])
         assert prompt.arguments == []
 
     def test__prompt_create__description_max_length(self) -> None:
         """Description should respect max_description_length setting (2000)."""
         # 2000 chars accepted
         long_desc = "a" * 2000
-        prompt = PromptCreate(name="test", description=long_desc)
+        prompt = PromptCreate(name="test", content="Test content", description=long_desc)
         assert prompt.description == long_desc
 
         # 2001 chars rejected
         with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="test", description="a" * 2001)
+            PromptCreate(name="test", content="Test content", description="a" * 2001)
         assert "exceeds maximum length" in str(exc_info.value)
 
     def test__prompt_create__content_max_length(self) -> None:
@@ -180,13 +182,19 @@ class TestPromptCreate:
             PromptCreate(name="test", content="a" * 100_001)
         assert "exceeds maximum length" in str(exc_info.value)
 
+    def test__prompt_create__content_required(self) -> None:
+        """Content is required for prompt creation."""
+        with pytest.raises(ValidationError) as exc_info:
+            PromptCreate(name="test")
+        assert "content" in str(exc_info.value).lower()
+
     def test__prompt_create__archived_at_optional(self) -> None:
         """archived_at should be optional."""
-        prompt = PromptCreate(name="test")
+        prompt = PromptCreate(name="test", content="Test content")
         assert prompt.archived_at is None
 
         now = datetime.now(UTC)
-        prompt_with_archive = PromptCreate(name="test", archived_at=now)
+        prompt_with_archive = PromptCreate(name="test", content="Test content", archived_at=now)
         assert prompt_with_archive.archived_at == now
 
     def test__prompt_create__all_fields(self) -> None:

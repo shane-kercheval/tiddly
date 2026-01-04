@@ -154,3 +154,44 @@ def test__render_template__with_filters() -> None:
 
     result = render_template(content, {"name": "hello"}, args)
     assert result == "HELLO"
+
+
+def test__render_template__for_loop() -> None:
+    """Test template with {% for %} loop."""
+    content = "{% for item in items %}{{ item }} {% endfor %}"
+    args = [{"name": "items", "required": True}]
+
+    result = render_template(content, {"items": ["a", "b", "c"]}, args)
+    assert result == "a b c "
+
+
+def test__render_template__for_loop_with_loop_variable() -> None:
+    """Test template using the 'loop' special variable."""
+    content = "{% for item in items %}{{ loop.index }}.{{ item }} {% endfor %}"
+    args = [{"name": "items", "required": True}]
+
+    result = render_template(content, {"items": ["x", "y"]}, args)
+    assert result == "1.x 2.y "
+
+
+def test__render_template__for_loop_with_loop_last() -> None:
+    """Test template using loop.last to detect last iteration."""
+    content = "{% for item in items %}{{ item }}{% if not loop.last %}, {% endif %}{% endfor %}"
+    args = [{"name": "items", "required": True}]
+
+    result = render_template(content, {"items": ["a", "b", "c"]}, args)
+    assert result == "a, b, c"
+
+
+def test__render_template__nested_conditionals_and_loops() -> None:
+    """Test complex template with nested control structures."""
+    content = """{% for item in items %}{% if item.active %}[{{ item.name }}]{% endif %}{% endfor %}"""
+    args = [{"name": "items", "required": True}]
+
+    items = [
+        {"name": "A", "active": True},
+        {"name": "B", "active": False},
+        {"name": "C", "active": True},
+    ]
+    result = render_template(content, {"items": items}, args)
+    assert result == "[A][C]"

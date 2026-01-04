@@ -366,7 +366,8 @@ async def test__list_tools__create_prompt_has_schema() -> None:
     assert "content" in schema["properties"]
     assert "arguments" in schema["properties"]
     assert "tags" in schema["properties"]
-    assert schema["required"] == ["name"]
+    # Both name and content are required
+    assert set(schema["required"]) == {"name", "content"}
 
 
 # --- call_tool (create_prompt) tests ---
@@ -652,10 +653,11 @@ async def test__create_prompt_tool__400_string_detail_format(
 async def test__cleanup__closes_http_client() -> None:
     """Test cleanup properly closes HTTP client."""
     from prompt_mcp_server import server as server_module
-    from prompt_mcp_server.server import cleanup
+    from prompt_mcp_server.server import cleanup, init_http_client, get_http_client
 
-    # Create an HTTP client
-    client = await server_module._get_http_client()
+    # Initialize HTTP client
+    await init_http_client()
+    client = get_http_client()
     assert client is not None
     assert not client.is_closed
 

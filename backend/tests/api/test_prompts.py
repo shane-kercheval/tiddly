@@ -78,8 +78,11 @@ async def test__create_prompt__content_required(client: AsyncClient) -> None:
         "/prompts/",
         json={"name": "no-content-prompt"},
     )
-    assert response.status_code == 400
-    assert "content is required" in response.json()["detail"].lower()
+    # Content is required by Pydantic schema, returns 422 with validation error
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    # Pydantic validation error format
+    assert any("content" in str(err.get("loc", [])) for err in detail)
 
 
 async def test__create_prompt__with_tags(client: AsyncClient) -> None:

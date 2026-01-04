@@ -17,7 +17,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
 from .auth import clear_current_token, set_current_token
-from .server import cleanup, server
+from .server import cleanup, init_http_client, server
 
 # Create session manager for streamable HTTP transport
 session_manager = StreamableHTTPSessionManager(
@@ -67,12 +67,17 @@ async def lifespan(app: Starlette):  # noqa: ARG001, ANN201
     """
     Application lifespan handler.
 
-    Initializes the MCP session manager on startup and cleans up on shutdown.
-    This is required for the StreamableHTTPSessionManager to work - without
-    it, requests fail with "Task group is not initialized".
+    Initializes resources on startup (HTTP client, MCP session manager)
+    and cleans up on shutdown. The HTTP client is created once here rather
+    than lazily to ensure deterministic initialization and avoid race
+    conditions during shutdown.
     """
+    # Initialize HTTP client before accepting requests
+    await init_http_client()
+
     async with session_manager.run():
         yield
+
     # Cleanup resources on shutdown
     await cleanup()
 
