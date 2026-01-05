@@ -11,6 +11,7 @@ import { usePromptDraft } from '../hooks/usePromptDraft'
 import type { DraftData } from '../hooks/usePromptDraft'
 import type { Prompt, PromptCreate, PromptUpdate, PromptArgument, TagCount } from '../types'
 import { TAG_PATTERN } from '../utils'
+import { preventEnterSubmit } from '../utils/formUtils'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { config } from '../config'
 import { ArchiveIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
@@ -406,15 +407,8 @@ export function PromptEditor({
     }
   }
 
-  // Prevent Enter from submitting - only Cmd+S should submit
-  const handleFormKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement)) {
-      e.preventDefault()
-    }
-  }
-
   return (
-    <form ref={formRef} onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="flex flex-col h-full">
+    <form ref={formRef} onSubmit={handleSubmit} onKeyDown={preventEnterSubmit} className="flex flex-col h-full">
       {/* Fixed header with action buttons */}
       <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
