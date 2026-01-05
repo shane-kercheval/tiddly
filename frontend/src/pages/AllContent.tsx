@@ -69,9 +69,6 @@ import {
 import type { ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem, PromptListItem, ContentType } from '../types'
 import { getFirstGroupTags } from '../utils'
 
-/** Duration for undo toast notifications (archive/delete actions) */
-const UNDO_TOAST_DURATION_MS = 3000
-
 /**
  * AllContent page - unified view for all content types.
  *
@@ -326,24 +323,6 @@ export function AllContent(): ReactNode {
 
     try {
       await deleteBookmarkMutation.mutateAsync({ id: bookmark.id })
-      toast.success(
-        (t) => (
-          <span className="flex items-center gap-2">
-            Bookmark deleted.
-            <button
-              onClick={() => {
-                toast.dismiss(t.id)
-                restoreBookmarkMutation.mutateAsync(bookmark.id)
-                  .catch(() => toast.error("Couldn't undo"))
-              }}
-              className="font-medium underline"
-            >
-              Undo
-            </button>
-          </span>
-        ),
-        { duration: UNDO_TOAST_DURATION_MS }
-      )
     } catch {
       toast.error('Failed to delete bookmark')
     }
@@ -352,24 +331,6 @@ export function AllContent(): ReactNode {
   const handleArchiveBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
       await archiveBookmarkMutation.mutateAsync(bookmark.id)
-      toast.success(
-        (t) => (
-          <span className="flex items-center gap-2">
-            Bookmark archived.
-            <button
-              onClick={() => {
-                toast.dismiss(t.id)
-                unarchiveBookmarkMutation.mutateAsync(bookmark.id)
-                  .catch(() => toast.error("Couldn't undo"))
-              }}
-              className="font-medium underline"
-            >
-              Undo
-            </button>
-          </span>
-        ),
-        { duration: UNDO_TOAST_DURATION_MS }
-      )
     } catch {
       toast.error('Failed to archive bookmark')
     }
@@ -412,24 +373,6 @@ export function AllContent(): ReactNode {
 
     try {
       await deleteNoteMutation.mutateAsync({ id: note.id })
-      toast.success(
-        (t) => (
-          <span className="flex items-center gap-2">
-            Note deleted.
-            <button
-              onClick={() => {
-                toast.dismiss(t.id)
-                restoreNoteMutation.mutateAsync(note.id)
-                  .catch(() => toast.error("Couldn't undo"))
-              }}
-              className="font-medium underline"
-            >
-              Undo
-            </button>
-          </span>
-        ),
-        { duration: UNDO_TOAST_DURATION_MS }
-      )
     } catch {
       toast.error('Failed to delete note')
     }
@@ -438,24 +381,6 @@ export function AllContent(): ReactNode {
   const handleArchiveNote = async (note: NoteListItem): Promise<void> => {
     try {
       await archiveNoteMutation.mutateAsync(note.id)
-      toast.success(
-        (t) => (
-          <span className="flex items-center gap-2">
-            Note archived.
-            <button
-              onClick={() => {
-                toast.dismiss(t.id)
-                unarchiveNoteMutation.mutateAsync(note.id)
-                  .catch(() => toast.error("Couldn't undo"))
-              }}
-              className="font-medium underline"
-            >
-              Undo
-            </button>
-          </span>
-        ),
-        { duration: UNDO_TOAST_DURATION_MS }
-      )
     } catch {
       toast.error('Failed to archive note')
     }
@@ -498,24 +423,6 @@ export function AllContent(): ReactNode {
 
     try {
       await deletePromptMutation.mutateAsync({ id: prompt.id })
-      toast.success(
-        (t) => (
-          <span className="flex items-center gap-2">
-            Prompt deleted.
-            <button
-              onClick={() => {
-                toast.dismiss(t.id)
-                restorePromptMutation.mutateAsync(prompt.id)
-                  .catch(() => toast.error("Couldn't undo"))
-              }}
-              className="font-medium underline"
-            >
-              Undo
-            </button>
-          </span>
-        ),
-        { duration: UNDO_TOAST_DURATION_MS }
-      )
     } catch {
       toast.error('Failed to delete prompt')
     }
@@ -524,24 +431,6 @@ export function AllContent(): ReactNode {
   const handleArchivePrompt = async (prompt: PromptListItem): Promise<void> => {
     try {
       await archivePromptMutation.mutateAsync(prompt.id)
-      toast.success(
-        (t) => (
-          <span className="flex items-center gap-2">
-            Prompt archived.
-            <button
-              onClick={() => {
-                toast.dismiss(t.id)
-                unarchivePromptMutation.mutateAsync(prompt.id)
-                  .catch(() => toast.error("Couldn't undo"))
-              }}
-              className="font-medium underline"
-            >
-              Undo
-            </button>
-          </span>
-        ),
-        { duration: UNDO_TOAST_DURATION_MS }
-      )
     } catch {
       toast.error('Failed to archive prompt')
     }
