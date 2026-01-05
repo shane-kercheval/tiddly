@@ -8,7 +8,7 @@ import type { KeyboardEvent } from 'react'
  * Allows Enter in textareas for multiline input.
  * Use with onKeyDown on form elements when only Cmd+S should submit.
  */
-export const preventEnterSubmit = (e: KeyboardEvent): void => {
+export function preventEnterSubmit(e: KeyboardEvent<HTMLFormElement>): void {
   if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement)) {
     e.preventDefault()
   }
