@@ -55,9 +55,9 @@ export function SidebarNavItem({
         <span className={`${isCollapsed ? 'sr-only' : 'flex-1 truncate min-w-0'}`}>{label}</span>
       </NavLink>
 
-      {/* Hover actions - absolutely positioned with solid background */}
+      {/* Hover actions - absolutely positioned with solid background, hidden on mobile */}
       {!isCollapsed && hasActions && (
-        <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity bg-white rounded shadow-sm ${isConfirmingDelete ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'}`}>
+        <div className={`absolute right-1 top-1/2 -translate-y-1/2 hidden md:flex items-center gap-0.5 transition-opacity bg-white rounded shadow-sm ${isConfirmingDelete ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100'}`}>
           {onEdit && !isConfirmingDelete && (
             <button
               type="button"

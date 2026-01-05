@@ -129,9 +129,9 @@ export function SidebarGroup({
           )}
         </button>
 
-        {/* Hover actions - absolutely positioned with solid background */}
+        {/* Hover actions - absolutely positioned with solid background, hidden on mobile */}
         {!isEditing && (onRename || onDelete) && (
-          <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity bg-white rounded shadow-sm ${isConfirmingDelete ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100'}`}>
+          <div className={`absolute right-1 top-1/2 -translate-y-1/2 hidden md:flex items-center gap-0.5 transition-opacity bg-white rounded shadow-sm ${isConfirmingDelete ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100'}`}>
             {onRename && !isConfirmingDelete && (
               <button
                 type="button"

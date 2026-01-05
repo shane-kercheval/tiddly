@@ -41,8 +41,8 @@ export function SettingsGeneral(): ReactNode {
         </div>
 
         <div className="rounded-lg border border-gray-200 bg-white">
-          <div className="flex items-center justify-between p-4">
-            <div>
+          <div className="flex items-center justify-between gap-4 p-4">
+            <div className="min-w-0">
               <h3 className="text-sm font-medium text-gray-900">Full-width layout</h3>
               <p className="text-sm text-gray-500">
                 Expand content to fill the available width instead of using a constrained column.
@@ -53,7 +53,7 @@ export function SettingsGeneral(): ReactNode {
             </div>
             <button
               onClick={toggleFullWidthLayout}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
                 fullWidthLayout ? 'bg-blue-600' : 'bg-gray-200'
               }`}
               role="switch"
