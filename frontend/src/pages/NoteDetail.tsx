@@ -190,20 +190,22 @@ export function NoteDetail(): ReactNode {
     try {
       const archivedNote = await archiveMutation.mutateAsync(noteId)
       setNote(archivedNote)
+      navigateBack()
     } catch {
       toast.error('Failed to archive note')
     }
-  }, [noteId, archiveMutation])
+  }, [noteId, archiveMutation, navigateBack])
 
   const handleUnarchive = useCallback(async (): Promise<void> => {
     if (!noteId) return
     try {
       const unarchivedNote = await unarchiveMutation.mutateAsync(noteId)
       setNote(unarchivedNote)
+      navigateBack()
     } catch {
       toast.error('Failed to unarchive note')
     }
-  }, [noteId, unarchiveMutation])
+  }, [noteId, unarchiveMutation, navigateBack])
 
   const handleDelete = useCallback(async (): Promise<void> => {
     if (!noteId) return
@@ -221,10 +223,11 @@ export function NoteDetail(): ReactNode {
     try {
       const restoredNote = await restoreMutation.mutateAsync(noteId)
       setNote(restoredNote)
+      navigateBack()
     } catch {
       toast.error('Failed to restore note')
     }
-  }, [noteId, restoreMutation])
+  }, [noteId, restoreMutation, navigateBack])
 
   // Render loading state
   if (isLoading) {

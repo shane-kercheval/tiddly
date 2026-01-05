@@ -5,6 +5,7 @@ A bookmark and notes management system with tagging and search capabilities.
 ## Features
 
 - **Bookmarks & Notes** - Manage both bookmarks and markdown notes in one place
+- **Prompts** - Jinja2 templates with arguments, exposed via MCP for AI assistants
 - **Tag-based organization** - Filter content by tags with AND/OR matching
 - **Custom lists** - Create filtered views based on tag expressions
 - **URL metadata extraction** - Auto-fetch title, description, and page content from URLs
@@ -13,7 +14,7 @@ A bookmark and notes management system with tagging and search capabilities.
 - **Archive** - Hide content without deleting them
 - **Keyboard shortcuts** - Quick actions for power users
 - **Personal Access Tokens** - Programmatic API access for CLI tools and scripts
-- **MCP Server** - AI agent access via Model Context Protocol (Claude, etc.)
+- **MCP Servers** - AI agent access via Model Context Protocol (Claude, etc.)
 
 ## Project Structure
 
@@ -116,41 +117,61 @@ curl http://localhost:8000/bookmarks/ \
 
 Tokens are stored hashed. The `bm_` prefix distinguishes PATs from Auth0 JWTs.
 
-## MCP Server (AI Agent Access)
+## MCP Servers (AI Agent Access)
 
-The MCP (Model Context Protocol) server allows AI agents like Claude to interact with your bookmarks programmatically.
+Two MCP (Model Context Protocol) servers allow AI agents like Claude to interact with your content:
 
-### Running the MCP Server
+| Server | Port | Purpose |
+|--------|------|---------|
+| Content MCP | 8001 | Tools for bookmarks and notes |
+| Prompt MCP | 8002 | Prompts capability + create_prompt tool |
+
+### Running the MCP Servers
 
 ```bash
 # Requires the main API to be running on port 8000
-make mcp-server    # Starts MCP server on port 8001
+make content-mcp-server   # Content MCP server (port 8001)
+make prompt-mcp-server    # Prompt MCP server (port 8002)
 ```
 
-### Available Tools
+### Content MCP Server Tools
 
 | Tool | Description |
 |------|-------------|
 | `search_bookmarks` | Search with text query and tag filtering |
 | `get_bookmark` | Get full details of a bookmark by ID |
 | `create_bookmark` | Create a new bookmark (auto-fetches metadata) |
+| `search_notes` | Search notes with text query and tag filtering |
+| `get_note` | Get full details of a note by ID |
+| `create_note` | Create a new note |
+| `search_all_content` | Search across bookmarks and notes |
 | `list_tags` | List all tags with usage counts |
+
+### Prompt MCP Server
+
+The Prompt MCP server exposes your saved prompts via the MCP prompts capability:
+
+| Capability | Description |
+|------------|-------------|
+| `list_prompts` | List available prompts with arguments |
+| `get_prompt` | Render a prompt with provided argument values |
+| `create_prompt` (tool) | Create a new prompt template |
 
 ### Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `VITE_API_URL` | `http://localhost:8000` | Backend API URL |
-| `MCP_HOST` | `0.0.0.0` | MCP server bind address |
-| `MCP_PORT` | `8001` | MCP server port (falls back to `PORT` for PaaS) |
+| `MCP_PORT` | `8001` | Content MCP port (falls back to `PORT` for PaaS) |
+| `PROMPT_MCP_PORT` | `8002` | Prompt MCP port (falls back to `PORT` for PaaS) |
 
 ### Testing with MCP Inspector
 
 ```bash
-# Run MCP Inspector
 npx @modelcontextprotocol/inspector
 
-# Connect to: http://localhost:8001/mcp
+# Content MCP: http://localhost:8001/mcp
+# Prompt MCP: http://localhost:8002/mcp
 # Add header: Authorization: Bearer bm_your_token_here
 ```
 
@@ -161,11 +182,20 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 ```json
 {
   "mcpServers": {
-    "bookmarks": {
+    "content": {
       "command": "npx",
       "args": [
         "mcp-remote",
         "http://localhost:8001/mcp",
+        "--header",
+        "Authorization: Bearer bm_your_token_here"
+      ]
+    },
+    "prompts": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:8002/mcp",
         "--header",
         "Authorization: Bearer bm_your_token_here"
       ]

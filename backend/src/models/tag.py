@@ -19,6 +19,7 @@ from models.base import Base
 if TYPE_CHECKING:
     from models.bookmark import Bookmark
     from models.note import Note
+    from models.prompt import Prompt
     from models.user import User
 
 
@@ -60,6 +61,25 @@ note_tags = Table(
 )
 
 
+# Junction table for many-to-many relationship between prompts and tags
+prompt_tags = Table(
+    "prompt_tags",
+    Base.metadata,
+    Column(
+        "prompt_id",
+        ForeignKey("prompts.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "tag_id",
+        ForeignKey("tags.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    # Index for lookups by tag (composite PK already indexes prompt_id first)
+    Index("ix_prompt_tags_tag_id", "tag_id"),
+)
+
+
 class Tag(Base):
     """Tag model - stores unique tags per user for cross-entity tagging."""
 
@@ -89,5 +109,9 @@ class Tag(Base):
     )
     notes: Mapped[list["Note"]] = relationship(
         secondary=note_tags,
+        back_populates="tag_objects",
+    )
+    prompts: Mapped[list["Prompt"]] = relationship(
+        secondary=prompt_tags,
         back_populates="tag_objects",
     )

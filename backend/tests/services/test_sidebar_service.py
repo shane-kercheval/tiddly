@@ -427,12 +427,12 @@ async def test__get_computed_sidebar__filters_deleted_list_references(
     assert result.items[0].key == "all"  # type: ignore[union-attr]
 
 
-async def test__get_computed_sidebar__appends_orphan_lists_to_root(
+async def test__get_computed_sidebar__prepends_orphan_lists_to_root(
     db_session: AsyncSession,
     test_user: User,
     test_list: ContentList,
 ) -> None:
-    """Test that lists in DB but not in sidebar are appended to root."""
+    """Test that lists in DB but not in sidebar are prepended to root."""
     # Set up sidebar WITHOUT the list
     settings = UserSettings(
         user_id=test_user.id,
@@ -451,10 +451,10 @@ async def test__get_computed_sidebar__appends_orphan_lists_to_root(
     # Should have builtin + orphan list
     assert len(result.items) == 2
 
-    # Last item should be the orphaned list
-    last_item = result.items[-1]
-    assert hasattr(last_item, "id")
-    assert last_item.id == test_list.id  # type: ignore[union-attr]
+    # First item should be the orphaned list
+    first_item = result.items[0]
+    assert hasattr(first_item, "id")
+    assert first_item.id == test_list.id  # type: ignore[union-attr]
 
 
 async def test__get_computed_sidebar__preserves_group_structure(

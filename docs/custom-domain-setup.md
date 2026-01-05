@@ -7,7 +7,8 @@ This guide walks through configuring a custom domain (e.g., `tiddly.me`) for the
 You'll configure:
 - `tiddly.me` → Frontend (React app)
 - `api.tiddly.me` → API (FastAPI backend)
-- `mcp.tiddly.me` → MCP Server (optional, for AI agents)
+- `content-mcp.tiddly.me` → Content MCP Server (bookmarks/notes, for AI agents)
+- `prompts-mcp.tiddly.me` → Prompt MCP Server (prompts capability, for AI agents)
 
 ## Prerequisites
 
@@ -37,11 +38,20 @@ You'll configure:
 5. Click **Add Domain**
 6. Note the CNAME target Railway provides
 
-### MCP Service (Optional)
+### Content MCP Service (Optional)
 
-1. Click **mcp** service → **Settings** → **Networking**
+1. Click **content-mcp** service → **Settings** → **Networking**
 2. Click **+ Custom Domain**
-3. Enter: `mcp.tiddly.me`
+3. Enter: `content-mcp.tiddly.me`
+4. For the port field, use the default (`8080`)
+5. Click **Add Domain**
+6. Note the CNAME target Railway provides
+
+### Prompt MCP Service (Optional)
+
+1. Click **prompt-mcp** service → **Settings** → **Networking**
+2. Click **+ Custom Domain**
+3. Enter: `prompts-mcp.tiddly.me`
 4. For the port field, use the default (`8080`)
 5. Click **Add Domain**
 6. Note the CNAME target Railway provides
@@ -82,11 +92,18 @@ For the root domain, you cannot use a regular CNAME record (DNS standards prohib
 3. In **Answer / Value**, enter your Railway API target
 4. Click **Add**
 
-### Add MCP Subdomain Record (Optional)
+### Add Content MCP Subdomain Record (Optional)
 
 1. In the **Type** dropdown, select **CNAME**
-2. In **Host**, enter: `mcp`
-3. In **Answer / Value**, enter your Railway MCP target
+2. In **Host**, enter: `content-mcp`
+3. In **Answer / Value**, enter your Railway Content MCP target
+4. Click **Add**
+
+### Add Prompt MCP Subdomain Record (Optional)
+
+1. In the **Type** dropdown, select **CNAME**
+2. In **Host**, enter: `prompts-mcp`
+3. In **Answer / Value**, enter your Railway Prompt MCP target
 4. Click **Add**
 
 ---
@@ -102,8 +119,11 @@ dig tiddly.me A
 # Check API
 dig api.tiddly.me CNAME
 
-# Check MCP
-dig mcp.tiddly.me CNAME
+# Check Content MCP
+dig content-mcp.tiddly.me CNAME
+
+# Check Prompt MCP
+dig prompts-mcp.tiddly.me CNAME
 ```
 
 - For `tiddly.me`: You should see an IP address in the ANSWER section (ALIAS flattens to A record)
@@ -126,9 +146,18 @@ VITE_API_URL=https://api.tiddly.me
 VITE_FRONTEND_URL=https://tiddly.me
 ```
 
-### MCP Service Variables
+### Content MCP Service Variables
 
-1. Go to **mcp** service → **Variables** tab
+1. Go to **content-mcp** service → **Variables** tab
+2. Update:
+
+```
+VITE_API_URL=https://api.tiddly.me
+```
+
+### Prompt MCP Service Variables
+
+1. Go to **prompt-mcp** service → **Variables** tab
 2. Update:
 
 ```
@@ -142,7 +171,8 @@ VITE_API_URL=https://api.tiddly.me
 
 ```
 VITE_API_URL=https://api.tiddly.me
-VITE_MCP_URL=https://mcp.tiddly.me
+VITE_MCP_URL=https://content-mcp.tiddly.me
+VITE_PROMPT_MCP_URL=https://prompts-mcp.tiddly.me
 ```
 
 **Important:** After changing `VITE_*` variables on the frontend, you must redeploy the frontend service. Vite bakes these values at build time.
@@ -192,7 +222,8 @@ Or trigger via git push to main branch.
 1. **Frontend:** Visit `https://tiddly.me` - should show login page
 2. **Auth0 Login:** Click login, complete Auth0 flow, should redirect back to `https://tiddly.me`
 3. **API:** Visit `https://api.tiddly.me/docs` - should show FastAPI docs
-4. **MCP:** Visit `https://mcp.tiddly.me/mcp` - should respond (or show auth required)
+4. **Content MCP:** Visit `https://content-mcp.tiddly.me/mcp` - should respond (or show auth required)
+5. **Prompt MCP:** Visit `https://prompts-mcp.tiddly.me/mcp` - should respond (or show auth required)
 
 ---
 

@@ -1,8 +1,8 @@
-import { useAuth0 } from '@auth0/auth0-react'
 import { Navigate, Outlet } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
 import { LoadingSpinner } from './ui'
+import { useAuthStatus } from '../hooks/useAuthStatus'
 
 /**
  * Error display component shown when Auth0 encounters an error.
@@ -30,7 +30,7 @@ function AuthErrorDisplay({ message }: { message: string }): ReactNode {
  * Protected route wrapper that requires authentication (production mode).
  */
 function AuthenticatedRoute(): ReactNode {
-  const { isAuthenticated, isLoading, error } = useAuth0()
+  const { isAuthenticated, isLoading, error } = useAuthStatus()
 
   if (isLoading) {
     return (

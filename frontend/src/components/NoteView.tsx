@@ -3,12 +3,10 @@
  */
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeSanitize from 'rehype-sanitize'
 import type { Note } from '../types'
 import { formatDate } from '../utils'
 import { EditIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
+import { MarkdownViewer } from './MarkdownEditor'
 
 interface NoteViewProps {
   note: Note
@@ -155,32 +153,26 @@ export function NoteView({
       </div>
 
       {/* Scrollable note content */}
-      <article className="flex-1 overflow-y-auto min-h-0 pr-2">
-        {/* Title */}
-        <h1 className="text-2xl font-bold text-gray-900 mb-4">
-          {note.title}
-        </h1>
+      <article className="flex-1 overflow-y-auto min-h-0 pr-2 pt-2">
+        {/* Title row - inline with metadata on desktop */}
+        <div className="flex flex-col md:flex-row md:items-center md:gap-4 mb-2">
+          <h1 className="text-2xl font-bold text-gray-900 shrink-0">
+            {note.title}
+          </h1>
 
-        {/* Metadata card */}
-        <div className="rounded-lg bg-gray-50 border border-gray-200 p-4 mb-6 space-y-3">
-          {/* Tags */}
-          {note.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {note.tags.map((tag) => (
-                <button
-                  key={tag}
-                  onClick={() => onTagClick?.(tag)}
-                  className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
-                  title={`Filter by tag: ${tag}`}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Dates and version */}
-          <div className="flex items-center gap-2 text-sm text-gray-500">
+          {/* Inline metadata */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500 mt-1 md:mt-0">
+            {note.tags.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => onTagClick?.(tag)}
+                className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
+                title={`Filter by tag: ${tag}`}
+              >
+                {tag}
+              </button>
+            ))}
+            {note.tags.length > 0 && <span className="text-gray-300">·</span>}
             <span>Created {formatDate(note.created_at)}</span>
             {note.updated_at !== note.created_at && (
               <>
@@ -195,28 +187,22 @@ export function NoteView({
               </>
             )}
           </div>
-
-          {/* Description */}
-          {note.description && (
-            <p className="text-gray-600 italic">
-              {note.description}
-            </p>
-          )}
         </div>
 
-        {/* Markdown content */}
-        {note.content ? (
-          <div className="prose prose-gray max-w-none">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeSanitize]}
-            >
-              {note.content}
-            </ReactMarkdown>
-          </div>
-        ) : (
-          <p className="text-gray-400 italic">No content</p>
+        {/* Description */}
+        {note.description && (
+          <p className="text-sm text-gray-600 italic mb-3">
+            {note.description}
+          </p>
         )}
+
+        {/* Divider */}
+        <div className="border-t border-gray-200 mt-8" />
+
+        {/* Markdown content */}
+        <div className="pt-10">
+          <MarkdownViewer content={note.content} emptyText="No content" />
+        </div>
       </article>
     </div>
   )

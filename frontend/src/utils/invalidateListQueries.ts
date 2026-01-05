@@ -7,6 +7,8 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { bookmarkKeys } from '../hooks/useBookmarksQuery'
 import { noteKeys } from '../hooks/useNotesQuery'
+import { promptKeys } from '../hooks/usePromptsQuery'
+import { contentKeys } from '../hooks/useContentQuery'
 
 /**
  * Invalidate all cached queries for a specific list ID.
@@ -14,6 +16,8 @@ import { noteKeys } from '../hooks/useNotesQuery'
  * Query key structure for custom lists:
  * - Bookmarks: ['bookmarks', 'list', 'custom', { list_id: N, ... }]
  * - Notes: ['notes', 'list', 'custom', { list_id: N, ... }]
+ * - Prompts: ['prompts', 'list', 'custom', { list_id: N, ... }]
+ * - Content: ['content', 'list', 'active', { list_id: N, ... }]
  *
  * The params object is at index 3 in the query key array.
  */
@@ -33,6 +37,23 @@ export async function invalidateListQueries(
 
   await queryClient.invalidateQueries({
     queryKey: noteKeys.customLists(),
+    predicate: (query) => {
+      const params = query.queryKey[PARAMS_INDEX] as { list_id?: number } | undefined
+      return params?.list_id === listId
+    },
+  })
+
+  await queryClient.invalidateQueries({
+    queryKey: promptKeys.customLists(),
+    predicate: (query) => {
+      const params = query.queryKey[PARAMS_INDEX] as { list_id?: number } | undefined
+      return params?.list_id === listId
+    },
+  })
+
+  // Also invalidate unified content queries (used by AllContent page for custom lists)
+  await queryClient.invalidateQueries({
+    queryKey: contentKeys.lists(),
     predicate: (query) => {
       const params = query.queryKey[PARAMS_INDEX] as { list_id?: number } | undefined
       return params?.list_id === listId

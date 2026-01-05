@@ -51,6 +51,15 @@ vi.mock('./hooks/useNoteMutations', () => ({
   useUnarchiveNote: () => ({ mutateAsync: vi.fn() }),
 }))
 
+vi.mock('./hooks/usePromptMutations', () => ({
+  useCreatePrompt: () => ({ mutateAsync: vi.fn() }),
+  useUpdatePrompt: () => ({ mutateAsync: vi.fn() }),
+  useDeletePrompt: () => ({ mutateAsync: vi.fn() }),
+  useRestorePrompt: () => ({ mutateAsync: vi.fn() }),
+  useArchivePrompt: () => ({ mutateAsync: vi.fn() }),
+  useUnarchivePrompt: () => ({ mutateAsync: vi.fn() }),
+}))
+
 vi.mock('./hooks/useContentQuery', () => ({
   useContentQuery: () => ({
     data: { items: [], total: 0, offset: 0, limit: 20, has_more: false },
@@ -80,7 +89,7 @@ vi.mock('./stores/settingsStore', () => ({
       sidebar: {
         version: 1,
         items: [
-          { type: 'builtin', key: 'all', name: 'All' },
+          { type: 'builtin', key: 'all', name: 'All Content' },
           { type: 'builtin', key: 'archived', name: 'Archived' },
           { type: 'builtin', key: 'trash', name: 'Trash' },
         ],
@@ -163,8 +172,8 @@ describe('App', () => {
 
     await waitFor(
       () => {
-        // Sidebar has "All" builtin navigation item
-        expect(screen.getAllByText('All').length).toBeGreaterThanOrEqual(1)
+        // Sidebar has "All Content" builtin navigation item
+        expect(screen.getAllByText('All Content').length).toBeGreaterThanOrEqual(1)
       },
       { timeout: 3000 }
     )

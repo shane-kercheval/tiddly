@@ -8,21 +8,28 @@ OWASP Reference: A07:2021 - Identification and Authentication Failures
 
 NOTE: These tests run against the deployed environment via SECURITY_TEST_API_URL
 since the test suite runs in DEV_MODE by default.
+
+SETUP:
+    Set SECURITY_TEST_API_URL in .env to the deployed API URL.
+
+RUN:
+    make pen_tests
 """
 import os
+from pathlib import Path
 
 import httpx
 import pytest
+from dotenv import load_dotenv
 
+# Load .env file from project root
+_project_root = Path(__file__).parent.parent.parent.parent.parent
+load_dotenv(_project_root / ".env")
 
 # Configuration - must be set via environment variable
 API_URL = os.environ.get("SECURITY_TEST_API_URL", "")
-
-# Skip all tests if API URL not configured
-pytestmark = pytest.mark.skipif(
-    not API_URL,
-    reason="Authentication tests require SECURITY_TEST_API_URL in .env",
-)
+if not API_URL:
+    raise ValueError("SECURITY_TEST_API_URL must be set in .env to run deployed tests")
 
 
 class TestAuthenticationEnforcementDeployed:
@@ -30,6 +37,8 @@ class TestAuthenticationEnforcementDeployed:
 
     @pytest.mark.parametrize(("endpoint", "method"), [
         ("/bookmarks/", "GET"),
+        ("/notes/", "GET"),
+        ("/prompts/", "GET"),
         ("/users/me", "GET"),
         ("/tokens/", "GET"),
         ("/tags/", "GET"),

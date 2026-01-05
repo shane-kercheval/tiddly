@@ -1,7 +1,7 @@
 /**
  * Zustand store for content type filter state.
  *
- * Manages which content types (bookmark, note) are shown in the All/Archived/Trash views.
+ * Manages which content types (bookmark, note, prompt) are shown in the All/Archived/Trash views.
  * State persists to localStorage per view.
  */
 import { create } from 'zustand'
@@ -9,20 +9,23 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type { ContentType } from '../types'
 
 /** All available content types */
-export const ALL_CONTENT_TYPES: ContentType[] = ['bookmark', 'note']
+export const ALL_CONTENT_TYPES: ContentType[] = ['bookmark', 'note', 'prompt']
+
+/** Current storage version - increment when adding new content types */
+const STORAGE_VERSION = 2
 
 interface ContentTypeFilterState {
   /** Selected content types per view (active, archived, deleted) */
   selectedTypes: Record<string, ContentType[]>
 
   /** Get selected types for a view. Returns all types if not set. */
-  getSelectedTypes: (view: string) => ContentType[]
+  getSelectedTypes: (view: string, availableTypes?: ContentType[]) => ContentType[]
 
   /** Toggle a content type for a view. Ensures at least one type is always selected. */
-  toggleType: (view: string, type: ContentType) => void
+  toggleType: (view: string, type: ContentType, availableTypes?: ContentType[]) => void
 
   /** Set content types for a view directly */
-  setTypes: (view: string, types: ContentType[]) => void
+  setTypes: (view: string, types: ContentType[], availableTypes?: ContentType[]) => void
 }
 
 export const useContentTypeFilterStore = create<ContentTypeFilterState>()(
@@ -30,18 +33,22 @@ export const useContentTypeFilterStore = create<ContentTypeFilterState>()(
     (set, get) => ({
       selectedTypes: {},
 
-      getSelectedTypes: (view: string): ContentType[] => {
+      getSelectedTypes: (view: string, availableTypes = ALL_CONTENT_TYPES): ContentType[] => {
+        const resolvedAvailableTypes = availableTypes.length > 0 ? availableTypes : ALL_CONTENT_TYPES
         const types = get().selectedTypes[view]
-        // If not set or empty, return all types
         if (!types || types.length === 0) {
-          return ALL_CONTENT_TYPES
+          return resolvedAvailableTypes
         }
-        return types
+        const filteredTypes = types.filter((type) => resolvedAvailableTypes.includes(type))
+        return filteredTypes.length > 0 ? filteredTypes : resolvedAvailableTypes
       },
 
-      toggleType: (view: string, type: ContentType): void => {
+      toggleType: (view: string, type: ContentType, availableTypes = ALL_CONTENT_TYPES): void => {
         set((state) => {
-          const currentTypes = state.selectedTypes[view] || [...ALL_CONTENT_TYPES]
+          const resolvedAvailableTypes = availableTypes.length > 0 ? availableTypes : ALL_CONTENT_TYPES
+          const currentTypes = state.selectedTypes[view]
+            ? state.selectedTypes[view].filter((currentType) => resolvedAvailableTypes.includes(currentType))
+            : [...resolvedAvailableTypes]
           const isSelected = currentTypes.includes(type)
 
           // If trying to deselect and it's the last one, don't allow
@@ -62,9 +69,10 @@ export const useContentTypeFilterStore = create<ContentTypeFilterState>()(
         })
       },
 
-      setTypes: (view: string, types: ContentType[]): void => {
-        // Ensure at least one type is selected
-        const validTypes = types.length > 0 ? types : ALL_CONTENT_TYPES
+      setTypes: (view: string, types: ContentType[], availableTypes = ALL_CONTENT_TYPES): void => {
+        const resolvedAvailableTypes = availableTypes.length > 0 ? availableTypes : ALL_CONTENT_TYPES
+        const filteredTypes = types.filter((type) => resolvedAvailableTypes.includes(type))
+        const validTypes = filteredTypes.length > 0 ? filteredTypes : resolvedAvailableTypes
         set((state) => ({
           selectedTypes: {
             ...state.selectedTypes,
@@ -75,7 +83,28 @@ export const useContentTypeFilterStore = create<ContentTypeFilterState>()(
     }),
     {
       name: 'content-type-filter',
+      version: STORAGE_VERSION,
       storage: createJSONStorage(() => localStorage),
+      migrate: (persistedState: unknown, version: number) => {
+        const state = persistedState as { selectedTypes: Record<string, ContentType[]> }
+
+        // Migration from version 1 (or no version) to version 2:
+        // Add 'prompt' to all existing selected types arrays
+        if (version < 2 && state?.selectedTypes) {
+          const migratedTypes: Record<string, ContentType[]> = {}
+          for (const [view, types] of Object.entries(state.selectedTypes)) {
+            // Add 'prompt' if not already present
+            if (Array.isArray(types) && !types.includes('prompt')) {
+              migratedTypes[view] = [...types, 'prompt']
+            } else {
+              migratedTypes[view] = types
+            }
+          }
+          return { ...state, selectedTypes: migratedTypes }
+        }
+
+        return state
+      },
     }
   )
 )

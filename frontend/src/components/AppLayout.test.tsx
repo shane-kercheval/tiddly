@@ -7,6 +7,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { AppLayout } from './AppLayout'
 import { useConsentStore } from '../stores/consentStore'
+import { useAuthStatus } from '../hooks/useAuthStatus'
 import * as config from '../config'
 
 // Mock the consent store
@@ -19,12 +20,18 @@ vi.mock('../config', () => ({
   isDevMode: false,
 }))
 
+// Mock auth status hook
+vi.mock('../hooks/useAuthStatus', () => ({
+  useAuthStatus: vi.fn(),
+}))
+
 // Mock ConsentDialog to avoid testing its internals here
 vi.mock('./ConsentDialog', () => ({
   ConsentDialog: () => <div data-testid="consent-dialog">Consent Dialog</div>,
 }))
 
 const mockUseConsentStore = useConsentStore as unknown as ReturnType<typeof vi.fn>
+const mockUseAuthStatus = useAuthStatus as unknown as ReturnType<typeof vi.fn>
 
 describe('AppLayout', () => {
   const defaultMockState = {
@@ -39,6 +46,11 @@ describe('AppLayout', () => {
     // Reset isDevMode to false by default
     vi.mocked(config).isDevMode = false
     mockUseConsentStore.mockReturnValue(defaultMockState)
+    mockUseAuthStatus.mockReturnValue({
+      isAuthenticated: true,
+      isLoading: false,
+      error: null,
+    })
   })
 
   const renderAppLayout = () => {
@@ -65,6 +77,44 @@ describe('AppLayout', () => {
 
       await waitFor(() => {
         expect(mockCheckConsent).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    it('does not call checkConsent while auth is loading', async () => {
+      const mockCheckConsent = vi.fn().mockResolvedValue(undefined)
+      mockUseConsentStore.mockReturnValue({
+        ...defaultMockState,
+        checkConsent: mockCheckConsent,
+      })
+      mockUseAuthStatus.mockReturnValue({
+        isAuthenticated: false,
+        isLoading: true,
+        error: null,
+      })
+
+      renderAppLayout()
+
+      await waitFor(() => {
+        expect(mockCheckConsent).not.toHaveBeenCalled()
+      })
+    })
+
+    it('does not call checkConsent when not authenticated', async () => {
+      const mockCheckConsent = vi.fn().mockResolvedValue(undefined)
+      mockUseConsentStore.mockReturnValue({
+        ...defaultMockState,
+        checkConsent: mockCheckConsent,
+      })
+      mockUseAuthStatus.mockReturnValue({
+        isAuthenticated: false,
+        isLoading: false,
+        error: null,
+      })
+
+      renderAppLayout()
+
+      await waitFor(() => {
+        expect(mockCheckConsent).not.toHaveBeenCalled()
       })
     })
 

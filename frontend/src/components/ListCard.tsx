@@ -4,9 +4,10 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { ContentList, ContentType, FilterExpression } from '../types'
-import { EditIcon, BookmarkIcon, NoteIcon } from './icons'
+import { EditIcon, BookmarkIcon, NoteIcon, PromptIcon } from './icons'
 import { ConfirmDeleteButton } from './ui'
 import { SORT_LABELS, type SortByOption } from '../constants/sortOptions'
+import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 
 interface ListCardProps {
   list: ContentList
@@ -52,27 +53,40 @@ function FilterExpressionDisplay({ expr }: { expr: FilterExpression }): ReactNod
 
 /**
  * Display content type icons for the list.
- * Shows bookmark icon, note icon, or both based on content_types.
+ * Shows bookmark, note, or prompt icon based on content_types.
+ * If all types or multiple types, shows nothing (default/shared).
  */
 function ContentTypesDisplay({ contentTypes }: { contentTypes: ContentType[] }): ReactNode {
   const hasBookmarks = contentTypes.includes('bookmark')
   const hasNotes = contentTypes.includes('note')
+  const hasPrompts = contentTypes.includes('prompt')
 
-  // If both types, show nothing (default/shared)
-  if (hasBookmarks && hasNotes) {
+  // Count how many types are present
+  const typeCount = [hasBookmarks, hasNotes, hasPrompts].filter(Boolean).length
+
+  // If all types or multiple types, show nothing (default/shared)
+  if (typeCount >= 2) {
     return null
   }
 
+  // Single type - show appropriate icon
+  const title = hasBookmarks ? 'Bookmarks only' : hasNotes ? 'Notes only' : 'Prompts only'
+
   return (
-    <div className="flex items-center gap-1" title={hasBookmarks ? 'Bookmarks only' : 'Notes only'}>
+    <div className="flex items-center gap-1" title={title}>
       {hasBookmarks && (
-        <span className="text-blue-500">
+        <span className={CONTENT_TYPE_ICON_COLORS.bookmark}>
           <BookmarkIcon className="h-4 w-4" />
         </span>
       )}
       {hasNotes && (
-        <span className="text-amber-500">
+        <span className={CONTENT_TYPE_ICON_COLORS.note}>
           <NoteIcon className="h-4 w-4" />
+        </span>
+      )}
+      {hasPrompts && (
+        <span className={CONTENT_TYPE_ICON_COLORS.prompt}>
+          <PromptIcon className="h-4 w-4" />
         </span>
       )}
     </div>

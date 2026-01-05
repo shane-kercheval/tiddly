@@ -231,6 +231,116 @@ describe('useDeleteBookmark', () => {
     expect(mockDelete).toHaveBeenCalledWith('/bookmarks/1')
   })
 
+  it('should optimistically remove bookmark from cache before API completes', async () => {
+    const queryClient = createTestQueryClient()
+    // Set up initial cached data
+    const initialData = {
+      items: [
+        { id: 1, url: 'https://example.com', title: 'Test 1' },
+        { id: 2, url: 'https://other.com', title: 'Test 2' },
+      ],
+      total: 2,
+    }
+    queryClient.setQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 }), initialData)
+
+    // Create a promise that we control to delay API response
+    let resolveDelete: () => void
+    const deletePromise = new Promise<void>((resolve) => {
+      resolveDelete = resolve
+    })
+    mockDelete.mockReturnValueOnce(deletePromise)
+
+    const { result } = renderHook(() => useDeleteBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    // Start the mutation but don't await it yet
+    let mutationPromise: Promise<void>
+    act(() => {
+      mutationPromise = result.current.mutateAsync({ id: 1 })
+    })
+
+    // Wait for optimistic update to apply
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // Check cache was optimistically updated BEFORE API completed
+    const cachedData = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 })) as { items: { id: number }[]; total: number }
+    expect(cachedData.items).toHaveLength(1)
+    expect(cachedData.items[0].id).toBe(2)
+    expect(cachedData.total).toBe(1)
+
+    // Now complete the API call
+    await act(async () => {
+      resolveDelete!()
+      await mutationPromise
+    })
+  })
+
+  it('should rollback optimistic update on API error', async () => {
+    const queryClient = createTestQueryClient()
+    // Set up initial cached data
+    const initialData = {
+      items: [
+        { id: 1, url: 'https://example.com', title: 'Test 1' },
+        { id: 2, url: 'https://other.com', title: 'Test 2' },
+      ],
+      total: 2,
+    }
+    queryClient.setQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 }), initialData)
+
+    // Make API fail
+    mockDelete.mockRejectedValueOnce(new Error('Network error'))
+
+    const { result } = renderHook(() => useDeleteBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    // Attempt the mutation (should fail)
+    await act(async () => {
+      try {
+        await result.current.mutateAsync({ id: 1 })
+      } catch {
+        // Expected to fail
+      }
+    })
+
+    // Cache should be rolled back to original state
+    const cachedData = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 })) as { items: { id: number }[]; total: number }
+    expect(cachedData.items).toHaveLength(2)
+    expect(cachedData.items[0].id).toBe(1)
+    expect(cachedData.items[1].id).toBe(2)
+  })
+
+  it('should not decrement total when item is not in cached page', async () => {
+    const queryClient = createTestQueryClient()
+    // Set up cached data for page 2 (items 11-20, doesn't contain item 1)
+    const page2Data = {
+      items: [
+        { id: 11, url: 'https://example11.com', title: 'Test 11' },
+        { id: 12, url: 'https://example12.com', title: 'Test 12' },
+      ],
+      total: 20, // Total across all pages
+    }
+    queryClient.setQueryData(bookmarkKeys.list({ view: 'active', offset: 10, limit: 10 }), page2Data)
+
+    mockDelete.mockResolvedValueOnce({})
+
+    const { result } = renderHook(() => useDeleteBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: 1 }) // Delete item 1, which isn't in page 2
+    })
+
+    // Page 2's total should NOT be decremented since item 1 wasn't in this page
+    const cachedData = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 10, limit: 10 })) as { items: { id: number }[]; total: number }
+    expect(cachedData.items).toHaveLength(2) // Items unchanged
+    expect(cachedData.total).toBe(20) // Total unchanged (item wasn't in this page)
+  })
+
   it('should invalidate active, deleted, and custom lists on soft delete', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')

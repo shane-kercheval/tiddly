@@ -222,7 +222,7 @@ async def get_computed_sidebar(
         1. Get raw sidebar_order from UserSettings
         2. Walk the structure, resolving list IDs to names/content_types
         3. Filter out orphaned references (lists in sidebar but deleted from DB)
-        4. Append orphaned lists (lists in DB but not in sidebar) to root
+        4. Prepend orphaned lists (lists in DB but not in sidebar) to root
         5. Add display names for builtins
     """
     settings = await get_or_create_settings(db, user_id)
@@ -241,10 +241,11 @@ async def get_computed_sidebar(
         seen_list_ids,
     )
 
-    # Append orphaned lists (in DB but not in sidebar) to root
+    # Prepend orphaned lists (in DB but not in sidebar) to root
+    orphaned_items: list[SidebarListItemComputed] = []
     for list_id, content_list in list_map.items():
         if list_id not in seen_list_ids:
-            computed_items.append(
+            orphaned_items.append(
                 SidebarListItemComputed(
                     type="list",
                     id=list_id,
@@ -252,6 +253,8 @@ async def get_computed_sidebar(
                     content_types=content_list.content_types,
                 ),
             )
+    if orphaned_items:
+        computed_items = orphaned_items + computed_items
 
     return SidebarOrderComputed(
         version=sidebar_order.get("version", SIDEBAR_VERSION),

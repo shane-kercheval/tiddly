@@ -4,7 +4,6 @@
  * Covers:
  * - View-specific empty states
  * - QuickAddMenu visibility
- * - URL action parameter handling
  * - View-specific action buttons
  * - Content type rendering (bookmarks vs notes)
  * - Note navigation with return state
@@ -27,6 +26,8 @@ const mockBookmark: ContentListItem = {
   tags: ['test', 'bookmark'],
   url: 'https://example.com',
   version: null,
+  name: null,
+  arguments: null,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-01T00:00:00Z',
   last_used_at: '2024-01-01T00:00:00Z',
@@ -42,6 +43,8 @@ const mockNote: ContentListItem = {
   tags: ['test', 'note'],
   url: null,
   version: 1,
+  name: null,
+  arguments: null,
   created_at: '2024-01-02T00:00:00Z',
   updated_at: '2024-01-02T00:00:00Z',
   last_used_at: '2024-01-02T00:00:00Z',
@@ -104,22 +107,16 @@ vi.mock('../hooks/useContentQuery', () => ({
 
 vi.mock('../hooks/useBookmarks', () => ({
   useBookmarks: () => ({
-    fetchBookmark: vi.fn().mockResolvedValue(mockBookmark),
-    fetchMetadata: vi.fn().mockResolvedValue({ title: null, description: null, content: null, error: null }),
     trackBookmarkUsage: vi.fn(),
   }),
 }))
 
-const mockCreateBookmark = vi.fn()
-const mockUpdateBookmark = vi.fn()
 const mockDeleteBookmark = vi.fn()
 const mockRestoreBookmark = vi.fn()
 const mockArchiveBookmark = vi.fn()
 const mockUnarchiveBookmark = vi.fn()
 
 vi.mock('../hooks/useBookmarkMutations', () => ({
-  useCreateBookmark: () => ({ mutateAsync: mockCreateBookmark, isPending: false }),
-  useUpdateBookmark: () => ({ mutateAsync: mockUpdateBookmark, isPending: false }),
   useDeleteBookmark: () => ({ mutateAsync: mockDeleteBookmark, isPending: false }),
   useRestoreBookmark: () => ({ mutateAsync: mockRestoreBookmark, isPending: false }),
   useArchiveBookmark: () => ({ mutateAsync: mockArchiveBookmark, isPending: false }),
@@ -138,6 +135,20 @@ vi.mock('../hooks/useNoteMutations', () => ({
   useRestoreNote: () => ({ mutateAsync: mockRestoreNote, isPending: false }),
   useArchiveNote: () => ({ mutateAsync: mockArchiveNote, isPending: false }),
   useUnarchiveNote: () => ({ mutateAsync: mockUnarchiveNote, isPending: false }),
+}))
+
+const mockDeletePrompt = vi.fn()
+const mockRestorePrompt = vi.fn()
+const mockArchivePrompt = vi.fn()
+const mockUnarchivePrompt = vi.fn()
+
+vi.mock('../hooks/usePromptMutations', () => ({
+  useCreatePrompt: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdatePrompt: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeletePrompt: () => ({ mutateAsync: mockDeletePrompt, isPending: false }),
+  useRestorePrompt: () => ({ mutateAsync: mockRestorePrompt, isPending: false }),
+  useArchivePrompt: () => ({ mutateAsync: mockArchivePrompt, isPending: false }),
+  useUnarchivePrompt: () => ({ mutateAsync: mockUnarchivePrompt, isPending: false }),
 }))
 
 vi.mock('../hooks/useKeyboardShortcuts', () => ({
@@ -190,9 +201,10 @@ vi.mock('../stores/uiPreferencesStore', () => ({
 }))
 
 const mockToggleType = vi.fn()
-let mockSelectedContentTypes: ('bookmark' | 'note')[] = ['bookmark', 'note']
+let mockSelectedContentTypes: ('bookmark' | 'note' | 'prompt')[] = ['bookmark', 'note', 'prompt']
 
 vi.mock('../stores/contentTypeFilterStore', () => ({
+  ALL_CONTENT_TYPES: ['bookmark', 'note', 'prompt'],
   useContentTypeFilterStore: () => ({
     getSelectedTypes: () => mockSelectedContentTypes,
     toggleType: mockToggleType,
@@ -202,9 +214,36 @@ vi.mock('../stores/contentTypeFilterStore', () => ({
 vi.mock('../stores/listsStore', () => ({
   useListsStore: () => ({
     lists: [
-      { id: 1, name: 'Reading List', content_types: ['bookmark'], filters: [] },
-      { id: 2, name: 'Ideas', content_types: ['note'], filters: [] },
-      { id: 3, name: 'Mixed', content_types: ['bookmark', 'note'], filters: [] },
+      {
+        id: 1,
+        name: 'Reading List',
+        content_types: ['bookmark'],
+        filter_expression: { groups: [{ tags: ['list-tag-1', 'list-tag-2'], operator: 'AND' }], group_operator: 'OR' },
+        default_sort_by: null,
+        default_sort_ascending: null,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+      },
+      {
+        id: 2,
+        name: 'Ideas',
+        content_types: ['note'],
+        filter_expression: { groups: [], group_operator: 'OR' },
+        default_sort_by: null,
+        default_sort_ascending: null,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+      },
+      {
+        id: 3,
+        name: 'Mixed',
+        content_types: ['bookmark', 'note'],
+        filter_expression: { groups: [], group_operator: 'OR' },
+        default_sort_by: null,
+        default_sort_ascending: null,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+      },
     ],
   }),
 }))
@@ -240,7 +279,7 @@ describe('AllContent', () => {
     mockContentQueryLoading = false
     mockContentQueryError = null
     mockSelectedTags = []
-    mockSelectedContentTypes = ['bookmark', 'note']
+    mockSelectedContentTypes = ['bookmark', 'note', 'prompt']
   })
 
   describe('view-specific empty states', () => {
@@ -251,7 +290,10 @@ describe('AllContent', () => {
       await waitFor(() => {
         expect(screen.getByText('No content yet')).toBeInTheDocument()
       })
-      expect(screen.getByText('Create bookmarks or notes to see them here.')).toBeInTheDocument()
+      expect(screen.getByText('Create content to see it here.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'New Note' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'New Prompt' })).toBeInTheDocument()
     })
 
     it('shows "No archived content" for archived view with no content', async () => {
@@ -304,6 +346,18 @@ describe('AllContent', () => {
         expect(screen.getByText('No deleted content found')).toBeInTheDocument()
       })
     })
+
+    it('shows bookmark-only empty state in custom list view', async () => {
+      mockContentQueryData = createMockResponse([])
+      renderAtRoute('/app/content/lists/1')
+
+      await waitFor(() => {
+        expect(screen.getByText('No bookmarks yet')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Create bookmarks to see them here.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'New Note' })).not.toBeInTheDocument()
+    })
   })
 
   describe('QuickAddMenu visibility', () => {
@@ -351,18 +405,6 @@ describe('AllContent', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('quick-add-single')).toBeInTheDocument()
-      })
-    })
-  })
-
-  describe('URL action parameter', () => {
-    it('opens add modal when ?action=add is in URL', async () => {
-      mockContentQueryData = createMockResponse([])
-      renderAtRoute('/app/content?action=add')
-
-      await waitFor(() => {
-        // Modal should be open - look for the form elements
-        expect(screen.getByPlaceholderText('https://example.com')).toBeInTheDocument()
       })
     })
   })
@@ -451,7 +493,8 @@ describe('AllContent', () => {
         expect(screen.getByLabelText('Restore note')).toBeInTheDocument()
       })
 
-      it('disables card click-to-edit in deleted view', async () => {
+      it('allows card click to view in deleted view', async () => {
+        const user = userEvent.setup()
         mockContentQueryData = createMockResponse([mockDeletedNote])
         const { container } = renderAtRoute('/app/content/trash')
 
@@ -459,9 +502,20 @@ describe('AllContent', () => {
           expect(screen.getByText('Deleted Note')).toBeInTheDocument()
         })
 
-        // Card should not have cursor-pointer class in deleted view
+        // Card should have cursor-pointer class - deleted items are still viewable
         const card = container.querySelector('.card')
-        expect(card).not.toHaveClass('cursor-pointer')
+        expect(card).toHaveClass('cursor-pointer')
+
+        // Clicking should navigate to view mode (not edit)
+        await user.click(card!)
+        expect(mockNavigate).toHaveBeenCalledWith(
+          '/app/notes/4',
+          expect.objectContaining({
+            state: expect.objectContaining({
+              returnTo: '/app/content/trash',
+            }),
+          })
+        )
       })
     })
   })
@@ -489,7 +543,7 @@ describe('AllContent', () => {
       )
     })
 
-    it('navigates to note edit with returnTo state when clicking card', async () => {
+    it('navigates to note view with returnTo state when clicking card', async () => {
       const user = userEvent.setup()
       mockContentQueryData = createMockResponse([mockNote])
       const { container } = renderAtRoute('/app/content')
@@ -498,12 +552,12 @@ describe('AllContent', () => {
         expect(screen.getByText('Test Note')).toBeInTheDocument()
       })
 
-      // Click on the note card (not the title) to trigger edit
+      // Click on the note card to view it (card click now goes to view, not edit)
       const noteCard = container.querySelector('.card')
       await user.click(noteCard!)
 
       expect(mockNavigate).toHaveBeenCalledWith(
-        '/app/notes/2/edit',
+        '/app/notes/2',
         expect.objectContaining({
           state: expect.objectContaining({
             returnTo: '/app/content',
@@ -670,7 +724,11 @@ describe('AllContent', () => {
       const bookmarksChip = screen.getByRole('button', { name: /bookmarks/i })
       await user.click(bookmarksChip)
 
-      expect(mockToggleType).toHaveBeenCalledWith('active', 'bookmark')
+      expect(mockToggleType).toHaveBeenCalledWith(
+        'active',
+        'bookmark',
+        ['bookmark', 'note', 'prompt']
+      )
     })
   })
 

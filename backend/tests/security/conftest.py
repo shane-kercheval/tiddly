@@ -16,6 +16,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
+from models.note import Note
+from models.prompt import Prompt
 from models.user import User
 
 
@@ -67,6 +69,70 @@ async def user_b_bookmark(db_session: AsyncSession, user_b: User) -> Bookmark:
     await db_session.flush()
     await db_session.refresh(bookmark)
     return bookmark
+
+
+@pytest.fixture
+async def user_a_note(db_session: AsyncSession, user_a: User) -> Note:
+    """Create a note belonging to User A."""
+    note = Note(
+        user_id=user_a.id,
+        title="User A's Private Note",
+        description="This should only be accessible to User A",
+        content="Private note content for User A",
+    )
+    db_session.add(note)
+    await db_session.flush()
+    await db_session.refresh(note)
+    return note
+
+
+@pytest.fixture
+async def user_b_note(db_session: AsyncSession, user_b: User) -> Note:
+    """Create a note belonging to User B."""
+    note = Note(
+        user_id=user_b.id,
+        title="User B's Private Note",
+        description="This should only be accessible to User B",
+        content="Private note content for User B",
+    )
+    db_session.add(note)
+    await db_session.flush()
+    await db_session.refresh(note)
+    return note
+
+
+@pytest.fixture
+async def user_a_prompt(db_session: AsyncSession, user_a: User) -> Prompt:
+    """Create a prompt belonging to User A."""
+    prompt = Prompt(
+        user_id=user_a.id,
+        name="user-a-private-prompt",
+        title="User A's Private Prompt",
+        description="This should only be accessible to User A",
+        content="Private prompt content for User A: {{ variable }}",
+        arguments=[{"name": "variable", "description": "A test variable", "required": True}],
+    )
+    db_session.add(prompt)
+    await db_session.flush()
+    await db_session.refresh(prompt)
+    return prompt
+
+
+@pytest.fixture
+async def user_b_prompt(db_session: AsyncSession, user_b: User) -> Prompt:
+    """Create a prompt belonging to User B."""
+    prompt = Prompt(
+        user_id=user_b.id,
+        name="user-b-private-prompt",
+        title="User B's Private Prompt",
+        description="This should only be accessible to User B",
+        content="Private prompt content for User B: {{ variable }}",
+        arguments=[{"name": "variable", "description": "A test variable", "required": True}],
+    )
+    db_session.add(prompt)
+    await db_session.flush()
+    await db_session.refresh(prompt)
+    return prompt
 
 
 @pytest.fixture

@@ -216,12 +216,22 @@ describe('NoteEditor', () => {
     })
   })
 
-  describe('keyboard shortcut hints', () => {
-    it('should show both save and escape shortcuts', () => {
-      render(<NoteEditor {...defaultProps} />)
+  describe('keyboard shortcuts', () => {
+    it('should support Cmd+S to save and Escape to cancel', async () => {
+      // Keyboard shortcuts are available but not shown as visible hints
+      // This is tested via the handleKeyDown behavior tests above
+      const user = userEvent.setup()
+      const onSubmit = vi.fn().mockResolvedValue(undefined)
 
-      expect(screen.getByText('⌘S')).toBeInTheDocument()
-      expect(screen.getByText('Esc')).toBeInTheDocument()
+      render(<NoteEditor {...defaultProps} onSubmit={onSubmit} />)
+
+      // Type a title to make form valid
+      await user.type(screen.getByLabelText(/Title/), 'Test Note')
+
+      // Test Cmd+S shortcut
+      await user.keyboard('{Meta>}s{/Meta}')
+
+      expect(onSubmit).toHaveBeenCalled()
     })
   })
 
@@ -261,20 +271,23 @@ describe('NoteEditor', () => {
       const user = userEvent.setup()
       render(<NoteEditor {...defaultProps} note={mockNote} />)
 
-      // Start in edit mode
-      expect(screen.getByTestId('codemirror-mock')).toBeInTheDocument()
+      // Start in edit mode - editor visible
+      const editor = screen.getByTestId('codemirror-mock')
+      expect(editor).toBeInTheDocument()
+      expect(editor.parentElement).not.toHaveClass('hidden')
 
       // Click Preview
       await user.click(screen.getByRole('button', { name: 'Preview' }))
 
-      // Should show rendered markdown (react-markdown output)
-      expect(screen.queryByTestId('codemirror-mock')).not.toBeInTheDocument()
+      // Editor stays in DOM (to preserve undo history) but is hidden
+      expect(screen.getByTestId('codemirror-mock')).toBeInTheDocument()
+      expect(screen.getByTestId('codemirror-mock').parentElement).toHaveClass('hidden')
       expect(screen.getByText('Hello')).toBeInTheDocument() // h1 rendered
 
       // Click Edit to go back
       await user.click(screen.getByRole('button', { name: 'Edit' }))
 
-      expect(screen.getByTestId('codemirror-mock')).toBeInTheDocument()
+      expect(screen.getByTestId('codemirror-mock').parentElement).not.toHaveClass('hidden')
     })
 
     it('should show "No content to preview" when content is empty', async () => {
