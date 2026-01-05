@@ -655,9 +655,10 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       {/* Quick-add bar: Group/List on left, Bookmark/Note/Collapse on right */}
       {!isCollapsed ? (
         <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200">
+          {/* Hidden on mobile - drag-drop doesn't work well on touch */}
           <button
             onClick={handleNewGroup}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+            className="hidden md:flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
             title="New Group"
           >
             <PlusIcon className="h-3 w-3" />
@@ -665,7 +666,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           </button>
           <button
             onClick={handleNewList}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+            className="hidden md:flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
             title="New List"
           >
             <PlusIcon className="h-3 w-3" />
@@ -830,7 +831,7 @@ export function Sidebar(): ReactNode {
           isMobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="h-full pt-16">
+        <div className="h-full pt-4">
           <SidebarContent isCollapsed={false} onNavClick={closeMobile} />
         </div>
       </aside>
