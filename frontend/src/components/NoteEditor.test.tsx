@@ -193,7 +193,7 @@ describe('NoteEditor', () => {
       await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
       expect(onCancel).not.toHaveBeenCalled()
-      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Discard?' })).toBeInTheDocument()
     })
 
     it('should cancel on second click during confirmation', async () => {
@@ -211,7 +211,7 @@ describe('NoteEditor', () => {
       expect(onCancel).not.toHaveBeenCalled()
 
       // Second click - execute cancel
-      await user.click(screen.getByRole('button', { name: 'Discard changes?' }))
+      await user.click(screen.getByRole('button', { name: 'Discard?' }))
       expect(onCancel).toHaveBeenCalledTimes(1)
     })
   })

@@ -695,7 +695,7 @@ describe('BookmarkForm', () => {
       await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
       expect(onCancel).not.toHaveBeenCalled()
-      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Discard?' })).toBeInTheDocument()
     })
 
     it('should cancel on second click during confirmation', async () => {
@@ -713,7 +713,7 @@ describe('BookmarkForm', () => {
       expect(onCancel).not.toHaveBeenCalled()
 
       // Second click - execute cancel
-      await user.click(screen.getByRole('button', { name: 'Discard changes?' }))
+      await user.click(screen.getByRole('button', { name: 'Discard?' }))
       expect(onCancel).toHaveBeenCalledTimes(1)
     })
   })
@@ -761,7 +761,7 @@ describe('BookmarkForm', () => {
       await user.keyboard('{Escape}')
 
       expect(onCancel).not.toHaveBeenCalled()
-      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Discard?' })).toBeInTheDocument()
     })
 
     it('should cancel on Enter during confirmation', async () => {
@@ -776,7 +776,7 @@ describe('BookmarkForm', () => {
 
       // Press Escape to start confirmation
       await user.keyboard('{Escape}')
-      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Discard?' })).toBeInTheDocument()
 
       // Press Enter to confirm discard
       await user.keyboard('{Enter}')
@@ -795,7 +795,7 @@ describe('BookmarkForm', () => {
 
       // Press Escape to start confirmation
       await user.keyboard('{Escape}')
-      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Discard?' })).toBeInTheDocument()
 
       // Press Escape again to cancel the confirmation
       await user.keyboard('{Escape}')
