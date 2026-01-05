@@ -85,7 +85,7 @@ export function NoteCard({
     >
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
         {/* Row 1 (mobile) / Main content (desktop) */}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-hidden">
           {/* Title row - on mobile, description is inline; on desktop, it wraps below */}
           <div className="flex items-center gap-2 md:flex-wrap">
             <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.note}`}>
@@ -93,7 +93,7 @@ export function NoteCard({
             </span>
             <button
               onClick={handleTitleClick}
-              className="text-base font-medium text-gray-900 text-left cursor-pointer shrink-0"
+              className="text-base font-medium text-gray-900 text-left cursor-pointer truncate min-w-0 md:shrink-0 md:overflow-visible md:whitespace-normal"
               title="View note"
             >
               {truncate(note.title, 60)}

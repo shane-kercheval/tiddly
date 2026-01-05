@@ -129,8 +129,8 @@ export function BookmarkCard({
     >
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
         {/* Row 1 (mobile) / Main content (desktop) */}
-        <div className="min-w-0 flex-1">
-          {/* Title and URL row */}
+        <div className="min-w-0 flex-1 overflow-hidden">
+          {/* Title row */}
           <div className="flex items-center gap-2 md:flex-wrap">
             <a
               href={bookmark.url}
@@ -154,24 +154,38 @@ export function BookmarkCard({
               target="_blank"
               rel="noopener noreferrer"
               onClick={handleLinkClick}
-              className="text-base font-medium text-gray-900 shrink-0"
+              className="text-base font-medium text-gray-900 truncate min-w-0 md:shrink-0"
               title={bookmark.url}
             >
               {truncate(displayTitle, 60)}
             </a>
+            {/* URL inline on desktop */}
             {hasTitle && (
               <a
                 href={bookmark.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={handleLinkClick}
-                className="text-sm text-gray-400 truncate min-w-0"
+                className="hidden md:inline text-sm text-gray-400 truncate min-w-0"
                 title={bookmark.url}
               >
                 {urlDisplay}
               </a>
             )}
           </div>
+          {/* URL on separate line - mobile only, inline on desktop */}
+          {hasTitle && (
+            <a
+              href={bookmark.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleLinkClick}
+              className="block md:hidden mt-0.5 text-sm text-gray-400 truncate"
+              title={bookmark.url}
+            >
+              {urlDisplay}
+            </a>
+          )}
 
           {/* Description - 2 lines on mobile, 1 line on desktop */}
           {bookmark.description && (

@@ -46,7 +46,9 @@ describe('PromptCard', () => {
     it('should show name in parentheses when title differs', () => {
       render(<PromptCard prompt={mockPrompt} onDelete={vi.fn()} />)
 
-      expect(screen.getByText('code-review')).toBeInTheDocument()
+      // Name appears in both mobile and desktop views
+      const names = screen.getAllByText('code-review')
+      expect(names.length).toBeGreaterThan(0)
     })
 
     it('should render description', () => {

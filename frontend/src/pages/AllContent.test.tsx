@@ -417,8 +417,9 @@ describe('AllContent', () => {
       await waitFor(() => {
         expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
       })
-      // Bookmark should have URL displayed
-      expect(screen.getByText('example.com')).toBeInTheDocument()
+      // Bookmark should have URL displayed (mobile and desktop views)
+      const urls = screen.getAllByText('example.com')
+      expect(urls.length).toBeGreaterThan(0)
     })
 
     it('renders NoteCard for note items', async () => {

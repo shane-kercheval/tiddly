@@ -87,24 +87,28 @@ export function PromptCard({
     >
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
         {/* Row 1 (mobile) / Main content (desktop) */}
-        <div className="min-w-0 flex-1">
-          {/* Title row - on mobile, description is inline; on desktop, it wraps below */}
+        <div className="min-w-0 flex-1 overflow-hidden">
+          {/* Title row */}
           <div className="flex items-center gap-2 md:flex-wrap">
             <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.prompt}`}>
               <PromptIcon className="w-4 h-4" />
             </span>
             <button
               onClick={handleTitleClick}
-              className="text-base font-medium text-gray-900 text-left cursor-pointer shrink-0"
+              className="text-base font-medium text-gray-900 text-left cursor-pointer truncate min-w-0 md:shrink-0"
               title="View prompt"
             >
               {truncate(displayName, 60)}
             </button>
-            {/* Show name in parentheses if title is different */}
+            {/* Show name inline on desktop */}
             {prompt.title && prompt.title !== prompt.name && (
-              <span className="text-xs text-gray-400 shrink-0 font-mono">{prompt.name}</span>
+              <span className="hidden md:inline text-xs text-gray-400 font-mono">{prompt.name}</span>
             )}
           </div>
+          {/* Name on separate line - mobile only */}
+          {prompt.title && prompt.title !== prompt.name && (
+            <span className="block md:hidden mt-0.5 text-xs text-gray-400 font-mono">{prompt.name}</span>
+          )}
 
           {/* Description - 2 lines on mobile, 1 line on desktop */}
           {previewText && (
