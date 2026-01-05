@@ -58,28 +58,34 @@ export function SearchFilterBar({
   leftSlot,
 }: SearchFilterBarProps): ReactNode {
   return (
-    <div className="flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-3 ml-10 md:ml-0">
-      {leftSlot}
-      <div className="relative flex-1 min-w-[200px]">
-        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-          <SearchIcon />
+    <div className="flex flex-col gap-2 md:flex-row md:flex-nowrap md:items-center md:gap-3">
+      {/* Row 1 on mobile: Add button + search input */}
+      <div className="flex items-center gap-2 w-full md:w-auto md:contents">
+        {leftSlot}
+        <div className="relative flex-1 min-w-0 md:min-w-[200px]">
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+            <SearchIcon />
+          </div>
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={onSearchChange}
+            placeholder={searchPlaceholder}
+            className="input pl-10"
+          />
         </div>
-        <input
-          ref={searchInputRef}
-          type="text"
-          value={searchQuery}
-          onChange={onSearchChange}
-          placeholder={searchPlaceholder}
-          className="input pl-10"
-        />
       </div>
-      <TagFilterInput
-        suggestions={tagSuggestions}
-        selectedTags={selectedTags}
-        onTagSelect={onTagSelect}
-        placeholder="Filter by tag..."
-      />
-      <div className="flex items-center gap-1">
+      {/* Row 2 on mobile: Tag filter + sort dropdown */}
+      <div className="flex items-center gap-2 w-full md:w-auto md:contents">
+        <div className="flex-1 md:flex-initial">
+          <TagFilterInput
+            suggestions={tagSuggestions}
+            selectedTags={selectedTags}
+            onTagSelect={onTagSelect}
+            placeholder="Filter by tag..."
+          />
+        </div>
         <select
           value={sortValue}
           onChange={onSortChange}

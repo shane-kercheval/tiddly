@@ -7,9 +7,10 @@ import { TagInput } from './TagInput'
 import type { TagInputHandle } from './TagInput'
 import type { Bookmark, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
 import { normalizeUrl, isValidUrl, TAG_PATTERN, calculateArchivePresetDate } from '../utils'
+import { preventEnterSubmit } from '../utils/formUtils'
 import type { ArchivePreset } from '../utils'
 import { config } from '../config'
-import { ArchiveIcon, TrashIcon, RestoreIcon } from './icons'
+import { ArchiveIcon, TrashIcon, RestoreIcon, CloseIcon, CheckIcon } from './icons'
 
 interface BookmarkFormProps {
   /** Existing bookmark when editing, undefined when creating */
@@ -439,7 +440,7 @@ export function BookmarkForm({
   }, [form.content])
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit} className="flex flex-col h-full">
+    <form ref={formRef} onSubmit={handleSubmit} onKeyDown={preventEnterSubmit} className="flex flex-col h-full">
       {/* Fixed header with action buttons */}
       <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
@@ -447,27 +448,33 @@ export function BookmarkForm({
             type="button"
             onClick={handleCancelRequest}
             disabled={isSubmitting}
-            className={confirmingCancel
+            className={`flex items-center gap-1.5 ${confirmingCancel
               ? "btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50"
               : "btn-secondary"
-            }
+            }`}
           >
-            {confirmingCancel ? 'Discard changes?' : 'Cancel'}
+            <CloseIcon className="h-4 w-4" />
+            {confirmingCancel ? (
+              <span>Discard?</span>
+            ) : (
+              <span className="hidden md:inline">Cancel</span>
+            )}
           </button>
           <button
             type="submit"
             disabled={isSubmitting || (!isEditing && !form.url.trim())}
-            className="btn-primary"
+            className="btn-primary flex items-center gap-1.5"
           >
             {isSubmitting ? (
-              <span className="flex items-center gap-1.5">
+              <>
                 <div className="spinner-sm" />
-                Saving...
-              </span>
-            ) : isEditing ? (
-              'Save Changes'
+                <span className="hidden md:inline">Saving...</span>
+              </>
             ) : (
-              'Add Bookmark'
+              <>
+                <CheckIcon className="h-4 w-4" />
+                <span className="hidden md:inline">{isEditing ? 'Save' : 'Add'}</span>
+              </>
             )}
           </button>
         </div>
@@ -482,7 +489,7 @@ export function BookmarkForm({
               title="Archive bookmark"
             >
               <ArchiveIcon className="h-4 w-4" />
-              Archive
+              <span className="hidden md:inline">Archive</span>
             </button>
           )}
           {onUnarchive && (
@@ -494,7 +501,7 @@ export function BookmarkForm({
               title="Restore bookmark"
             >
               <RestoreIcon />
-              Restore
+              <span className="hidden md:inline">Restore</span>
             </button>
           )}
           {onDelete && (
@@ -506,7 +513,7 @@ export function BookmarkForm({
               title="Delete bookmark"
             >
               <TrashIcon />
-              Delete
+              <span className="hidden md:inline">Delete</span>
             </button>
           )}
         </div>

@@ -101,17 +101,11 @@ export function NoteCard({
             {note.version > 1 && (
               <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
             )}
-            {/* Description inline on mobile, hidden here on desktop */}
-            {previewText && (
-              <span className="text-sm text-gray-500 truncate min-w-0 md:hidden">
-                {previewText}
-              </span>
-            )}
           </div>
 
-          {/* Description/Preview - desktop only, on separate line */}
+          {/* Description - 2 lines on mobile, 1 line on desktop */}
           {previewText && (
-            <p className="hidden md:block mt-1 text-sm text-gray-500 truncate">
+            <p className="mt-1 text-sm text-gray-500 line-clamp-2 md:line-clamp-1">
               {previewText}
             </p>
           )}

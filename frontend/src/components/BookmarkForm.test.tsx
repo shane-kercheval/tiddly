@@ -43,7 +43,7 @@ describe('BookmarkForm', () => {
       expect(screen.getByLabelText(/URL/)).toHaveValue('')
       expect(screen.getByLabelText(/Title/)).toHaveValue('')
       expect(screen.getByLabelText(/Description/)).toHaveValue('')
-      expect(screen.getByRole('button', { name: 'Add Bookmark' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument()
     })
 
     it('should show fetch metadata button in create mode', () => {
@@ -62,7 +62,7 @@ describe('BookmarkForm', () => {
     it('should disable Add Bookmark button when URL is empty', () => {
       render(<BookmarkForm {...defaultProps} />)
 
-      expect(screen.getByRole('button', { name: 'Add Bookmark' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled()
     })
 
     it('should enable Add Bookmark button when URL has value', async () => {
@@ -71,7 +71,7 @@ describe('BookmarkForm', () => {
 
       await user.type(screen.getByLabelText(/URL/), 'example.com')
 
-      expect(screen.getByRole('button', { name: 'Add Bookmark' })).not.toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Add' })).not.toBeDisabled()
     })
   })
 
@@ -88,7 +88,7 @@ describe('BookmarkForm', () => {
     it('should show Save Changes button in edit mode', () => {
       render(<BookmarkForm {...defaultProps} bookmark={mockBookmark} />)
 
-      expect(screen.getByRole('button', { name: 'Save Changes' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
     })
 
     it('should show fetch metadata button in edit mode', () => {
@@ -113,7 +113,7 @@ describe('BookmarkForm', () => {
 
       await user.type(screen.getByLabelText(/URL/), 'example.com')
       await user.type(screen.getByLabelText(/Title/), 'Test Title')
-      await user.click(screen.getByRole('button', { name: 'Add Bookmark' }))
+      await user.click(screen.getByRole('button', { name: 'Add' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith({
@@ -135,7 +135,7 @@ describe('BookmarkForm', () => {
 
       await user.clear(screen.getByLabelText(/Title/))
       await user.type(screen.getByLabelText(/Title/), 'Updated Title')
-      await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+      await user.click(screen.getByRole('button', { name: 'Save' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith({
@@ -464,7 +464,7 @@ describe('BookmarkForm', () => {
       )
 
       await user.type(screen.getByLabelText(/URL/), 'example.com')
-      await user.click(screen.getByRole('button', { name: 'Add Bookmark' }))
+      await user.click(screen.getByRole('button', { name: 'Add' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith(
@@ -511,7 +511,7 @@ describe('BookmarkForm', () => {
 
       // Submit the form
       await user.type(screen.getByLabelText(/URL/), 'example.com')
-      await user.click(screen.getByRole('button', { name: 'Add Bookmark' }))
+      await user.click(screen.getByRole('button', { name: 'Add' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith(
@@ -567,7 +567,7 @@ describe('BookmarkForm', () => {
       // Type up to maxLength (input will truncate), then verify form still works
       await user.type(titleInput, 'a'.repeat(config.limits.maxTitleLength))
 
-      await user.click(screen.getByRole('button', { name: 'Add Bookmark' }))
+      await user.click(screen.getByRole('button', { name: 'Add' }))
 
       // Should submit successfully since input enforces maxLength
       await waitFor(() => {
@@ -586,7 +586,7 @@ describe('BookmarkForm', () => {
       const descInput = screen.getByLabelText(/Description/)
       await user.type(descInput, 'a'.repeat(100)) // Just verify it works
 
-      await user.click(screen.getByRole('button', { name: 'Add Bookmark' }))
+      await user.click(screen.getByRole('button', { name: 'Add' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalled()
@@ -661,7 +661,7 @@ describe('BookmarkForm', () => {
         />
       )
 
-      await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+      await user.click(screen.getByRole('button', { name: 'Save' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalled()
@@ -695,7 +695,7 @@ describe('BookmarkForm', () => {
       await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
       expect(onCancel).not.toHaveBeenCalled()
-      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Discard?' })).toBeInTheDocument()
     })
 
     it('should cancel on second click during confirmation', async () => {
@@ -713,7 +713,7 @@ describe('BookmarkForm', () => {
       expect(onCancel).not.toHaveBeenCalled()
 
       // Second click - execute cancel
-      await user.click(screen.getByRole('button', { name: 'Discard changes?' }))
+      await user.click(screen.getByRole('button', { name: 'Discard?' }))
       expect(onCancel).toHaveBeenCalledTimes(1)
     })
   })
@@ -761,7 +761,7 @@ describe('BookmarkForm', () => {
       await user.keyboard('{Escape}')
 
       expect(onCancel).not.toHaveBeenCalled()
-      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Discard?' })).toBeInTheDocument()
     })
 
     it('should cancel on Enter during confirmation', async () => {
@@ -776,7 +776,7 @@ describe('BookmarkForm', () => {
 
       // Press Escape to start confirmation
       await user.keyboard('{Escape}')
-      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Discard?' })).toBeInTheDocument()
 
       // Press Enter to confirm discard
       await user.keyboard('{Enter}')
@@ -795,7 +795,7 @@ describe('BookmarkForm', () => {
 
       // Press Escape to start confirmation
       await user.keyboard('{Escape}')
-      expect(screen.getByRole('button', { name: 'Discard changes?' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Discard?' })).toBeInTheDocument()
 
       // Press Escape again to cancel the confirmation
       await user.keyboard('{Escape}')

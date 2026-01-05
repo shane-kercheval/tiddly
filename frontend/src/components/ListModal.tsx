@@ -263,7 +263,7 @@ export function ListModal({
             className="btn-primary flex-1"
             disabled={isSubmitting || !name.trim()}
           >
-            {isSubmitting ? 'Saving...' : isEditing ? 'Save Changes' : 'Create List'}
+            {isSubmitting ? 'Saving...' : isEditing ? 'Save' : 'Create List'}
           </button>
         </div>
       </form>

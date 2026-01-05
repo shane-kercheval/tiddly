@@ -138,7 +138,7 @@ describe('PromptDetail page', () => {
 
       await waitFor(() => {
         // Create mode shows the PromptEditor with Create Prompt button
-        expect(screen.getByText('Create Prompt')).toBeInTheDocument()
+        expect(screen.getByText('Create')).toBeInTheDocument()
       })
     })
 
@@ -146,7 +146,7 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/new')
 
       await waitFor(() => {
-        expect(screen.getByText('Create Prompt')).toBeInTheDocument()
+        expect(screen.getByText('Create')).toBeInTheDocument()
       })
 
       expect(mockFetchPrompt).not.toHaveBeenCalled()
@@ -253,7 +253,7 @@ describe('PromptDetail page', () => {
 
       await waitFor(() => {
         // Edit mode shows the PromptEditor with Save Changes button
-        expect(screen.getByText('Save Changes')).toBeInTheDocument()
+        expect(screen.getByText('Save')).toBeInTheDocument()
       })
     })
 
@@ -279,7 +279,7 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/1/edit')
 
       await waitFor(() => {
-        expect(screen.getByText('Save Changes')).toBeInTheDocument()
+        expect(screen.getByText('Save')).toBeInTheDocument()
       })
     })
 

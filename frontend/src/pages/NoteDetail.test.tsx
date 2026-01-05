@@ -128,7 +128,7 @@ describe('NoteDetail page', () => {
 
       await waitFor(() => {
         // Create mode shows the NoteEditor with Create Note button
-        expect(screen.getByText('Create Note')).toBeInTheDocument()
+        expect(screen.getByText('Create')).toBeInTheDocument()
       })
     })
 
@@ -136,7 +136,7 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        expect(screen.getByText('Create Note')).toBeInTheDocument()
+        expect(screen.getByText('Create')).toBeInTheDocument()
       })
 
       expect(mockFetchNote).not.toHaveBeenCalled()
@@ -155,7 +155,7 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        expect(screen.getByText('Create Note')).toBeInTheDocument()
+        expect(screen.getByText('Create')).toBeInTheDocument()
       })
     })
   })
@@ -225,7 +225,7 @@ describe('NoteDetail page', () => {
 
       await waitFor(() => {
         // Edit mode shows the NoteEditor with Save Changes button
-        expect(screen.getByText('Save Changes')).toBeInTheDocument()
+        expect(screen.getByText('Save')).toBeInTheDocument()
       })
     })
 
@@ -251,7 +251,7 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/1/edit')
 
       await waitFor(() => {
-        expect(screen.getByText('Save Changes')).toBeInTheDocument()
+        expect(screen.getByText('Save')).toBeInTheDocument()
       })
     })
 

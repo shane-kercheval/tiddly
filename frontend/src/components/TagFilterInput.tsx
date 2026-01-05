@@ -125,7 +125,7 @@ export function TagFilterInput({
           onFocus={handleFocus}
           placeholder={placeholder}
           disabled={disabled}
-          className="w-40 rounded-lg border border-gray-200 bg-gray-50/50 py-2.5 pl-9 pr-3 text-sm placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900/5"
+          className="w-full md:w-40 rounded-lg border border-gray-200 bg-gray-50/50 py-2.5 pl-9 pr-3 text-sm placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900/5"
         />
       </div>
 

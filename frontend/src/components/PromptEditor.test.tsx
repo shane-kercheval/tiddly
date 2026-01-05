@@ -89,7 +89,7 @@ describe('PromptEditor', () => {
       await user.clear(nameInput)
 
       // Submit button should be disabled when name is empty
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      const submitButton = screen.getByRole('button', { name: /create/i })
       expect(submitButton).toBeDisabled()
     })
 
@@ -109,7 +109,7 @@ describe('PromptEditor', () => {
       await user.type(nameInput, 'Invalid Name!')
 
       // Try to submit
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      const submitButton = screen.getByRole('button', { name: /create/i })
       await user.click(submitButton)
 
       // Should show validation error
@@ -137,7 +137,7 @@ describe('PromptEditor', () => {
       await user.clear(contentEditor)
       await user.type(contentEditor, 'Test content')
 
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      const submitButton = screen.getByRole('button', { name: /create/i })
       await user.click(submitButton)
 
       await waitFor(() => {
@@ -183,7 +183,7 @@ describe('PromptEditor', () => {
       await user.clear(contentEditor)
       await user.type(contentEditor, 'Test content')
 
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      const submitButton = screen.getByRole('button', { name: /create/i })
       await user.click(submitButton)
 
       await waitFor(() => {
@@ -206,7 +206,7 @@ describe('PromptEditor', () => {
       const nameInput = screen.getByLabelText(/name/i)
       await user.type(nameInput, 'code-review-')
 
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      const submitButton = screen.getByRole('button', { name: /create/i })
       await user.click(submitButton)
 
       // The error text contains the full validation message
@@ -230,7 +230,7 @@ describe('PromptEditor', () => {
       const nameInput = screen.getByLabelText(/name/i)
       await user.type(nameInput, '-code-review')
 
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      const submitButton = screen.getByRole('button', { name: /create/i })
       await user.click(submitButton)
 
       expect(screen.getByText(/must use lowercase letters, numbers, and hyphens only/i)).toBeInTheDocument()
@@ -252,7 +252,7 @@ describe('PromptEditor', () => {
       const nameInput = screen.getByLabelText(/name/i)
       await user.type(nameInput, 'code--review')
 
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      const submitButton = screen.getByRole('button', { name: /create/i })
       await user.click(submitButton)
 
       expect(screen.getByText(/must use lowercase letters, numbers, and hyphens only/i)).toBeInTheDocument()
@@ -315,7 +315,7 @@ describe('PromptEditor', () => {
       await user.click(addArgButton)
 
       // Don't fill in the argument name - try to submit
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      const submitButton = screen.getByRole('button', { name: /create/i })
       await user.click(submitButton)
 
       expect(screen.getByText(/argument 1 name is required/i)).toBeInTheDocument()
@@ -346,7 +346,7 @@ describe('PromptEditor', () => {
       const argInput = screen.getByPlaceholderText('argument_name')
       await user.type(argInput, 'invalid-name')
 
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      const submitButton = screen.getByRole('button', { name: /create/i })
       await user.click(submitButton)
 
       expect(screen.getByText(/must start with a letter and contain only lowercase letters, numbers, and underscores/i)).toBeInTheDocument()
@@ -379,7 +379,7 @@ describe('PromptEditor', () => {
       await user.type(argInputs[0], 'duplicate_name')
       await user.type(argInputs[1], 'duplicate_name')
 
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      const submitButton = screen.getByRole('button', { name: /create/i })
       await user.click(submitButton)
 
       expect(screen.getByText(/duplicate argument name: duplicate_name/i)).toBeInTheDocument()
@@ -410,7 +410,7 @@ describe('PromptEditor', () => {
       expect(screen.getByDisplayValue('user_name')).toBeInTheDocument()
 
       // Submit the form
-      const submitButton = screen.getByRole('button', { name: /save changes/i })
+      const submitButton = screen.getByRole('button', { name: /save/i })
       await user.click(submitButton)
 
       await waitFor(() => {
@@ -443,7 +443,7 @@ describe('PromptEditor', () => {
       const longArgName = 'a'.repeat(101)
       await user.type(argInput, longArgName)
 
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      const submitButton = screen.getByRole('button', { name: /create/i })
       await user.click(submitButton)
 
       expect(screen.getByText(/exceeds 100 characters/i)).toBeInTheDocument()
@@ -475,7 +475,7 @@ describe('PromptEditor', () => {
       await user.type(contentInput, 'Hello world')
 
       // Try to submit
-      await user.click(screen.getByRole('button', { name: /create prompt/i }))
+      await user.click(screen.getByRole('button', { name: /create/i }))
 
       expect(screen.getByText(/unused argument.*unused_arg/i)).toBeInTheDocument()
       expect(onSubmit).not.toHaveBeenCalled()
@@ -502,7 +502,7 @@ describe('PromptEditor', () => {
       )
 
       // Try to submit
-      await user.click(screen.getByRole('button', { name: /save changes/i }))
+      await user.click(screen.getByRole('button', { name: /save/i }))
 
       expect(screen.getByText(/undefined variable.*undefined_var/i)).toBeInTheDocument()
       expect(onSubmit).not.toHaveBeenCalled()
@@ -529,7 +529,7 @@ describe('PromptEditor', () => {
       )
 
       // Submit - should succeed since argument matches template variable
-      await user.click(screen.getByRole('button', { name: /save changes/i }))
+      await user.click(screen.getByRole('button', { name: /save/i }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalled()
@@ -616,7 +616,7 @@ describe('PromptEditor', () => {
       await user.click(contentTextarea)
       await user.paste(longContent)
 
-      const submitButton = screen.getByRole('button', { name: /create prompt/i })
+      const submitButton = screen.getByRole('button', { name: /create/i })
       await user.click(submitButton)
 
       expect(screen.getByText(/content exceeds 100,000 characters/i)).toBeInTheDocument()
@@ -679,7 +679,7 @@ describe('PromptEditor', () => {
       await user.type(contentTextarea, 'Hello world')
 
       // Submit
-      await user.click(screen.getByRole('button', { name: /create prompt/i }))
+      await user.click(screen.getByRole('button', { name: /create/i }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith({
@@ -711,7 +711,7 @@ describe('PromptEditor', () => {
       await user.type(titleInput, 'Updated Title')
 
       // Submit
-      await user.click(screen.getByRole('button', { name: /save changes/i }))
+      await user.click(screen.getByRole('button', { name: /save/i }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith({
@@ -730,8 +730,8 @@ describe('PromptEditor', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: /save changes/i })).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /create prompt/i })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /create/i })).not.toBeInTheDocument()
     })
 
     it('should show spinner while submitting', async () => {
@@ -787,10 +787,10 @@ describe('PromptEditor', () => {
       await user.click(screen.getByRole('button', { name: /cancel/i }))
 
       expect(onCancel).not.toHaveBeenCalled()
-      expect(screen.getByText(/discard changes/i)).toBeInTheDocument()
+      expect(screen.getByText(/discard/i)).toBeInTheDocument()
 
       // Second click confirms
-      await user.click(screen.getByRole('button', { name: /discard changes/i }))
+      await user.click(screen.getByRole('button', { name: /discard/i }))
 
       expect(onCancel).toHaveBeenCalled()
     })
@@ -999,7 +999,7 @@ describe('PromptEditor', () => {
       const contentEditor = screen.getByTestId('markdown-editor')
       await user.clear(contentEditor)
       await user.type(contentEditor, 'Test content')
-      await user.click(screen.getByRole('button', { name: /create prompt/i }))
+      await user.click(screen.getByRole('button', { name: /create/i }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalled()

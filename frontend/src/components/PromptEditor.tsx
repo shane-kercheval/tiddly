@@ -11,9 +11,10 @@ import { usePromptDraft } from '../hooks/usePromptDraft'
 import type { DraftData } from '../hooks/usePromptDraft'
 import type { Prompt, PromptCreate, PromptUpdate, PromptArgument, TagCount } from '../types'
 import { TAG_PATTERN } from '../utils'
+import { preventEnterSubmit } from '../utils/formUtils'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { config } from '../config'
-import { ArchiveIcon, TrashIcon } from './icons'
+import { ArchiveIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 
 /** Default template content for new prompts */
 const DEFAULT_PROMPT_CONTENT = `# Getting Started with Prompts
@@ -407,7 +408,7 @@ export function PromptEditor({
   }
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit} className="flex flex-col h-full">
+    <form ref={formRef} onSubmit={handleSubmit} onKeyDown={preventEnterSubmit} className="flex flex-col h-full">
       {/* Fixed header with action buttons */}
       <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
@@ -415,27 +416,33 @@ export function PromptEditor({
             type="button"
             onClick={handleCancelRequest}
             disabled={isSubmitting}
-            className={confirmingCancel
+            className={`flex items-center gap-1.5 ${confirmingCancel
               ? "btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50"
               : "btn-secondary"
-            }
+            }`}
           >
-            {confirmingCancel ? 'Discard changes?' : 'Cancel'}
+            <CloseIcon className="h-4 w-4" />
+            {confirmingCancel ? (
+              <span>Discard?</span>
+            ) : (
+              <span className="hidden md:inline">Cancel</span>
+            )}
           </button>
           <button
             type="submit"
             disabled={isSubmitting || !form.name.trim()}
-            className="btn-primary"
+            className="btn-primary flex items-center gap-1.5"
           >
             {isSubmitting ? (
-              <span className="flex items-center gap-1.5">
+              <>
                 <div className="spinner-sm" />
-                Saving...
-              </span>
-            ) : isEditing ? (
-              'Save Changes'
+                <span className="hidden md:inline">Saving...</span>
+              </>
             ) : (
-              'Create Prompt'
+              <>
+                <CheckIcon className="h-4 w-4" />
+                <span className="hidden md:inline">{isEditing ? 'Save' : 'Create'}</span>
+              </>
             )}
           </button>
         </div>
@@ -450,7 +457,7 @@ export function PromptEditor({
               title="Archive prompt"
             >
               <ArchiveIcon className="h-4 w-4" />
-              Archive
+              <span className="hidden md:inline">Archive</span>
             </button>
           )}
           {onDelete && (
@@ -462,7 +469,7 @@ export function PromptEditor({
               title="Delete prompt"
             >
               <TrashIcon />
-              Delete
+              <span className="hidden md:inline">Delete</span>
             </button>
           )}
         </div>
