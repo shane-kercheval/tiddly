@@ -38,7 +38,7 @@ from .auth import AuthenticationError, get_bearer_token
 mcp = FastMCP(
     name="Bookmarks MCP Server",
     instructions="""
-A personal content manager for saving and organizing bookmarks and notes.
+A content manager for saving and organizing bookmarks and notes.
 Supports full-text search, tagging, and markdown notes.
 
 Available tools:

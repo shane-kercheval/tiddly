@@ -16,9 +16,25 @@ from prompt_mcp_server.server import (
     handle_get_prompt,
     handle_list_prompts,
     handle_list_tools,
+    server,
 )
 
 from .conftest import make_list_prompts_request
+
+
+# --- Server configuration tests ---
+
+
+def test__server__has_instructions() -> None:
+    """Test that server has instructions configured."""
+    assert server.instructions is not None
+    assert len(server.instructions) > 0
+    # Verify key content is present
+    assert "prompt template manager" in server.instructions.lower()
+    assert "list_prompts" in server.instructions
+    assert "get_prompt" in server.instructions
+    assert "create_prompt" in server.instructions
+    assert "Jinja2" in server.instructions
 
 
 # --- list_prompts tests ---

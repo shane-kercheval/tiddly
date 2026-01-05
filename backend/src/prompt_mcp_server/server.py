@@ -22,7 +22,42 @@ from .template_renderer import TemplateError, render_template
 logger = logging.getLogger(__name__)
 
 # Create the MCP server
-server = Server("prompt-mcp-server")
+server = Server(
+    "prompt-mcp-server",
+    instructions="""
+A prompt template manager for creating and using reusable AI prompts.
+Prompts are Jinja2 templates with defined arguments that can be rendered with
+user-provided values.
+
+Available capabilities:
+
+**Prompts (MCP prompts capability):**
+- `list_prompts`: List all saved prompt templates with their arguments
+- `get_prompt`: Render a prompt template by name with provided arguments
+
+**Tools:**
+- `create_prompt`: Create a new prompt template with Jinja2 content
+
+Example workflows:
+
+1. "What prompts do I have?"
+   - Use `list_prompts` to see all available templates
+
+2. "Use my code-review prompt for this Python file"
+   - Call `get_prompt(name="code-review", arguments={"code": "<file contents>"})`
+   - The rendered template is returned as user message content
+
+3. "Create a prompt for summarizing articles"
+   - Call `create_prompt` tool with:
+     - name: "summarize-article"
+     - content: "Summarize the following article:\n\n{{ article_text }}\n\nProvide..."
+     - arguments: [{"name": "article_text", "description": "The article to summarize", "required": true}]
+
+Prompt naming: lowercase with hyphens (e.g., `code-review`, `meeting-notes`).
+Argument naming: lowercase with underscores (e.g., `code_to_review`, `article_text`).
+Template syntax: Jinja2 with {{ variable_name }} placeholders.
+""".strip(),  # noqa: E501
+)
 
 # Module-level client for connection reuse
 # Initialized by init_http_client() in lifespan, closed by cleanup()
