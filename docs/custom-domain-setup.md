@@ -161,7 +161,7 @@ VITE_API_URL=https://api.tiddly.me
 2. Update:
 
 ```
-PROMPT_MCP_API_BASE_URL=https://api.tiddly.me
+VITE_API_URL=https://api.tiddly.me
 ```
 
 ### Frontend Service Variables

@@ -8,12 +8,12 @@ import httpx
 
 def get_api_base_url() -> str:
     """Get the API base URL from environment."""
-    return os.getenv("PROMPT_MCP_API_BASE_URL", "http://localhost:8000")
+    return os.getenv("VITE_API_URL", "http://localhost:8000")
 
 
 def get_default_timeout() -> float:
     """Get the default request timeout."""
-    return float(os.getenv("PROMPT_MCP_API_TIMEOUT", "30.0"))
+    return float(os.getenv("MCP_API_TIMEOUT", "30.0"))
 
 
 async def api_get(

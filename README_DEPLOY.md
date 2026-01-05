@@ -174,7 +174,7 @@ VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 #### Prompt MCP Service Variables
 
 ```
-PROMPT_MCP_API_BASE_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
+VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 ```
 
 **Note:** Railway automatically provides the `PORT` variable - do not set it manually.
