@@ -173,9 +173,9 @@ export function BookmarkCard({
             )}
           </div>
 
-          {/* Description - hidden on mobile */}
+          {/* Description - 2 lines on mobile, 1 line on desktop */}
           {bookmark.description && (
-            <p className="hidden md:block mt-1 text-sm text-gray-500 truncate">
+            <p className="mt-1 text-sm text-gray-500 line-clamp-2 md:line-clamp-1">
               {bookmark.description}
             </p>
           )}
