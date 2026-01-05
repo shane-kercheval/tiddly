@@ -3,6 +3,7 @@
  *
  * Each mutation hook handles:
  * - API call
+ * - Optimistic updates for delete/archive/restore (instant UI feedback)
  * - Granular cache invalidation based on which views are affected
  * - Tag store refresh when tags might change
  *
@@ -18,11 +19,87 @@
  * | Restore           | active, deleted, custom lists                  |
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { noteKeys } from './useNotesQuery'
 import { contentKeys } from './useContentQuery'
 import { useTagsStore } from '../stores/tagsStore'
-import type { Note, NoteCreate, NoteUpdate } from '../types'
+import type { Note, NoteCreate, NoteUpdate, NoteListResponse, ContentListResponse } from '../types'
+
+/** Context for optimistic update rollback */
+interface OptimisticContext {
+  previousNoteQueries: [readonly unknown[], NoteListResponse | undefined][]
+  previousContentQueries: [readonly unknown[], ContentListResponse | undefined][]
+}
+
+/**
+ * Optimistically remove a note from all cached list queries.
+ * Returns previous data for rollback on error.
+ */
+function optimisticallyRemoveNote(
+  queryClient: QueryClient,
+  noteId: number
+): OptimisticContext {
+  // Snapshot current data before modification
+  const previousNoteQueries = queryClient.getQueriesData<NoteListResponse>({
+    queryKey: noteKeys.lists(),
+  })
+  const previousContentQueries = queryClient.getQueriesData<ContentListResponse>({
+    queryKey: contentKeys.lists(),
+  })
+
+  // Update all note list queries
+  queryClient.setQueriesData<NoteListResponse>(
+    { queryKey: noteKeys.lists() },
+    (old) => {
+      if (!old) return old
+      const filteredItems = old.items.filter((item) => item.id !== noteId)
+      return {
+        ...old,
+        items: filteredItems,
+        // Only decrement total if item was actually in this query's results
+        total: filteredItems.length < old.items.length ? old.total - 1 : old.total,
+      }
+    }
+  )
+
+  // Update all content list queries
+  queryClient.setQueriesData<ContentListResponse>(
+    { queryKey: contentKeys.lists() },
+    (old) => {
+      if (!old) return old
+      const filteredItems = old.items.filter((item) => !(item.type === 'note' && item.id === noteId))
+      return {
+        ...old,
+        items: filteredItems,
+        // Only decrement total if item was actually in this query's results
+        total: filteredItems.length < old.items.length ? old.total - 1 : old.total,
+      }
+    }
+  )
+
+  return { previousNoteQueries, previousContentQueries }
+}
+
+/**
+ * Rollback optimistic updates by restoring previous query data.
+ */
+function rollbackOptimisticUpdate(
+  queryClient: QueryClient,
+  context: OptimisticContext | undefined
+): void {
+  if (!context) return
+
+  // Restore note queries
+  for (const [queryKey, data] of context.previousNoteQueries) {
+    if (data) queryClient.setQueryData(queryKey, data)
+  }
+
+  // Restore content queries
+  for (const [queryKey, data] of context.previousContentQueries) {
+    if (data) queryClient.setQueryData(queryKey, data)
+  }
+}
 
 /**
  * Hook for creating a new note.
@@ -81,13 +158,14 @@ export function useUpdateNote() {
  * Hook for deleting a note (soft or permanent).
  *
  * Soft delete: moves from active/archived to deleted
- * - Active view queries
- * - Archived view queries (note can be deleted from archive)
- * - Deleted view queries
- * - Custom list queries (note removed from lists)
+ * - Optimistically removes from UI immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, deleted, and custom list queries
  *
  * Permanent delete: removes from trash only
- * - Deleted view queries only
+ * - Optimistically removes from UI immediately
+ * - Rolls back on error
+ * - Invalidates deleted view queries only
  */
 export function useDeleteNote() {
   const queryClient = useQueryClient()
@@ -98,13 +176,24 @@ export function useDeleteNote() {
       const url = permanent ? `/notes/${id}?permanent=true` : `/notes/${id}`
       await api.delete(url)
     },
-    onSuccess: (_, { permanent }) => {
+    onMutate: async ({ id }) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: noteKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically remove from cache
+      return optimisticallyRemoveNote(queryClient, id)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: (_, __, { permanent }) => {
+      // Always refetch to ensure consistency
       if (permanent) {
-        // Permanent delete only affects trash
         queryClient.invalidateQueries({ queryKey: noteKeys.view('deleted') })
         queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       } else {
-        // Soft delete moves from active/archived to deleted
         queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
         queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
         queryClient.invalidateQueries({ queryKey: noteKeys.view('deleted') })
@@ -121,10 +210,10 @@ export function useDeleteNote() {
 /**
  * Hook for restoring a deleted note.
  *
- * Moves note from deleted back to active, so invalidates:
- * - Active view queries
- * - Deleted view queries
- * - Custom list queries (restored note may match list filters)
+ * Moves note from deleted back to active:
+ * - Optimistically removes from deleted view immediately
+ * - Rolls back on error
+ * - Invalidates active, deleted, and custom list queries
  */
 export function useRestoreNote() {
   const queryClient = useQueryClient()
@@ -135,7 +224,20 @@ export function useRestoreNote() {
       const response = await api.post<Note>(`/notes/${id}/restore`)
       return response.data
     },
-    onSuccess: () => {
+    onMutate: async (id) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: noteKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically remove from deleted view (appears in active view after refetch)
+      return optimisticallyRemoveNote(queryClient, id)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: noteKeys.view('deleted') })
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
@@ -149,10 +251,10 @@ export function useRestoreNote() {
 /**
  * Hook for archiving a note.
  *
- * Moves note from active to archived, so invalidates:
- * - Active view queries
- * - Archived view queries
- * - Custom list queries (note removed from active lists)
+ * Moves note from active to archived:
+ * - Optimistically removes from active view immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, and custom list queries
  */
 export function useArchiveNote() {
   const queryClient = useQueryClient()
@@ -163,7 +265,20 @@ export function useArchiveNote() {
       const response = await api.post<Note>(`/notes/${id}/archive`)
       return response.data
     },
-    onSuccess: () => {
+    onMutate: async (id) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: noteKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically remove from cache (appears in archived view after refetch)
+      return optimisticallyRemoveNote(queryClient, id)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
@@ -177,10 +292,10 @@ export function useArchiveNote() {
 /**
  * Hook for unarchiving a note.
  *
- * Moves note from archived back to active, so invalidates:
- * - Active view queries
- * - Archived view queries
- * - Custom list queries (note may now match list filters)
+ * Moves note from archived back to active:
+ * - Optimistically removes from archived view immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, and custom list queries
  */
 export function useUnarchiveNote() {
   const queryClient = useQueryClient()
@@ -191,7 +306,20 @@ export function useUnarchiveNote() {
       const response = await api.post<Note>(`/notes/${id}/unarchive`)
       return response.data
     },
-    onSuccess: () => {
+    onMutate: async (id) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: noteKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically remove from archived view (appears in active view after refetch)
+      return optimisticallyRemoveNote(queryClient, id)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })

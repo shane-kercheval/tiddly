@@ -3,6 +3,7 @@
  *
  * Each mutation hook handles:
  * - API call
+ * - Optimistic updates for delete/archive/restore (instant UI feedback)
  * - Granular cache invalidation based on which views are affected
  * - Tag store refresh when tags might change
  *
@@ -18,11 +19,87 @@
  * | Restore           | active, deleted, custom lists                  |
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { promptKeys } from './usePromptsQuery'
 import { contentKeys } from './useContentQuery'
 import { useTagsStore } from '../stores/tagsStore'
-import type { Prompt, PromptCreate, PromptUpdate } from '../types'
+import type { Prompt, PromptCreate, PromptUpdate, PromptListResponse, ContentListResponse } from '../types'
+
+/** Context for optimistic update rollback */
+interface OptimisticContext {
+  previousPromptQueries: [readonly unknown[], PromptListResponse | undefined][]
+  previousContentQueries: [readonly unknown[], ContentListResponse | undefined][]
+}
+
+/**
+ * Optimistically remove a prompt from all cached list queries.
+ * Returns previous data for rollback on error.
+ */
+function optimisticallyRemovePrompt(
+  queryClient: QueryClient,
+  promptId: number
+): OptimisticContext {
+  // Snapshot current data before modification
+  const previousPromptQueries = queryClient.getQueriesData<PromptListResponse>({
+    queryKey: promptKeys.lists(),
+  })
+  const previousContentQueries = queryClient.getQueriesData<ContentListResponse>({
+    queryKey: contentKeys.lists(),
+  })
+
+  // Update all prompt list queries
+  queryClient.setQueriesData<PromptListResponse>(
+    { queryKey: promptKeys.lists() },
+    (old) => {
+      if (!old) return old
+      const filteredItems = old.items.filter((item) => item.id !== promptId)
+      return {
+        ...old,
+        items: filteredItems,
+        // Only decrement total if item was actually in this query's results
+        total: filteredItems.length < old.items.length ? old.total - 1 : old.total,
+      }
+    }
+  )
+
+  // Update all content list queries
+  queryClient.setQueriesData<ContentListResponse>(
+    { queryKey: contentKeys.lists() },
+    (old) => {
+      if (!old) return old
+      const filteredItems = old.items.filter((item) => !(item.type === 'prompt' && item.id === promptId))
+      return {
+        ...old,
+        items: filteredItems,
+        // Only decrement total if item was actually in this query's results
+        total: filteredItems.length < old.items.length ? old.total - 1 : old.total,
+      }
+    }
+  )
+
+  return { previousPromptQueries, previousContentQueries }
+}
+
+/**
+ * Rollback optimistic updates by restoring previous query data.
+ */
+function rollbackOptimisticUpdate(
+  queryClient: QueryClient,
+  context: OptimisticContext | undefined
+): void {
+  if (!context) return
+
+  // Restore prompt queries
+  for (const [queryKey, data] of context.previousPromptQueries) {
+    if (data) queryClient.setQueryData(queryKey, data)
+  }
+
+  // Restore content queries
+  for (const [queryKey, data] of context.previousContentQueries) {
+    if (data) queryClient.setQueryData(queryKey, data)
+  }
+}
 
 /**
  * Hook for creating a new prompt.
@@ -81,13 +158,14 @@ export function useUpdatePrompt() {
  * Hook for deleting a prompt (soft or permanent).
  *
  * Soft delete: moves from active/archived to deleted
- * - Active view queries
- * - Archived view queries (prompt can be deleted from archive)
- * - Deleted view queries
- * - Custom list queries (prompt removed from lists)
+ * - Optimistically removes from UI immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, deleted, and custom list queries
  *
  * Permanent delete: removes from trash only
- * - Deleted view queries only
+ * - Optimistically removes from UI immediately
+ * - Rolls back on error
+ * - Invalidates deleted view queries only
  */
 export function useDeletePrompt() {
   const queryClient = useQueryClient()
@@ -98,13 +176,24 @@ export function useDeletePrompt() {
       const url = permanent ? `/prompts/${id}?permanent=true` : `/prompts/${id}`
       await api.delete(url)
     },
-    onSuccess: (_, { permanent }) => {
+    onMutate: async ({ id }) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: promptKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically remove from cache
+      return optimisticallyRemovePrompt(queryClient, id)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: (_, __, { permanent }) => {
+      // Always refetch to ensure consistency
       if (permanent) {
-        // Permanent delete only affects trash
         queryClient.invalidateQueries({ queryKey: promptKeys.view('deleted') })
         queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       } else {
-        // Soft delete moves from active/archived to deleted
         queryClient.invalidateQueries({ queryKey: promptKeys.view('active') })
         queryClient.invalidateQueries({ queryKey: promptKeys.view('archived') })
         queryClient.invalidateQueries({ queryKey: promptKeys.view('deleted') })
@@ -121,10 +210,10 @@ export function useDeletePrompt() {
 /**
  * Hook for restoring a deleted prompt.
  *
- * Moves prompt from deleted back to active, so invalidates:
- * - Active view queries
- * - Deleted view queries
- * - Custom list queries (restored prompt may match list filters)
+ * Moves prompt from deleted back to active:
+ * - Optimistically removes from deleted view immediately
+ * - Rolls back on error
+ * - Invalidates active, deleted, and custom list queries
  */
 export function useRestorePrompt() {
   const queryClient = useQueryClient()
@@ -135,7 +224,20 @@ export function useRestorePrompt() {
       const response = await api.post<Prompt>(`/prompts/${id}/restore`)
       return response.data
     },
-    onSuccess: () => {
+    onMutate: async (id) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: promptKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically remove from deleted view (appears in active view after refetch)
+      return optimisticallyRemovePrompt(queryClient, id)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: promptKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: promptKeys.view('deleted') })
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
@@ -149,10 +251,10 @@ export function useRestorePrompt() {
 /**
  * Hook for archiving a prompt.
  *
- * Moves prompt from active to archived, so invalidates:
- * - Active view queries
- * - Archived view queries
- * - Custom list queries (prompt removed from active lists)
+ * Moves prompt from active to archived:
+ * - Optimistically removes from active view immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, and custom list queries
  */
 export function useArchivePrompt() {
   const queryClient = useQueryClient()
@@ -163,7 +265,20 @@ export function useArchivePrompt() {
       const response = await api.post<Prompt>(`/prompts/${id}/archive`)
       return response.data
     },
-    onSuccess: () => {
+    onMutate: async (id) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: promptKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically remove from cache (appears in archived view after refetch)
+      return optimisticallyRemovePrompt(queryClient, id)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: promptKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: promptKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
@@ -177,10 +292,10 @@ export function useArchivePrompt() {
 /**
  * Hook for unarchiving a prompt.
  *
- * Moves prompt from archived back to active, so invalidates:
- * - Active view queries
- * - Archived view queries
- * - Custom list queries (prompt may now match list filters)
+ * Moves prompt from archived back to active:
+ * - Optimistically removes from archived view immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, and custom list queries
  */
 export function useUnarchivePrompt() {
   const queryClient = useQueryClient()
@@ -191,7 +306,20 @@ export function useUnarchivePrompt() {
       const response = await api.post<Prompt>(`/prompts/${id}/unarchive`)
       return response.data
     },
-    onSuccess: () => {
+    onMutate: async (id) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: promptKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically remove from archived view (appears in active view after refetch)
+      return optimisticallyRemovePrompt(queryClient, id)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: promptKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: promptKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })

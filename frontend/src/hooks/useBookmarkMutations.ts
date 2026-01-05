@@ -3,6 +3,7 @@
  *
  * Each mutation hook handles:
  * - API call
+ * - Optimistic updates for delete/archive (instant UI feedback)
  * - Granular cache invalidation based on which views are affected
  * - Tag store refresh when tags might change
  *
@@ -18,11 +19,87 @@
  * | Restore           | active, deleted, custom lists                  |
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import type { QueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { bookmarkKeys } from './useBookmarksQuery'
 import { contentKeys } from './useContentQuery'
 import { useTagsStore } from '../stores/tagsStore'
-import type { Bookmark, BookmarkCreate, BookmarkUpdate } from '../types'
+import type { Bookmark, BookmarkCreate, BookmarkUpdate, BookmarkListResponse, ContentListResponse } from '../types'
+
+/** Context for optimistic update rollback */
+interface OptimisticContext {
+  previousBookmarkQueries: [readonly unknown[], BookmarkListResponse | undefined][]
+  previousContentQueries: [readonly unknown[], ContentListResponse | undefined][]
+}
+
+/**
+ * Optimistically remove an item from all cached list queries.
+ * Returns previous data for rollback on error.
+ */
+function optimisticallyRemoveBookmark(
+  queryClient: QueryClient,
+  bookmarkId: number
+): OptimisticContext {
+  // Snapshot current data before modification
+  const previousBookmarkQueries = queryClient.getQueriesData<BookmarkListResponse>({
+    queryKey: bookmarkKeys.lists(),
+  })
+  const previousContentQueries = queryClient.getQueriesData<ContentListResponse>({
+    queryKey: contentKeys.lists(),
+  })
+
+  // Update all bookmark list queries
+  queryClient.setQueriesData<BookmarkListResponse>(
+    { queryKey: bookmarkKeys.lists() },
+    (old) => {
+      if (!old) return old
+      const filteredItems = old.items.filter((item) => item.id !== bookmarkId)
+      return {
+        ...old,
+        items: filteredItems,
+        // Only decrement total if item was actually in this query's results
+        total: filteredItems.length < old.items.length ? old.total - 1 : old.total,
+      }
+    }
+  )
+
+  // Update all content list queries
+  queryClient.setQueriesData<ContentListResponse>(
+    { queryKey: contentKeys.lists() },
+    (old) => {
+      if (!old) return old
+      const filteredItems = old.items.filter((item) => !(item.type === 'bookmark' && item.id === bookmarkId))
+      return {
+        ...old,
+        items: filteredItems,
+        // Only decrement total if item was actually in this query's results
+        total: filteredItems.length < old.items.length ? old.total - 1 : old.total,
+      }
+    }
+  )
+
+  return { previousBookmarkQueries, previousContentQueries }
+}
+
+/**
+ * Rollback optimistic updates by restoring previous query data.
+ */
+function rollbackOptimisticUpdate(
+  queryClient: QueryClient,
+  context: OptimisticContext | undefined
+): void {
+  if (!context) return
+
+  // Restore bookmark queries
+  for (const [queryKey, data] of context.previousBookmarkQueries) {
+    if (data) queryClient.setQueryData(queryKey, data)
+  }
+
+  // Restore content queries
+  for (const [queryKey, data] of context.previousContentQueries) {
+    if (data) queryClient.setQueryData(queryKey, data)
+  }
+}
 
 /**
  * Hook for creating a new bookmark.
@@ -81,12 +158,14 @@ export function useUpdateBookmark() {
  * Hook for deleting a bookmark (soft or permanent).
  *
  * Soft delete: moves from active to deleted
- * - Active view queries
- * - Deleted view queries
- * - Custom list queries (bookmark removed from lists)
+ * - Optimistically removes from UI immediately
+ * - Rolls back on error
+ * - Invalidates active, deleted, and custom list queries
  *
  * Permanent delete: removes from trash only
- * - Deleted view queries only
+ * - Optimistically removes from UI immediately
+ * - Rolls back on error
+ * - Invalidates deleted view queries only
  */
 export function useDeleteBookmark() {
   const queryClient = useQueryClient()
@@ -97,13 +176,24 @@ export function useDeleteBookmark() {
       const url = permanent ? `/bookmarks/${id}?permanent=true` : `/bookmarks/${id}`
       await api.delete(url)
     },
-    onSuccess: (_, { permanent }) => {
+    onMutate: async ({ id }) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: bookmarkKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically remove from cache
+      return optimisticallyRemoveBookmark(queryClient, id)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: (_, __, { permanent }) => {
+      // Always refetch to ensure consistency
       if (permanent) {
-        // Permanent delete only affects trash
         queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('deleted') })
         queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       } else {
-        // Soft delete moves from active to deleted
         queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
         queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('deleted') })
         queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
@@ -118,10 +208,10 @@ export function useDeleteBookmark() {
 /**
  * Hook for restoring a deleted bookmark.
  *
- * Moves bookmark from deleted back to active, so invalidates:
- * - Active view queries
- * - Deleted view queries
- * - Custom list queries (restored bookmark may match list filters)
+ * Moves bookmark from deleted back to active:
+ * - Optimistically removes from deleted view immediately
+ * - Rolls back on error
+ * - Invalidates active, deleted, and custom list queries
  */
 export function useRestoreBookmark() {
   const queryClient = useQueryClient()
@@ -132,7 +222,20 @@ export function useRestoreBookmark() {
       const response = await api.post<Bookmark>(`/bookmarks/${id}/restore`)
       return response.data
     },
-    onSuccess: () => {
+    onMutate: async (id) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: bookmarkKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically remove from deleted view (appears in active view after refetch)
+      return optimisticallyRemoveBookmark(queryClient, id)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('deleted') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
@@ -146,10 +249,10 @@ export function useRestoreBookmark() {
 /**
  * Hook for archiving a bookmark.
  *
- * Moves bookmark from active to archived, so invalidates:
- * - Active view queries
- * - Archived view queries
- * - Custom list queries (bookmark removed from active lists)
+ * Moves bookmark from active to archived:
+ * - Optimistically removes from active view immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, and custom list queries
  */
 export function useArchiveBookmark() {
   const queryClient = useQueryClient()
@@ -160,7 +263,20 @@ export function useArchiveBookmark() {
       const response = await api.post<Bookmark>(`/bookmarks/${id}/archive`)
       return response.data
     },
-    onSuccess: () => {
+    onMutate: async (id) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: bookmarkKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically remove from cache (appears in archived view after refetch)
+      return optimisticallyRemoveBookmark(queryClient, id)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
@@ -174,10 +290,10 @@ export function useArchiveBookmark() {
 /**
  * Hook for unarchiving a bookmark.
  *
- * Moves bookmark from archived back to active, so invalidates:
- * - Active view queries
- * - Archived view queries
- * - Custom list queries (bookmark may now match list filters)
+ * Moves bookmark from archived back to active:
+ * - Optimistically removes from archived view immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, and custom list queries
  */
 export function useUnarchiveBookmark() {
   const queryClient = useQueryClient()
@@ -188,7 +304,20 @@ export function useUnarchiveBookmark() {
       const response = await api.post<Bookmark>(`/bookmarks/${id}/unarchive`)
       return response.data
     },
-    onSuccess: () => {
+    onMutate: async (id) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: bookmarkKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically remove from archived view (appears in active view after refetch)
+      return optimisticallyRemoveBookmark(queryClient, id)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: () => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
