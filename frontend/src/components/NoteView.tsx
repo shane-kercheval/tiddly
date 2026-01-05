@@ -85,7 +85,7 @@ export function NoteView({
               className="btn-secondary flex items-center gap-1"
             >
               <CloseIcon className="h-4 w-4" />
-              Close
+              <span className="hidden md:inline">Close</span>
             </button>
           )}
 
@@ -96,7 +96,7 @@ export function NoteView({
               className="btn-primary flex items-center gap-2"
             >
               <EditIcon />
-              Edit
+              <span className="hidden md:inline">Edit</span>
             </button>
           )}
         </div>
@@ -110,7 +110,7 @@ export function NoteView({
               title="Archive note"
             >
               <ArchiveIcon className="h-4 w-4" />
-              Archive
+              <span className="hidden md:inline">Archive</span>
             </button>
           )}
 
@@ -122,7 +122,7 @@ export function NoteView({
               title="Restore note"
             >
               <RestoreIcon />
-              Restore
+              <span className="hidden md:inline">Restore</span>
             </button>
           )}
 
@@ -134,7 +134,7 @@ export function NoteView({
               title="Restore note"
             >
               <RestoreIcon />
-              Restore
+              <span className="hidden md:inline">Restore</span>
             </button>
           )}
 
@@ -146,7 +146,7 @@ export function NoteView({
               title={view === 'deleted' ? 'Delete permanently' : 'Delete note'}
             >
               <TrashIcon />
-              {view === 'deleted' ? 'Delete Permanently' : 'Delete'}
+              <span className="hidden md:inline">{view === 'deleted' ? 'Delete Permanently' : 'Delete'}</span>
             </button>
           )}
         </div>

@@ -65,7 +65,7 @@ describe('NoteEditor', () => {
 
       expect(screen.getByLabelText(/Title/)).toHaveValue('')
       expect(screen.getByLabelText(/Description/)).toHaveValue('')
-      expect(screen.getByRole('button', { name: 'Create Note' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Create' })).toBeInTheDocument()
     })
 
     it('should show required indicator for title', () => {
@@ -78,7 +78,7 @@ describe('NoteEditor', () => {
     it('should disable Create Note button when title is empty', () => {
       render(<NoteEditor {...defaultProps} />)
 
-      expect(screen.getByRole('button', { name: 'Create Note' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled()
     })
 
     it('should enable Create Note button when title has value', async () => {
@@ -87,7 +87,7 @@ describe('NoteEditor', () => {
 
       await user.type(screen.getByLabelText(/Title/), 'My Note')
 
-      expect(screen.getByRole('button', { name: 'Create Note' })).not.toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Create' })).not.toBeDisabled()
     })
   })
 
@@ -103,7 +103,7 @@ describe('NoteEditor', () => {
     it('should show Save Changes button in edit mode', () => {
       render(<NoteEditor {...defaultProps} note={mockNote} />)
 
-      expect(screen.getByRole('button', { name: 'Save Changes' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
     })
 
     it('should show content in editor', () => {
@@ -124,7 +124,7 @@ describe('NoteEditor', () => {
       await user.type(screen.getByLabelText(/Title/), 'New Note')
       await user.type(screen.getByLabelText(/Description/), 'Description')
       await user.type(screen.getByTestId('codemirror-mock'), '# Content')
-      await user.click(screen.getByRole('button', { name: 'Create Note' }))
+      await user.click(screen.getByRole('button', { name: 'Create' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith({
@@ -146,7 +146,7 @@ describe('NoteEditor', () => {
 
       await user.clear(screen.getByLabelText(/Title/))
       await user.type(screen.getByLabelText(/Title/), 'Updated Title')
-      await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+      await user.click(screen.getByRole('button', { name: 'Save' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith({
@@ -246,7 +246,7 @@ describe('NoteEditor', () => {
       await user.clear(titleInput)
 
       // Button should be disabled when title is empty
-      expect(screen.getByRole('button', { name: 'Create Note' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled()
     })
 
     it('should clear title error when user types', async () => {
@@ -342,7 +342,7 @@ describe('NoteEditor', () => {
       )
 
       await user.type(screen.getByLabelText(/Title/), 'New Note')
-      await user.click(screen.getByRole('button', { name: 'Create Note' }))
+      await user.click(screen.getByRole('button', { name: 'Create' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith(
@@ -620,7 +620,7 @@ describe('NoteEditor', () => {
         expect(localStorage.getItem('note_draft_1')).not.toBeNull()
 
         // Submit the form
-        await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
 
         await waitFor(() => {
           expect(onSubmit).toHaveBeenCalled()
@@ -651,7 +651,7 @@ describe('NoteEditor', () => {
 
         expect(localStorage.getItem('note_draft_new')).not.toBeNull()
 
-        await user.click(screen.getByRole('button', { name: 'Create Note' }))
+        await user.click(screen.getByRole('button', { name: 'Create' }))
 
         await waitFor(() => {
           expect(onSubmit).toHaveBeenCalled()

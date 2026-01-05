@@ -9,7 +9,7 @@ import { MarkdownEditor } from './MarkdownEditor'
 import type { Note, NoteCreate, NoteUpdate, TagCount } from '../types'
 import { TAG_PATTERN } from '../utils'
 import { config } from '../config'
-import { ArchiveIcon, TrashIcon } from './icons'
+import { ArchiveIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 
 /** Key prefix for localStorage draft storage */
 const DRAFT_KEY_PREFIX = 'note_draft_'
@@ -398,27 +398,33 @@ export function NoteEditor({
             type="button"
             onClick={handleCancelRequest}
             disabled={isSubmitting}
-            className={confirmingCancel
+            className={`flex items-center gap-1.5 ${confirmingCancel
               ? "btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50"
               : "btn-secondary"
-            }
+            }`}
           >
-            {confirmingCancel ? 'Discard changes?' : 'Cancel'}
+            <CloseIcon className="h-4 w-4" />
+            {confirmingCancel ? (
+              <span>Discard?</span>
+            ) : (
+              <span className="hidden md:inline">Cancel</span>
+            )}
           </button>
           <button
             type="submit"
             disabled={isSubmitting || !form.title.trim()}
-            className="btn-primary"
+            className="btn-primary flex items-center gap-1.5"
           >
             {isSubmitting ? (
-              <span className="flex items-center gap-1.5">
+              <>
                 <div className="spinner-sm" />
-                Saving...
-              </span>
-            ) : isEditing ? (
-              'Save Changes'
+                <span className="hidden md:inline">Saving...</span>
+              </>
             ) : (
-              'Create Note'
+              <>
+                <CheckIcon className="h-4 w-4" />
+                <span className="hidden md:inline">{isEditing ? 'Save' : 'Create'}</span>
+              </>
             )}
           </button>
         </div>
@@ -433,7 +439,7 @@ export function NoteEditor({
               title="Archive note"
             >
               <ArchiveIcon className="h-4 w-4" />
-              Archive
+              <span className="hidden md:inline">Archive</span>
             </button>
           )}
           {onDelete && (
@@ -445,7 +451,7 @@ export function NoteEditor({
               title="Delete note"
             >
               <TrashIcon />
-              Delete
+              <span className="hidden md:inline">Delete</span>
             </button>
           )}
         </div>

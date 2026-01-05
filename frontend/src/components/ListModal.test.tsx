@@ -187,7 +187,7 @@ describe('ListModal', () => {
       await user.type(nameInput, 'Updated Name')
 
       // Submit
-      const submitButton = screen.getByText('Save Changes')
+      const submitButton = screen.getByText('Save')
       await user.click(submitButton)
 
       await waitFor(() => {
@@ -606,7 +606,7 @@ describe('ListModal', () => {
       await user.click(ascendingCheckbox)
 
       // Submit
-      await user.click(screen.getByText('Save Changes'))
+      await user.click(screen.getByText('Save'))
 
       await waitFor(() => {
         expect(onUpdate).toHaveBeenCalledWith(1, {
@@ -643,7 +643,7 @@ describe('ListModal', () => {
       await user.selectOptions(sortDropdown, '')
 
       // Submit
-      await user.click(screen.getByText('Save Changes'))
+      await user.click(screen.getByText('Save'))
 
       await waitFor(() => {
         expect(onUpdate).toHaveBeenCalledWith(1, {
@@ -864,7 +864,7 @@ describe('ListModal', () => {
       await user.click(screen.getByLabelText('Notes'))
 
       // Submit
-      await user.click(screen.getByText('Save Changes'))
+      await user.click(screen.getByText('Save'))
 
       await waitFor(() => {
         expect(onUpdate).toHaveBeenCalledWith(1, {
@@ -983,7 +983,7 @@ describe('ListModal', () => {
       await user.click(screen.getByLabelText('Prompts'))
 
       // Submit
-      await user.click(screen.getByText('Save Changes'))
+      await user.click(screen.getByText('Save'))
 
       await waitFor(() => {
         expect(onUpdate).toHaveBeenCalledWith(1, {

@@ -90,7 +90,7 @@ export function PromptView({
               className="btn-secondary flex items-center gap-1"
             >
               <CloseIcon className="h-4 w-4" />
-              Close
+              <span className="hidden md:inline">Close</span>
             </button>
           )}
 
@@ -101,7 +101,7 @@ export function PromptView({
               className="btn-primary flex items-center gap-2"
             >
               <EditIcon />
-              Edit
+              <span className="hidden md:inline">Edit</span>
             </button>
           )}
         </div>
@@ -115,7 +115,7 @@ export function PromptView({
               title="Archive prompt"
             >
               <ArchiveIcon className="h-4 w-4" />
-              Archive
+              <span className="hidden md:inline">Archive</span>
             </button>
           )}
 
@@ -127,7 +127,7 @@ export function PromptView({
               title="Restore prompt"
             >
               <RestoreIcon />
-              Restore
+              <span className="hidden md:inline">Restore</span>
             </button>
           )}
 
@@ -139,7 +139,7 @@ export function PromptView({
               title="Restore prompt"
             >
               <RestoreIcon />
-              Restore
+              <span className="hidden md:inline">Restore</span>
             </button>
           )}
 
@@ -151,7 +151,7 @@ export function PromptView({
               title={view === 'deleted' ? 'Delete permanently' : 'Delete prompt'}
             >
               <TrashIcon />
-              {view === 'deleted' ? 'Delete Permanently' : 'Delete'}
+              <span className="hidden md:inline">{view === 'deleted' ? 'Delete Permanently' : 'Delete'}</span>
             </button>
           )}
         </div>
