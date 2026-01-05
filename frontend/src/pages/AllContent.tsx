@@ -69,6 +69,9 @@ import {
 import type { ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem, PromptListItem, ContentType } from '../types'
 import { getFirstGroupTags } from '../utils'
 
+/** Duration for undo toast notifications (archive/delete actions) */
+const UNDO_TOAST_DURATION_MS = 3000
+
 /**
  * AllContent page - unified view for all content types.
  *
@@ -339,7 +342,7 @@ export function AllContent(): ReactNode {
             </button>
           </span>
         ),
-        { duration: 5000 }
+        { duration: UNDO_TOAST_DURATION_MS }
       )
     } catch {
       toast.error('Failed to delete bookmark')
@@ -365,7 +368,7 @@ export function AllContent(): ReactNode {
             </button>
           </span>
         ),
-        { duration: 5000 }
+        { duration: UNDO_TOAST_DURATION_MS }
       )
     } catch {
       toast.error('Failed to archive bookmark')
@@ -425,7 +428,7 @@ export function AllContent(): ReactNode {
             </button>
           </span>
         ),
-        { duration: 5000 }
+        { duration: UNDO_TOAST_DURATION_MS }
       )
     } catch {
       toast.error('Failed to delete note')
@@ -451,7 +454,7 @@ export function AllContent(): ReactNode {
             </button>
           </span>
         ),
-        { duration: 5000 }
+        { duration: UNDO_TOAST_DURATION_MS }
       )
     } catch {
       toast.error('Failed to archive note')
@@ -511,7 +514,7 @@ export function AllContent(): ReactNode {
             </button>
           </span>
         ),
-        { duration: 5000 }
+        { duration: UNDO_TOAST_DURATION_MS }
       )
     } catch {
       toast.error('Failed to delete prompt')
@@ -537,7 +540,7 @@ export function AllContent(): ReactNode {
             </button>
           </span>
         ),
-        { duration: 5000 }
+        { duration: UNDO_TOAST_DURATION_MS }
       )
     } catch {
       toast.error('Failed to archive prompt')
