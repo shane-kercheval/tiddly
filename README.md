@@ -40,11 +40,11 @@ bookmarks/
 # Setup
 cp .env.example .env
 make build          # Install backend dependencies
-make db-up          # Start PostgreSQL
+make docker-up      # Start PostgreSQL
 make migrate        # Run database migrations
 
 # Run backend
-make run            # API at http://localhost:8000/docs
+make api-run        # API at http://localhost:8000/docs
 
 # Run frontend (separate terminal)
 cd frontend && npm install && npm run dev
@@ -93,7 +93,7 @@ See `Makefile` for all commands. Run `make` with no args to see help.
 
 ```bash
 make tests          # Run backend linting + tests
-make frontend-test  # Run frontend tests
+make frontend-tests # Run frontend tests
 ```
 
 ## API Documentation
