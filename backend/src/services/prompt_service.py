@@ -1,6 +1,7 @@
 """Service layer for prompt CRUD operations."""
 import logging
 from typing import Any
+from uuid import UUID
 
 from jinja2 import Environment, TemplateSyntaxError, meta
 from sqlalchemy import func, or_, select
@@ -122,7 +123,7 @@ class PromptService(BaseEntityService[Prompt]):
     async def create(
         self,
         db: AsyncSession,
-        user_id: int,
+        user_id: UUID,
         data: PromptCreate,
     ) -> Prompt:
         """
@@ -182,8 +183,8 @@ class PromptService(BaseEntityService[Prompt]):
     async def update(
         self,
         db: AsyncSession,
-        user_id: int,
-        prompt_id: int,
+        user_id: UUID,
+        prompt_id: UUID,
         data: PromptUpdate,
     ) -> Prompt | None:
         """
@@ -258,7 +259,7 @@ class PromptService(BaseEntityService[Prompt]):
     async def get_by_name(
         self,
         db: AsyncSession,
-        user_id: int,
+        user_id: UUID,
         name: str,
     ) -> Prompt | None:
         """

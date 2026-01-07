@@ -128,8 +128,8 @@ export interface SortableGroupItemProps {
   isGroupCollapsed: boolean
   onToggleGroup: () => void
   onNavClick?: () => void
-  onEditList: (listId: number) => void
-  onDeleteList: (listId: number) => void
+  onEditList: (listId: string) => void
+  onDeleteList: (listId: string) => void
   onRenameGroup: (newName: string) => void
   onDeleteGroup: () => void
   isDragging?: boolean

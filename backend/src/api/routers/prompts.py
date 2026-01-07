@@ -1,5 +1,6 @@
 """Prompts CRUD endpoints."""
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,7 +56,7 @@ async def list_prompts(
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
     view: Literal["active", "archived", "deleted"] = Query(default="active", description="Which prompts to show: active (default), archived, or deleted"),  # noqa: E501
-    list_id: int | None = Query(default=None, description="Filter by content list ID"),
+    list_id: UUID | None = Query(default=None, description="Filter by content list ID"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptListResponse:
@@ -126,7 +127,7 @@ async def get_prompt_by_name(
 
 @router.get("/{prompt_id}", response_model=PromptResponse)
 async def get_prompt(
-    prompt_id: int,
+    prompt_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptResponse:
@@ -141,7 +142,7 @@ async def get_prompt(
 
 @router.patch("/{prompt_id}", response_model=PromptResponse)
 async def update_prompt(
-    prompt_id: int,
+    prompt_id: UUID,
     data: PromptUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -166,7 +167,7 @@ async def update_prompt(
 
 @router.delete("/{prompt_id}", status_code=204)
 async def delete_prompt(
-    prompt_id: int,
+    prompt_id: UUID,
     permanent: bool = Query(default=False, description="Permanently delete from DB if true"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -186,7 +187,7 @@ async def delete_prompt(
 
 @router.post("/{prompt_id}/restore", response_model=PromptResponse)
 async def restore_prompt(
-    prompt_id: int,
+    prompt_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptResponse:
@@ -210,7 +211,7 @@ async def restore_prompt(
 
 @router.post("/{prompt_id}/archive", response_model=PromptResponse)
 async def archive_prompt(
-    prompt_id: int,
+    prompt_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptResponse:
@@ -230,7 +231,7 @@ async def archive_prompt(
 
 @router.post("/{prompt_id}/unarchive", response_model=PromptResponse)
 async def unarchive_prompt(
-    prompt_id: int,
+    prompt_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptResponse:
@@ -253,7 +254,7 @@ async def unarchive_prompt(
 
 @router.post("/{prompt_id}/track-usage", status_code=204)
 async def track_prompt_usage(
-    prompt_id: int,
+    prompt_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> None:

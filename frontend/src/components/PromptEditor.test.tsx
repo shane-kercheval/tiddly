@@ -47,7 +47,7 @@ const mockTagSuggestions: TagCount[] = [
 ]
 
 const mockPrompt: Prompt = {
-  id: 1,
+  id: '1',
   name: 'test-prompt',
   title: 'Test Prompt',
   description: 'A test description',

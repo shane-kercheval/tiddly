@@ -203,7 +203,7 @@ async def test__get_prompt__renders_template_with_arguments(
     mock_api.get("/prompts/name/code-review").mock(
         return_value=Response(200, json=sample_prompt),
     )
-    mock_api.post("/prompts/1/track-usage").mock(
+    mock_api.post(f"/prompts/{sample_prompt['id']}/track-usage").mock(
         return_value=Response(204, json={}),
     )
 
@@ -229,7 +229,7 @@ async def test__get_prompt__renders_template_no_arguments(
     mock_api.get("/prompts/name/greeting").mock(
         return_value=Response(200, json=sample_prompt_no_args),
     )
-    mock_api.post("/prompts/2/track-usage").mock(
+    mock_api.post(f"/prompts/{sample_prompt_no_args['id']}/track-usage").mock(
         return_value=Response(204, json={}),
     )
 
@@ -304,7 +304,7 @@ async def test__get_prompt__optional_argument_uses_default(
     mock_api.get("/prompts/name/summarize").mock(
         return_value=Response(200, json=sample_prompt_optional_args),
     )
-    mock_api.post("/prompts/3/track-usage").mock(
+    mock_api.post(f"/prompts/{sample_prompt_optional_args['id']}/track-usage").mock(
         return_value=Response(204, json={}),
     )
 
@@ -325,7 +325,7 @@ async def test__get_prompt__tracks_usage(
     mock_api.get("/prompts/name/greeting").mock(
         return_value=Response(200, json=sample_prompt_no_args),
     )
-    track_mock = mock_api.post("/prompts/2/track-usage").mock(
+    track_mock = mock_api.post(f"/prompts/{sample_prompt_no_args['id']}/track-usage").mock(
         return_value=Response(204, json={}),
     )
 
@@ -348,7 +348,7 @@ async def test__get_prompt__returns_user_role_message(
     mock_api.get("/prompts/name/greeting").mock(
         return_value=Response(200, json=sample_prompt_no_args),
     )
-    mock_api.post("/prompts/2/track-usage").mock(
+    mock_api.post(f"/prompts/{sample_prompt_no_args['id']}/track-usage").mock(
         return_value=Response(204, json={}),
     )
 
@@ -393,7 +393,7 @@ async def test__list_tools__create_prompt_has_schema() -> None:
 async def test__create_prompt_tool__creates_prompt(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test create_prompt tool creates a prompt."""
     created_prompt = {
-        "id": 10,
+        "id": "550e8400-e29b-41d4-a716-446655440010",
         "name": "new-prompt",
         "title": None,
         "description": None,
@@ -409,14 +409,14 @@ async def test__create_prompt_tool__creates_prompt(mock_api, mock_auth) -> None:
 
     assert len(result) == 1
     assert "new-prompt" in result[0].text
-    assert "ID: 10" in result[0].text
+    assert "ID: 550e8400-e29b-41d4-a716-446655440010" in result[0].text
 
 
 @pytest.mark.asyncio
 async def test__create_prompt_tool__creates_with_arguments(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test create_prompt tool with arguments."""
     created_prompt = {
-        "id": 11,
+        "id": "550e8400-e29b-41d4-a716-446655440011",
         "name": "with-args",
         "title": "Prompt With Args",
         "description": "A test prompt",
@@ -453,7 +453,7 @@ async def test__create_prompt_tool__creates_with_arguments(mock_api, mock_auth) 
 async def test__create_prompt_tool__creates_with_tags(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test create_prompt tool with tags."""
     created_prompt = {
-        "id": 12,
+        "id": "550e8400-e29b-41d4-a716-446655440012",
         "name": "tagged",
         "title": None,
         "description": None,

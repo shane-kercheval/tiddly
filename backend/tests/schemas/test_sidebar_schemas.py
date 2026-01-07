@@ -1,4 +1,6 @@
 """Tests for sidebar schema validation."""
+from uuid import uuid4
+
 import pytest
 from pydantic import ValidationError
 
@@ -61,24 +63,26 @@ def test__sidebar_builtin_item__rejects_all_notes() -> None:
 
 
 def test__sidebar_list_item__valid() -> None:
-    """Test that list items with integer IDs are valid."""
-    item = SidebarListItem(type="list", id=123)
-    assert item.id == 123
+    """Test that list items with UUID IDs are valid."""
+    test_id = uuid4()
+    item = SidebarListItem(type="list", id=test_id)
+    assert item.id == test_id
     assert item.type == "list"
 
 
-def test__sidebar_list_item__valid_zero() -> None:
-    """Test that list ID 0 is valid."""
-    item = SidebarListItem(type="list", id=0)
-    assert item.id == 0
+def test__sidebar_list_item__valid_uuid_string() -> None:
+    """Test that list items with UUID strings are valid."""
+    uuid_str = "550e8400-e29b-41d4-a716-446655440000"
+    item = SidebarListItem(type="list", id=uuid_str)  # type: ignore[arg-type]
+    assert str(item.id) == uuid_str
 
 
 def test__sidebar_list_item__coerces_string_id() -> None:
-    """Test that string list IDs are coerced to integers by Pydantic."""
+    """Test that string UUID IDs are coerced to UUID by Pydantic."""
     # Pydantic's default behavior is to coerce compatible types
-    item = SidebarListItem(type="list", id="123")  # type: ignore[arg-type]
-    assert item.id == 123
-    assert isinstance(item.id, int)
+    uuid_str = "550e8400-e29b-41d4-a716-446655440001"
+    item = SidebarListItem(type="list", id=uuid_str)  # type: ignore[arg-type]
+    assert str(item.id) == uuid_str
 
 
 # =============================================================================
@@ -105,7 +109,7 @@ def test__sidebar_group__valid_with_items() -> None:
         id="550e8400-e29b-41d4-a716-446655440000",
         name="Work",
         items=[
-            SidebarListItem(type="list", id=1),
+            SidebarListItem(type="list", id=uuid4()),
             SidebarBuiltinItem(type="builtin", key="archived"),
         ],
     )
@@ -201,11 +205,11 @@ def test__sidebar_order__valid_with_all_types() -> None:
                 id="550e8400-e29b-41d4-a716-446655440000",
                 name="Work",
                 items=[
-                    SidebarListItem(type="list", id=1),
-                    SidebarListItem(type="list", id=2),
+                    SidebarListItem(type="list", id=uuid4()),
+                    SidebarListItem(type="list", id=uuid4()),
                 ],
             ),
-            SidebarListItem(type="list", id=3),
+            SidebarListItem(type="list", id=uuid4()),
             SidebarBuiltinItem(type="builtin", key="archived"),
             SidebarBuiltinItem(type="builtin", key="trash"),
         ],
@@ -236,10 +240,10 @@ def test__sidebar_order__from_dict() -> None:
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "name": "Work",
                 "items": [
-                    {"type": "list", "id": 1},
+                    {"type": "list", "id": "550e8400-e29b-41d4-a716-446655440001"},
                 ],
             },
-            {"type": "list", "id": 2},
+            {"type": "list", "id": "550e8400-e29b-41d4-a716-446655440002"},
         ],
     }
     order = SidebarOrder.model_validate(data)

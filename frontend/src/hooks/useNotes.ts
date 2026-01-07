@@ -14,9 +14,9 @@ import type { Note } from '../types'
 
 interface UseNotesReturn {
   /** Fetch a single note by ID (with full content for viewing/editing) */
-  fetchNote: (id: number) => Promise<Note>
+  fetchNote: (id: string) => Promise<Note>
   /** Track note usage (fire-and-forget) */
-  trackNoteUsage: (id: number) => void
+  trackNoteUsage: (id: string) => void
 }
 
 /**
@@ -34,12 +34,12 @@ interface UseNotesReturn {
  * ```
  */
 export function useNotes(): UseNotesReturn {
-  const fetchNote = useCallback(async (id: number): Promise<Note> => {
+  const fetchNote = useCallback(async (id: string): Promise<Note> => {
     const response = await api.get<Note>(`/notes/${id}`)
     return response.data
   }, [])
 
-  const trackNoteUsage = useCallback((id: number): void => {
+  const trackNoteUsage = useCallback((id: string): void => {
     // Fire-and-forget: no await, no error handling
     // This is non-critical tracking that shouldn't block user navigation
     api.post(`/notes/${id}/track-usage`).catch(() => {

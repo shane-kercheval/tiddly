@@ -14,7 +14,7 @@ export interface UseContentViewReturn {
   /** Current view for API calls */
   currentView: ContentView
   /** List ID for custom list views */
-  currentListId: number | undefined
+  currentListId: string | undefined
 }
 
 /**
@@ -44,10 +44,9 @@ export function useContentView(basePath: string): UseContentViewReturn {
     }
 
     if (path.startsWith(`${basePath}/lists/`) && params.listId) {
-      const listId = parseInt(params.listId, 10)
       return {
         currentView: 'active' as ContentView,
-        currentListId: isNaN(listId) ? undefined : listId,
+        currentListId: params.listId,
       }
     }
 

@@ -1,4 +1,6 @@
 """Tests for content list service layer functionality."""
+from uuid import uuid4
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,12 +93,12 @@ async def test__create_list__adds_to_sidebar_order(
     settings = await get_settings(db_session, test_user.id)
     assert settings is not None
     assert settings.sidebar_order is not None
-    # List should be in the sidebar items
+    # List should be in the sidebar items (IDs stored as strings in JSON)
     list_ids = [
         item["id"] for item in settings.sidebar_order["items"]
         if item.get("type") == "list"
     ]
-    assert result.id in list_ids
+    assert str(result.id) in list_ids
 
 
 async def test__create_list__multiple_lists_append_in_order(
@@ -119,13 +121,13 @@ async def test__create_list__multiple_lists_append_in_order(
     settings = await get_settings(db_session, test_user.id)
     assert settings is not None
     assert settings.sidebar_order is not None
-    # Both lists should be in sidebar items
+    # Both lists should be in sidebar items (IDs stored as strings in JSON)
     list_ids = [
         item["id"] for item in settings.sidebar_order["items"]
         if item.get("type") == "list"
     ]
-    assert list1.id in list_ids
-    assert list2.id in list_ids
+    assert str(list1.id) in list_ids
+    assert str(list2.id) in list_ids
 
 
 async def test__create_list__normalizes_tags(
@@ -271,7 +273,7 @@ async def test__get_list__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test get_list returns None for non-existent list."""
-    result = await get_list(db_session, test_user.id, 99999)
+    result = await get_list(db_session, test_user.id, uuid4())
     assert result is None
 
 
@@ -384,7 +386,7 @@ async def test__update_list__returns_none_for_nonexistent(
 ) -> None:
     """Test update_list returns None for non-existent list."""
     update_data = ContentListUpdate(name="New Name")
-    result = await update_list(db_session, test_user.id, 99999, update_data)
+    result = await update_list(db_session, test_user.id, uuid4(), update_data)
     assert result is None
 
 
@@ -448,7 +450,7 @@ async def test__delete_list__removes_from_sidebar_order(
     )
     created = await create_list(db_session, test_user.id, data)
 
-    # Verify it's in sidebar_order
+    # Verify it's in sidebar_order (IDs stored as strings in JSON)
     settings = await get_settings(db_session, test_user.id)
     assert settings is not None
     assert settings.sidebar_order is not None
@@ -456,7 +458,7 @@ async def test__delete_list__removes_from_sidebar_order(
         item["id"] for item in settings.sidebar_order["items"]
         if item.get("type") == "list"
     ]
-    assert created.id in list_ids
+    assert str(created.id) in list_ids
 
     # Delete
     await delete_list(db_session, test_user.id, created.id)
@@ -467,7 +469,7 @@ async def test__delete_list__removes_from_sidebar_order(
         item["id"] for item in settings.sidebar_order["items"]
         if item.get("type") == "list"
     ]
-    assert created.id not in list_ids
+    assert str(created.id) not in list_ids
 
 
 async def test__delete_list__returns_false_for_nonexistent(
@@ -475,7 +477,7 @@ async def test__delete_list__returns_false_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test delete_list returns False for non-existent list."""
-    result = await delete_list(db_session, test_user.id, 99999)
+    result = await delete_list(db_session, test_user.id, uuid4())
     assert result is False
 
 

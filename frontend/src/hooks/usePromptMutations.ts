@@ -38,7 +38,7 @@ interface OptimisticContext {
  */
 function optimisticallyRemovePrompt(
   queryClient: QueryClient,
-  promptId: number
+  promptId: string
 ): OptimisticContext {
   // Snapshot current data before modification
   const previousPromptQueries = queryClient.getQueriesData<PromptListResponse>({
@@ -139,7 +139,7 @@ export function useUpdatePrompt() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: PromptUpdate }): Promise<Prompt> => {
+    mutationFn: async ({ id, data }: { id: string; data: PromptUpdate }): Promise<Prompt> => {
       const response = await api.patch<Prompt>(`/prompts/${id}`, data)
       return response.data
     },
@@ -172,7 +172,7 @@ export function useDeletePrompt() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async ({ id, permanent = false }: { id: number; permanent?: boolean }): Promise<void> => {
+    mutationFn: async ({ id, permanent = false }: { id: string; permanent?: boolean }): Promise<void> => {
       const url = permanent ? `/prompts/${id}?permanent=true` : `/prompts/${id}`
       await api.delete(url)
     },
@@ -220,7 +220,7 @@ export function useRestorePrompt() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Prompt> => {
+    mutationFn: async (id: string): Promise<Prompt> => {
       const response = await api.post<Prompt>(`/prompts/${id}/restore`)
       return response.data
     },
@@ -261,7 +261,7 @@ export function useArchivePrompt() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Prompt> => {
+    mutationFn: async (id: string): Promise<Prompt> => {
       const response = await api.post<Prompt>(`/prompts/${id}/archive`)
       return response.data
     },
@@ -302,7 +302,7 @@ export function useUnarchivePrompt() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Prompt> => {
+    mutationFn: async (id: string): Promise<Prompt> => {
       const response = await api.post<Prompt>(`/prompts/${id}/unarchive`)
       return response.data
     },

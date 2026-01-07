@@ -70,7 +70,7 @@ describe('sidebarDndUtils', () => {
     it('should return correct ID for list item', () => {
       const item: SidebarListItemComputed = {
         type: 'list',
-        id: 42,
+        id: '42',
         name: 'My List',
         content_types: ['bookmark'],
       }
@@ -113,7 +113,7 @@ describe('sidebarDndUtils', () => {
     it('should return correct ID for list child in group', () => {
       const child: SidebarListItemComputed = {
         type: 'list',
-        id: 99,
+        id: '99',
         name: 'My List',
         content_types: ['note'],
       }
@@ -123,7 +123,7 @@ describe('sidebarDndUtils', () => {
     it('should work with UUID format group IDs', () => {
       const child: SidebarListItemComputed = {
         type: 'list',
-        id: 1,
+        id: '1',
         name: 'Test',
         content_types: [],
       }
@@ -161,7 +161,7 @@ describe('sidebarDndUtils', () => {
       expect(result).toEqual({
         groupId: 'group-456',
         type: 'list',
-        listId: 99,
+        listId: '99',
       })
     })
 
@@ -171,7 +171,7 @@ describe('sidebarDndUtils', () => {
       expect(result).toEqual({
         groupId: '550e8400-e29b-41d4-a716-446655440000',
         type: 'list',
-        listId: 42,
+        listId: '42',
       })
     })
 
@@ -180,9 +180,9 @@ describe('sidebarDndUtils', () => {
       expect(result).toBeNull()
     })
 
-    it('should handle list ID that parses to number', () => {
+    it('should handle list ID that parses to string', () => {
       const result = parseGroupChildId('ingroup:abc:list:123')
-      expect(result?.listId).toBe(123)
+      expect(result?.listId).toBe('123')
     })
   })
 
@@ -203,15 +203,15 @@ describe('sidebarDndUtils', () => {
 
     it('should convert list items correctly', () => {
       const items: SidebarItemComputed[] = [
-        { type: 'list', id: 1, name: 'List One', content_types: ['bookmark'] },
-        { type: 'list', id: 2, name: 'List Two', content_types: ['note', 'bookmark'] },
+        { type: 'list', id: '1', name: 'List One', content_types: ['bookmark'] },
+        { type: 'list', id: '2', name: 'List Two', content_types: ['note', 'bookmark'] },
       ]
 
       const result = computedToMinimal(items)
 
       expect(result).toEqual([
-        { type: 'list', id: 1 },
-        { type: 'list', id: 2 },
+        { type: 'list', id: '1' },
+        { type: 'list', id: '2' },
       ])
     })
 
@@ -222,7 +222,7 @@ describe('sidebarDndUtils', () => {
           id: 'group-1',
           name: 'Work',
           items: [
-            { type: 'list', id: 5, name: 'Projects', content_types: ['note'] },
+            { type: 'list', id: '5', name: 'Projects', content_types: ['note'] },
             { type: 'builtin', key: 'archived', name: 'Archived' },
           ],
         },
@@ -236,7 +236,7 @@ describe('sidebarDndUtils', () => {
           id: 'group-1',
           name: 'Work',
           items: [
-            { type: 'list', id: 5 },
+            { type: 'list', id: '5' },
             { type: 'builtin', key: 'archived' },
           ],
         },
@@ -250,12 +250,12 @@ describe('sidebarDndUtils', () => {
     it('should handle mixed items at root level', () => {
       const items: SidebarItemComputed[] = [
         { type: 'builtin', key: 'all', name: 'All Content' },
-        { type: 'list', id: 1, name: 'Test', content_types: [] },
+        { type: 'list', id: '1', name: 'Test', content_types: [] },
         {
           type: 'group',
           id: 'g1',
           name: 'Group',
-          items: [{ type: 'list', id: 2, name: 'Nested', content_types: [] }],
+          items: [{ type: 'list', id: '2', name: 'Nested', content_types: [] }],
         },
         { type: 'builtin', key: 'trash', name: 'Trash' },
       ]
@@ -264,12 +264,12 @@ describe('sidebarDndUtils', () => {
 
       expect(result).toEqual([
         { type: 'builtin', key: 'all' },
-        { type: 'list', id: 1 },
+        { type: 'list', id: '1' },
         {
           type: 'group',
           id: 'g1',
           name: 'Group',
-          items: [{ type: 'list', id: 2 }],
+          items: [{ type: 'list', id: '2' }],
         },
         { type: 'builtin', key: 'trash' },
       ])
@@ -306,7 +306,7 @@ describe('sidebarDndUtils', () => {
           items: [
             {
               type: 'list',
-              id: 42,
+              id: '42',
               name: 'This name should be stripped',
               content_types: ['bookmark', 'note'],
             },
@@ -315,10 +315,10 @@ describe('sidebarDndUtils', () => {
       ]
 
       const result = computedToMinimal(items)
-      const groupResult = result[0] as { type: 'group'; items: Array<{ type: string; id: number; name?: string }> }
+      const groupResult = result[0] as { type: 'group'; items: Array<{ type: string; id: string; name?: string }> }
 
       // The nested list should not have name or content_types
-      expect(groupResult.items[0]).toEqual({ type: 'list', id: 42 })
+      expect(groupResult.items[0]).toEqual({ type: 'list', id: '42' })
       expect('name' in groupResult.items[0]).toBe(false)
     })
   })
@@ -327,7 +327,7 @@ describe('sidebarDndUtils', () => {
     it('getGroupChildId and parseGroupChildId should be consistent', () => {
       const listChild: SidebarListItemComputed = {
         type: 'list',
-        id: 123,
+        id: '123',
         name: 'Test',
         content_types: [],
       }
@@ -339,7 +339,7 @@ describe('sidebarDndUtils', () => {
       expect(parsed).toEqual({
         groupId: 'my-group-uuid',
         type: 'list',
-        listId: 123,
+        listId: '123',
       })
     })
 

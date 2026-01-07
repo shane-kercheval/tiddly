@@ -1,4 +1,6 @@
 """User endpoints for testing authentication."""
+from uuid import UUID
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
@@ -12,7 +14,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 class UserResponse(BaseModel):
     """Response model for user info."""
 
-    id: int
+    id: UUID
     auth0_id: str
     email: str | None
 

@@ -8,7 +8,7 @@ import { ListCard } from './ListCard'
 import type { ContentList } from '../types'
 
 const mockList: ContentList = {
-  id: 1,
+  id: '1',
   name: 'Work Resources',
   content_types: ['bookmark'],
   filter_expression: {

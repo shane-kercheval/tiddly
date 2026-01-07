@@ -1245,7 +1245,7 @@ class TestPATRestrictedEndpoints:
         async with httpx.AsyncClient() as client:
             # Try to delete a non-existent token - should get 403 before 404
             response = await client.delete(
-                f"{API_URL}/tokens/99999",
+                f"{API_URL}/tokens/00000000-0000-0000-0000-000000000000",
                 headers=headers_user_a,
             )
 

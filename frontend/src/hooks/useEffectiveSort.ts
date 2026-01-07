@@ -36,7 +36,7 @@ export interface UseEffectiveSortResult {
 /**
  * Derive the view key from the current view and list ID.
  */
-export function getViewKey(currentView: 'active' | 'archived' | 'deleted', listId?: number | null): string {
+export function getViewKey(currentView: 'active' | 'archived' | 'deleted', listId?: string | null): string {
   if (listId != null) {
     return `list:${listId}`
   }

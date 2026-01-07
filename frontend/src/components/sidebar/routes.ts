@@ -27,6 +27,6 @@ export function getBuiltinRoute(key: BuiltinKey): string {
  * The list's content_types configuration determines what content is shown,
  * not the URL pattern.
  */
-export function getListRoute(listId: number): string {
+export function getListRoute(listId: string): string {
   return `/app/content/lists/${listId}`
 }

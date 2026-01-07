@@ -1,6 +1,7 @@
 """Tests for note CRUD endpoints."""
 import asyncio
 from datetime import datetime, timedelta, UTC
+from uuid import UUID
 
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -36,13 +37,13 @@ async def test_create_note(client: AsyncClient, db_session: AsyncSession) -> Non
     assert data["deleted_at"] is None
     assert data["archived_at"] is None
     assert data["version"] == 1
-    assert isinstance(data["id"], int)
+    assert isinstance(data["id"], str)
     assert "created_at" in data
     assert "updated_at" in data
     assert "last_used_at" in data
 
     # Verify in database
-    result = await db_session.execute(select(Note).where(Note.id == data["id"]))
+    result = await db_session.execute(select(Note).where(Note.id == UUID(data["id"])))
     note = result.scalar_one()
     assert note.title == "My Test Note"
     assert note.description == "A test description"
@@ -341,7 +342,7 @@ async def test_get_note(client: AsyncClient) -> None:
 
 async def test_get_note_not_found(client: AsyncClient) -> None:
     """Test getting a non-existent note returns 404."""
-    response = await client.get("/notes/99999")
+    response = await client.get("/notes/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
     assert response.json()["detail"] == "Note not found"
 
@@ -446,7 +447,7 @@ async def test_update_note_updates_updated_at(client: AsyncClient) -> None:
 async def test_update_note_not_found(client: AsyncClient) -> None:
     """Test updating a non-existent note returns 404."""
     response = await client.patch(
-        "/notes/99999",
+        "/notes/00000000-0000-0000-0000-000000000000",
         json={"title": "Won't Work"},
     )
     assert response.status_code == 404
@@ -541,7 +542,7 @@ async def test_delete_note_permanent(client: AsyncClient, db_session: AsyncSessi
 
 async def test_delete_note_not_found(client: AsyncClient) -> None:
     """Test deleting a non-existent note returns 404."""
-    response = await client.delete("/notes/99999")
+    response = await client.delete("/notes/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
     assert response.json()["detail"] == "Note not found"
 
@@ -614,7 +615,7 @@ async def test_restore_note_not_deleted_returns_400(client: AsyncClient) -> None
 
 async def test_restore_note_not_found_returns_404(client: AsyncClient) -> None:
     """Test that restoring a non-existent note returns 404."""
-    response = await client.post("/notes/99999/restore")
+    response = await client.post("/notes/00000000-0000-0000-0000-000000000000/restore")
     assert response.status_code == 404
 
 
@@ -663,7 +664,7 @@ async def test_archive_note_is_idempotent(client: AsyncClient) -> None:
 
 async def test_archive_note_not_found_returns_404(client: AsyncClient) -> None:
     """Test that archiving a non-existent note returns 404."""
-    response = await client.post("/notes/99999/archive")
+    response = await client.post("/notes/00000000-0000-0000-0000-000000000000/archive")
     assert response.status_code == 404
 
 
@@ -713,7 +714,7 @@ async def test_unarchive_note_not_archived_returns_400(client: AsyncClient) -> N
 
 async def test_unarchive_note_not_found_returns_404(client: AsyncClient) -> None:
     """Test that unarchiving a non-existent note returns 404."""
-    response = await client.post("/notes/99999/unarchive")
+    response = await client.post("/notes/00000000-0000-0000-0000-000000000000/unarchive")
     assert response.status_code == 404
 
 
@@ -748,7 +749,7 @@ async def test_track_note_usage_success(client: AsyncClient) -> None:
 
 async def test_track_note_usage_not_found(client: AsyncClient) -> None:
     """Test that POST /notes/{id}/track-usage returns 404 for non-existent note."""
-    response = await client.post("/notes/99999/track-usage")
+    response = await client.post("/notes/00000000-0000-0000-0000-000000000000/track-usage")
     assert response.status_code == 404
     assert response.json()["detail"] == "Note not found"
 
@@ -979,7 +980,7 @@ async def test_list_notes_with_list_id_complex_filter(client: AsyncClient) -> No
 
 async def test_list_notes_with_list_id_not_found(client: AsyncClient) -> None:
     """Test that non-existent list_id returns 404."""
-    response = await client.get("/notes/?list_id=99999")
+    response = await client.get("/notes/?list_id=00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
     assert response.json()["detail"] == "List not found"
 

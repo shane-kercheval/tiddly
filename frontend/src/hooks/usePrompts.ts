@@ -14,9 +14,9 @@ import type { Prompt } from '../types'
 
 interface UsePromptsReturn {
   /** Fetch a single prompt by ID (with full content for viewing/editing) */
-  fetchPrompt: (id: number) => Promise<Prompt>
+  fetchPrompt: (id: string) => Promise<Prompt>
   /** Track prompt usage (fire-and-forget) */
-  trackPromptUsage: (id: number) => void
+  trackPromptUsage: (id: string) => void
 }
 
 /**
@@ -34,12 +34,12 @@ interface UsePromptsReturn {
  * ```
  */
 export function usePrompts(): UsePromptsReturn {
-  const fetchPrompt = useCallback(async (id: number): Promise<Prompt> => {
+  const fetchPrompt = useCallback(async (id: string): Promise<Prompt> => {
     const response = await api.get<Prompt>(`/prompts/${id}`)
     return response.data
   }, [])
 
-  const trackPromptUsage = useCallback((id: number): void => {
+  const trackPromptUsage = useCallback((id: string): void => {
     // Fire-and-forget: no await, no error handling
     // This is non-critical tracking that shouldn't block user navigation
     api.post(`/prompts/${id}/track-usage`).catch(() => {

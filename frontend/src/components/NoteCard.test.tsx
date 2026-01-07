@@ -8,7 +8,7 @@ import { NoteCard } from './NoteCard'
 import type { NoteListItem } from '../types'
 
 const mockNote: NoteListItem = {
-  id: 1,
+  id: '1',
   title: 'Test Note',
   description: 'A test note description',
   tags: ['test', 'example'],

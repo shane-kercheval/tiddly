@@ -1,6 +1,7 @@
 """Tests for prompt schemas."""
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -285,7 +286,7 @@ class TestPromptListItem:
         tag2 = SimpleNamespace(name="tutorial")
 
         mock_prompt = SimpleNamespace(
-            id=1,
+            id=uuid4(),
             name="test-prompt",
             title="Test Prompt",
             description=None,
@@ -308,8 +309,9 @@ class TestPromptListItem:
 
     def test__prompt_list_item__from_dict(self) -> None:
         """Should accept dict input."""
+        test_id = uuid4()
         data = {
-            "id": 1,
+            "id": test_id,
             "name": "test-prompt",
             "title": "Test Prompt",
             "description": "A test prompt",
@@ -322,7 +324,7 @@ class TestPromptListItem:
             "archived_at": None,
         }
         item = PromptListItem.model_validate(data)
-        assert item.id == 1
+        assert item.id == test_id
         assert item.name == "test-prompt"
         assert item.tags == ["python", "test"]
         assert len(item.arguments) == 1
@@ -349,7 +351,7 @@ class TestPromptResponse:
     def test__prompt_response__from_dict(self) -> None:
         """Should accept dict input with content."""
         data = {
-            "id": 1,
+            "id": uuid4(),
             "name": "test-prompt",
             "title": "Test Prompt",
             "description": "A test prompt",
@@ -387,7 +389,7 @@ class TestPromptListResponse:
     def test__prompt_list_response__with_items(self) -> None:
         """Should accept list of PromptListItem."""
         item_data = {
-            "id": 1,
+            "id": uuid4(),
             "name": "test",
             "title": None,
             "description": None,

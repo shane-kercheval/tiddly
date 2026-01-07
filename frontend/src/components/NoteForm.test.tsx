@@ -55,7 +55,7 @@ vi.mock('./NoteEditor', () => ({
 }))
 
 const mockNote: Note = {
-  id: 1,
+  id: '1',
   title: 'Test Note',
   description: 'A test description',
   content: '# Test Content',

@@ -1,11 +1,12 @@
 """Bookmark model for storing user bookmarks."""
 from datetime import datetime
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import ArchivableMixin, Base, TimestampMixin
+from models.base import ArchivableMixin, Base, TimestampMixin, UUIDv7Mixin
 from models.tag import bookmark_tags
 
 if TYPE_CHECKING:
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
     from models.user import User
 
 
-class Bookmark(Base, TimestampMixin, ArchivableMixin):
+class Bookmark(Base, UUIDv7Mixin, TimestampMixin, ArchivableMixin):
     """Bookmark model - stores URLs with metadata and tags."""
 
     __tablename__ = "bookmarks"
@@ -29,8 +30,8 @@ class Bookmark(Base, TimestampMixin, ArchivableMixin):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(
+    # id provided by UUIDv7Mixin
+    user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
     )

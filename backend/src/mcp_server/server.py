@@ -317,7 +317,7 @@ async def search_all_content(
     annotations={"readOnlyHint": True},
 )
 async def get_bookmark(
-    bookmark_id: Annotated[int, Field(description="The ID of the bookmark to retrieve")],
+    bookmark_id: Annotated[str, Field(description="The UUID of the bookmark to retrieve")],
 ) -> dict[str, Any]:
     """Get a bookmark by ID. Returns full details including content if stored."""
     client = await _get_http_client()
@@ -339,7 +339,7 @@ async def get_bookmark(
     annotations={"readOnlyHint": True},
 )
 async def get_note(
-    note_id: Annotated[int, Field(description="The ID of the note to retrieve")],
+    note_id: Annotated[str, Field(description="The UUID of the note to retrieve")],
 ) -> dict[str, Any]:
     """Get a note by ID. Returns full details including markdown content."""
     client = await _get_http_client()

@@ -169,7 +169,7 @@ async def test_get_list_by_id(client: AsyncClient) -> None:
 
 async def test_get_list_not_found(client: AsyncClient) -> None:
     """Test getting a non-existent list returns 404."""
-    response = await client.get("/lists/99999")
+    response = await client.get("/lists/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
 
 
@@ -225,7 +225,7 @@ async def test_update_list_filter_expression(client: AsyncClient) -> None:
 async def test_update_list_not_found(client: AsyncClient) -> None:
     """Test updating a non-existent list returns 404."""
     response = await client.patch(
-        "/lists/99999",
+        "/lists/00000000-0000-0000-0000-000000000000",
         json={"name": "New Name"},
     )
     assert response.status_code == 404
@@ -253,7 +253,7 @@ async def test_delete_list(client: AsyncClient) -> None:
 
 async def test_delete_list_not_found(client: AsyncClient) -> None:
     """Test deleting a non-existent list returns 404."""
-    response = await client.delete("/lists/99999")
+    response = await client.delete("/lists/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
 
 

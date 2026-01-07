@@ -202,7 +202,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
   // Get full list data from store by ID
   const getListById = useCallback(
-    (id: number): ContentList | undefined => {
+    (id: string): ContentList | undefined => {
       return lists.find((l) => l.id === id)
     },
     [lists]
@@ -285,7 +285,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   }
 
   // Open list modal for editing
-  const handleEditList = (listId: number): void => {
+  const handleEditList = (listId: string): void => {
     const list = getListById(listId)
     if (list) {
       setEditingList(list)
@@ -294,7 +294,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   }
 
   // Delete a list (confirmation is handled in SidebarNavItem) - optimistic update
-  const handleDeleteList = async (listId: number): Promise<void> => {
+  const handleDeleteList = async (listId: string): Promise<void> => {
     // Helper to recursively remove list from sidebar items (including from groups)
     const removeListFromItems = (items: SidebarItemComputed[]): SidebarItemComputed[] => {
       return items
@@ -371,7 +371,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     // Helper to update list in sidebar items (including in groups)
     const updateListInItems = (
       items: SidebarItemComputed[],
-      id: number,
+      id: string,
       updates: { name?: string; content_types?: string[] }
     ): SidebarItemComputed[] => {
       return items.map((item) => {

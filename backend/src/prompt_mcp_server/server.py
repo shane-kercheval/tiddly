@@ -361,7 +361,7 @@ async def handle_get_prompt(
 async def _track_usage(
     client: httpx.AsyncClient,
     token: str,
-    prompt_id: int,
+    prompt_id: str,
 ) -> None:
     """Track prompt usage (fire-and-forget helper)."""
     try:

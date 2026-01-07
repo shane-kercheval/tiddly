@@ -32,7 +32,7 @@ def mock_auth():
 def sample_bookmark() -> dict[str, Any]:
     """Sample bookmark response data."""
     return {
-        "id": 1,
+        "id": "550e8400-e29b-41d4-a716-446655440001",
         "url": "https://example.com",
         "title": "Example Site",
         "description": "An example website",
@@ -74,7 +74,7 @@ def sample_tags() -> dict[str, Any]:
 def sample_note() -> dict[str, Any]:
     """Sample note response data."""
     return {
-        "id": 1,
+        "id": "550e8400-e29b-41d4-a716-446655440002",
         "title": "Test Note",
         "description": "A test note description",
         "content": "# Markdown Content\n\nThis is the note body.",

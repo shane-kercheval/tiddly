@@ -11,7 +11,7 @@ const mockTagSuggestions: TagCount[] = [
 ]
 
 const mockBookmark: Bookmark = {
-  id: 1,
+  id: '1',
   url: 'https://example.com',
   title: 'Example Site',
   description: 'A sample description',

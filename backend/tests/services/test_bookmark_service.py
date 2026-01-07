@@ -6,6 +6,7 @@ that was added to support the trash/archive features.
 """
 import pytest
 from datetime import UTC
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -349,7 +350,7 @@ async def test__restore_bookmark__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that restore returns None for non-existent bookmark."""
-    result = await bookmark_service.restore(db_session, test_user.id, 99999)
+    result = await bookmark_service.restore(db_session, test_user.id, uuid4())
     assert result is None
 
 
@@ -474,7 +475,7 @@ async def test__archive_bookmark__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that archive returns None for non-existent bookmark."""
-    result = await bookmark_service.archive(db_session, test_user.id, 99999)
+    result = await bookmark_service.archive(db_session, test_user.id, uuid4())
     assert result is None
 
 
@@ -527,7 +528,7 @@ async def test__unarchive_bookmark__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that unarchive returns None for non-existent bookmark."""
-    result = await bookmark_service.unarchive(db_session, test_user.id, 99999)
+    result = await bookmark_service.unarchive(db_session, test_user.id, uuid4())
     assert result is None
 
 
@@ -674,7 +675,7 @@ async def test__track_bookmark_usage__returns_false_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that track_bookmark_usage returns False for non-existent bookmark."""
-    result = await bookmark_service.track_usage(db_session, test_user.id, 99999)
+    result = await bookmark_service.track_usage(db_session, test_user.id, uuid4())
     assert result is False
 
 
@@ -1470,7 +1471,7 @@ async def test__update_bookmark__returns_none_for_nonexistent(
 ) -> None:
     """Test that update_bookmark returns None for non-existent bookmark."""
     result = await bookmark_service.update(
-        db_session, test_user.id, 99999,
+        db_session, test_user.id, uuid4(),
         BookmarkUpdate(title='Will not work'),
     )
     assert result is None
@@ -1649,7 +1650,7 @@ def test__build_filter_from_expression__empty_groups_returns_empty() -> None:
     filter_expression = {'groups': [], 'group_operator': 'OR'}
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=bookmark_tags,
         entity_id_column=Bookmark.id,
     )
@@ -1661,7 +1662,7 @@ def test__build_filter_from_expression__missing_groups_returns_empty() -> None:
     filter_expression = {'group_operator': 'OR'}
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=bookmark_tags,
         entity_id_column=Bookmark.id,
     )
@@ -1676,7 +1677,7 @@ def test__build_filter_from_expression__single_group_single_tag() -> None:
     }
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=bookmark_tags,
         entity_id_column=Bookmark.id,
     )
@@ -1693,7 +1694,7 @@ def test__build_filter_from_expression__single_group_multiple_tags() -> None:
     }
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=bookmark_tags,
         entity_id_column=Bookmark.id,
     )
@@ -1713,7 +1714,7 @@ def test__build_filter_from_expression__multiple_groups() -> None:
     }
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=bookmark_tags,
         entity_id_column=Bookmark.id,
     )
@@ -1733,7 +1734,7 @@ def test__build_filter_from_expression__group_with_empty_tags_skipped() -> None:
     }
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=bookmark_tags,
         entity_id_column=Bookmark.id,
     )
@@ -1752,7 +1753,7 @@ def test__build_filter_from_expression__all_groups_empty_returns_empty() -> None
     }
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=bookmark_tags,
         entity_id_column=Bookmark.id,
     )

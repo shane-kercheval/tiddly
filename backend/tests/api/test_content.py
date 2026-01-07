@@ -580,7 +580,7 @@ async def test__list_content_with_list_id__not_found(
     client: AsyncClient,
 ) -> None:
     """Test that non-existent list_id returns 404."""
-    response = await client.get('/content/?list_id=99999')
+    response = await client.get('/content/?list_id=00000000-0000-0000-0000-000000000000')
     assert response.status_code == 404
     assert response.json()['detail'] == 'List not found'
 

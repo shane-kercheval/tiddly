@@ -1,5 +1,6 @@
 """Bookmark CRUD endpoints."""
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import HttpUrl
@@ -89,7 +90,7 @@ async def create_bookmark(
             detail={
                 "message": str(e),
                 "error_code": "ARCHIVED_URL_EXISTS",
-                "existing_bookmark_id": e.existing_bookmark_id,
+                "existing_bookmark_id": str(e.existing_bookmark_id),
             },
         )
     except DuplicateUrlError as e:
@@ -113,7 +114,7 @@ async def list_bookmarks(
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
     view: Literal["active", "archived", "deleted"] = Query(default="active", description="Which bookmarks to show: active (default), archived, or deleted"),  # noqa: E501
-    list_id: int | None = Query(default=None, description="Filter by bookmark list ID"),
+    list_id: UUID | None = Query(default=None, description="Filter by bookmark list ID"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkListResponse:
@@ -166,7 +167,7 @@ async def list_bookmarks(
 
 @router.get("/{bookmark_id}", response_model=BookmarkResponse)
 async def get_bookmark(
-    bookmark_id: int,
+    bookmark_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkResponse:
@@ -181,7 +182,7 @@ async def get_bookmark(
 
 @router.patch("/{bookmark_id}", response_model=BookmarkResponse)
 async def update_bookmark(
-    bookmark_id: int,
+    bookmark_id: UUID,
     data: BookmarkUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -206,7 +207,7 @@ async def update_bookmark(
 
 @router.delete("/{bookmark_id}", status_code=204)
 async def delete_bookmark(
-    bookmark_id: int,
+    bookmark_id: UUID,
     permanent: bool = Query(default=False, description="If true, permanently delete. If false, soft delete."),  # noqa: E501
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -226,7 +227,7 @@ async def delete_bookmark(
 
 @router.post("/{bookmark_id}/restore", response_model=BookmarkResponse)
 async def restore_bookmark(
-    bookmark_id: int,
+    bookmark_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkResponse:
@@ -252,7 +253,7 @@ async def restore_bookmark(
 
 @router.post("/{bookmark_id}/archive", response_model=BookmarkResponse)
 async def archive_bookmark(
-    bookmark_id: int,
+    bookmark_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkResponse:
@@ -272,7 +273,7 @@ async def archive_bookmark(
 
 @router.post("/{bookmark_id}/unarchive", response_model=BookmarkResponse)
 async def unarchive_bookmark(
-    bookmark_id: int,
+    bookmark_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkResponse:
@@ -295,7 +296,7 @@ async def unarchive_bookmark(
 
 @router.post("/{bookmark_id}/track-usage", status_code=204)
 async def track_bookmark_usage(
-    bookmark_id: int,
+    bookmark_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> None:

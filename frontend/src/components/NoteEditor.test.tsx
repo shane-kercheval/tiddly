@@ -30,7 +30,7 @@ const mockTagSuggestions: TagCount[] = [
 ]
 
 const mockNote: Note = {
-  id: 1,
+  id: '1',
   title: 'Test Note',
   description: 'A sample description',
   content: '# Hello\n\nThis is content.',

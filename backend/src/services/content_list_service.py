@@ -1,4 +1,6 @@
 """Service layer for content list operations."""
+from uuid import UUID
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,7 +11,7 @@ from services.sidebar_service import add_list_to_sidebar, remove_list_from_sideb
 
 async def create_list(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     data: ContentListCreate,
 ) -> ContentList:
     """
@@ -35,7 +37,7 @@ async def create_list(
     return content_list
 
 
-async def ensure_default_lists(db: AsyncSession, user_id: int) -> None:
+async def ensure_default_lists(db: AsyncSession, user_id: UUID) -> None:
     """Ensure default content lists exist for a user."""
     default_definitions = [
         {"name": "All Bookmarks", "content_types": ["bookmark"]},
@@ -67,7 +69,7 @@ async def ensure_default_lists(db: AsyncSession, user_id: int) -> None:
         )
 
 
-async def get_lists(db: AsyncSession, user_id: int) -> list[ContentList]:
+async def get_lists(db: AsyncSession, user_id: UUID) -> list[ContentList]:
     """Get all content lists for a user, ordered by creation date."""
     query = (
         select(ContentList)
@@ -80,8 +82,8 @@ async def get_lists(db: AsyncSession, user_id: int) -> list[ContentList]:
 
 async def get_list(
     db: AsyncSession,
-    user_id: int,
-    list_id: int,
+    user_id: UUID,
+    list_id: UUID,
 ) -> ContentList | None:
     """Get a single content list by ID, scoped to user."""
     query = select(ContentList).where(
@@ -94,8 +96,8 @@ async def get_list(
 
 async def update_list(
     db: AsyncSession,
-    user_id: int,
-    list_id: int,
+    user_id: UUID,
+    list_id: UUID,
     data: ContentListUpdate,
 ) -> ContentList | None:
     """Update a content list. Returns None if not found."""
@@ -117,8 +119,8 @@ async def update_list(
 
 async def delete_list(
     db: AsyncSession,
-    user_id: int,
-    list_id: int,
+    user_id: UUID,
+    list_id: UUID,
 ) -> bool:
     """
     Delete a content list and remove it from sidebar_order.

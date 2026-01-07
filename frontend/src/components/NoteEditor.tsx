@@ -88,14 +88,14 @@ interface FormErrors {
 /**
  * Get the localStorage key for a note draft.
  */
-function getDraftKey(noteId?: number): string {
+function getDraftKey(noteId?: string): string {
   return noteId ? `${DRAFT_KEY_PREFIX}${noteId}` : `${DRAFT_KEY_PREFIX}new`
 }
 
 /**
  * Load draft from localStorage if available.
  */
-function loadDraft(noteId?: number): DraftData | null {
+function loadDraft(noteId?: string): DraftData | null {
   try {
     const key = getDraftKey(noteId)
     const stored = localStorage.getItem(key)
@@ -111,7 +111,7 @@ function loadDraft(noteId?: number): DraftData | null {
 /**
  * Save draft to localStorage.
  */
-function saveDraft(noteId: number | undefined, data: DraftData): void {
+function saveDraft(noteId: string | undefined, data: DraftData): void {
   try {
     const key = getDraftKey(noteId)
     localStorage.setItem(key, JSON.stringify(data))
@@ -123,7 +123,7 @@ function saveDraft(noteId: number | undefined, data: DraftData): void {
 /**
  * Clear draft from localStorage.
  */
-function clearDraft(noteId?: number): void {
+function clearDraft(noteId?: string): void {
   try {
     const key = getDraftKey(noteId)
     localStorage.removeItem(key)

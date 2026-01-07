@@ -1,5 +1,6 @@
 """Service layer for bookmark CRUD operations."""
 import logging
+from uuid import UUID
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -27,7 +28,7 @@ class DuplicateUrlError(Exception):
 class ArchivedUrlExistsError(Exception):
     """Raised when trying to create a bookmark but URL exists as archived."""
 
-    def __init__(self, url: str, existing_bookmark_id: int) -> None:
+    def __init__(self, url: str, existing_bookmark_id: UUID) -> None:
         self.url = url
         self.existing_bookmark_id = existing_bookmark_id
         super().__init__(f"A bookmark with URL '{url}' exists in archive")
@@ -73,7 +74,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
     async def _check_url_exists(
         self,
         db: AsyncSession,
-        user_id: int,
+        user_id: UUID,
         url: str,
     ) -> Bookmark | None:
         """Check if a URL exists for this user (excluding soft-deleted)."""
@@ -89,7 +90,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
     async def create(
         self,
         db: AsyncSession,
-        user_id: int,
+        user_id: UUID,
         data: BookmarkCreate,
     ) -> Bookmark:
         """
@@ -145,8 +146,8 @@ class BookmarkService(BaseEntityService[Bookmark]):
     async def update(
         self,
         db: AsyncSession,
-        user_id: int,
-        bookmark_id: int,
+        user_id: UUID,
+        bookmark_id: UUID,
         data: BookmarkUpdate,
     ) -> Bookmark | None:
         """
@@ -198,8 +199,8 @@ class BookmarkService(BaseEntityService[Bookmark]):
     async def restore(
         self,
         db: AsyncSession,
-        user_id: int,
-        entity_id: int,
+        user_id: UUID,
+        entity_id: UUID,
     ) -> Bookmark | None:
         """
         Restore a soft-deleted bookmark.

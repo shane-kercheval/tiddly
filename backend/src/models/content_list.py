@@ -1,17 +1,18 @@
 """ContentList model for storing custom lists with tag filters."""
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import Base, TimestampMixin
+from models.base import Base, TimestampMixin, UUIDv7Mixin
 
 if TYPE_CHECKING:
     from models.user import User
 
 
-class ContentList(Base, TimestampMixin):
+class ContentList(Base, UUIDv7Mixin, TimestampMixin):
     """
     ContentList model - stores custom lists with tag-based filter expressions.
 
@@ -28,8 +29,8 @@ class ContentList(Base, TimestampMixin):
 
     __tablename__ = "content_lists"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(
+    # id provided by UUIDv7Mixin
+    user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
     )

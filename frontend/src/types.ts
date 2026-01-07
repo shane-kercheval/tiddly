@@ -9,7 +9,7 @@
  * unnecessarily large. Use GET /bookmarks/:id to fetch full bookmark with content.
  */
 export interface BookmarkListItem {
-  id: number
+  id: string
   url: string
   title: string | null
   description: string | null
@@ -81,7 +81,7 @@ export interface MetadataPreviewResponse {
  * unnecessarily large. Use GET /notes/:id to fetch full note with content.
  */
 export interface NoteListItem {
-  id: number
+  id: string
   title: string
   description: string | null
   tags: string[]
@@ -139,7 +139,7 @@ export interface NoteSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
-  list_id?: number
+  list_id?: string
 }
 
 /** Tag with usage count */
@@ -155,7 +155,7 @@ export interface TagListResponse {
 
 /** Full tag object returned by rename endpoint */
 export interface Tag {
-  id: number
+  id: string
   name: string
   created_at: string
 }
@@ -175,7 +175,7 @@ export interface BookmarkSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
-  list_id?: number
+  list_id?: string
 }
 
 // =============================================================================
@@ -191,7 +191,7 @@ export interface BookmarkSearchParams {
  */
 export interface ContentListItem {
   type: 'bookmark' | 'note' | 'prompt'
-  id: number
+  id: string
   title: string | null
   description: string | null
   tags: string[]
@@ -228,7 +228,7 @@ export interface ContentSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
-  list_id?: number
+  list_id?: string
   content_types?: ContentType[]
 }
 
@@ -253,7 +253,7 @@ export interface FilterExpression {
 
 /** ContentList data returned from the API */
 export interface ContentList {
-  id: number
+  id: string
   name: string
   content_types: ContentType[]
   filter_expression: FilterExpression
@@ -298,7 +298,7 @@ export interface SidebarBuiltinItem {
 /** A user-created list item in the sidebar (input format) */
 export interface SidebarListItem {
   type: 'list'
-  id: number
+  id: string
 }
 
 /** A group containing other items in the sidebar (input format) */
@@ -357,7 +357,7 @@ export interface SidebarOrderComputed {
 
 /** API Token (PAT) data returned from the API */
 export interface Token {
-  id: number
+  id: string
   name: string
   token_prefix: string
   last_used_at: string | null
@@ -394,7 +394,7 @@ export interface PromptArgument {
  * Prompt item in list responses (excludes content for performance).
  */
 export interface PromptListItem {
-  id: number
+  id: string
   name: string
   title: string | null
   description: string | null
@@ -456,5 +456,5 @@ export interface PromptSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
-  list_id?: number
+  list_id?: string
 }

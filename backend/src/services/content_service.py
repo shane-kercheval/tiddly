@@ -1,5 +1,6 @@
 """Service layer for unified content operations across bookmarks, notes, and prompts."""
 from typing import Any, Literal
+from uuid import UUID
 
 from sqlalchemy import Row, Table, and_, cast, exists, func, literal, or_, select, union_all
 from sqlalchemy.dialects.postgresql import JSONB
@@ -18,7 +19,7 @@ from services.utils import build_tag_filter_from_expression, escape_ilike
 def _build_tag_filter(
     tags: list[str],
     tag_match: Literal["all", "any"],
-    user_id: int,
+    user_id: UUID,
     junction_table: Table,
     entity_id_column: InstrumentedAttribute,
 ) -> list:
@@ -73,17 +74,17 @@ def _build_tag_filter(
 
 async def _get_tags_for_items(
     db: AsyncSession,
-    user_id: int,
-    bookmark_ids: list[int],
-    note_ids: list[int],
-    prompt_ids: list[int] | None = None,
-) -> dict[tuple[str, int], list[str]]:
+    user_id: UUID,
+    bookmark_ids: list[UUID],
+    note_ids: list[UUID],
+    prompt_ids: list[UUID] | None = None,
+) -> dict[tuple[str, UUID], list[str]]:
     """
     Fetch tags for a list of bookmarks, notes, and prompts.
 
     Returns a dict mapping (type, id) -> list of tag names.
     """
-    result: dict[tuple[str, int], list[str]] = {}
+    result: dict[tuple[str, UUID], list[str]] = {}
     prompt_ids = prompt_ids or []
 
     # Initialize empty lists for all items
@@ -161,7 +162,7 @@ def _row_to_content_item(row: Row, tags: list[str]) -> ContentListItem:
 
 async def search_all_content(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     query: str | None = None,
     tags: list[str] | None = None,
     tag_match: Literal["all", "any"] = "all",
@@ -370,7 +371,7 @@ def _apply_entity_filters(
     query: str | None,
     normalized_tags: list[str] | None,
     tag_match: Literal["all", "any"],
-    user_id: int,
+    user_id: UUID,
     filter_expression: dict[str, Any] | None,
 ) -> list:
     """

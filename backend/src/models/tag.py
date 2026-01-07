@@ -1,6 +1,7 @@
 """Tag model for storing user tags."""
 from datetime import datetime
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from sqlalchemy import (
     Column,
@@ -12,9 +13,10 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import Base
+from models.base import Base, UUIDv7Mixin
 
 if TYPE_CHECKING:
     from models.bookmark import Bookmark
@@ -29,11 +31,13 @@ bookmark_tags = Table(
     Base.metadata,
     Column(
         "bookmark_id",
+        PG_UUID(as_uuid=True),
         ForeignKey("bookmarks.id", ondelete="CASCADE"),
         primary_key=True,
     ),
     Column(
         "tag_id",
+        PG_UUID(as_uuid=True),
         ForeignKey("tags.id", ondelete="CASCADE"),
         primary_key=True,
     ),
@@ -48,11 +52,13 @@ note_tags = Table(
     Base.metadata,
     Column(
         "note_id",
+        PG_UUID(as_uuid=True),
         ForeignKey("notes.id", ondelete="CASCADE"),
         primary_key=True,
     ),
     Column(
         "tag_id",
+        PG_UUID(as_uuid=True),
         ForeignKey("tags.id", ondelete="CASCADE"),
         primary_key=True,
     ),
@@ -67,11 +73,13 @@ prompt_tags = Table(
     Base.metadata,
     Column(
         "prompt_id",
+        PG_UUID(as_uuid=True),
         ForeignKey("prompts.id", ondelete="CASCADE"),
         primary_key=True,
     ),
     Column(
         "tag_id",
+        PG_UUID(as_uuid=True),
         ForeignKey("tags.id", ondelete="CASCADE"),
         primary_key=True,
     ),
@@ -80,7 +88,7 @@ prompt_tags = Table(
 )
 
 
-class Tag(Base):
+class Tag(Base, UUIDv7Mixin):
     """Tag model - stores unique tags per user for cross-entity tagging."""
 
     __tablename__ = "tags"
@@ -88,8 +96,8 @@ class Tag(Base):
         UniqueConstraint("user_id", "name", name="uq_tags_user_id_name"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(
+    # id provided by UUIDv7Mixin
+    user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

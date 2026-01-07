@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import Base, TimestampMixin
+from models.base import Base, TimestampMixin, UUIDv7Mixin
 
 if TYPE_CHECKING:
     from models.api_token import ApiToken
@@ -17,12 +17,12 @@ if TYPE_CHECKING:
     from models.user_settings import UserSettings
 
 
-class User(Base, TimestampMixin):
+class User(Base, UUIDv7Mixin, TimestampMixin):
     """User model - stores Auth0 user info for foreign key relationships."""
 
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    # id provided by UUIDv7Mixin
     auth0_id: Mapped[str] = mapped_column(
         String(255),
         unique=True,

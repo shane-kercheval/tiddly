@@ -5,6 +5,7 @@ Provides endpoints for searching across all content types (bookmarks, notes, pro
 with unified pagination and sorting.
 """
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +39,7 @@ async def list_all_content(
         default="active",
         description="View: 'active' (not deleted/archived), 'archived', or 'deleted'",
     ),
-    list_id: int | None = Query(default=None, description="Filter by content list ID"),
+    list_id: UUID | None = Query(default=None, description="Filter by content list ID"),
     content_types: list[Literal["bookmark", "note", "prompt"]] | None = Query(
         default=None,
         description="Filter by content types (bookmark, note, prompt). If not specified, all types are included.",  # noqa: E501

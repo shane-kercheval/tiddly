@@ -1,4 +1,5 @@
 """Service layer for tag operations."""
+from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -30,7 +31,7 @@ class TagAlreadyExistsError(Exception):
 
 async def get_or_create_tags(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     tag_names: list[str],
 ) -> list[Tag]:
     """
@@ -76,7 +77,7 @@ async def get_or_create_tags(
 
 async def get_user_tags_with_counts(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     include_zero_count: bool = True,
 ) -> list[TagCount]:
     """
@@ -159,7 +160,7 @@ async def get_user_tags_with_counts(
 
 async def get_tag_by_name(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     tag_name: str,
 ) -> Tag | None:
     """
@@ -185,7 +186,7 @@ async def get_tag_by_name(
 
 async def rename_tag(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     old_name: str,
     new_name: str,
 ) -> Tag:
@@ -239,7 +240,7 @@ async def rename_tag(
 
 async def delete_tag(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     tag_name: str,
 ) -> None:
     """

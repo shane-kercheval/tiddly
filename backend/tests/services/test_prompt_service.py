@@ -4,6 +4,8 @@ Tests for prompt service layer functionality.
 Tests CRUD operations, soft delete, archive, restore, view filtering,
 template validation, and name uniqueness for prompts.
 """
+from uuid import uuid4
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -195,7 +197,7 @@ async def test__get__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that get returns None for non-existent prompt."""
-    result = await prompt_service.get(db_session, test_user.id, 99999)
+    result = await prompt_service.get(db_session, test_user.id, uuid4())
     assert result is None
 
 
@@ -654,7 +656,7 @@ async def test__track_usage__returns_false_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that track_usage returns False for non-existent prompt."""
-    result = await prompt_service.track_usage(db_session, test_user.id, 99999)
+    result = await prompt_service.track_usage(db_session, test_user.id, uuid4())
     assert result is False
 
 

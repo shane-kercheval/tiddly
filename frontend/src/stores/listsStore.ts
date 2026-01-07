@@ -15,8 +15,8 @@ interface ListsState {
 interface ListsActions {
   fetchLists: () => Promise<void>
   createList: (data: ContentListCreate) => Promise<ContentList>
-  updateList: (id: number, data: ContentListUpdate) => Promise<ContentList>
-  deleteList: (id: number) => Promise<void>
+  updateList: (id: string, data: ContentListUpdate) => Promise<ContentList>
+  deleteList: (id: string) => Promise<void>
   clearError: () => void
 }
 
@@ -47,7 +47,7 @@ export const useListsStore = create<ListsStore>((set, get) => ({
     return newList
   },
 
-  updateList: async (id: number, data: ContentListUpdate) => {
+  updateList: async (id: string, data: ContentListUpdate) => {
     const response = await api.patch<ContentList>(`/lists/${id}`, data)
     const updatedList = response.data
     set({
@@ -58,7 +58,7 @@ export const useListsStore = create<ListsStore>((set, get) => ({
     return updatedList
   },
 
-  deleteList: async (id: number) => {
+  deleteList: async (id: string) => {
     await api.delete(`/lists/${id}`)
     set({ lists: get().lists.filter((list) => list.id !== id) })
   },

@@ -1,5 +1,6 @@
 """Notes CRUD endpoints."""
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,7 +47,7 @@ async def list_notes(
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
     view: Literal["active", "archived", "deleted"] = Query(default="active", description="Which notes to show: active (default), archived, or deleted"),  # noqa: E501
-    list_id: int | None = Query(default=None, description="Filter by content list ID"),
+    list_id: UUID | None = Query(default=None, description="Filter by content list ID"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteListResponse:
@@ -99,7 +100,7 @@ async def list_notes(
 
 @router.get("/{note_id}", response_model=NoteResponse)
 async def get_note(
-    note_id: int,
+    note_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
@@ -114,7 +115,7 @@ async def get_note(
 
 @router.patch("/{note_id}", response_model=NoteResponse)
 async def update_note(
-    note_id: int,
+    note_id: UUID,
     data: NoteUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -130,7 +131,7 @@ async def update_note(
 
 @router.delete("/{note_id}", status_code=204)
 async def delete_note(
-    note_id: int,
+    note_id: UUID,
     permanent: bool = Query(default=False, description="Permanently delete from DB if true"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -150,7 +151,7 @@ async def delete_note(
 
 @router.post("/{note_id}/restore", response_model=NoteResponse)
 async def restore_note(
-    note_id: int,
+    note_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
@@ -174,7 +175,7 @@ async def restore_note(
 
 @router.post("/{note_id}/archive", response_model=NoteResponse)
 async def archive_note(
-    note_id: int,
+    note_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
@@ -194,7 +195,7 @@ async def archive_note(
 
 @router.post("/{note_id}/unarchive", response_model=NoteResponse)
 async def unarchive_note(
-    note_id: int,
+    note_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
@@ -217,7 +218,7 @@ async def unarchive_note(
 
 @router.post("/{note_id}/track-usage", status_code=204)
 async def track_note_usage(
-    note_id: int,
+    note_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> None:
