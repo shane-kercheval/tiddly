@@ -45,7 +45,7 @@ describe('useNotes', () => {
 
       let fetched: unknown
       await act(async () => {
-        fetched = await result.current.fetchNote(1)
+        fetched = await result.current.fetchNote('1')
       })
 
       expect(fetched).toEqual(mockNote)
@@ -57,7 +57,7 @@ describe('useNotes', () => {
 
       const { result } = renderHook(() => useNotes())
 
-      await expect(result.current.fetchNote(999)).rejects.toThrow('Not found')
+      await expect(result.current.fetchNote('999')).rejects.toThrow('Not found')
     })
   })
 
@@ -68,7 +68,7 @@ describe('useNotes', () => {
       const { result } = renderHook(() => useNotes())
 
       act(() => {
-        result.current.trackNoteUsage(1)
+        result.current.trackNoteUsage('1')
       })
 
       expect(mockPost).toHaveBeenCalledWith('/notes/1/track-usage')
@@ -81,7 +81,7 @@ describe('useNotes', () => {
 
       // Should not throw
       act(() => {
-        result.current.trackNoteUsage(1)
+        result.current.trackNoteUsage('1')
       })
 
       expect(mockPost).toHaveBeenCalledWith('/notes/1/track-usage')

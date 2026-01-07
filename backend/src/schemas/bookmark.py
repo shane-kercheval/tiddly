@@ -1,6 +1,7 @@
 """Pydantic schemas for bookmark endpoints."""
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
@@ -124,7 +125,7 @@ class BookmarkListItem(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     url: str
     title: str | None
     description: str | None

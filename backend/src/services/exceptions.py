@@ -1,4 +1,5 @@
 """Shared exceptions for service layer operations."""
+from uuid import UUID
 
 
 class InvalidStateError(Exception):
@@ -28,7 +29,7 @@ class SidebarValidationError(Exception):
 class SidebarDuplicateItemError(SidebarValidationError):
     """Raised when a duplicate item is found in the sidebar structure."""
 
-    def __init__(self, item_type: str, item_id: str | int) -> None:
+    def __init__(self, item_type: str, item_id: str | UUID) -> None:
         self.item_type = item_type
         self.item_id = item_id
         super().__init__(f"Duplicate {item_type} item: {item_id}")
@@ -37,7 +38,7 @@ class SidebarDuplicateItemError(SidebarValidationError):
 class SidebarListNotFoundError(SidebarValidationError):
     """Raised when a list ID in the sidebar doesn't exist or doesn't belong to the user."""
 
-    def __init__(self, list_id: int) -> None:
+    def __init__(self, list_id: UUID) -> None:
         self.list_id = list_id
         super().__init__(f"List not found or not owned by user: {list_id}")
 

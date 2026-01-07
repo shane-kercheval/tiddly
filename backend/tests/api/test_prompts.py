@@ -1,6 +1,7 @@
 """Tests for prompt CRUD endpoints."""
 import asyncio
 from datetime import datetime, timedelta, UTC
+from uuid import UUID
 
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -43,13 +44,13 @@ async def test__create_prompt__success(client: AsyncClient, db_session: AsyncSes
     assert data["tags"] == ["example", "test"]
     assert data["deleted_at"] is None
     assert data["archived_at"] is None
-    assert isinstance(data["id"], int)
+    assert isinstance(data["id"], str)
     assert "created_at" in data
     assert "updated_at" in data
     assert "last_used_at" in data
 
     # Verify in database
-    result = await db_session.execute(select(Prompt).where(Prompt.id == data["id"]))
+    result = await db_session.execute(select(Prompt).where(Prompt.id == UUID(data["id"])))
     prompt = result.scalar_one()
     assert prompt.name == "test-prompt"
     assert prompt.title == "Test Prompt"
@@ -437,7 +438,7 @@ async def test__get_prompt__includes_content(client: AsyncClient) -> None:
 
 async def test__get_prompt__not_found(client: AsyncClient) -> None:
     """Test getting a non-existent prompt returns 404."""
-    response = await client.get("/prompts/99999")
+    response = await client.get("/prompts/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
     assert response.json()["detail"] == "Prompt not found"
 
@@ -617,7 +618,7 @@ async def test__update_prompt__template_syntax_error(client: AsyncClient) -> Non
 async def test__update_prompt__not_found(client: AsyncClient) -> None:
     """Test updating a non-existent prompt returns 404."""
     response = await client.patch(
-        "/prompts/99999",
+        "/prompts/00000000-0000-0000-0000-000000000000",
         json={"title": "Won't Work"},
     )
     assert response.status_code == 404
@@ -702,7 +703,7 @@ async def test__delete_prompt__permanent_delete(
 
 async def test__delete_prompt__not_found(client: AsyncClient) -> None:
     """Test deleting a non-existent prompt returns 404."""
-    response = await client.delete("/prompts/99999")
+    response = await client.delete("/prompts/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
     assert response.json()["detail"] == "Prompt not found"
 
@@ -746,7 +747,7 @@ async def test__archive_prompt__already_archived(client: AsyncClient) -> None:
 
 async def test__archive_prompt__not_found(client: AsyncClient) -> None:
     """Test archiving a non-existent prompt returns 404."""
-    response = await client.post("/prompts/99999/archive")
+    response = await client.post("/prompts/00000000-0000-0000-0000-000000000000/archive")
     assert response.status_code == 404
 
 
@@ -789,7 +790,7 @@ async def test__unarchive_prompt__not_archived(client: AsyncClient) -> None:
 
 async def test__unarchive_prompt__not_found(client: AsyncClient) -> None:
     """Test unarchiving a non-existent prompt returns 404."""
-    response = await client.post("/prompts/99999/unarchive")
+    response = await client.post("/prompts/00000000-0000-0000-0000-000000000000/unarchive")
     assert response.status_code == 404
 
 
@@ -832,7 +833,7 @@ async def test__restore_prompt__not_deleted(client: AsyncClient) -> None:
 
 async def test__restore_prompt__not_found(client: AsyncClient) -> None:
     """Test restoring a non-existent prompt returns 404."""
-    response = await client.post("/prompts/99999/restore")
+    response = await client.post("/prompts/00000000-0000-0000-0000-000000000000/restore")
     assert response.status_code == 404
 
 
@@ -879,7 +880,7 @@ async def test__track_usage__success(client: AsyncClient) -> None:
 
 async def test__track_usage__not_found(client: AsyncClient) -> None:
     """Test tracking usage on non-existent prompt returns 404."""
-    response = await client.post("/prompts/99999/track-usage")
+    response = await client.post("/prompts/00000000-0000-0000-0000-000000000000/track-usage")
     assert response.status_code == 404
     assert response.json()["detail"] == "Prompt not found"
 
@@ -984,7 +985,7 @@ async def test__list_prompts__with_list_id(client: AsyncClient) -> None:
 
 async def test__list_prompts__with_list_id_not_found(client: AsyncClient) -> None:
     """Test that non-existent list_id returns 404."""
-    response = await client.get("/prompts/?list_id=99999")
+    response = await client.get("/prompts/?list_id=00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
     assert response.json()["detail"] == "List not found"
 

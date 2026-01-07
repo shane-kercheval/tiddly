@@ -21,13 +21,13 @@ const createMockSidebar = (): SidebarOrderComputed => ({
   version: 1,
   items: [
     { type: 'builtin', key: 'all', name: 'All Content' },
-    { type: 'list', id: 1, name: 'Test List', content_types: ['bookmark'] },
+    { type: 'list', id: '1', name: 'Test List', content_types: ['bookmark'] },
     {
       type: 'group',
       id: 'group-1',
       name: 'Test Group',
       items: [
-        { type: 'list', id: 2, name: 'Grouped List', content_types: ['note'] },
+        { type: 'list', id: '2', name: 'Grouped List', content_types: ['note'] },
       ],
     },
   ],
@@ -289,7 +289,7 @@ describe('useSettingsStore', () => {
             id: 'group-to-delete',
             name: 'Group to Delete',
             items: [
-              { type: 'list', id: 1, name: 'List 1', content_types: ['bookmark'] },
+              { type: 'list', id: '1', name: 'List 1', content_types: ['bookmark'] },
             ],
           },
         ],
@@ -299,7 +299,7 @@ describe('useSettingsStore', () => {
       // Simulate deleting group (items move to root)
       const optimisticItems: SidebarItemComputed[] = [
         { type: 'builtin', key: 'all', name: 'All Content' },
-        { type: 'list', id: 1, name: 'List 1', content_types: ['bookmark'] },
+        { type: 'list', id: '1', name: 'List 1', content_types: ['bookmark'] },
       ]
 
       const { setSidebarOptimistic } = useSettingsStore.getState()

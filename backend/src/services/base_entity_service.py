@@ -7,6 +7,7 @@ Entity-specific behavior is defined via abstract methods and class attributes.
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Generic, Literal, Protocol, TypeVar
+from uuid import UUID
 
 from sqlalchemy import Table, exists, func, select
 from sqlalchemy.sql import Select
@@ -22,8 +23,8 @@ from services.utils import build_tag_filter_from_expression, escape_ilike
 class TaggableEntity(Protocol):
     """Protocol defining the interface for entities that support tagging and soft-delete."""
 
-    id: int
-    user_id: int
+    id: UUID
+    user_id: UUID
     created_at: datetime
     updated_at: datetime
     last_used_at: datetime
@@ -118,8 +119,8 @@ class BaseEntityService(ABC, Generic[T]):
     async def get(
         self,
         db: AsyncSession,
-        user_id: int,
-        entity_id: int,
+        user_id: UUID,
+        entity_id: UUID,
         include_deleted: bool = False,
         include_archived: bool = False,
     ) -> T | None:
@@ -156,7 +157,7 @@ class BaseEntityService(ABC, Generic[T]):
     async def search(
         self,
         db: AsyncSession,
-        user_id: int,
+        user_id: UUID,
         query: str | None = None,
         tags: list[str] | None = None,
         tag_match: Literal["all", "any"] = "all",
@@ -241,8 +242,8 @@ class BaseEntityService(ABC, Generic[T]):
     async def delete(
         self,
         db: AsyncSession,
-        user_id: int,
-        entity_id: int,
+        user_id: UUID,
+        entity_id: UUID,
         permanent: bool = False,
     ) -> bool:
         """
@@ -274,8 +275,8 @@ class BaseEntityService(ABC, Generic[T]):
     async def restore(
         self,
         db: AsyncSession,
-        user_id: int,
-        entity_id: int,
+        user_id: UUID,
+        entity_id: UUID,
     ) -> T | None:
         """
         Restore a soft-deleted entity to active state.
@@ -322,8 +323,8 @@ class BaseEntityService(ABC, Generic[T]):
     async def archive(
         self,
         db: AsyncSession,
-        user_id: int,
-        entity_id: int,
+        user_id: UUID,
+        entity_id: UUID,
     ) -> T | None:
         """
         Archive an entity by setting archived_at timestamp.
@@ -352,8 +353,8 @@ class BaseEntityService(ABC, Generic[T]):
     async def unarchive(
         self,
         db: AsyncSession,
-        user_id: int,
-        entity_id: int,
+        user_id: UUID,
+        entity_id: UUID,
     ) -> T | None:
         """
         Unarchive an entity by clearing archived_at timestamp.
@@ -397,8 +398,8 @@ class BaseEntityService(ABC, Generic[T]):
     async def track_usage(
         self,
         db: AsyncSession,
-        user_id: int,
-        entity_id: int,
+        user_id: UUID,
+        entity_id: UUID,
     ) -> bool:
         """
         Update last_used_at timestamp for an entity.
@@ -447,7 +448,7 @@ class BaseEntityService(ABC, Generic[T]):
     def _apply_tag_filter(
         self,
         query: Select[tuple[T]],
-        user_id: int,
+        user_id: UUID,
         tags: list[str],
         tag_match: Literal["all", "any"],
     ) -> Select[tuple[T]]:

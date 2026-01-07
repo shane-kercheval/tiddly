@@ -92,7 +92,7 @@ export function parseGroupChildId(id: string): {
   groupId: string
   type: 'builtin' | 'list'
   key?: string
-  listId?: number
+  listId?: string
 } | null {
   if (!id.startsWith('ingroup:')) return null
   const parts = id.split(':')
@@ -102,7 +102,7 @@ export function parseGroupChildId(id: string): {
     return { groupId, type: 'builtin', key: keyOrId }
   }
   if (type === 'list') {
-    return { groupId, type: 'list', listId: parseInt(keyOrId, 10) }
+    return { groupId, type: 'list', listId: keyOrId }
   }
   return null
 }

@@ -5,6 +5,7 @@ Tests cover token creation, listing, deletion, and authentication flow.
 """
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta, UTC
+from uuid import UUID
 
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -48,7 +49,7 @@ async def test_create_token(client: AsyncClient, db_session: AsyncSession) -> No
     assert "created_at" in data
 
     # Verify in database - should store hash, not plaintext
-    result = await db_session.execute(select(ApiToken).where(ApiToken.id == data["id"]))
+    result = await db_session.execute(select(ApiToken).where(ApiToken.id == UUID(data["id"])))
     api_token = result.scalar_one()
     assert api_token.token_hash == hash_token(data["token"])
     assert api_token.name == "CLI Token"
@@ -155,7 +156,7 @@ async def test_delete_token(client: AsyncClient) -> None:
 
 async def test_delete_token_not_found(client: AsyncClient) -> None:
     """Test deleting a non-existent token returns 404."""
-    response = await client.delete("/tokens/99999")
+    response = await client.delete("/tokens/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
     assert response.json()["detail"] == "Token not found"
 

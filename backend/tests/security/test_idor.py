@@ -80,9 +80,9 @@ class TestBookmarkIDOR:
         bookmark_ids_b = [b["id"] for b in bookmarks_b]
 
         # User B sees their own bookmark
-        assert user_b_bookmark.id in bookmark_ids_b
+        assert str(user_b_bookmark.id) in bookmark_ids_b
         # User B does NOT see User A's bookmark
-        assert user_a_bookmark.id not in bookmark_ids_b
+        assert str(user_a_bookmark.id) not in bookmark_ids_b
 
 
 class TestTokenIDOR:
@@ -216,9 +216,9 @@ class TestNoteIDOR:
         note_ids_b = [n["id"] for n in notes_b]
 
         # User B sees their own note
-        assert user_b_note.id in note_ids_b
+        assert str(user_b_note.id) in note_ids_b
         # User B does NOT see User A's note
-        assert user_a_note.id not in note_ids_b
+        assert str(user_a_note.id) not in note_ids_b
 
 
 class TestPromptIDOR:
@@ -300,6 +300,6 @@ class TestPromptIDOR:
         prompt_ids_b = [p["id"] for p in prompts_b]
 
         # User B sees their own prompt
-        assert user_b_prompt.id in prompt_ids_b
+        assert str(user_b_prompt.id) in prompt_ids_b
         # User B does NOT see User A's prompt
-        assert user_a_prompt.id not in prompt_ids_b
+        assert str(user_a_prompt.id) not in prompt_ids_b

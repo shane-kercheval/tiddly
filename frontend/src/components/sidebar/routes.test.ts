@@ -29,13 +29,13 @@ describe('getBuiltinRoute', () => {
 
 describe('getListRoute', () => {
   it('returns /app/content/lists/:id for any list', () => {
-    expect(getListRoute(123)).toBe('/app/content/lists/123')
-    expect(getListRoute(456)).toBe('/app/content/lists/456')
-    expect(getListRoute(789)).toBe('/app/content/lists/789')
+    expect(getListRoute('123')).toBe('/app/content/lists/123')
+    expect(getListRoute('456')).toBe('/app/content/lists/456')
+    expect(getListRoute('789')).toBe('/app/content/lists/789')
   })
 
   it('all list routes start with /app/', () => {
-    const testIds = [1, 2, 3, 4]
+    const testIds = ['1', '2', '3', '4']
     for (const id of testIds) {
       expect(getListRoute(id).startsWith('/app/')).toBe(true)
     }

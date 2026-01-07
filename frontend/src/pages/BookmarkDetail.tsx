@@ -52,8 +52,8 @@ export function BookmarkDetail(): ReactNode {
     return 'edit'
   }, [id])
 
-  const bookmarkId = mode === 'edit' ? parseInt(id!, 10) : undefined
-  const isValidId = bookmarkId !== undefined && !isNaN(bookmarkId)
+  const bookmarkId = mode === 'edit' ? id! : undefined
+  const isValidId = bookmarkId !== undefined && bookmarkId.length > 0
 
   const [bookmark, setBookmark] = useState<Bookmark | null>(null)
   const [isLoading, setIsLoading] = useState(mode === 'edit')
@@ -119,7 +119,7 @@ export function BookmarkDetail(): ReactNode {
                 detail?: string | {
                   message?: string
                   error_code?: string
-                  existing_bookmark_id?: number
+                  existing_bookmark_id?: string
                 }
               }
             }

@@ -1,5 +1,6 @@
 """Pydantic schemas for user consent endpoints."""
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -26,8 +27,8 @@ class ConsentCreate(BaseModel):
 class ConsentResponse(BaseModel):
     """Schema for consent response."""
 
-    id: int
-    user_id: int
+    id: UUID
+    user_id: UUID
     consented_at: datetime
     privacy_policy_version: str
     terms_of_service_version: str

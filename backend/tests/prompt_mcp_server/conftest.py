@@ -43,7 +43,7 @@ def mock_auth():
 def sample_prompt() -> dict[str, Any]:
     """Sample prompt response data."""
     return {
-        "id": 1,
+        "id": "550e8400-e29b-41d4-a716-446655440001",
         "name": "code-review",
         "title": "Code Review Assistant",
         "description": "Reviews code and provides feedback",
@@ -73,7 +73,7 @@ def sample_prompt() -> dict[str, Any]:
 def sample_prompt_no_args() -> dict[str, Any]:
     """Sample prompt with no arguments."""
     return {
-        "id": 2,
+        "id": "550e8400-e29b-41d4-a716-446655440002",
         "name": "greeting",
         "title": "Friendly Greeting",
         "description": "A simple greeting prompt",
@@ -92,7 +92,7 @@ def sample_prompt_no_args() -> dict[str, Any]:
 def sample_prompt_optional_args() -> dict[str, Any]:
     """Sample prompt with optional arguments."""
     return {
-        "id": 3,
+        "id": "550e8400-e29b-41d4-a716-446655440003",
         "name": "summarize",
         "title": "Text Summarizer",
         "description": "Summarizes text",

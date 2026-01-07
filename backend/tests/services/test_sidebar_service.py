@@ -1,5 +1,6 @@
 """Tests for sidebar service layer functionality."""
 import copy
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -117,31 +118,36 @@ def test__ensure_sidebar_order_structure__adds_missing_items() -> None:
 
 def test__extract_list_ids_from_items__extracts_from_root() -> None:
     """Test extracting list IDs from root items."""
+    id1 = "550e8400-e29b-41d4-a716-446655440001"
+    id2 = "550e8400-e29b-41d4-a716-446655440002"
     items = [
-        {"type": "list", "id": 1},
+        {"type": "list", "id": id1},
         {"type": "builtin", "key": "all"},
-        {"type": "list", "id": 2},
+        {"type": "list", "id": id2},
     ]
     result = _extract_list_ids_from_items(items)
-    assert result == {1, 2}
+    assert result == {UUID(id1), UUID(id2)}
 
 
 def test__extract_list_ids_from_items__extracts_from_groups() -> None:
     """Test extracting list IDs from groups."""
+    id3 = "550e8400-e29b-41d4-a716-446655440003"
+    id4 = "550e8400-e29b-41d4-a716-446655440004"
+    id5 = "550e8400-e29b-41d4-a716-446655440005"
     items = [
         {
             "type": "group",
             "id": "uuid-1",
             "name": "Group",
             "items": [
-                {"type": "list", "id": 3},
-                {"type": "list", "id": 4},
+                {"type": "list", "id": id3},
+                {"type": "list", "id": id4},
             ],
         },
-        {"type": "list", "id": 5},
+        {"type": "list", "id": id5},
     ]
     result = _extract_list_ids_from_items(items)
-    assert result == {3, 4, 5}
+    assert result == {UUID(id3), UUID(id4), UUID(id5)}
 
 
 def test__extract_builtin_keys_from_items__extracts_all() -> None:
@@ -160,7 +166,7 @@ def test__extract_group_ids_from_items__extracts_ids() -> None:
     items = [
         {"type": "group", "id": "uuid-1", "items": []},
         {"type": "group", "id": "uuid-2", "items": []},
-        {"type": "list", "id": 1},
+        {"type": "list", "id": "550e8400-e29b-41d4-a716-446655440001"},
     ]
     result = _extract_group_ids_from_items(items)
     assert result == {"uuid-1", "uuid-2"}
@@ -173,42 +179,47 @@ def test__extract_group_ids_from_items__extracts_ids() -> None:
 
 def test__remove_list_from_items__removes_from_root() -> None:
     """Test removing a list from root items."""
+    id1 = uuid4()
+    id2 = uuid4()
     items = [
-        {"type": "list", "id": 1},
-        {"type": "list", "id": 2},
+        {"type": "list", "id": str(id1)},
+        {"type": "list", "id": str(id2)},
         {"type": "builtin", "key": "all"},
     ]
-    new_items, was_removed = _remove_list_from_items(items, 1)
+    new_items, was_removed = _remove_list_from_items(items, id1)
 
     assert was_removed is True
     assert len(new_items) == 2
-    assert {"type": "list", "id": 1} not in new_items
+    assert {"type": "list", "id": str(id1)} not in new_items
 
 
 def test__remove_list_from_items__removes_from_group() -> None:
     """Test removing a list from within a group."""
+    id1 = uuid4()
+    id2 = uuid4()
     items = [
         {
             "type": "group",
             "id": "uuid-1",
             "name": "Group",
             "items": [
-                {"type": "list", "id": 1},
-                {"type": "list", "id": 2},
+                {"type": "list", "id": str(id1)},
+                {"type": "list", "id": str(id2)},
             ],
         },
     ]
-    new_items, was_removed = _remove_list_from_items(items, 1)
+    new_items, was_removed = _remove_list_from_items(items, id1)
 
     assert was_removed is True
     assert len(new_items[0]["items"]) == 1
-    assert new_items[0]["items"][0]["id"] == 2
+    assert new_items[0]["items"][0]["id"] == str(id2)
 
 
 def test__remove_list_from_items__returns_false_when_not_found() -> None:
     """Test that removing a nonexistent list returns False."""
-    items = [{"type": "list", "id": 1}]
-    new_items, was_removed = _remove_list_from_items(items, 999)
+    id1 = uuid4()
+    items = [{"type": "list", "id": str(id1)}]
+    new_items, was_removed = _remove_list_from_items(items, uuid4())  # Different UUID
 
     assert was_removed is False
     assert new_items == items
@@ -221,29 +232,31 @@ def test__remove_list_from_items__returns_false_when_not_found() -> None:
 
 def test__validate_sidebar_order__accepts_valid_structure() -> None:
     """Test that a valid structure passes validation."""
+    list_id = uuid4()
     order = SidebarOrder(
         items=[
             SidebarBuiltinItem(type="builtin", key="all"),
-            SidebarListItem(type="list", id=1),
+            SidebarListItem(type="list", id=list_id),
         ],
     )
     # Should not raise
-    _validate_sidebar_order(order, {1})
+    _validate_sidebar_order(order, {list_id})
 
 
 def test__validate_sidebar_order__rejects_duplicate_list() -> None:
     """Test that duplicate list IDs are rejected."""
+    list_id = uuid4()
     order = SidebarOrder(
         items=[
-            SidebarListItem(type="list", id=1),
-            SidebarListItem(type="list", id=1),
+            SidebarListItem(type="list", id=list_id),
+            SidebarListItem(type="list", id=list_id),
         ],
     )
     with pytest.raises(SidebarDuplicateItemError) as exc_info:
-        _validate_sidebar_order(order, {1})
+        _validate_sidebar_order(order, {list_id})
 
     assert exc_info.value.item_type == "list"
-    assert exc_info.value.item_id == 1
+    assert exc_info.value.item_id == list_id
     assert "Duplicate list item" in str(exc_info.value)
 
 
@@ -291,15 +304,17 @@ def test__validate_sidebar_order__rejects_duplicate_group_id() -> None:
 
 def test__validate_sidebar_order__rejects_nonexistent_list() -> None:
     """Test that list IDs not belonging to user are rejected."""
+    missing_id = uuid4()
+    user_ids = {uuid4(), uuid4(), uuid4()}
     order = SidebarOrder(
         items=[
-            SidebarListItem(type="list", id=999),
+            SidebarListItem(type="list", id=missing_id),
         ],
     )
     with pytest.raises(SidebarListNotFoundError) as exc_info:
-        _validate_sidebar_order(order, {1, 2, 3})  # 999 not in set
+        _validate_sidebar_order(order, user_ids)  # missing_id not in set
 
-    assert exc_info.value.list_id == 999
+    assert exc_info.value.list_id == missing_id
     assert "List not found" in str(exc_info.value)
 
 
@@ -327,24 +342,25 @@ def test__validate_sidebar_order__allows_duplicate_group_names() -> None:
 
 def test__validate_sidebar_order__rejects_duplicate_list_across_root_and_group() -> None:
     """Test that a list appearing both at root and inside a group is rejected."""
+    list_id = uuid4()
     order = SidebarOrder(
         items=[
-            SidebarListItem(type="list", id=5),
+            SidebarListItem(type="list", id=list_id),
             SidebarGroup(
                 type="group",
                 id="550e8400-e29b-41d4-a716-446655440000",
                 name="Work",
                 items=[
-                    SidebarListItem(type="list", id=5),  # Duplicate of root list
+                    SidebarListItem(type="list", id=list_id),  # Duplicate of root list
                 ],
             ),
         ],
     )
     with pytest.raises(SidebarDuplicateItemError) as exc_info:
-        _validate_sidebar_order(order, {5})
+        _validate_sidebar_order(order, {list_id})
 
     assert exc_info.value.item_type == "list"
-    assert exc_info.value.item_id == 5
+    assert exc_info.value.item_id == list_id
     assert "Duplicate list item" in str(exc_info.value)
 
 
@@ -378,14 +394,14 @@ async def test__get_computed_sidebar__resolves_list_names(
     test_list: ContentList,
 ) -> None:
     """Test that list names are resolved from database."""
-    # Set up sidebar with the list
+    # Set up sidebar with the list (ID stored as string in JSON)
     settings = UserSettings(
         user_id=test_user.id,
         sidebar_order={
             "version": 1,
             "items": [
                 {"type": "builtin", "key": "all"},
-                {"type": "list", "id": test_list.id},
+                {"type": "list", "id": str(test_list.id)},
             ],
         },
     )
@@ -407,13 +423,14 @@ async def test__get_computed_sidebar__filters_deleted_list_references(
 ) -> None:
     """Test that references to deleted lists are filtered out."""
     # Set up sidebar with a nonexistent list
+    nonexistent_id = str(uuid4())
     settings = UserSettings(
         user_id=test_user.id,
         sidebar_order={
             "version": 1,
             "items": [
                 {"type": "builtin", "key": "all"},
-                {"type": "list", "id": 9999},  # Doesn't exist
+                {"type": "list", "id": nonexistent_id},  # Doesn't exist
             ],
         },
     )
@@ -473,7 +490,7 @@ async def test__get_computed_sidebar__preserves_group_structure(
                     "id": "550e8400-e29b-41d4-a716-446655440000",
                     "name": "Work",
                     "items": [
-                        {"type": "list", "id": test_list.id},
+                        {"type": "list", "id": str(test_list.id)},
                     ],
                 },
             ],
@@ -547,11 +564,12 @@ async def test__add_list_to_sidebar__creates_default_with_list(
     test_user: User,
 ) -> None:
     """Test adding list when no settings exist creates default with list."""
-    result = await add_list_to_sidebar(db_session, test_user.id, 42)
+    list_id = uuid4()
+    result = await add_list_to_sidebar(db_session, test_user.id, list_id)
 
     assert result.sidebar_order is not None
     list_ids = _extract_list_ids_from_items(result.sidebar_order["items"])
-    assert 42 in list_ids
+    assert list_id in list_ids
 
 
 async def test__add_list_to_sidebar__appends_to_existing(
@@ -559,6 +577,7 @@ async def test__add_list_to_sidebar__appends_to_existing(
     test_user: User,
 ) -> None:
     """Test that list is appended to end of existing sidebar."""
+    list_id = uuid4()
     # Create initial sidebar
     settings = UserSettings(
         user_id=test_user.id,
@@ -572,11 +591,11 @@ async def test__add_list_to_sidebar__appends_to_existing(
     db_session.add(settings)
     await db_session.flush()
 
-    result = await add_list_to_sidebar(db_session, test_user.id, 42)
+    result = await add_list_to_sidebar(db_session, test_user.id, list_id)
 
-    # List should be at the end
+    # List should be at the end (stored as string in JSON)
     items = result.sidebar_order["items"]
-    assert items[-1] == {"type": "list", "id": 42}
+    assert items[-1] == {"type": "list", "id": str(list_id)}
 
 
 async def test__add_list_to_sidebar__does_not_duplicate(
@@ -584,23 +603,24 @@ async def test__add_list_to_sidebar__does_not_duplicate(
     test_user: User,
 ) -> None:
     """Test that adding existing list does not create duplicate."""
+    list_id = uuid4()
     settings = UserSettings(
         user_id=test_user.id,
         sidebar_order={
             "version": 1,
             "items": [
-                {"type": "list", "id": 42},
+                {"type": "list", "id": str(list_id)},
             ],
         },
     )
     db_session.add(settings)
     await db_session.flush()
 
-    result = await add_list_to_sidebar(db_session, test_user.id, 42)
+    result = await add_list_to_sidebar(db_session, test_user.id, list_id)
 
     list_ids = _extract_list_ids_from_items(result.sidebar_order["items"])
     # Should only appear once
-    assert list_ids == {42}
+    assert list_ids == {list_id}
 
 
 # =============================================================================
@@ -613,7 +633,7 @@ async def test__remove_list_from_sidebar__returns_none_when_no_settings(
     test_user: User,
 ) -> None:
     """Test that removing list when no settings exist returns None."""
-    result = await remove_list_from_sidebar(db_session, test_user.id, 1)
+    result = await remove_list_from_sidebar(db_session, test_user.id, uuid4())
     assert result is None
 
 
@@ -622,24 +642,25 @@ async def test__remove_list_from_sidebar__removes_from_root(
     test_user: User,
 ) -> None:
     """Test removing list from root level."""
+    list_id = uuid4()
     settings = UserSettings(
         user_id=test_user.id,
         sidebar_order={
             "version": 1,
             "items": [
                 {"type": "builtin", "key": "all"},
-                {"type": "list", "id": 5},
+                {"type": "list", "id": str(list_id)},
             ],
         },
     )
     db_session.add(settings)
     await db_session.flush()
 
-    result = await remove_list_from_sidebar(db_session, test_user.id, 5)
+    result = await remove_list_from_sidebar(db_session, test_user.id, list_id)
 
     assert result is not None
     list_ids = _extract_list_ids_from_items(result.sidebar_order["items"])
-    assert 5 not in list_ids
+    assert list_id not in list_ids
 
 
 async def test__remove_list_from_sidebar__removes_from_group(
@@ -647,6 +668,7 @@ async def test__remove_list_from_sidebar__removes_from_group(
     test_user: User,
 ) -> None:
     """Test removing list from within a group."""
+    list_id = uuid4()
     settings = UserSettings(
         user_id=test_user.id,
         sidebar_order={
@@ -657,7 +679,7 @@ async def test__remove_list_from_sidebar__removes_from_group(
                     "id": "uuid-1",
                     "name": "Work",
                     "items": [
-                        {"type": "list", "id": 10},
+                        {"type": "list", "id": str(list_id)},
                     ],
                 },
             ],
@@ -666,11 +688,11 @@ async def test__remove_list_from_sidebar__removes_from_group(
     db_session.add(settings)
     await db_session.flush()
 
-    result = await remove_list_from_sidebar(db_session, test_user.id, 10)
+    result = await remove_list_from_sidebar(db_session, test_user.id, list_id)
 
     assert result is not None
     list_ids = _extract_list_ids_from_items(result.sidebar_order["items"])
-    assert 10 not in list_ids
+    assert list_id not in list_ids
 
 
 async def test__remove_list_from_sidebar__handles_nonexistent_list(
@@ -691,7 +713,7 @@ async def test__remove_list_from_sidebar__handles_nonexistent_list(
     await db_session.flush()
     original_order = copy.deepcopy(settings.sidebar_order)
 
-    result = await remove_list_from_sidebar(db_session, test_user.id, 999)
+    result = await remove_list_from_sidebar(db_session, test_user.id, uuid4())
 
     assert result is not None
     assert result.sidebar_order == original_order

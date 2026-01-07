@@ -1,4 +1,6 @@
 """Content list CRUD endpoints."""
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,7 +43,7 @@ async def get_lists(
 
 @router.get("/{list_id}", response_model=ContentListResponse)
 async def get_list(
-    list_id: int,
+    list_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> ContentListResponse:
@@ -54,7 +56,7 @@ async def get_list(
 
 @router.patch("/{list_id}", response_model=ContentListResponse)
 async def update_list(
-    list_id: int,
+    list_id: UUID,
     data: ContentListUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -70,7 +72,7 @@ async def update_list(
 
 @router.delete("/{list_id}", status_code=204)
 async def delete_list(
-    list_id: int,
+    list_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> None:

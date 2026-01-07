@@ -14,7 +14,7 @@ export type BookmarkView = 'active' | 'archived' | 'deleted'
 
 interface DerivedTabState {
   view: BookmarkView
-  listId: number | undefined
+  listId: string | undefined
 }
 
 /**
@@ -32,21 +32,20 @@ export function deriveViewFromTabKey(tabKey: string): DerivedTabState {
     return { view: 'deleted', listId: undefined }
   }
   if (tabKey.startsWith('list:')) {
-    const listId = parseInt(tabKey.replace('list:', ''), 10)
-    return { view: 'active', listId: isNaN(listId) ? undefined : listId }
+    const listId = tabKey.replace('list:', '')
+    return { view: 'active', listId: listId || undefined }
   }
   // Default fallback
   return { view: 'active', listId: undefined }
 }
 
 /**
- * Extract list ID from path-based routes like /app/bookmarks/lists/12
+ * Extract list ID from path-based routes like /app/bookmarks/lists/12 or /app/bookmarks/lists/uuid
  */
-function getListIdFromPath(pathname: string): number | undefined {
-  const match = pathname.match(/\/lists\/(\d+)/)
+function getListIdFromPath(pathname: string): string | undefined {
+  const match = pathname.match(/\/lists\/([^/]+)/)
   if (match) {
-    const id = parseInt(match[1], 10)
-    return isNaN(id) ? undefined : id
+    return match[1] || undefined
   }
   return undefined
 }
@@ -65,12 +64,12 @@ function getViewFromPath(pathname: string): BookmarkView {
 }
 
 export interface UseTabNavigationReturn {
-  /** Current tab key from URL (e.g., 'all', 'archived', 'trash', 'list:5') */
+  /** Current tab key from URL (e.g., 'all', 'archived', 'trash', 'list:uuid') */
   currentTabKey: string
   /** Derived view for API calls */
   currentView: BookmarkView
   /** Derived list ID for custom list tabs */
-  currentListId: number | undefined
+  currentListId: string | undefined
   /** Handler to change the current tab */
   handleTabChange: (tabKey: string) => void
 }

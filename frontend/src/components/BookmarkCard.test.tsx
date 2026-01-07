@@ -9,7 +9,7 @@ import { BookmarkCard } from './BookmarkCard'
 import type { BookmarkListItem } from '../types'
 
 const mockBookmark: BookmarkListItem = {
-  id: 1,
+  id: '1',
   url: 'https://example.com/article',
   title: 'Example Article',
   description: 'A test bookmark',

@@ -1,6 +1,7 @@
 """Pydantic schemas for unified content endpoints."""
 from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -15,7 +16,7 @@ class ContentListItem(BaseModel):
     """
 
     type: Literal["bookmark", "note", "prompt"]
-    id: int
+    id: UUID
     title: str | None
     description: str | None
     tags: list[str]

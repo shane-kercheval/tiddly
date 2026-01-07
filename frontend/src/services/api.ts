@@ -27,8 +27,8 @@ type OnAuthErrorFn = () => void
  * Consent API types
  */
 export interface ConsentResponse {
-  id: number
-  user_id: number
+  id: string
+  user_id: string
   consented_at: string
   privacy_policy_version: string
   terms_of_service_version: string

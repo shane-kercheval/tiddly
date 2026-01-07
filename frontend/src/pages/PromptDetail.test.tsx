@@ -20,7 +20,7 @@ vi.mock('react-hot-toast', () => ({
 
 // Mock prompt data
 const mockPrompt: Prompt = {
-  id: 1,
+  id: '1',
   name: 'code-review',
   title: 'Code Review Template',
   description: 'A prompt for reviewing code',
@@ -175,7 +175,7 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
-        expect(mockFetchPrompt).toHaveBeenCalledWith(1)
+        expect(mockFetchPrompt).toHaveBeenCalledWith('1')
       })
     })
 
@@ -183,7 +183,7 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
-        expect(mockTrackPromptUsage).toHaveBeenCalledWith(1)
+        expect(mockTrackPromptUsage).toHaveBeenCalledWith('1')
       })
     })
 
@@ -261,7 +261,7 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/1/edit')
 
       await waitFor(() => {
-        expect(mockFetchPrompt).toHaveBeenCalledWith(1)
+        expect(mockFetchPrompt).toHaveBeenCalledWith('1')
       })
     })
 
@@ -375,11 +375,12 @@ describe('PromptDetail page', () => {
       })
     })
 
-    it('should show error for invalid prompt ID', async () => {
-      renderWithRouter('/app/prompts/invalid')
+    it('should show error when API returns not found', async () => {
+      mockFetchPrompt.mockRejectedValue(new Error('Prompt not found'))
+      renderWithRouter('/app/prompts/invalid-uuid')
 
       await waitFor(() => {
-        expect(screen.getByText('Invalid prompt ID')).toBeInTheDocument()
+        expect(screen.getByText('Prompt not found')).toBeInTheDocument()
       })
     })
   })

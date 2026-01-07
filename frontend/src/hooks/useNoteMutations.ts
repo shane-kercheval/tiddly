@@ -38,7 +38,7 @@ interface OptimisticContext {
  */
 function optimisticallyRemoveNote(
   queryClient: QueryClient,
-  noteId: number
+  noteId: string
 ): OptimisticContext {
   // Snapshot current data before modification
   const previousNoteQueries = queryClient.getQueriesData<NoteListResponse>({
@@ -139,7 +139,7 @@ export function useUpdateNote() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: NoteUpdate }): Promise<Note> => {
+    mutationFn: async ({ id, data }: { id: string; data: NoteUpdate }): Promise<Note> => {
       const response = await api.patch<Note>(`/notes/${id}`, data)
       return response.data
     },
@@ -172,7 +172,7 @@ export function useDeleteNote() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async ({ id, permanent = false }: { id: number; permanent?: boolean }): Promise<void> => {
+    mutationFn: async ({ id, permanent = false }: { id: string; permanent?: boolean }): Promise<void> => {
       const url = permanent ? `/notes/${id}?permanent=true` : `/notes/${id}`
       await api.delete(url)
     },
@@ -220,7 +220,7 @@ export function useRestoreNote() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Note> => {
+    mutationFn: async (id: string): Promise<Note> => {
       const response = await api.post<Note>(`/notes/${id}/restore`)
       return response.data
     },
@@ -261,7 +261,7 @@ export function useArchiveNote() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Note> => {
+    mutationFn: async (id: string): Promise<Note> => {
       const response = await api.post<Note>(`/notes/${id}/archive`)
       return response.data
     },
@@ -302,7 +302,7 @@ export function useUnarchiveNote() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Note> => {
+    mutationFn: async (id: string): Promise<Note> => {
       const response = await api.post<Note>(`/notes/${id}/unarchive`)
       return response.data
     },

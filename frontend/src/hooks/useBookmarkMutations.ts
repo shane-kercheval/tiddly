@@ -38,7 +38,7 @@ interface OptimisticContext {
  */
 function optimisticallyRemoveBookmark(
   queryClient: QueryClient,
-  bookmarkId: number
+  bookmarkId: string
 ): OptimisticContext {
   // Snapshot current data before modification
   const previousBookmarkQueries = queryClient.getQueriesData<BookmarkListResponse>({
@@ -139,7 +139,7 @@ export function useUpdateBookmark() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: BookmarkUpdate }): Promise<Bookmark> => {
+    mutationFn: async ({ id, data }: { id: string; data: BookmarkUpdate }): Promise<Bookmark> => {
       const response = await api.patch<Bookmark>(`/bookmarks/${id}`, data)
       return response.data
     },
@@ -172,7 +172,7 @@ export function useDeleteBookmark() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async ({ id, permanent = false }: { id: number; permanent?: boolean }): Promise<void> => {
+    mutationFn: async ({ id, permanent = false }: { id: string; permanent?: boolean }): Promise<void> => {
       const url = permanent ? `/bookmarks/${id}?permanent=true` : `/bookmarks/${id}`
       await api.delete(url)
     },
@@ -218,7 +218,7 @@ export function useRestoreBookmark() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Bookmark> => {
+    mutationFn: async (id: string): Promise<Bookmark> => {
       const response = await api.post<Bookmark>(`/bookmarks/${id}/restore`)
       return response.data
     },
@@ -259,7 +259,7 @@ export function useArchiveBookmark() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Bookmark> => {
+    mutationFn: async (id: string): Promise<Bookmark> => {
       const response = await api.post<Bookmark>(`/bookmarks/${id}/archive`)
       return response.data
     },
@@ -300,7 +300,7 @@ export function useUnarchiveBookmark() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Bookmark> => {
+    mutationFn: async (id: string): Promise<Bookmark> => {
       const response = await api.post<Bookmark>(`/bookmarks/${id}/unarchive`)
       return response.data
     },

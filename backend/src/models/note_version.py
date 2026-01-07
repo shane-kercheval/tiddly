@@ -1,13 +1,14 @@
 """NoteVersion model for storing note version history (future use)."""
 from datetime import datetime
+from uuid import UUID
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from models.base import Base
+from models.base import Base, UUIDv7Mixin
 
 
-class NoteVersion(Base):
+class NoteVersion(Base, UUIDv7Mixin):
     """
     NoteVersion model - schema for future version history.
 
@@ -30,8 +31,8 @@ class NoteVersion(Base):
         Index("ix_note_versions_note_id_version", "note_id", "version"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    note_id: Mapped[int] = mapped_column(
+    # id provided by UUIDv7Mixin
+    note_id: Mapped[UUID] = mapped_column(
         ForeignKey("notes.id", ondelete="CASCADE"),
     )
     version: Mapped[int] = mapped_column(nullable=False)

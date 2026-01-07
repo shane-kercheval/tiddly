@@ -1,17 +1,18 @@
 """API Token model for Personal Access Tokens (PATs)."""
 from datetime import datetime
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import Base, TimestampMixin
+from models.base import Base, TimestampMixin, UUIDv7Mixin
 
 if TYPE_CHECKING:
     from models.user import User
 
 
-class ApiToken(Base, TimestampMixin):
+class ApiToken(Base, UUIDv7Mixin, TimestampMixin):
     """
     API Token model for programmatic access (CLI, MCP, scripts).
 
@@ -21,8 +22,8 @@ class ApiToken(Base, TimestampMixin):
 
     __tablename__ = "api_tokens"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(
+    # id provided by UUIDv7Mixin
+    user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
     )

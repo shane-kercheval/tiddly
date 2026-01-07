@@ -1,4 +1,6 @@
 """Tests for user creation defaults."""
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,7 +9,7 @@ from core.auth import get_or_create_user
 from services import user_service
 
 
-async def _get_user_lists(db_session: AsyncSession, user_id: int) -> list[ContentList]:
+async def _get_user_lists(db_session: AsyncSession, user_id: UUID) -> list[ContentList]:
     result = await db_session.execute(
         select(ContentList).where(ContentList.user_id == user_id),
     )

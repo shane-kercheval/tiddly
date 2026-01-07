@@ -45,7 +45,7 @@ export function SettingsTokens(): ReactNode {
     return response
   }
 
-  const handleDeleteToken = async (id: number): Promise<void> => {
+  const handleDeleteToken = async (id: string): Promise<void> => {
     try {
       await deleteToken(id)
     } catch {

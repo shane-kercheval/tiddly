@@ -13,8 +13,8 @@ interface ListManagerProps {
   isLoading: boolean
   tagSuggestions: TagCount[]
   onCreate: (data: ContentListCreate) => Promise<ContentList>
-  onUpdate: (id: number, data: ContentListUpdate) => Promise<ContentList>
-  onDelete: (id: number) => Promise<void>
+  onUpdate: (id: string, data: ContentListUpdate) => Promise<ContentList>
+  onDelete: (id: string) => Promise<void>
   /** If true, opens the create modal (controlled by parent) */
   isCreateModalOpen?: boolean
   /** Called when create modal should close */

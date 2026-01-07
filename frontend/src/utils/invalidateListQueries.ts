@@ -23,14 +23,14 @@ import { contentKeys } from '../hooks/useContentQuery'
  */
 export async function invalidateListQueries(
   queryClient: QueryClient,
-  listId: number
+  listId: string
 ): Promise<void> {
   const PARAMS_INDEX = 3
 
   await queryClient.invalidateQueries({
     queryKey: bookmarkKeys.customLists(),
     predicate: (query) => {
-      const params = query.queryKey[PARAMS_INDEX] as { list_id?: number } | undefined
+      const params = query.queryKey[PARAMS_INDEX] as { list_id?: string } | undefined
       return params?.list_id === listId
     },
   })
@@ -38,7 +38,7 @@ export async function invalidateListQueries(
   await queryClient.invalidateQueries({
     queryKey: noteKeys.customLists(),
     predicate: (query) => {
-      const params = query.queryKey[PARAMS_INDEX] as { list_id?: number } | undefined
+      const params = query.queryKey[PARAMS_INDEX] as { list_id?: string } | undefined
       return params?.list_id === listId
     },
   })
@@ -46,7 +46,7 @@ export async function invalidateListQueries(
   await queryClient.invalidateQueries({
     queryKey: promptKeys.customLists(),
     predicate: (query) => {
-      const params = query.queryKey[PARAMS_INDEX] as { list_id?: number } | undefined
+      const params = query.queryKey[PARAMS_INDEX] as { list_id?: string } | undefined
       return params?.list_id === listId
     },
   })
@@ -55,7 +55,7 @@ export async function invalidateListQueries(
   await queryClient.invalidateQueries({
     queryKey: contentKeys.lists(),
     predicate: (query) => {
-      const params = query.queryKey[PARAMS_INDEX] as { list_id?: number } | undefined
+      const params = query.queryKey[PARAMS_INDEX] as { list_id?: string } | undefined
       return params?.list_id === listId
     },
   })

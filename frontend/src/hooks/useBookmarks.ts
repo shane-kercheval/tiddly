@@ -15,11 +15,11 @@ import type { Bookmark, MetadataPreviewResponse } from '../types'
 
 interface UseBookmarksReturn {
   /** Fetch a single bookmark by ID (with full content for editing) */
-  fetchBookmark: (id: number) => Promise<Bookmark>
+  fetchBookmark: (id: string) => Promise<Bookmark>
   /** Fetch metadata preview for a URL */
   fetchMetadata: (url: string) => Promise<MetadataPreviewResponse>
   /** Track bookmark usage (fire-and-forget) */
-  trackBookmarkUsage: (id: number) => void
+  trackBookmarkUsage: (id: string) => void
 }
 
 /**
@@ -40,7 +40,7 @@ interface UseBookmarksReturn {
  * ```
  */
 export function useBookmarks(): UseBookmarksReturn {
-  const fetchBookmark = useCallback(async (id: number): Promise<Bookmark> => {
+  const fetchBookmark = useCallback(async (id: string): Promise<Bookmark> => {
     const response = await api.get<Bookmark>(`/bookmarks/${id}`)
     return response.data
   }, [])
@@ -52,7 +52,7 @@ export function useBookmarks(): UseBookmarksReturn {
     return response.data
   }, [])
 
-  const trackBookmarkUsage = useCallback((id: number): void => {
+  const trackBookmarkUsage = useCallback((id: string): void => {
     // Fire-and-forget: no await, no error handling
     // This is non-critical tracking that shouldn't block user navigation
     api.post(`/bookmarks/${id}/track-usage`).catch(() => {

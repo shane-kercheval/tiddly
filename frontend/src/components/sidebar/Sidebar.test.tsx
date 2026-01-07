@@ -19,7 +19,7 @@ vi.mock('../../stores/listsStore', () => ({
   useListsStore: (selector: (state: Record<string, unknown>) => unknown) => {
     const state = {
       lists: [{
-        id: 5,
+        id: '5',
         name: 'Test List',
         content_types: ['bookmark'],
         filter_expression: { groups: [{ tags: ['work', 'urgent'], operator: 'AND' }], group_operator: 'OR' },
@@ -45,7 +45,7 @@ vi.mock('../../stores/settingsStore', () => ({
           version: 1,
           items: [
             { type: 'builtin', key: 'all', name: 'All Content' },
-            { type: 'list', id: 5, name: 'Test List', content_types: ['bookmark'] },
+            { type: 'list', id: '5', name: 'Test List', content_types: ['bookmark'] },
           ],
         },
         fetchSidebar: mockFetchSidebar,
@@ -62,7 +62,7 @@ vi.mock('../../stores/settingsStore', () => ({
           version: 1,
           items: [
             { type: 'builtin', key: 'all', name: 'All Content' },
-            { type: 'list', id: 5, name: 'Test List', content_types: ['bookmark'] },
+            { type: 'list', id: '5', name: 'Test List', content_types: ['bookmark'] },
           ],
         },
       }),
@@ -189,7 +189,7 @@ describe('Sidebar', () => {
 
       // Wait for delete to complete
       await waitFor(() => {
-        expect(mockDeleteList).toHaveBeenCalledWith(5)
+        expect(mockDeleteList).toHaveBeenCalledWith('5')
       })
 
       // Verify navigated to /app/content (the "All" route)
@@ -222,7 +222,7 @@ describe('Sidebar', () => {
 
       // Wait for delete to complete
       await waitFor(() => {
-        expect(mockDeleteList).toHaveBeenCalledWith(5)
+        expect(mockDeleteList).toHaveBeenCalledWith('5')
       })
 
       // Path should NOT have changed since we weren't viewing list:5
@@ -254,7 +254,7 @@ describe('Sidebar', () => {
 
       // Wait for delete attempt and rollback
       await waitFor(() => {
-        expect(mockDeleteList).toHaveBeenCalledWith(5)
+        expect(mockDeleteList).toHaveBeenCalledWith('5')
       })
 
       await waitFor(() => {

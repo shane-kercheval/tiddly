@@ -33,17 +33,17 @@ describe('deriveViewFromTabKey', () => {
 
   it('returns active view with listId for "list:N" tab', () => {
     const result = deriveViewFromTabKey('list:5')
-    expect(result).toEqual({ view: 'active', listId: 5 })
+    expect(result).toEqual({ view: 'active', listId: '5' })
   })
 
   it('returns active view with listId for "list:123" tab', () => {
     const result = deriveViewFromTabKey('list:123')
-    expect(result).toEqual({ view: 'active', listId: 123 })
+    expect(result).toEqual({ view: 'active', listId: '123' })
   })
 
   it('returns undefined listId for invalid list format "list:invalid"', () => {
     const result = deriveViewFromTabKey('list:invalid')
-    expect(result).toEqual({ view: 'active', listId: undefined })
+    expect(result).toEqual({ view: 'active', listId: 'invalid' })
   })
 
   it('returns undefined listId for empty list "list:"', () => {
@@ -105,7 +105,7 @@ describe('useTabNavigation', () => {
       sidebar: {
         version: 1,
         items: [
-          { type: 'list', id: 1, name: 'My List', content_types: ['bookmark'] },
+          { type: 'list', id: '1', name: 'My List', content_types: ['bookmark'] },
           { type: 'builtin', key: 'all', name: 'All Content' },
         ],
       },
@@ -144,7 +144,7 @@ describe('useTabNavigation', () => {
 
     expect(result.current.currentTabKey).toBe('list:42')
     expect(result.current.currentView).toBe('active')
-    expect(result.current.currentListId).toBe(42)
+    expect(result.current.currentListId).toBe('42')
   })
 
   it('handleTabChange updates URL for non-default tab', () => {
@@ -211,7 +211,7 @@ describe('useTabNavigation', () => {
 
       expect(result.current.currentTabKey).toBe('list:12')
       expect(result.current.currentView).toBe('active')
-      expect(result.current.currentListId).toBe(12)
+      expect(result.current.currentListId).toBe('12')
     })
 
     it('reads list ID from path /app/notes/lists/42', () => {
@@ -221,7 +221,7 @@ describe('useTabNavigation', () => {
 
       expect(result.current.currentTabKey).toBe('list:42')
       expect(result.current.currentView).toBe('active')
-      expect(result.current.currentListId).toBe(42)
+      expect(result.current.currentListId).toBe('42')
     })
 
     it('reads list ID from path /app/content/lists/99', () => {
@@ -231,7 +231,7 @@ describe('useTabNavigation', () => {
 
       expect(result.current.currentTabKey).toBe('list:99')
       expect(result.current.currentView).toBe('active')
-      expect(result.current.currentListId).toBe(99)
+      expect(result.current.currentListId).toBe('99')
     })
 
     it('reads archived from path /app/bookmarks/archived', () => {
@@ -261,7 +261,7 @@ describe('useTabNavigation', () => {
 
       // Query param takes precedence
       expect(result.current.currentTabKey).toBe('list:99')
-      expect(result.current.currentListId).toBe(99)
+      expect(result.current.currentListId).toBe('99')
     })
   })
 })

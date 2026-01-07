@@ -1,5 +1,6 @@
 """Service layer for note CRUD operations."""
 import logging
+from uuid import UUID
 
 from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,7 +52,7 @@ class NoteService(BaseEntityService[Note]):
     async def create(
         self,
         db: AsyncSession,
-        user_id: int,
+        user_id: UUID,
         data: NoteCreate,
     ) -> Note:
         """
@@ -86,8 +87,8 @@ class NoteService(BaseEntityService[Note]):
     async def update(
         self,
         db: AsyncSession,
-        user_id: int,
-        note_id: int,
+        user_id: UUID,
+        note_id: UUID,
         data: NoteUpdate,
     ) -> Note | None:
         """

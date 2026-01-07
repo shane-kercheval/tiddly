@@ -55,8 +55,8 @@ export function NoteDetail(): ReactNode {
     return 'view'
   }, [id, location.pathname])
 
-  const noteId = mode !== 'create' ? parseInt(id!, 10) : undefined
-  const isValidId = noteId !== undefined && !isNaN(noteId)
+  const noteId = mode !== 'create' ? id! : undefined
+  const isValidId = noteId !== undefined && noteId.length > 0
 
   // State
   const [note, setNote] = useState<Note | null>(null)
@@ -119,7 +119,7 @@ export function NoteDetail(): ReactNode {
   }, [mode, noteId, isValidId, fetchNote, trackNoteUsage])
 
   // Navigation helpers
-  const navigateToView = useCallback((noteId: number): void => {
+  const navigateToView = useCallback((noteId: string): void => {
     // Preserve returnTo state when navigating to view
     navigate(`/app/notes/${noteId}`, { state: { returnTo } })
   }, [navigate, returnTo])

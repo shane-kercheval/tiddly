@@ -14,7 +14,7 @@ interface ListModalProps {
   list?: ContentList
   tagSuggestions: TagCount[]
   onCreate?: (data: ContentListCreate) => Promise<ContentList>
-  onUpdate?: (id: number, data: ContentListUpdate) => Promise<ContentList>
+  onUpdate?: (id: string, data: ContentListUpdate) => Promise<ContentList>
 }
 
 /**

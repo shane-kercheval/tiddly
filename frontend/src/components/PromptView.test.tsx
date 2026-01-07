@@ -8,7 +8,7 @@ import { PromptView } from './PromptView'
 import type { Prompt } from '../types'
 
 const mockPrompt: Prompt = {
-  id: 1,
+  id: '1',
   name: 'code-review',
   title: 'Code Review Template',
   description: 'A prompt for reviewing code',

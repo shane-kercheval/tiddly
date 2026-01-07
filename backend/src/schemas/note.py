@@ -1,6 +1,7 @@
 """Pydantic schemas for note endpoints."""
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -127,7 +128,7 @@ class NoteListItem(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     title: str
     description: str | None
     tags: list[str]

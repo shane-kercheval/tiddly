@@ -1,11 +1,12 @@
 """Note model for storing user notes with markdown content."""
 from datetime import datetime
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import ArchivableMixin, Base, TimestampMixin
+from models.base import ArchivableMixin, Base, TimestampMixin, UUIDv7Mixin
 from models.tag import note_tags
 
 if TYPE_CHECKING:
@@ -13,13 +14,13 @@ if TYPE_CHECKING:
     from models.user import User
 
 
-class Note(Base, TimestampMixin, ArchivableMixin):
+class Note(Base, UUIDv7Mixin, TimestampMixin, ArchivableMixin):
     """Note model - stores user notes with markdown content and tags."""
 
     __tablename__ = "notes"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(
+    # id provided by UUIDv7Mixin
+    user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
     )

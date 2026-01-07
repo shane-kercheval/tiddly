@@ -1,6 +1,7 @@
 """Service layer for sidebar operations."""
 import copy
 import logging
+from uuid import UUID
 
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,12 +49,14 @@ def get_default_sidebar_order() -> dict:
     }
 
 
-def _extract_list_ids_from_items(items: list[dict]) -> set[int]:
+def _extract_list_ids_from_items(items: list[dict]) -> set[UUID]:
     """Extract all list IDs from a list of sidebar items (recursive for groups)."""
-    list_ids: set[int] = set()
+    list_ids: set[UUID] = set()
     for item in items:
         if item.get("type") == "list":
-            list_ids.add(item["id"])
+            # IDs are stored as strings in JSON, convert to UUID
+            item_id = item["id"]
+            list_ids.add(UUID(item_id) if isinstance(item_id, str) else item_id)
         elif item.get("type") == "group":
             list_ids.update(_extract_list_ids_from_items(item.get("items", [])))
     return list_ids
@@ -114,8 +117,8 @@ def _compute_builtin_item(key: BuiltinKey) -> SidebarBuiltinItemComputed:
 
 
 def _compute_list_item(
-    list_id: int,
-    list_map: dict[int, ContentList],
+    list_id: UUID,
+    list_map: dict[UUID, ContentList],
 ) -> SidebarListItemComputed | None:
     """Create a computed list item, or None if list doesn't exist."""
     content_list = list_map.get(list_id)
@@ -131,8 +134,8 @@ def _compute_list_item(
 
 def _compute_items(
     items: list[dict],
-    list_map: dict[int, ContentList],
-    seen_list_ids: set[int],
+    list_map: dict[UUID, ContentList],
+    seen_list_ids: set[UUID],
 ) -> list[SidebarBuiltinItemComputed | SidebarListItemComputed | SidebarGroupComputed]:
     """
     Compute a list of sidebar items, resolving list names and filtering orphans.
@@ -158,8 +161,10 @@ def _compute_items(
                 computed.append(_compute_builtin_item(key))
 
         elif item_type == "list":
-            list_id = item.get("id")
-            if list_id is not None:
+            raw_list_id = item.get("id")
+            if raw_list_id is not None:
+                # Convert string ID from JSON to UUID
+                list_id = UUID(raw_list_id) if isinstance(raw_list_id, str) else raw_list_id
                 computed_item = _compute_list_item(list_id, list_map)
                 if computed_item is not None:
                     computed.append(computed_item)
@@ -204,7 +209,7 @@ def _compute_items(
 
 async def get_computed_sidebar(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     lists: list[ContentList],
 ) -> SidebarOrderComputed:
     """
@@ -232,7 +237,7 @@ async def get_computed_sidebar(
     list_map = {lst.id: lst for lst in lists}
 
     # Track which lists we've seen in the sidebar structure
-    seen_list_ids: set[int] = set()
+    seen_list_ids: set[UUID] = set()
 
     # Compute items (resolves names, filters deleted lists)
     computed_items = _compute_items(
@@ -264,7 +269,7 @@ async def get_computed_sidebar(
 
 def _validate_sidebar_order(
     sidebar_order: SidebarOrder,
-    user_list_ids: set[int],
+    user_list_ids: set[UUID],
 ) -> None:
     """
     Validate a sidebar order structure.
@@ -279,7 +284,7 @@ def _validate_sidebar_order(
         SidebarNestedGroupError: If groups are nested.
     """
     # Extract all items for duplicate checking
-    seen_list_ids: set[int] = set()
+    seen_list_ids: set[UUID] = set()
     seen_builtin_keys: set[str] = set()
     seen_group_ids: set[str] = set()
 
@@ -315,9 +320,9 @@ def _validate_sidebar_order(
 
 async def update_sidebar_order(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     sidebar_order: SidebarOrder,
-    user_list_ids: set[int],
+    user_list_ids: set[UUID],
 ) -> UserSettings:
     """
     Validate and save sidebar structure.
@@ -342,8 +347,8 @@ async def update_sidebar_order(
     # Get or create settings
     settings = await get_or_create_settings(db, user_id)
 
-    # Save the sidebar order
-    settings.sidebar_order = sidebar_order.model_dump()
+    # Save the sidebar order (use mode='json' to serialize UUIDs as strings)
+    settings.sidebar_order = sidebar_order.model_dump(mode='json')
     flag_modified(settings, "sidebar_order")
     settings.updated_at = func.clock_timestamp()
 
@@ -354,8 +359,8 @@ async def update_sidebar_order(
 
 async def add_list_to_sidebar(
     db: AsyncSession,
-    user_id: int,
-    list_id: int,
+    user_id: UUID,
+    list_id: UUID,
 ) -> UserSettings:
     """
     Add a newly created list to the end of sidebar_order.items.
@@ -379,8 +384,8 @@ async def add_list_to_sidebar(
         # List already exists, no change needed
         return settings
 
-    # Append to the end of root items
-    sidebar_order["items"].append({"type": "list", "id": list_id})
+    # Append to the end of root items (convert UUID to string for JSON storage)
+    sidebar_order["items"].append({"type": "list", "id": str(list_id)})
 
     settings.sidebar_order = sidebar_order
     flag_modified(settings, "sidebar_order")
@@ -391,7 +396,7 @@ async def add_list_to_sidebar(
     return settings
 
 
-def _remove_list_from_items(items: list[dict], list_id: int) -> tuple[list[dict], bool]:
+def _remove_list_from_items(items: list[dict], list_id: UUID) -> tuple[list[dict], bool]:
     """
     Remove a list from items (recursively searches groups).
 
@@ -406,9 +411,12 @@ def _remove_list_from_items(items: list[dict], list_id: int) -> tuple[list[dict]
     was_removed = False
 
     for item in items:
-        if item.get("type") == "list" and item.get("id") == list_id:
-            was_removed = True
-            continue
+        if item.get("type") == "list":
+            # Compare with string version since IDs are stored as strings in JSON
+            item_id_str = item.get("id")
+            if item_id_str == str(list_id):
+                was_removed = True
+                continue
 
         if item.get("type") == "group":
             # Recursively process group items
@@ -427,8 +435,8 @@ def _remove_list_from_items(items: list[dict], list_id: int) -> tuple[list[dict]
 
 async def remove_list_from_sidebar(
     db: AsyncSession,
-    user_id: int,
-    list_id: int,
+    user_id: UUID,
+    list_id: UUID,
 ) -> UserSettings | None:
     """
     Remove a list from sidebar_order.

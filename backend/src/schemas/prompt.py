@@ -1,6 +1,7 @@
 """Pydantic schemas for prompt endpoints."""
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -168,7 +169,7 @@ class PromptListItem(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     name: str
     title: str | None
     description: str | None

@@ -1,5 +1,6 @@
 """Tests for token service layer functionality."""
 from datetime import datetime, timedelta, UTC
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
@@ -229,7 +230,7 @@ async def test__get_token_by_id__returns_none_if_not_exists(
     test_user: User,
 ) -> None:
     """Test that get_token_by_id returns None for non-existent token."""
-    result = await get_token_by_id(db_session, test_user.id, 99999)
+    result = await get_token_by_id(db_session, test_user.id, uuid4())
 
     assert result is None
 
@@ -281,7 +282,7 @@ async def test__delete_token__returns_false_if_not_exists(
     test_user: User,
 ) -> None:
     """Test that delete_token returns False for non-existent token."""
-    result = await delete_token(db_session, test_user.id, 99999)
+    result = await delete_token(db_session, test_user.id, uuid4())
 
     assert result is False
 

@@ -80,25 +80,27 @@ async def test__get_bookmark__success(
     sample_bookmark: dict[str, Any],
 ) -> None:
     """Test getting a bookmark by ID."""
-    mock_api.get("/bookmarks/1").mock(
+    bookmark_id = "550e8400-e29b-41d4-a716-446655440001"
+    mock_api.get(f"/bookmarks/{bookmark_id}").mock(
         return_value=Response(200, json=sample_bookmark),
     )
 
-    result = await mcp_client.call_tool("get_bookmark", {"bookmark_id": 1})
+    result = await mcp_client.call_tool("get_bookmark", {"bookmark_id": bookmark_id})
 
-    assert result.data["id"] == 1
+    assert result.data["id"] == bookmark_id
     assert result.data["url"] == "https://example.com"
 
 
 @pytest.mark.asyncio
 async def test__get_bookmark__not_found(mock_api, mcp_client: Client) -> None:
     """Test 404 error handling."""
-    mock_api.get("/bookmarks/999").mock(
+    missing_id = "00000000-0000-0000-0000-000000000000"
+    mock_api.get(f"/bookmarks/{missing_id}").mock(
         return_value=Response(404, json={"detail": "Not found"}),
     )
 
     result = await mcp_client.call_tool(
-        "get_bookmark", {"bookmark_id": 999}, raise_on_error=False,
+        "get_bookmark", {"bookmark_id": missing_id}, raise_on_error=False,
     )
 
     assert result.is_error
@@ -121,7 +123,7 @@ async def test__create_bookmark__success(
         {"url": "https://example.com", "title": "Example", "tags": ["test"]},
     )
 
-    assert result.data["id"] == 1
+    assert result.data["id"] == "550e8400-e29b-41d4-a716-446655440001"
 
 
 @pytest.mark.asyncio
@@ -150,6 +152,7 @@ async def test__create_bookmark__duplicate_active(mock_api, mcp_client: Client) 
 @pytest.mark.asyncio
 async def test__create_bookmark__archived_exists(mock_api, mcp_client: Client) -> None:
     """Test duplicate URL error (archived bookmark exists)."""
+    archived_id = "550e8400-e29b-41d4-a716-446655440042"
     mock_api.post("/bookmarks/").mock(
         return_value=Response(
             409,
@@ -157,7 +160,7 @@ async def test__create_bookmark__archived_exists(mock_api, mcp_client: Client) -
                 "detail": {
                     "message": "Archived bookmark exists",
                     "error_code": "ARCHIVED_URL_EXISTS",
-                    "existing_bookmark_id": 42,
+                    "existing_bookmark_id": archived_id,
                 },
             },
         ),
@@ -170,7 +173,7 @@ async def test__create_bookmark__archived_exists(mock_api, mcp_client: Client) -
     assert result.is_error
     error_text = result.content[0].text.lower()
     assert "archived" in error_text
-    assert "42" in result.content[0].text
+    assert archived_id in result.content[0].text
 
 
 @pytest.mark.asyncio
@@ -317,13 +320,14 @@ async def test__get_note__success(
     sample_note: dict[str, Any],
 ) -> None:
     """Test getting a note by ID."""
-    mock_api.get("/notes/1").mock(
+    note_id = "550e8400-e29b-41d4-a716-446655440002"
+    mock_api.get(f"/notes/{note_id}").mock(
         return_value=Response(200, json=sample_note),
     )
 
-    result = await mcp_client.call_tool("get_note", {"note_id": 1})
+    result = await mcp_client.call_tool("get_note", {"note_id": note_id})
 
-    assert result.data["id"] == 1
+    assert result.data["id"] == note_id
     assert result.data["title"] == "Test Note"
     assert result.data["content"] is not None
 
@@ -331,12 +335,13 @@ async def test__get_note__success(
 @pytest.mark.asyncio
 async def test__get_note__not_found(mock_api, mcp_client: Client) -> None:
     """Test 404 error handling for notes."""
-    mock_api.get("/notes/999").mock(
+    missing_id = "00000000-0000-0000-0000-000000000000"
+    mock_api.get(f"/notes/{missing_id}").mock(
         return_value=Response(404, json={"detail": "Not found"}),
     )
 
     result = await mcp_client.call_tool(
-        "get_note", {"note_id": 999}, raise_on_error=False,
+        "get_note", {"note_id": missing_id}, raise_on_error=False,
     )
 
     assert result.is_error
@@ -366,7 +371,7 @@ async def test__create_note__success(
         },
     )
 
-    assert result.data["id"] == 1
+    assert result.data["id"] == "550e8400-e29b-41d4-a716-446655440002"
     assert result.data["title"] == "Test Note"
 
 
@@ -386,7 +391,7 @@ async def test__create_note__minimal(
         {"title": "Quick Note"},
     )
 
-    assert result.data["id"] == 1
+    assert result.data["id"] == "550e8400-e29b-41d4-a716-446655440002"
 
 
 @pytest.mark.asyncio

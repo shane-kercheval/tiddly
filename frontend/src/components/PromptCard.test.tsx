@@ -8,7 +8,7 @@ import { PromptCard } from './PromptCard'
 import type { PromptListItem } from '../types'
 
 const mockPrompt: PromptListItem = {
-  id: 1,
+  id: '1',
   name: 'code-review',
   title: 'Code Review Prompt',
   description: 'A prompt for reviewing code',

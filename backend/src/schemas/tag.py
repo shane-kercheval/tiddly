@@ -1,5 +1,6 @@
 """Pydantic schemas for tag endpoints."""
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -24,7 +25,7 @@ class TagResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     name: str
     created_at: datetime
 

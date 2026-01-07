@@ -40,7 +40,7 @@ interface OriginalValues {
 
 interface UsePromptDraftOptions {
   /** The prompt ID (undefined for new prompts) */
-  promptId?: number
+  promptId?: string
   /** Current form state */
   formState: FormState
   /** Original values to compare against for dirty detection */
@@ -65,14 +65,14 @@ interface UsePromptDraftResult {
 /**
  * Get the localStorage key for a prompt draft.
  */
-function getDraftKey(promptId?: number): string {
+function getDraftKey(promptId?: string): string {
   return promptId ? `${DRAFT_KEY_PREFIX}${promptId}` : `${DRAFT_KEY_PREFIX}new`
 }
 
 /**
  * Load draft from localStorage if available.
  */
-function loadDraftFromStorage(promptId?: number): DraftData | null {
+function loadDraftFromStorage(promptId?: string): DraftData | null {
   try {
     const key = getDraftKey(promptId)
     const stored = localStorage.getItem(key)
@@ -88,7 +88,7 @@ function loadDraftFromStorage(promptId?: number): DraftData | null {
 /**
  * Save draft to localStorage.
  */
-function saveDraftToStorage(promptId: number | undefined, data: DraftData): void {
+function saveDraftToStorage(promptId: string | undefined, data: DraftData): void {
   try {
     const key = getDraftKey(promptId)
     localStorage.setItem(key, JSON.stringify(data))
@@ -100,7 +100,7 @@ function saveDraftToStorage(promptId: number | undefined, data: DraftData): void
 /**
  * Clear draft from localStorage.
  */
-function clearDraftFromStorage(promptId?: number): void {
+function clearDraftFromStorage(promptId?: string): void {
   try {
     const key = getDraftKey(promptId)
     localStorage.removeItem(key)

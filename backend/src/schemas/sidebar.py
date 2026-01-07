@@ -1,5 +1,6 @@
 """Pydantic schemas for sidebar structure and API endpoints."""
 from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -29,7 +30,7 @@ class SidebarListItem(BaseModel):
     """A user-created list item."""
 
     type: Literal["list"]
-    id: int
+    id: UUID
 
 
 class SidebarGroup(BaseModel):

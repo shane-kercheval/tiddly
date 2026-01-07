@@ -1,6 +1,7 @@
 """Tests for bookmark CRUD endpoints."""
 from datetime import datetime, UTC
 from unittest.mock import AsyncMock, patch
+from uuid import UUID
 
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -50,13 +51,13 @@ async def test_create_bookmark(client: AsyncClient, db_session: AsyncSession) ->
     assert data["summary"] is None  # AI summary not implemented yet
     assert data["deleted_at"] is None
     assert data["archived_at"] is None
-    assert isinstance(data["id"], int)
+    assert isinstance(data["id"], str)
     assert "created_at" in data
     assert "updated_at" in data
     assert "last_used_at" in data
 
     # Verify in database
-    result = await db_session.execute(select(Bookmark).where(Bookmark.id == data["id"]))
+    result = await db_session.execute(select(Bookmark).where(Bookmark.id == UUID(data["id"])))
     bookmark = result.scalar_one()
     assert bookmark.url == "https://example.com/"
     assert bookmark.title == "Example Site"
@@ -202,7 +203,7 @@ async def test_create_bookmark_with_content(
     assert data["content"] == "This is the article content for search."
 
     # Verify content is stored in database
-    result = await db_session.execute(select(Bookmark).where(Bookmark.id == data["id"]))
+    result = await db_session.execute(select(Bookmark).where(Bookmark.id == UUID(data["id"])))
     bookmark = result.scalar_one()
     assert bookmark.content == "This is the article content for search."
 
@@ -375,7 +376,7 @@ async def test_get_bookmark(client: AsyncClient) -> None:
 
 async def test_get_bookmark_not_found(client: AsyncClient) -> None:
     """Test getting a non-existent bookmark returns 404."""
-    response = await client.get("/bookmarks/99999")
+    response = await client.get("/bookmarks/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
     assert response.json()["detail"] == "Bookmark not found"
 
@@ -459,7 +460,7 @@ async def test_update_bookmark_updates_updated_at(client: AsyncClient) -> None:
 async def test_update_bookmark_not_found(client: AsyncClient) -> None:
     """Test updating a non-existent bookmark returns 404."""
     response = await client.patch(
-        "/bookmarks/99999",
+        "/bookmarks/00000000-0000-0000-0000-000000000000",
         json={"title": "Won't Work"},
     )
     assert response.status_code == 404
@@ -486,7 +487,7 @@ async def test_delete_bookmark(client: AsyncClient) -> None:
 
 async def test_delete_bookmark_not_found(client: AsyncClient) -> None:
     """Test deleting a non-existent bookmark returns 404."""
-    response = await client.delete("/bookmarks/99999")
+    response = await client.delete("/bookmarks/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
     assert response.json()["detail"] == "Bookmark not found"
 
@@ -1448,7 +1449,7 @@ async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
 
     # Mock the rate limiter to simulate rate limit exceeded
     async def mock_check(
-        _user_id: int, _auth_type: object, _operation_type: object,
+        _user_id: object, _auth_type: object, _operation_type: object,
     ) -> RateLimitResult:
         return RateLimitResult(
             allowed=False,
@@ -1948,7 +1949,7 @@ async def test_restore_bookmark_url_conflict_returns_409(client: AsyncClient) ->
 
 async def test_restore_bookmark_not_found_returns_404(client: AsyncClient) -> None:
     """Test that restoring a non-existent bookmark returns 404."""
-    response = await client.post("/bookmarks/99999/restore")
+    response = await client.post("/bookmarks/00000000-0000-0000-0000-000000000000/restore")
     assert response.status_code == 404
 
 
@@ -1997,7 +1998,7 @@ async def test_archive_bookmark_is_idempotent(client: AsyncClient) -> None:
 
 async def test_archive_bookmark_not_found_returns_404(client: AsyncClient) -> None:
     """Test that archiving a non-existent bookmark returns 404."""
-    response = await client.post("/bookmarks/99999/archive")
+    response = await client.post("/bookmarks/00000000-0000-0000-0000-000000000000/archive")
     assert response.status_code == 404
 
 
@@ -2047,7 +2048,7 @@ async def test_unarchive_bookmark_not_archived_returns_400(client: AsyncClient) 
 
 async def test_unarchive_bookmark_not_found_returns_404(client: AsyncClient) -> None:
     """Test that unarchiving a non-existent bookmark returns 404."""
-    response = await client.post("/bookmarks/99999/unarchive")
+    response = await client.post("/bookmarks/00000000-0000-0000-0000-000000000000/unarchive")
     assert response.status_code == 404
 
 
@@ -2421,7 +2422,7 @@ async def test_track_bookmark_usage_success(
 
 async def test_track_bookmark_usage_not_found(client: AsyncClient) -> None:
     """Test that POST /bookmarks/{id}/track-usage returns 404 for non-existent bookmark."""
-    response = await client.post("/bookmarks/99999/track-usage")
+    response = await client.post("/bookmarks/00000000-0000-0000-0000-000000000000/track-usage")
     assert response.status_code == 404
     assert response.json()["detail"] == "Bookmark not found"
 
@@ -2603,7 +2604,7 @@ async def test_list_bookmarks_with_list_id_complex_filter(client: AsyncClient) -
 
 async def test_list_bookmarks_with_list_id_not_found(client: AsyncClient) -> None:
     """Test that non-existent list_id returns 404."""
-    response = await client.get("/bookmarks/?list_id=99999")
+    response = await client.get("/bookmarks/?list_id=00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
     assert response.json()["detail"] == "List not found"
 

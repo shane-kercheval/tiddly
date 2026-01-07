@@ -1,6 +1,7 @@
 """Pydantic schemas for content list endpoints."""
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -74,7 +75,7 @@ class ContentListResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     name: str
     content_types: list[ContentType]
     filter_expression: FilterExpression

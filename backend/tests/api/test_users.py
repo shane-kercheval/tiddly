@@ -60,5 +60,5 @@ async def test_get_me_response_structure(client: AsyncClient) -> None:
     assert "id" in data
     assert "auth0_id" in data
     assert "email" in data
-    assert isinstance(data["id"], int)
+    assert isinstance(data["id"], str)
     assert isinstance(data["auth0_id"], str)

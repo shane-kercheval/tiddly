@@ -56,8 +56,8 @@ export function PromptDetail(): ReactNode {
     return 'view'
   }, [id, location.pathname])
 
-  const promptId = mode !== 'create' ? parseInt(id!, 10) : undefined
-  const isValidId = promptId !== undefined && !isNaN(promptId)
+  const promptId = mode !== 'create' ? id! : undefined
+  const isValidId = promptId !== undefined && promptId.length > 0
 
   // State
   const [prompt, setPrompt] = useState<Prompt | null>(null)
@@ -120,7 +120,7 @@ export function PromptDetail(): ReactNode {
   }, [mode, promptId, isValidId, fetchPrompt, trackPromptUsage])
 
   // Navigation helpers
-  const navigateToView = useCallback((promptId: number): void => {
+  const navigateToView = useCallback((promptId: string): void => {
     // Preserve returnTo state when navigating to view
     navigate(`/app/prompts/${promptId}`, { state: { returnTo } })
   }, [navigate, returnTo])

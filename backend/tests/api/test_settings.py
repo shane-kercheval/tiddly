@@ -172,7 +172,7 @@ async def test__put_sidebar__rejects_nonexistent_list(client: AsyncClient) -> No
         json={
             "version": 1,
             "items": [
-                {"type": "list", "id": 99999},
+                {"type": "list", "id": "00000000-0000-0000-0000-000000000000"},
             ],
         },
     )

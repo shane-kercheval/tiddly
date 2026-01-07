@@ -1,8 +1,9 @@
 """UserSettings model for storing user preferences."""
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from sqlalchemy import ForeignKey
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.base import Base, TimestampMixin
@@ -28,11 +29,11 @@ class UserSettings(Base, TimestampMixin):
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "name": "Work",
                 "items": [
-                    {"type": "list", "id": 3},
-                    {"type": "list", "id": 7}
+                    {"type": "list", "id": "01938a12-3b45-7c67-8d90-ef1234567890"},
+                    {"type": "list", "id": "01938a12-3b45-7c67-8d90-ef1234567891"}
                 ]
             },
-            {"type": "list", "id": 5},
+            {"type": "list", "id": "01938a12-3b45-7c67-8d90-ef1234567892"},
             {"type": "builtin", "key": "archived"},
             {"type": "builtin", "key": "trash"}
         ]
@@ -40,25 +41,19 @@ class UserSettings(Base, TimestampMixin):
 
     Item types:
     - builtin: Built-in navigation items (key: "all", "archived", "trash")
-    - list: User-created content lists (id: integer list ID)
+    - list: User-created content lists (id: UUID string)
     - group: User-created organizational groups (id: UUID, name: string)
 
     Groups can contain lists and builtins but cannot be nested.
     Lists and builtins can exist at root level or inside groups.
-
-    DEPRECATED: tab_order - Old section-based format, kept for migration compatibility.
     """
 
     __tablename__ = "user_settings"
 
-    user_id: Mapped[int] = mapped_column(
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
-    )
-    tab_order: Mapped[dict | None] = mapped_column(
-        JSONB,
-        nullable=True,
-        comment="DEPRECATED: Old section-based tab order. Use sidebar_order instead.",
     )
     sidebar_order: Mapped[dict | None] = mapped_column(
         JSONB,

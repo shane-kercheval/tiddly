@@ -1,19 +1,20 @@
 """User consent model for tracking privacy policy and ToS acceptance."""
 from datetime import datetime
+from uuid import UUID
 
 from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import Base
+from models.base import Base, UUIDv7Mixin
 
 
-class UserConsent(Base):
+class UserConsent(Base, UUIDv7Mixin):
     """User consent tracking for GDPR compliance."""
 
     __tablename__ = "user_consents"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(
+    # id provided by UUIDv7Mixin
+    user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         unique=True,
         index=True,

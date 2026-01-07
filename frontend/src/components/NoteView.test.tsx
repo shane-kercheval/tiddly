@@ -8,7 +8,7 @@ import { NoteView } from './NoteView'
 import type { Note } from '../types'
 
 const mockNote: Note = {
-  id: 1,
+  id: '1',
   title: 'Test Note',
   description: 'A sample description',
   content: '# Hello World\n\nThis is **bold** text.',

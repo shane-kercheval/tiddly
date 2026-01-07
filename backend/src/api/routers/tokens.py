@@ -1,4 +1,6 @@
 """API Token (PAT) management endpoints."""
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,7 +54,7 @@ async def list_tokens(
 
 @router.delete("/{token_id}", status_code=204)
 async def delete_token(
-    token_id: int,
+    token_id: UUID,
     current_user: User = Depends(get_current_user_auth0_only),
     db: AsyncSession = Depends(get_async_session),
 ) -> None:

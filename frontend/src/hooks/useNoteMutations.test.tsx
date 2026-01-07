@@ -169,7 +169,7 @@ describe('useUpdateNote', () => {
     let updated: unknown
     await act(async () => {
       updated = await result.current.mutateAsync({
-        id: 1,
+        id: '1',
         data: { title: 'Updated Title' },
       })
     })
@@ -188,7 +188,7 @@ describe('useUpdateNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, data: { title: 'New' } })
+      await result.current.mutateAsync({ id: '1', data: { title: 'New' } })
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
@@ -210,7 +210,7 @@ describe('useUpdateNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, data: { title: 'New' } })
+      await result.current.mutateAsync({ id: '1', data: { title: 'New' } })
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -231,7 +231,7 @@ describe('useDeleteNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1 })
+      await result.current.mutateAsync({ id: '1' })
     })
 
     expect(mockDelete).toHaveBeenCalledWith('/notes/1')
@@ -247,7 +247,7 @@ describe('useDeleteNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1 })
+      await result.current.mutateAsync({ id: '1' })
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
@@ -268,7 +268,7 @@ describe('useDeleteNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, permanent: true })
+      await result.current.mutateAsync({ id: '1', permanent: true })
     })
 
     expect(mockDelete).toHaveBeenCalledWith('/notes/1?permanent=true')
@@ -284,7 +284,7 @@ describe('useDeleteNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, permanent: true })
+      await result.current.mutateAsync({ id: '1', permanent: true })
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('deleted') })
@@ -306,7 +306,7 @@ describe('useDeleteNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1 })
+      await result.current.mutateAsync({ id: '1' })
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -321,7 +321,7 @@ describe('useDeleteNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, permanent: true })
+      await result.current.mutateAsync({ id: '1', permanent: true })
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -349,7 +349,7 @@ describe('useRestoreNote', () => {
 
     let restored: unknown
     await act(async () => {
-      restored = await result.current.mutateAsync(1)
+      restored = await result.current.mutateAsync('1')
     })
 
     expect(restored).toEqual(mockNote)
@@ -366,7 +366,7 @@ describe('useRestoreNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
@@ -388,7 +388,7 @@ describe('useRestoreNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -416,7 +416,7 @@ describe('useArchiveNote', () => {
 
     let archived: unknown
     await act(async () => {
-      archived = await result.current.mutateAsync(1)
+      archived = await result.current.mutateAsync('1')
     })
 
     expect(archived).toEqual(mockNote)
@@ -433,7 +433,7 @@ describe('useArchiveNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
@@ -455,7 +455,7 @@ describe('useArchiveNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -483,7 +483,7 @@ describe('useUnarchiveNote', () => {
 
     let unarchived: unknown
     await act(async () => {
-      unarchived = await result.current.mutateAsync(1)
+      unarchived = await result.current.mutateAsync('1')
     })
 
     expect(unarchived).toEqual(mockNote)
@@ -500,7 +500,7 @@ describe('useUnarchiveNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: noteKeys.view('active') })
@@ -522,7 +522,7 @@ describe('useUnarchiveNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(mockFetchTags).toHaveBeenCalled()

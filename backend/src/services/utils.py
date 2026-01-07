@@ -1,5 +1,6 @@
 """Shared utility functions for service layer."""
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import Table, and_, exists, or_, select
 from sqlalchemy.orm import InstrumentedAttribute
@@ -23,7 +24,7 @@ def escape_ilike(value: str) -> str:
 
 def build_tag_filter_from_expression(
     filter_expression: dict[str, Any],
-    user_id: int,
+    user_id: UUID,
     junction_table: Table,
     entity_id_column: InstrumentedAttribute,
 ) -> list:

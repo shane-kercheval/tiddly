@@ -20,7 +20,7 @@ vi.mock('react-hot-toast', () => ({
 
 // Mock note data
 const mockNote: Note = {
-  id: 1,
+  id: '1',
   title: 'Test Note',
   description: 'Test description',
   content: '# Hello World\n\nThis is a test note.',
@@ -165,7 +165,7 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(mockFetchNote).toHaveBeenCalledWith(1)
+        expect(mockFetchNote).toHaveBeenCalledWith('1')
       })
     })
 
@@ -173,7 +173,7 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(mockTrackNoteUsage).toHaveBeenCalledWith(1)
+        expect(mockTrackNoteUsage).toHaveBeenCalledWith('1')
       })
     })
 
@@ -233,7 +233,7 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/1/edit')
 
       await waitFor(() => {
-        expect(mockFetchNote).toHaveBeenCalledWith(1)
+        expect(mockFetchNote).toHaveBeenCalledWith('1')
       })
     })
 
@@ -275,11 +275,12 @@ describe('NoteDetail page', () => {
       })
     })
 
-    it('should show error for invalid note ID', async () => {
-      renderWithRouter('/app/notes/invalid')
+    it('should show error when API returns not found', async () => {
+      mockFetchNote.mockRejectedValue(new Error('Note not found'))
+      renderWithRouter('/app/notes/invalid-uuid')
 
       await waitFor(() => {
-        expect(screen.getByText('Invalid note ID')).toBeInTheDocument()
+        expect(screen.getByText('Note not found')).toBeInTheDocument()
       })
     })
   })
