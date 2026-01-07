@@ -180,7 +180,7 @@ describe('useConsentStore', () => {
     it('resets all state to initial values', () => {
       // Set some state
       useConsentStore.setState({
-        consent: { id: 1 } as api.ConsentResponse,
+        consent: { id: '1' } as api.ConsentResponse,
         needsConsent: false,
         currentPrivacyVersion: '2024-12-20',
         currentTermsVersion: '2024-12-20',
