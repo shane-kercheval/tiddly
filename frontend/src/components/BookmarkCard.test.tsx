@@ -172,4 +172,24 @@ describe('BookmarkCard', () => {
       expect(onTagClick).toHaveBeenCalledWith('test')
     })
   })
+
+  describe('tag removal', () => {
+    it('should call onTagRemove when tag remove button is clicked', async () => {
+      const onTagRemove = vi.fn()
+
+      render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          onDelete={vi.fn()}
+          onTagRemove={onTagRemove}
+        />
+      )
+
+      // Hover to reveal remove button, then click
+      const removeButton = screen.getByRole('button', { name: /remove tag test/i })
+      await userEvent.click(removeButton)
+
+      expect(onTagRemove).toHaveBeenCalledWith(mockBookmark, 'test')
+    })
+  })
 })

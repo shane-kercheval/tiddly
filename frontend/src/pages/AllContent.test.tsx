@@ -115,12 +115,14 @@ const mockDeleteBookmark = vi.fn()
 const mockRestoreBookmark = vi.fn()
 const mockArchiveBookmark = vi.fn()
 const mockUnarchiveBookmark = vi.fn()
+const mockUpdateBookmark = vi.fn()
 
 vi.mock('../hooks/useBookmarkMutations', () => ({
   useDeleteBookmark: () => ({ mutateAsync: mockDeleteBookmark, isPending: false }),
   useRestoreBookmark: () => ({ mutateAsync: mockRestoreBookmark, isPending: false }),
   useArchiveBookmark: () => ({ mutateAsync: mockArchiveBookmark, isPending: false }),
   useUnarchiveBookmark: () => ({ mutateAsync: mockUnarchiveBookmark, isPending: false }),
+  useUpdateBookmark: () => ({ mutateAsync: mockUpdateBookmark, isPending: false }),
 }))
 
 const mockDeleteNote = vi.fn()

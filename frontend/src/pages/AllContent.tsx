@@ -21,18 +21,21 @@ import {
   useRestoreBookmark,
   useArchiveBookmark,
   useUnarchiveBookmark,
+  useUpdateBookmark,
 } from '../hooks/useBookmarkMutations'
 import {
   useDeleteNote,
   useRestoreNote,
   useArchiveNote,
   useUnarchiveNote,
+  useUpdateNote,
 } from '../hooks/useNoteMutations'
 import {
   useDeletePrompt,
   useRestorePrompt,
   useArchivePrompt,
   useUnarchivePrompt,
+  useUpdatePrompt,
 } from '../hooks/usePromptMutations'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
@@ -97,14 +100,17 @@ export function AllContent(): ReactNode {
   const restoreBookmarkMutation = useRestoreBookmark()
   const archiveBookmarkMutation = useArchiveBookmark()
   const unarchiveBookmarkMutation = useUnarchiveBookmark()
+  const updateBookmarkMutation = useUpdateBookmark()
   const deleteNoteMutation = useDeleteNote()
   const restoreNoteMutation = useRestoreNote()
   const archiveNoteMutation = useArchiveNote()
   const unarchiveNoteMutation = useUnarchiveNote()
+  const updateNoteMutation = useUpdateNote()
   const deletePromptMutation = useDeletePrompt()
   const restorePromptMutation = useRestorePrompt()
   const archivePromptMutation = useArchivePrompt()
   const unarchivePromptMutation = useUnarchivePrompt()
+  const updatePromptMutation = useUpdatePrompt()
 
   const { tags: tagSuggestions } = useTagsStore()
   const { pageSize, setPageSize } = useUIPreferencesStore()
@@ -352,6 +358,15 @@ export function AllContent(): ReactNode {
     }
   }
 
+  const handleTagRemoveBookmark = async (bookmark: BookmarkListItem, tag: string): Promise<void> => {
+    try {
+      const newTags = bookmark.tags.filter((t) => t !== tag)
+      await updateBookmarkMutation.mutateAsync({ id: bookmark.id, data: { tags: newTags } })
+    } catch {
+      toast.error('Failed to remove tag')
+    }
+  }
+
   // Note action handlers
   const handleViewNote = (note: NoteListItem): void => {
     navigate(`/app/notes/${note.id}`, { state: createReturnState() })
@@ -402,6 +417,15 @@ export function AllContent(): ReactNode {
     }
   }
 
+  const handleTagRemoveNote = async (note: NoteListItem, tag: string): Promise<void> => {
+    try {
+      const newTags = note.tags.filter((t) => t !== tag)
+      await updateNoteMutation.mutateAsync({ id: note.id, data: { tags: newTags } })
+    } catch {
+      toast.error('Failed to remove tag')
+    }
+  }
+
   // Prompt action handlers
   const handleViewPrompt = (prompt: PromptListItem): void => {
     navigate(`/app/prompts/${prompt.id}`, { state: createReturnState() })
@@ -449,6 +473,15 @@ export function AllContent(): ReactNode {
       await restorePromptMutation.mutateAsync(prompt.id)
     } catch {
       toast.error('Failed to restore prompt')
+    }
+  }
+
+  const handleTagRemovePrompt = async (prompt: PromptListItem, tag: string): Promise<void> => {
+    try {
+      const newTags = prompt.tags.filter((t) => t !== tag)
+      await updatePromptMutation.mutateAsync({ id: prompt.id, data: { tags: newTags } })
+    } catch {
+      toast.error('Failed to remove tag')
     }
   }
 
@@ -648,6 +681,7 @@ export function AllContent(): ReactNode {
                   onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
                   onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
                   onTagClick={handleTagClick}
+                  onTagRemove={currentView !== 'deleted' ? handleTagRemoveBookmark : undefined}
                   onLinkClick={(b) => trackBookmarkUsage(b.id)}
                 />
               )
@@ -666,6 +700,7 @@ export function AllContent(): ReactNode {
                   onUnarchive={currentView === 'archived' ? handleUnarchivePrompt : undefined}
                   onRestore={currentView === 'deleted' ? handleRestorePrompt : undefined}
                   onTagClick={handleTagClick}
+                  onTagRemove={currentView !== 'deleted' ? handleTagRemovePrompt : undefined}
                 />
               )
             }
@@ -682,6 +717,7 @@ export function AllContent(): ReactNode {
                 onUnarchive={currentView === 'archived' ? handleUnarchiveNote : undefined}
                 onRestore={currentView === 'deleted' ? handleRestoreNote : undefined}
                 onTagClick={handleTagClick}
+                onTagRemove={currentView !== 'deleted' ? handleTagRemoveNote : undefined}
               />
             )
           })}
