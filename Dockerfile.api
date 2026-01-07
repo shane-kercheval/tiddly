@@ -1,0 +1,24 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install uv
+RUN pip install uv
+
+# Copy dependency files and README (required by hatchling)
+COPY pyproject.toml uv.lock README.md ./
+
+# Copy backend source
+COPY backend/ ./backend/
+
+# Install dependencies and project
+RUN uv sync --locked --no-dev
+
+# Set working directory for the app
+WORKDIR /app/backend/src
+
+# Default port (Railway sets $PORT)
+EXPOSE 8080
+
+# Run uvicorn - Railway will override port via $PORT env var
+CMD ["sh", "-c", "uv run uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
