@@ -21,4 +21,4 @@ RUN uv sync --locked --no-dev
 EXPOSE 8080
 
 # Run uvicorn from backend/src directory
-CMD ["sh", "-c", "cd backend/src && uv run uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["/bin/sh", "-c", "cd /app/backend/src && uv run uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
