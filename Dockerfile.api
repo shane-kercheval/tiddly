@@ -17,8 +17,11 @@ RUN uv sync --locked --no-dev
 # WORKDIR stays at /app so alembic can find alembic.ini
 # Pre-deploy command (uv run alembic upgrade head) runs from here
 
+# Set Python path so imports work without cd
+ENV PYTHONPATH=/app/backend/src
+
 # Default port (Railway sets $PORT)
 EXPOSE 8080
 
-# Run uvicorn from backend/src directory
-CMD ["/bin/sh", "-c", "cd /app/backend/src && uv run uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# Shell form - no cd needed, PYTHONPATH handles imports
+CMD uv run uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8080}
