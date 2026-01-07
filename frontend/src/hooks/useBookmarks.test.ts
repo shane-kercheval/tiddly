@@ -40,7 +40,7 @@ describe('useBookmarks', () => {
 
       let fetched: unknown
       await act(async () => {
-        fetched = await result.current.fetchBookmark(1)
+        fetched = await result.current.fetchBookmark('1')
       })
 
       expect(fetched).toEqual(mockBookmark)
@@ -52,7 +52,7 @@ describe('useBookmarks', () => {
 
       const { result } = renderHook(() => useBookmarks())
 
-      await expect(result.current.fetchBookmark(999)).rejects.toThrow('Not found')
+      await expect(result.current.fetchBookmark('999')).rejects.toThrow('Not found')
     })
   })
 
@@ -99,7 +99,7 @@ describe('useBookmarks', () => {
       const { result } = renderHook(() => useBookmarks())
 
       act(() => {
-        result.current.trackBookmarkUsage(1)
+        result.current.trackBookmarkUsage('1')
       })
 
       expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/track-usage')
@@ -112,7 +112,7 @@ describe('useBookmarks', () => {
 
       // Should not throw
       act(() => {
-        result.current.trackBookmarkUsage(1)
+        result.current.trackBookmarkUsage('1')
       })
 
       expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/track-usage')

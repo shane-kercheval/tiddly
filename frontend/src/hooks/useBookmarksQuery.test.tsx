@@ -98,7 +98,7 @@ describe('useBookmarksQuery', () => {
         () =>
           useBookmarksQuery({
             view: 'active',
-            list_id: 123,
+            list_id: '123',
           }),
         { wrapper: createWrapper() }
       )
@@ -201,7 +201,7 @@ describe('bookmarkKeys', () => {
     })
 
     it('should use custom segment for queries with list_id', () => {
-      const params = { view: 'active' as const, list_id: 123 }
+      const params = { view: 'active' as const, list_id: '123' }
       const key = bookmarkKeys.list(params)
 
       // Custom lists use 'custom' segment instead of view
@@ -220,7 +220,7 @@ describe('bookmarkKeys', () => {
 
     it('customLists key should be prefix of list key with list_id', () => {
       const customKey = bookmarkKeys.customLists()
-      const listKey = bookmarkKeys.list({ view: 'active', list_id: 123 })
+      const listKey = bookmarkKeys.list({ view: 'active', list_id: '123' })
 
       // customKey should be a prefix of listKey
       expect(listKey.slice(0, customKey.length)).toEqual(customKey)

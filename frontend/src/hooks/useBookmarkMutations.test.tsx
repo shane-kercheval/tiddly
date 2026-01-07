@@ -163,7 +163,7 @@ describe('useUpdateBookmark', () => {
     let updated: unknown
     await act(async () => {
       updated = await result.current.mutateAsync({
-        id: 1,
+        id: '1',
         data: { title: 'Updated Title' },
       })
     })
@@ -236,8 +236,8 @@ describe('useDeleteBookmark', () => {
     // Set up initial cached data
     const initialData = {
       items: [
-        { id: 1, url: 'https://example.com', title: 'Test 1' },
-        { id: 2, url: 'https://other.com', title: 'Test 2' },
+        { id: '1', url: 'https://example.com', title: 'Test 1' },
+        { id: '2', url: 'https://other.com', title: 'Test 2' },
       ],
       total: 2,
     }
@@ -266,9 +266,9 @@ describe('useDeleteBookmark', () => {
     })
 
     // Check cache was optimistically updated BEFORE API completed
-    const cachedData = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 })) as { items: { id: number }[]; total: number }
+    const cachedData = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 })) as { items: { id: string }[]; total: number }
     expect(cachedData.items).toHaveLength(1)
-    expect(cachedData.items[0].id).toBe(2)
+    expect(cachedData.items[0].id).toBe('2')
     expect(cachedData.total).toBe(1)
 
     // Now complete the API call

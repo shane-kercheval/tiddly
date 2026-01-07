@@ -176,7 +176,7 @@ describe('NoteForm', () => {
       await user.click(screen.getByRole('button', { name: /save/i }))
 
       expect(mockMutateAsync).toHaveBeenCalledWith({
-        id: 1,
+        id: '1',
         data: { title: 'Updated Title' },
       })
     })

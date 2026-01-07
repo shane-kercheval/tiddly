@@ -177,7 +177,7 @@ describe('useUpdatePrompt', () => {
     let updated: unknown
     await act(async () => {
       updated = await result.current.mutateAsync({
-        id: 1,
+        id: '1',
         data: { title: 'Updated Title' },
       })
     })
@@ -196,7 +196,7 @@ describe('useUpdatePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, data: { title: 'New' } })
+      await result.current.mutateAsync({ id: '1', data: { title: 'New' } })
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('active') })
@@ -218,7 +218,7 @@ describe('useUpdatePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, data: { title: 'New' } })
+      await result.current.mutateAsync({ id: '1', data: { title: 'New' } })
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -239,7 +239,7 @@ describe('useDeletePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1 })
+      await result.current.mutateAsync({ id: '1' })
     })
 
     expect(mockDelete).toHaveBeenCalledWith('/prompts/1')
@@ -255,7 +255,7 @@ describe('useDeletePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1 })
+      await result.current.mutateAsync({ id: '1' })
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('active') })
@@ -276,7 +276,7 @@ describe('useDeletePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, permanent: true })
+      await result.current.mutateAsync({ id: '1', permanent: true })
     })
 
     expect(mockDelete).toHaveBeenCalledWith('/prompts/1?permanent=true')
@@ -292,7 +292,7 @@ describe('useDeletePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, permanent: true })
+      await result.current.mutateAsync({ id: '1', permanent: true })
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('deleted') })
@@ -314,7 +314,7 @@ describe('useDeletePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1 })
+      await result.current.mutateAsync({ id: '1' })
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -329,7 +329,7 @@ describe('useDeletePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, permanent: true })
+      await result.current.mutateAsync({ id: '1', permanent: true })
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -357,7 +357,7 @@ describe('useRestorePrompt', () => {
 
     let restored: unknown
     await act(async () => {
-      restored = await result.current.mutateAsync(1)
+      restored = await result.current.mutateAsync('1')
     })
 
     expect(restored).toEqual(mockPrompt)
@@ -374,7 +374,7 @@ describe('useRestorePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('active') })
@@ -396,7 +396,7 @@ describe('useRestorePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -424,7 +424,7 @@ describe('useArchivePrompt', () => {
 
     let archived: unknown
     await act(async () => {
-      archived = await result.current.mutateAsync(1)
+      archived = await result.current.mutateAsync('1')
     })
 
     expect(archived).toEqual(mockPrompt)
@@ -441,7 +441,7 @@ describe('useArchivePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('active') })
@@ -463,7 +463,7 @@ describe('useArchivePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -491,7 +491,7 @@ describe('useUnarchivePrompt', () => {
 
     let unarchived: unknown
     await act(async () => {
-      unarchived = await result.current.mutateAsync(1)
+      unarchived = await result.current.mutateAsync('1')
     })
 
     expect(unarchived).toEqual(mockPrompt)
@@ -508,7 +508,7 @@ describe('useUnarchivePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('active') })
@@ -530,7 +530,7 @@ describe('useUnarchivePrompt', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(mockFetchTags).toHaveBeenCalled()

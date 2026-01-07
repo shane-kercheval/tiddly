@@ -20,7 +20,7 @@ import type { ContentListItem, ContentListResponse } from '../types'
 // Mock data
 const mockBookmark: ContentListItem = {
   type: 'bookmark',
-  id: 1,
+  id: '1',
   title: 'Test Bookmark',
   description: 'A test bookmark description',
   tags: ['test', 'bookmark'],
@@ -37,7 +37,7 @@ const mockBookmark: ContentListItem = {
 
 const mockNote: ContentListItem = {
   type: 'note',
-  id: 2,
+  id: '2',
   title: 'Test Note',
   description: 'A test note description',
   tags: ['test', 'note'],
@@ -54,14 +54,14 @@ const mockNote: ContentListItem = {
 
 const mockArchivedBookmark: ContentListItem = {
   ...mockBookmark,
-  id: 3,
+  id: '3',
   title: 'Archived Bookmark',
   archived_at: '2024-01-05T00:00:00Z',
 }
 
 const mockDeletedNote: ContentListItem = {
   ...mockNote,
-  id: 4,
+  id: '4',
   title: 'Deleted Note',
   deleted_at: '2024-01-06T00:00:00Z',
 }
@@ -168,7 +168,7 @@ vi.mock('../hooks/useEffectiveSort', () => ({
     setSort: vi.fn(),
     availableSortOptions: ['updated_at', 'created_at', 'last_used_at', 'title'],
   }),
-  getViewKey: (view: string, listId?: number) => listId ? `list-${listId}` : view,
+  getViewKey: (view: string, listId?: string) => listId ? `list-${listId}` : view,
 }))
 
 vi.mock('../stores/tagsStore', () => ({
@@ -217,7 +217,7 @@ vi.mock('../stores/listsStore', () => ({
   useListsStore: () => ({
     lists: [
       {
-        id: 1,
+        id: '1',
         name: 'Reading List',
         content_types: ['bookmark'],
         filter_expression: { groups: [{ tags: ['list-tag-1', 'list-tag-2'], operator: 'AND' }], group_operator: 'OR' },
@@ -227,7 +227,7 @@ vi.mock('../stores/listsStore', () => ({
         updated_at: '2024-01-01T00:00:00Z',
       },
       {
-        id: 2,
+        id: '2',
         name: 'Ideas',
         content_types: ['note'],
         filter_expression: { groups: [], group_operator: 'OR' },
@@ -237,7 +237,7 @@ vi.mock('../stores/listsStore', () => ({
         updated_at: '2024-01-01T00:00:00Z',
       },
       {
-        id: 3,
+        id: '3',
         name: 'Mixed',
         content_types: ['bookmark', 'note'],
         filter_expression: { groups: [], group_operator: 'OR' },
@@ -595,7 +595,7 @@ describe('AllContent', () => {
     it('shows pagination controls when there are multiple pages', async () => {
       const manyItems = Array.from({ length: 20 }, (_, i) => ({
         ...mockBookmark,
-        id: i + 1,
+        id: String(i + 1),
         title: `Bookmark ${i + 1}`,
       }))
       mockContentQueryData = {
@@ -792,7 +792,7 @@ describe('AllContent', () => {
       const archiveButton = screen.getByLabelText('Archive bookmark')
       await user.click(archiveButton)
 
-      expect(mockArchiveBookmark).toHaveBeenCalledWith(1)
+      expect(mockArchiveBookmark).toHaveBeenCalledWith('1')
     })
 
     it('calls unarchiveBookmark mutation when unarchive is clicked', async () => {
@@ -809,7 +809,7 @@ describe('AllContent', () => {
       const restoreButton = screen.getByLabelText('Restore bookmark')
       await user.click(restoreButton)
 
-      expect(mockUnarchiveBookmark).toHaveBeenCalledWith(3)
+      expect(mockUnarchiveBookmark).toHaveBeenCalledWith('3')
     })
   })
 
@@ -827,7 +827,7 @@ describe('AllContent', () => {
       const archiveButton = screen.getByLabelText('Archive note')
       await user.click(archiveButton)
 
-      expect(mockArchiveNote).toHaveBeenCalledWith(2)
+      expect(mockArchiveNote).toHaveBeenCalledWith('2')
     })
 
     it('calls restoreNote mutation when restore is clicked in trash', async () => {
@@ -843,7 +843,7 @@ describe('AllContent', () => {
       const restoreButton = screen.getByLabelText('Restore note')
       await user.click(restoreButton)
 
-      expect(mockRestoreNote).toHaveBeenCalledWith(4)
+      expect(mockRestoreNote).toHaveBeenCalledWith('4')
     })
   })
 })

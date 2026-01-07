@@ -191,7 +191,7 @@ describe('ListModal', () => {
       await user.click(submitButton)
 
       await waitFor(() => {
-        expect(onUpdate).toHaveBeenCalledWith(1, {
+        expect(onUpdate).toHaveBeenCalledWith('1', {
           name: 'Updated Name',
           content_types: mockList.content_types,
           filter_expression: mockList.filter_expression,
@@ -609,7 +609,7 @@ describe('ListModal', () => {
       await user.click(screen.getByText('Save'))
 
       await waitFor(() => {
-        expect(onUpdate).toHaveBeenCalledWith(1, {
+        expect(onUpdate).toHaveBeenCalledWith('1', {
           name: 'Work Resources',
           content_types: mockList.content_types,
           filter_expression: mockList.filter_expression,
@@ -646,7 +646,7 @@ describe('ListModal', () => {
       await user.click(screen.getByText('Save'))
 
       await waitFor(() => {
-        expect(onUpdate).toHaveBeenCalledWith(1, {
+        expect(onUpdate).toHaveBeenCalledWith('1', {
           name: 'Work Resources',
           content_types: listWithSort.content_types,
           filter_expression: mockList.filter_expression,
@@ -867,7 +867,7 @@ describe('ListModal', () => {
       await user.click(screen.getByText('Save'))
 
       await waitFor(() => {
-        expect(onUpdate).toHaveBeenCalledWith(1, {
+        expect(onUpdate).toHaveBeenCalledWith('1', {
           name: 'Work Resources',
           content_types: ['bookmark', 'note'],
           filter_expression: mockList.filter_expression,
@@ -986,7 +986,7 @@ describe('ListModal', () => {
       await user.click(screen.getByText('Save'))
 
       await waitFor(() => {
-        expect(onUpdate).toHaveBeenCalledWith(1, {
+        expect(onUpdate).toHaveBeenCalledWith('1', {
           name: 'Work Resources',
           content_types: ['bookmark', 'prompt'],
           filter_expression: mockList.filter_expression,

@@ -303,7 +303,7 @@ describe('normalizeTag', () => {
 
 describe('getFirstGroupTags', () => {
   const createList = (groups: { tags: string[] }[]): ContentList => ({
-    id: 1,
+    id: '1',
     name: 'Test List',
     content_types: ['bookmark'],
     filter_expression: {
@@ -336,7 +336,7 @@ describe('getFirstGroupTags', () => {
   })
 
   it('should return undefined when filter_expression is missing', () => {
-    const list = { id: 1, name: 'Test', created_at: '', updated_at: '' } as ContentList
+    const list = { id: '1', name: 'Test', created_at: '', updated_at: '' } as ContentList
     expect(getFirstGroupTags(list)).toBeUndefined()
   })
 
