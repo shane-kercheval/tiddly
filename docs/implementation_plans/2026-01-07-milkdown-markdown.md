@@ -42,6 +42,123 @@ The prototype includes solutions for:
 
 ---
 
+## Known Milkdown Issues & Solutions
+
+During prototyping, we encountered several issues with Milkdown that required workarounds. Document these so the production implementation handles them correctly.
+
+### 1. Global CSS Pollution from Themes
+
+**Problem**: Importing `@milkdown/theme-nord/style.css` broke Tailwind's responsive breakpoints (`md:`, `lg:`, etc.), causing the sidebar to be permanently stuck in mobile view.
+
+**Solution**: Do NOT import Milkdown theme CSS globally. Instead, write custom scoped CSS targeting `.milkdown-wrapper .milkdown` selectors. All Milkdown styles should be in `index.css` under the Milkdown section, scoped to avoid affecting other components.
+
+**Key lesson**: Always scope third-party CSS. Test that adding new CSS doesn't break existing responsive layouts.
+
+### 2. Copy/Paste Doesn't Preserve Markdown
+
+**Problem**: When copying text from Milkdown, the clipboard contains plain rendered text (e.g., "bold text") instead of markdown syntax (e.g., `**bold text**`).
+
+**Solution**: Milkdown has a `clipboard` plugin (`@milkdown/kit/plugin/clipboard`) that handles markdown serialization on copy. Add `.use(clipboard)` to the editor configuration. Additionally, add an `onCopy` handler that post-processes the clipboard to clean up artifacts.
+
+**Note**: The clipboard plugin must be explicitly added - it's not included by default.
+
+### 3. `<br />` Tags in Markdown Output
+
+**Problem**: Milkdown serializes hard line breaks as `<br />` HTML tags instead of markdown-style line breaks.
+
+**Solution**: Post-process the markdown output in the `markdownUpdated` listener:
+```typescript
+const cleanedMarkdown = markdown
+  .replace(/<br\s*\/?>\n?/gi, '\n')
+  .replace(/\n{3,}/g, '\n\n')  // Collapse excessive newlines
+```
+
+Apply the same cleaning in the copy handler so copied text is also clean.
+
+### 4. Non-Breaking Spaces (`&nbsp;`) in Output
+
+**Problem**: Milkdown inserts non-breaking space characters (`\u00a0` or `&nbsp;`) in certain situations, which appear as weird characters when viewed elsewhere.
+
+**Solution**: Include in the markdown cleaning function:
+```typescript
+.replace(/\u00a0/g, ' ')    // Convert non-breaking spaces
+.replace(/&nbsp;/gi, ' ')   // Convert HTML entities
+```
+
+### 5. Task List Checkboxes Not Rendering
+
+**Problem**: Milkdown's GFM plugin parses task lists (`- [ ] item`) but doesn't render actual checkbox `<input>` elements. Instead, it uses data attributes: `<li data-item-type="task" data-checked="false">`.
+
+**Solution**: Use CSS to render checkboxes via `::before` pseudo-elements:
+```css
+.milkdown-wrapper .milkdown li[data-item-type="task"]::before {
+  content: '';
+  /* checkbox styling */
+}
+
+.milkdown-wrapper .milkdown li[data-item-type="task"][data-checked="true"]::before {
+  /* checked state with checkmark SVG background */
+}
+```
+
+### 6. Task List Checkboxes Not Toggleable
+
+**Problem**: Since checkboxes are CSS pseudo-elements (not real inputs), clicking them doesn't toggle the checked state.
+
+**Solution**: Add a click handler that:
+1. Detects clicks on task list items (within the checkbox area)
+2. Finds the corresponding ProseMirror node
+3. Dispatches a transaction to toggle the `checked` attribute
+
+```typescript
+// Simplified approach:
+const handleClick = (e) => {
+  const listItem = e.target.closest('li[data-item-type="task"]')
+  if (listItem && clickWasOnCheckboxArea(e)) {
+    // Find ProseMirror node position and toggle checked attribute
+    const pos = view.posAtDOM(listItem, 0)
+    // ... traverse to find list_item node and update attrs
+  }
+}
+```
+
+### 7. Link Insertion (Cmd+K)
+
+**Problem**: WYSIWYG editors don't interpret typed markdown syntax. Typing `[text](url)` results in escaped literal text, not a link.
+
+**Solution**: Implement Cmd+K shortcut that:
+1. Gets the current selection
+2. Shows a custom dialog for URL and link text input
+3. Creates a ProseMirror link mark and inserts it
+
+**Note**: Use a custom React modal dialog instead of browser `prompt()` for better UX. The dialog should:
+- Pre-fill link text with selected text (if any)
+- Auto-focus the URL field
+- Support Enter to submit, Escape to cancel
+
+### 8. External Value Changes Not Reflected
+
+**Problem**: When the `value` prop changes externally (e.g., loading different content), Milkdown doesn't update because it maintains its own internal state.
+
+**Solution**: This is a known limitation of the prototype. For production, consider:
+- Using a `key` prop to force remount when content ID changes
+- Or implementing proper content reset via Milkdown's API
+- Or detecting significant external changes and reinitializing
+
+### 9. Typing Markdown Syntax Gets Escaped
+
+**Problem**: Unlike raw markdown editors, typing `**bold**` in Milkdown produces literal asterisks, not bold text.
+
+**Expected behavior**: This is correct for WYSIWYG. Users should use:
+- Cmd+B for bold
+- Cmd+I for italic
+- Cmd+K for links
+- Or select text and apply formatting
+
+**Solution**: Ensure keyboard shortcuts work and are documented. Consider adding a toolbar for discoverability (optional).
+
+---
+
 ## Milestone 1: Production-Ready Milkdown Editor
 
 ### Goal
