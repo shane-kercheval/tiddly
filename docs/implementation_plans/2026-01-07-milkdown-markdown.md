@@ -212,6 +212,7 @@ Transform the prototype MilkdownEditor into a production-ready component with Vi
 - [ ] Visual/Markdown toggle switches between WYSIWYG and raw CodeMirror editing
 - [ ] All keyboard shortcuts work (Cmd+B, Cmd+I, Cmd+K, etc.)
 - [ ] Copy/paste preserves markdown correctly
+- [ ] Placeholder text displays when editor is empty
 - [ ] Component is well-tested
 - [ ] No CSS pollution affecting other components
 
@@ -241,6 +242,8 @@ interface MarkdownEditorProps {
 - Keep Milkdown-specific code in `MilkdownEditor.tsx`
 - Keep CodeMirror code in existing `MarkdownEditor.tsx` (rename to `CodeMirrorEditor.tsx`)
 - Create new `ContentEditor.tsx` that wraps both with toggle
+
+**Mode toggle placement:** The toggle belongs inside `ContentEditor`, not in the parent. This follows encapsulation — the parent's job is to manage content state (`value`, `onChange`), not to know about internal editor modes. The parent gets a clean interface without implementation details leaking out.
 
 **4. Fix known prototype issues:**
 - External value changes don't update Milkdown (need to handle content resets)
@@ -302,13 +305,51 @@ These should continue working in Markdown mode. For Visual mode, Milkdown handle
 **Reuse existing MarkdownEditor props:**
 The current `MarkdownEditor` has props like `wrapText`, `onWrapTextChange`, `maxLength`, `errorMessage` that should be preserved in the new wrapper component. Don't break existing consumers.
 
+**Placeholder implementation:**
+Milkdown doesn't have native placeholder support. The correct approach is to use ProseMirror's decoration system — this is the standard pattern for production ProseMirror-based editors (Notion, Confluence use this approach).
+
+Implementation:
+1. Create a Milkdown plugin that adds a ProseMirror plugin
+2. The ProseMirror plugin checks if the document is empty
+3. If empty, add a Decoration that renders placeholder text
+4. Style the placeholder with CSS (gray, italic, non-selectable)
+
+```typescript
+// Simplified approach using ProseMirror decorations
+import { Plugin } from '@milkdown/kit/prose/state'
+import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
+
+const placeholderPlugin = (placeholder: string) => new Plugin({
+  props: {
+    decorations(state) {
+      const doc = state.doc
+      if (doc.childCount === 1 && doc.firstChild?.isTextblock && doc.firstChild.content.size === 0) {
+        return DecorationSet.create(doc, [
+          Decoration.widget(1, () => {
+            const span = document.createElement('span')
+            span.className = 'milkdown-placeholder'
+            span.textContent = placeholder
+            return span
+          })
+        ])
+      }
+      return DecorationSet.empty
+    }
+  }
+})
+```
+
+This is more work than a CSS hack, but it handles edge cases correctly and is the idiomatic solution.
+
 ### Testing Strategy
 
-**Note: No frontend tests currently exist.** This milestone should establish the testing pattern for the codebase.
+**Note:** Test infrastructure (vitest, @testing-library/react, jsdom) already exists in `package.json`. What's missing is actual test files for these components.
 
-**Setup required:**
-- Create `vitest.config.ts` with jsdom environment
-- Add setup file for `@testing-library/jest-dom` matchers
+**For WYSIWYG-specific tests** (contentEditable, ProseMirror interactions), jsdom cannot properly simulate these. Options:
+- Add Playwright for E2E tests of editor interactions
+- Or rely on manual QA for WYSIWYG-specific behavior
+
+Unit tests with vitest/jsdom work fine for: mode toggling, `cleanMarkdown()`, component props, state management.
 
 **What to test:**
 
@@ -450,13 +491,22 @@ The current `TagInput.tsx` has extensive logic for:
 - Autocomplete filtering and keyboard navigation
 - Pending tag handling via `useImperativeHandle`
 
-Don't copy this code. Instead, extract the shared logic into a reusable hook:
+**Why hook extraction is the correct approach:**
+- **DRY**: Autocomplete logic, validation, keyboard navigation exist in one place
+- **Single Responsibility**: Hook handles behavior, components handle rendering
+- **Testability**: The hook can be unit tested independently from UI
+- **Maintainability**: Bug fixes propagate to both consumers automatically
 
-1. Create `useTagAutocomplete` hook that encapsulates:
+Composition (wrapping TagInput) is wrong because TagInput is designed for form contexts with specific styling assumptions. It would couple InlineEditableTags to TagInput's implementation details.
+
+**Implementation:**
+
+1. Create `useTagAutocomplete` hook in `src/hooks/useTagAutocomplete.ts`:
    - Autocomplete filtering logic
    - Keyboard navigation (arrow keys, Enter to select, Escape to close)
    - Tag validation
    - Pending tag state
+   - Return: `{ suggestions, selectedIndex, handlers, pendingValue, addTag, removeTag }`
 
 2. Create `InlineEditableTags` as a new component that:
    - Uses `useTagAutocomplete` for shared logic
@@ -466,7 +516,7 @@ Don't copy this code. Instead, extract the shared logic into a reusable hook:
 
 3. Refactor existing `TagInput` to also use `useTagAutocomplete`
 
-This way both components share the same tested logic with different visual presentations.
+Both components share the same tested logic with different visual presentations.
 
 **Visual reference from NoteView.tsx:**
 ```tsx
