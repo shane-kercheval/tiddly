@@ -899,7 +899,7 @@ This mirrors how the current PromptEditor.tsx lays out name (required, first) an
 - Default content: new prompts get DEFAULT_PROMPT_CONTENT
 
 **Reuse patterns from Note tests for:**
-- Dirty state, save/discard flow, keyboard shortcuts, draft recovery
+- Dirty state, save/discard flow, keyboard shortcuts, draft recovery, beforeunload navigation warning
 
 ### Dependencies
 - Milestone 3: Unified Note Component (establishes the pattern)
