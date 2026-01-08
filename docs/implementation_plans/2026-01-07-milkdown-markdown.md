@@ -389,8 +389,19 @@ Create reusable components for inline-editable metadata fields that look like vi
 - [ ] InlineEditableTags - view-style tags with X to remove, + to add
 - [ ] InlineEditableText - for description and similar fields
 - [ ] All components feel native, not like form fields
-- [ ] Keyboard navigation works (Tab between fields, Enter to confirm)
+- [ ] Keyboard navigation works (Tab between fields, Enter to confirm, arrow keys for dropdowns)
 - [ ] Components are accessible
+
+### Keyboard Behavior (Decided)
+
+Standard form behavior takes precedence over autocomplete convenience:
+- **Tab**: Always moves to next field (never selects suggestions)
+- **Enter**: Add tag or confirm highlighted suggestion
+- **Arrow Up/Down**: Navigate suggestion dropdown
+- **Escape**: Close dropdown
+- **Click**: Select suggestion
+
+This follows standard form accessibility patterns. Autocomplete dropdowns that hijack Tab are frustrating - users expect Tab to navigate forms predictably.
 
 ### Key Changes
 
@@ -426,9 +437,10 @@ interface InlineEditableTagsProps {
 
 Behavior:
 - Tags displayed as pills with X button (visible on hover)
-- "+" button or click empty area to add
+- "+" button to add (not invisible click areas - poor UX, users don't know they exist)
 - Autocomplete dropdown for suggestions
 - Same validation as current TagInput
+- Exposes `getPendingValue()` via ref (required for Milestone 3 - capturing typed-but-not-submitted tags on save)
 
 **3. InlineEditableText component:**
 ```typescript
@@ -501,18 +513,64 @@ Composition (wrapping TagInput) is wrong because TagInput is designed for form c
 
 **Implementation:**
 
+**Recommended implementation order:** Build `InlineEditableTitle` and `InlineEditableText` first - they're straightforward styled inputs/textareas and establish visual patterns. Then tackle `InlineEditableTags` which is more complex.
+
 1. Create `useTagAutocomplete` hook in `src/hooks/useTagAutocomplete.ts`:
-   - Autocomplete filtering logic
-   - Keyboard navigation (arrow keys, Enter to select, Escape to close)
-   - Tag validation
-   - Pending tag state
-   - Return: `{ suggestions, selectedIndex, handlers, pendingValue, addTag, removeTag }`
+
+Expose primitives rather than a monolithic `handleKeyDown`. This lets each consuming component compose its own keyboard handling:
+
+```typescript
+interface UseTagAutocompleteOptions {
+  value: string[]
+  onChange: (tags: string[]) => void
+  suggestions?: TagCount[]
+  maxTags?: number
+}
+
+interface UseTagAutocompleteReturn {
+  // State
+  inputValue: string
+  setInputValue: (value: string) => void
+  showSuggestions: boolean
+  highlightedIndex: number
+  filteredSuggestions: TagCount[]
+  error: string | null
+
+  // Actions
+  addTag: (tag: string) => boolean  // returns success
+  removeTag: (tag: string) => void
+  selectHighlighted: () => void
+  moveHighlight: (direction: 'up' | 'down') => void
+  openSuggestions: () => void
+  closeSuggestions: () => void
+  getPendingValue: () => string
+  clearPending: () => void
+}
+```
+
+The component then composes keyboard handling:
+```typescript
+const handleKeyDown = (e: KeyboardEvent) => {
+  if (e.key === 'ArrowDown') { moveHighlight('down'); e.preventDefault() }
+  else if (e.key === 'ArrowUp') { moveHighlight('up'); e.preventDefault() }
+  else if (e.key === 'Enter') {
+    e.preventDefault()
+    if (showSuggestions && highlightedIndex >= 0) selectHighlighted()
+    else addTag(inputValue)
+  }
+  else if (e.key === 'Escape') closeSuggestions()
+  // Tab falls through to browser default - moves to next field
+}
+```
+
+This keeps the hook focused on autocomplete logic while letting `TagInput` and `InlineEditableTags` handle keyboard mapping independently if needed.
 
 2. Create `InlineEditableTags` as a new component that:
    - Uses `useTagAutocomplete` for shared logic
    - Has view-mode visual styling (matches `NoteView.tsx` lines 165-174)
    - Shows X button on hover (not always visible)
-   - Has a "+" button or click-to-add interaction
+   - Has a "+" button to add new tags
+   - Exposes `getPendingValue()` via `useImperativeHandle` for form submission
 
 3. Refactor existing `TagInput` to also use `useTagAutocomplete`
 
@@ -570,14 +628,23 @@ The `italic` class matches the description style in `NoteView.tsx` line 193-196.
 - Variant="name" applies monospace styling
 - Disabled prop prevents editing
 
+**useTagAutocomplete hook tests** (test independently like `cleanMarkdown`):
+- `addTag` validates and adds valid tags, returns false for invalid
+- `removeTag` removes tag from array
+- `filteredSuggestions` filters based on inputValue
+- `moveHighlight` cycles through suggestions correctly
+- `selectHighlighted` adds the highlighted suggestion
+- `getPendingValue` returns current inputValue
+- Rejects duplicate tags
+- Rejects invalid tag formats
+
 **InlineEditableTags tests:**
 - Renders tags as removable pills
 - X button removes tag from array
-- "+" button or empty area click shows input
-- Autocomplete filters suggestions as user types
-- Tag validation rejects invalid formats with error message
-- Keyboard navigation (arrow keys, Enter to select, Escape to close)
-- Duplicate tags are rejected
+- "+" button shows input field
+- Autocomplete dropdown appears when typing
+- Keyboard navigation (arrow keys navigate, Enter confirms, Tab moves to next field)
+- `getPendingValue()` ref method works for form submission
 
 **InlineEditableText tests:**
 - Renders as text, not visible input border
@@ -1094,10 +1161,18 @@ Preserve existing shortcuts:
 
 These were open questions that have been resolved:
 
+### Milestone 1
 1. **Visual/Markdown mode preference**: Global (stored in localStorage). All documents use the same preference.
 2. **New note/prompt starting mode**: Use the user's saved preference (same as existing documents).
 3. **Timestamps on new items**: Hidden. Only show Created/Updated/Version for existing items.
 4. **Template variable highlighting**: Nice-to-have, not required for initial implementation.
+
+### Milestone 2
+5. **InlineEditableTags interaction**: Use "+" button only (not invisible click areas). Invisible click areas are poor UX - users don't know they exist.
+6. **Pending tag ref support**: Yes, `InlineEditableTags` must expose `getPendingValue()` via ref for Milestone 3 form submission.
+7. **Tab key behavior in tag autocomplete**: Tab always moves to next field (standard form behavior). Never selects suggestions - use Enter/click for that.
+8. **Hook interface design**: `useTagAutocomplete` exposes primitives (state + actions) rather than a monolithic `handleKeyDown`. Components compose their own keyboard handling.
+9. **Implementation order**: Build InlineEditableTitle → InlineEditableText → InlineEditableTags (simpler components first establish visual patterns).
 
 ## Known Limitations
 
