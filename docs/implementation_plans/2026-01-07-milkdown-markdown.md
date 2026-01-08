@@ -60,6 +60,21 @@ During prototyping, we encountered several issues with Milkdown that required wo
 
 **Solution**: Milkdown has a `clipboard` plugin (`@milkdown/kit/plugin/clipboard`) that handles markdown serialization on copy. Add `.use(clipboard)` to the editor configuration. Additionally, add an `onCopy` handler that post-processes the clipboard to clean up artifacts.
 
+**Critical**: Use the synchronous clipboard API to avoid race conditions:
+```typescript
+// CORRECT - synchronous, blocks default copy
+const handleCopy = (e: ClipboardEvent): void => {
+  const markdown = getCleanMarkdown()
+  e.clipboardData?.setData('text/plain', markdown)
+  e.preventDefault()  // Blocks browser default
+}
+
+// WRONG - async, races with browser default
+await navigator.clipboard.writeText(markdown)  // May lose to default copy
+```
+
+The synchronous `clipboardData.setData()` + `preventDefault()` guarantees markdown ends up on the clipboard. The async `navigator.clipboard.writeText()` can lose the race to the browser's default copy behavior.
+
 **Note**: The clipboard plugin must be explicitly added - it's not included by default.
 
 ### 3. `<br />` Tags in Markdown Output
@@ -74,6 +89,8 @@ const cleanedMarkdown = markdown
 ```
 
 Apply the same cleaning in the copy handler so copied text is also clean.
+
+**Known limitation**: The regex-based cleaning is context-blind. If a user has actual HTML code in their markdown (e.g., documenting `<br />` tags in a code block), those will be incorrectly stripped. This affects any copy operation that goes through `cleanMarkdown()`. Workaround: switch to Raw mode to copy code snippets containing HTML tags. A proper fix would require parsing the markdown AST to respect code fences, which is more complex than warranted for this edge case.
 
 ### 4. Non-Breaking Spaces (`&nbsp;`) in Output
 
@@ -201,7 +218,7 @@ interface MarkdownEditorProps {
 
 **4. Fix known prototype issues:**
 - External value changes don't update Milkdown (need to handle content resets)
-- Ensure undo/redo works correctly across mode switches
+- Clear undo history on mode switch (see below)
 
 ### Implementation Details
 
@@ -224,7 +241,25 @@ When switching from Visual to Markdown (or vice versa), both editors receive the
 - CodeMirror's `onChange` calls the same callback
 - Both write to the same state, so switching modes naturally preserves content
 
-However, switching modes will lose cursor position. This is acceptable - just document it. Attempting to map cursor positions between ProseMirror and CodeMirror would be complex and error-prone.
+**Undo history on mode switch:** Clear undo history when switching modes by changing the React `key` prop. This forces a remount, giving a fresh undo stack:
+
+```tsx
+// Track mode switches to force remount
+const [modeKey, setModeKey] = useState(0)
+
+const handleModeChange = (newMode: 'visual' | 'markdown'): void => {
+  setMode(newMode)
+  setModeKey(prev => prev + 1)  // Forces remount, clears undo
+}
+
+// Use modeKey in the editor's key prop
+<MilkdownEditor key={`milkdown-${modeKey}`} ... />
+<CodeMirrorEditor key={`codemirror-${modeKey}`} ... />
+```
+
+This is cleaner than trying to preserve stale undo history. If you made changes in Raw mode, the Milkdown undo stack is meaningless anyway.
+
+Switching modes will also lose cursor position. This is acceptable - just document it. Attempting to map cursor positions between ProseMirror and CodeMirror would be complex and error-prone.
 
 **localStorage key for mode preference:**
 Use `'editor_mode_preference'` to store `'visual'` or `'markdown'`. The existing codebase uses similar patterns (see `WRAP_TEXT_KEY` in `MarkdownEditor.tsx`).
@@ -270,7 +305,7 @@ The current `MarkdownEditor` has props like `wrapText`, `onWrapTextChange`, `max
 - Mode switching may lose cursor position (accepted tradeoff)
 - Complex markdown (tables, code blocks) may render differently in each mode (document this limitation)
 - Performance with large documents in Milkdown (test with realistic content sizes)
-- **Mocking Milkdown in tests is difficult** - consider marking some tests as integration tests that require browser-like environment
+- **Testing WYSIWYG editors**: jsdom doesn't support `contentEditable` properly. For Milkdown-specific behavior (checkbox toggling, copy/paste, typing), use Playwright integration tests or rely on manual QA. Unit tests with vitest/jsdom are fine for mode toggling, `cleanMarkdown()`, and component props.
 
 ---
 
@@ -345,75 +380,64 @@ Behavior:
 ### Implementation Details
 
 **InlineEditableTitle approach:**
-Use a `contentEditable` div for the most natural text editing experience. This avoids the "input field" appearance while allowing direct text manipulation.
+Use a styled native `<input>` element. This is simpler and more reliable than `contentEditable`, which has browser inconsistencies, IME issues (for non-Latin input), and accessibility concerns.
 
 ```tsx
-// Simplified structure
-function InlineEditableTitle({ value, onChange, placeholder, variant }: InlineEditableTitleProps): ReactNode {
-  const ref = useRef<HTMLDivElement>(null)
-
-  const handleBlur = (): void => {
-    const text = ref.current?.textContent ?? ''
-    onChange(text.trim())
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      ref.current?.blur()  // Triggers handleBlur
-    }
-  }
-
+function InlineEditableTitle({ value, onChange, placeholder, variant, disabled }: InlineEditableTitleProps): ReactNode {
   return (
-    <div
-      ref={ref}
-      contentEditable={!disabled}
-      onBlur={handleBlur}
-      onKeyDown={handleKeyDown}
+    <input
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      disabled={disabled}
       className={cn(
-        'outline-none cursor-text',
+        // Remove input appearance
+        'bg-transparent border-none outline-none w-full',
+        // Typography based on variant
         variant === 'name' ? 'font-mono text-lg' : 'text-2xl font-bold',
-        'focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',  // Subtle focus indicator
-        !value && 'text-gray-400'  // Placeholder style
+        // Subtle focus indicator
+        'focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
+        // Placeholder styling
+        'placeholder:text-gray-400'
       )}
-      suppressContentEditableWarning
-    >
-      {value || placeholder}
-    </div>
+    />
   )
 }
 ```
 
-**Key considerations for contentEditable:**
-1. Set `suppressContentEditableWarning` to avoid React warnings
-2. Use `textContent` not `innerHTML` to avoid XSS
-3. Handle paste events to strip formatting: `e.clipboardData.getData('text/plain')`
-4. The blur handler is the source of truth for onChange
+**Why native `<input>` over `contentEditable`:**
+1. **Browser consistency**: `contentEditable` behaves differently across browsers
+2. **IME support**: Native inputs handle international input methods correctly
+3. **Accessibility**: Screen readers understand native inputs
+4. **Simplicity**: No need to handle paste events, sync textContent, etc.
+5. **React integration**: Works naturally with controlled components
 
-**Alternative approach using input with styling:**
-If contentEditable proves problematic, use a styled input that looks like text:
-```tsx
-<input
-  value={value}
-  onChange={(e) => onChange(e.target.value)}
-  className="bg-transparent border-none outline-none text-2xl font-bold w-full focus:ring-2 ..."
-  placeholder={placeholder}
-/>
-```
+The CSS removes the visual input appearance (`bg-transparent border-none`) while preserving all native input behavior.
 
-This is simpler but requires careful CSS to make it look like plain text.
-
-**InlineEditableTags - Reuse existing TagInput logic:**
+**InlineEditableTags - Extract shared logic to a hook:**
 The current `TagInput.tsx` has extensive logic for:
 - Tag validation via `validateTag()` utility
 - Autocomplete filtering and keyboard navigation
 - Pending tag handling via `useImperativeHandle`
 
-Don't rewrite this. Instead, create `InlineEditableTags` as a styled wrapper:
-1. Copy the validation and autocomplete logic from `TagInput`
-2. Change the visual presentation to match the "view mode" style in `NoteView.tsx` (lines 165-174)
-3. The X button should be visible on hover (not always visible)
-4. Add a small "+" button that appears at the end, or make clicking empty space show the input
+Don't copy this code. Instead, extract the shared logic into a reusable hook:
+
+1. Create `useTagAutocomplete` hook that encapsulates:
+   - Autocomplete filtering logic
+   - Keyboard navigation (arrow keys, Enter to select, Escape to close)
+   - Tag validation
+   - Pending tag state
+
+2. Create `InlineEditableTags` as a new component that:
+   - Uses `useTagAutocomplete` for shared logic
+   - Has view-mode visual styling (matches `NoteView.tsx` lines 165-174)
+   - Shows X button on hover (not always visible)
+   - Has a "+" button or click-to-add interaction
+
+3. Refactor existing `TagInput` to also use `useTagAutocomplete`
+
+This way both components share the same tested logic with different visual presentations.
 
 **Visual reference from NoteView.tsx:**
 ```tsx
@@ -461,12 +485,11 @@ The `italic` class matches the description style in `NoteView.tsx` line 193-196.
 ### Testing Strategy
 
 **InlineEditableTitle tests:**
-- Renders value as plain text (not in an input)
+- Renders as styled input that looks like plain text
 - Shows placeholder with muted styling when empty
-- Calls onChange on blur with trimmed value
-- Enter key triggers blur/confirm
+- Calls onChange on each keystroke (controlled input)
 - Variant="name" applies monospace styling
-- Paste strips rich text formatting (plain text only)
+- Disabled prop prevents editing
 
 **InlineEditableTags tests:**
 - Renders tags as removable pills
@@ -491,11 +514,9 @@ The `italic` class matches the description style in `NoteView.tsx` line 193-196.
 - None (can be built in parallel with Milestone 1)
 
 ### Risk Factors
-- **contentEditable quirks**: Different browsers handle contentEditable differently. Test on Safari, Firefox, Chrome.
-- Accessibility concerns with non-standard form controls - ensure ARIA roles are correct
 - Mobile/touch interaction may need special handling - tap to edit should work
 - Focus management between inline fields - Tab should move to next field naturally
-- **Paste handling**: Must strip rich text formatting when pasting into contentEditable
+- Ensuring styled inputs look like plain text across all browsers (test on Safari, Firefox, Chrome)
 
 ---
 
@@ -601,6 +622,25 @@ After:
 4. **Form validation** (lines 323-343): Title required, length limits. Keep the validation logic.
 
 5. **Pending tag handling** (lines 351-360): The `tagInputRef.current?.getPendingValue()` pattern for capturing typed but uncommitted tags. The new `InlineEditableTags` needs to support this.
+
+**Add `beforeunload` handler for navigation warning:**
+When the form is dirty, warn users before they accidentally navigate away (browser back, close tab, refresh):
+
+```typescript
+useEffect(() => {
+  const handleBeforeUnload = (e: BeforeUnloadEvent): void => {
+    if (isDirty) {
+      e.preventDefault()
+      // Modern browsers ignore custom messages, but this triggers the native dialog
+    }
+  }
+
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+}, [isDirty])
+```
+
+This complements the in-app discard confirmation. The browser shows its native "Leave site? Changes may not be saved" dialog.
 
 **Props interface for Note.tsx:**
 ```typescript
@@ -728,6 +768,11 @@ For new notes (no `note` prop), hide timestamps entirely since there's nothing t
 - Cmd+S saves when dirty
 - Escape triggers discard confirmation when dirty
 - Escape closes immediately when clean
+
+**Navigation warning (beforeunload):**
+- When dirty, `beforeunload` event handler is registered
+- When clean, handler is removed
+- Handler calls `e.preventDefault()` to trigger browser's native "unsaved changes" dialog
 
 **Draft recovery:**
 - Shows restore prompt when localStorage has draft for this note ID
