@@ -43,12 +43,16 @@ Files:
 - Scoped CSS styling (avoiding global pollution from themes)
 - Basic editor initialization pattern
 
-**What the prototype gets wrong** (must fix):
-- Copy handler uses async `navigator.clipboard.writeText()` — causes race condition. Must use synchronous `clipboardData.setData()` instead (see Known Issues #2)
+**What the prototype gets right now** (after fixes):
+- Excludes `remarkPreserveEmptyLinePlugin` to prevent `<br />` tags in output (see Known Issues #3)
+- Custom commonmark preset without the problematic plugin
+
+**What still needs work for production:**
 - No mode toggle (Visual/Markdown) — production needs this
 - No external value change handling — needs React `key` prop pattern
+- Copy handler could be improved but is less critical now that `<br />` issue is fixed
 
-**Bottom line:** Treat prototype as a starting point with known bugs, not a gold standard.
+**Bottom line:** The prototype now produces clean markdown output. Still needs production features (mode toggle, external value handling).
 
 ---
 
@@ -68,39 +72,51 @@ During prototyping, we encountered several issues with Milkdown that required wo
 
 **Problem**: When copying text from Milkdown, the clipboard contains plain rendered text (e.g., "bold text") instead of markdown syntax (e.g., `**bold text**`).
 
-**Solution**: Milkdown has a `clipboard` plugin (`@milkdown/kit/plugin/clipboard`) that handles markdown serialization on copy. Add `.use(clipboard)` to the editor configuration. Additionally, add an `onCopy` handler that post-processes the clipboard to clean up artifacts.
-
-**Critical**: Use the synchronous clipboard API to avoid race conditions:
-```typescript
-// CORRECT - synchronous, blocks default copy
-const handleCopy = (e: ClipboardEvent): void => {
-  const markdown = getCleanMarkdown()
-  e.clipboardData?.setData('text/plain', markdown)
-  e.preventDefault()  // Blocks browser default
-}
-
-// WRONG - async, races with browser default
-await navigator.clipboard.writeText(markdown)  // May lose to default copy
-```
-
-The synchronous `clipboardData.setData()` + `preventDefault()` guarantees markdown ends up on the clipboard. The async `navigator.clipboard.writeText()` can lose the race to the browser's default copy behavior.
+**Solution**: Milkdown has a `clipboard` plugin (`@milkdown/kit/plugin/clipboard`) that handles markdown serialization on copy. Add `.use(clipboard)` to the editor configuration.
 
 **Note**: The clipboard plugin must be explicitly added - it's not included by default.
 
-### 3. `<br />` Tags in Markdown Output
+**Post-processing is less critical now**: Since we fixed the `<br />` issue at the source (see Known Issues #3), copied text no longer contains HTML artifacts. The clipboard plugin handles the conversion to markdown automatically.
 
-**Problem**: Milkdown serializes hard line breaks as `<br />` HTML tags instead of markdown-style line breaks.
+### 3. `<br />` Tags in Markdown Output (SOLVED)
 
-**Solution**: Post-process the markdown output in the `markdownUpdated` listener:
+**Problem**: Milkdown was serializing empty paragraphs as `<br />` HTML tags instead of blank lines.
+
+**Root cause**: The `remarkPreserveEmptyLinePlugin` in Milkdown's commonmark preset intentionally converts empty paragraphs to `<br />` to "preserve" them (since standard markdown collapses multiple blank lines). This is in `paragraphSchema.toMarkdown`:
 ```typescript
-const cleanedMarkdown = markdown
-  .replace(/<br\s*\/?>\n?/gi, '\n')
-  .replace(/\n{3,}/g, '\n\n')  // Collapse excessive newlines
+if (emptyParagraph && shouldPreserveEmptyLine(ctx)) {
+  state.addNode("html", void 0, "<br />");  // This was the problem
+}
 ```
 
-Apply the same cleaning in the copy handler so copied text is also clean.
+**Solution**: Exclude `remarkPreserveEmptyLinePlugin` from the commonmark preset. Instead of importing the full preset:
+```typescript
+import { commonmark } from '@milkdown/kit/preset/commonmark'
+```
 
-**Known limitation**: The regex-based cleaning is context-blind. If a user has actual HTML code in their markdown (e.g., documenting `<br />` tags in a code block), those will be incorrectly stripped. This affects any copy operation that goes through `cleanMarkdown()`. Workaround: switch to Raw mode to copy code snippets containing HTML tags. A proper fix would require parsing the markdown AST to respect code fences, which is more complex than warranted for this edge case.
+Import individual parts and build a custom preset without the problematic plugin:
+```typescript
+import {
+  schema, inputRules, markInputRules, commands, keymap,
+  hardbreakClearMarkPlugin, hardbreakFilterNodes, hardbreakFilterPlugin,
+  inlineNodesCursorPlugin, remarkAddOrderInListPlugin, remarkInlineLinkPlugin,
+  remarkLineBreak, remarkHtmlTransformer, remarkMarker,
+  // remarkPreserveEmptyLinePlugin, -- EXCLUDED
+  syncHeadingIdPlugin, syncListOrderPlugin,
+} from '@milkdown/kit/preset/commonmark'
+
+const customCommonmark = [
+  schema, inputRules, markInputRules, commands, keymap,
+  hardbreakClearMarkPlugin, hardbreakFilterNodes, hardbreakFilterPlugin,
+  inlineNodesCursorPlugin, remarkAddOrderInListPlugin, remarkInlineLinkPlugin,
+  remarkLineBreak, remarkHtmlTransformer, remarkMarker,
+  syncHeadingIdPlugin, syncListOrderPlugin,
+].flat()
+```
+
+**Result**: Empty paragraphs serialize as blank lines (`\n\n`) instead of `<br />`. No HTML in markdown output. No data corruption risk.
+
+**Note**: The `cleanMarkdown` function now only handles non-breaking spaces and collapsing excessive newlines - the `<br />` replacement is no longer needed.
 
 ### 4. Non-Breaking Spaces (`&nbsp;`) in Output
 
