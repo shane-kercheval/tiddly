@@ -473,7 +473,7 @@ export function BookmarkForm({
             ) : (
               <>
                 <CheckIcon className="h-4 w-4" />
-                <span className="hidden md:inline">{isEditing ? 'Save' : 'Add'}</span>
+                <span className="hidden md:inline">{isEditing ? 'Save' : 'Create'}</span>
               </>
             )}
           </button>

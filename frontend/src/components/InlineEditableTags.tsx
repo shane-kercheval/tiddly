@@ -17,6 +17,7 @@ import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 're
 import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
 import type { TagCount } from '../types'
 import { useTagAutocomplete } from '../hooks/useTagAutocomplete'
+import { Tag } from './Tag'
 
 interface InlineEditableTagsProps {
   /** Currently selected tags */
@@ -152,31 +153,14 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
   }
 
   return (
-    <div ref={containerRef} className="relative inline-flex flex-wrap items-center gap-1">
+    <div ref={containerRef} className="relative inline-flex flex-wrap items-center gap-2 py-1">
       {/* Tag pills */}
       {value.map((tag) => (
-        <span
+        <Tag
           key={tag}
-          className="group inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
-        >
-          {tag}
-          {!disabled && (
-            <button
-              type="button"
-              onClick={() => removeTag(tag)}
-              className="opacity-0 group-hover:opacity-100 rounded p-0.5 hover:bg-gray-300 focus:opacity-100 transition-opacity"
-              aria-label={`Remove tag ${tag}`}
-            >
-              <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
-          )}
-        </span>
+          tag={tag}
+          onRemove={disabled ? undefined : () => removeTag(tag)}
+        />
       ))}
 
       {/* Add button or input */}
@@ -228,12 +212,13 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
             <button
               type="button"
               onClick={handleAddClick}
-              className="inline-flex items-center justify-center h-5 w-5 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+              className="inline-flex items-center gap-0.5 h-5 px-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
               aria-label="Add tag"
             >
               <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
+              <span>Tags</span>
             </button>
           )}
         </>

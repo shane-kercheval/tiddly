@@ -7,7 +7,8 @@ import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { formatDate, truncate } from '../utils'
 import { ConfirmDeleteButton } from './ui'
-import { NoteIcon, EditIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
+import { NoteIcon, EditIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
+import { Tag } from './Tag'
 
 interface NoteCardProps {
   note: NoteListItem
@@ -117,28 +118,12 @@ export function NoteCard({
           {note.tags.length > 0 && (
             <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
               {note.tags.map((tag) => (
-                <div key={tag} className="group/tag relative">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onTagClick?.(tag) }}
-                    className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
-                    title={`Filter by tag: ${tag}`}
-                  >
-                    {tag}
-                  </button>
-                  {onTagRemove && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onTagRemove(note, tag)
-                      }}
-                      className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/tag:opacity-100 transition-opacity flex items-center justify-center"
-                      title={`Remove tag: ${tag}`}
-                      aria-label={`Remove tag ${tag}`}
-                    >
-                      <CloseIcon className="w-2.5 h-2.5" />
-                    </button>
-                  )}
-                </div>
+                <Tag
+                  key={tag}
+                  tag={tag}
+                  onClick={onTagClick ? () => onTagClick(tag) : undefined}
+                  onRemove={onTagRemove ? () => onTagRemove(note, tag) : undefined}
+                />
               ))}
             </div>
           )}

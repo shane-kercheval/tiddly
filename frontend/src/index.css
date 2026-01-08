@@ -20,7 +20,7 @@ body {
 @layer components {
   /* Button variants */
   .btn-primary {
-    @apply rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-400 disabled:hover:bg-gray-400;
   }
 
   .btn-secondary {
@@ -28,7 +28,7 @@ body {
   }
 
   .btn-danger {
-    @apply rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300 disabled:hover:bg-red-300;
   }
 
   .btn-ghost {
@@ -196,6 +196,19 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+/* Minimal padding variant - matches title/description px-1 (4px) for alignment */
+.milkdown-wrapper.no-padding .milkdown .editor {
+  @apply p-1;
+}
+
+/* CodeMirror minimal padding variant */
+.codemirror-no-padding .cm-editor .cm-scroller {
+  padding-top: 0.25rem;
+}
+.codemirror-no-padding .cm-editor .cm-content {
+  padding-left: 0.25rem; /* px-1 = 4px to match title/description */
+}
+
 /* Paragraph spacing */
 .milkdown-wrapper .milkdown p {
   @apply my-3 first:mt-0 last:mb-0;
@@ -340,9 +353,10 @@ body {
   @apply bg-blue-100;
 }
 
-/* Placeholder when empty */
-.milkdown-wrapper .milkdown .milkdown-placeholder {
-  @apply text-gray-400 italic pointer-events-none absolute;
+/* Placeholder when empty - uses ::before pseudo-element to avoid focus issues */
+.milkdown-wrapper .milkdown p.is-empty::before {
+  content: attr(data-placeholder);
+  @apply text-gray-400 italic pointer-events-none float-left h-0;
 }
 
 /* Focus state for editor */

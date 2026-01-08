@@ -144,7 +144,9 @@ function LinkDialog({
 
 /**
  * Create a ProseMirror plugin that shows placeholder text when the editor is empty.
- * Uses the decoration system - the standard approach for ProseMirror-based editors.
+ * Uses a node decoration to add a class to the empty paragraph, then CSS ::before
+ * displays the placeholder. This approach doesn't insert DOM nodes that could
+ * interfere with click handling.
  */
 function createPlaceholderPlugin(placeholder: string): Plugin {
   return new Plugin({
@@ -157,12 +159,11 @@ function createPlaceholderPlugin(placeholder: string): Plugin {
           doc.firstChild?.isTextblock &&
           doc.firstChild.content.size === 0
         ) {
+          // Add a decoration to the empty paragraph with data attribute for CSS
           return DecorationSet.create(doc, [
-            Decoration.widget(1, () => {
-              const span = document.createElement('span')
-              span.className = 'milkdown-placeholder'
-              span.textContent = placeholder
-              return span
+            Decoration.node(0, doc.firstChild.nodeSize, {
+              class: 'is-empty',
+              'data-placeholder': placeholder,
             }),
           ])
         }
@@ -183,6 +184,8 @@ interface MilkdownEditorProps {
   minHeight?: string
   /** Placeholder text shown when empty */
   placeholder?: string
+  /** Remove padding to align text with other elements */
+  noPadding?: boolean
 }
 
 interface MilkdownEditorInnerProps {
@@ -191,6 +194,7 @@ interface MilkdownEditorInnerProps {
   disabled?: boolean
   minHeight?: string
   placeholder?: string
+  noPadding?: boolean
 }
 
 function MilkdownEditorInner({
@@ -199,6 +203,7 @@ function MilkdownEditorInner({
   disabled = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
+  noPadding = false,
 }: MilkdownEditorInnerProps): ReactNode {
   const initialValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
@@ -292,7 +297,7 @@ function MilkdownEditorInner({
     [get]
   )
 
-  // Handle checkbox clicks for task list items
+  // Handle clicks - checkbox toggle and focus on empty space
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement
@@ -334,6 +339,24 @@ function MilkdownEditorInner({
             }
           }
         }
+        return
+      }
+
+      // If click was on empty space (wrapper or editor container), focus and place cursor at end
+      const editor = get()
+      if (editor) {
+        const view = editor.ctx.get(editorViewCtx)
+        // Check if click was outside the actual content area
+        const editorElement = target.closest('.ProseMirror')
+        if (!editorElement || target === editorElement || target.classList.contains('milkdown-wrapper') || target.classList.contains('milkdown') || target.classList.contains('editor')) {
+          view.focus()
+          // Place cursor at the end of the document
+          const endPos = view.state.doc.content.size
+          const tr = view.state.tr.setSelection(
+            view.state.selection.constructor.near(view.state.doc.resolve(endPos), -1)
+          )
+          view.dispatch(tr)
+        }
       }
     },
     [get]
@@ -342,7 +365,7 @@ function MilkdownEditorInner({
   return (
     <>
       <div
-        className={`milkdown-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''}`}
+        className={`milkdown-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''} ${noPadding ? 'no-padding' : ''}`}
         style={{ minHeight }}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
@@ -379,6 +402,7 @@ export function MilkdownEditor({
   disabled = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
+  noPadding = false,
 }: MilkdownEditorProps): ReactNode {
   return (
     <MilkdownProvider>
@@ -388,6 +412,7 @@ export function MilkdownEditor({
         disabled={disabled}
         minHeight={minHeight}
         placeholder={placeholder}
+        noPadding={noPadding}
       />
     </MilkdownProvider>
   )

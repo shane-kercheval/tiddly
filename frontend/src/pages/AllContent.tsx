@@ -373,7 +373,8 @@ export function AllContent(): ReactNode {
   }
 
   const handleEditNote = (note: NoteListItem): void => {
-    navigate(`/app/notes/${note.id}/edit`, { state: createReturnState() })
+    // Unified component is always editable, so edit and view go to the same route
+    navigate(`/app/notes/${note.id}`, { state: createReturnState() })
   }
 
   const handleDeleteNote = async (note: NoteListItem): Promise<void> => {

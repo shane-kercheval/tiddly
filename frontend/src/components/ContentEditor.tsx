@@ -97,6 +97,10 @@ interface ContentEditorProps {
   maxLength?: number
   /** Error message to display */
   errorMessage?: string
+  /** Whether to show border around editor */
+  showBorder?: boolean
+  /** Use subtle ring style instead of solid border (matches title/description focus style) */
+  subtleBorder?: boolean
 }
 
 /**
@@ -125,6 +129,8 @@ export function ContentEditor({
   label = 'Content',
   maxLength,
   errorMessage,
+  showBorder = true,
+  subtleBorder = false,
 }: ContentEditorProps): ReactNode {
   // Mode state with localStorage persistence
   const [mode, setMode] = useState<EditorMode>(loadModePreference)
@@ -170,15 +176,15 @@ export function ContentEditor({
   // Default helper text based on mode
   const defaultHelperText =
     mode === 'visual'
-      ? 'WYSIWYG mode: Use Cmd+B for bold, Cmd+I for italic, Cmd+K for links'
+      ? 'Press ⌘/ to view keyboard shortcuts'
       : 'Markdown mode: Supports **bold**, *italic*, `code`, [links](url), lists, tables'
 
   return (
-    <div>
-      {/* Header with label and mode toggle */}
+    <div className="group/editor">
+      {/* Header with label and mode toggle - hidden until hover/focus */}
       <div className="flex items-center justify-between mb-1">
-        <label className="label">{label}</label>
-        <div className="flex items-center gap-2">
+        {label ? <label className="label">{label}</label> : <div />}
+        <div className="flex items-center gap-2 opacity-0 group-hover/editor:opacity-100 group-focus-within/editor:opacity-100 transition-opacity">
           {/* Wrap text toggle (only in markdown mode) */}
           {mode === 'markdown' && (
             <label
@@ -195,36 +201,42 @@ export function ContentEditor({
             </label>
           )}
 
-          {/* Mode toggle buttons */}
-          <button
-            type="button"
-            onClick={() => handleModeChange('visual')}
-            className={`text-sm px-2 py-1 rounded transition-colors ${
-              mode === 'visual'
-                ? 'bg-gray-200 text-gray-900'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Visual
-          </button>
-          <button
-            type="button"
-            onClick={() => handleModeChange('markdown')}
-            className={`text-sm px-2 py-1 rounded transition-colors ${
-              mode === 'markdown'
-                ? 'bg-gray-200 text-gray-900'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Markdown
-          </button>
+          {/* Mode toggle */}
+          <div className="inline-flex rounded-md bg-gray-100 p-0.5">
+            <button
+              type="button"
+              onClick={() => handleModeChange('visual')}
+              className={`text-xs px-2 py-0.5 rounded transition-all ${
+                mode === 'visual'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Visual
+            </button>
+            <button
+              type="button"
+              onClick={() => handleModeChange('markdown')}
+              className={`text-xs px-2 py-0.5 rounded transition-all ${
+                mode === 'markdown'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Markdown
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Editor container */}
+      {/* Editor container - border shown on hover/focus */}
       <div
-        className={`border rounded-lg overflow-hidden ${
-          hasError ? 'border-red-300' : 'border-gray-200'
+        className={`overflow-hidden rounded-lg transition-shadow ${
+          showBorder
+            ? subtleBorder
+              ? `group-hover/editor:ring-2 group-focus-within/editor:ring-2 ${hasError ? 'ring-red-200 ring-2' : 'ring-gray-900/5'}`
+              : `border ${hasError ? 'border-red-300' : 'border-gray-200'}`
+            : ''
         }`}
       >
         {mode === 'visual' ? (
@@ -235,6 +247,7 @@ export function ContentEditor({
             disabled={disabled}
             minHeight={minHeight}
             placeholder={placeholder}
+            noPadding={subtleBorder || !showBorder}
           />
         ) : (
           <CodeMirrorEditor
@@ -245,12 +258,13 @@ export function ContentEditor({
             minHeight={minHeight}
             placeholder={placeholder}
             wrapText={wrapText}
+            noPadding={subtleBorder || !showBorder}
           />
         )}
       </div>
 
-      {/* Footer with helper text and character count */}
-      <div className="flex justify-between items-center mt-1">
+      {/* Footer with helper text and character count - hidden until hover/focus */}
+      <div className="flex justify-between items-center mt-1 opacity-0 group-hover/editor:opacity-100 group-focus-within/editor:opacity-100 transition-opacity">
         {errorMessage ? (
           <p className="error-text">{errorMessage}</p>
         ) : (

@@ -83,8 +83,8 @@ export function InlineEditableText({
   const textareaClasses = [
     // Remove default textarea appearance
     'bg-transparent border-none outline-none w-full resize-none',
-    // Subtle focus indicator
-    'focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
+    // Subtle hover/focus indicator
+    'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
     // Placeholder styling
     'placeholder:text-gray-400',
     // Typography based on variant

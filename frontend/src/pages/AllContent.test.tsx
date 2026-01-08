@@ -268,7 +268,6 @@ function renderAtRoute(route: string): ReturnType<typeof render> {
         <Route path="/app/content/trash" element={<AllContent />} />
         <Route path="/app/content/lists/:listId" element={<AllContent />} />
         <Route path="/app/notes/:id" element={<div data-testid="note-detail">Note Detail</div>} />
-        <Route path="/app/notes/:id/edit" element={<div data-testid="note-edit">Note Edit</div>} />
       </Routes>
     </MemoryRouter>
   )

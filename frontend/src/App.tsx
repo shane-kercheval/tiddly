@@ -17,6 +17,7 @@ import { SettingsTokens } from './pages/settings/SettingsTokens'
 import { SettingsMCP } from './pages/settings/SettingsMCP'
 import { SettingsTags } from './pages/settings/SettingsTags'
 import { SettingsFAQ } from './pages/settings/SettingsFAQ'
+import { SettingsEditorPrototype } from './pages/settings/SettingsEditorPrototype'
 
 /**
  * Main application component with routing configuration.
@@ -37,8 +38,7 @@ import { SettingsFAQ } from './pages/settings/SettingsFAQ'
  *   - /app/bookmarks/:id : Edit bookmark
  *   - /app/bookmarks/:id/edit : Edit bookmark
  *   - /app/notes/new : Create new note
- *   - /app/notes/:id : View note
- *   - /app/notes/:id/edit : Edit note
+ *   - /app/notes/:id : View/edit note (unified component)
  *   - /app/prompts/new : Create new prompt
  *   - /app/prompts/:id : View prompt
  *   - /app/prompts/:id/edit : Edit prompt
@@ -81,7 +81,6 @@ function App(): ReactNode {
                 {/* Note detail routes */}
                 <Route path="/app/notes/new" element={<NoteDetail />} />
                 <Route path="/app/notes/:id" element={<NoteDetail />} />
-                <Route path="/app/notes/:id/edit" element={<NoteDetail />} />
 
                 {/* Prompt detail routes */}
                 <Route path="/app/prompts/new" element={<PromptDetail />} />
@@ -95,6 +94,7 @@ function App(): ReactNode {
                 <Route path="/app/settings/mcp" element={<SettingsMCP />} />
                 <Route path="/app/settings/tags" element={<SettingsTags />} />
                 <Route path="/app/settings/faq" element={<SettingsFAQ />} />
+                <Route path="/app/settings/editor-prototype" element={<SettingsEditorPrototype />} />
               </Route>
             </Route>
           </Route>

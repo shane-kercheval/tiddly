@@ -139,15 +139,15 @@ describe('ContentEditor', () => {
       const visualButton = screen.getByRole('button', { name: 'Visual' })
       const markdownButton = screen.getByRole('button', { name: 'Markdown' })
 
-      // Visual should be active initially
-      expect(visualButton).toHaveClass('bg-gray-200')
-      expect(markdownButton).not.toHaveClass('bg-gray-200')
+      // Visual should be active initially (bg-white indicates selected in pill toggle)
+      expect(visualButton).toHaveClass('bg-white')
+      expect(markdownButton).not.toHaveClass('bg-white')
 
       // Switch to Markdown
       await user.click(markdownButton)
 
-      expect(markdownButton).toHaveClass('bg-gray-200')
-      expect(visualButton).not.toHaveClass('bg-gray-200')
+      expect(markdownButton).toHaveClass('bg-white')
+      expect(visualButton).not.toHaveClass('bg-white')
     })
   })
 
@@ -230,7 +230,7 @@ describe('ContentEditor', () => {
     it('should show default helper text for Visual mode', () => {
       render(<ContentEditor {...defaultProps} />)
 
-      expect(screen.getByText(/WYSIWYG mode/)).toBeInTheDocument()
+      expect(screen.getByText(/keyboard shortcuts/)).toBeInTheDocument()
     })
 
     it('should show default helper text for Markdown mode', async () => {

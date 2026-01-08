@@ -26,6 +26,8 @@ interface CodeMirrorEditorProps {
   placeholder?: string
   /** Whether to wrap long lines */
   wrapText?: boolean
+  /** Remove padding to align text with other elements */
+  noPadding?: boolean
 }
 
 /**
@@ -135,6 +137,7 @@ export function CodeMirrorEditor({
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
   wrapText = false,
+  noPadding = false,
 }: CodeMirrorEditorProps): ReactNode {
   // Build extensions array with optional line wrapping and keybindings
   const extensions = useMemo(() => {
@@ -147,19 +150,21 @@ export function CodeMirrorEditor({
   }, [wrapText])
 
   return (
-    <CodeMirror
-      value={value}
-      onChange={onChange}
-      extensions={extensions}
-      minHeight={minHeight}
-      placeholder={placeholder}
-      editable={!disabled}
-      basicSetup={{
-        lineNumbers: false,
-        foldGutter: false,
-        highlightActiveLine: true,
-      }}
-      className="text-sm"
-    />
+    <div className={noPadding ? 'codemirror-no-padding' : ''}>
+      <CodeMirror
+        value={value}
+        onChange={onChange}
+        extensions={extensions}
+        minHeight={minHeight}
+        placeholder={placeholder}
+        editable={!disabled}
+        basicSetup={{
+          lineNumbers: false,
+          foldGutter: false,
+          highlightActiveLine: true,
+        }}
+        className="text-sm"
+      />
+    </div>
   )
 }
