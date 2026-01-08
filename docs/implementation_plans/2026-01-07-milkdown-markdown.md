@@ -28,17 +28,27 @@ Before implementing, read:
 - **ProseMirror basics**: https://prosemirror.net/docs/guide/ (Milkdown is built on this)
 
 ### Existing Prototype
-A working prototype exists at:
+
+**WARNING:** A prototype exists in the repo but should NOT be treated as production-ready code. Use it as a reference for patterns and solutions, but verify against this plan before copying.
+
+Files:
 - `src/components/MilkdownEditor.tsx` - Core editor component
 - `src/pages/settings/SettingsEditorPrototype.tsx` - Test page
 - Route: `/app/settings/editor-prototype`
 
-The prototype includes solutions for:
-- Checkbox/task list rendering and toggling
-- Copy/paste preserving markdown
+**What the prototype gets right** (use as reference):
+- Checkbox/task list rendering and toggling via ProseMirror
 - Cleaning `<br />` and `&nbsp;` artifacts
 - Custom link dialog (Cmd+K)
 - Scoped CSS styling (avoiding global pollution from themes)
+- Basic editor initialization pattern
+
+**What the prototype gets wrong** (must fix):
+- Copy handler uses async `navigator.clipboard.writeText()` — causes race condition. Must use synchronous `clipboardData.setData()` instead (see Known Issues #2)
+- No mode toggle (Visual/Markdown) — production needs this
+- No external value change handling — needs React `key` prop pattern
+
+**Bottom line:** Treat prototype as a starting point with known bugs, not a gold standard.
 
 ---
 
