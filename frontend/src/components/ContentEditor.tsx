@@ -1,0 +1,266 @@
+/**
+ * Unified content editor with Visual/Markdown mode toggle.
+ *
+ * Wraps MilkdownEditor (WYSIWYG) and CodeMirrorEditor (raw markdown)
+ * with a mode toggle that persists to localStorage.
+ *
+ * Features:
+ * - Visual mode: WYSIWYG editing with Milkdown
+ * - Markdown mode: Raw markdown editing with CodeMirror
+ * - Mode preference persisted to localStorage
+ * - Undo history cleared on mode switch (via key prop)
+ * - All formatting shortcuts work in both modes
+ */
+import { useState, useCallback, useEffect } from 'react'
+import type { ReactNode } from 'react'
+import { MilkdownEditor } from './MilkdownEditor'
+import { CodeMirrorEditor } from './CodeMirrorEditor'
+
+/** Editor mode: visual (WYSIWYG) or markdown (raw) */
+export type EditorMode = 'visual' | 'markdown'
+
+/** localStorage key for mode preference */
+const EDITOR_MODE_KEY = 'editor_mode_preference'
+
+/** localStorage key for wrap text preference */
+const WRAP_TEXT_KEY = 'editor_wrap_text'
+
+/**
+ * Load editor mode preference from localStorage.
+ * Defaults to 'visual' if not set.
+ */
+function loadModePreference(): EditorMode {
+  try {
+    const stored = localStorage.getItem(EDITOR_MODE_KEY)
+    if (stored === 'visual' || stored === 'markdown') {
+      return stored
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return 'visual'
+}
+
+/**
+ * Save editor mode preference to localStorage.
+ */
+function saveModePreference(mode: EditorMode): void {
+  try {
+    localStorage.setItem(EDITOR_MODE_KEY, mode)
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+/**
+ * Load wrap text preference from localStorage.
+ * Defaults to true (wrap on) if not set.
+ */
+function loadWrapTextPreference(): boolean {
+  try {
+    const stored = localStorage.getItem(WRAP_TEXT_KEY)
+    return stored === null ? true : stored === 'true'
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Save wrap text preference to localStorage.
+ */
+function saveWrapTextPreference(wrap: boolean): void {
+  try {
+    localStorage.setItem(WRAP_TEXT_KEY, String(wrap))
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+interface ContentEditorProps {
+  /** Current content value (markdown string) */
+  value: string
+  /** Called when content changes */
+  onChange: (value: string) => void
+  /** Whether the editor is disabled */
+  disabled?: boolean
+  /** Whether there's an error */
+  hasError?: boolean
+  /** Minimum height for the editor */
+  minHeight?: string
+  /** Placeholder text shown when empty */
+  placeholder?: string
+  /** Helper text shown below the editor */
+  helperText?: string
+  /** Label for the field */
+  label?: string
+  /** Maximum content length for counter */
+  maxLength?: number
+  /** Error message to display */
+  errorMessage?: string
+}
+
+/**
+ * ContentEditor provides a unified markdown editor with Visual/Markdown mode toggle.
+ *
+ * Usage:
+ * ```tsx
+ * <ContentEditor
+ *   key={note?.id ?? 'new'}  // Force remount on document change
+ *   value={content}
+ *   onChange={setContent}
+ * />
+ * ```
+ *
+ * Note: Pass a `key` prop based on the document ID to force remount when
+ * switching documents. This ensures fresh undo history per document.
+ */
+export function ContentEditor({
+  value,
+  onChange,
+  disabled = false,
+  hasError = false,
+  minHeight = '200px',
+  placeholder = 'Write your content in markdown...',
+  helperText,
+  label = 'Content',
+  maxLength,
+  errorMessage,
+}: ContentEditorProps): ReactNode {
+  // Mode state with localStorage persistence
+  const [mode, setMode] = useState<EditorMode>(loadModePreference)
+
+  // Track mode switches to force remount and clear undo history
+  const [modeKey, setModeKey] = useState(0)
+
+  // Wrap text preference (only applies to Markdown mode)
+  const [wrapText, setWrapText] = useState(loadWrapTextPreference)
+
+  // Handle mode change
+  const handleModeChange = useCallback((newMode: EditorMode): void => {
+    setMode(newMode)
+    saveModePreference(newMode)
+    setModeKey((prev) => prev + 1) // Force remount to clear undo history
+  }, [])
+
+  // Handle wrap text change
+  const handleWrapTextChange = useCallback((wrap: boolean): void => {
+    setWrapText(wrap)
+    saveWrapTextPreference(wrap)
+  }, [])
+
+  // Global keyboard handler for Alt+Z (Option+Z on Mac) to toggle wrap
+  // Uses capture phase to intercept before macOS converts to special character (Ω)
+  useEffect(() => {
+    if (mode !== 'markdown') return // Only applies to markdown mode
+
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      // Alt+Z (Option+Z on Mac) - toggle word wrap
+      if (e.altKey && (e.key.toLowerCase() === 'z' || e.key === 'Ω' || e.code === 'KeyZ')) {
+        e.preventDefault()
+        e.stopPropagation()
+        handleWrapTextChange(!wrapText)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
+  }, [mode, wrapText, handleWrapTextChange])
+
+  // Default helper text based on mode
+  const defaultHelperText =
+    mode === 'visual'
+      ? 'WYSIWYG mode: Use Cmd+B for bold, Cmd+I for italic, Cmd+K for links'
+      : 'Markdown mode: Supports **bold**, *italic*, `code`, [links](url), lists, tables'
+
+  return (
+    <div>
+      {/* Header with label and mode toggle */}
+      <div className="flex items-center justify-between mb-1">
+        <label className="label">{label}</label>
+        <div className="flex items-center gap-2">
+          {/* Wrap text toggle (only in markdown mode) */}
+          {mode === 'markdown' && (
+            <label
+              className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer mr-2"
+              title="Toggle word wrap (⌥Z)"
+            >
+              <input
+                type="checkbox"
+                checked={wrapText}
+                onChange={(e) => handleWrapTextChange(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-gray-300 text-gray-600 focus:ring-gray-500/20"
+              />
+              Wrap
+            </label>
+          )}
+
+          {/* Mode toggle buttons */}
+          <button
+            type="button"
+            onClick={() => handleModeChange('visual')}
+            className={`text-sm px-2 py-1 rounded transition-colors ${
+              mode === 'visual'
+                ? 'bg-gray-200 text-gray-900'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Visual
+          </button>
+          <button
+            type="button"
+            onClick={() => handleModeChange('markdown')}
+            className={`text-sm px-2 py-1 rounded transition-colors ${
+              mode === 'markdown'
+                ? 'bg-gray-200 text-gray-900'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Markdown
+          </button>
+        </div>
+      </div>
+
+      {/* Editor container */}
+      <div
+        className={`border rounded-lg overflow-hidden ${
+          hasError ? 'border-red-300' : 'border-gray-200'
+        }`}
+      >
+        {mode === 'visual' ? (
+          <MilkdownEditor
+            key={`milkdown-${modeKey}`}
+            value={value}
+            onChange={onChange}
+            disabled={disabled}
+            minHeight={minHeight}
+            placeholder={placeholder}
+          />
+        ) : (
+          <CodeMirrorEditor
+            key={`codemirror-${modeKey}`}
+            value={value}
+            onChange={onChange}
+            disabled={disabled}
+            minHeight={minHeight}
+            placeholder={placeholder}
+            wrapText={wrapText}
+          />
+        )}
+      </div>
+
+      {/* Footer with helper text and character count */}
+      <div className="flex justify-between items-center mt-1">
+        {errorMessage ? (
+          <p className="error-text">{errorMessage}</p>
+        ) : (
+          <p className="helper-text">{helperText ?? defaultHelperText}</p>
+        )}
+        {maxLength && (
+          <span className="helper-text">
+            {value.length.toLocaleString()}/{maxLength.toLocaleString()}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}

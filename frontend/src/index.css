@@ -179,3 +179,173 @@ body {
     @apply mt-1.5 text-sm text-red-500;
   }
 }
+
+/* Milkdown Editor Styles */
+.milkdown-wrapper {
+  @apply bg-white;
+}
+
+/* Main editor container */
+.milkdown-wrapper .milkdown {
+  @apply min-h-[200px];
+}
+
+/* The actual editable area */
+.milkdown-wrapper .milkdown .editor {
+  @apply p-4 outline-none text-gray-900 text-sm leading-relaxed relative;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Paragraph spacing */
+.milkdown-wrapper .milkdown p {
+  @apply my-3 first:mt-0 last:mb-0;
+}
+
+/* Headings */
+.milkdown-wrapper .milkdown h1 {
+  @apply text-2xl font-bold text-gray-900 mt-6 mb-4 first:mt-0;
+}
+
+.milkdown-wrapper .milkdown h2 {
+  @apply text-xl font-semibold text-gray-900 mt-5 mb-3 first:mt-0;
+}
+
+.milkdown-wrapper .milkdown h3 {
+  @apply text-lg font-semibold text-gray-900 mt-4 mb-2 first:mt-0;
+}
+
+.milkdown-wrapper .milkdown h4,
+.milkdown-wrapper .milkdown h5,
+.milkdown-wrapper .milkdown h6 {
+  @apply text-base font-semibold text-gray-900 mt-4 mb-2 first:mt-0;
+}
+
+/* Bold and italic */
+.milkdown-wrapper .milkdown strong {
+  @apply font-semibold text-gray-900;
+}
+
+.milkdown-wrapper .milkdown em {
+  @apply italic;
+}
+
+/* Strikethrough */
+.milkdown-wrapper .milkdown del,
+.milkdown-wrapper .milkdown s {
+  @apply line-through text-gray-500;
+}
+
+/* Links */
+.milkdown-wrapper .milkdown a {
+  @apply text-blue-600 underline hover:text-blue-800;
+}
+
+/* Inline code */
+.milkdown-wrapper .milkdown code {
+  @apply bg-gray-100 px-1.5 py-0.5 rounded text-sm text-pink-600 font-mono;
+}
+
+/* Code blocks */
+.milkdown-wrapper .milkdown pre {
+  @apply bg-gray-900 text-gray-100 rounded-lg p-4 overflow-auto my-4 text-sm;
+}
+
+.milkdown-wrapper .milkdown pre code {
+  @apply bg-transparent text-gray-100 p-0 text-sm font-mono;
+}
+
+/* Blockquotes */
+.milkdown-wrapper .milkdown blockquote {
+  @apply border-l-4 border-gray-300 pl-4 my-4 text-gray-600 italic;
+}
+
+/* Unordered lists */
+.milkdown-wrapper .milkdown ul {
+  @apply list-disc pl-6 my-3 space-y-1;
+}
+
+/* Ordered lists */
+.milkdown-wrapper .milkdown ol {
+  @apply list-decimal pl-6 my-3 space-y-1;
+}
+
+/* List items */
+.milkdown-wrapper .milkdown li {
+  @apply text-gray-700;
+}
+
+.milkdown-wrapper .milkdown li p {
+  @apply my-0;
+}
+
+/* Nested lists */
+.milkdown-wrapper .milkdown ul ul,
+.milkdown-wrapper .milkdown ol ol,
+.milkdown-wrapper .milkdown ul ol,
+.milkdown-wrapper .milkdown ol ul {
+  @apply my-1;
+}
+
+/* Task lists (checkboxes) - Milkdown uses data attributes instead of input elements */
+.milkdown-wrapper .milkdown li[data-item-type="task"] {
+  @apply list-none flex items-start gap-2 my-1;
+}
+
+.milkdown-wrapper .milkdown li[data-item-type="task"]::before {
+  content: '';
+  @apply mt-1 h-4 w-4 rounded border border-gray-300 bg-white flex-shrink-0 cursor-pointer;
+  display: inline-block;
+  min-width: 1rem;
+  min-height: 1rem;
+}
+
+.milkdown-wrapper .milkdown li[data-item-type="task"][data-checked="true"]::before {
+  @apply bg-blue-600 border-blue-600;
+  background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e");
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* Remove default bullet from task list parent */
+.milkdown-wrapper .milkdown ul:has(li[data-item-type="task"]) {
+  @apply list-none pl-4;
+}
+
+/* Horizontal rule */
+.milkdown-wrapper .milkdown hr {
+  @apply my-6 border-t border-gray-300;
+}
+
+/* Tables */
+.milkdown-wrapper .milkdown table {
+  @apply w-full border-collapse my-4 text-sm;
+}
+
+.milkdown-wrapper .milkdown th {
+  @apply border border-gray-300 px-3 py-2 bg-gray-50 font-semibold text-left text-gray-700;
+}
+
+.milkdown-wrapper .milkdown td {
+  @apply border border-gray-300 px-3 py-2 text-left text-gray-700;
+}
+
+/* Images */
+.milkdown-wrapper .milkdown img {
+  @apply max-w-full h-auto rounded-lg my-4;
+}
+
+/* Selection styling */
+.milkdown-wrapper .milkdown ::selection {
+  @apply bg-blue-100;
+}
+
+/* Placeholder when empty */
+.milkdown-wrapper .milkdown .milkdown-placeholder {
+  @apply text-gray-400 italic pointer-events-none absolute;
+}
+
+/* Focus state for editor */
+.milkdown-wrapper .milkdown .ProseMirror:focus {
+  @apply outline-none;
+}
