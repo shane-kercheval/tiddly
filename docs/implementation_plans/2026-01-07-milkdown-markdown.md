@@ -316,13 +316,15 @@ The current `MarkdownEditor` has props like `wrapText`, `onWrapTextChange`, `max
 
 2. **Markdown round-trip** - Content survives switching between modes. Hard to unit test with Milkdown mocking; may need integration tests.
 
-3. **`cleanMarkdown()` utility** - Extract to `src/utils/cleanMarkdown.ts` and test the pure function directly. Cover: `<br />` → newline, `\u00a0` → space, `&nbsp;` → space, collapsing multiple newlines.
+3. **`cleanMarkdown()` utility** - Extract to `src/utils/cleanMarkdown.ts` and test the pure function directly. Cover: `\u00a0` → space, `&nbsp;` → space, collapsing multiple newlines. (Note: `<br />` cleanup is no longer needed since we fixed the root cause.)
 
 4. **Link dialog** - Opens on Cmd+K, submits URL correctly, closes on cancel/escape.
 
-5. **Copy/paste** - Clipboard APIs are restricted in jsdom. Test `cleanMarkdown` instead; verify actual clipboard behavior manually.
+5. **Copy/paste** - Clipboard APIs are restricted in jsdom. Verify actual clipboard behavior manually.
 
 6. **Checkbox toggling** - Requires real DOM interaction with Milkdown output. Consider integration test or manual testing.
+
+7. **Keyboard shortcuts with editor focused** - Verify Cmd+S (save) and Escape (cancel) work when Milkdown editor is focused. ProseMirror has its own keymap that might intercept events. Test manually or with Playwright.
 
 ### Dependencies
 - None (this is the foundation)
@@ -330,8 +332,9 @@ The current `MarkdownEditor` has props like `wrapText`, `onWrapTextChange`, `max
 ### Risk Factors
 - Mode switching may lose cursor position (accepted tradeoff)
 - Complex markdown (tables, code blocks) may render differently in each mode (document this limitation)
-- Performance with large documents in Milkdown (test with realistic content sizes)
+- **Performance with large documents**: The app allows up to 500K characters, but realistically most notes are <10K. Test with 10K, 50K, and 100K character documents. Consider showing a warning or auto-switching to raw mode above a threshold if performance degrades.
 - **Testing WYSIWYG editors**: jsdom doesn't support `contentEditable` properly. For Milkdown-specific behavior (checkbox toggling, copy/paste, typing), use Playwright integration tests or rely on manual QA. Unit tests with vitest/jsdom are fine for mode toggling, `cleanMarkdown()`, and component props.
+- **Keyboard shortcut conflicts**: ProseMirror has its own keymap. Verify that Cmd+S (save) and Escape (cancel) bubble up correctly when the editor is focused. Test manually or with Playwright.
 
 ---
 
@@ -599,12 +602,19 @@ const isDirty = !isEqual(currentState, originalState)
 - Save: Only when dirty
 - Archive/Delete: Always visible (existing behavior)
 
-**4. Draft recovery:**
+**4. Read-only mode for archived/deleted items:**
+When `viewState === 'archived'` or `viewState === 'deleted'`, the note should be read-only:
+- All inline editable fields (title, description, tags) should be disabled
+- Content editor should be disabled/read-only
+- Save/Discard buttons hidden (nothing to save)
+- Only show Restore/Delete actions as appropriate
+
+**5. Draft recovery:**
 - Auto-save to localStorage every 30 seconds when dirty (keep existing pattern)
 - Show "Restore Draft" prompt when draft exists
 - Clear draft on successful save
 
-**5. Update NoteDetail page:**
+**6. Update NoteDetail page:**
 - Remove conditional rendering of NoteView vs NoteEditor
 - Use single Note component
 - Handle loading, error states
@@ -1039,9 +1049,18 @@ These were open questions that have been resolved:
 3. **Timestamps on new items**: Hidden. Only show Created/Updated/Version for existing items.
 4. **Template variable highlighting**: Nice-to-have, not required for initial implementation.
 
+## Known Limitations
+
+Document these for users/future reference:
+
+1. **Multi-tab conflicts**: If the same note is open in multiple browser tabs, localStorage drafts may conflict. One tab's draft could overwrite another's. This is acceptable for beta.
+
+2. **WYSIWYG syntax typing**: Typing markdown syntax (e.g., `**bold**`) produces literal characters, not formatting. Users must use keyboard shortcuts (Cmd+B, Cmd+I, Cmd+K) or a future toolbar.
+
 ## Open Questions
 
 If any of these arise during implementation, make a reasonable decision and document it:
 
 1. Should Discard button always be visible (disabled when clean) or completely hidden when clean?
 2. If Milkdown has performance issues with large documents, at what threshold should we warn users or fall back to Markdown mode?
+3. Should we add a formatting toolbar for discoverability? Could integrate with existing keyboard shortcuts dialog. (Nice-to-have, not required for initial implementation.)
