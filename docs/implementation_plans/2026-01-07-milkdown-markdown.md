@@ -203,21 +203,74 @@ interface MarkdownEditorProps {
 - External value changes don't update Milkdown (need to handle content resets)
 - Ensure undo/redo works correctly across mode switches
 
+### Implementation Details
+
+**Approach for handling external value changes (Issue #8):**
+The cleanest solution is using React's `key` prop to force remount when loading different content. When the user navigates to a different note/prompt, pass a different key (e.g., the entity ID) to the ContentEditor:
+
+```tsx
+<ContentEditor
+  key={note?.id ?? 'new'}  // Forces remount when ID changes
+  value={content}
+  onChange={setContent}
+/>
+```
+
+This is simpler and more reliable than trying to imperatively update Milkdown's internal state. The tradeoff is losing undo history when switching documents, which is acceptable since undo should be per-document anyway.
+
+**Mode switching state management:**
+When switching from Visual to Markdown (or vice versa), both editors receive the same `value` prop. The key insight is that:
+- Milkdown's `markdownUpdated` listener calls `onChange` with cleaned markdown
+- CodeMirror's `onChange` calls the same callback
+- Both write to the same state, so switching modes naturally preserves content
+
+However, switching modes will lose cursor position. This is acceptable - just document it. Attempting to map cursor positions between ProseMirror and CodeMirror would be complex and error-prone.
+
+**localStorage key for mode preference:**
+Use `'editor_mode_preference'` to store `'visual'` or `'markdown'`. The existing codebase uses similar patterns (see `WRAP_TEXT_KEY` in `MarkdownEditor.tsx`).
+
+**Keep the existing CodeMirror formatting shortcuts:**
+The current `MarkdownEditor.tsx` has well-tested shortcuts in `createMarkdownKeyBindings()`:
+- Mod-b: Bold (`**text**`)
+- Mod-i: Italic (`*text*`)
+- Mod-k: Link (`[text](url)`)
+- Mod-Shift-x: Strikethrough (`~~text~~`)
+
+These should continue working in Markdown mode. For Visual mode, Milkdown handles Cmd+B and Cmd+I natively. The prototype already implements Cmd+K with a custom dialog.
+
+**Reuse existing MarkdownEditor props:**
+The current `MarkdownEditor` has props like `wrapText`, `onWrapTextChange`, `maxLength`, `errorMessage` that should be preserved in the new wrapper component. Don't break existing consumers.
+
 ### Testing Strategy
-- Unit tests for mode toggling
-- Test markdown round-trip (type in Visual → switch to Markdown → verify output)
-- Test keyboard shortcuts in both modes
-- Test copy/paste in both modes
-- Test task list checkbox toggling
-- Test link insertion dialog
+
+**Note: No frontend tests currently exist.** This milestone should establish the testing pattern for the codebase.
+
+**Setup required:**
+- Create `vitest.config.ts` with jsdom environment
+- Add setup file for `@testing-library/jest-dom` matchers
+
+**What to test:**
+
+1. **Mode toggling** - Verify clicking Visual/Markdown buttons switches the active editor and persists preference to localStorage.
+
+2. **Markdown round-trip** - Content survives switching between modes. Hard to unit test with Milkdown mocking; may need integration tests.
+
+3. **`cleanMarkdown()` utility** - Extract to `src/utils/cleanMarkdown.ts` and test the pure function directly. Cover: `<br />` → newline, `\u00a0` → space, `&nbsp;` → space, collapsing multiple newlines.
+
+4. **Link dialog** - Opens on Cmd+K, submits URL correctly, closes on cancel/escape.
+
+5. **Copy/paste** - Clipboard APIs are restricted in jsdom. Test `cleanMarkdown` instead; verify actual clipboard behavior manually.
+
+6. **Checkbox toggling** - Requires real DOM interaction with Milkdown output. Consider integration test or manual testing.
 
 ### Dependencies
 - None (this is the foundation)
 
 ### Risk Factors
-- Mode switching may lose cursor position
-- Complex markdown (tables, code blocks) may render differently in each mode
-- Performance with large documents in Milkdown
+- Mode switching may lose cursor position (accepted tradeoff)
+- Complex markdown (tables, code blocks) may render differently in each mode (document this limitation)
+- Performance with large documents in Milkdown (test with realistic content sizes)
+- **Mocking Milkdown in tests is difficult** - consider marking some tests as integration tests that require browser-like environment
 
 ---
 
@@ -289,21 +342,160 @@ Behavior:
 - Styled as body text (not input field)
 - Click to edit, blur to confirm
 
+### Implementation Details
+
+**InlineEditableTitle approach:**
+Use a `contentEditable` div for the most natural text editing experience. This avoids the "input field" appearance while allowing direct text manipulation.
+
+```tsx
+// Simplified structure
+function InlineEditableTitle({ value, onChange, placeholder, variant }: InlineEditableTitleProps): ReactNode {
+  const ref = useRef<HTMLDivElement>(null)
+
+  const handleBlur = (): void => {
+    const text = ref.current?.textContent ?? ''
+    onChange(text.trim())
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      ref.current?.blur()  // Triggers handleBlur
+    }
+  }
+
+  return (
+    <div
+      ref={ref}
+      contentEditable={!disabled}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      className={cn(
+        'outline-none cursor-text',
+        variant === 'name' ? 'font-mono text-lg' : 'text-2xl font-bold',
+        'focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',  // Subtle focus indicator
+        !value && 'text-gray-400'  // Placeholder style
+      )}
+      suppressContentEditableWarning
+    >
+      {value || placeholder}
+    </div>
+  )
+}
+```
+
+**Key considerations for contentEditable:**
+1. Set `suppressContentEditableWarning` to avoid React warnings
+2. Use `textContent` not `innerHTML` to avoid XSS
+3. Handle paste events to strip formatting: `e.clipboardData.getData('text/plain')`
+4. The blur handler is the source of truth for onChange
+
+**Alternative approach using input with styling:**
+If contentEditable proves problematic, use a styled input that looks like text:
+```tsx
+<input
+  value={value}
+  onChange={(e) => onChange(e.target.value)}
+  className="bg-transparent border-none outline-none text-2xl font-bold w-full focus:ring-2 ..."
+  placeholder={placeholder}
+/>
+```
+
+This is simpler but requires careful CSS to make it look like plain text.
+
+**InlineEditableTags - Reuse existing TagInput logic:**
+The current `TagInput.tsx` has extensive logic for:
+- Tag validation via `validateTag()` utility
+- Autocomplete filtering and keyboard navigation
+- Pending tag handling via `useImperativeHandle`
+
+Don't rewrite this. Instead, create `InlineEditableTags` as a styled wrapper:
+1. Copy the validation and autocomplete logic from `TagInput`
+2. Change the visual presentation to match the "view mode" style in `NoteView.tsx` (lines 165-174)
+3. The X button should be visible on hover (not always visible)
+4. Add a small "+" button that appears at the end, or make clicking empty space show the input
+
+**Visual reference from NoteView.tsx:**
+```tsx
+// Current view-mode tag style to emulate:
+<button
+  className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
+>
+  {tag}
+</button>
+```
+
+Add an X icon that appears on hover.
+
+**InlineEditableText for description:**
+This is simpler than title. Use a `<textarea>` with auto-resize:
+
+```tsx
+function InlineEditableText({ value, onChange, placeholder, multiline }: InlineEditableTextProps): ReactNode {
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Auto-resize textarea to content
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (textarea && multiline) {
+      textarea.style.height = 'auto'
+      textarea.style.height = `${textarea.scrollHeight}px`
+    }
+  }, [value, multiline])
+
+  return (
+    <textarea
+      ref={textareaRef}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      rows={1}
+      className="bg-transparent border-none outline-none w-full resize-none text-sm text-gray-600 italic focus:ring-2 ..."
+    />
+  )
+}
+```
+
+The `italic` class matches the description style in `NoteView.tsx` line 193-196.
+
 ### Testing Strategy
-- Test each component in isolation
-- Test keyboard navigation (Tab, Enter, Escape)
-- Test with empty values and placeholders
-- Test tag autocomplete
-- Test validation (required fields, max length)
-- Test disabled state
+
+**InlineEditableTitle tests:**
+- Renders value as plain text (not in an input)
+- Shows placeholder with muted styling when empty
+- Calls onChange on blur with trimmed value
+- Enter key triggers blur/confirm
+- Variant="name" applies monospace styling
+- Paste strips rich text formatting (plain text only)
+
+**InlineEditableTags tests:**
+- Renders tags as removable pills
+- X button removes tag from array
+- "+" button or empty area click shows input
+- Autocomplete filters suggestions as user types
+- Tag validation rejects invalid formats with error message
+- Keyboard navigation (arrow keys, Enter to select, Escape to close)
+- Duplicate tags are rejected
+
+**InlineEditableText tests:**
+- Renders as text, not visible input border
+- Auto-resizes textarea to content height when multiline
+- Respects maxLength prop
+
+**Accessibility:**
+- All components should have appropriate ARIA roles
+- Focus states are visible
+- Keyboard-only operation works
 
 ### Dependencies
 - None (can be built in parallel with Milestone 1)
 
 ### Risk Factors
-- Accessibility concerns with non-standard form controls
-- Mobile/touch interaction may need special handling
-- Focus management between inline fields
+- **contentEditable quirks**: Different browsers handle contentEditable differently. Test on Safari, Firefox, Chrome.
+- Accessibility concerns with non-standard form controls - ensure ARIA roles are correct
+- Mobile/touch interaction may need special handling - tap to edit should work
+- Focus management between inline fields - Tab should move to next field naturally
+- **Paste handling**: Must strip rich text formatting when pasting into contentEditable
 
 ---
 
@@ -370,14 +562,188 @@ const isDirty = !isEqual(currentState, originalState)
 - Use single Note component
 - Handle loading, error states
 
+### Implementation Details
+
+**Understanding the existing architecture:**
+
+The current flow in `NoteDetail.tsx` is:
+1. Route determines mode: `view` | `edit` | `create`
+2. Conditionally renders either `NoteView` or `NoteEditor`
+3. `NoteEditor` has its own form state and draft management
+4. `NoteView` is read-only, uses `MarkdownViewer` for content
+
+The new architecture collapses this:
+1. Route no longer determines view vs edit (always editable)
+2. Single `Note` component handles everything
+3. Dirty state determines button visibility
+4. Draft management stays similar but moves to unified component
+
+**File structure change:**
+```
+Before:
+  src/components/NoteView.tsx      (delete in Milestone 5)
+  src/components/NoteEditor.tsx    (delete in Milestone 5)
+  src/pages/NoteDetail.tsx
+
+After:
+  src/components/Note.tsx          (new - unified component)
+  src/pages/NoteDetail.tsx         (simplified)
+```
+
+**Preserve existing patterns from NoteEditor.tsx:**
+
+1. **Draft management** (lines 88-133): Keep the `DRAFT_KEY_PREFIX`, `getDraftKey`, `loadDraft`, `saveDraft`, `clearDraft` functions. They work well.
+
+2. **Cancel confirmation** (lines 232-256): The double-click cancel with 3-second timeout is a good UX pattern. Keep it.
+
+3. **Keyboard shortcuts** (lines 277-303): Cmd+S to save, Escape to cancel. Keep exactly as-is.
+
+4. **Form validation** (lines 323-343): Title required, length limits. Keep the validation logic.
+
+5. **Pending tag handling** (lines 351-360): The `tagInputRef.current?.getPendingValue()` pattern for capturing typed but uncommitted tags. The new `InlineEditableTags` needs to support this.
+
+**Props interface for Note.tsx:**
+```typescript
+interface NoteProps {
+  /** Existing note when editing, undefined when creating */
+  note?: Note
+  /** Available tags for autocomplete */
+  tagSuggestions: TagCount[]
+  /** Called when note is saved */
+  onSave: (data: NoteCreate | NoteUpdate) => Promise<void>
+  /** Called when user closes/cancels */
+  onClose: () => void
+  /** Whether a save is in progress */
+  isSaving?: boolean
+  /** Initial tags to populate (e.g., from current list filter) */
+  initialTags?: string[]
+  /** Called when note is archived */
+  onArchive?: () => void
+  /** Called when note is unarchived */
+  onUnarchive?: () => void
+  /** Called when note is deleted */
+  onDelete?: () => void
+  /** Called when note is restored from trash */
+  onRestore?: () => void
+  /** View state for conditional action buttons */
+  viewState?: 'active' | 'archived' | 'deleted'
+  /** Whether to use full width layout */
+  fullWidth?: boolean
+}
+```
+
+**Simplifying NoteDetail.tsx:**
+
+The page component becomes much simpler:
+
+```typescript
+export function NoteDetail(): ReactNode {
+  const { id } = useParams<{ id: string }>()
+  const isCreate = !id || id === 'new'
+
+  // ... fetch note, mutations, navigation logic stays similar ...
+
+  if (isLoading) return <LoadingSpinnerCentered label="Loading note..." />
+  if (error) return <ErrorState message={error} />
+
+  return (
+    <Note
+      key={note?.id ?? 'new'}  // Force remount on ID change
+      note={note}
+      tagSuggestions={tagSuggestions}
+      onSave={isCreate ? handleCreate : handleUpdate}
+      onClose={handleBack}
+      isSaving={createMutation.isPending || updateMutation.isPending}
+      initialTags={initialTags}
+      onArchive={viewState === 'active' ? handleArchive : undefined}
+      onUnarchive={viewState === 'archived' ? handleUnarchive : undefined}
+      onDelete={handleDelete}
+      onRestore={viewState === 'deleted' ? handleRestore : undefined}
+      viewState={viewState}
+      fullWidth={fullWidthLayout}
+    />
+  )
+}
+```
+
+**Route simplification:**
+Remove the `/edit` routes entirely. The unified component is always editable, so separate edit routes are unnecessary cruft:
+- Delete: `/app/notes/:id/edit` route
+- Delete: `/app/prompts/:id/edit` route
+- Update any navigation that uses these routes to use the base routes instead
+
+**Handling the metadata row layout:**
+
+The metadata row has: tags, timestamps, version. Current NoteView renders this nicely (lines 164-189). Replicate this layout but with editable tags:
+
+```tsx
+<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
+  <InlineEditableTags
+    value={state.tags}
+    onChange={(tags) => setState(prev => ({ ...prev, tags }))}
+    suggestions={tagSuggestions}
+  />
+  {state.tags.length > 0 && note && <span className="text-gray-300">·</span>}
+  {note && (
+    <>
+      <span>Created {formatDate(note.created_at)}</span>
+      {note.updated_at !== note.created_at && (
+        <>
+          <span className="text-gray-300">·</span>
+          <span>Updated {formatDate(note.updated_at)}</span>
+        </>
+      )}
+      {note.version > 1 && (
+        <>
+          <span className="text-gray-300">·</span>
+          <span className="text-gray-400">v{note.version}</span>
+        </>
+      )}
+    </>
+  )}
+</div>
+```
+
+For new notes (no `note` prop), hide timestamps entirely since there's nothing to show yet.
+
 ### Testing Strategy
-- Test dirty state detection
-- Test Save/Discard flow with confirmation
-- Test draft auto-save and recovery
-- Test keyboard shortcuts (Cmd+S, Escape)
-- Test all actions (archive, delete, close)
-- Test new note creation flow
-- Test navigation away with unsaved changes
+
+**Dirty state:**
+- Save/Discard buttons hidden when clean, visible when dirty
+- Dirty detection works for title, description, tags, and content changes
+- Content changes via Milkdown trigger dirty state (may need integration test)
+
+**Save flow:**
+- onSave called with only changed fields (partial update)
+- Buttons disabled while isSaving=true
+- Validation errors prevent save (title required, length limits)
+
+**Discard flow:**
+- First click shows "Discard?" confirmation text
+- Second click within 3s calls onClose
+- Confirmation resets after 3 seconds (use fake timers)
+- If not dirty, single click closes immediately
+
+**Keyboard shortcuts:**
+- Cmd+S saves when dirty
+- Escape triggers discard confirmation when dirty
+- Escape closes immediately when clean
+
+**Draft recovery:**
+- Shows restore prompt when localStorage has draft for this note ID
+- "Restore Draft" populates form with draft data
+- "Discard" removes draft from localStorage
+- Successful save clears draft
+- Auto-saves to localStorage every 30 seconds when dirty
+
+**Create mode (no note prop):**
+- Empty fields with placeholders
+- Timestamps row hidden
+- initialTags prop pre-populates tags
+
+**Action buttons:**
+- Archive/Unarchive/Delete/Restore shown based on viewState prop
+- All actions call their respective callbacks
 
 ### Dependencies
 - Milestone 1: Production Milkdown Editor
@@ -441,69 +807,115 @@ Structure:
 - Arguments: existing validation (unique names, valid format)
 - Template: warn if uses undefined variables (existing behavior)
 
+### Implementation Details
+
+**This is largely a copy of Note.tsx with Prompt-specific fields.**
+
+The structure is similar enough that you could consider a shared base, but the fields differ enough that separate components are cleaner. Don't over-abstract.
+
+**Key differences from Note:**
+1. `name` field instead of `title` as primary identifier (required, monospace, stricter validation)
+2. Additional `title` field (optional, human-readable display name)
+3. `arguments` array field with ArgumentsBuilder component
+4. Template validation checks for undefined variables
+
+**Reuse from PromptEditor.tsx:**
+
+1. **Name validation** (lines 86-88): `PROMPT_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/`
+
+2. **Argument validation** (lines 306-326): Validates argument names match `ARG_NAME_PATTERN`, checks for duplicates.
+
+3. **Template variable validation** (lines 329-347): Uses `extractTemplateVariables()` utility to find undefined variables and unused arguments.
+
+4. **Default content for new prompts** (lines 20-52): `DEFAULT_PROMPT_CONTENT` - keep this helpful onboarding text.
+
+5. **usePromptDraft hook**: Already extracted to `src/hooks/usePromptDraft.ts`. Reuse it directly.
+
+**ArgumentsBuilder integration:**
+The existing `ArgumentsBuilder` component works well. It lives between the metadata section and the content editor. No changes needed to ArgumentsBuilder itself - just include it in the layout.
+
+**Visual hierarchy for name vs title:**
+- Name: Large monospace text, primary position (like Note's title)
+- Title: Smaller, regular text, secondary position, with placeholder "Display title (optional)"
+
+This mirrors how the current PromptEditor.tsx lays out name (required, first) and title (optional, second).
+
+**Route simplification (same as Notes):**
+- Delete: `/app/prompts/:id/edit` route
+- Keep: `/app/prompts/:id` and `/app/prompts/new`
+
 ### Testing Strategy
-- Test name validation (required, pattern)
-- Test optional title field
-- Test arguments builder integration
-- Test all prompt-specific actions
-- Test with existing prompts (backward compatibility of display)
+
+**Prompt-specific tests (beyond Note tests):**
+- Name validation: required, pattern enforcement, inline error display
+- Title field: optional, doesn't affect dirty state when empty→empty
+- Arguments: changes to arguments trigger dirty state
+- Template validation: shows warning for undefined variables, shows warning for unused arguments
+- Default content: new prompts get DEFAULT_PROMPT_CONTENT
+
+**Reuse patterns from Note tests for:**
+- Dirty state, save/discard flow, keyboard shortcuts, draft recovery
 
 ### Dependencies
 - Milestone 3: Unified Note Component (establishes the pattern)
 
 ### Risk Factors
-- Arguments builder may need layout adjustments
-- Name field has strict validation that may feel awkward with inline editing
-- Two "title-like" fields (name and title) may be confusing - ensure clear visual hierarchy
+- Arguments builder may need layout adjustments for the unified layout
+- Name field has strict validation - need good inline error UX for invalid input
+- Two "title-like" fields (name and title) may be confusing - ensure clear visual hierarchy and labeling
 
 ---
 
 ## Milestone 5: Cleanup and Polish
 
 ### Goal
-Remove deprecated components, update all references, and polish the implementation.
+Remove deprecated components, dead routes, and polish the implementation.
 
 ### Success Criteria
 - [ ] Deprecated components removed
+- [ ] Dead routes removed
 - [ ] No orphaned imports or dead code
 - [ ] All tests passing
-- [ ] Prototype/test page removed or converted
+- [ ] Prototype/test page removed
 
 ### Key Changes
 
-**1. Remove deprecated components:**
-- `NoteView.tsx` - replaced by Note.tsx
-- `NoteEditor.tsx` - replaced by Note.tsx
-- `PromptView.tsx` - replaced by Prompt.tsx
-- `PromptEditor.tsx` - replaced by Prompt.tsx
-- `MarkdownViewer` export from MarkdownEditor.tsx - no longer needed
+**1. Delete deprecated components:**
+- `src/components/NoteView.tsx`
+- `src/components/NoteEditor.tsx`
+- `src/components/PromptView.tsx`
+- `src/components/PromptEditor.tsx`
 
-**2. Update imports:**
-- Update NoteDetail.tsx to use Note.tsx
-- Update PromptDetail.tsx to use Prompt.tsx
-- Search codebase for any remaining references
+**2. Delete dead routes from App.tsx:**
+- `/app/notes/:id/edit`
+- `/app/prompts/:id/edit`
 
-**3. Clean up prototype:**
-- Remove `/app/settings/editor-prototype` route from App.tsx
-- Remove `SettingsEditorPrototype.tsx`
+**3. Clean up MarkdownEditor.tsx:**
+- Remove `MarkdownViewer` export if no longer used elsewhere
+- Or keep it if BookmarkDetail or other components use it (check first)
 
-**4. Final review:**
-- Run full test suite
-- Manual testing of all flows
-- Mobile viewport testing
+**4. Remove prototype:**
+- Delete `/app/settings/editor-prototype` route from App.tsx
+- Delete `src/pages/settings/SettingsEditorPrototype.tsx`
+
+**5. Rename for clarity (optional):**
+Consider renaming the old `MarkdownEditor.tsx` to `CodeMirrorEditor.tsx` since it's now just the CodeMirror implementation, not the primary editor.
+
+**6. Search for dead imports:**
+Run `grep -r "NoteView\|NoteEditor\|PromptView\|PromptEditor" src/` to find any missed references.
 
 ### Testing Strategy
-- Run full test suite
-- Manual E2E testing of Note and Prompt CRUD flows
-- Verify no console errors or warnings
-- Test on mobile viewport sizes
+- Run `npm run lint` - should have no errors
+- Run `npm run typecheck` - should have no errors
+- Run `npm run test:run` - all tests pass
+- Manual smoke test: create/edit/delete a Note and Prompt
+- Test on mobile viewport (Chrome DevTools device mode)
 
 ### Dependencies
 - All previous milestones
 
 ### Risk Factors
-- May discover missed references during cleanup
-- Tests for removed components need removal/update
+- May discover components are used in unexpected places - grep before deleting
 
 ---
 
@@ -547,11 +959,18 @@ Preserve existing shortcuts:
 
 ---
 
+## Decisions Made
+
+These were open questions that have been resolved:
+
+1. **Visual/Markdown mode preference**: Global (stored in localStorage). All documents use the same preference.
+2. **New note/prompt starting mode**: Use the user's saved preference (same as existing documents).
+3. **Timestamps on new items**: Hidden. Only show Created/Updated/Version for existing items.
+4. **Template variable highlighting**: Nice-to-have, not required for initial implementation.
+
 ## Open Questions
 
-If any of these are unclear during implementation, ask before proceeding:
+If any of these arise during implementation, make a reasonable decision and document it:
 
-1. Should the Visual/Markdown mode preference be per-document or global?
-2. When creating a new note/prompt, should it start in Visual or Markdown mode?
-3. Should timestamps (Created, Updated) be hidden on new/unsaved items?
-4. For prompts, is template variable highlighting (`{{ var }}`) a requirement or nice-to-have?
+1. Should Discard button always be visible (disabled when clean) or completely hidden when clean?
+2. If Milkdown has performance issues with large documents, at what threshold should we warn users or fall back to Markdown mode?
