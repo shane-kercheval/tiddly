@@ -63,6 +63,14 @@ import { Modal } from './ui/Modal'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
 
 /**
+ * Width of the clickable area for task list checkboxes (in pixels).
+ * This must match the CSS styling for li[data-item-type="task"]::before in index.css.
+ * The checkbox pseudo-element is ~16px wide with ~8px margin, totaling ~24px.
+ * We use 30px to provide a comfortable click target.
+ */
+const CHECKBOX_CLICK_AREA_WIDTH = 30
+
+/**
  * Link dialog for inserting/editing links.
  */
 interface LinkDialogProps {
@@ -203,6 +211,11 @@ function MilkdownEditorInner({
   // Create placeholder plugin with Milkdown's $prose utility
   const placeholderPluginSlice = $prose(() => createPlaceholderPlugin(placeholder))
 
+  // Initialize the Milkdown editor.
+  // Note: The empty dependency array is intentional. The editor is initialized once
+  // with the initial value and placeholder. Changing these props after mount requires
+  // remounting the component (via React key prop). This is by design - reinitializing
+  // the editor would lose cursor position, selection, and undo history.
   const { get } = useEditor((root) =>
     Editor.make()
       .config((ctx) => {
@@ -290,8 +303,7 @@ function MilkdownEditorInner({
         const rect = listItem.getBoundingClientRect()
         const clickX = e.clientX - rect.left
 
-        // Only toggle if clicking in the first 30px (checkbox area)
-        if (clickX < 30) {
+        if (clickX < CHECKBOX_CLICK_AREA_WIDTH) {
           const editor = get()
           if (editor) {
             const view = editor.ctx.get(editorViewCtx)
@@ -368,19 +380,11 @@ export function MilkdownEditor({
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
 }: MilkdownEditorProps): ReactNode {
-  // Stable callback to prevent unnecessary re-renders
-  const handleChange = useCallback(
-    (newValue: string) => {
-      onChange(newValue)
-    },
-    [onChange]
-  )
-
   return (
     <MilkdownProvider>
       <MilkdownEditorInner
         value={value}
-        onChange={handleChange}
+        onChange={onChange}
         disabled={disabled}
         minHeight={minHeight}
         placeholder={placeholder}

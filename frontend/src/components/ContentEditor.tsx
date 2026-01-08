@@ -155,7 +155,8 @@ export function ContentEditor({
 
     const handleKeyDown = (e: KeyboardEvent): void => {
       // Alt+Z (Option+Z on Mac) - toggle word wrap
-      if (e.altKey && (e.key.toLowerCase() === 'z' || e.key === 'Ω' || e.code === 'KeyZ')) {
+      // Use e.code which is independent of keyboard layout and modifier combinations
+      if (e.altKey && e.code === 'KeyZ') {
         e.preventDefault()
         e.stopPropagation()
         handleWrapTextChange(!wrapText)
