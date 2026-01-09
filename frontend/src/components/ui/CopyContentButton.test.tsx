@@ -182,6 +182,19 @@ describe('CopyContentButton', () => {
       expect(mockWriteText).not.toHaveBeenCalled()
     })
 
+    it('shows success state when content is empty string', async () => {
+      mockFetchNote.mockResolvedValue({ content: '' })
+
+      render(<CopyContentButton contentType="note" id="123" />)
+
+      fireEvent.click(screen.getByRole('button'))
+      await flushPromisesAndTimers()
+
+      // Empty string is valid - clipboard will just be empty
+      expect(screen.getByRole('button')).toHaveAttribute('title', 'Copied!')
+      expect(mockWriteText).toHaveBeenCalledWith('')
+    })
+
     it('shows error state when clipboard write fails', async () => {
       mockFetchNote.mockResolvedValue({ content: 'Test content' })
       mockWriteText.mockRejectedValue(new Error('Clipboard error'))

@@ -2,7 +2,7 @@
  * Button to copy note or prompt content to clipboard.
  * Fetches content via API since list views don't include full content.
  */
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { CopyIcon, CheckIcon } from '../icons'
 import { useNotes } from '../../hooks/useNotes'
@@ -40,6 +40,14 @@ export function CopyContentButton({
   const { fetchNote } = useNotes()
   const { fetchPrompt } = usePrompts()
 
+  // Track mounted state to prevent state updates after unmount
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
   const handleCopy = useCallback(async (e: React.MouseEvent): Promise<void> => {
     e.stopPropagation() // Prevent card click
 
@@ -58,21 +66,23 @@ export function CopyContentButton({
         content = prompt.content
       }
 
-      // Copy to clipboard
-      if (content) {
+      // Copy to clipboard (empty string is valid - clipboard will just be empty)
+      if (content !== null && content !== undefined) {
         await navigator.clipboard.writeText(content)
         setState('success')
       } else {
-        // No content to copy
+        // No content to copy (null/undefined)
         setState('error')
       }
     } catch {
       setState('error')
     }
 
-    // Reset to idle after feedback duration
+    // Reset to idle after feedback duration (only if still mounted)
     setTimeout(() => {
-      setState('idle')
+      if (isMountedRef.current) {
+        setState('idle')
+      }
     }, FEEDBACK_DURATION)
   }, [state, contentType, id, fetchNote, fetchPrompt])
 
