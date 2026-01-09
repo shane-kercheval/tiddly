@@ -378,9 +378,9 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="create_prompt",
             description=(
-                "Create a new prompt template. "
-                "Prompts are Jinja2 templates with defined arguments that can be "
-                "used as reusable templates for AI interactions."
+                "Create a new prompt template. Prompts are Jinja2 templates with "
+                "defined arguments that can be used as reusable templates for AI "
+                "interactions."
             ),
             inputSchema={
                 "type": "object",
@@ -406,8 +406,14 @@ async def handle_list_tools() -> list[types.Tool]:
                     "content": {
                         "type": "string",
                         "description": (
-                            "Jinja2 template content (required). Use {{ variable_name }} for "
-                            "placeholders. Variables must be defined in the arguments list."
+                            "The prompt template text (required field). "
+                            "Can be plain text or use Jinja2 syntax: "
+                            "{{ variable_name }} for placeholders, "
+                            "{% if var %}...{% endif %} for conditionals, "
+                            "{% for x in items %}...{% endfor %} for loops, "
+                            "{{ text|upper }} for filters. "
+                            "Variables must be defined in the arguments list. "
+                            "Undefined variables cause errors."
                         ),
                     },
                     "arguments": {
@@ -431,7 +437,8 @@ async def handle_list_tools() -> list[types.Tool]:
                                 "required": {
                                     "type": "boolean",
                                     "description": (
-                                        "Whether this argument is required (default: false)"
+                                        "Whether this argument is required "
+                                        "(default: false, optional args default to empty string)"
                                     ),
                                 },
                             },
