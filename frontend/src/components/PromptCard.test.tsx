@@ -235,7 +235,6 @@ describe('PromptCard', () => {
           prompt={mockPrompt}
           view="deleted"
           onDelete={vi.fn()}
-          onEdit={vi.fn()}
         />
       )
 
@@ -291,22 +290,6 @@ describe('PromptCard', () => {
     })
   })
 
-  describe('loading state', () => {
-    it('should show spinner in hover indicator when isLoading', () => {
-      const { container } = render(
-        <PromptCard
-          prompt={mockPrompt}
-          onDelete={vi.fn()}
-          onEdit={vi.fn()}
-          isLoading={true}
-        />
-      )
-
-      // Spinner should be visible in the hover edit indicator
-      expect(container.querySelector('.spinner-sm')).toBeInTheDocument()
-    })
-  })
-
   describe('card click to view', () => {
     it('should call onView when card is clicked in active view', async () => {
       const onView = vi.fn()
@@ -345,30 +328,6 @@ describe('PromptCard', () => {
       await user.click(card!)
 
       expect(onView).toHaveBeenCalledWith(mockPrompt)
-    })
-
-    it('should not call onEdit when card is clicked (edit only via button)', async () => {
-      const onEdit = vi.fn()
-      const onView = vi.fn()
-      const user = userEvent.setup()
-
-      const { container } = render(
-        <PromptCard
-          prompt={mockPrompt}
-          view="active"
-          onDelete={vi.fn()}
-          onEdit={onEdit}
-          onView={onView}
-        />
-      )
-
-      // Click the card
-      const card = container.querySelector('.card')
-      await user.click(card!)
-
-      // onView should be called, not onEdit
-      expect(onView).toHaveBeenCalledWith(mockPrompt)
-      expect(onEdit).not.toHaveBeenCalled()
     })
   })
 })

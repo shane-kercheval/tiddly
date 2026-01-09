@@ -372,11 +372,6 @@ export function AllContent(): ReactNode {
     navigate(`/app/notes/${note.id}`, { state: createReturnState() })
   }
 
-  const handleEditNote = (note: NoteListItem): void => {
-    // Unified component is always editable, so edit and view go to the same route
-    navigate(`/app/notes/${note.id}`, { state: createReturnState() })
-  }
-
   const handleDeleteNote = async (note: NoteListItem): Promise<void> => {
     if (currentView === 'deleted') {
       try {
@@ -429,10 +424,6 @@ export function AllContent(): ReactNode {
 
   // Prompt action handlers
   const handleViewPrompt = (prompt: PromptListItem): void => {
-    navigate(`/app/prompts/${prompt.id}`, { state: createReturnState() })
-  }
-
-  const handleEditPrompt = (prompt: PromptListItem): void => {
     navigate(`/app/prompts/${prompt.id}`, { state: createReturnState() })
   }
 
@@ -695,7 +686,6 @@ export function AllContent(): ReactNode {
                   view={currentView}
                   sortBy={sortBy}
                   onView={handleViewPrompt}
-                  onEdit={currentView !== 'deleted' ? handleEditPrompt : undefined}
                   onDelete={handleDeletePrompt}
                   onArchive={currentView === 'active' ? handleArchivePrompt : undefined}
                   onUnarchive={currentView === 'archived' ? handleUnarchivePrompt : undefined}
@@ -712,7 +702,6 @@ export function AllContent(): ReactNode {
                 view={currentView}
                 sortBy={sortBy}
                 onView={handleViewNote}
-                onEdit={currentView !== 'deleted' ? handleEditNote : undefined}
                 onDelete={handleDeleteNote}
                 onArchive={currentView === 'active' ? handleArchiveNote : undefined}
                 onUnarchive={currentView === 'archived' ? handleUnarchiveNote : undefined}

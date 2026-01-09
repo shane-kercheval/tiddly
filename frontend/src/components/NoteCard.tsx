@@ -7,7 +7,7 @@ import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { formatDate, truncate } from '../utils'
 import { ConfirmDeleteButton } from './ui'
-import { NoteIcon, EditIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
+import { NoteIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
 import { Tag } from './Tag'
 
 interface NoteCardProps {
@@ -15,25 +15,22 @@ interface NoteCardProps {
   view?: 'active' | 'archived' | 'deleted'
   sortBy?: SortByOption
   onView?: (note: NoteListItem) => void
-  onEdit?: (note: NoteListItem) => void
   onDelete: (note: NoteListItem) => void
   onArchive?: (note: NoteListItem) => void
   onUnarchive?: (note: NoteListItem) => void
   onRestore?: (note: NoteListItem) => void
   onTagClick?: (tag: string) => void
   onTagRemove?: (note: NoteListItem, tag: string) => void
-  /** Whether the edit action is currently loading */
-  isLoading?: boolean
 }
 
 /**
  * NoteCard displays a single note with its metadata.
  *
  * Features:
- * - Clickable title opens note view
+ * - Clickable card opens note view/edit (unified component)
  * - Context-aware action buttons based on view:
- *   - active: edit, archive, delete
- *   - archived: edit, restore, delete
+ *   - active: archive, delete
+ *   - archived: restore, delete
  *   - deleted: restore, permanent delete
  * - Clickable tags for filtering
  * - Shows description or truncated content preview
@@ -43,14 +40,12 @@ export function NoteCard({
   view = 'active',
   sortBy = 'created_at',
   onView,
-  onEdit,
   onDelete,
   onArchive,
   onUnarchive,
   onRestore,
   onTagClick,
   onTagRemove,
-  isLoading = false,
 }: NoteCardProps): ReactNode {
   // Display description if present, otherwise show truncated content preview
   const previewText = note.description || ''
@@ -131,22 +126,6 @@ export function NoteCard({
           {/* Actions and date */}
           <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
             <div className="flex items-center">
-              {/* Edit button - shown in active and archived views */}
-              {view !== 'deleted' && onEdit && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onEdit(note) }}
-                  className="btn-icon"
-                  title="Edit note"
-                  aria-label="Edit note"
-                >
-                  {isLoading ? (
-                    <div className="spinner-sm" />
-                  ) : (
-                    <EditIcon />
-                  )}
-                </button>
-              )}
-
               {/* Archive button - shown in active view */}
               {view === 'active' && onArchive && (
                 <button
