@@ -76,9 +76,9 @@ export function ArgumentsBuilder({
           No arguments defined. Arguments are passed by either the human or AI when using the prompt and can be referenced in the template using jinja syntax.
         </p>
       ) : (
-        <div className="divide-y divide-gray-200">
+        <div className="space-y-3">
           {args.map((arg, index) => (
-            <div key={index} className="py-3 first:pt-0 last:pb-0">
+            <div key={index}>
               <div className="flex items-start gap-3">
                 {/* Reorder buttons */}
                 <div className="flex flex-col gap-0.5 pt-1">
