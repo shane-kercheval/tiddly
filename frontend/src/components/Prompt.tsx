@@ -297,10 +297,10 @@ export function Prompt({
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
-      // Cmd+S or Ctrl+S to save
+      // Cmd+S or Ctrl+S to save (only if there are changes)
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
-        if (!isReadOnly) {
+        if (!isReadOnly && isDirty) {
           formRef.current?.requestSubmit()
         }
       }
@@ -325,7 +325,7 @@ export function Prompt({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [handleDiscardRequest, confirmingDiscard, resetDiscardConfirmation, onClose, isReadOnly])
+  }, [handleDiscardRequest, confirmingDiscard, resetDiscardConfirmation, onClose, isReadOnly, isDirty])
 
   // Validation
   const validate = (): boolean => {
@@ -461,6 +461,11 @@ export function Prompt({
         }
         if (JSON.stringify(tagsToSubmit) !== JSON.stringify(prompt?.tags ?? [])) {
           updates.tags = tagsToSubmit
+        }
+
+        // Early return if nothing changed (safety net for edge cases)
+        if (Object.keys(updates).length === 0) {
+          return
         }
 
         await onSave(updates)

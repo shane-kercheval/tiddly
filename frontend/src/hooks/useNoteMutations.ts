@@ -143,13 +143,16 @@ export function useUpdateNote() {
       const response = await api.patch<Note>(`/notes/${id}`, data)
       return response.data
     },
-    onSuccess: () => {
+    onSuccess: (_, { data }) => {
       queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
-      fetchTags()
+      // Only refresh tags if tags were modified (reduces flicker on save)
+      if ('tags' in data) {
+        fetchTags()
+      }
     },
   })
 }

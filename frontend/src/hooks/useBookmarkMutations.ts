@@ -143,13 +143,16 @@ export function useUpdateBookmark() {
       const response = await api.patch<Bookmark>(`/bookmarks/${id}`, data)
       return response.data
     },
-    onSuccess: () => {
+    onSuccess: (_, { data }) => {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
-      fetchTags()
+      // Only refresh tags if tags were modified (reduces flicker on save)
+      if ('tags' in data) {
+        fetchTags()
+      }
     },
   })
 }

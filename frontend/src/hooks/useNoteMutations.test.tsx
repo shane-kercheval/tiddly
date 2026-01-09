@@ -201,7 +201,7 @@ describe('useUpdateNote', () => {
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
   })
 
-  it('should refresh tags on success', async () => {
+  it('should refresh tags when tags are included in update', async () => {
     const queryClient = createTestQueryClient()
     mockPatch.mockResolvedValueOnce({ data: { id: 1 } })
 
@@ -210,10 +210,25 @@ describe('useUpdateNote', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: '1', data: { title: 'New' } })
+      await result.current.mutateAsync({ id: '1', data: { tags: ['new-tag'] } })
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
+  })
+
+  it('should not refresh tags when tags are not included in update', async () => {
+    const queryClient = createTestQueryClient()
+    mockPatch.mockResolvedValueOnce({ data: { id: 1 } })
+
+    const { result } = renderHook(() => useUpdateNote(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: '1', data: { title: 'New Title' } })
+    })
+
+    expect(mockFetchTags).not.toHaveBeenCalled()
   })
 })
 

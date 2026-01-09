@@ -436,6 +436,49 @@ export function createContentComponentTests<TItem, TProps>(
 
         expect(mockOnClose).toHaveBeenCalled()
       })
+
+      it('should not save on Cmd+S when form is not dirty', () => {
+        render(
+          <TypedComponent
+            {...buildProps({
+              item: mockItem,
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+            })}
+          />
+        )
+
+        // Press Cmd+S without making any changes
+        fireEvent.keyDown(document, { key: 's', metaKey: true })
+
+        // onSave should not be called when form is not dirty
+        expect(mockOnSave).not.toHaveBeenCalled()
+      })
+
+      it('should save on Cmd+S when form is dirty', async () => {
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+        render(
+          <TypedComponent
+            {...buildProps({
+              item: mockItem,
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+            })}
+          />
+        )
+
+        // Make the form dirty (use lowercase-with-hyphens to work for Prompt name validation)
+        await user.clear(screen.getByDisplayValue(getPrimaryFieldValue(mockItem)))
+        await user.type(screen.getByPlaceholderText(placeholders.primaryField), 'changed-value')
+
+        // Press Cmd+S
+        fireEvent.keyDown(document, { key: 's', metaKey: true })
+
+        // onSave should be called when form is dirty
+        await waitFor(() => {
+          expect(mockOnSave).toHaveBeenCalled()
+        })
+      })
     })
 
     describe('action buttons', () => {
