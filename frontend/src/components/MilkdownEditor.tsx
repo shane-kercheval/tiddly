@@ -120,6 +120,9 @@ function EditorToolbar({ getEditor, onLinkClick, onTaskListClick, showJinjaTools
       const editor = getEditor()
       if (editor) {
         editor.action(callCommand(command))
+        // Refocus editor after command
+        const view = editor.ctx.get(editorViewCtx)
+        view.focus()
       }
     },
     [getEditor]
@@ -493,34 +496,65 @@ function MilkdownEditorInner({
     const view = editor.ctx.get(editorViewCtx)
     const { $from } = view.state.selection
 
-    // Check if we're already in a list item
-    const listItem = $from.node($from.depth)
-    if (listItem.type.name === 'list_item') {
+    // Find if we're in a list item (may be nested)
+    let listItemDepth = -1
+    for (let d = $from.depth; d >= 0; d--) {
+      if ($from.node(d).type.name === 'list_item') {
+        listItemDepth = d
+        break
+      }
+    }
+
+    if (listItemDepth >= 0) {
       // Toggle the checked attribute on the current list item
-      const listItemPos = $from.before($from.depth)
+      const listItem = $from.node(listItemDepth)
+      const listItemPos = $from.before(listItemDepth)
       const currentChecked = listItem.attrs.checked
       const tr = view.state.tr.setNodeMarkup(listItemPos, undefined, {
         ...listItem.attrs,
         checked: currentChecked === null ? false : null, // null = not a task, false = unchecked task
       })
       view.dispatch(tr)
+      view.focus()
     } else {
-      // Insert task list syntax - the input rule will convert it
-      const tr = view.state.tr.insertText('- [ ] ')
-      view.dispatch(tr)
+      // Not in a list - first create a bullet list, then convert to task
+      editor.action(callCommand(wrapInBulletListCommand.key))
+      // After creating bullet list, find and convert the list item to task
+      // Need to get fresh state after the command
+      setTimeout(() => {
+        const freshView = editor.ctx.get(editorViewCtx)
+        const { $from: newFrom } = freshView.state.selection
+        // Find the list item we're now in
+        for (let d = newFrom.depth; d >= 0; d--) {
+          const node = newFrom.node(d)
+          if (node.type.name === 'list_item') {
+            const pos = newFrom.before(d)
+            const tr = freshView.state.tr.setNodeMarkup(pos, undefined, {
+              ...node.attrs,
+              checked: false,
+            })
+            freshView.dispatch(tr)
+            break
+          }
+        }
+        freshView.focus()
+      }, 0)
     }
-    view.focus()
   }, [get])
 
   // Handle clicks - checkbox toggle and focus on empty space
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement
-      const listItem = target.closest('li[data-item-type="task"]') as HTMLElement | null
 
-      if (listItem) {
+      // Don't interfere with clicks on any content elements (let ProseMirror handle them)
+      const isContentClick = target.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, code, a, ul, ol, table, td, th, tr')
+
+      const taskListItem = target.closest('li[data-item-type="task"]') as HTMLElement | null
+
+      if (taskListItem) {
         // Check if click was on the checkbox area (left side of the item)
-        const rect = listItem.getBoundingClientRect()
+        const rect = taskListItem.getBoundingClientRect()
         const clickX = e.clientX - rect.left
 
         if (clickX < CHECKBOX_CLICK_AREA_WIDTH) {
@@ -529,7 +563,7 @@ function MilkdownEditorInner({
             const view = editor.ctx.get(editorViewCtx)
 
             // Find the position of this list item in the ProseMirror document
-            const pos = view.posAtDOM(listItem, 0)
+            const pos = view.posAtDOM(taskListItem, 0)
             if (pos === null || pos === undefined) return
 
             // Find the node at this position
@@ -557,7 +591,10 @@ function MilkdownEditorInner({
         return
       }
 
-      // If click was on empty space (wrapper or editor container), focus and place cursor at end
+      // If click was on empty space (not content), focus and place cursor at end
+      // Skip if clicking on any content element to let ProseMirror handle it naturally
+      if (isContentClick) return
+
       const editor = get()
       if (editor) {
         const view = editor.ctx.get(editorViewCtx)

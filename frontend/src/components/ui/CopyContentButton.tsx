@@ -115,7 +115,7 @@ export function CopyContentButton({
   return (
     <button
       onClick={handleCopy}
-      className={`btn-icon ${className}`}
+      className={`btn-icon disabled:cursor-default ${className}`}
       title={getTitle()}
       aria-label={getTitle()}
       disabled={state === 'loading'}

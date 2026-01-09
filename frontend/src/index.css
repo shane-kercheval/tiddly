@@ -279,12 +279,12 @@ body {
 
 /* Unordered lists */
 .milkdown-wrapper .milkdown ul {
-  @apply list-disc pl-6 my-3 space-y-1;
+  @apply list-disc pl-6 my-3 space-y-0.5;
 }
 
 /* Ordered lists */
 .milkdown-wrapper .milkdown ol {
-  @apply list-decimal pl-6 my-3 space-y-1;
+  @apply list-decimal pl-6 my-3 space-y-0.5;
 }
 
 /* List items */
@@ -310,7 +310,14 @@ body {
  * If you change these styles, update CHECKBOX_CLICK_AREA_WIDTH in MilkdownEditor.tsx accordingly.
  */
 .milkdown-wrapper .milkdown li[data-item-type="task"] {
-  @apply list-none flex items-start gap-2 my-1;
+  @apply list-none flex flex-wrap items-start gap-x-2 my-1;
+}
+
+/* Nested lists inside task items should take full width to appear below */
+.milkdown-wrapper .milkdown li[data-item-type="task"] > ul,
+.milkdown-wrapper .milkdown li[data-item-type="task"] > ol {
+  @apply w-full -mt-1;
+  margin-left: 1.5rem; /* Indent nested lists */
 }
 
 .milkdown-wrapper .milkdown li[data-item-type="task"]::before {
