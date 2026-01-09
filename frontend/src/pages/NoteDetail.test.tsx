@@ -127,8 +127,8 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        // Create mode shows the unified Note component with Cancel button
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        // Create mode shows the unified Note component with Close button
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
     })
 
@@ -136,17 +136,17 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
 
       expect(mockFetchNote).not.toHaveBeenCalled()
     })
 
-    it('should show Cancel button', async () => {
+    it('should show Close button', async () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
     })
 
@@ -166,7 +166,7 @@ describe('NoteDetail page', () => {
       })
     })
 
-    it('should show Discard? confirmation when Cancel is clicked with dirty form', async () => {
+    it('should show Discard? confirmation when Close is clicked with dirty form', async () => {
       const user = userEvent.setup()
       renderWithRouter('/app/notes/new')
 
@@ -177,8 +177,8 @@ describe('NoteDetail page', () => {
       // Type in title to make form dirty
       await user.type(screen.getByPlaceholderText('Note title'), 'New Note Title')
 
-      // Click Cancel to trigger confirmation
-      await user.click(screen.getByText('Cancel'))
+      // Click Close to trigger confirmation
+      await user.click(screen.getByText('Close'))
 
       await waitFor(() => {
         expect(screen.getByText('Discard?')).toBeInTheDocument()
@@ -228,11 +228,11 @@ describe('NoteDetail page', () => {
       })
     })
 
-    it('should show Cancel button', async () => {
+    it('should show Close button', async () => {
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
     })
 
@@ -300,12 +300,86 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
 
-      await user.click(screen.getByText('Cancel'))
+      await user.click(screen.getByText('Close'))
 
       expect(mockNavigate).toHaveBeenCalledWith('/app/content')
+    })
+  })
+
+  describe('create then stay on page', () => {
+    it('should navigate to note URL with state after creating', async () => {
+      const user = userEvent.setup()
+      const createdNote = { ...mockNote, id: 'new-note-id', title: 'New Note' }
+      mockCreateMutateAsync.mockResolvedValue(createdNote)
+
+      renderWithRouter('/app/notes/new')
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Note title')).toBeInTheDocument()
+      })
+
+      // Fill in required field
+      await user.type(screen.getByPlaceholderText('Note title'), 'New Note')
+
+      // Submit the form
+      await user.click(screen.getByText('Create'))
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith(
+          '/app/notes/new-note-id',
+          {
+            replace: true,
+            state: { note: createdNote },
+          }
+        )
+      })
+    })
+
+    it('should use note from location state instead of fetching', async () => {
+      const passedNote = { ...mockNote, id: '123', title: 'Passed Note' }
+
+      render(
+        <MemoryRouter
+          initialEntries={[{ pathname: '/app/notes/123', state: { note: passedNote } }]}
+        >
+          <Routes>
+            <Route path="/app/notes/:id" element={<NoteDetail />} />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Should display the passed note without fetching
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Passed Note')).toBeInTheDocument()
+      })
+
+      // Should NOT have called fetchNote since we passed the note
+      expect(mockFetchNote).not.toHaveBeenCalled()
+
+      // Should still track usage
+      expect(mockTrackNoteUsage).toHaveBeenCalledWith('123')
+    })
+
+    it('should fetch note if passed note ID does not match route ID', async () => {
+      const passedNote = { ...mockNote, id: 'different-id', title: 'Wrong Note' }
+
+      render(
+        <MemoryRouter
+          initialEntries={[{ pathname: '/app/notes/123', state: { note: passedNote } }]}
+        >
+          <Routes>
+            <Route path="/app/notes/:id" element={<NoteDetail />} />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Should fetch since IDs don't match
+      await waitFor(() => {
+        expect(mockFetchNote).toHaveBeenCalledWith('123')
+      })
     })
   })
 })

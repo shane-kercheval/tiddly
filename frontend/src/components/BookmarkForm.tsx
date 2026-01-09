@@ -457,7 +457,7 @@ export function BookmarkForm({
             {confirmingCancel ? (
               <span>Discard?</span>
             ) : (
-              <span className="hidden md:inline">Cancel</span>
+              <span className="hidden md:inline">Close</span>
             )}
           </button>
           <button

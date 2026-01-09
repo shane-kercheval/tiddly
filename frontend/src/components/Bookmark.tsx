@@ -672,7 +672,7 @@ export function Bookmark({
       {/* Fixed header with action buttons */}
       <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
-          {/* Cancel button */}
+          {/* Close button */}
           <button
             type="button"
             onClick={handleDiscardRequest}
@@ -687,7 +687,7 @@ export function Bookmark({
             {confirmingDiscard ? (
               <span>Discard?</span>
             ) : (
-              <span className="hidden md:inline">Cancel</span>
+              <span className="hidden md:inline">Close</span>
             )}
           </button>
 

@@ -111,6 +111,12 @@ vi.mock('../stores/uiPreferencesStore', () => ({
     selector({ fullWidthLayout: false }),
 }))
 
+// Mock extractTemplateVariables to avoid validation failures from DEFAULT_PROMPT_CONTENT
+// The default content has template variables like {{ code_snippet }} which would fail validation
+vi.mock('../utils/extractTemplateVariables', () => ({
+  extractTemplateVariables: () => ({ variables: new Set<string>(), error: undefined }),
+}))
+
 // Helper to render PromptDetail with router
 function renderWithRouter(initialRoute: string): void {
   render(
@@ -137,8 +143,8 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/new')
 
       await waitFor(() => {
-        // Create mode shows the unified Prompt component with Cancel button
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        // Create mode shows the unified Prompt component with Close button
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
     })
 
@@ -146,17 +152,17 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/new')
 
       await waitFor(() => {
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
 
       expect(mockFetchPrompt).not.toHaveBeenCalled()
     })
 
-    it('should have cancel button in create mode', async () => {
+    it('should have close button in create mode', async () => {
       renderWithRouter('/app/prompts/new')
 
       await waitFor(() => {
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
     })
 
@@ -184,7 +190,7 @@ describe('PromptDetail page', () => {
       })
     })
 
-    it('should show Discard? confirmation when Cancel is clicked with dirty form', async () => {
+    it('should show Discard? confirmation when Close is clicked with dirty form', async () => {
       const user = userEvent.setup()
       renderWithRouter('/app/prompts/new')
 
@@ -195,8 +201,8 @@ describe('PromptDetail page', () => {
       // Type in name to make form dirty
       await user.type(screen.getByPlaceholderText('prompt-name'), 'my-new-prompt')
 
-      // Click Cancel to trigger confirmation
-      await user.click(screen.getByText('Cancel'))
+      // Click Close to trigger confirmation
+      await user.click(screen.getByText('Close'))
 
       await waitFor(() => {
         expect(screen.getByText('Discard?')).toBeInTheDocument()
@@ -254,11 +260,11 @@ describe('PromptDetail page', () => {
       })
     })
 
-    it('should show Cancel button', async () => {
+    it('should show Close button', async () => {
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
     })
 
@@ -381,18 +387,104 @@ describe('PromptDetail page', () => {
   })
 
   describe('navigation', () => {
-    it('should navigate to list when Cancel is clicked', async () => {
+    it('should navigate to list when Close is clicked', async () => {
       const user = userEvent.setup()
 
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
 
-      await user.click(screen.getByText('Cancel'))
+      await user.click(screen.getByText('Close'))
 
       expect(mockNavigate).toHaveBeenCalledWith('/app/content')
+    })
+  })
+
+  describe('create then stay on page', () => {
+    it('should navigate to prompt URL with state after creating', async () => {
+      const user = userEvent.setup()
+      const createdPrompt = { ...mockPrompt, id: 'new-prompt-id', name: 'new-prompt' }
+      mockCreateMutateAsync.mockResolvedValue(createdPrompt)
+
+      renderWithRouter('/app/prompts/new')
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('prompt-name')).toBeInTheDocument()
+      })
+
+      // Fill in required fields (name and content)
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'new-prompt')
+
+      // Wait for Create button to be enabled (form is dirty and valid)
+      const createButton = await waitFor(() => {
+        const button = screen.getByText('Create').closest('button')
+        expect(button).not.toBeDisabled()
+        return button!
+      })
+
+      // Submit the form by clicking the button
+      await user.click(createButton)
+
+      // Wait for mutation to be called and navigate to happen
+      await waitFor(() => {
+        expect(mockCreateMutateAsync).toHaveBeenCalled()
+      })
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith(
+          '/app/prompts/new-prompt-id',
+          {
+            replace: true,
+            state: { prompt: createdPrompt },
+          }
+        )
+      })
+    })
+
+    it('should use prompt from location state instead of fetching', async () => {
+      const passedPrompt = { ...mockPrompt, id: '123', name: 'passed-prompt' }
+
+      render(
+        <MemoryRouter
+          initialEntries={[{ pathname: '/app/prompts/123', state: { prompt: passedPrompt } }]}
+        >
+          <Routes>
+            <Route path="/app/prompts/:id" element={<PromptDetail />} />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Should display the passed prompt without fetching
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('passed-prompt')).toBeInTheDocument()
+      })
+
+      // Should NOT have called fetchPrompt since we passed the prompt
+      expect(mockFetchPrompt).not.toHaveBeenCalled()
+
+      // Should still track usage
+      expect(mockTrackPromptUsage).toHaveBeenCalledWith('123')
+    })
+
+    it('should fetch prompt if passed prompt ID does not match route ID', async () => {
+      const passedPrompt = { ...mockPrompt, id: 'different-id', name: 'wrong-prompt' }
+
+      render(
+        <MemoryRouter
+          initialEntries={[{ pathname: '/app/prompts/123', state: { prompt: passedPrompt } }]}
+        >
+          <Routes>
+            <Route path="/app/prompts/:id" element={<PromptDetail />} />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Should fetch since IDs don't match
+      await waitFor(() => {
+        expect(mockFetchPrompt).toHaveBeenCalledWith('123')
+      })
     })
   })
 })

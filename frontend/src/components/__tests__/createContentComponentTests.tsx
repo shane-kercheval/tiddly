@@ -4,7 +4,7 @@
  * These components share common behaviors:
  * - Dirty state detection and Save button enable/disable
  * - Unsaved changes warning dialog integration
- * - Discard confirmation flow (Cancel -> Discard?)
+ * - Discard confirmation flow (Close -> Discard?)
  * - Keyboard shortcuts (Cmd+S to save, Escape to cancel)
  * - Action buttons (Archive, Restore, Delete)
  * - Read-only mode for deleted items
@@ -136,7 +136,7 @@ export function createContentComponentTests<TItem, TProps>(
     })
 
     describe('create mode', () => {
-      it('should show Cancel and Create buttons', () => {
+      it('should show Close and Create buttons', () => {
         render(
           <TypedComponent
             {...buildProps({
@@ -146,7 +146,7 @@ export function createContentComponentTests<TItem, TProps>(
           />
         )
 
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
         expect(screen.getByText('Create')).toBeInTheDocument()
       })
     })
@@ -166,7 +166,7 @@ export function createContentComponentTests<TItem, TProps>(
         expect(screen.getByDisplayValue(getPrimaryFieldValue(mockItem))).toBeInTheDocument()
       })
 
-      it('should show Cancel and Save buttons', () => {
+      it('should show Close and Save buttons', () => {
         render(
           <TypedComponent
             {...buildProps({
@@ -177,7 +177,7 @@ export function createContentComponentTests<TItem, TProps>(
           />
         )
 
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
         expect(screen.getByText('Save')).toBeInTheDocument()
       })
     })
@@ -216,7 +216,7 @@ export function createContentComponentTests<TItem, TProps>(
           />
         )
 
-        await user.click(screen.getByText('Cancel'))
+        await user.click(screen.getByText('Close'))
 
         expect(mockOnClose).toHaveBeenCalled()
       })
@@ -238,7 +238,7 @@ export function createContentComponentTests<TItem, TProps>(
         await user.type(screen.getByPlaceholderText(placeholders.primaryField), 'Changed')
 
         // First click shows confirmation
-        await user.click(screen.getByText('Cancel'))
+        await user.click(screen.getByText('Close'))
         expect(screen.getByText('Discard?')).toBeInTheDocument()
         expect(mockOnClose).not.toHaveBeenCalled()
       })
@@ -260,7 +260,7 @@ export function createContentComponentTests<TItem, TProps>(
         await user.type(screen.getByPlaceholderText(placeholders.primaryField), 'Changed')
 
         // First click
-        await user.click(screen.getByText('Cancel'))
+        await user.click(screen.getByText('Close'))
         // Second click
         await user.click(screen.getByText('Discard?'))
 
@@ -284,14 +284,14 @@ export function createContentComponentTests<TItem, TProps>(
         await user.type(screen.getByPlaceholderText(placeholders.primaryField), 'Changed')
 
         // First click shows confirmation
-        await user.click(screen.getByText('Cancel'))
+        await user.click(screen.getByText('Close'))
         expect(screen.getByText('Discard?')).toBeInTheDocument()
 
         // Wait 3 seconds
         vi.advanceTimersByTime(3000)
 
         await waitFor(() => {
-          expect(screen.getByText('Cancel')).toBeInTheDocument()
+          expect(screen.getByText('Close')).toBeInTheDocument()
         })
       })
     })
@@ -330,7 +330,7 @@ export function createContentComponentTests<TItem, TProps>(
         await user.type(screen.getByPlaceholderText(placeholders.primaryField), 'Changed')
 
         // First click shows "Discard?" confirmation
-        await user.click(screen.getByText('Cancel'))
+        await user.click(screen.getByText('Close'))
         expect(screen.getByText('Discard?')).toBeInTheDocument()
 
         // Second click confirms discard
