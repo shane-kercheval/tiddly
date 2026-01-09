@@ -312,6 +312,7 @@ export function Prompt({
           resetDiscardConfirmation()
         } else if (e.key === 'Enter') {
           e.preventDefault()
+          confirmLeave() // Prevent navigation blocker from showing
           onClose()
         }
         return
@@ -325,7 +326,7 @@ export function Prompt({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [handleDiscardRequest, confirmingDiscard, resetDiscardConfirmation, onClose, isReadOnly, isDirty])
+  }, [handleDiscardRequest, confirmingDiscard, resetDiscardConfirmation, onClose, isReadOnly, isDirty, confirmLeave])
 
   // Validation
   const validate = (): boolean => {

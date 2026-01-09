@@ -421,6 +421,34 @@ export function createContentComponentTests<TItem, TProps>(
         expect(screen.getByText('Discard?')).toBeInTheDocument()
       })
 
+      it('should close on Enter when confirming discard', async () => {
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+        render(
+          <TypedComponent
+            {...buildProps({
+              item: mockItem,
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+            })}
+          />
+        )
+
+        // Make the form dirty
+        await user.clear(screen.getByDisplayValue(getPrimaryFieldValue(mockItem)))
+        await user.type(screen.getByPlaceholderText(placeholders.primaryField), 'Changed')
+
+        // Press Escape to start discard confirmation
+        fireEvent.keyDown(document, { key: 'Escape' })
+        expect(screen.getByText('Discard?')).toBeInTheDocument()
+
+        // Press Enter to confirm discard
+        fireEvent.keyDown(document, { key: 'Enter' })
+
+        // Should close without showing unsaved changes dialog
+        expect(mockOnClose).toHaveBeenCalled()
+        expect(screen.queryByText('Unsaved Changes')).not.toBeInTheDocument()
+      })
+
       it('should close on Escape when form is clean', () => {
         render(
           <TypedComponent
