@@ -68,7 +68,7 @@ import { listener, listenerCtx } from '@milkdown/plugin-listener'
 import { clipboard } from '@milkdown/kit/plugin/clipboard'
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
 import { $prose } from '@milkdown/kit/utils'
-import { Plugin } from '@milkdown/kit/prose/state'
+import { Plugin, TextSelection } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import { Modal } from './ui/Modal'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
@@ -566,7 +566,7 @@ function MilkdownEditorInner({
           // Place cursor at the end of the document
           const endPos = view.state.doc.content.size
           const tr = view.state.tr.setSelection(
-            view.state.selection.constructor.near(view.state.doc.resolve(endPos), -1)
+            TextSelection.near(view.state.doc.resolve(endPos), -1)
           )
           view.dispatch(tr)
         }

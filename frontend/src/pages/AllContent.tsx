@@ -314,7 +314,7 @@ export function AllContent(): ReactNode {
 
   // Bookmark action handlers
   const handleEditClick = (bookmark: BookmarkListItem): void => {
-    navigate(`/app/bookmarks/${bookmark.id}/edit`, { state: createReturnState() })
+    navigate(`/app/bookmarks/${bookmark.id}`, { state: createReturnState() })
   }
 
   const handleDeleteBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
@@ -433,7 +433,7 @@ export function AllContent(): ReactNode {
   }
 
   const handleEditPrompt = (prompt: PromptListItem): void => {
-    navigate(`/app/prompts/${prompt.id}/edit`, { state: createReturnState() })
+    navigate(`/app/prompts/${prompt.id}`, { state: createReturnState() })
   }
 
   const handleDeletePrompt = async (prompt: PromptListItem): Promise<void> => {

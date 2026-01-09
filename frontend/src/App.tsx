@@ -35,13 +35,11 @@ import { SettingsEditorPrototype } from './pages/settings/SettingsEditorPrototyp
  *   - /app/content/trash : Deleted content
  *   - /app/content/lists/:listId : Custom list
  *   - /app/bookmarks/new : Create new bookmark
- *   - /app/bookmarks/:id : Edit bookmark
- *   - /app/bookmarks/:id/edit : Edit bookmark
+ *   - /app/bookmarks/:id : View/edit bookmark (unified component)
  *   - /app/notes/new : Create new note
  *   - /app/notes/:id : View/edit note (unified component)
  *   - /app/prompts/new : Create new prompt
- *   - /app/prompts/:id : View prompt
- *   - /app/prompts/:id/edit : Edit prompt
+ *   - /app/prompts/:id : View/edit prompt (unified component)
  *   - /app/settings : Redirects to /app/settings/general
  *   - /app/settings/general : General UI preferences
  *   - /app/settings/tokens : Personal access tokens
@@ -76,7 +74,6 @@ function App(): ReactNode {
                 {/* Bookmark detail routes */}
                 <Route path="/app/bookmarks/new" element={<BookmarkDetail />} />
                 <Route path="/app/bookmarks/:id" element={<BookmarkDetail />} />
-                <Route path="/app/bookmarks/:id/edit" element={<BookmarkDetail />} />
 
                 {/* Note detail routes */}
                 <Route path="/app/notes/new" element={<NoteDetail />} />
@@ -85,7 +82,6 @@ function App(): ReactNode {
                 {/* Prompt detail routes */}
                 <Route path="/app/prompts/new" element={<PromptDetail />} />
                 <Route path="/app/prompts/:id" element={<PromptDetail />} />
-                <Route path="/app/prompts/:id/edit" element={<PromptDetail />} />
 
                 {/* Settings routes */}
                 <Route path="/app/settings" element={<Navigate to="/app/settings/general" replace />} />

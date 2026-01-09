@@ -13,6 +13,7 @@ import {
   ArchiveIcon,
   RestoreIcon,
   TrashIcon,
+  CloseIcon,
 } from './icons'
 import { Tag } from './Tag'
 
