@@ -166,7 +166,6 @@ export function BookmarkDetail(): ReactNode {
             data: data as BookmarkUpdate,
           })
           setBookmark(updatedBookmark)
-          navigateBack()
         } catch (err) {
           if (err && typeof err === 'object' && 'response' in err) {
             const axiosError = err as { response?: { status?: number; data?: { detail?: string } } }
