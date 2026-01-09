@@ -669,7 +669,7 @@ export function Prompt({
           <InlineEditableText
             value={current.description}
             onChange={handleDescriptionChange}
-            placeholder="Add a description..."
+            placeholder="Add a description. This description helps users/agents understand the purpose of the prompt and how to use it."
             disabled={isSaving || isReadOnly}
             maxLength={config.limits.maxDescriptionLength}
             error={errors.description}

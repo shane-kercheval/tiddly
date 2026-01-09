@@ -117,7 +117,7 @@ export function ArgumentsBuilder({
                     type="text"
                     value={arg.description || ''}
                     onChange={(e) => updateArgument(index, 'description', e.target.value || null)}
-                    placeholder="Description (optional)"
+                    placeholder="Description (optional). This description helps users/agents understand how to use the argument."
                     disabled={disabled}
                     className="input py-1.5 text-sm min-w-[220px] flex-[4]"
                     aria-label={`Argument ${index + 1} description`}
