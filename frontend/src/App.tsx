@@ -17,7 +17,6 @@ import { SettingsTokens } from './pages/settings/SettingsTokens'
 import { SettingsMCP } from './pages/settings/SettingsMCP'
 import { SettingsTags } from './pages/settings/SettingsTags'
 import { SettingsFAQ } from './pages/settings/SettingsFAQ'
-import { SettingsEditorPrototype } from './pages/settings/SettingsEditorPrototype'
 
 /**
  * Main application component with routing configuration.
@@ -90,7 +89,6 @@ function App(): ReactNode {
                 <Route path="/app/settings/mcp" element={<SettingsMCP />} />
                 <Route path="/app/settings/tags" element={<SettingsTags />} />
                 <Route path="/app/settings/faq" element={<SettingsFAQ />} />
-                <Route path="/app/settings/editor-prototype" element={<SettingsEditorPrototype />} />
               </Route>
             </Route>
           </Route>
