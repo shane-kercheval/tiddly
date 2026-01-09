@@ -1075,6 +1075,7 @@ Remove deprecated components, dead routes, and polish the implementation.
 - [ ] No orphaned imports or dead code
 - [ ] All tests passing
 - [ ] Prototype/test page removed
+- [ ] Dirty state detection normalized (Note.tsx and usePromptDraft use same pattern)
 
 ### Key Changes
 
@@ -1101,6 +1102,19 @@ Consider renaming the old `MarkdownEditor.tsx` to `CodeMirrorEditor.tsx` since i
 
 **6. Search for dead imports:**
 Run `grep -r "NoteView\|NoteEditor\|PromptView\|PromptEditor" src/` to find any missed references.
+
+**7. Normalize dirty state detection pattern:**
+Currently inconsistent between Note and Prompt:
+- `Note.tsx` uses `useMemo + isEqual(current, original)` for dirty detection
+- `usePromptDraft` uses field-by-field string comparison + `JSON.stringify` for arrays
+
+This inconsistency is brittle (adding a field requires updating comparison logic) and harder to reason about.
+
+Options:
+- a) Create shared `useDirtyState(current, original)` hook used by both
+- b) Update `usePromptDraft` to use `isEqual` internally for consistency
+
+Either approach eliminates the field-by-field comparison and ensures both components use the same reliable pattern.
 
 ### Testing Strategy
 - Run `npm run lint` - should have no errors
