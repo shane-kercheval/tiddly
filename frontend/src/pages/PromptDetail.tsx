@@ -1,17 +1,15 @@
 /**
- * Prompt detail page - handles view, edit, and create modes.
+ * Prompt detail page - handles create and edit modes.
  *
  * Routes:
- * - /app/prompts/:id - View mode
- * - /app/prompts/:id/edit - Edit mode
+ * - /app/prompts/:id - View/edit prompt (unified component)
  * - /app/prompts/new - Create new prompt
  */
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { PromptView } from '../components/PromptView'
-import { PromptEditor } from '../components/PromptEditor'
+import { Prompt } from '../components/Prompt'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { usePrompts } from '../hooks/usePrompts'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
@@ -26,16 +24,14 @@ import {
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
-import type { Prompt, PromptCreate, PromptUpdate } from '../types'
-import { getApiErrorMessage } from '../utils'
+import type { Prompt as PromptType, PromptCreate, PromptUpdate } from '../types'
 
-type PageMode = 'view' | 'edit' | 'create'
 type PromptViewState = 'active' | 'archived' | 'deleted'
 
 /**
  * Determine the view state of a prompt based on its data.
  */
-function getPromptViewState(prompt: Prompt): PromptViewState {
+function getPromptViewState(prompt: PromptType): PromptViewState {
   if (prompt.deleted_at) return 'deleted'
   if (prompt.archived_at) return 'archived'
   return 'active'
@@ -49,28 +45,23 @@ export function PromptDetail(): ReactNode {
   const location = useLocation()
   const navigate = useNavigate()
 
-  // Determine mode from route
-  const mode: PageMode = useMemo(() => {
-    if (!id || id === 'new') return 'create'
-    if (location.pathname.endsWith('/edit')) return 'edit'
-    return 'view'
-  }, [id, location.pathname])
-
-  const promptId = mode !== 'create' ? id! : undefined
+  // Determine if this is create mode
+  const isCreate = !id || id === 'new'
+  const promptId = !isCreate ? id : undefined
   const isValidId = promptId !== undefined && promptId.length > 0
 
   // State
-  const [prompt, setPrompt] = useState<Prompt | null>(null)
-  const [isLoading, setIsLoading] = useState(mode !== 'create')
+  const [prompt, setPrompt] = useState<PromptType | null>(null)
+  const [isLoading, setIsLoading] = useState(!isCreate)
   const [error, setError] = useState<string | null>(null)
 
   // Get navigation state
   const locationState = location.state as { initialTags?: string[] } | undefined
-  const { selectedTags, addTag } = useTagFilterStore()
+  const { selectedTags } = useTagFilterStore()
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
 
   // Navigation
-  const { navigateBack, returnTo } = useReturnNavigation()
+  const { navigateBack } = useReturnNavigation()
 
   // Hooks
   const { fetchPrompt, trackPromptUsage } = usePrompts()
@@ -86,9 +77,9 @@ export function PromptDetail(): ReactNode {
   // Derive view state from prompt
   const viewState: PromptViewState = prompt ? getPromptViewState(prompt) : 'active'
 
-  // Fetch prompt on mount (for view/edit modes)
+  // Fetch prompt on mount (for existing prompts)
   useEffect(() => {
-    if (mode === 'create') {
+    if (isCreate) {
       setIsLoading(false)
       return
     }
@@ -106,9 +97,7 @@ export function PromptDetail(): ReactNode {
         const fetchedPrompt = await fetchPrompt(promptId!)
         setPrompt(fetchedPrompt)
         // Track usage when viewing
-        if (mode === 'view') {
-          trackPromptUsage(promptId!)
-        }
+        trackPromptUsage(promptId!)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load prompt')
       } finally {
@@ -117,72 +106,41 @@ export function PromptDetail(): ReactNode {
     }
 
     loadPrompt()
-  }, [mode, promptId, isValidId, fetchPrompt, trackPromptUsage])
+  }, [isCreate, promptId, isValidId, fetchPrompt, trackPromptUsage])
 
-  // Navigation helpers
-  const navigateToView = useCallback((promptId: string): void => {
-    // Preserve returnTo state when navigating to view
-    navigate(`/app/prompts/${promptId}`, { state: { returnTo } })
-  }, [navigate, returnTo])
-
+  // Navigation helper
   const handleBack = useCallback((): void => {
     navigateBack()
   }, [navigateBack])
 
-  const handleEdit = useCallback((): void => {
-    if (promptId) {
-      // Preserve returnTo state when navigating to edit
-      navigate(`/app/prompts/${promptId}/edit`, { state: { returnTo } })
-    }
-  }, [promptId, navigate, returnTo])
-
-  const handleTagClick = useCallback((tag: string): void => {
-    // Navigate to content list with tag filter
-    addTag(tag)
-    navigateBack()
-  }, [addTag, navigateBack])
-
   // Action handlers
-  const handleSubmitCreate = useCallback(
+  const handleSave = useCallback(
     async (data: PromptCreate | PromptUpdate): Promise<void> => {
-      try {
-        await createMutation.mutateAsync(data as PromptCreate)
-        // Navigate back to the originating list if available
-        navigateBack()
-      } catch (err) {
-        toast.error(getApiErrorMessage(err, 'Failed to create prompt'))
-        throw err
+      if (isCreate) {
+        try {
+          await createMutation.mutateAsync(data as PromptCreate)
+          navigateBack()
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Failed to create prompt'
+          toast.error(message)
+          throw err
+        }
+      } else if (promptId) {
+        try {
+          const updatedPrompt = await updateMutation.mutateAsync({
+            id: promptId,
+            data: data as PromptUpdate,
+          })
+          setPrompt(updatedPrompt)
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Failed to save prompt'
+          toast.error(message)
+          throw err
+        }
       }
     },
-    [createMutation, navigateBack]
+    [isCreate, promptId, createMutation, updateMutation, navigateBack]
   )
-
-  const handleSubmitUpdate = useCallback(
-    async (data: PromptCreate | PromptUpdate): Promise<void> => {
-      if (!promptId) return
-
-      try {
-        const updatedPrompt = await updateMutation.mutateAsync({
-          id: promptId,
-          data: data as PromptUpdate,
-        })
-        setPrompt(updatedPrompt)
-        navigateToView(promptId)
-      } catch (err) {
-        toast.error(getApiErrorMessage(err, 'Failed to save prompt'))
-        throw err
-      }
-    },
-    [promptId, updateMutation, navigateToView]
-  )
-
-  const handleCancel = useCallback((): void => {
-    if (mode === 'create') {
-      navigateBack()
-    } else if (promptId) {
-      navigateToView(promptId)
-    }
-  }, [mode, promptId, navigateBack, navigateToView])
 
   const handleArchive = useCallback(async (): Promise<void> => {
     if (!promptId) return
@@ -239,55 +197,39 @@ export function PromptDetail(): ReactNode {
   }
 
   // Render create mode
-  if (mode === 'create') {
+  if (isCreate) {
     return (
-      <div className={`flex flex-col h-full w-full ${fullWidthLayout ? '' : 'max-w-4xl'}`}>
-        <PromptEditor
-          tagSuggestions={tagSuggestions}
-          onSubmit={handleSubmitCreate}
-          onCancel={handleCancel}
-          isSubmitting={createMutation.isPending}
-          initialTags={initialTags}
-        />
-      </div>
+      <Prompt
+        key="new"
+        tagSuggestions={tagSuggestions}
+        onSave={handleSave}
+        onClose={handleBack}
+        isSaving={createMutation.isPending}
+        initialTags={initialTags}
+        fullWidth={fullWidthLayout}
+      />
     )
   }
 
-  // Render view/edit modes (requires prompt to be loaded)
+  // Render existing prompt (requires prompt to be loaded)
   if (!prompt) {
     return <ErrorState message="Prompt not found" />
   }
 
-  // Edit mode
-  if (mode === 'edit') {
-    return (
-      <div className={`flex flex-col h-full w-full ${fullWidthLayout ? '' : 'max-w-4xl'}`}>
-        <PromptEditor
-          prompt={prompt}
-          tagSuggestions={tagSuggestions}
-          onSubmit={handleSubmitUpdate}
-          onCancel={handleCancel}
-          isSubmitting={updateMutation.isPending}
-          onArchive={viewState === 'active' ? handleArchive : undefined}
-          onDelete={handleDelete}
-        />
-      </div>
-    )
-  }
-
-  // View mode
   return (
-    <PromptView
+    <Prompt
+      key={prompt.id}
       prompt={prompt}
-      view={viewState}
-      fullWidth={fullWidthLayout}
-      onEdit={viewState !== 'deleted' ? handleEdit : undefined}
+      tagSuggestions={tagSuggestions}
+      onSave={handleSave}
+      onClose={handleBack}
+      isSaving={updateMutation.isPending}
       onArchive={viewState === 'active' ? handleArchive : undefined}
       onUnarchive={viewState === 'archived' ? handleUnarchive : undefined}
       onDelete={handleDelete}
       onRestore={viewState === 'deleted' ? handleRestore : undefined}
-      onTagClick={handleTagClick}
-      onBack={handleBack}
+      viewState={viewState}
+      fullWidth={fullWidthLayout}
     />
   )
 }

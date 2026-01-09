@@ -1,7 +1,8 @@
 /**
  * Tests for PromptDetail page.
  *
- * Tests view, edit, and create modes for prompts.
+ * Tests the unified Prompt component for creating and editing prompts.
+ * The unified component is always editable - there's no separate view/edit mode.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -117,7 +118,6 @@ function renderWithRouter(initialRoute: string): void {
       <Routes>
         <Route path="/app/prompts/new" element={<PromptDetail />} />
         <Route path="/app/prompts/:id" element={<PromptDetail />} />
-        <Route path="/app/prompts/:id/edit" element={<PromptDetail />} />
         <Route path="/app/prompts" element={<div>Prompts List</div>} />
       </Routes>
     </MemoryRouter>
@@ -137,8 +137,8 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/new')
 
       await waitFor(() => {
-        // Create mode shows the PromptEditor with Create Prompt button
-        expect(screen.getByText('Create')).toBeInTheDocument()
+        // Create mode shows the unified Prompt component with Cancel button
+        expect(screen.getByText('Cancel')).toBeInTheDocument()
       })
     })
 
@@ -146,7 +146,7 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/new')
 
       await waitFor(() => {
-        expect(screen.getByText('Create')).toBeInTheDocument()
+        expect(screen.getByText('Cancel')).toBeInTheDocument()
       })
 
       expect(mockFetchPrompt).not.toHaveBeenCalled()
@@ -156,7 +156,6 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/new')
 
       await waitFor(() => {
-        // Cancel button serves as "back" in edit/create mode
         expect(screen.getByText('Cancel')).toBeInTheDocument()
       })
     })
@@ -165,12 +164,47 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/new')
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/name/i)).toBeInTheDocument()
+        expect(screen.getByPlaceholderText('prompt-name')).toBeInTheDocument()
+      })
+    })
+
+    it('should show Create button when form is dirty and valid', async () => {
+      const user = userEvent.setup()
+      renderWithRouter('/app/prompts/new')
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('prompt-name')).toBeInTheDocument()
+      })
+
+      // Type in name to make form dirty (need valid name format)
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'my-new-prompt')
+
+      await waitFor(() => {
+        expect(screen.getByText('Create')).toBeInTheDocument()
+      })
+    })
+
+    it('should show Discard? confirmation when Cancel is clicked with dirty form', async () => {
+      const user = userEvent.setup()
+      renderWithRouter('/app/prompts/new')
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('prompt-name')).toBeInTheDocument()
+      })
+
+      // Type in name to make form dirty
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'my-new-prompt')
+
+      // Click Cancel to trigger confirmation
+      await user.click(screen.getByText('Cancel'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Discard?')).toBeInTheDocument()
       })
     })
   })
 
-  describe('view mode', () => {
+  describe('existing prompt', () => {
     it('should fetch prompt by ID', async () => {
       renderWithRouter('/app/prompts/1')
 
@@ -179,7 +213,7 @@ describe('PromptDetail page', () => {
       })
     })
 
-    it('should track prompt usage in view mode', async () => {
+    it('should track prompt usage', async () => {
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
@@ -187,19 +221,19 @@ describe('PromptDetail page', () => {
       })
     })
 
-    it('should render prompt title', async () => {
+    it('should render prompt name in editable field', async () => {
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Code Review Template')).toBeInTheDocument()
+        expect(screen.getByDisplayValue('code-review')).toBeInTheDocument()
       })
     })
 
-    it('should render prompt name', async () => {
+    it('should render prompt title in editable field', async () => {
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
-        expect(screen.getByText('code-review')).toBeInTheDocument()
+        expect(screen.getByDisplayValue('Code Review Template')).toBeInTheDocument()
       })
     })
 
@@ -215,26 +249,16 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
-        // Use title attribute to find tag buttons specifically
-        expect(screen.getByTitle('Filter by tag: code')).toBeInTheDocument()
-        expect(screen.getByTitle('Filter by tag: review')).toBeInTheDocument()
+        expect(screen.getByText('code')).toBeInTheDocument()
+        expect(screen.getByText('review')).toBeInTheDocument()
       })
     })
 
-    it('should render prompt arguments', async () => {
+    it('should show Cancel button', async () => {
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
-        expect(screen.getByText('(required)')).toBeInTheDocument()
-        expect(screen.getByText('— The code to review')).toBeInTheDocument()
-      })
-    })
-
-    it('should show edit button in view mode', async () => {
-      renderWithRouter('/app/prompts/1')
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /edit/i })).toBeInTheDocument()
+        expect(screen.getByText('Cancel')).toBeInTheDocument()
       })
     })
 
@@ -242,66 +266,29 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /archive/i })).toBeInTheDocument()
-      })
-    })
-  })
-
-  describe('edit mode', () => {
-    it('should render edit form for /app/prompts/:id/edit', async () => {
-      renderWithRouter('/app/prompts/1/edit')
-
-      await waitFor(() => {
-        // Edit mode shows the PromptEditor with Save Changes button
-        expect(screen.getByText('Save')).toBeInTheDocument()
+        expect(screen.getByText('Archive')).toBeInTheDocument()
       })
     })
 
-    it('should fetch prompt in edit mode', async () => {
-      renderWithRouter('/app/prompts/1/edit')
-
-      await waitFor(() => {
-        expect(mockFetchPrompt).toHaveBeenCalledWith('1')
-      })
-    })
-
-    it('should not track usage in edit mode', async () => {
-      renderWithRouter('/app/prompts/1/edit')
-
-      await waitFor(() => {
-        expect(mockFetchPrompt).toHaveBeenCalled()
-      })
-
-      expect(mockTrackPromptUsage).not.toHaveBeenCalled()
-    })
-
-    it('should show save changes button', async () => {
-      renderWithRouter('/app/prompts/1/edit')
-
-      await waitFor(() => {
-        expect(screen.getByText('Save')).toBeInTheDocument()
-      })
-    })
-
-    it('should show cancel button', async () => {
-      renderWithRouter('/app/prompts/1/edit')
-
-      await waitFor(() => {
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
-      })
-    })
-
-    it('should populate form with existing prompt data', async () => {
-      renderWithRouter('/app/prompts/1/edit')
+    it('should show Save button when form is dirty', async () => {
+      const user = userEvent.setup()
+      renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
         expect(screen.getByDisplayValue('code-review')).toBeInTheDocument()
-        expect(screen.getByDisplayValue('Code Review Template')).toBeInTheDocument()
+      })
+
+      // Modify name to make form dirty
+      await user.clear(screen.getByDisplayValue('code-review'))
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'updated-name')
+
+      await waitFor(() => {
+        expect(screen.getByText('Save')).toBeInTheDocument()
       })
     })
   })
 
-  describe('archived prompt view', () => {
+  describe('archived prompt', () => {
     it('should show restore button for archived prompts', async () => {
       const archivedPrompt = { ...mockPrompt, archived_at: '2024-01-02T00:00:00Z' }
       mockFetchPrompt.mockResolvedValue(archivedPrompt)
@@ -320,14 +307,14 @@ describe('PromptDetail page', () => {
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Code Review Template')).toBeInTheDocument()
+        expect(screen.getByDisplayValue('Code Review Template')).toBeInTheDocument()
       })
 
       expect(screen.queryByRole('button', { name: /^archive$/i })).not.toBeInTheDocument()
     })
   })
 
-  describe('deleted prompt view', () => {
+  describe('deleted prompt', () => {
     it('should show restore button for deleted prompts', async () => {
       const deletedPrompt = { ...mockPrompt, deleted_at: '2024-01-02T00:00:00Z' }
       mockFetchPrompt.mockResolvedValue(deletedPrompt)
@@ -339,17 +326,15 @@ describe('PromptDetail page', () => {
       })
     })
 
-    it('should not show edit button for deleted prompts', async () => {
+    it('should show read-only banner for deleted prompts', async () => {
       const deletedPrompt = { ...mockPrompt, deleted_at: '2024-01-02T00:00:00Z' }
       mockFetchPrompt.mockResolvedValue(deletedPrompt)
 
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Code Review Template')).toBeInTheDocument()
+        expect(screen.getByText(/in trash and cannot be edited/i)).toBeInTheDocument()
       })
-
-      expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument()
     })
 
     it('should show delete permanently button for deleted prompts', async () => {
@@ -396,16 +381,16 @@ describe('PromptDetail page', () => {
   })
 
   describe('navigation', () => {
-    it('should navigate to list when close is clicked', async () => {
+    it('should navigate to list when Cancel is clicked', async () => {
       const user = userEvent.setup()
 
       renderWithRouter('/app/prompts/1')
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument()
+        expect(screen.getByText('Cancel')).toBeInTheDocument()
       })
 
-      await user.click(screen.getByRole('button', { name: /close/i }))
+      await user.click(screen.getByText('Cancel'))
 
       expect(mockNavigate).toHaveBeenCalledWith('/app/content')
     })
