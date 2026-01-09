@@ -1,10 +1,13 @@
 /**
  * Tag input component with autocomplete suggestions.
+ *
+ * Form-style tag input with chips and dropdown autocomplete.
+ * For inline view-style tags, see InlineEditableTags.
  */
-import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
+import { useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
 import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
 import type { TagCount } from '../types'
-import { validateTag } from '../utils'
+import { useTagAutocomplete } from '../hooks/useTagAutocomplete'
 
 interface TagInputProps {
   /** Currently selected tags */
@@ -40,7 +43,7 @@ export interface TagInputHandle {
  * - Type a new tag and press Enter or comma to add it
  * - Click X on chips to remove tags
  * - Tab to select first suggestion
- * - Exposes addPendingTag() via ref for form submission
+ * - Exposes getPendingValue() via ref for form submission
  */
 export const TagInput = forwardRef(function TagInput(
   {
@@ -50,112 +53,75 @@ export const TagInput = forwardRef(function TagInput(
     placeholder = 'Add tags...',
     disabled = false,
     id,
-    error,
+    error: externalError,
   }: TagInputProps,
   ref: Ref<TagInputHandle>
 ): ReactNode {
-  const [inputValue, setInputValue] = useState('')
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const [highlightedIndex, setHighlightedIndex] = useState(-1)
-  const [localError, setLocalError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Filter suggestions based on input and exclude already selected tags
-  const filteredSuggestions = suggestions.filter(
-    (suggestion) =>
-      !value.includes(suggestion.name) &&
-      suggestion.name.toLowerCase().includes(inputValue.toLowerCase())
-  )
+  const {
+    inputValue,
+    setInputValue,
+    showSuggestions,
+    highlightedIndex,
+    filteredSuggestions,
+    error: localError,
+    addTag,
+    removeTag,
+    selectHighlighted,
+    moveHighlight,
+    openSuggestions,
+    closeSuggestions,
+    getPendingValue,
+    clearPending,
+  } = useTagAutocomplete({ value, onChange, suggestions })
+
+  // Expose methods via ref for form submission
+  useImperativeHandle(ref, () => ({
+    getPendingValue,
+    clearPending,
+  }), [getPendingValue, clearPending])
 
   // Close suggestions when clicking outside
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
-      ) {
-        setShowSuggestions(false)
+    function handleClickOutside(event: MouseEvent): void {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        closeSuggestions()
       }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
-  const addTag = (tag: string): boolean => {
-    const normalized = tag.toLowerCase().trim()
-    if (!normalized) return false
-
-    const validationError = validateTag(normalized)
-
-    if (validationError) {
-      setLocalError(validationError)
-      return false
-    }
-
-    if (!value.includes(normalized)) {
-      onChange([...value, normalized])
-    }
-
-    setInputValue('')
-    setLocalError(null)
-    setShowSuggestions(false)
-    setHighlightedIndex(-1)
-    return true
-  }
-
-  // Expose methods via ref for form submission
-  useImperativeHandle(ref, () => ({
-    getPendingValue: () => inputValue.trim(),
-    clearPending: () => setInputValue(''),
-  }))
-
-  const removeTag = (tagToRemove: string): void => {
-    onChange(value.filter((tag) => tag !== tagToRemove))
-  }
+  }, [closeSuggestions])
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    const newValue = e.target.value
-    setInputValue(newValue)
-    setLocalError(null)
-    setShowSuggestions(newValue.length > 0 || filteredSuggestions.length > 0)
-    setHighlightedIndex(-1)
+    setInputValue(e.target.value)
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault()
-
       if (highlightedIndex >= 0 && highlightedIndex < filteredSuggestions.length) {
-        // Select highlighted suggestion
-        addTag(filteredSuggestions[highlightedIndex].name)
+        selectHighlighted()
       } else if (inputValue.trim()) {
-        // Add typed value as new tag
         addTag(inputValue)
       }
-    } else if (e.key === 'Tab' && showSuggestions && filteredSuggestions.length > 0) {
-      e.preventDefault()
-      // Select first suggestion on Tab
-      addTag(filteredSuggestions[0].name)
     } else if (e.key === 'Backspace' && !inputValue && value.length > 0) {
-      // Remove last tag on backspace when input is empty
       removeTag(value[value.length - 1])
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setHighlightedIndex((prev) =>
-        prev < filteredSuggestions.length - 1 ? prev + 1 : prev
-      )
+      moveHighlight('down')
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : prev))
+      moveHighlight('up')
     } else if (e.key === 'Escape') {
-      setShowSuggestions(false)
-      setHighlightedIndex(-1)
+      closeSuggestions()
     }
+    // Tab falls through to browser default - moves to next field
   }
 
-  const displayError = error || localError
+  const displayError = externalError || localError
 
   return (
     <div ref={containerRef} className="relative">
@@ -204,11 +170,7 @@ export const TagInput = forwardRef(function TagInput(
           value={inputValue}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
-          onFocus={() =>
-            setShowSuggestions(
-              inputValue.length > 0 || filteredSuggestions.length > 0
-            )
-          }
+          onFocus={openSuggestions}
           placeholder={value.length === 0 ? placeholder : ''}
           disabled={disabled}
           className="min-w-[100px] flex-1 border-none bg-transparent p-0 text-sm outline-none placeholder:text-gray-400"

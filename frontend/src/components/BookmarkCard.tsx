@@ -9,12 +9,14 @@ import { formatDate, truncate, getDomain, getUrlWithoutProtocol } from '../utils
 import { ConfirmDeleteButton } from './ui'
 import {
   CopyIcon,
+  CheckIcon,
   EditIcon,
   ArchiveIcon,
   RestoreIcon,
   TrashIcon,
   CloseIcon,
 } from './icons'
+import { Tag } from './Tag'
 
 interface BookmarkCardProps {
   bookmark: BookmarkListItem
@@ -201,28 +203,12 @@ export function BookmarkCard({
           {bookmark.tags.length > 0 && (
             <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
               {bookmark.tags.map((tag) => (
-                <div key={tag} className="group/tag relative">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onTagClick?.(tag) }}
-                    className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
-                    title={`Filter by tag: ${tag}`}
-                  >
-                    {tag}
-                  </button>
-                  {onTagRemove && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onTagRemove(bookmark, tag)
-                      }}
-                      className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/tag:opacity-100 transition-opacity flex items-center justify-center"
-                      title={`Remove tag: ${tag}`}
-                      aria-label={`Remove tag ${tag}`}
-                    >
-                      <CloseIcon className="w-2.5 h-2.5" />
-                    </button>
-                  )}
-                </div>
+                <Tag
+                  key={tag}
+                  tag={tag}
+                  onClick={onTagClick ? () => onTagClick(tag) : undefined}
+                  onRemove={onTagRemove ? () => onTagRemove(bookmark, tag) : undefined}
+                />
               ))}
             </div>
           )}
@@ -230,16 +216,6 @@ export function BookmarkCard({
           {/* Actions and date */}
           <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
             <div className="flex items-center">
-              {/* Copy URL button */}
-              <button
-                onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
-                className={`btn-icon transition-colors ${copySuccess ? 'text-green-600' : ''}`}
-                title="Copy URL"
-                aria-label="Copy URL"
-              >
-                <CopyIcon />
-              </button>
-
               {/* Edit button - shown in active and archived views */}
               {view !== 'deleted' && onEdit && (
                 <button
@@ -255,6 +231,20 @@ export function BookmarkCard({
                   )}
                 </button>
               )}
+
+              {/* Copy URL button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
+                className="btn-icon"
+                title={copySuccess ? 'Copied!' : 'Copy URL'}
+                aria-label={copySuccess ? 'Copied!' : 'Copy URL'}
+              >
+                {copySuccess ? (
+                  <CheckIcon className="h-4 w-4 text-green-600" />
+                ) : (
+                  <CopyIcon />
+                )}
+              </button>
 
               {/* Archive button - shown in active view */}
               {view === 'active' && onArchive && (

@@ -43,7 +43,7 @@ describe('BookmarkForm', () => {
       expect(screen.getByLabelText(/URL/)).toHaveValue('')
       expect(screen.getByLabelText(/Title/)).toHaveValue('')
       expect(screen.getByLabelText(/Description/)).toHaveValue('')
-      expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Create' })).toBeInTheDocument()
     })
 
     it('should show fetch metadata button in create mode', () => {
@@ -59,19 +59,19 @@ describe('BookmarkForm', () => {
       expect(urlLabel).toContainHTML('<span class="text-red-500">*</span>')
     })
 
-    it('should disable Add Bookmark button when URL is empty', () => {
+    it('should disable Create button when URL is empty', () => {
       render(<BookmarkForm {...defaultProps} />)
 
-      expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled()
     })
 
-    it('should enable Add Bookmark button when URL has value', async () => {
+    it('should enable Create button when URL has value', async () => {
       const user = userEvent.setup()
       render(<BookmarkForm {...defaultProps} />)
 
       await user.type(screen.getByLabelText(/URL/), 'example.com')
 
-      expect(screen.getByRole('button', { name: 'Add' })).not.toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Create' })).not.toBeDisabled()
     })
   })
 
@@ -113,7 +113,7 @@ describe('BookmarkForm', () => {
 
       await user.type(screen.getByLabelText(/URL/), 'example.com')
       await user.type(screen.getByLabelText(/Title/), 'Test Title')
-      await user.click(screen.getByRole('button', { name: 'Add' }))
+      await user.click(screen.getByRole('button', { name: 'Create' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith({
@@ -464,7 +464,7 @@ describe('BookmarkForm', () => {
       )
 
       await user.type(screen.getByLabelText(/URL/), 'example.com')
-      await user.click(screen.getByRole('button', { name: 'Add' }))
+      await user.click(screen.getByRole('button', { name: 'Create' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith(
@@ -511,7 +511,7 @@ describe('BookmarkForm', () => {
 
       // Submit the form
       await user.type(screen.getByLabelText(/URL/), 'example.com')
-      await user.click(screen.getByRole('button', { name: 'Add' }))
+      await user.click(screen.getByRole('button', { name: 'Create' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalledWith(
@@ -567,7 +567,7 @@ describe('BookmarkForm', () => {
       // Type up to maxLength (input will truncate), then verify form still works
       await user.type(titleInput, 'a'.repeat(config.limits.maxTitleLength))
 
-      await user.click(screen.getByRole('button', { name: 'Add' }))
+      await user.click(screen.getByRole('button', { name: 'Create' }))
 
       // Should submit successfully since input enforces maxLength
       await waitFor(() => {
@@ -586,7 +586,7 @@ describe('BookmarkForm', () => {
       const descInput = screen.getByLabelText(/Description/)
       await user.type(descInput, 'a'.repeat(100)) // Just verify it works
 
-      await user.click(screen.getByRole('button', { name: 'Add' }))
+      await user.click(screen.getByRole('button', { name: 'Create' }))
 
       await waitFor(() => {
         expect(onSubmit).toHaveBeenCalled()

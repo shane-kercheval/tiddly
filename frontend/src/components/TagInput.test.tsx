@@ -263,7 +263,7 @@ describe('TagInput', () => {
       expect(onChange).toHaveBeenCalledWith(['react'])
     })
 
-    it('should select first suggestion on Tab', async () => {
+    it('should move to next field on Tab (not select suggestion)', async () => {
       const onChange = vi.fn()
       const user = userEvent.setup()
 
@@ -279,7 +279,8 @@ describe('TagInput', () => {
       await user.type(input, 'type')
       await user.keyboard('{Tab}')
 
-      expect(onChange).toHaveBeenCalledWith(['typescript'])
+      // Tab should NOT select suggestion - it moves to next field (standard form behavior)
+      expect(onChange).not.toHaveBeenCalled()
     })
 
     it('should hide suggestions on Escape', async () => {

@@ -92,8 +92,11 @@ function saveDraftToStorage(promptId: string | undefined, data: DraftData): void
   try {
     const key = getDraftKey(promptId)
     localStorage.setItem(key, JSON.stringify(data))
-  } catch {
-    // Ignore storage errors (e.g., quota exceeded)
+  } catch (error) {
+    // Log in development mode so developers know drafts aren't saving
+    if (import.meta.env.DEV) {
+      console.warn('Failed to save draft to localStorage:', error)
+    }
   }
 }
 
@@ -131,27 +134,35 @@ export function usePromptDraft({
     if (!draft) return false
 
     // Only show prompt if draft is different from original values
+    // Use same comparison pattern as isDirty for consistency
     const isDifferent = promptId
       ? draft.name !== originalValues.name ||
         draft.title !== originalValues.title ||
         draft.description !== originalValues.description ||
+        draft.content.length !== originalValues.content.length ||
         draft.content !== originalValues.content ||
-        JSON.stringify(draft.arguments) !== JSON.stringify(originalValues.arguments) ||
-        JSON.stringify(draft.tags) !== JSON.stringify(originalValues.tags)
+        draft.tags.length !== originalValues.tags.length ||
+        draft.tags.some((tag, i) => tag !== originalValues.tags[i]) ||
+        draft.arguments.length !== originalValues.arguments.length ||
+        JSON.stringify(draft.arguments) !== JSON.stringify(originalValues.arguments)
       : draft.name || draft.title || draft.description || draft.content ||
         draft.arguments.length > 0 || draft.tags.length > 0
 
     return Boolean(isDifferent)
   })
 
-  // Compute dirty state
+  // Compute dirty state - optimized to match Note.tsx/Bookmark.tsx pattern
+  // Check lengths first for quick short-circuit
   const isDirty =
     formState.name !== originalValues.name ||
     formState.title !== originalValues.title ||
     formState.description !== originalValues.description ||
+    formState.content.length !== originalValues.content.length ||
     formState.content !== originalValues.content ||
-    JSON.stringify(formState.arguments) !== JSON.stringify(originalValues.arguments) ||
-    JSON.stringify(formState.tags) !== JSON.stringify(originalValues.tags)
+    formState.tags.length !== originalValues.tags.length ||
+    formState.tags.some((tag, i) => tag !== originalValues.tags[i]) ||
+    formState.arguments.length !== originalValues.arguments.length ||
+    JSON.stringify(formState.arguments) !== JSON.stringify(originalValues.arguments)
 
   // Auto-save draft when form is dirty
   useEffect(() => {

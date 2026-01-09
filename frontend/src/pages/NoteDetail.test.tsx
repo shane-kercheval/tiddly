@@ -1,7 +1,8 @@
 /**
  * Tests for NoteDetail page.
  *
- * Tests view, edit, and create modes for notes.
+ * Tests the unified Note component for creating and editing notes.
+ * The unified component is always editable - there's no separate view/edit mode.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -109,7 +110,6 @@ function renderWithRouter(initialRoute: string): void {
       <Routes>
         <Route path="/app/notes/new" element={<NoteDetail />} />
         <Route path="/app/notes/:id" element={<NoteDetail />} />
-        <Route path="/app/notes/:id/edit" element={<NoteDetail />} />
         <Route path="/app/notes" element={<div>Notes List</div>} />
       </Routes>
     </MemoryRouter>
@@ -127,8 +127,8 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        // Create mode shows the NoteEditor with Create Note button
-        expect(screen.getByText('Create')).toBeInTheDocument()
+        // Create mode shows the unified Note component with Cancel button
+        expect(screen.getByText('Cancel')).toBeInTheDocument()
       })
     })
 
@@ -136,31 +136,57 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        expect(screen.getByText('Create')).toBeInTheDocument()
+        expect(screen.getByText('Cancel')).toBeInTheDocument()
       })
 
       expect(mockFetchNote).not.toHaveBeenCalled()
     })
 
-    it('should have cancel button in create mode', async () => {
+    it('should show Cancel button', async () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        // Cancel button serves as "back" in edit/create mode
         expect(screen.getByText('Cancel')).toBeInTheDocument()
       })
     })
 
-    it('should show create note button', async () => {
+    it('should show Create button when form is dirty', async () => {
+      const user = userEvent.setup()
       renderWithRouter('/app/notes/new')
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Note title')).toBeInTheDocument()
+      })
+
+      // Type in title to make form dirty
+      await user.type(screen.getByPlaceholderText('Note title'), 'New Note Title')
 
       await waitFor(() => {
         expect(screen.getByText('Create')).toBeInTheDocument()
       })
     })
+
+    it('should show Discard? confirmation when Cancel is clicked with dirty form', async () => {
+      const user = userEvent.setup()
+      renderWithRouter('/app/notes/new')
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Note title')).toBeInTheDocument()
+      })
+
+      // Type in title to make form dirty
+      await user.type(screen.getByPlaceholderText('Note title'), 'New Note Title')
+
+      // Click Cancel to trigger confirmation
+      await user.click(screen.getByText('Cancel'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Discard?')).toBeInTheDocument()
+      })
+    })
   })
 
-  describe('view mode', () => {
+  describe('existing note', () => {
     it('should fetch note by ID', async () => {
       renderWithRouter('/app/notes/1')
 
@@ -169,7 +195,7 @@ describe('NoteDetail page', () => {
       })
     })
 
-    it('should track note usage in view mode', async () => {
+    it('should track note usage', async () => {
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
@@ -177,11 +203,11 @@ describe('NoteDetail page', () => {
       })
     })
 
-    it('should render note title', async () => {
+    it('should render note title in editable field', async () => {
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        expect(screen.getByDisplayValue('Test Note')).toBeInTheDocument()
       })
     })
 
@@ -202,11 +228,11 @@ describe('NoteDetail page', () => {
       })
     })
 
-    it('should show edit button in view mode', async () => {
+    it('should show Cancel button', async () => {
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Edit')).toBeInTheDocument()
+        expect(screen.getByText('Cancel')).toBeInTheDocument()
       })
     })
 
@@ -217,49 +243,21 @@ describe('NoteDetail page', () => {
         expect(screen.getByText('Archive')).toBeInTheDocument()
       })
     })
-  })
 
-  describe('edit mode', () => {
-    it('should render edit form for /app/notes/:id/edit', async () => {
-      renderWithRouter('/app/notes/1/edit')
-
-      await waitFor(() => {
-        // Edit mode shows the NoteEditor with Save Changes button
-        expect(screen.getByText('Save')).toBeInTheDocument()
-      })
-    })
-
-    it('should fetch note in edit mode', async () => {
-      renderWithRouter('/app/notes/1/edit')
+    it('should show Save button when form is dirty', async () => {
+      const user = userEvent.setup()
+      renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(mockFetchNote).toHaveBeenCalledWith('1')
-      })
-    })
-
-    it('should not track usage in edit mode', async () => {
-      renderWithRouter('/app/notes/1/edit')
-
-      await waitFor(() => {
-        expect(mockFetchNote).toHaveBeenCalled()
+        expect(screen.getByDisplayValue('Test Note')).toBeInTheDocument()
       })
 
-      expect(mockTrackNoteUsage).not.toHaveBeenCalled()
-    })
-
-    it('should show save changes button', async () => {
-      renderWithRouter('/app/notes/1/edit')
+      // Modify title to make form dirty
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'Updated Title')
 
       await waitFor(() => {
         expect(screen.getByText('Save')).toBeInTheDocument()
-      })
-    })
-
-    it('should show cancel button', async () => {
-      renderWithRouter('/app/notes/1/edit')
-
-      await waitFor(() => {
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
       })
     })
   })
@@ -302,10 +300,10 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Close')).toBeInTheDocument()
+        expect(screen.getByText('Cancel')).toBeInTheDocument()
       })
 
-      await user.click(screen.getByText('Close'))
+      await user.click(screen.getByText('Cancel'))
 
       expect(mockNavigate).toHaveBeenCalledWith('/app/content')
     })

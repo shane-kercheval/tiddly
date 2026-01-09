@@ -311,34 +311,3 @@ export function MarkdownEditor({
     </div>
   )
 }
-
-/**
- * MarkdownViewer renders markdown content in view mode.
- * Used for displaying content in view-only contexts.
- */
-interface MarkdownViewerProps {
-  /** Markdown content to render */
-  content: string | null | undefined
-  /** Fallback text when content is empty */
-  emptyText?: string
-}
-
-export function MarkdownViewer({
-  content,
-  emptyText = 'No content',
-}: MarkdownViewerProps): ReactNode {
-  if (!content) {
-    return <p className="text-gray-400 italic">{emptyText}</p>
-  }
-
-  return (
-    <div className="prose prose-sm prose-gray max-w-none [&>p]:text-[15px] [&>ul]:text-[15px] [&>ol]:text-[15px]">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeSanitize]}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  )
-}

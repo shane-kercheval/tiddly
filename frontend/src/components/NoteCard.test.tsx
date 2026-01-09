@@ -238,7 +238,6 @@ describe('NoteCard', () => {
           note={mockNote}
           view="deleted"
           onDelete={vi.fn()}
-          onEdit={vi.fn()}
         />
       )
 
@@ -294,19 +293,23 @@ describe('NoteCard', () => {
     })
   })
 
-  describe('loading state', () => {
-    it('should show spinner in hover indicator when isLoading', () => {
-      const { container } = render(
-        <NoteCard
-          note={mockNote}
-          onDelete={vi.fn()}
-          onEdit={vi.fn()}
-          isLoading={true}
-        />
-      )
+  describe('copy button', () => {
+    it('should show copy button in active view', () => {
+      render(<NoteCard note={mockNote} view="active" onDelete={vi.fn()} />)
 
-      // Spinner should be visible in the hover edit indicator
-      expect(container.querySelector('.spinner-sm')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /copy note content/i })).toBeInTheDocument()
+    })
+
+    it('should show copy button in archived view', () => {
+      render(<NoteCard note={mockNote} view="archived" onDelete={vi.fn()} />)
+
+      expect(screen.getByRole('button', { name: /copy note content/i })).toBeInTheDocument()
+    })
+
+    it('should not show copy button in deleted view', () => {
+      render(<NoteCard note={mockNote} view="deleted" onDelete={vi.fn()} />)
+
+      expect(screen.queryByRole('button', { name: /copy note content/i })).not.toBeInTheDocument()
     })
   })
 
@@ -348,30 +351,6 @@ describe('NoteCard', () => {
       await user.click(card!)
 
       expect(onView).toHaveBeenCalledWith(mockNote)
-    })
-
-    it('should not call onEdit when card is clicked (edit only via button)', async () => {
-      const onEdit = vi.fn()
-      const onView = vi.fn()
-      const user = userEvent.setup()
-
-      const { container } = render(
-        <NoteCard
-          note={mockNote}
-          view="active"
-          onDelete={vi.fn()}
-          onEdit={onEdit}
-          onView={onView}
-        />
-      )
-
-      // Click the card
-      const card = container.querySelector('.card')
-      await user.click(card!)
-
-      // onView should be called, not onEdit
-      expect(onView).toHaveBeenCalledWith(mockNote)
-      expect(onEdit).not.toHaveBeenCalled()
     })
   })
 })

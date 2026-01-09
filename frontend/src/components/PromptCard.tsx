@@ -6,33 +6,31 @@ import type { PromptListItem } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { formatDate, truncate } from '../utils'
-import { ConfirmDeleteButton } from './ui'
-import { PromptIcon, EditIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
+import { ConfirmDeleteButton, CopyContentButton } from './ui'
+import { PromptIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
+import { Tag } from './Tag'
 
 interface PromptCardProps {
   prompt: PromptListItem
   view?: 'active' | 'archived' | 'deleted'
   sortBy?: SortByOption
   onView?: (prompt: PromptListItem) => void
-  onEdit?: (prompt: PromptListItem) => void
   onDelete: (prompt: PromptListItem) => void
   onArchive?: (prompt: PromptListItem) => void
   onUnarchive?: (prompt: PromptListItem) => void
   onRestore?: (prompt: PromptListItem) => void
   onTagClick?: (tag: string) => void
   onTagRemove?: (prompt: PromptListItem, tag: string) => void
-  /** Whether the edit action is currently loading */
-  isLoading?: boolean
 }
 
 /**
  * PromptCard displays a single prompt with its metadata.
  *
  * Features:
- * - Clickable title opens prompt view
+ * - Clickable card opens prompt view/edit (unified component)
  * - Context-aware action buttons based on view:
- *   - active: edit, archive, delete
- *   - archived: edit, restore, delete
+ *   - active: archive, delete
+ *   - archived: restore, delete
  *   - deleted: restore, permanent delete
  * - Clickable tags for filtering
  * - Shows name (unique identifier) and title (display name)
@@ -42,14 +40,12 @@ export function PromptCard({
   view = 'active',
   sortBy = 'created_at',
   onView,
-  onEdit,
   onDelete,
   onArchive,
   onUnarchive,
   onRestore,
   onTagClick,
   onTagRemove,
-  isLoading = false,
 }: PromptCardProps): ReactNode {
   // Display title if present, otherwise use name
   const displayName = prompt.title || prompt.name
@@ -124,28 +120,12 @@ export function PromptCard({
           {prompt.tags.length > 0 && (
             <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
               {prompt.tags.map((tag) => (
-                <div key={tag} className="group/tag relative">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onTagClick?.(tag) }}
-                    className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
-                    title={`Filter by tag: ${tag}`}
-                  >
-                    {tag}
-                  </button>
-                  {onTagRemove && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onTagRemove(prompt, tag)
-                      }}
-                      className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/tag:opacity-100 transition-opacity flex items-center justify-center"
-                      title={`Remove tag: ${tag}`}
-                      aria-label={`Remove tag ${tag}`}
-                    >
-                      <CloseIcon className="w-2.5 h-2.5" />
-                    </button>
-                  )}
-                </div>
+                <Tag
+                  key={tag}
+                  tag={tag}
+                  onClick={onTagClick ? () => onTagClick(tag) : undefined}
+                  onRemove={onTagRemove ? () => onTagRemove(prompt, tag) : undefined}
+                />
               ))}
             </div>
           )}
@@ -153,20 +133,9 @@ export function PromptCard({
           {/* Actions and date */}
           <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
             <div className="flex items-center">
-              {/* Edit button - shown in active and archived views */}
-              {view !== 'deleted' && onEdit && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onEdit(prompt) }}
-                  className="btn-icon"
-                  title="Edit prompt"
-                  aria-label="Edit prompt"
-                >
-                  {isLoading ? (
-                    <div className="spinner-sm" />
-                  ) : (
-                    <EditIcon />
-                  )}
-                </button>
+              {/* Copy button - shown in active and archived views */}
+              {view !== 'deleted' && (
+                <CopyContentButton contentType="prompt" id={prompt.id} />
               )}
 
               {/* Archive button - shown in active view */}

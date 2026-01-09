@@ -143,15 +143,18 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
 
     function handleKeyDown(e: KeyboardEvent): void {
       if (e.key === 'Escape') {
+        e.stopImmediatePropagation()
         onClose()
       }
     }
 
-    document.addEventListener('keydown', handleKeyDown)
+    // Use capture phase so this handler runs before other document-level handlers
+    // This ensures Escape closes only the dialog, not components behind it
+    document.addEventListener('keydown', handleKeyDown, true)
 
     return () => {
       document.body.style.overflow = ''
-      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('keydown', handleKeyDown, true)
 
       if (previousActiveElement.current) {
         previousActiveElement.current.focus()

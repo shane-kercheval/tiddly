@@ -63,7 +63,7 @@ describe('BookmarkCard', () => {
       expect(onLinkClick).toHaveBeenCalledWith(mockBookmark)
     })
 
-    it('shows green color briefly after successful copy', async () => {
+    it('shows checkmark icon after successful copy', async () => {
       const writeText = vi.fn().mockResolvedValue(undefined)
       Object.assign(navigator, {
         clipboard: { writeText },
@@ -74,9 +74,9 @@ describe('BookmarkCard', () => {
       const copyButton = screen.getByRole('button', { name: /copy url/i })
       await userEvent.click(copyButton)
 
-      // Check for green class immediately after click
+      // Button should now show "Copied!" title
       await waitFor(() => {
-        expect(copyButton.className).toContain('text-green-600')
+        expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument()
       })
     })
   })
