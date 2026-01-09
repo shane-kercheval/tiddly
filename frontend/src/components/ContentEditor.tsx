@@ -101,6 +101,8 @@ interface ContentEditorProps {
   showBorder?: boolean
   /** Use subtle ring style instead of solid border (matches title/description focus style) */
   subtleBorder?: boolean
+  /** Show Jinja2 template tools in toolbar (for prompts) */
+  showJinjaTools?: boolean
 }
 
 /**
@@ -131,6 +133,7 @@ export function ContentEditor({
   errorMessage,
   showBorder = true,
   subtleBorder = false,
+  showJinjaTools = false,
 }: ContentEditorProps): ReactNode {
   // Mode state with localStorage persistence
   const [mode, setMode] = useState<EditorMode>(loadModePreference)
@@ -261,6 +264,7 @@ export function ContentEditor({
             minHeight={minHeight}
             placeholder={placeholder}
             noPadding={subtleBorder || !showBorder}
+            showJinjaTools={showJinjaTools}
           />
         ) : (
           <CodeMirrorEditor

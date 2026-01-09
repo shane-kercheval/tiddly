@@ -723,6 +723,7 @@ export function Prompt({
             label=""
             showBorder={true}
             subtleBorder={true}
+            showJinjaTools={true}
           />
         </div>
       </div>

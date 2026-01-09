@@ -111,15 +111,29 @@ interface EditorToolbarProps {
   getEditor: () => EditorType | undefined
   onLinkClick: () => void
   onTaskListClick: () => void
+  showJinjaTools?: boolean
 }
 
-function EditorToolbar({ getEditor, onLinkClick, onTaskListClick }: EditorToolbarProps): ReactNode {
+function EditorToolbar({ getEditor, onLinkClick, onTaskListClick, showJinjaTools = false }: EditorToolbarProps): ReactNode {
   const runCommand = useCallback(
     (command: Parameters<typeof callCommand>[0]) => {
       const editor = getEditor()
       if (editor) {
         editor.action(callCommand(command))
       }
+    },
+    [getEditor]
+  )
+
+  // Insert text at cursor position
+  const insertText = useCallback(
+    (text: string) => {
+      const editor = getEditor()
+      if (!editor) return
+      const view = editor.ctx.get(editorViewCtx)
+      const tr = view.state.tr.insertText(text)
+      view.dispatch(tr)
+      view.focus()
     },
     [getEditor]
   )
@@ -164,24 +178,24 @@ function EditorToolbar({ getEditor, onLinkClick, onTaskListClick }: EditorToolba
       {/* Lists */}
       <ToolbarButton onClick={() => runCommand(wrapInBulletListCommand.key)} title="Bullet List">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-          <circle cx="2" cy="6" r="1" fill="currentColor" />
-          <circle cx="2" cy="12" r="1" fill="currentColor" />
-          <circle cx="2" cy="18" r="1" fill="currentColor" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M8 12h12M8 18h12" />
+          <circle cx="3" cy="6" r="2" fill="currentColor" />
+          <circle cx="3" cy="12" r="2" fill="currentColor" />
+          <circle cx="3" cy="18" r="2" fill="currentColor" />
         </svg>
       </ToolbarButton>
       <ToolbarButton onClick={() => runCommand(wrapInOrderedListCommand.key)} title="Numbered List">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 6h13M7 12h13M7 18h13" />
-          <text x="1" y="8" fontSize="6" fill="currentColor" fontWeight="bold">1</text>
-          <text x="1" y="14" fontSize="6" fill="currentColor" fontWeight="bold">2</text>
-          <text x="1" y="20" fontSize="6" fill="currentColor" fontWeight="bold">3</text>
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M8 12h12M8 18h12" />
+          <text x="1" y="8" fontSize="7" fill="currentColor" fontWeight="bold">1</text>
+          <text x="1" y="14" fontSize="7" fill="currentColor" fontWeight="bold">2</text>
+          <text x="1" y="20" fontSize="7" fill="currentColor" fontWeight="bold">3</text>
         </svg>
       </ToolbarButton>
       <ToolbarButton onClick={onTaskListClick} title="Task List (Checkbox)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <rect x="3" y="5" width="14" height="14" rx="2" strokeWidth={2} />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l2 2 4-4" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12l3 3 5-5" />
         </svg>
       </ToolbarButton>
 
@@ -198,6 +212,22 @@ function EditorToolbar({ getEditor, onLinkClick, onTaskListClick }: EditorToolba
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h16" />
         </svg>
       </ToolbarButton>
+
+      {/* Jinja2 template tools (for prompts) */}
+      {showJinjaTools && (
+        <>
+          <ToolbarSeparator />
+          <ToolbarButton onClick={() => insertText('{{ variable }}')} title="Insert Variable {{ }}">
+            <span className="w-4 h-4 flex items-center justify-center text-[11px] font-mono font-bold">{'{}'}</span>
+          </ToolbarButton>
+          <ToolbarButton onClick={() => insertText('{% if variable %}\n\n{% endif %}')} title="If Block {% if %}">
+            <span className="w-4 h-4 flex items-center justify-center text-[10px] font-mono font-bold">if</span>
+          </ToolbarButton>
+          <ToolbarButton onClick={() => insertText('{%- if variable %}\n\n{%- endif %}')} title="If Block with Whitespace Trim {%- if %}">
+            <span className="w-4 h-4 flex items-center justify-center text-[10px] font-mono font-bold">if-</span>
+          </ToolbarButton>
+        </>
+      )}
     </div>
   )
 }
@@ -326,6 +356,8 @@ interface MilkdownEditorProps {
   placeholder?: string
   /** Remove padding to align text with other elements */
   noPadding?: boolean
+  /** Show Jinja2 template tools in toolbar (for prompts) */
+  showJinjaTools?: boolean
 }
 
 interface MilkdownEditorInnerProps {
@@ -335,6 +367,7 @@ interface MilkdownEditorInnerProps {
   minHeight?: string
   placeholder?: string
   noPadding?: boolean
+  showJinjaTools?: boolean
 }
 
 function MilkdownEditorInner({
@@ -344,6 +377,7 @@ function MilkdownEditorInner({
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
   noPadding = false,
+  showJinjaTools = false,
 }: MilkdownEditorInnerProps): ReactNode {
   const initialValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
@@ -543,7 +577,7 @@ function MilkdownEditorInner({
 
   return (
     <>
-      {!disabled && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onTaskListClick={handleTaskListClick} />}
+      {!disabled && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onTaskListClick={handleTaskListClick} showJinjaTools={showJinjaTools} />}
       <div
         className={`milkdown-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''} ${noPadding ? 'no-padding' : ''}`}
         style={{ minHeight }}
@@ -583,6 +617,7 @@ export function MilkdownEditor({
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
   noPadding = false,
+  showJinjaTools = false,
 }: MilkdownEditorProps): ReactNode {
   return (
     <MilkdownProvider>
@@ -593,6 +628,7 @@ export function MilkdownEditor({
         minHeight={minHeight}
         placeholder={placeholder}
         noPadding={noPadding}
+        showJinjaTools={showJinjaTools}
       />
     </MilkdownProvider>
   )
