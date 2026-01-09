@@ -247,7 +247,10 @@ export function ContentEditor({
         </div>
       </div>
 
-      {/* Editor container - border shown on hover/focus */}
+      {/* Top divider - hidden when focused since ring takes over */}
+      <div className="h-0.5 bg-gray-100 mx-2 group-focus-within/editor:opacity-0 transition-opacity" />
+
+      {/* Editor container */}
       <div className={`overflow-hidden rounded-lg transition-shadow ${getContainerBorderClasses()}`}>
         {mode === 'visual' ? (
           <MilkdownEditor
