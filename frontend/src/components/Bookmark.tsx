@@ -22,10 +22,12 @@ import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEdita
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
+import { UnsavedChangesDialog } from './ui'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
 import { config } from '../config'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
 import type { ArchivePreset } from '../utils'
 
@@ -267,6 +269,9 @@ export function Bookmark({
   // Can save when form is dirty and valid
   const canSave = isDirty && isValid
 
+  // Navigation blocking when dirty
+  const { showDialog, handleStay, handleLeave, confirmLeave } = useUnsavedChangesWarning(isDirty)
+
   // Auto-focus URL for new bookmarks only (if no initialUrl)
   useEffect(() => {
     if (isCreate && !initialUrl && urlInputRef.current) {
@@ -396,6 +401,7 @@ export function Bookmark({
 
     if (confirmingDiscard) {
       clearDraft(bookmark?.id) // Clear autosaved draft when user explicitly discards
+      confirmLeave() // Prevent navigation blocker from showing
       onClose()
     } else {
       setConfirmingDiscard(true)
@@ -403,7 +409,7 @@ export function Bookmark({
         setConfirmingDiscard(false)
       }, 3000)
     }
-  }, [isDirty, confirmingDiscard, onClose, bookmark?.id])
+  }, [isDirty, confirmingDiscard, onClose, bookmark?.id, confirmLeave])
 
   // Reset discard confirmation
   const resetDiscardConfirmation = useCallback((): void => {
@@ -578,6 +584,8 @@ export function Bookmark({
           tags: tagsToSubmit,
           archived_at: current.archivedAt || undefined,
         }
+        // For creates, onSave navigates away - prevent blocker from showing
+        confirmLeave()
         await onSave(createData)
       } else {
         // For updates, only send changed fields
@@ -891,6 +899,13 @@ export function Bookmark({
           subtleBorder={true}
         />
       </div>
+
+      {/* Unsaved changes warning dialog */}
+      <UnsavedChangesDialog
+        isOpen={showDialog}
+        onStay={handleStay}
+        onLeave={handleLeave}
+      />
     </form>
   )
 }

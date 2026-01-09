@@ -21,6 +21,7 @@ import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEdita
 import { InlineEditableText } from './InlineEditableText'
 import { ContentEditor } from './ContentEditor'
 import { ArgumentsBuilder } from './ArgumentsBuilder'
+import { UnsavedChangesDialog } from './ui'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate } from '../utils'
 import { TAG_PATTERN } from '../utils'
@@ -28,6 +29,7 @@ import { config } from '../config'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { usePromptDraft } from '../hooks/usePromptDraft'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import type { DraftData } from '../hooks/usePromptDraft'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, TagCount } from '../types'
 
@@ -224,6 +226,9 @@ export function Prompt({
   // Can save when form is dirty and valid
   const canSave = isDirty && isValid
 
+  // Navigation blocking when dirty
+  const { showDialog, handleStay, handleLeave, confirmLeave } = useUnsavedChangesWarning(isDirty)
+
   // Auto-focus name for new prompts only
   useEffect(() => {
     if (isCreate && nameInputRef.current) {
@@ -261,6 +266,7 @@ export function Prompt({
 
     if (confirmingDiscard) {
       clearDraft() // Clear autosaved draft when user explicitly discards
+      confirmLeave() // Prevent navigation blocker from showing
       onClose()
     } else {
       setConfirmingDiscard(true)
@@ -268,7 +274,7 @@ export function Prompt({
         setConfirmingDiscard(false)
       }, 3000)
     }
-  }, [isDirty, confirmingDiscard, onClose, clearDraft])
+  }, [isDirty, confirmingDiscard, onClose, clearDraft, confirmLeave])
 
   // Cleanup discard timeout on unmount
   useEffect(() => {
@@ -434,6 +440,8 @@ export function Prompt({
           arguments: cleanedArgs.length > 0 ? cleanedArgs : undefined,
           tags: tagsToSubmit,
         }
+        // For creates, onSave navigates away - prevent blocker from showing
+        confirmLeave()
         await onSave(createData)
       } else {
         // For updates, only send changed fields
@@ -736,6 +744,13 @@ export function Prompt({
           />
         </div>
       </div>
+
+      {/* Unsaved changes warning dialog */}
+      <UnsavedChangesDialog
+        isOpen={showDialog}
+        onStay={handleStay}
+        onLeave={handleLeave}
+      />
     </form>
   )
 }

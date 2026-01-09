@@ -856,4 +856,80 @@ describe('Note component', () => {
       expect(container.querySelector('form')).not.toHaveClass('max-w-4xl')
     })
   })
+
+  describe('unsaved changes warning integration', () => {
+    it('should not show unsaved changes dialog after confirming discard', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make dirty
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'Changed')
+
+      // First click shows "Discard?" confirmation
+      await user.click(screen.getByText('Cancel'))
+      expect(screen.getByText('Discard?')).toBeInTheDocument()
+
+      // Second click confirms discard - should call onClose without showing
+      // the unsaved changes dialog (dialog would have title "Unsaved Changes")
+      await user.click(screen.getByText('Discard?'))
+
+      // onClose should have been called
+      expect(mockOnClose).toHaveBeenCalled()
+
+      // The "Unsaved Changes" dialog should NOT be visible
+      // (If the bug existed, it would show after onClose triggers navigation)
+      expect(screen.queryByText('Unsaved Changes')).not.toBeInTheDocument()
+    })
+
+    it('should not show UnsavedChangesDialog when form is clean', () => {
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // The "Unsaved Changes" dialog should not be visible when form is clean
+      expect(screen.queryByText('Unsaved Changes')).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('should not show unsaved changes dialog when saving a new note', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockResolvedValue(undefined)
+
+      render(
+        <Note
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Create new note
+      await user.type(screen.getByPlaceholderText('Note title'), 'New Note Title')
+
+      // Click save
+      await user.click(screen.getByText('Create'))
+
+      await waitFor(() => {
+        expect(mockOnSave).toHaveBeenCalled()
+      })
+
+      // The "Unsaved Changes" dialog should NOT appear after saving
+      // (This tests the fix for the bug where create + navigate showed the dialog)
+      expect(screen.queryByText('Unsaved Changes')).not.toBeInTheDocument()
+    })
+  })
 })
