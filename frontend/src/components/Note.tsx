@@ -15,7 +15,6 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode, FormEvent } from 'react'
-import isEqual from 'lodash/isEqual'
 import { InlineEditableTitle } from './InlineEditableTitle'
 import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEditableTags'
 import { InlineEditableText } from './InlineEditableText'
@@ -147,12 +146,13 @@ export function Note({
   const isCreate = !note
 
   // Initialize state from note or defaults
-  const getInitialState = useCallback((): NoteState => ({
+  // Note: useState only calls the initializer once, so useCallback would be unnecessary here
+  const getInitialState = (): NoteState => ({
     title: note?.title ?? '',
     description: note?.description ?? '',
     content: note?.content ?? '',
     tags: note?.tags ?? initialTags ?? [],
-  }), [note, initialTags])
+  })
 
   const [original, setOriginal] = useState<NoteState>(getInitialState)
   const [current, setCurrent] = useState<NoteState>(getInitialState)
@@ -187,11 +187,31 @@ export function Note({
   // Read-only mode for deleted notes
   const isReadOnly = viewState === 'deleted'
 
-  // Compute dirty state
+  // Compute dirty state - optimized to avoid deep comparison overhead
+  // Check lengths first for quick short-circuit on large content
   const isDirty = useMemo(
-    () => !isEqual(current, original),
+    () =>
+      current.title !== original.title ||
+      current.description !== original.description ||
+      current.content.length !== original.content.length ||
+      current.content !== original.content ||
+      current.tags.length !== original.tags.length ||
+      current.tags.some((tag, i) => tag !== original.tags[i]),
     [current, original]
   )
+
+  // Compute validity for save button (doesn't show error messages, just checks if saveable)
+  const isValid = useMemo(
+    () =>
+      current.title.trim().length > 0 &&
+      current.title.length <= config.limits.maxTitleLength &&
+      current.description.length <= config.limits.maxDescriptionLength &&
+      current.content.length <= config.limits.maxNoteContentLength,
+    [current.title, current.description, current.content]
+  )
+
+  // Can save when form is dirty and valid
+  const canSave = isDirty && isValid
 
   // Auto-focus title for new notes only
   useEffect(() => {
@@ -415,31 +435,25 @@ export function Note({
     }
   }
 
-  // Update handlers
-  const handleTitleChange = (title: string): void => {
+  // Update handlers - memoized to prevent unnecessary child re-renders
+  const handleTitleChange = useCallback((title: string): void => {
     setCurrent((prev) => ({ ...prev, title }))
-    if (errors.title) {
-      setErrors((prev) => ({ ...prev, title: undefined }))
-    }
-  }
+    setErrors((prev) => (prev.title ? { ...prev, title: undefined } : prev))
+  }, [])
 
-  const handleDescriptionChange = (description: string): void => {
+  const handleDescriptionChange = useCallback((description: string): void => {
     setCurrent((prev) => ({ ...prev, description }))
-    if (errors.description) {
-      setErrors((prev) => ({ ...prev, description: undefined }))
-    }
-  }
+    setErrors((prev) => (prev.description ? { ...prev, description: undefined } : prev))
+  }, [])
 
-  const handleContentChange = (content: string): void => {
+  const handleContentChange = useCallback((content: string): void => {
     setCurrent((prev) => ({ ...prev, content }))
-    if (errors.content) {
-      setErrors((prev) => ({ ...prev, content: undefined }))
-    }
-  }
+    setErrors((prev) => (prev.content ? { ...prev, content: undefined } : prev))
+  }, [])
 
-  const handleTagsChange = (tags: string[]): void => {
+  const handleTagsChange = useCallback((tags: string[]): void => {
     setCurrent((prev) => ({ ...prev, tags }))
-  }
+  }, [])
 
   // Prevent form submission on Enter in inputs
   const handleKeyDown = (e: React.KeyboardEvent): void => {
@@ -477,11 +491,11 @@ export function Note({
             )}
           </button>
 
-          {/* Create/Save button - always shown for non-deleted notes */}
+          {/* Create/Save button - enabled when dirty and valid */}
           {!isReadOnly && (
             <button
               type="submit"
-              disabled={isSaving}
+              disabled={isSaving || !canSave}
               className="btn-primary flex items-center gap-1.5"
             >
               {isSaving ? (
@@ -594,6 +608,7 @@ export function Note({
 
         {/* Title */}
         <InlineEditableTitle
+          ref={titleInputRef}
           value={current.title}
           onChange={handleTitleChange}
           placeholder="Note title"

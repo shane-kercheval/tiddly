@@ -92,7 +92,27 @@ describe('Note component', () => {
 
       expect(screen.getByText('Cancel')).toBeInTheDocument()
       expect(screen.getByText('Create')).toBeInTheDocument()
-      // Create button is always enabled - validation happens on submit
+      // Create button is disabled when form is empty (not dirty or not valid)
+      expect(screen.getByText('Create').closest('button')).toBeDisabled()
+    })
+
+    it('should enable Create button when title is entered', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(
+        <Note
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Initially disabled
+      expect(screen.getByText('Create').closest('button')).toBeDisabled()
+
+      // Type a title
+      await user.type(screen.getByPlaceholderText('Note title'), 'New Note')
+
+      // Now enabled (form is dirty and valid)
       expect(screen.getByText('Create').closest('button')).not.toBeDisabled()
     })
 
@@ -204,7 +224,7 @@ describe('Note component', () => {
   })
 
   describe('dirty state', () => {
-    it('should always show Save button for existing notes', async () => {
+    it('should show Save button disabled for existing notes when clean', () => {
       render(
         <Note
           note={mockNote}
@@ -214,8 +234,32 @@ describe('Note component', () => {
         />
       )
 
-      // Save button is always shown for existing notes
-      expect(screen.getByText('Save')).toBeInTheDocument()
+      // Save button is shown but disabled when form is clean
+      const saveButton = screen.getByText('Save').closest('button')
+      expect(saveButton).toBeInTheDocument()
+      expect(saveButton).toBeDisabled()
+    })
+
+    it('should enable Save button when form is dirty and valid', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Initially disabled
+      expect(screen.getByText('Save').closest('button')).toBeDisabled()
+
+      // Make a change
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'Updated Title')
+
+      // Now enabled (dirty and valid)
+      expect(screen.getByText('Save').closest('button')).not.toBeDisabled()
     })
 
     it('should detect description change as dirty', async () => {
@@ -397,7 +441,25 @@ describe('Note component', () => {
       })
     })
 
-    it('should show validation error when Save is clicked with empty title', async () => {
+    it('should disable Save button when title is cleared', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Clear the title
+      await user.clear(screen.getByDisplayValue('Test Note'))
+
+      // Save button should be disabled (form is dirty but not valid)
+      expect(screen.getByText('Save').closest('button')).toBeDisabled()
+    })
+
+    it('should show validation error when form is submitted programmatically with empty title', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       render(
         <Note
@@ -410,8 +472,10 @@ describe('Note component', () => {
 
       await user.clear(screen.getByDisplayValue('Test Note'))
 
-      // Submit the form with empty title
-      fireEvent.submit(screen.getByText('Save').closest('form')!)
+      // Submit the form directly (simulates what Cmd+S does internally)
+      // The Save button is disabled, but form can still be submitted programmatically
+      const form = screen.getByText('Save').closest('form')!
+      fireEvent.submit(form)
 
       // Validation error should be shown
       await waitFor(() => {

@@ -5,7 +5,7 @@
  * Tags can be removed via X button (visible on hover) and added via "+" button.
  *
  * Features:
- * - View-mode visual styling (matches NoteView/PromptView)
+ * - View-mode visual styling (badge pills)
  * - X button on hover to remove tags
  * - "+" button to show input and add new tags
  * - Autocomplete dropdown for tag suggestions
@@ -41,8 +41,7 @@ export interface InlineEditableTagsHandle {
 /**
  * InlineEditableTags displays tags as removable pills with inline add capability.
  *
- * Styling matches the view-mode tag appearance from NoteView/PromptView,
- * with hover state revealing the remove button.
+ * Styling uses badge pills with hover state revealing the remove button.
  */
 export const InlineEditableTags = forwardRef(function InlineEditableTags(
   { value, onChange, suggestions, disabled = false }: InlineEditableTagsProps,

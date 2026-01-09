@@ -173,6 +173,24 @@ export function ContentEditor({
     return () => document.removeEventListener('keydown', handleKeyDown, true)
   }, [mode, wrapText, handleWrapTextChange])
 
+  // Compute container border classes based on props
+  // Three modes: no border, solid border, or subtle ring on hover/focus
+  const getContainerBorderClasses = (): string => {
+    if (!showBorder) {
+      return ''
+    }
+
+    if (subtleBorder) {
+      // Ring style that appears on hover/focus (matches title/description)
+      const ringColor = hasError ? 'ring-red-200 ring-2' : 'ring-gray-900/5'
+      return `group-hover/editor:ring-2 group-focus-within/editor:ring-2 ${ringColor}`
+    }
+
+    // Solid border style
+    const borderColor = hasError ? 'border-red-300' : 'border-gray-200'
+    return `border ${borderColor}`
+  }
+
   // Default helper text based on mode
   const defaultHelperText =
     mode === 'visual'
@@ -230,15 +248,7 @@ export function ContentEditor({
       </div>
 
       {/* Editor container - border shown on hover/focus */}
-      <div
-        className={`overflow-hidden rounded-lg transition-shadow ${
-          showBorder
-            ? subtleBorder
-              ? `group-hover/editor:ring-2 group-focus-within/editor:ring-2 ${hasError ? 'ring-red-200 ring-2' : 'ring-gray-900/5'}`
-              : `border ${hasError ? 'border-red-300' : 'border-gray-200'}`
-            : ''
-        }`}
-      >
+      <div className={`overflow-hidden rounded-lg transition-shadow ${getContainerBorderClasses()}`}>
         {mode === 'visual' ? (
           <MilkdownEditor
             key={`milkdown-${modeKey}`}

@@ -5,8 +5,8 @@
  * Used for note titles, prompt names, etc. where the field should look
  * like view-mode text but be directly editable.
  */
-import { useId } from 'react'
-import type { ReactNode, ChangeEvent, KeyboardEvent } from 'react'
+import { useId, forwardRef } from 'react'
+import type { ChangeEvent, KeyboardEvent } from 'react'
 
 interface InlineEditableTitleProps {
   /** Current value */
@@ -38,68 +38,74 @@ interface InlineEditableTitleProps {
  * - Subtle focus ring on focus
  * - Full accessibility with native input behavior
  */
-export function InlineEditableTitle({
-  value,
-  onChange,
-  placeholder = 'Title',
-  required = false,
-  disabled = false,
-  variant = 'title',
-  className = '',
-  onEnter,
-  error,
-}: InlineEditableTitleProps): ReactNode {
-  const errorId = useId()
+export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTitleProps>(
+  function InlineEditableTitle(
+    {
+      value,
+      onChange,
+      placeholder = 'Title',
+      required = false,
+      disabled = false,
+      variant = 'title',
+      className = '',
+      onEnter,
+      error,
+    },
+    ref
+  ) {
+    const errorId = useId()
 
-  const handleChange = (e: ChangeEvent<HTMLInputElement>): void => {
-    onChange(e.target.value)
-  }
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'Enter' && onEnter) {
-      e.preventDefault()
-      onEnter()
+    const handleChange = (e: ChangeEvent<HTMLInputElement>): void => {
+      onChange(e.target.value)
     }
+
+    const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
+      if (e.key === 'Enter' && onEnter) {
+        e.preventDefault()
+        onEnter()
+      }
+    }
+
+    // Build class string based on variant and state
+    const inputClasses = [
+      // Remove default input appearance
+      'bg-transparent border-none outline-none w-full',
+      // Subtle hover/focus indicator
+      'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
+      // Placeholder styling
+      'placeholder:text-gray-400',
+      // Typography based on variant
+      variant === 'name'
+        ? 'font-mono text-lg text-gray-900'
+        : 'text-2xl font-bold text-gray-900',
+      // Error state
+      error ? 'ring-2 ring-red-200' : '',
+      // Disabled state
+      disabled ? 'cursor-not-allowed opacity-60' : '',
+      // Custom classes
+      className,
+    ]
+      .filter(Boolean)
+      .join(' ')
+
+    return (
+      <div className="w-full">
+        <input
+          ref={ref}
+          type="text"
+          value={value}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={disabled}
+          required={required}
+          aria-required={required}
+          aria-invalid={!!error}
+          aria-describedby={error ? errorId : undefined}
+          className={inputClasses}
+        />
+        {error && <p id={errorId} className="mt-1 text-sm text-red-500">{error}</p>}
+      </div>
+    )
   }
-
-  // Build class string based on variant and state
-  const inputClasses = [
-    // Remove default input appearance
-    'bg-transparent border-none outline-none w-full',
-    // Subtle hover/focus indicator
-    'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
-    // Placeholder styling
-    'placeholder:text-gray-400',
-    // Typography based on variant
-    variant === 'name'
-      ? 'font-mono text-lg text-gray-900'
-      : 'text-2xl font-bold text-gray-900',
-    // Error state
-    error ? 'ring-2 ring-red-200' : '',
-    // Disabled state
-    disabled ? 'cursor-not-allowed opacity-60' : '',
-    // Custom classes
-    className,
-  ]
-    .filter(Boolean)
-    .join(' ')
-
-  return (
-    <div className="w-full">
-      <input
-        type="text"
-        value={value}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        disabled={disabled}
-        required={required}
-        aria-required={required}
-        aria-invalid={!!error}
-        aria-describedby={error ? errorId : undefined}
-        className={inputClasses}
-      />
-      {error && <p id={errorId} className="mt-1 text-sm text-red-500">{error}</p>}
-    </div>
-  )
-}
+)
