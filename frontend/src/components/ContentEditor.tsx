@@ -174,16 +174,16 @@ export function ContentEditor({
   }, [mode, wrapText, handleWrapTextChange])
 
   // Compute container border classes based on props
-  // Three modes: no border, solid border, or subtle ring on hover/focus
+  // Three modes: no border, solid border, or subtle ring on focus
   const getContainerBorderClasses = (): string => {
     if (!showBorder) {
       return ''
     }
 
     if (subtleBorder) {
-      // Ring style that appears on hover/focus (matches title/description)
+      // Ring style that appears on focus (matches title/description)
       const ringColor = hasError ? 'ring-red-200 ring-2' : 'ring-gray-900/5'
-      return `group-hover/editor:ring-2 group-focus-within/editor:ring-2 ${ringColor}`
+      return `group-focus-within/editor:ring-2 ${ringColor}`
     }
 
     // Solid border style
@@ -199,10 +199,10 @@ export function ContentEditor({
 
   return (
     <div className="group/editor">
-      {/* Header with label and mode toggle - hidden until hover/focus */}
+      {/* Header with label and mode toggle - hidden until focused */}
       <div className="flex items-center justify-between mb-1">
         {label ? <label className="label">{label}</label> : <div />}
-        <div className="flex items-center gap-2 opacity-0 group-hover/editor:opacity-100 group-focus-within/editor:opacity-100 transition-opacity">
+        <div className="flex items-center gap-2 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
           {/* Wrap text toggle (only in markdown mode) */}
           {mode === 'markdown' && (
             <label
@@ -273,8 +273,8 @@ export function ContentEditor({
         )}
       </div>
 
-      {/* Footer with helper text and character count - hidden until hover/focus */}
-      <div className="flex justify-between items-center mt-1 opacity-0 group-hover/editor:opacity-100 group-focus-within/editor:opacity-100 transition-opacity">
+      {/* Footer with helper text and character count - hidden until focused */}
+      <div className="flex justify-between items-center mt-1 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
         {errorMessage ? (
           <p className="error-text">{errorMessage}</p>
         ) : (

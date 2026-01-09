@@ -125,7 +125,7 @@ function EditorToolbar({ getEditor, onLinkClick, onTaskListClick }: EditorToolba
   )
 
   return (
-    <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-gray-50/50 opacity-0 group-hover/editor:opacity-100 group-focus-within/editor:opacity-100 transition-opacity">
+    <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-gray-50/50 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
       {/* Text formatting */}
       <ToolbarButton onClick={() => runCommand(toggleStrongCommand.key)} title="Bold (⌘B)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
