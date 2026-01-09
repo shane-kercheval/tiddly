@@ -148,9 +148,6 @@ export function ArgumentsBuilder({
           ))}
         </div>
       )}
-      <p className="helper-text mt-2">
-        Use lowercase with underscores for argument names (e.g., code_to_review, file_path)
-      </p>
     </div>
   )
 }
