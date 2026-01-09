@@ -16,9 +16,13 @@ vi.mock('../stores/consentStore', () => ({
 }))
 
 // Mock the config module
-vi.mock('../config', () => ({
-  isDevMode: false,
-}))
+vi.mock('../config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../config')>()
+  return {
+    ...actual,
+    isDevMode: false,
+  }
+})
 
 // Mock auth status hook
 vi.mock('../hooks/useAuthStatus', () => ({

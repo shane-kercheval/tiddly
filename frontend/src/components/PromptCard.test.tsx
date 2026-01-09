@@ -290,6 +290,26 @@ describe('PromptCard', () => {
     })
   })
 
+  describe('copy button', () => {
+    it('should show copy button in active view', () => {
+      render(<PromptCard prompt={mockPrompt} view="active" onDelete={vi.fn()} />)
+
+      expect(screen.getByRole('button', { name: /copy prompt content/i })).toBeInTheDocument()
+    })
+
+    it('should show copy button in archived view', () => {
+      render(<PromptCard prompt={mockPrompt} view="archived" onDelete={vi.fn()} />)
+
+      expect(screen.getByRole('button', { name: /copy prompt content/i })).toBeInTheDocument()
+    })
+
+    it('should not show copy button in deleted view', () => {
+      render(<PromptCard prompt={mockPrompt} view="deleted" onDelete={vi.fn()} />)
+
+      expect(screen.queryByRole('button', { name: /copy prompt content/i })).not.toBeInTheDocument()
+    })
+  })
+
   describe('card click to view', () => {
     it('should call onView when card is clicked in active view', async () => {
       const onView = vi.fn()

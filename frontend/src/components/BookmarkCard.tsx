@@ -9,6 +9,7 @@ import { formatDate, truncate, getDomain, getUrlWithoutProtocol } from '../utils
 import { ConfirmDeleteButton } from './ui'
 import {
   CopyIcon,
+  CheckIcon,
   EditIcon,
   ArchiveIcon,
   RestoreIcon,
@@ -215,16 +216,6 @@ export function BookmarkCard({
           {/* Actions and date */}
           <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
             <div className="flex items-center">
-              {/* Copy URL button */}
-              <button
-                onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
-                className={`btn-icon transition-colors ${copySuccess ? 'text-green-600' : ''}`}
-                title="Copy URL"
-                aria-label="Copy URL"
-              >
-                <CopyIcon />
-              </button>
-
               {/* Edit button - shown in active and archived views */}
               {view !== 'deleted' && onEdit && (
                 <button
@@ -240,6 +231,20 @@ export function BookmarkCard({
                   )}
                 </button>
               )}
+
+              {/* Copy URL button */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
+                className="btn-icon"
+                title={copySuccess ? 'Copied!' : 'Copy URL'}
+                aria-label={copySuccess ? 'Copied!' : 'Copy URL'}
+              >
+                {copySuccess ? (
+                  <CheckIcon className="h-4 w-4 text-green-600" />
+                ) : (
+                  <CopyIcon />
+                )}
+              </button>
 
               {/* Archive button - shown in active view */}
               {view === 'active' && onArchive && (

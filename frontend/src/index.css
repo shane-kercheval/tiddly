@@ -76,6 +76,11 @@ body {
     @apply animate-spin rounded-full border-2 border-gray-200 border-t-gray-900;
   }
 
+  .spinner-xs {
+    @apply h-3.5 w-3.5 animate-spin rounded-full border-gray-200 border-t-gray-900;
+    border-width: 1.5px;
+  }
+
   .spinner-sm {
     @apply h-4 w-4 animate-spin rounded-full border-2 border-gray-200 border-t-gray-900;
   }

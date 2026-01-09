@@ -6,7 +6,7 @@ import type { NoteListItem } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { formatDate, truncate } from '../utils'
-import { ConfirmDeleteButton } from './ui'
+import { ConfirmDeleteButton, CopyContentButton } from './ui'
 import { NoteIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
 import { Tag } from './Tag'
 
@@ -126,6 +126,11 @@ export function NoteCard({
           {/* Actions and date */}
           <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
             <div className="flex items-center">
+              {/* Copy button - shown in active and archived views */}
+              {view !== 'deleted' && (
+                <CopyContentButton contentType="note" id={note.id} />
+              )}
+
               {/* Archive button - shown in active view */}
               {view === 'active' && onArchive && (
                 <button
