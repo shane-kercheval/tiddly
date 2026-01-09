@@ -23,6 +23,7 @@ import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './ico
 import { formatDate } from '../utils'
 import { TAG_PATTERN } from '../utils'
 import { config } from '../config'
+import { cleanMarkdown } from '../utils/cleanMarkdown'
 import type { Note as NoteType, NoteCreate, NoteUpdate, TagCount } from '../types'
 
 /** Key prefix for localStorage draft storage */
@@ -109,8 +110,11 @@ function saveDraft(noteId: string | undefined, data: DraftData): void {
   try {
     const key = getDraftKey(noteId)
     localStorage.setItem(key, JSON.stringify(data))
-  } catch {
-    // Ignore storage errors (e.g., quota exceeded)
+  } catch (error) {
+    // Log in development mode so developers know drafts aren't saving
+    if (import.meta.env.DEV) {
+      console.warn('Failed to save draft to localStorage:', error)
+    }
   }
 }
 
@@ -147,16 +151,18 @@ export function Note({
 
   // Initialize state from note or defaults
   // Note: useState only calls the initializer once, so useCallback would be unnecessary here
+  // Clean content on initialization to match what Milkdown will output, preventing false dirty state
   const getInitialState = (): NoteState => ({
     title: note?.title ?? '',
     description: note?.description ?? '',
-    content: note?.content ?? '',
+    content: cleanMarkdown(note?.content ?? ''),
     tags: note?.tags ?? initialTags ?? [],
   })
 
   const [original, setOriginal] = useState<NoteState>(getInitialState)
   const [current, setCurrent] = useState<NoteState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
+  const [contentKey, setContentKey] = useState(0) // Force editor remount when content is restored
 
   // Cancel confirmation state
   const [confirmingDiscard, setConfirmingDiscard] = useState(false)
@@ -257,6 +263,7 @@ export function Note({
     const handleBeforeUnload = (e: BeforeUnloadEvent): void => {
       if (isDirty) {
         e.preventDefault()
+        e.returnValue = '' // Required for Chrome to show the dialog
       }
     }
 
@@ -279,6 +286,7 @@ export function Note({
 
     if (confirmingDiscard) {
       // Already confirming, execute discard
+      clearDraft(note?.id) // Clear autosaved draft when user explicitly discards
       onClose()
     } else {
       // Start confirmation
@@ -288,7 +296,7 @@ export function Note({
         setConfirmingDiscard(false)
       }, 3000)
     }
-  }, [isDirty, confirmingDiscard, onClose])
+  }, [isDirty, confirmingDiscard, onClose, note?.id])
 
   // Cleanup discard timeout on unmount
   useEffect(() => {
@@ -351,6 +359,8 @@ export function Note({
         content: draft.content,
         tags: draft.tags,
       })
+      // Force editor remount to display restored content
+      setContentKey((prev) => prev + 1)
     }
     setHasDraft(false)
   }, [note?.id])
@@ -661,6 +671,7 @@ export function Note({
 
         {/* Content editor */}
         <ContentEditor
+          key={contentKey}
           value={current.content}
           onChange={handleContentChange}
           disabled={isSaving || isReadOnly}

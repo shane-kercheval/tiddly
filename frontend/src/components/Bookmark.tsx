@@ -25,6 +25,7 @@ import { ContentEditor } from './ContentEditor'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
 import { config } from '../config'
+import { cleanMarkdown } from '../utils/cleanMarkdown'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
 import type { ArchivePreset } from '../utils'
 
@@ -129,8 +130,11 @@ function saveDraft(bookmarkId: string | undefined, data: DraftData): void {
   try {
     const key = getDraftKey(bookmarkId)
     localStorage.setItem(key, JSON.stringify(data))
-  } catch {
-    // Ignore storage errors (e.g., quota exceeded)
+  } catch (error) {
+    // Log in development mode so developers know drafts aren't saving
+    if (import.meta.env.DEV) {
+      console.warn('Failed to save draft to localStorage:', error)
+    }
   }
 }
 
@@ -179,13 +183,14 @@ export function Bookmark({
   const isCreate = !bookmark
 
   // Initialize state from bookmark or defaults
+  // Clean content on initialization to match what Milkdown will output, preventing false dirty state
   const getInitialState = (): BookmarkState => {
     const archiveState = getInitialArchiveState(bookmark)
     return {
       url: bookmark?.url ?? initialUrl ?? '',
       title: bookmark?.title ?? '',
       description: bookmark?.description ?? '',
-      content: bookmark?.content ?? '',
+      content: cleanMarkdown(bookmark?.content ?? ''),
       tags: bookmark?.tags ?? initialTags ?? [],
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
@@ -357,6 +362,7 @@ export function Bookmark({
     const handleBeforeUnload = (e: BeforeUnloadEvent): void => {
       if (isDirty) {
         e.preventDefault()
+        e.returnValue = '' // Required for Chrome to show the dialog
       }
     }
 
@@ -389,6 +395,7 @@ export function Bookmark({
     }
 
     if (confirmingDiscard) {
+      clearDraft(bookmark?.id) // Clear autosaved draft when user explicitly discards
       onClose()
     } else {
       setConfirmingDiscard(true)
@@ -396,7 +403,7 @@ export function Bookmark({
         setConfirmingDiscard(false)
       }, 3000)
     }
-  }, [isDirty, confirmingDiscard, onClose])
+  }, [isDirty, confirmingDiscard, onClose, bookmark?.id])
 
   // Reset discard confirmation
   const resetDiscardConfirmation = useCallback((): void => {

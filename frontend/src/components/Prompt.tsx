@@ -26,6 +26,7 @@ import { formatDate } from '../utils'
 import { TAG_PATTERN } from '../utils'
 import { config } from '../config'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
+import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { usePromptDraft } from '../hooks/usePromptDraft'
 import type { DraftData } from '../hooks/usePromptDraft'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, TagCount } from '../types'
@@ -143,17 +144,19 @@ export function Prompt({
   const isCreate = !prompt
 
   // Initialize state from prompt or defaults
+  // Clean content on initialization to match what Milkdown will output, preventing false dirty state
   const getInitialState = (): PromptState => ({
     name: prompt?.name ?? '',
     title: prompt?.title ?? '',
     description: prompt?.description ?? '',
-    content: prompt?.content ?? (isCreate ? DEFAULT_PROMPT_CONTENT : ''),
+    content: cleanMarkdown(prompt?.content ?? (isCreate ? DEFAULT_PROMPT_CONTENT : '')),
     arguments: prompt?.arguments ?? [],
     tags: prompt?.tags ?? initialTags ?? [],
   })
 
   const [current, setCurrent] = useState<PromptState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
+  const [contentKey, setContentKey] = useState(0) // Force editor remount when content is restored
 
   // Cancel confirmation state
   const [confirmingDiscard, setConfirmingDiscard] = useState(false)
@@ -168,12 +171,13 @@ export function Prompt({
   const isReadOnly = viewState === 'deleted'
 
   // Memoize original values for draft comparison
+  // Clean content to match what Milkdown will output, preventing false dirty state
   const originalValues = useMemo(
     () => ({
       name: prompt?.name ?? '',
       title: prompt?.title ?? '',
       description: prompt?.description ?? '',
-      content: prompt?.content ?? '',
+      content: cleanMarkdown(prompt?.content ?? ''),
       arguments: prompt?.arguments ?? [],
       tags: prompt?.tags ?? initialTags ?? [],
     }),
@@ -190,6 +194,8 @@ export function Prompt({
       arguments: draft.arguments,
       tags: draft.tags,
     })
+    // Force editor remount to display restored content
+    setContentKey((prev) => prev + 1)
   }, [])
 
   // Use the draft hook for autosave functionality
@@ -233,6 +239,7 @@ export function Prompt({
     const handleBeforeUnload = (e: BeforeUnloadEvent): void => {
       if (isDirty) {
         e.preventDefault()
+        e.returnValue = '' // Required for Chrome to show the dialog
       }
     }
 
@@ -253,6 +260,7 @@ export function Prompt({
     }
 
     if (confirmingDiscard) {
+      clearDraft() // Clear autosaved draft when user explicitly discards
       onClose()
     } else {
       setConfirmingDiscard(true)
@@ -260,7 +268,7 @@ export function Prompt({
         setConfirmingDiscard(false)
       }, 3000)
     }
-  }, [isDirty, confirmingDiscard, onClose])
+  }, [isDirty, confirmingDiscard, onClose, clearDraft])
 
   // Cleanup discard timeout on unmount
   useEffect(() => {
@@ -712,6 +720,7 @@ export function Prompt({
         {/* Content editor */}
         <div className="mt-3">
           <ContentEditor
+            key={contentKey}
             value={current.content}
             onChange={handleContentChange}
             disabled={isSaving || isReadOnly}

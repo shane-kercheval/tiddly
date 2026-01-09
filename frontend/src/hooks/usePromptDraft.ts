@@ -92,8 +92,11 @@ function saveDraftToStorage(promptId: string | undefined, data: DraftData): void
   try {
     const key = getDraftKey(promptId)
     localStorage.setItem(key, JSON.stringify(data))
-  } catch {
-    // Ignore storage errors (e.g., quota exceeded)
+  } catch (error) {
+    // Log in development mode so developers know drafts aren't saving
+    if (import.meta.env.DEV) {
+      console.warn('Failed to save draft to localStorage:', error)
+    }
   }
 }
 

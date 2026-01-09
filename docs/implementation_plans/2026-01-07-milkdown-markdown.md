@@ -15,7 +15,9 @@ Replace the current CodeMirror-based markdown editor with Milkdown WYSIWYG edito
 - Backend API (no changes)
 - Data model (still storing raw markdown)
 - Authentication/authorization
-- Bookmarks (no markdown editor there)
+
+### Post-Implementation Update
+Bookmarks were also refactored to use the unified component pattern and ContentEditor, even though they weren't originally in scope. This was done to maintain consistency across all content types.
 
 ---
 

@@ -299,7 +299,11 @@ body {
   @apply my-1;
 }
 
-/* Task lists (checkboxes) - Milkdown uses data attributes instead of input elements */
+/* Task lists (checkboxes) - Milkdown uses data attributes instead of input elements
+ * IMPORTANT: The checkbox click detection in MilkdownEditor.tsx (CHECKBOX_CLICK_AREA_WIDTH)
+ * depends on these dimensions. The checkbox is 16px (h-4 w-4) + 8px gap = ~24px total.
+ * If you change these styles, update CHECKBOX_CLICK_AREA_WIDTH in MilkdownEditor.tsx accordingly.
+ */
 .milkdown-wrapper .milkdown li[data-item-type="task"] {
   @apply list-none flex items-start gap-2 my-1;
 }
