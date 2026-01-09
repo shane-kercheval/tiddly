@@ -542,8 +542,9 @@ function MilkdownEditorInner({
     }
   }, [get])
 
-  // Handle clicks - checkbox toggle and focus on empty space
-  const handleClick = useCallback(
+  // Handle mouse down - checkbox toggle and focus on empty space
+  // Using mousedown instead of click to prevent focus flash (blur/refocus cycle)
+  const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement
 
@@ -599,6 +600,8 @@ function MilkdownEditorInner({
       if (editor) {
         const view = editor.ctx.get(editorViewCtx)
         if (shouldHandleEmptySpaceClick(view.state.selection.empty, target)) {
+          // Prevent default to avoid focus flash (blur then refocus)
+          e.preventDefault()
           view.focus()
           // Place cursor at the end of the document
           const endPos = view.state.doc.content.size
@@ -618,7 +621,7 @@ function MilkdownEditorInner({
       <div
         className={`milkdown-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''} ${noPadding ? 'no-padding' : ''}`}
         style={{ minHeight }}
-        onClick={handleClick}
+        onMouseDown={handleMouseDown}
         onKeyDown={handleKeyDown}
       >
         <Milkdown />
