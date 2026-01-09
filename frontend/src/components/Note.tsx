@@ -183,8 +183,6 @@ export function Note({
   const draftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
-  // Track if we've received the initial content normalization from Milkdown
-  const hasReceivedInitialContent = useRef(false)
 
   // Read-only mode for deleted notes
   const isReadOnly = viewState === 'deleted'
@@ -449,12 +447,6 @@ export function Note({
   }, [])
 
   const handleContentChange = useCallback((content: string): void => {
-    // On first content change, Milkdown is just normalizing the initial markdown.
-    // Update original to match so undo works correctly (comparing normalized to normalized).
-    if (!hasReceivedInitialContent.current) {
-      hasReceivedInitialContent.current = true
-      setOriginal((prev) => ({ ...prev, content }))
-    }
     setCurrent((prev) => ({ ...prev, content }))
     setErrors((prev) => (prev.content ? { ...prev, content: undefined } : prev))
   }, [])
