@@ -10,6 +10,42 @@ import userEvent from '@testing-library/user-event'
 import { Note } from './Note'
 import type { Note as NoteType, TagCount } from '../types'
 
+// Mock MilkdownEditor - simulates the editor with a simple textarea
+vi.mock('./MilkdownEditor', () => ({
+  MilkdownEditor: ({ value, onChange, placeholder, disabled }: {
+    value: string
+    onChange: (value: string) => void
+    placeholder?: string
+    disabled?: boolean
+  }) => (
+    <textarea
+      data-testid="content-editor"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      disabled={disabled}
+    />
+  ),
+}))
+
+// Mock CodeMirrorEditor
+vi.mock('./CodeMirrorEditor', () => ({
+  CodeMirrorEditor: ({ value, onChange, placeholder, disabled }: {
+    value: string
+    onChange: (value: string) => void
+    placeholder?: string
+    disabled?: boolean
+  }) => (
+    <textarea
+      data-testid="content-editor-markdown"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      disabled={disabled}
+    />
+  ),
+}))
+
 // Mock localStorage
 const localStorageMock = (() => {
   let store: Record<string, string> = {}
@@ -277,6 +313,50 @@ describe('Note component', () => {
       await user.type(screen.getByPlaceholderText('Add a description...'), 'New description')
 
       expect(screen.getByText('Save')).toBeInTheDocument()
+    })
+
+    it('should enable Save button on first content keystroke', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Initially Save is disabled
+      expect(screen.getByText('Save').closest('button')).toBeDisabled()
+
+      // Type a single character in content
+      const contentEditor = screen.getByTestId('content-editor')
+      await user.type(contentEditor, 'x')
+
+      // Save should be enabled after first keystroke
+      expect(screen.getByText('Save').closest('button')).not.toBeDisabled()
+    })
+
+    it('should disable Save button when content is reverted to original', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      const contentEditor = screen.getByTestId('content-editor')
+
+      // Type a character
+      await user.type(contentEditor, 'x')
+      expect(screen.getByText('Save').closest('button')).not.toBeDisabled()
+
+      // Delete the character (revert to original)
+      await user.type(contentEditor, '{backspace}')
+      expect(screen.getByText('Save').closest('button')).toBeDisabled()
     })
 
     it('should show Discard confirmation when Cancel is clicked with dirty form', async () => {
