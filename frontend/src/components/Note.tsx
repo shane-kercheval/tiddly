@@ -575,85 +575,88 @@ export function Note({
       </div>
 
       {/* Scrollable content - padding with negative margin gives room for focus rings to show */}
-      <div className="flex-1 overflow-y-auto min-h-0 space-y-4 pr-2 pl-2 -ml-2 pt-1 -mt-1">
-        {/* Draft restoration prompt */}
-        {hasDraft && !isReadOnly && (
-          <div className="alert-info flex items-center justify-between">
-            <p className="text-sm">You have an unsaved draft from a previous session.</p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={restoreDraft}
-                className="btn-secondary text-sm py-1 px-3"
-              >
-                Restore Draft
-              </button>
-              <button
-                type="button"
-                onClick={discardDraft}
-                className="btn-secondary text-sm py-1 px-3"
-              >
-                Discard
-              </button>
+      <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 pt-1 -mt-1">
+        {/* Header section: drafts, banners, title, description, metadata */}
+        <div className="space-y-4">
+          {/* Draft restoration prompt */}
+          {hasDraft && !isReadOnly && (
+            <div className="alert-info flex items-center justify-between">
+              <p className="text-sm">You have an unsaved draft from a previous session.</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={restoreDraft}
+                  className="btn-secondary text-sm py-1 px-3"
+                >
+                  Restore Draft
+                </button>
+                <button
+                  type="button"
+                  onClick={discardDraft}
+                  className="btn-secondary text-sm py-1 px-3"
+                >
+                  Discard
+                </button>
+              </div>
             </div>
-          </div>
-        )}
-
-        {/* Read-only banner for deleted notes */}
-        {isReadOnly && (
-          <div className="alert-warning">
-            <p className="text-sm">This note is in trash and cannot be edited. Restore it to make changes.</p>
-          </div>
-        )}
-
-        {/* Title */}
-        <InlineEditableTitle
-          ref={titleInputRef}
-          value={current.title}
-          onChange={handleTitleChange}
-          placeholder="Note title"
-          required
-          disabled={isSaving || isReadOnly}
-          error={errors.title}
-        />
-
-        {/* Description */}
-        <InlineEditableText
-          value={current.description}
-          onChange={handleDescriptionChange}
-          placeholder="Add a description..."
-          disabled={isSaving || isReadOnly}
-          maxLength={config.limits.maxDescriptionLength}
-          error={errors.description}
-        />
-
-        {/* Metadata row: tags + timestamps */}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
-          <InlineEditableTags
-            ref={tagInputRef}
-            value={current.tags}
-            onChange={handleTagsChange}
-            suggestions={tagSuggestions}
-            disabled={isSaving || isReadOnly}
-          />
-          {note && (
-            <>
-              <span className="text-gray-300">·</span>
-              <span>Created {formatDate(note.created_at)}</span>
-              {note.updated_at !== note.created_at && (
-                <>
-                  <span className="text-gray-300">·</span>
-                  <span>Updated {formatDate(note.updated_at)}</span>
-                </>
-              )}
-              {note.version > 1 && (
-                <>
-                  <span className="text-gray-300">·</span>
-                  <span>v{note.version}</span>
-                </>
-              )}
-            </>
           )}
+
+          {/* Read-only banner for deleted notes */}
+          {isReadOnly && (
+            <div className="alert-warning">
+              <p className="text-sm">This note is in trash and cannot be edited. Restore it to make changes.</p>
+            </div>
+          )}
+
+          {/* Title */}
+          <InlineEditableTitle
+            ref={titleInputRef}
+            value={current.title}
+            onChange={handleTitleChange}
+            placeholder="Note title"
+            required
+            disabled={isSaving || isReadOnly}
+            error={errors.title}
+          />
+
+          {/* Description */}
+          <InlineEditableText
+            value={current.description}
+            onChange={handleDescriptionChange}
+            placeholder="Add a description..."
+            disabled={isSaving || isReadOnly}
+            maxLength={config.limits.maxDescriptionLength}
+            error={errors.description}
+          />
+
+          {/* Metadata row: tags + timestamps */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+            <InlineEditableTags
+              ref={tagInputRef}
+              value={current.tags}
+              onChange={handleTagsChange}
+              suggestions={tagSuggestions}
+              disabled={isSaving || isReadOnly}
+            />
+            {note && (
+              <>
+                <span className="text-gray-300">·</span>
+                <span>Created {formatDate(note.created_at)}</span>
+                {note.updated_at !== note.created_at && (
+                  <>
+                    <span className="text-gray-300">·</span>
+                    <span>Updated {formatDate(note.updated_at)}</span>
+                  </>
+                )}
+                {note.version > 1 && (
+                  <>
+                    <span className="text-gray-300">·</span>
+                    <span>v{note.version}</span>
+                  </>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         {/* Content editor */}

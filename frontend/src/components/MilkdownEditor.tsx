@@ -28,7 +28,18 @@ import {
   // remarkPreserveEmptyLinePlugin, -- EXCLUDED: causes empty paragraphs to serialize as <br />
   syncHeadingIdPlugin,
   syncListOrderPlugin,
+  // Commands for toolbar
+  toggleStrongCommand,
+  toggleEmphasisCommand,
+  toggleInlineCodeCommand,
+  wrapInBlockquoteCommand,
+  wrapInBulletListCommand,
+  wrapInOrderedListCommand,
+  insertHrCommand,
+  createCodeBlockCommand,
 } from '@milkdown/kit/preset/commonmark'
+import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
+import { callCommand } from '@milkdown/kit/utils'
 
 // Custom commonmark without remarkPreserveEmptyLinePlugin
 const customCommonmark = [
@@ -61,6 +72,135 @@ import { Plugin } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import { Modal } from './ui/Modal'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
+import { shouldHandleEmptySpaceClick } from '../utils/editorUtils'
+import type { Editor as EditorType } from '@milkdown/kit/core'
+
+/**
+ * Toolbar button component for editor formatting actions.
+ */
+interface ToolbarButtonProps {
+  onClick: () => void
+  title: string
+  children: ReactNode
+}
+
+function ToolbarButton({ onClick, title, children }: ToolbarButtonProps): ReactNode {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+    >
+      {children}
+    </button>
+  )
+}
+
+/**
+ * Toolbar separator for visual grouping.
+ */
+function ToolbarSeparator(): ReactNode {
+  return <div className="w-px h-5 bg-gray-200 mx-1" />
+}
+
+/**
+ * Formatting toolbar for the Milkdown editor.
+ */
+interface EditorToolbarProps {
+  getEditor: () => EditorType | undefined
+  onLinkClick: () => void
+  onTaskListClick: () => void
+}
+
+function EditorToolbar({ getEditor, onLinkClick, onTaskListClick }: EditorToolbarProps): ReactNode {
+  const runCommand = useCallback(
+    (command: Parameters<typeof callCommand>[0]) => {
+      const editor = getEditor()
+      if (editor) {
+        editor.action(callCommand(command))
+      }
+    },
+    [getEditor]
+  )
+
+  return (
+    <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-gray-50/50 opacity-0 group-hover/editor:opacity-100 group-focus-within/editor:opacity-100 transition-opacity">
+      {/* Text formatting */}
+      <ToolbarButton onClick={() => runCommand(toggleStrongCommand.key)} title="Bold (⌘B)">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 4h8a4 4 0 014 4 4 4 0 01-4 4H6z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12h9a4 4 0 014 4 4 4 0 01-4 4H6z" />
+        </svg>
+      </ToolbarButton>
+      <ToolbarButton onClick={() => runCommand(toggleEmphasisCommand.key)} title="Italic (⌘I)">
+        <span className="w-4 h-4 flex items-center justify-center text-[17px] font-serif italic">I</span>
+      </ToolbarButton>
+      <ToolbarButton onClick={() => runCommand(toggleStrikethroughCommand.key)} title="Strikethrough">
+        <span className="w-4 h-4 flex items-center justify-center text-[17px] line-through">S</span>
+      </ToolbarButton>
+      <ToolbarButton onClick={() => runCommand(toggleInlineCodeCommand.key)} title="Inline Code">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+        </svg>
+      </ToolbarButton>
+      <ToolbarButton onClick={() => runCommand(createCodeBlockCommand.key)} title="Code Block">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h6" />
+        </svg>
+      </ToolbarButton>
+
+      <ToolbarSeparator />
+
+      {/* Link */}
+      <ToolbarButton onClick={onLinkClick} title="Insert Link (⌘K)">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+        </svg>
+      </ToolbarButton>
+
+      <ToolbarSeparator />
+
+      {/* Lists */}
+      <ToolbarButton onClick={() => runCommand(wrapInBulletListCommand.key)} title="Bullet List">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          <circle cx="2" cy="6" r="1" fill="currentColor" />
+          <circle cx="2" cy="12" r="1" fill="currentColor" />
+          <circle cx="2" cy="18" r="1" fill="currentColor" />
+        </svg>
+      </ToolbarButton>
+      <ToolbarButton onClick={() => runCommand(wrapInOrderedListCommand.key)} title="Numbered List">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 6h13M7 12h13M7 18h13" />
+          <text x="1" y="8" fontSize="6" fill="currentColor" fontWeight="bold">1</text>
+          <text x="1" y="14" fontSize="6" fill="currentColor" fontWeight="bold">2</text>
+          <text x="1" y="20" fontSize="6" fill="currentColor" fontWeight="bold">3</text>
+        </svg>
+      </ToolbarButton>
+      <ToolbarButton onClick={onTaskListClick} title="Task List (Checkbox)">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <rect x="3" y="5" width="14" height="14" rx="2" strokeWidth={2} />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l2 2 4-4" />
+        </svg>
+      </ToolbarButton>
+
+      <ToolbarSeparator />
+
+      {/* Block elements */}
+      <ToolbarButton onClick={() => runCommand(wrapInBlockquoteCommand.key)} title="Blockquote">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-4l-4 4-4-4z" />
+        </svg>
+      </ToolbarButton>
+      <ToolbarButton onClick={() => runCommand(insertHrCommand.key)} title="Horizontal Rule">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h16" />
+        </svg>
+      </ToolbarButton>
+    </div>
+  )
+}
 
 /**
  * Width of the clickable area for task list checkboxes (in pixels).
@@ -297,6 +437,47 @@ function MilkdownEditorInner({
     [get]
   )
 
+  // Handle toolbar link button click
+  const handleToolbarLinkClick = useCallback(() => {
+    const editor = get()
+    if (!editor) return
+
+    const view = editor.ctx.get(editorViewCtx)
+    const { from, to } = view.state.selection
+    const selectedText = view.state.doc.textBetween(from, to)
+
+    setLinkDialogInitialText(selectedText)
+    setLinkDialogKey((k) => k + 1)
+    setLinkDialogOpen(true)
+  }, [get])
+
+  // Handle toolbar task list button click
+  const handleTaskListClick = useCallback(() => {
+    const editor = get()
+    if (!editor) return
+
+    const view = editor.ctx.get(editorViewCtx)
+    const { $from } = view.state.selection
+
+    // Check if we're already in a list item
+    const listItem = $from.node($from.depth)
+    if (listItem.type.name === 'list_item') {
+      // Toggle the checked attribute on the current list item
+      const listItemPos = $from.before($from.depth)
+      const currentChecked = listItem.attrs.checked
+      const tr = view.state.tr.setNodeMarkup(listItemPos, undefined, {
+        ...listItem.attrs,
+        checked: currentChecked === null ? false : null, // null = not a task, false = unchecked task
+      })
+      view.dispatch(tr)
+    } else {
+      // Insert task list syntax - the input rule will convert it
+      const tr = view.state.tr.insertText('- [ ] ')
+      view.dispatch(tr)
+    }
+    view.focus()
+  }, [get])
+
   // Handle clicks - checkbox toggle and focus on empty space
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -346,9 +527,7 @@ function MilkdownEditorInner({
       const editor = get()
       if (editor) {
         const view = editor.ctx.get(editorViewCtx)
-        // Check if click was outside the actual content area
-        const editorElement = target.closest('.ProseMirror')
-        if (!editorElement || target === editorElement || target.classList.contains('milkdown-wrapper') || target.classList.contains('milkdown') || target.classList.contains('editor')) {
+        if (shouldHandleEmptySpaceClick(view.state.selection.empty, target)) {
           view.focus()
           // Place cursor at the end of the document
           const endPos = view.state.doc.content.size
@@ -364,6 +543,7 @@ function MilkdownEditorInner({
 
   return (
     <>
+      {!disabled && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onTaskListClick={handleTaskListClick} />}
       <div
         className={`milkdown-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''} ${noPadding ? 'no-padding' : ''}`}
         style={{ minHeight }}
