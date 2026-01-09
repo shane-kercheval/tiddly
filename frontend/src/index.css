@@ -313,6 +313,11 @@ body {
   @apply list-none flex flex-wrap items-start gap-x-2 my-1;
 }
 
+/* Paragraph content inside task items should stay inline with checkbox */
+.milkdown-wrapper .milkdown li[data-item-type="task"] > p {
+  @apply flex-1 min-w-0;
+}
+
 /* Nested lists inside task items should take full width to appear below */
 .milkdown-wrapper .milkdown li[data-item-type="task"] > ul,
 .milkdown-wrapper .milkdown li[data-item-type="task"] > ol {
