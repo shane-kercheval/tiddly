@@ -29,7 +29,11 @@ Add a brief description explaining what Filters are for user clarity.
 
 ### MCP Servers
 
-**No changes required.** Neither `content-mcp-server` nor `prompt-mcp-server` reference `list_id` or the `/lists/` endpoint directly. They interact with bookmarks, notes, and prompts endpoints which use `filter_id` as a query parameter (renamed in this plan).
+**No changes required.** Neither `content-mcp-server` nor `prompt-mcp-server` reference `list_id` or the `/lists/` endpoint directly. They interact with bookmarks, notes, and prompts endpoints but don't use list/filter filtering.
+
+### Deployment Order
+
+**Critical:** Milestone 1 (database migration) must be run/deployed BEFORE any code changes from Milestone 2+. If code referencing `content_filters` table is deployed before the migration runs, the application will break. Complete and verify each milestone sequentially.
 
 ---
 
@@ -521,6 +525,31 @@ Create a new modal for creating/editing Collections, allowing users to optionall
 - **Filter selection is optional**: Users can create empty Collections and add Filters later via drag-and-drop
 - **Only unplaced Filters shown**: The `availableFilters` prop should only include Filters not already in other Collections. This prevents `SidebarDuplicateItemError` on the backend and avoids confusing UX.
 - **Empty state handling**: When all Filters are already in Collections, show helpful guidance text
+
+### Computing availableFilters
+
+The parent component (Sidebar.tsx) must compute which Filters are available for selection:
+
+```tsx
+// Compute filters not already placed in other collections
+const getAvailableFiltersForCollection = (editingCollectionId?: string): ContentFilter[] => {
+  if (!sidebar) return filters  // All filters available if no sidebar data
+
+  const placedFilterIds = new Set<string>()
+  for (const item of sidebar.items) {
+    // Skip the collection being edited (its filters should remain available)
+    if (item.type === 'collection' && item.id !== editingCollectionId) {
+      for (const child of item.items) {
+        if (child.type === 'filter') {
+          placedFilterIds.add(child.id)
+        }
+      }
+    }
+  }
+
+  return filters.filter(f => !placedFilterIds.has(f.id))
+}
+```
 
 ### Key Changes
 
