@@ -19,6 +19,34 @@ Simplify `Note.tsx`, `Prompt.tsx`, and `Bookmark.tsx` by removing unnecessary co
 
 ---
 
+## Pre-Implementation: Verify Draft Code Touchpoints
+
+Before starting, search the codebase to ensure we're not missing any files that depend on draft functionality.
+
+### Search Commands
+
+```bash
+# Search for draft-related patterns
+grep -r "DRAFT_KEY_PREFIX" frontend/src/
+grep -r "usePromptDraft" frontend/src/
+grep -r "loadDraft\|saveDraft\|clearDraft" frontend/src/
+grep -r "note_draft_\|bookmark_draft_\|prompt_draft_" frontend/src/
+```
+
+### Expected Results
+
+- `Note.tsx` - inline draft code
+- `Bookmark.tsx` - inline draft code
+- `Prompt.tsx` - uses `usePromptDraft` hook
+- `hooks/usePromptDraft.ts` - the hook itself
+- `Note.test.tsx` - draft recovery tests
+- `Bookmark.test.tsx` - draft recovery tests (if any)
+- `hooks/usePromptDraft.test.ts` - hook tests (if exists)
+
+If other files appear, assess whether they need updates.
+
+---
+
 ## Milestone 1: Remove Draft Auto-save from Note.tsx
 
 ### What is draft auto-save?
@@ -74,10 +102,30 @@ const discardDraft = useCallback(...)
 )}
 ```
 
+### Cleanup Orphaned localStorage Drafts
+
+Add a one-time cleanup on component mount to remove any existing drafts from localStorage. This prevents orphaned data from accumulating.
+
+```typescript
+// Add to component initialization (useEffect with empty deps)
+useEffect(() => {
+  // Clean up any orphaned drafts from previous versions
+  const keysToRemove: string[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key?.startsWith('note_draft_')) {
+      keysToRemove.push(key)
+    }
+  }
+  keysToRemove.forEach(key => localStorage.removeItem(key))
+}, [])
+```
+
 ### Success Criteria
 
 - [ ] All draft-related code removed from Note.tsx
-- [ ] ~80 lines removed
+- [ ] Orphaned draft cleanup added
+- [ ] ~80 lines removed (net, after adding cleanup)
 - [ ] Component still saves/loads correctly
 - [ ] Unsaved changes warnings still work (beforeunload + navigation blocker)
 - [ ] All existing tests pass (remove any draft-specific tests)
@@ -106,10 +154,29 @@ Same pattern as Note.tsx - remove:
 - `clearDraft()` calls in handlers
 - Draft restoration UI banner
 
+### Cleanup Orphaned localStorage Drafts
+
+Add the same cleanup pattern as Note.tsx:
+
+```typescript
+useEffect(() => {
+  // Clean up any orphaned drafts from previous versions
+  const keysToRemove: string[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key?.startsWith('bookmark_draft_')) {
+      keysToRemove.push(key)
+    }
+  }
+  keysToRemove.forEach(key => localStorage.removeItem(key))
+}, [])
+```
+
 ### Success Criteria
 
 - [ ] All draft-related code removed from Bookmark.tsx
-- [ ] ~80 lines removed
+- [ ] Orphaned draft cleanup added
+- [ ] ~80 lines removed (net)
 - [ ] All existing tests pass
 - [ ] Unsaved changes warnings still work
 
@@ -123,6 +190,8 @@ Prompt.tsx uses a custom `usePromptDraft` hook instead of inline draft logic. We
 1. Remove the hook usage from Prompt.tsx
 2. Delete the usePromptDraft hook file entirely
 3. Remove any tests for the hook
+4. Add inline `isDirty` computation (the hook currently provides this)
+5. Update `originalValues` after successful save (so form becomes "clean")
 
 ### Changes to Prompt.tsx
 
@@ -134,15 +203,53 @@ import type { DraftData } from '../hooks/usePromptDraft'
 // Remove hook usage
 const { hasDraft, isDirty, restoreDraft, discardDraft, clearDraft } = usePromptDraft({...})
 
-// Add back inline isDirty computation (copy from Note.tsx pattern)
+// Add back inline isDirty computation
+// IMPORTANT: Include arguments comparison - the hook handles this
 const isDirty = useMemo(() =>
   current.name !== originalValues.name ||
   current.title !== originalValues.title ||
-  // ... etc
+  current.content !== originalValues.content ||
+  current.description !== originalValues.description ||
+  current.tags_as_csv !== originalValues.tags_as_csv ||
+  JSON.stringify(current.arguments) !== JSON.stringify(originalValues.arguments)
 , [current, originalValues])
 
 // Remove clearDraft() calls
 // Remove draft restoration UI banner
+```
+
+### Update originalValues After Save
+
+After a successful save, update `originalValues` to match `current` so the form becomes "clean" (isDirty = false). Without this, the Save button would remain enabled after saving.
+
+```typescript
+// In handleSubmit, after successful save:
+setOriginal({
+  name: current.name,
+  title: current.title,
+  content: current.content,
+  description: current.description,
+  tags_as_csv: current.tags_as_csv,
+  arguments: current.arguments,
+})
+```
+
+### Cleanup Orphaned localStorage Drafts
+
+Add the same cleanup pattern:
+
+```typescript
+useEffect(() => {
+  // Clean up any orphaned drafts from previous versions
+  const keysToRemove: string[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key?.startsWith('prompt_draft_')) {
+      keysToRemove.push(key)
+    }
+  }
+  keysToRemove.forEach(key => localStorage.removeItem(key))
+}, [])
 ```
 
 ### Files to Delete
@@ -154,7 +261,9 @@ const isDirty = useMemo(() =>
 
 - [ ] usePromptDraft hook deleted
 - [ ] Prompt.tsx no longer uses draft functionality
-- [ ] isDirty computed inline in Prompt.tsx
+- [ ] isDirty computed inline in Prompt.tsx (including arguments comparison)
+- [ ] originalValues updated after successful save
+- [ ] Orphaned draft cleanup added
 - [ ] All existing Prompt.test.tsx tests pass
 - [ ] Unsaved changes warnings still work
 
@@ -294,11 +403,64 @@ Test cases:
 
 | Milestone | Changes | Lines Removed |
 |-----------|---------|---------------|
-| 1. Remove draft from Note | Delete draft code | ~80 |
-| 2. Remove draft from Bookmark | Delete draft code | ~80 |
-| 3. Remove draft from Prompt | Delete hook + draft code | ~80 + ~220 (hook) |
+| 1. Remove draft from Note | Delete draft code, add cleanup | ~80 |
+| 2. Remove draft from Bookmark | Delete draft code, add cleanup | ~80 |
+| 3. Remove draft from Prompt | Delete hook + draft code, add cleanup | ~80 + ~220 (hook) |
 | 4. Extract useDiscardConfirmation | Create hook, update 3 components | ~90 (net) |
 
 **Total lines removed:** ~450
-**Total lines added:** ~80 (new hook + tests)
-**Net reduction:** ~370 lines
+**Total lines added:** ~100 (new hook + tests + cleanup code)
+**Net reduction:** ~350 lines
+
+---
+
+## Appendix: Decisions and Alternatives Not Taken
+
+This section documents feedback considered but intentionally not incorporated, and why.
+
+### 1. Keep draft auto-save for crash recovery
+
+**Suggestion:** Keep draft auto-save because browser crashes, OS kills, or hard reloads would lose work without recovery.
+
+**Decision:** Proceed with removal.
+
+**Rationale:**
+- Modern browsers are extremely stable - crashes are rare edge cases
+- Users can manually save frequently (Cmd+S works)
+- The complexity cost (~300 lines across 3 components + hook) doesn't justify the edge case
+- We already have `beforeunload` and navigation blockers for the common cases (tab close, navigation)
+- If users complain post-release, we can revisit with a simpler implementation
+
+### 2. Extract a generic useDraftAutoSave hook instead of removal
+
+**Suggestion:** Instead of removing draft functionality, extract it into a shared hook that all three components use.
+
+**Decision:** Remove entirely rather than extract.
+
+**Rationale:**
+- Extracting still maintains ~80 lines of hook code plus integration in each component
+- The feature solves a rare edge case (browser crash) that doesn't justify ongoing maintenance
+- Simpler to remove now and add back later if needed than to maintain unused complexity
+
+### 3. Extract useContentEditor mega-hook
+
+**Suggestion:** Consolidate more duplicated patterns into a single hook: isDirty computation, beforeunload handler, keyboard shortcuts, discard confirmation, and form submission coordination. This could remove ~150 lines per component.
+
+**Decision:** Stick with focused, single-purpose hooks.
+
+**Rationale:**
+- The three components have meaningful differences (Bookmark has URL/metadata, Prompt has arguments/tags_as_csv, Note has description)
+- A mega-hook would either be complex with many config options or force artificial uniformity
+- `useDiscardConfirmation` is the right level of abstraction - single purpose, easy to understand
+- Can revisit consolidation as a follow-up if the initial refactor succeeds
+
+### 4. Add telemetry before removing draft functionality
+
+**Suggestion:** Add analytics to measure draft recovery usage before removing the feature.
+
+**Decision:** Skip telemetry, proceed with removal.
+
+**Rationale:**
+- Adds complexity and delays the cleanup
+- The feature has existed for a while - if it were critical, we'd have heard user complaints
+- We can add it back if users request it post-removal
