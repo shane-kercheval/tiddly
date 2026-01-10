@@ -550,12 +550,16 @@ function MilkdownEditorInner({
         ctx.set(rootCtx, root)
         ctx.set(defaultValueCtx, initialValueRef.current)
 
-        // Configure remark-stringify options
+        // Configure remark-stringify options for consistent markdown output
         ctx.update(remarkStringifyOptionsCtx, (options) => ({
           ...options,
           bullet: '-' as const, // Use '-' for bullet markers consistently
           bulletOrdered: '.' as const, // Use '1.' instead of '1)' for ordered lists
           rule: '-' as const, // Use '---' for horizontal rules instead of '***'
+          emphasis: '*' as const, // Use *italic* not _italic_
+          strong: '*' as const, // Use **bold** not __bold__
+          fence: '`' as const, // Use ```code``` not ~~~code~~~
+          fences: true, // Use fenced code blocks, not indented
           // Join handler to force tight lists (no blank lines between list items)
           join: [
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
