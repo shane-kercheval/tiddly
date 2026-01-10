@@ -204,13 +204,16 @@ import type { DraftData } from '../hooks/usePromptDraft'
 const { hasDraft, isDirty, restoreDraft, discardDraft, clearDraft } = usePromptDraft({...})
 
 // Add back inline isDirty computation
-// IMPORTANT: Include arguments comparison - the hook handles this
+// IMPORTANT: Use array comparison for tags, not tags_as_csv
+// Match the existing pattern from usePromptDraft hook
 const isDirty = useMemo(() =>
   current.name !== originalValues.name ||
   current.title !== originalValues.title ||
   current.content !== originalValues.content ||
   current.description !== originalValues.description ||
-  current.tags_as_csv !== originalValues.tags_as_csv ||
+  current.tags.length !== originalValues.tags.length ||
+  current.tags.some((tag, i) => tag !== originalValues.tags[i]) ||
+  current.arguments.length !== originalValues.arguments.length ||
   JSON.stringify(current.arguments) !== JSON.stringify(originalValues.arguments)
 , [current, originalValues])
 
@@ -218,9 +221,31 @@ const isDirty = useMemo(() =>
 // Remove draft restoration UI banner
 ```
 
-### Update originalValues After Save
+### Convert originalValues from useMemo to useState
 
-After a successful save, update `originalValues` to match `current` so the form becomes "clean" (isDirty = false). Without this, the Save button would remain enabled after saving.
+Currently `originalValues` is a `useMemo` in Prompt.tsx. To update it after save, convert to `useState`:
+
+```typescript
+// Before (useMemo - not settable)
+const originalValues = useMemo(() => ({
+  name: prompt?.name ?? '',
+  // ...
+}), [prompt])
+
+// After (useState - can call setOriginal)
+const [original, setOriginal] = useState(() => ({
+  name: prompt?.name ?? '',
+  title: prompt?.title ?? '',
+  content: cleanMarkdown(prompt?.content ?? ''),
+  description: prompt?.description ?? '',
+  tags: prompt?.tags ?? initialTags,
+  arguments: prompt?.arguments ?? [],
+}))
+```
+
+### Update original After Save
+
+After a successful save, update `original` to match `current` so the form becomes "clean" (isDirty = false). Without this, the Save button would remain enabled after saving.
 
 ```typescript
 // In handleSubmit, after successful save:
@@ -229,7 +254,7 @@ setOriginal({
   title: current.title,
   content: current.content,
   description: current.description,
-  tags_as_csv: current.tags_as_csv,
+  tags: current.tags,
   arguments: current.arguments,
 })
 ```
