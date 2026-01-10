@@ -8,7 +8,6 @@
  * - Inline editable title, tags, description
  * - ContentEditor with Visual/Markdown toggle
  * - Save/Discard buttons appear when dirty
- * - Draft auto-save to localStorage for recovery
  * - Keyboard shortcuts: Cmd+S to save, Escape to cancel
  * - beforeunload warning when dirty
  * - Read-only mode for deleted items
@@ -27,18 +26,6 @@ import { config } from '../config'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import type { Note as NoteType, NoteCreate, NoteUpdate, TagCount } from '../types'
-
-/** Key prefix for localStorage draft storage */
-const DRAFT_KEY_PREFIX = 'note_draft_'
-
-/** Draft data structure stored in localStorage */
-interface DraftData {
-  title: string
-  description: string
-  content: string
-  tags: string[]
-  savedAt: number
-}
 
 /** Form state for the note */
 interface NoteState {
@@ -83,56 +70,6 @@ interface NoteProps {
 }
 
 /**
- * Get the localStorage key for a note draft.
- */
-function getDraftKey(noteId?: string): string {
-  return noteId ? `${DRAFT_KEY_PREFIX}${noteId}` : `${DRAFT_KEY_PREFIX}new`
-}
-
-/**
- * Load draft from localStorage if available.
- */
-function loadDraft(noteId?: string): DraftData | null {
-  try {
-    const key = getDraftKey(noteId)
-    const stored = localStorage.getItem(key)
-    if (stored) {
-      return JSON.parse(stored) as DraftData
-    }
-  } catch {
-    // Ignore parse errors
-  }
-  return null
-}
-
-/**
- * Save draft to localStorage.
- */
-function saveDraft(noteId: string | undefined, data: DraftData): void {
-  try {
-    const key = getDraftKey(noteId)
-    localStorage.setItem(key, JSON.stringify(data))
-  } catch (error) {
-    // Log in development mode so developers know drafts aren't saving
-    if (import.meta.env.DEV) {
-      console.warn('Failed to save draft to localStorage:', error)
-    }
-  }
-}
-
-/**
- * Clear draft from localStorage.
- */
-function clearDraft(noteId?: string): void {
-  try {
-    const key = getDraftKey(noteId)
-    localStorage.removeItem(key)
-  } catch {
-    // Ignore errors
-  }
-}
-
-/**
  * Note provides a unified view/edit experience for notes.
  */
 export function Note({
@@ -164,31 +101,13 @@ export function Note({
   const [original, setOriginal] = useState<NoteState>(getInitialState)
   const [current, setCurrent] = useState<NoteState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
-  const [contentKey, setContentKey] = useState(0) // Force editor remount when content is restored
 
   // Cancel confirmation state
   const [confirmingDiscard, setConfirmingDiscard] = useState(false)
   const discardTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Draft recovery state - compute on mount
-  const [hasDraft, setHasDraft] = useState(() => {
-    const draft = loadDraft(note?.id)
-    if (!draft) return false
-
-    // Only show prompt if draft is different from current note
-    const isDifferent = note
-      ? draft.title !== note.title ||
-        draft.description !== (note.description ?? '') ||
-        draft.content !== (note.content ?? '') ||
-        JSON.stringify(draft.tags) !== JSON.stringify(note.tags ?? [])
-      : draft.title || draft.description || draft.content || draft.tags.length > 0
-
-    return Boolean(isDifferent)
-  })
-
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
-  const draftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
   // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
@@ -237,33 +156,17 @@ export function Note({
     }
   }, [isCreate])
 
-  // Auto-save draft every 30 seconds when dirty
+  // Clean up any orphaned drafts from previous versions
   useEffect(() => {
-    if (!isDirty || isReadOnly) {
-      if (draftTimerRef.current) {
-        clearInterval(draftTimerRef.current)
-        draftTimerRef.current = null
-      }
-      return
-    }
-
-    draftTimerRef.current = setInterval(() => {
-      const draftData: DraftData = {
-        title: current.title,
-        description: current.description,
-        content: current.content,
-        tags: current.tags,
-        savedAt: Date.now(),
-      }
-      saveDraft(note?.id, draftData)
-    }, 30000)
-
-    return () => {
-      if (draftTimerRef.current) {
-        clearInterval(draftTimerRef.current)
+    const keysToRemove: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key?.startsWith('note_draft_')) {
+        keysToRemove.push(key)
       }
     }
-  }, [current, note?.id, isDirty, isReadOnly])
+    keysToRemove.forEach((key) => localStorage.removeItem(key))
+  }, [])
 
   // beforeunload handler for navigation warning
   useEffect(() => {
@@ -293,7 +196,6 @@ export function Note({
 
     if (confirmingDiscard) {
       // Already confirming, execute discard
-      clearDraft(note?.id) // Clear autosaved draft when user explicitly discards
       confirmLeave() // Prevent navigation blocker from showing
       onClose()
     } else {
@@ -304,7 +206,7 @@ export function Note({
         setConfirmingDiscard(false)
       }, 3000)
     }
-  }, [isDirty, confirmingDiscard, onClose, note?.id, confirmLeave])
+  }, [isDirty, confirmingDiscard, onClose, confirmLeave])
 
   // Cleanup discard timeout on unmount
   useEffect(() => {
@@ -362,27 +264,6 @@ export function Note({
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [handleDiscardRequest, confirmingDiscard, resetDiscardConfirmation, onClose, isReadOnly, isDirty, confirmLeave])
-
-  // Draft restoration
-  const restoreDraft = useCallback((): void => {
-    const draft = loadDraft(note?.id)
-    if (draft) {
-      setCurrent({
-        title: draft.title,
-        description: draft.description,
-        content: draft.content,
-        tags: draft.tags,
-      })
-      // Force editor remount to display restored content
-      setContentKey((prev) => prev + 1)
-    }
-    setHasDraft(false)
-  }, [note?.id])
-
-  const discardDraft = useCallback((): void => {
-    clearDraft(note?.id)
-    setHasDraft(false)
-  }, [note?.id])
 
   // Validation
   const validate = (): boolean => {
@@ -455,9 +336,6 @@ export function Note({
 
         await onSave(updates)
       }
-
-      // Clear draft on successful save
-      clearDraft(note?.id)
 
       // Update original to match current (form is now clean)
       setOriginal({ ...current, tags: tagsToSubmit })
@@ -618,31 +496,8 @@ export function Note({
 
       {/* Scrollable content - padding with negative margin gives room for focus rings to show */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 pt-1 -mt-1">
-        {/* Header section: drafts, banners, title, description, metadata */}
+        {/* Header section: banners, title, description, metadata */}
         <div className="space-y-4">
-          {/* Draft restoration prompt */}
-          {hasDraft && !isReadOnly && (
-            <div className="alert-info flex items-center justify-between">
-              <p className="text-sm">You have an unsaved draft from a previous session.</p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={restoreDraft}
-                  className="btn-secondary text-sm py-1 px-3"
-                >
-                  Restore Draft
-                </button>
-                <button
-                  type="button"
-                  onClick={discardDraft}
-                  className="btn-secondary text-sm py-1 px-3"
-                >
-                  Discard
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Read-only banner for deleted notes */}
           {isReadOnly && (
             <div className="alert-warning">
@@ -697,7 +552,6 @@ export function Note({
 
         {/* Content editor */}
         <ContentEditor
-          key={contentKey}
           value={current.content}
           onChange={handleContentChange}
           disabled={isSaving || isReadOnly}
