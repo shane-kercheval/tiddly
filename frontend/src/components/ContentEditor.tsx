@@ -213,7 +213,7 @@ export function ContentEditor({
       {/* Header with label and mode toggle - hidden until focused */}
       <div className="flex items-center justify-between mb-1">
         {label ? <label className="label">{label}</label> : <div />}
-        <div className="flex items-center gap-2 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
+        <div className="flex items-center gap-2 opacity-0 pointer-events-none group-focus-within/editor:opacity-100 group-focus-within/editor:pointer-events-auto transition-opacity">
           {/* Wrap text toggle (only in markdown mode) */}
           {mode === 'markdown' && (
             <label
@@ -289,7 +289,7 @@ export function ContentEditor({
       </div>
 
       {/* Footer with helper text and character count - hidden until focused */}
-      <div className="flex justify-between items-center mt-1 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
+      <div className="flex justify-between items-center mt-1 opacity-0 pointer-events-none group-focus-within/editor:opacity-100 group-focus-within/editor:pointer-events-auto transition-opacity">
         {errorMessage ? (
           <p className="error-text">{errorMessage}</p>
         ) : (
