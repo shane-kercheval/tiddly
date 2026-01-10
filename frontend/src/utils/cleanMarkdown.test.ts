@@ -104,6 +104,77 @@ More content here.`
     })
   })
 
+  describe('hex-encoded spaces', () => {
+    it('should convert &#x20; to regular spaces', () => {
+      const input = '&#x20;Hello'
+      expect(cleanMarkdown(input)).toBe('Hello')
+    })
+
+    it('should handle multiple &#x20; entities', () => {
+      const input = '&#x20;&#x20;&#x20;indented text'
+      expect(cleanMarkdown(input)).toBe('indented text')
+    })
+
+    it('should handle &#x20; in middle of content', () => {
+      const input = 'line 1\n\n&#x20; indented line'
+      expect(cleanMarkdown(input)).toBe('line 1\n\n  indented line')
+    })
+  })
+
+  describe('angle bracket escaping', () => {
+    it('should remove backslash before opening angle bracket', () => {
+      const input = '\\<instructions>'
+      expect(cleanMarkdown(input)).toBe('<instructions>')
+    })
+
+    it('should remove backslash before closing angle bracket', () => {
+      const input = '\\>quoted text'
+      expect(cleanMarkdown(input)).toBe('>quoted text')
+    })
+
+    it('should handle XML-style content with escaped brackets', () => {
+      const input = '\\<instructions>\n\\<objective>\nContent\n</objective>\n</instructions>'
+      expect(cleanMarkdown(input)).toBe('<instructions>\n<objective>\nContent\n</objective>\n</instructions>')
+    })
+
+    it('should handle escaped brackets in middle of text', () => {
+      const input = 'Use \\<tag\\> for markup'
+      expect(cleanMarkdown(input)).toBe('Use <tag> for markup')
+    })
+
+    it('should preserve unescaped angle brackets', () => {
+      const input = '<already unescaped> content'
+      expect(cleanMarkdown(input)).toBe('<already unescaped> content')
+    })
+
+    it('should handle real XML template from Slack paste', () => {
+      // Input matches what remark-stringify produces when pasting XML from Slack
+      const input = `\\<instructions>
+
+&#x20; \\<objective>
+
+&#x20;   Improve the following prompt
+
+  </objective>
+
+\\</instructions>`
+      // Expected: &#x20; becomes space, \< becomes <
+      // Line 1: \<instructions> → <instructions>
+      // Line 3: &#x20; (1 space) + " " (1 space) + \<objective> → "  <objective>" (2 spaces)
+      // Line 5: &#x20; (1 space) + "   " (3 spaces) + text → "    Improve..." (4 spaces)
+      const expected = `<instructions>
+
+  <objective>
+
+    Improve the following prompt
+
+  </objective>
+
+</instructions>`
+      expect(cleanMarkdown(input)).toBe(expected)
+    })
+  })
+
   describe('underscore escaping', () => {
     it('should remove backslash escapes before underscores', () => {
       const input = 'variable\\_name'

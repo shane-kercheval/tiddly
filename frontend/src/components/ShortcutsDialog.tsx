@@ -49,7 +49,7 @@ const leftColumnGroups: ShortcutGroup[] = [
       { keys: ['w'], description: 'Toggle full-width layout' },
       { keys: ['\u2318', '\\'], description: 'Toggle sidebar' },
       { keys: ['\u2318', '/'], description: 'Show shortcuts' },
-      { keys: ['\u2318', '\u21E7', 'M'], description: 'Toggle Visual/Markdown' },
+      { keys: ['\u2318', '\u21E7', 'M'], description: 'Toggle Markdown/Text' },
       { keys: ['\u2325', 'Z'], description: 'Toggle word wrap' },
     ],
   },
