@@ -9,7 +9,6 @@
  * - ArgumentsBuilder for prompt arguments
  * - ContentEditor with Visual/Markdown toggle
  * - Save/Discard buttons appear when dirty
- * - Draft auto-save to localStorage for recovery
  * - Keyboard shortcuts: Cmd+S to save, Escape to cancel
  * - beforeunload warning when dirty
  * - Read-only mode for deleted items
@@ -28,9 +27,8 @@ import { TAG_PATTERN } from '../utils'
 import { config } from '../config'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
-import { usePromptDraft } from '../hooks/usePromptDraft'
+import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
-import type { DraftData } from '../hooks/usePromptDraft'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, TagCount } from '../types'
 
 /** Default template content for new prompts */
@@ -99,6 +97,17 @@ interface FormErrors {
   arguments?: string
 }
 
+/** Error class for save errors with field-specific messages */
+export class SaveError extends Error {
+  fieldErrors: Partial<FormErrors>
+
+  constructor(message: string, fieldErrors: Partial<FormErrors>) {
+    super(message)
+    this.name = 'SaveError'
+    this.fieldErrors = fieldErrors
+  }
+}
+
 interface PromptProps {
   /** Existing prompt when editing, undefined when creating */
   prompt?: PromptType
@@ -156,13 +165,9 @@ export function Prompt({
     tags: prompt?.tags ?? initialTags ?? [],
   })
 
+  const [original, setOriginal] = useState<PromptState>(getInitialState)
   const [current, setCurrent] = useState<PromptState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
-  const [contentKey, setContentKey] = useState(0) // Force editor remount when content is restored
-
-  // Cancel confirmation state
-  const [confirmingDiscard, setConfirmingDiscard] = useState(false)
-  const discardTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -174,41 +179,21 @@ export function Prompt({
   // Read-only mode for deleted prompts
   const isReadOnly = viewState === 'deleted'
 
-  // Memoize original values for draft comparison
-  // Clean content to match what Milkdown will output, preventing false dirty state
-  const originalValues = useMemo(
-    () => ({
-      name: prompt?.name ?? '',
-      title: prompt?.title ?? '',
-      description: prompt?.description ?? '',
-      content: cleanMarkdown(prompt?.content ?? ''),
-      arguments: prompt?.arguments ?? [],
-      tags: prompt?.tags ?? initialTags ?? [],
-    }),
-    [prompt, initialTags]
+  // Compute dirty state - optimized to avoid deep comparison overhead
+  // Check lengths first for quick short-circuit on large content
+  const isDirty = useMemo(
+    () =>
+      current.name !== original.name ||
+      current.title !== original.title ||
+      current.description !== original.description ||
+      current.content.length !== original.content.length ||
+      current.content !== original.content ||
+      current.tags.length !== original.tags.length ||
+      current.tags.some((tag, i) => tag !== original.tags[i]) ||
+      current.arguments.length !== original.arguments.length ||
+      JSON.stringify(current.arguments) !== JSON.stringify(original.arguments),
+    [current, original]
   )
-
-  // Draft restore handler
-  const handleDraftRestore = useCallback((draft: DraftData): void => {
-    setCurrent({
-      name: draft.name,
-      title: draft.title,
-      description: draft.description,
-      content: draft.content,
-      arguments: draft.arguments,
-      tags: draft.tags,
-    })
-    // Force editor remount to display restored content
-    setContentKey((prev) => prev + 1)
-  }, [])
-
-  // Use the draft hook for autosave functionality
-  const { hasDraft, isDirty, restoreDraft, discardDraft, clearDraft } = usePromptDraft({
-    promptId: prompt?.id,
-    formState: current,
-    originalValues,
-    onRestore: handleDraftRestore,
-  })
 
   // Compute validity for save button (doesn't show error messages, just checks if saveable)
   const isValid = useMemo(() => {
@@ -231,6 +216,13 @@ export function Prompt({
   // Navigation blocking when dirty
   const { showDialog, handleStay, handleLeave, confirmLeave } = useUnsavedChangesWarning(isDirty)
 
+  // Discard confirmation (shows "Discard?" for 3 seconds on first click)
+  const { isConfirming, requestDiscard, resetConfirmation } = useDiscardConfirmation({
+    isDirty,
+    onDiscard: onClose,
+    onConfirmLeave: confirmLeave,
+  })
+
   // Auto-focus name for new prompts only
   useEffect(() => {
     if (isCreate && nameInputRef.current) {
@@ -240,6 +232,18 @@ export function Prompt({
       return () => clearTimeout(timer)
     }
   }, [isCreate])
+
+  // Clean up any orphaned drafts from previous versions
+  useEffect(() => {
+    const keysToRemove: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key?.startsWith('prompt_draft_')) {
+        keysToRemove.push(key)
+      }
+    }
+    keysToRemove.forEach((key) => localStorage.removeItem(key))
+  }, [])
 
   // beforeunload handler for navigation warning
   useEffect(() => {
@@ -253,48 +257,6 @@ export function Prompt({
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [isDirty])
-
-  // Handle discard with confirmation
-  const handleDiscardRequest = useCallback((): void => {
-    if (discardTimeoutRef.current) {
-      clearTimeout(discardTimeoutRef.current)
-      discardTimeoutRef.current = null
-    }
-
-    if (!isDirty) {
-      onClose()
-      return
-    }
-
-    if (confirmingDiscard) {
-      clearDraft() // Clear autosaved draft when user explicitly discards
-      confirmLeave() // Prevent navigation blocker from showing
-      onClose()
-    } else {
-      setConfirmingDiscard(true)
-      discardTimeoutRef.current = setTimeout(() => {
-        setConfirmingDiscard(false)
-      }, 3000)
-    }
-  }, [isDirty, confirmingDiscard, onClose, clearDraft, confirmLeave])
-
-  // Cleanup discard timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (discardTimeoutRef.current) {
-        clearTimeout(discardTimeoutRef.current)
-      }
-    }
-  }, [])
-
-  // Reset discard confirmation
-  const resetDiscardConfirmation = useCallback((): void => {
-    if (discardTimeoutRef.current) {
-      clearTimeout(discardTimeoutRef.current)
-      discardTimeoutRef.current = null
-    }
-    setConfirmingDiscard(false)
-  }, [])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -313,10 +275,10 @@ export function Prompt({
       }
 
       // When confirming discard: Escape backs out, Enter confirms
-      if (confirmingDiscard) {
+      if (isConfirming) {
         if (e.key === 'Escape') {
           e.preventDefault()
-          resetDiscardConfirmation()
+          resetConfirmation()
         } else if (e.key === 'Enter') {
           e.preventDefault()
           confirmLeave() // Prevent navigation blocker from showing
@@ -327,13 +289,13 @@ export function Prompt({
 
       // Escape to start discard (with confirmation if dirty)
       if (e.key === 'Escape') {
-        handleDiscardRequest()
+        requestDiscard()
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [handleDiscardRequest, confirmingDiscard, resetDiscardConfirmation, onClose, isReadOnly, isDirty, confirmLeave])
+  }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, confirmLeave])
 
   // Validation
   const validate = (): boolean => {
@@ -479,8 +441,15 @@ export function Prompt({
         await onSave(updates)
       }
 
-      // Clear draft on successful save
-      clearDraft()
+      // Update original to match current (form is now clean)
+      setOriginal({
+        name: current.name,
+        title: current.title,
+        description: current.description,
+        content: current.content,
+        arguments: cleanedArgs,
+        tags: tagsToSubmit,
+      })
 
       // Restore focus if we saved via Cmd+S from CodeMirror (which loses focus during save)
       if (refocusAfterSaveRef.current) {
@@ -490,9 +459,12 @@ export function Prompt({
           refocusAfterSaveRef.current = null
         }, 0)
       }
-    } catch {
-      // Error handling is done in the parent component
-      // Clear refocus ref on error too
+    } catch (err) {
+      // Handle field-specific errors from parent
+      if (err instanceof SaveError) {
+        setErrors((prev) => ({ ...prev, ...err.fieldErrors }))
+      }
+      // Clear refocus ref on error
       refocusAfterSaveRef.current = null
     }
   }
@@ -548,16 +520,16 @@ export function Prompt({
           {/* Close button */}
           <button
             type="button"
-            onClick={handleDiscardRequest}
+            onClick={requestDiscard}
             disabled={isSaving}
             className={`flex items-center gap-1.5 ${
-              confirmingDiscard
+              isConfirming
                 ? 'btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50'
                 : 'btn-secondary'
             }`}
           >
             <CloseIcon className="h-4 w-4" />
-            {confirmingDiscard ? (
+            {isConfirming ? (
               <span>Discard?</span>
             ) : (
               <span className="hidden md:inline">Close</span>
@@ -649,31 +621,8 @@ export function Prompt({
 
       {/* Scrollable content - padding with negative margin gives room for focus rings to show */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 pt-1 -mt-1">
-        {/* Header section: drafts, banners, name, title, description, metadata */}
+        {/* Header section: banners, name, title, description, metadata */}
         <div className="space-y-4">
-          {/* Draft restoration prompt */}
-          {hasDraft && !isReadOnly && (
-            <div className="alert-info flex items-center justify-between">
-              <p className="text-sm">You have an unsaved draft from a previous session.</p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={restoreDraft}
-                  className="btn-secondary text-sm py-1 px-3"
-                >
-                  Restore Draft
-                </button>
-                <button
-                  type="button"
-                  onClick={discardDraft}
-                  className="btn-secondary text-sm py-1 px-3"
-                >
-                  Discard
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Read-only banner for deleted prompts */}
           {isReadOnly && (
             <div className="alert-warning">
@@ -752,7 +701,6 @@ export function Prompt({
         {/* Content editor */}
         <div className="mt-3">
           <ContentEditor
-            key={contentKey}
             value={current.content}
             onChange={handleContentChange}
             disabled={isSaving || isReadOnly}

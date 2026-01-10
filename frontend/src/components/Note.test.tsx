@@ -164,19 +164,6 @@ describe('Note component - specific behaviors', () => {
       expect(screen.getByText(/Created/)).toBeInTheDocument()
       expect(screen.getByText(/Updated/)).toBeInTheDocument()
     })
-
-    it('should show version for note with version > 1', () => {
-      render(
-        <Note
-          note={mockNote}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      expect(screen.getByText('v2')).toBeInTheDocument()
-    })
   })
 
   describe('description field', () => {
@@ -387,83 +374,6 @@ describe('Note component - specific behaviors', () => {
       )
 
       expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument()
-    })
-  })
-
-  describe('draft recovery', () => {
-    it('should show draft recovery prompt when draft exists', () => {
-      const draftData = {
-        title: 'Draft Title',
-        description: 'Draft description',
-        content: 'Draft content',
-        tags: ['draft-tag'],
-        savedAt: Date.now(),
-      }
-      localStorageMock.getItem.mockReturnValue(JSON.stringify(draftData))
-
-      render(
-        <Note
-          note={mockNote}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      expect(screen.getByText(/unsaved draft from a previous session/)).toBeInTheDocument()
-      expect(screen.getByText('Restore Draft')).toBeInTheDocument()
-    })
-
-    it('should restore draft when Restore Draft is clicked', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const draftData = {
-        title: 'Draft Title',
-        description: 'Draft description',
-        content: 'Draft content',
-        tags: ['draft-tag'],
-        savedAt: Date.now(),
-      }
-      localStorageMock.getItem.mockReturnValue(JSON.stringify(draftData))
-
-      render(
-        <Note
-          note={mockNote}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      await user.click(screen.getByText('Restore Draft'))
-
-      expect(screen.getByDisplayValue('Draft Title')).toBeInTheDocument()
-    })
-
-    it('should clear draft prompt when Discard is clicked', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const draftData = {
-        title: 'Draft Title',
-        description: 'Draft description',
-        content: 'Draft content',
-        tags: ['draft-tag'],
-        savedAt: Date.now(),
-      }
-      localStorageMock.getItem.mockReturnValue(JSON.stringify(draftData))
-
-      render(
-        <Note
-          note={mockNote}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      // Click the discard button in the draft prompt
-      const discardButtons = screen.getAllByRole('button', { name: /discard/i })
-      await user.click(discardButtons[0])
-
-      expect(screen.queryByText(/unsaved draft/)).not.toBeInTheDocument()
     })
   })
 

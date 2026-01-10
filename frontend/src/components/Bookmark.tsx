@@ -9,7 +9,6 @@
  * - Archive scheduling with inline editing
  * - ContentEditor with Visual/Markdown toggle for content
  * - Save/Discard buttons appear when dirty
- * - Draft auto-save to localStorage for recovery
  * - Keyboard shortcuts: Cmd+S to save, Escape to cancel
  * - beforeunload warning when dirty
  * - Fetch metadata functionality
@@ -27,24 +26,10 @@ import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './ico
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
 import { config } from '../config'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
+import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
 import type { ArchivePreset } from '../utils'
-
-/** Key prefix for localStorage draft storage */
-const DRAFT_KEY_PREFIX = 'bookmark_draft_'
-
-/** Draft data structure stored in localStorage */
-interface DraftData {
-  url: string
-  title: string
-  description: string
-  content: string
-  tags: string[]
-  archivedAt: string
-  archivePreset: ArchivePreset
-  savedAt: number
-}
 
 /** Form state for the bookmark */
 interface BookmarkState {
@@ -100,56 +85,6 @@ interface BookmarkProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
-}
-
-/**
- * Get the localStorage key for a bookmark draft.
- */
-function getDraftKey(bookmarkId?: string): string {
-  return bookmarkId ? `${DRAFT_KEY_PREFIX}${bookmarkId}` : `${DRAFT_KEY_PREFIX}new`
-}
-
-/**
- * Load draft from localStorage if available.
- */
-function loadDraft(bookmarkId?: string): DraftData | null {
-  try {
-    const key = getDraftKey(bookmarkId)
-    const stored = localStorage.getItem(key)
-    if (stored) {
-      return JSON.parse(stored) as DraftData
-    }
-  } catch {
-    // Ignore parse errors
-  }
-  return null
-}
-
-/**
- * Save draft to localStorage.
- */
-function saveDraft(bookmarkId: string | undefined, data: DraftData): void {
-  try {
-    const key = getDraftKey(bookmarkId)
-    localStorage.setItem(key, JSON.stringify(data))
-  } catch (error) {
-    // Log in development mode so developers know drafts aren't saving
-    if (import.meta.env.DEV) {
-      console.warn('Failed to save draft to localStorage:', error)
-    }
-  }
-}
-
-/**
- * Clear draft from localStorage.
- */
-function clearDraft(bookmarkId?: string): void {
-  try {
-    const key = getDraftKey(bookmarkId)
-    localStorage.removeItem(key)
-  } catch {
-    // Ignore errors
-  }
 }
 
 /**
@@ -210,31 +145,8 @@ export function Bookmark({
   const autoFetchedRef = useRef<string | null>(null)
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Cancel confirmation state
-  const [confirmingDiscard, setConfirmingDiscard] = useState(false)
-  const discardTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Draft recovery state - compute on mount
-  const [hasDraft, setHasDraft] = useState(() => {
-    const draft = loadDraft(bookmark?.id)
-    if (!draft) return false
-
-    // Only show prompt if draft is different from current bookmark
-    const isDifferent = bookmark
-      ? draft.url !== bookmark.url ||
-        draft.title !== (bookmark.title ?? '') ||
-        draft.description !== (bookmark.description ?? '') ||
-        draft.content !== (bookmark.content ?? '') ||
-        JSON.stringify(draft.tags) !== JSON.stringify(bookmark.tags ?? []) ||
-        draft.archivedAt !== (bookmark.archived_at ?? '')
-      : draft.url || draft.title || draft.description || draft.content || draft.tags.length > 0
-
-    return Boolean(isDifferent)
-  })
-
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
-  const draftTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const urlInputRef = useRef<HTMLInputElement>(null)
   // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
@@ -273,6 +185,13 @@ export function Bookmark({
 
   // Navigation blocking when dirty
   const { showDialog, handleStay, handleLeave, confirmLeave } = useUnsavedChangesWarning(isDirty)
+
+  // Discard confirmation (shows "Discard?" for 3 seconds on first click)
+  const { isConfirming, requestDiscard, resetConfirmation } = useDiscardConfirmation({
+    isDirty,
+    onDiscard: onClose,
+    onConfirmLeave: confirmLeave,
+  })
 
   // Auto-focus URL for new bookmarks only (if no initialUrl)
   useEffect(() => {
@@ -333,36 +252,17 @@ export function Bookmark({
     }
   }, [initialUrl, onFetchMetadata])
 
-  // Auto-save draft every 30 seconds when dirty
+  // Clean up any orphaned drafts from previous versions
   useEffect(() => {
-    if (!isDirty || isReadOnly) {
-      if (draftTimerRef.current) {
-        clearInterval(draftTimerRef.current)
-        draftTimerRef.current = null
-      }
-      return
-    }
-
-    draftTimerRef.current = setInterval(() => {
-      const draftData: DraftData = {
-        url: current.url,
-        title: current.title,
-        description: current.description,
-        content: current.content,
-        tags: current.tags,
-        archivedAt: current.archivedAt,
-        archivePreset: current.archivePreset,
-        savedAt: Date.now(),
-      }
-      saveDraft(bookmark?.id, draftData)
-    }, 30000)
-
-    return () => {
-      if (draftTimerRef.current) {
-        clearInterval(draftTimerRef.current)
+    const keysToRemove: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key?.startsWith('bookmark_draft_')) {
+        keysToRemove.push(key)
       }
     }
-  }, [current, bookmark?.id, isDirty, isReadOnly])
+    keysToRemove.forEach((key) => localStorage.removeItem(key))
+  }, [])
 
   // beforeunload handler for navigation warning
   useEffect(() => {
@@ -383,43 +283,7 @@ export function Bookmark({
       if (successTimeoutRef.current) {
         clearTimeout(successTimeoutRef.current)
       }
-      if (discardTimeoutRef.current) {
-        clearTimeout(discardTimeoutRef.current)
-      }
     }
-  }, [])
-
-  // Handle discard with confirmation
-  const handleDiscardRequest = useCallback((): void => {
-    if (discardTimeoutRef.current) {
-      clearTimeout(discardTimeoutRef.current)
-      discardTimeoutRef.current = null
-    }
-
-    if (!isDirty) {
-      onClose()
-      return
-    }
-
-    if (confirmingDiscard) {
-      clearDraft(bookmark?.id) // Clear autosaved draft when user explicitly discards
-      confirmLeave() // Prevent navigation blocker from showing
-      onClose()
-    } else {
-      setConfirmingDiscard(true)
-      discardTimeoutRef.current = setTimeout(() => {
-        setConfirmingDiscard(false)
-      }, 3000)
-    }
-  }, [isDirty, confirmingDiscard, onClose, bookmark?.id, confirmLeave])
-
-  // Reset discard confirmation
-  const resetDiscardConfirmation = useCallback((): void => {
-    if (discardTimeoutRef.current) {
-      clearTimeout(discardTimeoutRef.current)
-      discardTimeoutRef.current = null
-    }
-    setConfirmingDiscard(false)
   }, [])
 
   // Keyboard shortcuts
@@ -439,10 +303,10 @@ export function Bookmark({
       }
 
       // When confirming discard: Escape backs out, Enter confirms
-      if (confirmingDiscard) {
+      if (isConfirming) {
         if (e.key === 'Escape') {
           e.preventDefault()
-          resetDiscardConfirmation()
+          resetConfirmation()
         } else if (e.key === 'Enter') {
           e.preventDefault()
           confirmLeave() // Prevent navigation blocker from showing
@@ -453,35 +317,13 @@ export function Bookmark({
 
       // Escape to start discard (with confirmation if dirty)
       if (e.key === 'Escape') {
-        handleDiscardRequest()
+        requestDiscard()
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [handleDiscardRequest, confirmingDiscard, resetDiscardConfirmation, onClose, isReadOnly, isDirty, confirmLeave])
-
-  // Draft restoration
-  const restoreDraft = useCallback((): void => {
-    const draft = loadDraft(bookmark?.id)
-    if (draft) {
-      setCurrent({
-        url: draft.url,
-        title: draft.title,
-        description: draft.description,
-        content: draft.content,
-        tags: draft.tags,
-        archivedAt: draft.archivedAt,
-        archivePreset: draft.archivePreset,
-      })
-    }
-    setHasDraft(false)
-  }, [bookmark?.id])
-
-  const discardDraft = useCallback((): void => {
-    clearDraft(bookmark?.id)
-    setHasDraft(false)
-  }, [bookmark?.id])
+  }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, confirmLeave])
 
   // Fetch metadata handler
   const handleFetchMetadata = useCallback(async (): Promise<void> => {
@@ -625,9 +467,6 @@ export function Bookmark({
         await onSave(updates)
       }
 
-      // Clear draft on successful save
-      clearDraft(bookmark?.id)
-
       // Update original to match current (form is now clean)
       setOriginal({ ...current, tags: tagsToSubmit })
 
@@ -699,16 +538,16 @@ export function Bookmark({
           {/* Close button */}
           <button
             type="button"
-            onClick={handleDiscardRequest}
+            onClick={requestDiscard}
             disabled={isSaving}
             className={`flex items-center gap-1.5 ${
-              confirmingDiscard
+              isConfirming
                 ? 'btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50'
                 : 'btn-secondary'
             }`}
           >
             <CloseIcon className="h-4 w-4" />
-            {confirmingDiscard ? (
+            {isConfirming ? (
               <span>Discard?</span>
             ) : (
               <span className="hidden md:inline">Close</span>
@@ -800,31 +639,8 @@ export function Bookmark({
 
       {/* Scrollable content - padding with negative margin gives room for focus rings to show */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 pt-1 -mt-1">
-        {/* Header section: drafts, banners, URL, title, description, metadata */}
+        {/* Header section: banners, URL, title, description, metadata */}
         <div className="space-y-4">
-          {/* Draft restoration prompt */}
-          {hasDraft && !isReadOnly && (
-            <div className="alert-info flex items-center justify-between">
-              <p className="text-sm">You have an unsaved draft from a previous session.</p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={restoreDraft}
-                  className="btn-secondary text-sm py-1 px-3"
-                >
-                  Restore Draft
-                </button>
-                <button
-                  type="button"
-                  onClick={discardDraft}
-                  className="btn-secondary text-sm py-1 px-3"
-                >
-                  Discard
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Read-only banner for deleted bookmarks */}
           {isReadOnly && (
             <div className="alert-warning">

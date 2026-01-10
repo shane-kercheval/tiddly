@@ -28,7 +28,7 @@
  *   })
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentType } from 'react'
 import React from 'react'
@@ -287,12 +287,12 @@ export function createContentComponentTests<TItem, TProps>(
         await user.click(screen.getByText('Close'))
         expect(screen.getByText('Discard?')).toBeInTheDocument()
 
-        // Wait 3 seconds
-        vi.advanceTimersByTime(3000)
-
-        await waitFor(() => {
-          expect(screen.getByText('Close')).toBeInTheDocument()
+        // Wait 3 seconds - wrap in act() since timer callback updates state
+        await act(async () => {
+          vi.advanceTimersByTime(3000)
         })
+
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
     })
 

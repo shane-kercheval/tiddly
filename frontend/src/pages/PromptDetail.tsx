@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Prompt } from '../components/Prompt'
+import { Prompt, SaveError } from '../components/Prompt'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { usePrompts } from '../hooks/usePrompts'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
@@ -123,6 +123,30 @@ export function PromptDetail(): ReactNode {
     navigateBack()
   }, [navigateBack])
 
+  // Helper to check if error is a 409 NAME_CONFLICT and throw SaveError
+  const handleNameConflict = (err: unknown): void => {
+    if (err && typeof err === 'object' && 'response' in err) {
+      const axiosError = err as {
+        response?: {
+          status?: number
+          data?: {
+            detail?: string | { message?: string; error_code?: string }
+          }
+        }
+      }
+      if (axiosError.response?.status === 409) {
+        const detail = axiosError.response.data?.detail
+        let message = 'A prompt with this name already exists'
+        if (typeof detail === 'string') {
+          message = detail
+        } else if (typeof detail === 'object' && detail?.message) {
+          message = detail.message
+        }
+        throw new SaveError(message, { name: message })
+      }
+    }
+  }
+
   // Action handlers
   const handleSave = useCallback(
     async (data: PromptCreate | PromptUpdate): Promise<void> => {
@@ -135,6 +159,7 @@ export function PromptDetail(): ReactNode {
             state: { prompt: createdPrompt },
           })
         } catch (err) {
+          handleNameConflict(err)
           const message = err instanceof Error ? err.message : 'Failed to create prompt'
           toast.error(message)
           throw err
@@ -147,6 +172,7 @@ export function PromptDetail(): ReactNode {
           })
           setPrompt(updatedPrompt)
         } catch (err) {
+          handleNameConflict(err)
           const message = err instanceof Error ? err.message : 'Failed to save prompt'
           toast.error(message)
           throw err

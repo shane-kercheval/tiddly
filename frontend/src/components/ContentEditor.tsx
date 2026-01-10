@@ -327,8 +327,8 @@ export function ContentEditor({
         )}
       </div>
 
-      {/* Footer with helper text and character count - hidden until focused */}
-      <div className="flex justify-between items-center mt-1 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
+      {/* Footer with helper text and character count - hidden until focused, but always visible when error */}
+      <div className={`flex justify-between items-center mt-1 transition-opacity ${errorMessage ? 'opacity-100' : 'opacity-0 group-focus-within/editor:opacity-100'}`}>
         {errorMessage ? (
           <p className="error-text">{errorMessage}</p>
         ) : (

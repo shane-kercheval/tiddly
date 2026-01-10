@@ -374,6 +374,39 @@ describe('PromptDetail page', () => {
         expect(screen.getByText('Prompt not found')).toBeInTheDocument()
       })
     })
+
+    it('should show validation error on name field when 409 NAME_CONFLICT is returned', async () => {
+      const user = userEvent.setup()
+      const conflictError = {
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              message: "A prompt with name 'my-prompt' already exists",
+              error_code: 'NAME_CONFLICT',
+            },
+          },
+        },
+      }
+      mockCreateMutateAsync.mockRejectedValue(conflictError)
+
+      renderWithRouter('/app/prompts/new')
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('prompt-name')).toBeInTheDocument()
+      })
+
+      // Fill in the form
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'my-prompt')
+
+      // Click Create
+      await user.click(screen.getByText('Create'))
+
+      // Should show validation error on name field
+      await waitFor(() => {
+        expect(screen.getByText("A prompt with name 'my-prompt' already exists")).toBeInTheDocument()
+      })
+    })
   })
 
   describe('loading state', () => {

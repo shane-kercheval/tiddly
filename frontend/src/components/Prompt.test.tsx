@@ -364,60 +364,6 @@ describe('Prompt component - specific behaviors', () => {
     })
   })
 
-  describe('draft recovery', () => {
-    it('should show draft recovery prompt when draft exists', () => {
-      const draftData = {
-        name: 'draft-prompt',
-        title: 'Draft Title',
-        description: 'Draft description',
-        content: 'Draft content',
-        arguments: [],
-        tags: ['draft-tag'],
-        savedAt: Date.now(),
-      }
-      localStorageMock.getItem.mockReturnValue(JSON.stringify(draftData))
-
-      render(
-        <Prompt
-          prompt={mockPrompt}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      expect(screen.getByText(/unsaved draft from a previous session/)).toBeInTheDocument()
-      expect(screen.getByText('Restore Draft')).toBeInTheDocument()
-    })
-
-    it('should restore draft when Restore Draft is clicked', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const draftData = {
-        name: 'draft-prompt',
-        title: 'Draft Title',
-        description: 'Draft description',
-        content: 'Draft content',
-        arguments: [],
-        tags: ['draft-tag'],
-        savedAt: Date.now(),
-      }
-      localStorageMock.getItem.mockReturnValue(JSON.stringify(draftData))
-
-      render(
-        <Prompt
-          prompt={mockPrompt}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      await user.click(screen.getByText('Restore Draft'))
-
-      expect(screen.getByDisplayValue('draft-prompt')).toBeInTheDocument()
-    })
-  })
-
   describe('fullWidth prop', () => {
     it('should apply max-w-4xl when fullWidth is false', () => {
       const { container } = render(
