@@ -554,6 +554,7 @@ function MilkdownEditorInner({
         ctx.update(remarkStringifyOptionsCtx, (options) => ({
           ...options,
           bullet: '-' as const, // Use '-' for bullet markers consistently
+          bulletOrdered: '.' as const, // Use '1.' instead of '1)' for ordered lists
           rule: '-' as const, // Use '---' for horizontal rules instead of '***'
           // Join handler to force tight lists (no blank lines between list items)
           join: [
