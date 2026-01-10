@@ -15,12 +15,12 @@ const mockUpdateSidebar = vi.fn()
 const mockSetSidebarOptimistic = vi.fn()
 const mockRollbackSidebar = vi.fn()
 
-vi.mock('../../stores/listsStore', () => ({
-  useListsStore: (selector: (state: Record<string, unknown>) => unknown) => {
+vi.mock('../../stores/filtersStore', () => ({
+  useFiltersStore: (selector: (state: Record<string, unknown>) => unknown) => {
     const state = {
-      lists: [{
+      filters: [{
         id: '5',
-        name: 'Test List',
+        name: 'Test Filter',
         content_types: ['bookmark'],
         filter_expression: { groups: [{ tags: ['work', 'urgent'], operator: 'AND' }], group_operator: 'OR' },
         default_sort_by: null,
@@ -28,10 +28,10 @@ vi.mock('../../stores/listsStore', () => ({
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
       }],
-      deleteList: mockDeleteList,
-      createList: vi.fn(),
-      updateList: vi.fn(),
-      fetchLists: vi.fn(),
+      deleteFilter: mockDeleteList,
+      createFilter: vi.fn(),
+      updateFilter: vi.fn(),
+      fetchFilters: vi.fn(),
     }
     return selector(state)
   },
@@ -45,7 +45,7 @@ vi.mock('../../stores/settingsStore', () => ({
           version: 1,
           items: [
             { type: 'builtin', key: 'all', name: 'All Content' },
-            { type: 'list', id: '5', name: 'Test List', content_types: ['bookmark'] },
+            { type: 'filter', id: '5', name: 'Test Filter', content_types: ['bookmark'] },
           ],
         },
         fetchSidebar: mockFetchSidebar,
@@ -62,7 +62,7 @@ vi.mock('../../stores/settingsStore', () => ({
           version: 1,
           items: [
             { type: 'builtin', key: 'all', name: 'All Content' },
-            { type: 'list', id: '5', name: 'Test List', content_types: ['bookmark'] },
+            { type: 'filter', id: '5', name: 'Test Filter', content_types: ['bookmark'] },
           ],
         },
       }),

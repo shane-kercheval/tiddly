@@ -1,4 +1,4 @@
-"""Pydantic schemas for content list endpoints."""
+"""Pydantic schemas for content filter endpoints."""
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -7,12 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from schemas.validators import validate_and_normalize_tags
 
-# Valid content types for lists
+# Valid content types for filters
 ContentType = Literal["bookmark", "note", "prompt"]
 
-# Sort options for list defaults
-# Note: archived_at/deleted_at are valid for bookmarks API but NOT for list defaults
-ListSortByOption = Literal["created_at", "updated_at", "last_used_at", "title"]
+# Sort options for filter defaults
+# Note: archived_at/deleted_at are valid for bookmarks API but NOT for filter defaults
+FilterSortByOption = Literal["created_at", "updated_at", "last_used_at", "title"]
 
 
 class FilterGroup(BaseModel):
@@ -42,36 +42,36 @@ class FilterExpression(BaseModel):
     group_operator: Literal["OR"] = "OR"
 
 
-class ContentListCreate(BaseModel):
-    """Schema for creating a new content list."""
+class ContentFilterCreate(BaseModel):
+    """Schema for creating a new content filter."""
 
     name: str = Field(min_length=1, max_length=100)
     content_types: list[ContentType] = Field(
         default=["bookmark", "note"],
         min_length=1,
-        description="Content types this list applies to",
+        description="Content types this filter applies to",
     )
     filter_expression: FilterExpression
-    default_sort_by: ListSortByOption | None = None
+    default_sort_by: FilterSortByOption | None = None
     default_sort_ascending: bool | None = None  # None/False = desc, True = asc
 
 
-class ContentListUpdate(BaseModel):
-    """Schema for updating an existing content list."""
+class ContentFilterUpdate(BaseModel):
+    """Schema for updating an existing content filter."""
 
     name: str | None = Field(default=None, min_length=1, max_length=100)
     content_types: list[ContentType] | None = Field(
         default=None,
         min_length=1,
-        description="Content types this list applies to",
+        description="Content types this filter applies to",
     )
     filter_expression: FilterExpression | None = None
-    default_sort_by: ListSortByOption | None = None
+    default_sort_by: FilterSortByOption | None = None
     default_sort_ascending: bool | None = None
 
 
-class ContentListResponse(BaseModel):
-    """Schema for content list responses."""
+class ContentFilterResponse(BaseModel):
+    """Schema for content filter responses."""
 
     model_config = ConfigDict(from_attributes=True)
 

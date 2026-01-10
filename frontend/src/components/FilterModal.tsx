@@ -1,20 +1,20 @@
 /**
- * Modal for creating and editing content lists.
+ * Modal for creating and editing content filters.
  */
 import { useState, useEffect } from 'react'
 import type { ReactNode, FormEvent } from 'react'
-import type { ContentList, ContentListCreate, ContentListUpdate, ContentType, FilterExpression, TagCount } from '../types'
+import type { ContentFilter, ContentFilterCreate, ContentFilterUpdate, ContentType, FilterExpression, TagCount } from '../types'
 import { BASE_SORT_OPTIONS, SORT_LABELS, type BaseSortOption } from '../constants/sortOptions'
 import { FilterExpressionBuilder } from './FilterExpressionBuilder'
 import { Modal } from './ui/Modal'
 
-interface ListModalProps {
+interface FilterModalProps {
   isOpen: boolean
   onClose: () => void
-  list?: ContentList
+  filter?: ContentFilter
   tagSuggestions: TagCount[]
-  onCreate?: (data: ContentListCreate) => Promise<ContentList>
-  onUpdate?: (id: string, data: ContentListUpdate) => Promise<ContentList>
+  onCreate?: (data: ContentFilterCreate) => Promise<ContentFilter>
+  onUpdate?: (id: string, data: ContentFilterUpdate) => Promise<ContentFilter>
 }
 
 /**
@@ -28,16 +28,16 @@ function createEmptyFilterExpression(): FilterExpression {
 }
 
 /**
- * Modal for creating/editing lists with filter expression builder.
+ * Modal for creating/editing filters with filter expression builder.
  */
-export function ListModal({
+export function FilterModal({
   isOpen,
   onClose,
-  list,
+  filter,
   tagSuggestions,
   onCreate,
   onUpdate,
-}: ListModalProps): ReactNode {
+}: FilterModalProps): ReactNode {
   const [name, setName] = useState('')
   const [contentTypes, setContentTypes] = useState<ContentType[]>(['bookmark', 'note'])
   const [filterExpression, setFilterExpression] = useState<FilterExpression>(createEmptyFilterExpression())
@@ -46,28 +46,28 @@ export function ListModal({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const isEditing = !!list
+  const isEditing = !!filter
 
   // Reset/populate form when modal opens
   // Note: Focus management is handled by the shared Modal component
   useEffect(() => {
     if (isOpen) {
-      if (list) {
-        setName(list.name)
-        setContentTypes(list.content_types)
-        setFilterExpression(list.filter_expression)
-        setDefaultSortBy((list.default_sort_by as BaseSortOption) || null)
-        setDefaultSortAscending(list.default_sort_ascending ?? false)
+      if (filter) {
+        setName(filter.name)
+        setContentTypes(filter.content_types)
+        setFilterExpression(filter.filter_expression)
+        setDefaultSortBy((filter.default_sort_by as BaseSortOption) || null)
+        setDefaultSortAscending(filter.default_sort_ascending ?? false)
       } else {
         setName('')
-        setContentTypes(['bookmark', 'note'])  // Default to all types for new lists
+        setContentTypes(['bookmark', 'note'])  // Default to all types for new filters
         setFilterExpression(createEmptyFilterExpression())
         setDefaultSortBy(null)
         setDefaultSortAscending(false)
       }
       setError(null)
     }
-  }, [isOpen, list])
+  }, [isOpen, filter])
 
   const toggleContentType = (type: ContentType): void => {
     setContentTypes((prev) => {
@@ -84,7 +84,7 @@ export function ListModal({
     e.preventDefault()
 
     if (!name.trim()) {
-      setError('List name is required')
+      setError('Filter name is required')
       return
     }
 
@@ -103,8 +103,8 @@ export function ListModal({
     setError(null)
 
     try {
-      if (isEditing && onUpdate && list) {
-        await onUpdate(list.id, {
+      if (isEditing && onUpdate && filter) {
+        await onUpdate(filter.id, {
           name: name.trim(),
           content_types: contentTypes,
           filter_expression: cleanedExpression,
@@ -122,7 +122,7 @@ export function ListModal({
       }
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save list')
+      setError(err instanceof Error ? err.message : 'Failed to save filter')
     } finally {
       setIsSubmitting(false)
     }
@@ -132,10 +132,16 @@ export function ListModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={isEditing ? 'Edit List' : 'Create List'}
+      title={isEditing ? 'Edit Filter' : 'Create Filter'}
       noPadding
     >
       <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
+        {/* Description text */}
+        <p className="text-sm text-gray-500">
+          Filters define which content to show based on tags and content types.
+          Use Collections to organize filters in the sidebar.
+        </p>
+
         {error && (
           <div className="rounded-lg bg-red-50 border border-red-200 p-3">
             <p className="text-sm text-red-700">{error}</p>
@@ -143,11 +149,11 @@ export function ListModal({
         )}
 
         <div>
-          <label htmlFor="list-name" className="block text-sm font-medium text-gray-700 mb-1">
-            List Name
+          <label htmlFor="filter-name" className="block text-sm font-medium text-gray-700 mb-1">
+            Filter Name
           </label>
           <input
-            id="list-name"
+            id="filter-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -194,7 +200,7 @@ export function ListModal({
             </label>
           </div>
           <p className="mt-1 text-xs text-gray-400">
-            Select which content types this list includes.
+            Select which content types this filter includes.
           </p>
         </div>
 
@@ -210,12 +216,12 @@ export function ListModal({
         </div>
 
         <div>
-          <label htmlFor="list-sort" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="filter-sort" className="block text-sm font-medium text-gray-700 mb-1">
             Default Sort
           </label>
           <div className="flex items-center gap-3">
             <select
-              id="list-sort"
+              id="filter-sort"
               value={defaultSortBy ?? ''}
               onChange={(e) => {
                 const value = e.target.value as BaseSortOption | ''
@@ -263,7 +269,7 @@ export function ListModal({
             className="btn-primary flex-1"
             disabled={isSubmitting || !name.trim()}
           >
-            {isSubmitting ? 'Saving...' : isEditing ? 'Save' : 'Create List'}
+            {isSubmitting ? 'Saving...' : isEditing ? 'Save' : 'Create Filter'}
           </button>
         </div>
       </form>

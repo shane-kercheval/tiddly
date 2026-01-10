@@ -7,7 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from models.content_list import ContentList
+from models.content_filter import ContentFilter
 from models.user_settings import UserSettings
 from schemas.sidebar import (
     BUILTIN_DISPLAY_NAMES,
@@ -15,18 +15,18 @@ from schemas.sidebar import (
     BuiltinKey,
     SidebarBuiltinItem,
     SidebarBuiltinItemComputed,
-    SidebarGroup,
-    SidebarGroupComputed,
+    SidebarCollection,
+    SidebarCollectionComputed,
+    SidebarFilterItem,
+    SidebarFilterItemComputed,
     SidebarItem,
-    SidebarListItem,
-    SidebarListItemComputed,
     SidebarOrder,
     SidebarOrderComputed,
 )
 from services.exceptions import (
     SidebarDuplicateItemError,
-    SidebarListNotFoundError,
-    SidebarNestedGroupError,
+    SidebarFilterNotFoundError,
+    SidebarNestedCollectionError,
 )
 from services.settings_service import get_or_create_settings
 
@@ -49,37 +49,37 @@ def get_default_sidebar_order() -> dict:
     }
 
 
-def _extract_list_ids_from_items(items: list[dict]) -> set[UUID]:
-    """Extract all list IDs from a list of sidebar items (recursive for groups)."""
-    list_ids: set[UUID] = set()
+def _extract_filter_ids_from_items(items: list[dict]) -> set[UUID]:
+    """Extract all filter IDs from a list of sidebar items (recursive for collections)."""
+    filter_ids: set[UUID] = set()
     for item in items:
-        if item.get("type") == "list":
+        if item.get("type") == "filter":
             # IDs are stored as strings in JSON, convert to UUID
             item_id = item["id"]
-            list_ids.add(UUID(item_id) if isinstance(item_id, str) else item_id)
-        elif item.get("type") == "group":
-            list_ids.update(_extract_list_ids_from_items(item.get("items", [])))
-    return list_ids
+            filter_ids.add(UUID(item_id) if isinstance(item_id, str) else item_id)
+        elif item.get("type") == "collection":
+            filter_ids.update(_extract_filter_ids_from_items(item.get("items", [])))
+    return filter_ids
 
 
 def _extract_builtin_keys_from_items(items: list[dict]) -> set[str]:
-    """Extract all builtin keys from a list of sidebar items (recursive for groups)."""
+    """Extract all builtin keys from a list of sidebar items (recursive for collections)."""
     builtin_keys: set[str] = set()
     for item in items:
         if item.get("type") == "builtin":
             builtin_keys.add(item["key"])
-        elif item.get("type") == "group":
+        elif item.get("type") == "collection":
             builtin_keys.update(_extract_builtin_keys_from_items(item.get("items", [])))
     return builtin_keys
 
 
-def _extract_group_ids_from_items(items: list[dict]) -> set[str]:
-    """Extract all group IDs from a list of sidebar items."""
-    group_ids: set[str] = set()
+def _extract_collection_ids_from_items(items: list[dict]) -> set[str]:
+    """Extract all collection IDs from a list of sidebar items."""
+    collection_ids: set[str] = set()
     for item in items:
-        if item.get("type") == "group":
-            group_ids.add(item["id"])
-    return group_ids
+        if item.get("type") == "collection":
+            collection_ids.add(item["id"])
+    return collection_ids
 
 
 def _ensure_sidebar_order_structure(sidebar_order: dict | None) -> dict:
@@ -116,40 +116,40 @@ def _compute_builtin_item(key: BuiltinKey) -> SidebarBuiltinItemComputed:
     )
 
 
-def _compute_list_item(
-    list_id: UUID,
-    list_map: dict[UUID, ContentList],
-) -> SidebarListItemComputed | None:
-    """Create a computed list item, or None if list doesn't exist."""
-    content_list = list_map.get(list_id)
-    if content_list is None:
+def _compute_filter_item(
+    filter_id: UUID,
+    filter_map: dict[UUID, ContentFilter],
+) -> SidebarFilterItemComputed | None:
+    """Create a computed filter item, or None if filter doesn't exist."""
+    content_filter = filter_map.get(filter_id)
+    if content_filter is None:
         return None
-    return SidebarListItemComputed(
-        type="list",
-        id=list_id,
-        name=content_list.name,
-        content_types=content_list.content_types,
+    return SidebarFilterItemComputed(
+        type="filter",
+        id=filter_id,
+        name=content_filter.name,
+        content_types=content_filter.content_types,
     )
 
 
 def _compute_items(
     items: list[dict],
-    list_map: dict[UUID, ContentList],
-    seen_list_ids: set[UUID],
-) -> list[SidebarBuiltinItemComputed | SidebarListItemComputed | SidebarGroupComputed]:
+    filter_map: dict[UUID, ContentFilter],
+    seen_filter_ids: set[UUID],
+) -> list[SidebarBuiltinItemComputed | SidebarFilterItemComputed | SidebarCollectionComputed]:
     """
-    Compute a list of sidebar items, resolving list names and filtering orphans.
+    Compute a list of sidebar items, resolving filter names and filtering orphans.
 
     Args:
         items: Raw sidebar items from the database.
-        list_map: Map of list_id -> ContentList for this user.
-        seen_list_ids: Set to track which list IDs we've seen (modified in place).
+        filter_map: Map of filter_id -> ContentFilter for this user.
+        seen_filter_ids: Set to track which filter IDs we've seen (modified in place).
 
     Returns:
         List of computed sidebar items with resolved names.
     """
     computed: list[
-        SidebarBuiltinItemComputed | SidebarListItemComputed | SidebarGroupComputed
+        SidebarBuiltinItemComputed | SidebarFilterItemComputed | SidebarCollectionComputed
     ] = []
 
     for item in items:
@@ -160,47 +160,53 @@ def _compute_items(
             if key in BUILTIN_DISPLAY_NAMES:
                 computed.append(_compute_builtin_item(key))
 
-        elif item_type == "list":
-            raw_list_id = item.get("id")
-            if raw_list_id is not None:
+        elif item_type == "filter":
+            raw_filter_id = item.get("id")
+            if raw_filter_id is not None:
                 # Convert string ID from JSON to UUID
-                list_id = UUID(raw_list_id) if isinstance(raw_list_id, str) else raw_list_id
-                computed_item = _compute_list_item(list_id, list_map)
+                if isinstance(raw_filter_id, str):
+                    filter_id = UUID(raw_filter_id)
+                else:
+                    filter_id = raw_filter_id
+                computed_item = _compute_filter_item(filter_id, filter_map)
                 if computed_item is not None:
                     computed.append(computed_item)
-                    seen_list_ids.add(list_id)
+                    seen_filter_ids.add(filter_id)
 
-        elif item_type == "group":
-            # Validate required group fields
-            group_id = item.get("id")
-            group_name = item.get("name")
-            if not group_id or not group_name:
+        elif item_type == "collection":
+            # Validate required collection fields
+            collection_id = item.get("id")
+            collection_name = item.get("name")
+            if not collection_id or not collection_name:
                 logger.warning(
-                    "Skipping malformed group in sidebar_order: missing id or name. "
+                    "Skipping malformed collection in sidebar_order: missing id or name. "
                     "item=%r",
                     item,
                 )
                 continue
 
-            # Recursively compute group items
-            group_items = item.get("items", [])
-            computed_group_items = _compute_items(group_items, list_map, seen_list_ids)
+            # Recursively compute collection items
+            collection_items = item.get("items", [])
+            computed_collection_items = _compute_items(
+                collection_items, filter_map, seen_filter_ids,
+            )
 
-            # Only include builtin and list items in group (filter out any nested groups)
-            valid_group_items: list[
-                SidebarListItemComputed | SidebarBuiltinItemComputed
+            # Only include builtin and filter items in collection
+            # (filter out any nested collections)
+            valid_collection_items: list[
+                SidebarFilterItemComputed | SidebarBuiltinItemComputed
             ] = [
                 i
-                for i in computed_group_items
-                if isinstance(i, SidebarListItemComputed | SidebarBuiltinItemComputed)
+                for i in computed_collection_items
+                if isinstance(i, SidebarFilterItemComputed | SidebarBuiltinItemComputed)
             ]
 
             computed.append(
-                SidebarGroupComputed(
-                    type="group",
-                    id=group_id,
-                    name=group_name,
-                    items=valid_group_items,
+                SidebarCollectionComputed(
+                    type="collection",
+                    id=collection_id,
+                    name=collection_name,
+                    items=valid_collection_items,
                 ),
             )
 
@@ -210,52 +216,52 @@ def _compute_items(
 async def get_computed_sidebar(
     db: AsyncSession,
     user_id: UUID,
-    lists: list[ContentList],
+    filters: list[ContentFilter],
 ) -> SidebarOrderComputed:
     """
-    Fetch sidebar_order and resolve list names/content_types.
+    Fetch sidebar_order and resolve filter names/content_types.
 
     Args:
         db: Database session.
         user_id: The user's ID.
-        lists: Pre-fetched list of user's ContentLists.
+        filters: Pre-fetched list of user's ContentFilters.
 
     Returns:
-        Computed sidebar with resolved list names and content types.
+        Computed sidebar with resolved filter names and content types.
 
     Processing:
         1. Get raw sidebar_order from UserSettings
-        2. Walk the structure, resolving list IDs to names/content_types
-        3. Filter out orphaned references (lists in sidebar but deleted from DB)
-        4. Prepend orphaned lists (lists in DB but not in sidebar) to root
+        2. Walk the structure, resolving filter IDs to names/content_types
+        3. Filter out orphaned references (filters in sidebar but deleted from DB)
+        4. Prepend orphaned filters (filters in DB but not in sidebar) to root
         5. Add display names for builtins
     """
     settings = await get_or_create_settings(db, user_id)
     sidebar_order = _ensure_sidebar_order_structure(settings.sidebar_order)
 
-    # Build map of list_id -> ContentList
-    list_map = {lst.id: lst for lst in lists}
+    # Build map of filter_id -> ContentFilter
+    filter_map = {f.id: f for f in filters}
 
-    # Track which lists we've seen in the sidebar structure
-    seen_list_ids: set[UUID] = set()
+    # Track which filters we've seen in the sidebar structure
+    seen_filter_ids: set[UUID] = set()
 
-    # Compute items (resolves names, filters deleted lists)
+    # Compute items (resolves names, filters deleted filters)
     computed_items = _compute_items(
         sidebar_order.get("items", []),
-        list_map,
-        seen_list_ids,
+        filter_map,
+        seen_filter_ids,
     )
 
-    # Prepend orphaned lists (in DB but not in sidebar) to root
-    orphaned_items: list[SidebarListItemComputed] = []
-    for list_id, content_list in list_map.items():
-        if list_id not in seen_list_ids:
+    # Prepend orphaned filters (in DB but not in sidebar) to root
+    orphaned_items: list[SidebarFilterItemComputed] = []
+    for filter_id, content_filter in filter_map.items():
+        if filter_id not in seen_filter_ids:
             orphaned_items.append(
-                SidebarListItemComputed(
-                    type="list",
-                    id=list_id,
-                    name=content_list.name,
-                    content_types=content_list.content_types,
+                SidebarFilterItemComputed(
+                    type="filter",
+                    id=filter_id,
+                    name=content_filter.name,
+                    content_types=content_filter.content_types,
                 ),
             )
     if orphaned_items:
@@ -269,49 +275,49 @@ async def get_computed_sidebar(
 
 def _validate_sidebar_order(
     sidebar_order: SidebarOrder,
-    user_list_ids: set[UUID],
+    user_filter_ids: set[UUID],
 ) -> None:
     """
     Validate a sidebar order structure.
 
     Args:
         sidebar_order: The sidebar order to validate.
-        user_list_ids: Set of list IDs that belong to this user.
+        user_filter_ids: Set of filter IDs that belong to this user.
 
     Raises:
         SidebarDuplicateItemError: If a duplicate item is found.
-        SidebarListNotFoundError: If a list ID doesn't exist or belong to user.
-        SidebarNestedGroupError: If groups are nested.
+        SidebarFilterNotFoundError: If a filter ID doesn't exist or belong to user.
+        SidebarNestedCollectionError: If collections are nested.
     """
     # Extract all items for duplicate checking
-    seen_list_ids: set[UUID] = set()
+    seen_filter_ids: set[UUID] = set()
     seen_builtin_keys: set[str] = set()
-    seen_group_ids: set[str] = set()
+    seen_collection_ids: set[str] = set()
 
-    def validate_item(item: SidebarItem, allow_groups: bool = True) -> None:
+    def validate_item(item: SidebarItem, allow_collections: bool = True) -> None:
         """Validate a single item and track for duplicates."""
         if isinstance(item, SidebarBuiltinItem):
             if item.key in seen_builtin_keys:
                 raise SidebarDuplicateItemError("builtin", item.key)
             seen_builtin_keys.add(item.key)
 
-        elif isinstance(item, SidebarListItem):
-            if item.id in seen_list_ids:
-                raise SidebarDuplicateItemError("list", item.id)
-            if item.id not in user_list_ids:
-                raise SidebarListNotFoundError(item.id)
-            seen_list_ids.add(item.id)
+        elif isinstance(item, SidebarFilterItem):
+            if item.id in seen_filter_ids:
+                raise SidebarDuplicateItemError("filter", item.id)
+            if item.id not in user_filter_ids:
+                raise SidebarFilterNotFoundError(item.id)
+            seen_filter_ids.add(item.id)
 
-        elif isinstance(item, SidebarGroup):
-            if not allow_groups:
-                raise SidebarNestedGroupError()
-            if item.id in seen_group_ids:
-                raise SidebarDuplicateItemError("group", item.id)
-            seen_group_ids.add(item.id)
+        elif isinstance(item, SidebarCollection):
+            if not allow_collections:
+                raise SidebarNestedCollectionError()
+            if item.id in seen_collection_ids:
+                raise SidebarDuplicateItemError("collection", item.id)
+            seen_collection_ids.add(item.id)
 
-            # Validate group children (no nested groups allowed)
+            # Validate collection children (no nested collections allowed)
             for child in item.items:
-                validate_item(child, allow_groups=False)
+                validate_item(child, allow_collections=False)
 
     # Validate all top-level items
     for item in sidebar_order.items:
@@ -322,7 +328,7 @@ async def update_sidebar_order(
     db: AsyncSession,
     user_id: UUID,
     sidebar_order: SidebarOrder,
-    user_list_ids: set[UUID],
+    user_filter_ids: set[UUID],
 ) -> UserSettings:
     """
     Validate and save sidebar structure.
@@ -331,18 +337,18 @@ async def update_sidebar_order(
         db: Database session.
         user_id: The user's ID.
         sidebar_order: The new sidebar structure.
-        user_list_ids: Set of list IDs that belong to this user.
+        user_filter_ids: Set of filter IDs that belong to this user.
 
     Returns:
         Updated UserSettings.
 
     Raises:
         SidebarDuplicateItemError: If a duplicate item is found.
-        SidebarListNotFoundError: If a list ID doesn't exist or belong to user.
-        SidebarNestedGroupError: If groups are nested.
+        SidebarFilterNotFoundError: If a filter ID doesn't exist or belong to user.
+        SidebarNestedCollectionError: If collections are nested.
     """
     # Validate the structure
-    _validate_sidebar_order(sidebar_order, user_list_ids)
+    _validate_sidebar_order(sidebar_order, user_filter_ids)
 
     # Get or create settings
     settings = await get_or_create_settings(db, user_id)
@@ -357,18 +363,18 @@ async def update_sidebar_order(
     return settings
 
 
-async def add_list_to_sidebar(
+async def add_filter_to_sidebar(
     db: AsyncSession,
     user_id: UUID,
-    list_id: UUID,
+    filter_id: UUID,
 ) -> UserSettings:
     """
-    Add a newly created list to the end of sidebar_order.items.
+    Add a newly created filter to the end of sidebar_order.items.
 
     Args:
         db: Database session.
         user_id: The user's ID.
-        list_id: The ID of the newly created list.
+        filter_id: The ID of the newly created filter.
 
     Returns:
         Updated UserSettings.
@@ -378,14 +384,14 @@ async def add_list_to_sidebar(
     # Get or create sidebar order structure (creates a copy)
     sidebar_order = _ensure_sidebar_order_structure(settings.sidebar_order)
 
-    # Check if list already exists in sidebar
-    existing_list_ids = _extract_list_ids_from_items(sidebar_order.get("items", []))
-    if list_id in existing_list_ids:
-        # List already exists, no change needed
+    # Check if filter already exists in sidebar
+    existing_filter_ids = _extract_filter_ids_from_items(sidebar_order.get("items", []))
+    if filter_id in existing_filter_ids:
+        # Filter already exists, no change needed
         return settings
 
     # Append to the end of root items (convert UUID to string for JSON storage)
-    sidebar_order["items"].append({"type": "list", "id": str(list_id)})
+    sidebar_order["items"].append({"type": "filter", "id": str(filter_id)})
 
     settings.sidebar_order = sidebar_order
     flag_modified(settings, "sidebar_order")
@@ -396,13 +402,13 @@ async def add_list_to_sidebar(
     return settings
 
 
-def _remove_list_from_items(items: list[dict], list_id: UUID) -> tuple[list[dict], bool]:
+def _remove_filter_from_items(items: list[dict], filter_id: UUID) -> tuple[list[dict], bool]:
     """
-    Remove a list from items (recursively searches groups).
+    Remove a filter from items (recursively searches collections).
 
     Args:
         items: List of sidebar items.
-        list_id: The list ID to remove.
+        filter_id: The filter ID to remove.
 
     Returns:
         Tuple of (new items list, was_removed).
@@ -411,42 +417,42 @@ def _remove_list_from_items(items: list[dict], list_id: UUID) -> tuple[list[dict
     was_removed = False
 
     for item in items:
-        if item.get("type") == "list":
+        if item.get("type") == "filter":
             # Compare with string version since IDs are stored as strings in JSON
             item_id_str = item.get("id")
-            if item_id_str == str(list_id):
+            if item_id_str == str(filter_id):
                 was_removed = True
                 continue
 
-        if item.get("type") == "group":
-            # Recursively process group items
-            group_items, group_removed = _remove_list_from_items(
+        if item.get("type") == "collection":
+            # Recursively process collection items
+            collection_items, collection_removed = _remove_filter_from_items(
                 item.get("items", []),
-                list_id,
+                filter_id,
             )
-            if group_removed:
+            if collection_removed:
                 was_removed = True
-            new_items.append({**item, "items": group_items})
+            new_items.append({**item, "items": collection_items})
         else:
             new_items.append(item)
 
     return new_items, was_removed
 
 
-async def remove_list_from_sidebar(
+async def remove_filter_from_sidebar(
     db: AsyncSession,
     user_id: UUID,
-    list_id: UUID,
+    filter_id: UUID,
 ) -> UserSettings | None:
     """
-    Remove a list from sidebar_order.
+    Remove a filter from sidebar_order.
 
-    Searches through items and group items to find and remove the list.
+    Searches through items and collection items to find and remove the filter.
 
     Args:
         db: Database session.
         user_id: The user's ID.
-        list_id: The ID of the list to remove.
+        filter_id: The ID of the filter to remove.
 
     Returns:
         Updated UserSettings, or None if no settings exist.
@@ -460,10 +466,10 @@ async def remove_list_from_sidebar(
     # Deep copy to avoid mutation issues with SQLAlchemy JSONB
     sidebar_order = copy.deepcopy(settings.sidebar_order)
 
-    # Remove the list from items (recursive)
-    new_items, was_removed = _remove_list_from_items(
+    # Remove the filter from items (recursive)
+    new_items, was_removed = _remove_filter_from_items(
         sidebar_order.get("items", []),
-        list_id,
+        filter_id,
     )
 
     if was_removed:

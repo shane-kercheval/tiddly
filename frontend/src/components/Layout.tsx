@@ -7,7 +7,7 @@ import { Footer } from './Footer'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useSidebarStore } from '../stores/sidebarStore'
 import { useSettingsStore } from '../stores/settingsStore'
-import { useListsStore } from '../stores/listsStore'
+import { useFiltersStore } from '../stores/filtersStore'
 import { useTagsStore } from '../stores/tagsStore'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 
@@ -16,7 +16,7 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
  * Includes sidebar with navigation and user controls.
  *
  * Responsibilities:
- * - Fetch shared data (sidebar, lists, tags) once on mount
+ * - Fetch shared data (sidebar, filters, tags) once on mount
  * - Render sidebar and main content area
  * - Handle global keyboard shortcuts
  */
@@ -25,7 +25,7 @@ export function Layout(): ReactNode {
   const toggleFullWidthLayout = useUIPreferencesStore((state) => state.toggleFullWidthLayout)
   const toggleSidebar = useSidebarStore((state) => state.toggleCollapse)
   const fetchSidebar = useSettingsStore((state) => state.fetchSidebar)
-  const fetchLists = useListsStore((state) => state.fetchLists)
+  const fetchFilters = useFiltersStore((state) => state.fetchFilters)
   const fetchTags = useTagsStore((state) => state.fetchTags)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const location = useLocation()
@@ -37,10 +37,10 @@ export function Layout(): ReactNode {
     if (!hasFetchedRef.current) {
       hasFetchedRef.current = true
       fetchSidebar()
-      fetchLists()
+      fetchFilters()
       fetchTags()
     }
-  }, [fetchSidebar, fetchLists, fetchTags])
+  }, [fetchSidebar, fetchFilters, fetchTags])
 
   // Global keyboard shortcuts (work on all pages)
   useKeyboardShortcuts({

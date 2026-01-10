@@ -11,8 +11,8 @@ from api.routers import (
     bookmarks,
     consent,
     content,
+    filters,
     health,
-    lists,
     notes,
     prompts,
     settings,
@@ -141,5 +141,5 @@ app.include_router(prompts.router)
 app.include_router(content.router)
 app.include_router(tags.router)
 app.include_router(tokens.router)
-app.include_router(lists.router)
+app.include_router(filters.router)
 app.include_router(settings.router)

@@ -35,16 +35,16 @@ class SidebarDuplicateItemError(SidebarValidationError):
         super().__init__(f"Duplicate {item_type} item: {item_id}")
 
 
-class SidebarListNotFoundError(SidebarValidationError):
-    """Raised when a list ID in the sidebar doesn't exist or doesn't belong to the user."""
+class SidebarFilterNotFoundError(SidebarValidationError):
+    """Raised when a filter ID in the sidebar doesn't exist or doesn't belong to the user."""
 
-    def __init__(self, list_id: UUID) -> None:
-        self.list_id = list_id
-        super().__init__(f"List not found or not owned by user: {list_id}")
+    def __init__(self, filter_id: UUID) -> None:
+        self.filter_id = filter_id
+        super().__init__(f"Filter not found or not owned by user: {filter_id}")
 
 
-class SidebarNestedGroupError(SidebarValidationError):
-    """Raised when groups are nested (not allowed)."""
+class SidebarNestedCollectionError(SidebarValidationError):
+    """Raised when collections are nested (not allowed)."""
 
     def __init__(self) -> None:
-        super().__init__("Nested groups are not allowed")
+        super().__init__("Nested collections are not allowed")

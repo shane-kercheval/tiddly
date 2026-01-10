@@ -210,7 +210,7 @@ export function normalizeTag(tag: string): string {
 // Sorting Utilities
 // ============================================================================
 
-import type { ContentList, TagCount } from './types'
+import type { ContentFilter, TagCount } from './types'
 
 export type TagSortOption = 'name-asc' | 'name-desc' | 'count-asc' | 'count-desc'
 
@@ -240,18 +240,18 @@ export function sortTags(tags: TagCount[], sortOption: TagSortOption): TagCount[
 // ============================================================================
 
 /**
- * Extract tags from the first filter group of a content list.
- * Used for pre-populating tags when adding bookmarks from a custom list view.
+ * Extract tags from the first filter group of a content filter.
+ * Used for pre-populating tags when adding bookmarks from a custom filter view.
  *
- * @param list - The content list to extract tags from
+ * @param filter - The content filter to extract tags from
  * @returns Array of tags from the first filter group, or undefined if no tags
  *
  * @example
- * // List with filter: (react AND typescript) OR (vue)
- * getFirstGroupTags(list) // returns ['react', 'typescript']
+ * // Filter with expression: (react AND typescript) OR (vue)
+ * getFirstGroupTags(filter) // returns ['react', 'typescript']
  */
-export function getFirstGroupTags(list: ContentList | undefined): string[] | undefined {
-  const firstGroup = list?.filter_expression?.groups?.[0]
+export function getFirstGroupTags(filter: ContentFilter | undefined): string[] | undefined {
+  const firstGroup = filter?.filter_expression?.groups?.[0]
   return firstGroup?.tags?.length ? firstGroup.tags : undefined
 }
 

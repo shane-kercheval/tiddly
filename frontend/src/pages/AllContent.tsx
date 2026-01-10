@@ -3,7 +3,7 @@
  *
  * This is the main content page for the app, handling:
  * - All, Archived, Trash views
- * - Custom lists (any content types)
+ * - Custom filters (any content types)
  * - Bookmark add/edit navigation
  * - Note/Prompt navigation with proper return state
  */
@@ -44,7 +44,7 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useContentTypeFilterStore, ALL_CONTENT_TYPES } from '../stores/contentTypeFilterStore'
-import { useListsStore } from '../stores/listsStore'
+import { useFiltersStore } from '../stores/filtersStore'
 import type { PageSize } from '../stores/uiPreferencesStore'
 import type { SortByOption } from '../constants/sortOptions'
 import { BookmarkCard } from '../components/BookmarkCard'
@@ -125,52 +125,52 @@ export function AllContent(): ReactNode {
     clearFilters: clearTagFilters,
   } = useTagFilterStore()
 
-  // Route-based view and list ID
-  const { currentView, currentListId } = useContentView('/app/content')
+  // Route-based view and filter ID
+  const { currentView, currentFilterId } = useContentView('/app/content')
 
-  // Get current list data for custom lists
-  const { lists } = useListsStore()
-  const currentList = useMemo(
-    () => currentListId !== undefined ? lists.find(l => l.id === currentListId) : undefined,
-    [currentListId, lists]
+  // Get current filter data for custom filters
+  const { filters } = useFiltersStore()
+  const currentFilter = useMemo(
+    () => currentFilterId !== undefined ? filters.find(f => f.id === currentFilterId) : undefined,
+    [currentFilterId, filters]
   )
 
-  // Content type filter - builtin views always, lists only when multiple types exist
+  // Content type filter - builtin views always, filters only when multiple types exist
   const { getSelectedTypes, toggleType } = useContentTypeFilterStore()
   const availableContentTypes = useMemo(() => {
-    if (currentListId === undefined) return ALL_CONTENT_TYPES
-    const listTypes = currentList?.content_types
-    return listTypes && listTypes.length > 0 ? listTypes : ALL_CONTENT_TYPES
-  }, [currentListId, currentList])
-  const contentTypeFilterKey = currentListId !== undefined ? `list:${currentListId}` : currentView
-  const shouldShowContentTypeFilters = currentListId === undefined || availableContentTypes.length > 1
+    if (currentFilterId === undefined) return ALL_CONTENT_TYPES
+    const filterTypes = currentFilter?.content_types
+    return filterTypes && filterTypes.length > 0 ? filterTypes : ALL_CONTENT_TYPES
+  }, [currentFilterId, currentFilter])
+  const contentTypeFilterKey = currentFilterId !== undefined ? `filter:${currentFilterId}` : currentView
+  const shouldShowContentTypeFilters = currentFilterId === undefined || availableContentTypes.length > 1
   const selectedContentTypes = shouldShowContentTypeFilters
     ? getSelectedTypes(contentTypeFilterKey, availableContentTypes)
     : undefined
 
   // Per-view sort
-  const viewKey = useMemo(() => getViewKey(currentView, currentListId), [currentView, currentListId])
-  const listDefault = useMemo(
-    () => currentList
+  const viewKey = useMemo(() => getViewKey(currentView, currentFilterId), [currentView, currentFilterId])
+  const filterDefault = useMemo(
+    () => currentFilter
       ? {
-          sortBy: currentList.default_sort_by,
-          ascending: currentList.default_sort_ascending,
+          sortBy: currentFilter.default_sort_by,
+          ascending: currentFilter.default_sort_ascending,
         }
       : undefined,
-    [currentList]
+    [currentFilter]
   )
   const { sortBy, sortOrder, setSort, availableSortOptions } = useEffectiveSort(
     viewKey,
     currentView,
-    listDefault
+    filterDefault
   )
 
-  // Get initial tags from current list's first filter group (for pre-populating new bookmarks)
-  const initialTagsFromList = useMemo(() => {
-    if (!currentListId) return undefined
-    const list = lists.find((l) => l.id === currentListId)
-    return getFirstGroupTags(list)
-  }, [currentListId, lists])
+  // Get initial tags from current filter's first filter group (for pre-populating new bookmarks)
+  const initialTagsFromFilter = useMemo(() => {
+    if (!currentFilterId) return undefined
+    const filter = filters.find((f) => f.id === currentFilterId)
+    return getFirstGroupTags(filter)
+  }, [currentFilterId, filters])
 
   useEffect(() => {
     if (searchParams.get('action') === 'add') {
@@ -187,7 +187,7 @@ export function AllContent(): ReactNode {
         navigate('/app/bookmarks/new', {
           state: {
             ...createReturnState(),
-            initialTags: initialTagsFromList,
+            initialTags: initialTagsFromFilter,
           },
         })
       }
@@ -204,7 +204,7 @@ export function AllContent(): ReactNode {
           state: {
             ...createReturnState(),
             initialUrl: url,
-            initialTags: initialTagsFromList,
+            initialTags: initialTagsFromFilter,
           },
         })
       }
@@ -230,10 +230,10 @@ export function AllContent(): ReactNode {
       offset,
       limit: pageSize,
       view: currentView,
-      list_id: currentListId,
+      filter_id: currentFilterId,
       content_types: selectedContentTypes,
     }),
-    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentListId, selectedContentTypes]
+    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentFilterId, selectedContentTypes]
   )
 
   // Fetch content with TanStack Query
@@ -526,16 +526,16 @@ export function AllContent(): ReactNode {
 
   // Quick-add handlers
   const handleQuickAddBookmark = useCallback((): void => {
-    navigate('/app/bookmarks/new', { state: { ...createReturnState(), initialTags: initialTagsFromList } })
-  }, [navigate, createReturnState, initialTagsFromList])
+    navigate('/app/bookmarks/new', { state: { ...createReturnState(), initialTags: initialTagsFromFilter } })
+  }, [navigate, createReturnState, initialTagsFromFilter])
 
   const handleQuickAddNote = useCallback((): void => {
-    navigate('/app/notes/new', { state: { ...createReturnState(), initialTags: initialTagsFromList } })
-  }, [navigate, createReturnState, initialTagsFromList])
+    navigate('/app/notes/new', { state: { ...createReturnState(), initialTags: initialTagsFromFilter } })
+  }, [navigate, createReturnState, initialTagsFromFilter])
 
   const handleQuickAddPrompt = useCallback((): void => {
-    navigate('/app/prompts/new', { state: { ...createReturnState(), initialTags: initialTagsFromList } })
-  }, [navigate, createReturnState, initialTagsFromList])
+    navigate('/app/prompts/new', { state: { ...createReturnState(), initialTags: initialTagsFromFilter } })
+  }, [navigate, createReturnState, initialTagsFromFilter])
 
   const contentTypeActions = useMemo<Record<ContentType, {
     pluralLabel: string
@@ -761,7 +761,7 @@ export function AllContent(): ReactNode {
                 onAddBookmark={handleQuickAddBookmark}
                 onAddNote={handleQuickAddNote}
                 onAddPrompt={handleQuickAddPrompt}
-                contentTypes={currentList?.content_types}
+                contentTypes={currentFilter?.content_types}
               />
             ) : undefined
           }

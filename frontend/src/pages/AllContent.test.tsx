@@ -213,14 +213,14 @@ vi.mock('../stores/contentTypeFilterStore', () => ({
   }),
 }))
 
-vi.mock('../stores/listsStore', () => ({
-  useListsStore: () => ({
-    lists: [
+vi.mock('../stores/filtersStore', () => ({
+  useFiltersStore: () => ({
+    filters: [
       {
         id: '1',
         name: 'Reading List',
         content_types: ['bookmark'],
-        filter_expression: { groups: [{ tags: ['list-tag-1', 'list-tag-2'], operator: 'AND' }], group_operator: 'OR' },
+        filter_expression: { groups: [{ tags: ['filter-tag-1', 'filter-tag-2'], operator: 'AND' }], group_operator: 'OR' },
         default_sort_by: null,
         default_sort_ascending: null,
         created_at: '2024-01-01T00:00:00Z',

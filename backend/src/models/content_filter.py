@@ -1,4 +1,4 @@
-"""ContentList model for storing custom lists with tag filters."""
+"""ContentFilter model for storing custom filters with tag-based filter expressions."""
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -12,9 +12,9 @@ if TYPE_CHECKING:
     from models.user import User
 
 
-class ContentList(Base, UUIDv7Mixin, TimestampMixin):
+class ContentFilter(Base, UUIDv7Mixin, TimestampMixin):
     """
-    ContentList model - stores custom lists with tag-based filter expressions.
+    ContentFilter model - stores custom filters with tag-based filter expressions.
 
     Filter expressions use AND groups combined by OR:
     {
@@ -27,7 +27,7 @@ class ContentList(Base, UUIDv7Mixin, TimestampMixin):
     Evaluates to: (work AND priority) OR (urgent)
     """
 
-    __tablename__ = "content_lists"
+    __tablename__ = "content_filters"
 
     # id provided by UUIDv7Mixin
     user_id: Mapped[UUID] = mapped_column(
@@ -39,7 +39,7 @@ class ContentList(Base, UUIDv7Mixin, TimestampMixin):
         JSONB,
         nullable=False,
         default=["bookmark", "note"],
-        comment="Content types this list applies to: bookmark, note, todo",
+        comment="Content types this filter applies to: bookmark, note, prompt",
     )
     filter_expression: Mapped[dict] = mapped_column(
         JSONB,
@@ -49,4 +49,4 @@ class ContentList(Base, UUIDv7Mixin, TimestampMixin):
     default_sort_by: Mapped[str | None] = mapped_column(String(20), nullable=True)
     default_sort_ascending: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
-    user: Mapped["User"] = relationship("User", back_populates="content_lists")
+    user: Mapped["User"] = relationship("User", back_populates="content_filters")
