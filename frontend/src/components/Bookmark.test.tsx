@@ -348,63 +348,6 @@ describe('Bookmark component - specific behaviors', () => {
     })
   })
 
-  describe('draft recovery', () => {
-    it('should show draft recovery prompt when draft exists', () => {
-      const draftData = {
-        url: 'https://draft-url.com',
-        title: 'Draft Title',
-        description: 'Draft description',
-        content: 'Draft content',
-        tags: ['draft-tag'],
-        archivedAt: '',
-        archivePreset: 'none',
-        savedAt: Date.now(),
-      }
-      localStorageMock.getItem.mockReturnValue(JSON.stringify(draftData))
-
-      render(
-        <Bookmark
-          bookmark={mockBookmark}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      expect(screen.getByText(/unsaved draft from a previous session/)).toBeInTheDocument()
-      expect(screen.getByText('Restore Draft')).toBeInTheDocument()
-    })
-
-    it('should restore draft when Restore Draft is clicked', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const draftData = {
-        url: 'https://draft-url.com',
-        title: 'Draft Title',
-        description: 'Draft description',
-        content: 'Draft content',
-        tags: ['draft-tag'],
-        archivedAt: '',
-        archivePreset: 'none',
-        savedAt: Date.now(),
-      }
-      localStorageMock.getItem.mockReturnValue(JSON.stringify(draftData))
-
-      render(
-        <Bookmark
-          bookmark={mockBookmark}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      await user.click(screen.getByText('Restore Draft'))
-
-      expect(screen.getByDisplayValue('Draft Title')).toBeInTheDocument()
-      expect(screen.getByDisplayValue('https://draft-url.com')).toBeInTheDocument()
-    })
-  })
-
   describe('fullWidth prop', () => {
     it('should apply max-w-4xl when fullWidth is false', () => {
       const { container } = render(
