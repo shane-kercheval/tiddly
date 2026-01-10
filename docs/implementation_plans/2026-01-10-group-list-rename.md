@@ -27,6 +27,10 @@ Add a brief description explaining what Filters are for user clarity.
 | Group (sidebar) | Collection | (JSONB in `sidebar_order`) | (via `/settings/sidebar`) |
 | `filter_expression.groups` | **No change** | N/A | N/A |
 
+### MCP Servers
+
+**No changes required.** Neither `content-mcp-server` nor `prompt-mcp-server` reference `list_id` or the `/lists/` endpoint directly. They interact with bookmarks, notes, and prompts endpoints which use `filter_id` as a query parameter (renamed in this plan).
+
 ---
 
 ## Milestone 1: Database Migration
@@ -57,8 +61,9 @@ def upgrade() -> None:
     # 1. Rename table from content_lists to content_filters
     op.rename_table('content_lists', 'content_filters')
 
-    # 2. Rename the index to match new table name
+    # 2. Rename all indexes to match new table name
     op.execute('ALTER INDEX ix_content_lists_user_id RENAME TO ix_content_filters_user_id')
+    op.execute('ALTER INDEX ix_content_lists_updated_at RENAME TO ix_content_filters_updated_at')
 
     # 3. Update sidebar_order JSONB in user_settings
     # Replace type: "list" with type: "filter"
@@ -141,8 +146,9 @@ def downgrade() -> None:
           AND sidebar_order ? 'items'
     """)
 
-    # 2. Rename the index back
+    # 2. Rename all indexes back
     op.execute('ALTER INDEX ix_content_filters_user_id RENAME TO ix_content_lists_user_id')
+    op.execute('ALTER INDEX ix_content_filters_updated_at RENAME TO ix_content_lists_updated_at')
 
     # 3. Rename table back
     op.rename_table('content_filters', 'content_lists')
@@ -157,6 +163,9 @@ def downgrade() -> None:
 
   # Verify table was renamed
   \dt content_filters
+
+  # Verify indexes were renamed (should see ix_content_filters_user_id and ix_content_filters_updated_at)
+  \di *content_filters*
 
   # Verify sidebar_order JSONB was updated (check for 'filter' and 'collection' types)
   SELECT id, sidebar_order FROM user_settings WHERE sidebar_order IS NOT NULL LIMIT 5;
@@ -496,15 +505,22 @@ export function FilterModal({ ... }): ReactNode {
 ## Milestone 6: Frontend Components - Collection Modal (New Feature)
 
 ### Goal
-Create a new modal for creating/editing Collections, allowing users to select which Filters to include.
+Create a new modal for creating/editing Collections, allowing users to optionally select which Filters to include.
 
 ### Success Criteria
 - New `CollectionModal.tsx` component created
 - Modal allows setting Collection name
-- Modal displays available Filters as selectable tag-style items
+- Filter selection is **optional** - users can create empty Collections
+- Only shows Filters that are **not already in other Collections** (avoids duplicate validation errors)
+- When no Filters are available, displays helpful empty state text
 - Selected Filters appear as removable tags in selection order
 - Collections can be created and saved via sidebar API
 - Modal integrates with sidebar for creating/editing Collections
+
+### Key Design Decisions
+- **Filter selection is optional**: Users can create empty Collections and add Filters later via drag-and-drop
+- **Only unplaced Filters shown**: The `availableFilters` prop should only include Filters not already in other Collections. This prevents `SidebarDuplicateItemError` on the backend and avoids confusing UX.
+- **Empty state handling**: When all Filters are already in Collections, show helpful guidance text
 
 ### Key Changes
 
@@ -668,11 +684,11 @@ export function CollectionModal({
         </div>
 
         {/* Available Filters to Add */}
-        {unselectedFilters.length > 0 && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Add Filters
-            </label>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Add Filters
+          </label>
+          {unselectedFilters.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {unselectedFilters.map(filter => (
                 <button
@@ -686,8 +702,14 @@ export function CollectionModal({
                 </button>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <p className="text-sm text-gray-400 italic">
+              {availableFilters.length === 0
+                ? "No Filters available. Create Filters first, then add them to Collections."
+                : "All available Filters have been added to this Collection."}
+            </p>
+          )}
+        </div>
 
         {/* Submit buttons */}
         <div className="flex gap-3 pt-2">
@@ -726,6 +748,9 @@ Create `CollectionModal.test.tsx` with tests for:
 - Clicking × on selected filter removes it
 - Filters maintain selection order
 - Submit calls onCreate/onUpdate with correct data
+- **Can create Collection with no Filters selected (empty Collection)**
+- **Empty state shows correct message when no Filters available**
+- **Empty state shows correct message when all Filters already added**
 - Error state displays correctly
 
 ### Dependencies
@@ -733,6 +758,7 @@ Create `CollectionModal.test.tsx` with tests for:
 - Milestone 4 (types) must be complete
 
 ### Risk Factors
+- The parent component (Sidebar.tsx) must compute and pass `availableFilters` correctly - only Filters not already placed in other Collections
 - Need to wire up Collection create/update to sidebar API - verify how Groups are currently created
 
 ---
@@ -781,7 +807,12 @@ export function SidebarCollection({ ... }): ReactNode {
 - Update type references (`'group'` → `'collection'`, `'list'` → `'filter'`)
 
 **Update routes.ts:**
-- Update any route-related type references
+- Rename `getListRoute()` → `getFilterRoute()`
+- Update route path from `/app/content/lists/${listId}` → `/app/content/filters/${filterId}`
+
+**Update App.tsx:**
+- Update route pattern from `/app/content/lists/:listId` → `/app/content/filters/:filterId`
+- Update any parameter references from `listId` → `filterId`
 
 ### Testing Strategy
 - Rename and update test files:
@@ -980,4 +1011,7 @@ grep -rn "'group'" frontend/src/types.ts  # Type literals
 
 **Important notes:**
 - **Migrations:** Always create migrations using `make migration message="description"` - never create migration files manually
+- **MCP Servers:** No changes required - they don't reference `list_id` or `/lists/` directly
+- **Indexes:** Two indexes need renaming: `ix_content_lists_user_id` and `ix_content_lists_updated_at`
+- **Frontend Routes:** URL pattern changes from `/app/content/lists/:listId` → `/app/content/filters/:filterId`
 - **Key clarification:** The `filter_expression.groups` structure is intentionally **NOT** renamed - it represents groups of filter conditions, which is unrelated to sidebar "Groups" (now "Collections")
