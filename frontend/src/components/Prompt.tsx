@@ -97,6 +97,17 @@ interface FormErrors {
   arguments?: string
 }
 
+/** Error class for save errors with field-specific messages */
+export class SaveError extends Error {
+  fieldErrors: Partial<FormErrors>
+
+  constructor(message: string, fieldErrors: Partial<FormErrors>) {
+    super(message)
+    this.name = 'SaveError'
+    this.fieldErrors = fieldErrors
+  }
+}
+
 interface PromptProps {
   /** Existing prompt when editing, undefined when creating */
   prompt?: PromptType
@@ -448,9 +459,12 @@ export function Prompt({
           refocusAfterSaveRef.current = null
         }, 0)
       }
-    } catch {
-      // Error handling is done in the parent component
-      // Clear refocus ref on error too
+    } catch (err) {
+      // Handle field-specific errors from parent
+      if (err instanceof SaveError) {
+        setErrors((prev) => ({ ...prev, ...err.fieldErrors }))
+      }
+      // Clear refocus ref on error
       refocusAfterSaveRef.current = null
     }
   }
