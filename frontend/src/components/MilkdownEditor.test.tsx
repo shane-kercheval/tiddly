@@ -6,8 +6,8 @@
  * - Code block indentation (insert/remove 4 spaces)
  * - Regular text (no-op, but prevents focus escape)
  */
-import { describe, it, expect, vi } from 'vitest'
-import { EditorState } from '@milkdown/kit/prose/state'
+import { describe, it, expect } from 'vitest'
+import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { Schema } from '@milkdown/kit/prose/model'
 import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
 import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
@@ -49,7 +49,7 @@ describe('MilkdownEditor Tab functionality', () => {
       const state = EditorState.create({ doc, schema: testSchema })
       // Selection is at position 1 (inside the code block)
       const stateWithSelection = state.apply(
-        state.tr.setSelection(state.selection.constructor.near(state.doc.resolve(1)))
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
       )
 
       expect(isInCodeBlock(stateWithSelection)).toBe(true)
@@ -61,7 +61,7 @@ describe('MilkdownEditor Tab functionality', () => {
       ])
       const state = EditorState.create({ doc, schema: testSchema })
       const stateWithSelection = state.apply(
-        state.tr.setSelection(state.selection.constructor.near(state.doc.resolve(1)))
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
       )
 
       expect(isInCodeBlock(stateWithSelection)).toBe(false)
@@ -78,7 +78,7 @@ describe('MilkdownEditor Tab functionality', () => {
       const state = EditorState.create({ doc, schema: testSchema })
       // Position 3 is inside the paragraph within the list item
       const stateWithSelection = state.apply(
-        state.tr.setSelection(state.selection.constructor.near(state.doc.resolve(3)))
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(3)))
       )
 
       expect(isInCodeBlock(stateWithSelection)).toBe(false)
@@ -94,7 +94,7 @@ describe('MilkdownEditor Tab functionality', () => {
       // Position cursor at end of code block content
       const pos = doc.content.size - 1
       const stateWithSelection = state.apply(
-        state.tr.setSelection(state.selection.constructor.near(state.doc.resolve(pos)))
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(pos)))
       )
 
       // Simulate what the Tab handler does
@@ -114,7 +114,7 @@ describe('MilkdownEditor Tab functionality', () => {
       const state = EditorState.create({ doc, schema: testSchema })
       // Position cursor somewhere in the line
       const stateWithSelection = state.apply(
-        state.tr.setSelection(state.selection.constructor.near(state.doc.resolve(5)))
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(5)))
       )
 
       // Simulate what the Shift+Tab handler does
@@ -143,7 +143,7 @@ describe('MilkdownEditor Tab functionality', () => {
       ])
       const state = EditorState.create({ doc, schema: testSchema })
       const stateWithSelection = state.apply(
-        state.tr.setSelection(state.selection.constructor.near(state.doc.resolve(3)))
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(3)))
       )
 
       const { $from } = stateWithSelection.selection
@@ -186,7 +186,7 @@ describe('MilkdownEditor Tab functionality', () => {
       // Positions: 0    1              2 (li1)     3 (p)       4-10 (text)
       //                                11 (li2)    12 (p)      13-19 (text)
       const stateWithSelection = state.apply(
-        state.tr.setSelection(state.selection.constructor.near(state.doc.resolve(13)))
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(13)))
       )
 
       // Test that command can be executed (returns true if it made changes, false otherwise)
@@ -210,7 +210,7 @@ describe('MilkdownEditor Tab functionality', () => {
       ])
       const state = EditorState.create({ doc, schema: testSchema })
       const stateWithSelection = state.apply(
-        state.tr.setSelection(state.selection.constructor.near(state.doc.resolve(1)))
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
       )
 
       // Not in code block
@@ -231,16 +231,15 @@ describe('MilkdownEditor Tab functionality', () => {
 
   describe('keymap plugin creation', () => {
     it('should create a valid keymap with Tab and Shift-Tab bindings', () => {
-      const listItemType = testSchema.nodes.list_item
-
-      // Create the keymap (simplified version of what createTabKeymapPlugin does)
+      // Create the keymap (simplified version of what createListKeymapPlugin does)
       const keymapPlugin = createKeymap({
         'Tab': () => true,
         'Shift-Tab': () => true,
       })
 
       expect(keymapPlugin).toBeDefined()
-      expect(keymapPlugin.key).toBeDefined()
+      // Plugin has a spec with props containing handleKeyDown
+      expect(keymapPlugin.spec).toBeDefined()
     })
   })
 })

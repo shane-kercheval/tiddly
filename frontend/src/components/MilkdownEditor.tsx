@@ -553,15 +553,15 @@ function MilkdownEditorInner({
         // Configure remark-stringify options
         ctx.update(remarkStringifyOptionsCtx, (options) => ({
           ...options,
-          bullet: '-', // Use '-' for bullet markers consistently
-          rule: '-', // Use '---' for horizontal rules instead of '***'
+          bullet: '-' as const, // Use '-' for bullet markers consistently
+          rule: '-' as const, // Use '---' for horizontal rules instead of '***'
           // Join handler to force tight lists (no blank lines between list items)
           join: [
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             ...(Array.isArray((options as any).join) ? (options as any).join : []),
             // Return 0 to join list items without blank lines
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (left: any, right: any, parent: any) => {
+            (_left: any, _right: any, parent: any) => {
               if (parent && parent.type === 'list') {
                 return 0 // No blank lines between list items
               }
@@ -660,7 +660,8 @@ function MilkdownEditorInner({
    * Get the current list context for the selection.
    * Returns { listType, listItemDepth, listDepth, isTask } or null if not in a list.
    */
-  const getListContext = useCallback((view: ReturnType<typeof get> extends EditorType | undefined ? ReturnType<ReturnType<EditorType['ctx']['get']>> : never) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const getListContext = useCallback((view: any) => {
     const { $from } = view.state.selection
 
     // Find if we're in a list item (may be nested)
