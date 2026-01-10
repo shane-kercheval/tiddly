@@ -15,6 +15,7 @@ import { useState, useCallback, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { MilkdownEditor } from './MilkdownEditor'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
+import { wasEditorFocused } from '../utils/editorUtils'
 
 /** Editor mode: visual (WYSIWYG) or markdown (raw) */
 export type EditorMode = 'visual' | 'markdown'
@@ -244,6 +245,7 @@ export function ContentEditor({
             >
               <input
                 type="checkbox"
+                tabIndex={-1}
                 checked={wrapText}
                 onChange={(e) => handleWrapTextChange(e.target.checked)}
                 className="h-3.5 w-3.5 rounded border-gray-300 text-gray-600 focus:ring-gray-500/20"
@@ -257,10 +259,9 @@ export function ContentEditor({
           <div className="inline-flex rounded-md bg-gray-100 p-0.5" title="Toggle mode (⌘⇧M)">
             <button
               type="button"
+              tabIndex={-1}
               onMouseDown={(e) => {
-                const editorGroup = (e.currentTarget as HTMLElement).closest('.group\\/editor')
-                const editorHadFocus = editorGroup?.contains(document.activeElement) ?? false
-                if (editorHadFocus) {
+                if (wasEditorFocused(e.currentTarget)) {
                   e.preventDefault()
                   handleModeChange('visual')
                 }
@@ -275,10 +276,9 @@ export function ContentEditor({
             </button>
             <button
               type="button"
+              tabIndex={-1}
               onMouseDown={(e) => {
-                const editorGroup = (e.currentTarget as HTMLElement).closest('.group\\/editor')
-                const editorHadFocus = editorGroup?.contains(document.activeElement) ?? false
-                if (editorHadFocus) {
+                if (wasEditorFocused(e.currentTarget)) {
                   e.preventDefault()
                   handleModeChange('markdown')
                 }

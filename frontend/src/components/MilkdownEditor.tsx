@@ -97,7 +97,7 @@ import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
 import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
 import { Modal } from './ui/Modal'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
-import { shouldHandleEmptySpaceClick } from '../utils/editorUtils'
+import { shouldHandleEmptySpaceClick, wasEditorFocused } from '../utils/editorUtils'
 import type { Editor as EditorType } from '@milkdown/kit/core'
 
 /**
@@ -115,13 +115,10 @@ function ToolbarButton({ onAction, title, children }: ToolbarButtonProps): React
   return (
     <button
       type="button"
+      tabIndex={-1}
       onMouseDown={(e) => {
-        // Check if editor already has focus (toolbar was visible)
-        const editorGroup = (e.currentTarget as HTMLElement).closest('.group\\/editor')
-        const editorHadFocus = editorGroup?.contains(document.activeElement) ?? false
-
-        if (editorHadFocus) {
-          // Editor was focused - prevent default to avoid Safari focus issues, then execute action
+        if (wasEditorFocused(e.currentTarget)) {
+          // Editor was focused (toolbar visible) - execute action
           e.preventDefault()
           onAction()
         }
@@ -637,7 +634,6 @@ function MilkdownEditorInner({
       return () => clearTimeout(timer)
     }
   }, [get])
-
 
   // Link dialog state
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)

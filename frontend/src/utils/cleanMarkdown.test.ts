@@ -104,6 +104,43 @@ More content here.`
     })
   })
 
+  describe('underscore escaping', () => {
+    it('should remove backslash escapes before underscores', () => {
+      const input = 'variable\\_name'
+      expect(cleanMarkdown(input)).toBe('variable_name')
+    })
+
+    it('should handle multiple escaped underscores', () => {
+      const input = 'my\\_variable\\_name\\_here'
+      expect(cleanMarkdown(input)).toBe('my_variable_name_here')
+    })
+
+    it('should fix Jinja2 template variable names', () => {
+      const input = '{{ the\\_text }}'
+      expect(cleanMarkdown(input)).toBe('{{ the_text }}')
+    })
+
+    it('should fix Jinja2 if blocks with underscores', () => {
+      const input = '{% if my\\_variable %}content{% endif %}'
+      expect(cleanMarkdown(input)).toBe('{% if my_variable %}content{% endif %}')
+    })
+
+    it('should handle snake_case function names in code', () => {
+      const input = 'Call `get\\_user\\_data()` to fetch data.'
+      expect(cleanMarkdown(input)).toBe('Call `get_user_data()` to fetch data.')
+    })
+
+    it('should preserve regular underscores (no backslash)', () => {
+      const input = 'snake_case_variable'
+      expect(cleanMarkdown(input)).toBe('snake_case_variable')
+    })
+
+    it('should not affect emphasis using asterisks', () => {
+      const input = '**bold** and *italic* with some\\_underscores'
+      expect(cleanMarkdown(input)).toBe('**bold** and *italic* with some_underscores')
+    })
+  })
+
   describe('edge cases', () => {
     it('should handle empty string', () => {
       expect(cleanMarkdown('')).toBe('')
