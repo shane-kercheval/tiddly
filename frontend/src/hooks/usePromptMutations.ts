@@ -143,13 +143,16 @@ export function useUpdatePrompt() {
       const response = await api.patch<Prompt>(`/prompts/${id}`, data)
       return response.data
     },
-    onSuccess: () => {
+    onSuccess: (_, { data }) => {
       queryClient.invalidateQueries({ queryKey: promptKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: promptKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
-      fetchTags()
+      // Only refresh tags if tags were modified (reduces flicker on save)
+      if ('tags' in data) {
+        fetchTags()
+      }
     },
   })
 }

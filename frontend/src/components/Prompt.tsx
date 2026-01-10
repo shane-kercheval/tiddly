@@ -168,6 +168,8 @@ export function Prompt({
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const nameInputRef = useRef<HTMLInputElement>(null)
+  // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
+  const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
 
   // Read-only mode for deleted prompts
   const isReadOnly = viewState === 'deleted'
@@ -297,10 +299,15 @@ export function Prompt({
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
-      // Cmd+S or Ctrl+S to save
+      // Cmd+S or Ctrl+S to save (only if there are changes)
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
-        if (!isReadOnly) {
+        if (!isReadOnly && isDirty) {
+          // Save active element to restore focus after save (CodeMirror loses focus during save)
+          const activeElement = document.activeElement as HTMLElement | null
+          if (activeElement?.closest('.cm-editor')) {
+            refocusAfterSaveRef.current = activeElement
+          }
           formRef.current?.requestSubmit()
         }
       }
@@ -312,6 +319,7 @@ export function Prompt({
           resetDiscardConfirmation()
         } else if (e.key === 'Enter') {
           e.preventDefault()
+          confirmLeave() // Prevent navigation blocker from showing
           onClose()
         }
         return
@@ -325,7 +333,7 @@ export function Prompt({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [handleDiscardRequest, confirmingDiscard, resetDiscardConfirmation, onClose, isReadOnly])
+  }, [handleDiscardRequest, confirmingDiscard, resetDiscardConfirmation, onClose, isReadOnly, isDirty, confirmLeave])
 
   // Validation
   const validate = (): boolean => {
@@ -463,13 +471,29 @@ export function Prompt({
           updates.tags = tagsToSubmit
         }
 
+        // Early return if nothing changed (safety net for edge cases)
+        if (Object.keys(updates).length === 0) {
+          return
+        }
+
         await onSave(updates)
       }
 
       // Clear draft on successful save
       clearDraft()
+
+      // Restore focus if we saved via Cmd+S from CodeMirror (which loses focus during save)
+      if (refocusAfterSaveRef.current) {
+        // Small delay to ensure React has finished updating
+        setTimeout(() => {
+          refocusAfterSaveRef.current?.focus()
+          refocusAfterSaveRef.current = null
+        }, 0)
+      }
     } catch {
       // Error handling is done in the parent component
+      // Clear refocus ref on error too
+      refocusAfterSaveRef.current = null
     }
   }
 
@@ -521,7 +545,7 @@ export function Prompt({
       {/* Fixed header with action buttons */}
       <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
-          {/* Cancel button */}
+          {/* Close button */}
           <button
             type="button"
             onClick={handleDiscardRequest}
@@ -536,7 +560,7 @@ export function Prompt({
             {confirmingDiscard ? (
               <span>Discard?</span>
             ) : (
-              <span className="hidden md:inline">Cancel</span>
+              <span className="hidden md:inline">Close</span>
             )}
           </button>
 

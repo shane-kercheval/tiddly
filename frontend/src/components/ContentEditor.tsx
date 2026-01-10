@@ -15,6 +15,7 @@ import { useState, useCallback, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { MilkdownEditor } from './MilkdownEditor'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
+import { wasEditorFocused } from '../utils/editorUtils'
 
 /** Editor mode: visual (WYSIWYG) or markdown (raw) */
 export type EditorMode = 'visual' | 'markdown'
@@ -141,6 +142,9 @@ export function ContentEditor({
   // Track mode switches to force remount and clear undo history
   const [modeKey, setModeKey] = useState(0)
 
+  // Track if we should auto-focus the editor (after mode switch)
+  const [shouldAutoFocus, setShouldAutoFocus] = useState(false)
+
   // Wrap text preference (only applies to Markdown mode)
   const [wrapText, setWrapText] = useState(loadWrapTextPreference)
 
@@ -149,7 +153,17 @@ export function ContentEditor({
     setMode(newMode)
     saveModePreference(newMode)
     setModeKey((prev) => prev + 1) // Force remount to clear undo history
+    setShouldAutoFocus(true) // Auto-focus the new editor
   }, [])
+
+  // Reset shouldAutoFocus after editor mounts to prevent re-focusing on every render
+  useEffect(() => {
+    if (shouldAutoFocus) {
+      // Small delay to ensure focus has been applied
+      const timer = setTimeout(() => setShouldAutoFocus(false), 50)
+      return () => clearTimeout(timer)
+    }
+  }, [shouldAutoFocus])
 
   // Handle wrap text change
   const handleWrapTextChange = useCallback((wrap: boolean): void => {
@@ -157,15 +171,23 @@ export function ContentEditor({
     saveWrapTextPreference(wrap)
   }, [])
 
-  // Global keyboard handler for Alt+Z (Option+Z on Mac) to toggle wrap
-  // Uses capture phase to intercept before macOS converts to special character (Ω)
+  // Global keyboard handlers for editor shortcuts
+  // Uses capture phase to intercept before macOS converts to special character (Ω for Alt+Z)
   useEffect(() => {
-    if (mode !== 'markdown') return // Only applies to markdown mode
-
     const handleKeyDown = (e: KeyboardEvent): void => {
-      // Alt+Z (Option+Z on Mac) - toggle word wrap
+      const isMod = e.metaKey || e.ctrlKey
+
+      // Cmd+Shift+M - Toggle between Visual and Markdown modes
+      if (isMod && e.shiftKey && e.code === 'KeyM') {
+        e.preventDefault()
+        e.stopPropagation()
+        handleModeChange(mode === 'visual' ? 'markdown' : 'visual')
+        return
+      }
+
+      // Alt+Z (Option+Z on Mac) - toggle word wrap (only in markdown mode)
       // Use e.code which is independent of keyboard layout and modifier combinations
-      if (e.altKey && e.code === 'KeyZ') {
+      if (mode === 'markdown' && e.altKey && e.code === 'KeyZ') {
         e.preventDefault()
         e.stopPropagation()
         handleWrapTextChange(!wrapText)
@@ -174,7 +196,7 @@ export function ContentEditor({
 
     document.addEventListener('keydown', handleKeyDown, true)
     return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [mode, wrapText, handleWrapTextChange])
+  }, [mode, wrapText, handleWrapTextChange, handleModeChange])
 
   // Compute container border classes based on props
   // Three modes: no border, solid border, or subtle ring on focus
@@ -205,7 +227,16 @@ export function ContentEditor({
       {/* Header with label and mode toggle - hidden until focused */}
       <div className="flex items-center justify-between mb-1">
         {label ? <label className="label">{label}</label> : <div />}
-        <div className="flex items-center gap-2 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
+        <div
+          className="flex items-center gap-2 opacity-0 group-focus-within/editor:opacity-100 transition-opacity"
+          onClick={(e) => {
+            // Focus editor when clicking anywhere on the controls (reveals them when hidden)
+            const editorGroup = (e.currentTarget as HTMLElement).closest('.group\\/editor')
+            // Try ProseMirror (Milkdown) first, then CodeMirror
+            const editorElement = editorGroup?.querySelector('.ProseMirror, .cm-content') as HTMLElement
+            editorElement?.focus()
+          }}
+        >
           {/* Wrap text toggle (only in markdown mode) */}
           {mode === 'markdown' && (
             <label
@@ -214,6 +245,7 @@ export function ContentEditor({
             >
               <input
                 type="checkbox"
+                tabIndex={-1}
                 checked={wrapText}
                 onChange={(e) => handleWrapTextChange(e.target.checked)}
                 className="h-3.5 w-3.5 rounded border-gray-300 text-gray-600 focus:ring-gray-500/20"
@@ -222,11 +254,18 @@ export function ContentEditor({
             </label>
           )}
 
-          {/* Mode toggle */}
-          <div className="inline-flex rounded-md bg-gray-100 p-0.5">
+          {/* Mode toggle - uses onMouseDown to fire before Safari drops focus-within */}
+          {/* Only executes if editor was already focused (controls were visible) */}
+          <div className="inline-flex rounded-md bg-gray-100 p-0.5" title="Toggle mode (⌘⇧M)">
             <button
               type="button"
-              onClick={() => handleModeChange('visual')}
+              tabIndex={-1}
+              onMouseDown={(e) => {
+                if (wasEditorFocused(e.currentTarget)) {
+                  e.preventDefault()
+                  handleModeChange('visual')
+                }
+              }}
               className={`text-xs px-2 py-0.5 rounded transition-all ${
                 mode === 'visual'
                   ? 'bg-white text-gray-900 shadow-sm'
@@ -237,7 +276,13 @@ export function ContentEditor({
             </button>
             <button
               type="button"
-              onClick={() => handleModeChange('markdown')}
+              tabIndex={-1}
+              onMouseDown={(e) => {
+                if (wasEditorFocused(e.currentTarget)) {
+                  e.preventDefault()
+                  handleModeChange('markdown')
+                }
+              }}
               className={`text-xs px-2 py-0.5 rounded transition-all ${
                 mode === 'markdown'
                   ? 'bg-white text-gray-900 shadow-sm'
@@ -265,6 +310,7 @@ export function ContentEditor({
             placeholder={placeholder}
             noPadding={subtleBorder || !showBorder}
             showJinjaTools={showJinjaTools}
+            autoFocus={shouldAutoFocus}
           />
         ) : (
           <CodeMirrorEditor
@@ -276,6 +322,7 @@ export function ContentEditor({
             placeholder={placeholder}
             wrapText={wrapText}
             noPadding={subtleBorder || !showBorder}
+            autoFocus={shouldAutoFocus}
           />
         )}
       </div>

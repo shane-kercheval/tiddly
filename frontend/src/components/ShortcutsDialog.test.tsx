@@ -85,9 +85,11 @@ describe('ShortcutsDialog', () => {
   it('should display shortcut groups', () => {
     render(<ShortcutsDialog isOpen={true} onClose={vi.fn()} />)
 
+    // Left column groups
     expect(screen.getByText('Actions')).toBeInTheDocument()
     expect(screen.getByText('Navigation')).toBeInTheDocument()
     expect(screen.getByText('View')).toBeInTheDocument()
+    // Right column groups
     expect(screen.getByText('Markdown Editor')).toBeInTheDocument()
   })
 

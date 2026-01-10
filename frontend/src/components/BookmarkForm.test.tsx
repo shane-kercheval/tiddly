@@ -144,13 +144,13 @@ describe('BookmarkForm', () => {
       })
     })
 
-    it('should call onCancel when Cancel button is clicked', async () => {
+    it('should call onCancel when Close button is clicked', async () => {
       const onCancel = vi.fn()
       const user = userEvent.setup()
 
       render(<BookmarkForm {...defaultProps} onCancel={onCancel} />)
 
-      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      await user.click(screen.getByRole('button', { name: 'Close' }))
 
       expect(onCancel).toHaveBeenCalled()
     })
@@ -676,7 +676,7 @@ describe('BookmarkForm', () => {
 
       render(<BookmarkForm {...defaultProps} bookmark={mockBookmark} onCancel={onCancel} />)
 
-      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      await user.click(screen.getByRole('button', { name: 'Close' }))
 
       expect(onCancel).toHaveBeenCalledTimes(1)
     })
@@ -692,7 +692,7 @@ describe('BookmarkForm', () => {
       await user.type(screen.getByLabelText(/Title/), 'Changed Title')
 
       // First click should show confirmation
-      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      await user.click(screen.getByRole('button', { name: 'Close' }))
 
       expect(onCancel).not.toHaveBeenCalled()
       expect(screen.getByRole('button', { name: 'Discard?' })).toBeInTheDocument()
@@ -709,7 +709,7 @@ describe('BookmarkForm', () => {
       await user.type(screen.getByLabelText(/Title/), 'Changed Title')
 
       // First click - show confirmation
-      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      await user.click(screen.getByRole('button', { name: 'Close' }))
       expect(onCancel).not.toHaveBeenCalled()
 
       // Second click - execute cancel
@@ -800,7 +800,7 @@ describe('BookmarkForm', () => {
       // Press Escape again to cancel the confirmation
       await user.keyboard('{Escape}')
       expect(onCancel).not.toHaveBeenCalled()
-      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument()
     })
   })
 })

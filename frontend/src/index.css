@@ -310,7 +310,7 @@ body {
  * If you change these styles, update CHECKBOX_CLICK_AREA_WIDTH in MilkdownEditor.tsx accordingly.
  */
 .milkdown-wrapper .milkdown li[data-item-type="task"] {
-  @apply list-none flex flex-wrap items-start gap-x-2 my-1;
+  @apply list-none flex flex-wrap items-start gap-x-2;
 }
 
 /* Paragraph content inside task items should stay inline with checkbox */
@@ -321,16 +321,24 @@ body {
 /* Nested lists inside task items should take full width to appear below */
 .milkdown-wrapper .milkdown li[data-item-type="task"] > ul,
 .milkdown-wrapper .milkdown li[data-item-type="task"] > ol {
-  @apply w-full -mt-1;
+  @apply w-full my-0;
   margin-left: 1.5rem; /* Indent nested lists */
+}
+
+/* Remove margin from all nested lists within task items to prevent extra gaps */
+.milkdown-wrapper .milkdown li[data-item-type="task"] ul,
+.milkdown-wrapper .milkdown li[data-item-type="task"] ol {
+  @apply my-0;
 }
 
 .milkdown-wrapper .milkdown li[data-item-type="task"]::before {
   content: '';
-  @apply mt-1 h-4 w-4 rounded border border-gray-300 bg-white flex-shrink-0 cursor-pointer;
+  @apply mt-1 h-4 w-4 rounded border border-gray-300 bg-white flex-shrink-0;
   display: inline-block;
   min-width: 1rem;
   min-height: 1rem;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 .milkdown-wrapper .milkdown li[data-item-type="task"][data-checked="true"]::before {

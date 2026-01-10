@@ -35,16 +35,10 @@ describe('cleanMarkdown', () => {
     })
   })
 
-  describe('excessive newlines', () => {
-    it('should collapse three newlines to two', () => {
-      const input = 'Paragraph 1\n\n\nParagraph 2'
-      expect(cleanMarkdown(input)).toBe('Paragraph 1\n\nParagraph 2')
-    })
-
-    it('should collapse four or more newlines to two', () => {
-      const input = 'Paragraph 1\n\n\n\n\nParagraph 2'
-      expect(cleanMarkdown(input)).toBe('Paragraph 1\n\nParagraph 2')
-    })
+  describe('newlines', () => {
+    // Note: Newline collapsing was intentionally removed.
+    // List formatting (tight vs loose) is now handled by remarkTightLists plugin
+    // in MilkdownEditor.tsx at the AST level, not by post-processing.
 
     it('should preserve single newlines', () => {
       const input = 'Line 1\nLine 2'
@@ -56,9 +50,9 @@ describe('cleanMarkdown', () => {
       expect(cleanMarkdown(input)).toBe('Paragraph 1\n\nParagraph 2')
     })
 
-    it('should handle multiple sections with excessive newlines', () => {
-      const input = 'Section 1\n\n\nSection 2\n\n\n\nSection 3'
-      expect(cleanMarkdown(input)).toBe('Section 1\n\nSection 2\n\nSection 3')
+    it('should preserve multiple newlines (no longer collapses)', () => {
+      const input = 'Paragraph 1\n\n\nParagraph 2'
+      expect(cleanMarkdown(input)).toBe('Paragraph 1\n\n\nParagraph 2')
     })
   })
 
@@ -85,22 +79,19 @@ describe('cleanMarkdown', () => {
   })
 
   describe('combined transformations', () => {
-    it('should handle all transformations together', () => {
-      const input = '  Hello\u00a0World&nbsp;Test\n\n\n\nMore content  '
-      expect(cleanMarkdown(input)).toBe('Hello World Test\n\nMore content')
+    it('should handle NBSP cleanup and trimming together', () => {
+      const input = '  Hello\u00a0World&nbsp;Test  '
+      expect(cleanMarkdown(input)).toBe('Hello World Test')
     })
 
-    it('should handle real markdown content with various issues', () => {
+    it('should handle real markdown content with NBSP issues', () => {
       const input = `# Heading
 
 Some text with\u00a0non-breaking&nbsp;spaces.
 
-
-
 ## Another Section
 
 More content here.
-
 `
       const expected = `# Heading
 
@@ -113,6 +104,43 @@ More content here.`
     })
   })
 
+  describe('underscore escaping', () => {
+    it('should remove backslash escapes before underscores', () => {
+      const input = 'variable\\_name'
+      expect(cleanMarkdown(input)).toBe('variable_name')
+    })
+
+    it('should handle multiple escaped underscores', () => {
+      const input = 'my\\_variable\\_name\\_here'
+      expect(cleanMarkdown(input)).toBe('my_variable_name_here')
+    })
+
+    it('should fix Jinja2 template variable names', () => {
+      const input = '{{ the\\_text }}'
+      expect(cleanMarkdown(input)).toBe('{{ the_text }}')
+    })
+
+    it('should fix Jinja2 if blocks with underscores', () => {
+      const input = '{% if my\\_variable %}content{% endif %}'
+      expect(cleanMarkdown(input)).toBe('{% if my_variable %}content{% endif %}')
+    })
+
+    it('should handle snake_case function names in code', () => {
+      const input = 'Call `get\\_user\\_data()` to fetch data.'
+      expect(cleanMarkdown(input)).toBe('Call `get_user_data()` to fetch data.')
+    })
+
+    it('should preserve regular underscores (no backslash)', () => {
+      const input = 'snake_case_variable'
+      expect(cleanMarkdown(input)).toBe('snake_case_variable')
+    })
+
+    it('should not affect emphasis using asterisks', () => {
+      const input = '**bold** and *italic* with some\\_underscores'
+      expect(cleanMarkdown(input)).toBe('**bold** and *italic* with some_underscores')
+    })
+  })
+
   describe('edge cases', () => {
     it('should handle empty string', () => {
       expect(cleanMarkdown('')).toBe('')
@@ -122,7 +150,7 @@ More content here.`
       expect(cleanMarkdown('   ')).toBe('')
     })
 
-    it('should handle newlines-only string', () => {
+    it('should handle newlines-only string (trimmed to empty)', () => {
       expect(cleanMarkdown('\n\n\n')).toBe('')
     })
 

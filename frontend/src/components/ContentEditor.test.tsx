@@ -103,6 +103,8 @@ describe('ContentEditor', () => {
 
       render(<ContentEditor {...defaultProps} />)
 
+      // First focus the editor so the toolbar becomes active
+      await user.click(screen.getByTestId('milkdown-textarea'))
       await user.click(screen.getByRole('button', { name: 'Markdown' }))
 
       expect(screen.getByTestId('codemirror-mock')).toBeInTheDocument()
@@ -115,6 +117,8 @@ describe('ContentEditor', () => {
 
       render(<ContentEditor {...defaultProps} />)
 
+      // First focus the editor so the toolbar becomes active
+      await user.click(screen.getByTestId('codemirror-textarea'))
       await user.click(screen.getByRole('button', { name: 'Visual' }))
 
       expect(screen.getByTestId('milkdown-mock')).toBeInTheDocument()
@@ -126,6 +130,8 @@ describe('ContentEditor', () => {
 
       render(<ContentEditor {...defaultProps} />)
 
+      // First focus the editor so the toolbar becomes active
+      await user.click(screen.getByTestId('milkdown-textarea'))
       await user.click(screen.getByRole('button', { name: 'Markdown' }))
 
       expect(localStorageMock.setItem).toHaveBeenCalledWith('editor_mode_preference', 'markdown')
@@ -143,7 +149,8 @@ describe('ContentEditor', () => {
       expect(visualButton).toHaveClass('bg-white')
       expect(markdownButton).not.toHaveClass('bg-white')
 
-      // Switch to Markdown
+      // First focus the editor so the toolbar becomes active, then switch to Markdown
+      await user.click(screen.getByTestId('milkdown-textarea'))
       await user.click(markdownButton)
 
       expect(markdownButton).toHaveClass('bg-white')
@@ -219,7 +226,8 @@ describe('ContentEditor', () => {
 
       render(<ContentEditor {...defaultProps} value="Preserved content" />)
 
-      // Switch to Markdown mode
+      // First focus the editor, then switch to Markdown mode
+      await user.click(screen.getByTestId('milkdown-textarea'))
       await user.click(screen.getByRole('button', { name: 'Markdown' }))
 
       expect(screen.getByTestId('codemirror-textarea')).toHaveValue('Preserved content')
@@ -301,6 +309,52 @@ describe('ContentEditor', () => {
       render(<ContentEditor {...defaultProps} disabled={true} />)
 
       expect(screen.getByTestId('milkdown-mock')).toHaveAttribute('data-disabled', 'true')
+    })
+  })
+
+  describe('toolbar focus behavior', () => {
+    it('should NOT switch modes when clicking mode toggle without editor focus', async () => {
+      const user = userEvent.setup()
+
+      render(<ContentEditor {...defaultProps} />)
+
+      // Click mode toggle directly without focusing editor first
+      // The first click should reveal the toolbar but NOT switch modes
+      await user.click(screen.getByRole('button', { name: 'Markdown' }))
+
+      // Should still be in Visual mode (milkdown)
+      expect(screen.getByTestId('milkdown-mock')).toBeInTheDocument()
+      expect(screen.queryByTestId('codemirror-mock')).not.toBeInTheDocument()
+    })
+
+    it('should switch modes when clicking mode toggle with editor already focused', async () => {
+      const user = userEvent.setup()
+
+      render(<ContentEditor {...defaultProps} />)
+
+      // First focus the editor
+      await user.click(screen.getByTestId('milkdown-textarea'))
+      // Then click mode toggle - should switch modes
+      await user.click(screen.getByRole('button', { name: 'Markdown' }))
+
+      expect(screen.getByTestId('codemirror-mock')).toBeInTheDocument()
+      expect(screen.queryByTestId('milkdown-mock')).not.toBeInTheDocument()
+    })
+
+    it('should require two clicks to switch modes when starting unfocused', async () => {
+      const user = userEvent.setup()
+
+      render(<ContentEditor {...defaultProps} />)
+
+      // First click - reveals toolbar, focuses editor
+      await user.click(screen.getByRole('button', { name: 'Markdown' }))
+      // Should still be Visual mode
+      expect(screen.getByTestId('milkdown-mock')).toBeInTheDocument()
+
+      // Second click - now editor is focused, should switch
+      await user.click(screen.getByRole('button', { name: 'Markdown' }))
+      // Now should be Markdown mode
+      expect(screen.getByTestId('codemirror-mock')).toBeInTheDocument()
     })
   })
 })

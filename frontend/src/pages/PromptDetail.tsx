@@ -56,9 +56,11 @@ export function PromptDetail(): ReactNode {
   const [error, setError] = useState<string | null>(null)
 
   // Get navigation state
-  const locationState = location.state as { initialTags?: string[] } | undefined
+  const locationState = location.state as { initialTags?: string[]; prompt?: PromptType } | undefined
   const { selectedTags } = useTagFilterStore()
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
+  // Prompt passed via navigation state (used after create to avoid refetch)
+  const passedPrompt = locationState?.prompt
 
   // Navigation
   const { navigateBack } = useReturnNavigation()
@@ -90,6 +92,14 @@ export function PromptDetail(): ReactNode {
       return
     }
 
+    // If prompt was passed via navigation state (after create), use it directly
+    if (passedPrompt && passedPrompt.id === promptId) {
+      setPrompt(passedPrompt)
+      setIsLoading(false)
+      trackPromptUsage(promptId!)
+      return
+    }
+
     const loadPrompt = async (): Promise<void> => {
       setIsLoading(true)
       setError(null)
@@ -106,7 +116,7 @@ export function PromptDetail(): ReactNode {
     }
 
     loadPrompt()
-  }, [isCreate, promptId, isValidId, fetchPrompt, trackPromptUsage])
+  }, [isCreate, promptId, isValidId, fetchPrompt, trackPromptUsage, passedPrompt])
 
   // Navigation helper
   const handleBack = useCallback((): void => {
@@ -118,8 +128,12 @@ export function PromptDetail(): ReactNode {
     async (data: PromptCreate | PromptUpdate): Promise<void> => {
       if (isCreate) {
         try {
-          await createMutation.mutateAsync(data as PromptCreate)
-          navigateBack()
+          const createdPrompt = await createMutation.mutateAsync(data as PromptCreate)
+          // Navigate to the new prompt's URL, passing the prompt to avoid refetch
+          navigate(`/app/prompts/${createdPrompt.id}`, {
+            replace: true,
+            state: { prompt: createdPrompt },
+          })
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Failed to create prompt'
           toast.error(message)
@@ -139,7 +153,7 @@ export function PromptDetail(): ReactNode {
         }
       }
     },
-    [isCreate, promptId, createMutation, updateMutation, navigateBack]
+    [isCreate, promptId, createMutation, updateMutation, navigate]
   )
 
   const handleArchive = useCallback(async (): Promise<void> => {

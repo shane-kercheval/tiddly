@@ -1,15 +1,15 @@
 /**
- * Tests for the unified Note component.
+ * Tests for the unified Prompt component.
  *
  * Uses shared test factory for common content component behaviors,
- * plus Note-specific tests for unique functionality.
+ * plus Prompt-specific tests for unique functionality.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Note } from './Note'
+import { Prompt } from './Prompt'
 import { createContentComponentTests } from './__tests__/createContentComponentTests'
-import type { Note as NoteType, TagCount } from '../types'
+import type { Prompt as PromptType, TagCount } from '../types'
 
 // Mock MilkdownEditor - simulates the editor with a simple textarea
 vi.mock('./MilkdownEditor', () => ({
@@ -65,14 +65,15 @@ const localStorageMock = (() => {
 })()
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
-// Mock note data
-const mockNote: NoteType = {
-  id: 'note-1',
-  title: 'Test Note',
+// Mock prompt data
+const mockPrompt: PromptType = {
+  id: 'prompt-1',
+  name: 'test-prompt',
+  title: 'Test Prompt',
   description: 'Test description',
-  content: '# Hello World\n\nThis is a test note.',
+  content: '# Hello World\n\nThis is a test prompt.',
+  arguments: [],
   tags: ['test', 'example'],
-  version: 2,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-02T00:00:00Z',
   last_used_at: '2024-01-02T00:00:00Z',
@@ -80,13 +81,13 @@ const mockNote: NoteType = {
   archived_at: null,
 }
 
-const mockDeletedNote: NoteType = {
-  ...mockNote,
+const mockDeletedPrompt: PromptType = {
+  ...mockPrompt,
   deleted_at: '2024-01-03T00:00:00Z',
 }
 
-const mockArchivedNote: NoteType = {
-  ...mockNote,
+const mockArchivedPrompt: PromptType = {
+  ...mockPrompt,
   archived_at: '2024-01-03T00:00:00Z',
 }
 
@@ -98,18 +99,18 @@ const mockTagSuggestions: TagCount[] = [
 
 // Run shared content component tests
 createContentComponentTests({
-  componentName: 'Note',
-  Component: Note,
-  mockItem: mockNote,
-  mockDeletedItem: mockDeletedNote,
-  mockArchivedItem: mockArchivedNote,
+  componentName: 'Prompt',
+  Component: Prompt,
+  mockItem: mockPrompt,
+  mockDeletedItem: mockDeletedPrompt,
+  mockArchivedItem: mockArchivedPrompt,
   mockTagSuggestions,
   placeholders: {
-    primaryField: 'Note title',
+    primaryField: 'prompt-name',
   },
-  getPrimaryFieldValue: (note) => note.title,
+  getPrimaryFieldValue: (prompt) => prompt.name,
   buildProps: ({ item, onSave, onClose, onArchive, onUnarchive, onDelete, viewState, isSaving }) => ({
-    note: item,
+    prompt: item,
     tagSuggestions: mockTagSuggestions,
     onSave,
     onClose,
@@ -119,13 +120,16 @@ createContentComponentTests({
     viewState,
     isSaving,
   }),
+  // Prompt derives dirty state from props, so we need to simulate parent update after save
+  createUpdatedItem: (prompt, newName) => ({ ...prompt, name: newName }),
+  // Prompt names must be lowercase-hyphen format (no spaces or uppercase)
+  testUpdateValue: 'updated-value',
 })
 
-// Note-specific tests
-describe('Note component - specific behaviors', () => {
+// Prompt-specific tests
+describe('Prompt component - specific behaviors', () => {
   const mockOnSave = vi.fn()
   const mockOnClose = vi.fn()
-  const mockOnRestore = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -137,10 +141,112 @@ describe('Note component - specific behaviors', () => {
     vi.useRealTimers()
   })
 
-  describe('timestamps', () => {
-    it('should not show timestamps for new note', () => {
+  describe('name field', () => {
+    it('should render prompt name', () => {
       render(
-        <Note
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.getByDisplayValue('test-prompt')).toBeInTheDocument()
+    })
+
+    it('should auto-lowercase name input', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(
+        <Prompt
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'MY-PROMPT')
+
+      expect(screen.getByDisplayValue('my-prompt')).toBeInTheDocument()
+    })
+
+    it('should disable Create button when name format is invalid', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(
+        <Prompt
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Enter invalid name (underscores not allowed, must use hyphens)
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'invalid_name')
+
+      // Enter content
+      const contentEditor = screen.getByTestId('content-editor')
+      await user.clear(contentEditor)
+      await user.type(contentEditor, 'Some content')
+
+      // Create button should be disabled because name is invalid
+      expect(screen.getByText('Create').closest('button')).toBeDisabled()
+    })
+  })
+
+  describe('title field (optional)', () => {
+    it('should render prompt title', () => {
+      render(
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.getByDisplayValue('Test Prompt')).toBeInTheDocument()
+    })
+
+    it('should show title placeholder', () => {
+      render(
+        <Prompt
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.getByPlaceholderText('Display title (optional)')).toBeInTheDocument()
+    })
+  })
+
+  describe('content field (required)', () => {
+    it('should require content for new prompts', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(
+        <Prompt
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Enter name but leave content empty
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'my-prompt')
+
+      // Clear default content
+      const contentEditor = screen.getByTestId('content-editor')
+      await user.clear(contentEditor)
+
+      // Create button should be disabled (content required)
+      expect(screen.getByText('Create').closest('button')).toBeDisabled()
+    })
+  })
+
+  describe('timestamps', () => {
+    it('should not show timestamps for new prompt', () => {
+      render(
+        <Prompt
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
           onClose={mockOnClose}
@@ -151,10 +257,10 @@ describe('Note component - specific behaviors', () => {
       expect(screen.queryByText(/Updated/)).not.toBeInTheDocument()
     })
 
-    it('should show timestamps for existing note', () => {
+    it('should show timestamps for existing prompt', () => {
       render(
-        <Note
-          note={mockNote}
+        <Prompt
+          prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
           onClose={mockOnClose}
@@ -164,104 +270,49 @@ describe('Note component - specific behaviors', () => {
       expect(screen.getByText(/Created/)).toBeInTheDocument()
       expect(screen.getByText(/Updated/)).toBeInTheDocument()
     })
-
-    it('should show version for note with version > 1', () => {
-      render(
-        <Note
-          note={mockNote}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      expect(screen.getByText('v2')).toBeInTheDocument()
-    })
   })
 
-  describe('description field', () => {
-    it('should render note description', () => {
+  describe('arguments', () => {
+    it('should render arguments builder', () => {
       render(
-        <Note
-          note={mockNote}
+        <Prompt
+          prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
           onClose={mockOnClose}
         />
       )
 
-      expect(screen.getByText('Test description')).toBeInTheDocument()
+      // Arguments section should be present
+      expect(screen.getByText('Arguments')).toBeInTheDocument()
     })
 
-    it('should detect description change as dirty', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    it('should show existing arguments', () => {
+      const promptWithArgs: PromptType = {
+        ...mockPrompt,
+        arguments: [
+          { name: 'code_to_review', description: 'The code to review', required: true },
+        ],
+      }
+
       render(
-        <Note
-          note={mockNote}
+        <Prompt
+          prompt={promptWithArgs}
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
           onClose={mockOnClose}
         />
       )
 
-      await user.clear(screen.getByText('Test description'))
-      await user.type(screen.getByPlaceholderText('Add a description...'), 'New description')
-
-      expect(screen.getByText('Save')).toBeInTheDocument()
-    })
-  })
-
-  describe('content field', () => {
-    it('should enable Save button on first content keystroke', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      render(
-        <Note
-          note={mockNote}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      // Initially Save is disabled
-      expect(screen.getByText('Save').closest('button')).toBeDisabled()
-
-      // Type a single character in content
-      const contentEditor = screen.getByTestId('content-editor')
-      await user.type(contentEditor, 'x')
-
-      // Save should be enabled after first keystroke
-      expect(screen.getByText('Save').closest('button')).not.toBeDisabled()
-    })
-
-    it('should disable Save button when content is reverted to original', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      render(
-        <Note
-          note={mockNote}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      const contentEditor = screen.getByTestId('content-editor')
-
-      // Type a character
-      await user.type(contentEditor, 'x')
-      expect(screen.getByText('Save').closest('button')).not.toBeDisabled()
-
-      // Delete the character (revert to original)
-      await user.type(contentEditor, '{backspace}')
-      expect(screen.getByText('Save').closest('button')).toBeDisabled()
+      expect(screen.getByDisplayValue('code_to_review')).toBeInTheDocument()
     })
   })
 
   describe('tags', () => {
-    it('should render note tags', () => {
+    it('should render prompt tags', () => {
       render(
-        <Note
-          note={mockNote}
+        <Prompt
+          prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
           onClose={mockOnClose}
@@ -274,7 +325,7 @@ describe('Note component - specific behaviors', () => {
 
     it('should populate initial tags from props', () => {
       render(
-        <Note
+        <Prompt
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
           onClose={mockOnClose}
@@ -286,124 +337,49 @@ describe('Note component - specific behaviors', () => {
     })
   })
 
-  describe('validation', () => {
-    it('should show validation error when Create is clicked with empty title', async () => {
-      render(
-        <Note
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      // Submit the form with empty title
-      fireEvent.submit(screen.getByText('Create').closest('form')!)
-
-      await waitFor(() => {
-        expect(screen.getByText('Title is required')).toBeInTheDocument()
-      })
-      expect(mockOnSave).not.toHaveBeenCalled()
-    })
-
-    it('should show validation error when form is submitted programmatically with empty title', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      render(
-        <Note
-          note={mockNote}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      await user.clear(screen.getByDisplayValue('Test Note'))
-
-      // Submit the form directly
-      const form = screen.getByText('Save').closest('form')!
-      fireEvent.submit(form)
-
-      await waitFor(() => {
-        expect(screen.getByText('Title is required')).toBeInTheDocument()
-      })
-      expect(mockOnSave).not.toHaveBeenCalled()
-    })
-  })
-
   describe('save with only changed fields', () => {
-    it('should call onSave with only changed fields for existing note', async () => {
+    it('should call onSave with only changed fields for existing prompt', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockResolvedValue(undefined)
 
       render(
-        <Note
-          note={mockNote}
+        <Prompt
+          prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
           onClose={mockOnClose}
         />
       )
 
-      await user.clear(screen.getByDisplayValue('Test Note'))
-      await user.type(screen.getByPlaceholderText('Note title'), 'Updated Title')
+      await user.clear(screen.getByDisplayValue('test-prompt'))
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'updated-prompt')
 
       await user.click(screen.getByText('Save'))
 
       await waitFor(() => {
         expect(mockOnSave).toHaveBeenCalledWith({
-          title: 'Updated Title',
+          name: 'updated-prompt',
         })
       })
-    })
-  })
-
-  describe('deleted notes', () => {
-    it('should show Delete Permanently for deleted notes', () => {
-      const mockOnDelete = vi.fn()
-      render(
-        <Note
-          note={mockDeletedNote}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-          onRestore={mockOnRestore}
-          onDelete={mockOnDelete}
-          viewState="deleted"
-        />
-      )
-
-      expect(screen.getByText('Delete Permanently')).toBeInTheDocument()
-    })
-
-    it('should show Restore button for deleted notes', () => {
-      render(
-        <Note
-          note={mockDeletedNote}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-          onRestore={mockOnRestore}
-          viewState="deleted"
-        />
-      )
-
-      expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument()
     })
   })
 
   describe('draft recovery', () => {
     it('should show draft recovery prompt when draft exists', () => {
       const draftData = {
+        name: 'draft-prompt',
         title: 'Draft Title',
         description: 'Draft description',
         content: 'Draft content',
+        arguments: [],
         tags: ['draft-tag'],
         savedAt: Date.now(),
       }
       localStorageMock.getItem.mockReturnValue(JSON.stringify(draftData))
 
       render(
-        <Note
-          note={mockNote}
+        <Prompt
+          prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
           onClose={mockOnClose}
@@ -417,17 +393,19 @@ describe('Note component - specific behaviors', () => {
     it('should restore draft when Restore Draft is clicked', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       const draftData = {
+        name: 'draft-prompt',
         title: 'Draft Title',
         description: 'Draft description',
         content: 'Draft content',
+        arguments: [],
         tags: ['draft-tag'],
         savedAt: Date.now(),
       }
       localStorageMock.getItem.mockReturnValue(JSON.stringify(draftData))
 
       render(
-        <Note
-          note={mockNote}
+        <Prompt
+          prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
           onClose={mockOnClose}
@@ -436,42 +414,15 @@ describe('Note component - specific behaviors', () => {
 
       await user.click(screen.getByText('Restore Draft'))
 
-      expect(screen.getByDisplayValue('Draft Title')).toBeInTheDocument()
-    })
-
-    it('should clear draft prompt when Discard is clicked', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const draftData = {
-        title: 'Draft Title',
-        description: 'Draft description',
-        content: 'Draft content',
-        tags: ['draft-tag'],
-        savedAt: Date.now(),
-      }
-      localStorageMock.getItem.mockReturnValue(JSON.stringify(draftData))
-
-      render(
-        <Note
-          note={mockNote}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      // Click the discard button in the draft prompt
-      const discardButtons = screen.getAllByRole('button', { name: /discard/i })
-      await user.click(discardButtons[0])
-
-      expect(screen.queryByText(/unsaved draft/)).not.toBeInTheDocument()
+      expect(screen.getByDisplayValue('draft-prompt')).toBeInTheDocument()
     })
   })
 
   describe('fullWidth prop', () => {
     it('should apply max-w-4xl when fullWidth is false', () => {
       const { container } = render(
-        <Note
-          note={mockNote}
+        <Prompt
+          prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
           onClose={mockOnClose}
@@ -484,8 +435,8 @@ describe('Note component - specific behaviors', () => {
 
     it('should not apply max-w-4xl when fullWidth is true', () => {
       const { container } = render(
-        <Note
-          note={mockNote}
+        <Prompt
+          prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
           onClose={mockOnClose}

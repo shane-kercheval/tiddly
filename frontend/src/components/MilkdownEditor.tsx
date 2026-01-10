@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { ReactNode, FormEvent } from 'react'
-import { Editor, rootCtx, defaultValueCtx, editorViewCtx } from '@milkdown/kit/core'
+import { Editor, rootCtx, defaultValueCtx, editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
 import {
   // Import individual parts instead of full commonmark to exclude remarkPreserveEmptyLinePlugin
   schema,
@@ -37,9 +37,11 @@ import {
   wrapInOrderedListCommand,
   insertHrCommand,
   createCodeBlockCommand,
+  // Schema for Tab key handling
+  listItemSchema,
 } from '@milkdown/kit/preset/commonmark'
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
-import { callCommand } from '@milkdown/kit/utils'
+import { callCommand, $remark } from '@milkdown/kit/utils'
 
 // Custom commonmark without remarkPreserveEmptyLinePlugin
 const customCommonmark = [
@@ -62,6 +64,27 @@ const customCommonmark = [
   syncListOrderPlugin,
 ].flat()
 
+/**
+ * Remark plugin to force tight lists (no blank lines between list items).
+ * This sets spread: false on list and listItem nodes in the mdast before serialization,
+ * which tells remark-stringify to output tight lists without blank lines.
+ */
+const remarkTightLists = $remark('remarkTightLists', () => () => (tree: unknown) => {
+  // Manual tree traversal to avoid potential issues with visit import
+  function setTightLists(node: unknown): void {
+    if (node && typeof node === 'object') {
+      const n = node as { type?: string; spread?: boolean; children?: unknown[] }
+      if (n.type === 'list' || n.type === 'listItem') {
+        n.spread = false
+      }
+      if (Array.isArray(n.children)) {
+        n.children.forEach(setTightLists)
+      }
+    }
+  }
+  setTightLists(tree)
+})
+
 import { gfm } from '@milkdown/kit/preset/gfm'
 import { history } from '@milkdown/kit/plugin/history'
 import { listener, listenerCtx } from '@milkdown/plugin-listener'
@@ -70,25 +93,38 @@ import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
 import { $prose } from '@milkdown/kit/utils'
 import { Plugin, TextSelection } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
+import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
+import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
 import { Modal } from './ui/Modal'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
-import { shouldHandleEmptySpaceClick } from '../utils/editorUtils'
+import { shouldHandleEmptySpaceClick, wasEditorFocused } from '../utils/editorUtils'
 import type { Editor as EditorType } from '@milkdown/kit/core'
 
 /**
  * Toolbar button component for editor formatting actions.
+ * Uses onMouseDown to fire before Safari drops focus-within state.
+ * Only executes action if editor was already focused (toolbar was visible).
  */
 interface ToolbarButtonProps {
-  onClick: () => void
+  onAction: () => void
   title: string
   children: ReactNode
 }
 
-function ToolbarButton({ onClick, title, children }: ToolbarButtonProps): ReactNode {
+function ToolbarButton({ onAction, title, children }: ToolbarButtonProps): ReactNode {
   return (
     <button
       type="button"
-      onClick={onClick}
+      tabIndex={-1}
+      onMouseDown={(e) => {
+        if (wasEditorFocused(e.currentTarget)) {
+          // Editor was focused (toolbar visible) - execute action
+          e.preventDefault()
+          onAction()
+        }
+        // If editor wasn't focused, let the click naturally focus the editor
+        // which will reveal the toolbar (but won't execute the action)
+      }}
       title={title}
       className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
     >
@@ -110,11 +146,13 @@ function ToolbarSeparator(): ReactNode {
 interface EditorToolbarProps {
   getEditor: () => EditorType | undefined
   onLinkClick: () => void
+  onBulletListClick: () => void
+  onOrderedListClick: () => void
   onTaskListClick: () => void
   showJinjaTools?: boolean
 }
 
-function EditorToolbar({ getEditor, onLinkClick, onTaskListClick, showJinjaTools = false }: EditorToolbarProps): ReactNode {
+function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedListClick, onTaskListClick, showJinjaTools = false }: EditorToolbarProps): ReactNode {
   const runCommand = useCallback(
     (command: Parameters<typeof callCommand>[0]) => {
       const editor = getEditor()
@@ -141,27 +179,39 @@ function EditorToolbar({ getEditor, onLinkClick, onTaskListClick, showJinjaTools
     [getEditor]
   )
 
+  // Focus editor when clicking anywhere on toolbar (reveals toolbar when hidden)
+  const handleToolbarClick = useCallback(() => {
+    const editor = getEditor()
+    if (editor) {
+      const view = editor.ctx.get(editorViewCtx)
+      view.focus()
+    }
+  }, [getEditor])
+
   return (
-    <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-gray-50/50 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
+    <div
+      className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-gray-50/50 opacity-0 group-focus-within/editor:opacity-100 transition-opacity"
+      onClick={handleToolbarClick}
+    >
       {/* Text formatting */}
-      <ToolbarButton onClick={() => runCommand(toggleStrongCommand.key)} title="Bold (⌘B)">
+      <ToolbarButton onAction={() => runCommand(toggleStrongCommand.key)} title="Bold (⌘B)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 4h8a4 4 0 014 4 4 4 0 01-4 4H6z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12h9a4 4 0 014 4 4 4 0 01-4 4H6z" />
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(toggleEmphasisCommand.key)} title="Italic (⌘I)">
+      <ToolbarButton onAction={() => runCommand(toggleEmphasisCommand.key)} title="Italic (⌘I)">
         <span className="w-4 h-4 flex items-center justify-center text-[17px] font-serif italic">I</span>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(toggleStrikethroughCommand.key)} title="Strikethrough">
+      <ToolbarButton onAction={() => runCommand(toggleStrikethroughCommand.key)} title="Strikethrough (⌘⇧X)">
         <span className="w-4 h-4 flex items-center justify-center text-[17px] line-through">S</span>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(toggleInlineCodeCommand.key)} title="Inline Code">
+      <ToolbarButton onAction={() => runCommand(toggleInlineCodeCommand.key)} title="Inline Code (⌘E)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(createCodeBlockCommand.key)} title="Code Block">
+      <ToolbarButton onAction={() => runCommand(createCodeBlockCommand.key)} title="Code Block (⌘⇧C)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h6" />
         </svg>
@@ -170,7 +220,7 @@ function EditorToolbar({ getEditor, onLinkClick, onTaskListClick, showJinjaTools
       <ToolbarSeparator />
 
       {/* Link */}
-      <ToolbarButton onClick={onLinkClick} title="Insert Link (⌘K)">
+      <ToolbarButton onAction={onLinkClick} title="Insert Link (⌘K)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
         </svg>
@@ -179,7 +229,7 @@ function EditorToolbar({ getEditor, onLinkClick, onTaskListClick, showJinjaTools
       <ToolbarSeparator />
 
       {/* Lists */}
-      <ToolbarButton onClick={() => runCommand(wrapInBulletListCommand.key)} title="Bullet List">
+      <ToolbarButton onAction={onBulletListClick} title="Bullet List (⌘⇧7)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M8 12h12M8 18h12" />
           <circle cx="3" cy="6" r="2" fill="currentColor" />
@@ -187,7 +237,7 @@ function EditorToolbar({ getEditor, onLinkClick, onTaskListClick, showJinjaTools
           <circle cx="3" cy="18" r="2" fill="currentColor" />
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(wrapInOrderedListCommand.key)} title="Numbered List">
+      <ToolbarButton onAction={onOrderedListClick} title="Numbered List (⌘⇧8)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M8 12h12M8 18h12" />
           <text x="1" y="8" fontSize="7" fill="currentColor" fontWeight="bold">1</text>
@@ -195,7 +245,7 @@ function EditorToolbar({ getEditor, onLinkClick, onTaskListClick, showJinjaTools
           <text x="1" y="20" fontSize="7" fill="currentColor" fontWeight="bold">3</text>
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={onTaskListClick} title="Task List (Checkbox)">
+      <ToolbarButton onAction={onTaskListClick} title="Task List (⌘⇧9)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <rect x="3" y="5" width="14" height="14" rx="2" strokeWidth={2} />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12l3 3 5-5" />
@@ -205,12 +255,12 @@ function EditorToolbar({ getEditor, onLinkClick, onTaskListClick, showJinjaTools
       <ToolbarSeparator />
 
       {/* Block elements */}
-      <ToolbarButton onClick={() => runCommand(wrapInBlockquoteCommand.key)} title="Blockquote">
+      <ToolbarButton onAction={() => runCommand(wrapInBlockquoteCommand.key)} title="Blockquote (⌘⇧.)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-4l-4 4-4-4z" />
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(insertHrCommand.key)} title="Horizontal Rule">
+      <ToolbarButton onAction={() => runCommand(insertHrCommand.key)} title="Horizontal Rule (⌘⇧-)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h16" />
         </svg>
@@ -220,13 +270,13 @@ function EditorToolbar({ getEditor, onLinkClick, onTaskListClick, showJinjaTools
       {showJinjaTools && (
         <>
           <ToolbarSeparator />
-          <ToolbarButton onClick={() => insertText('{{ variable }}')} title="Insert Variable {{ }}">
+          <ToolbarButton onAction={() => insertText('{{ variable }}')} title="Insert Variable {{ }}">
             <span className="w-4 h-4 flex items-center justify-center text-[11px] font-mono font-bold">{'{}'}</span>
           </ToolbarButton>
-          <ToolbarButton onClick={() => insertText('{% if variable %}\n\n{% endif %}')} title="If Block {% if %}">
+          <ToolbarButton onAction={() => insertText('{% if variable %}\n\n{% endif %}')} title="If Block {% if %}">
             <span className="w-4 h-4 flex items-center justify-center text-[10px] font-mono font-bold">if</span>
           </ToolbarButton>
-          <ToolbarButton onClick={() => insertText('{%- if variable %}\n\n{%- endif %}')} title="If Block with Whitespace Trim {%- if %}">
+          <ToolbarButton onAction={() => insertText('{%- if variable %}\n\n{%- endif %}')} title="If Block with Whitespace Trim {%- if %}">
             <span className="w-4 h-4 flex items-center justify-center text-[10px] font-mono font-bold">if-</span>
           </ToolbarButton>
         </>
@@ -346,6 +396,118 @@ function createPlaceholderPlugin(placeholder: string): Plugin {
   })
 }
 
+/**
+ * Check if the selection is inside a code_block node.
+ */
+function isInCodeBlock(state: Parameters<Parameters<typeof createKeymap>[0][string]>[0]): boolean {
+  const { $from } = state.selection
+  for (let d = $from.depth; d >= 0; d--) {
+    if ($from.node(d).type.name === 'code_block') {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Check if cursor is at the start of a list item's content.
+ * Returns the list item depth if true, -1 otherwise.
+ */
+function getListItemDepthAtStart(state: Parameters<Parameters<typeof createKeymap>[0][string]>[0]): number {
+  const { $from } = state.selection
+
+  // Must be a cursor selection (not a range)
+  if (!state.selection.empty) return -1
+
+  // Walk up to find list_item
+  for (let d = $from.depth; d >= 0; d--) {
+    const node = $from.node(d)
+    if (node.type.name === 'list_item') {
+      // Check if we're at the start of the list item's content
+      // The cursor should be at position 0 within the list item's first child
+      const startOfListItem = $from.start(d)
+      // Account for the paragraph node inside the list item (+1 for entering the paragraph)
+      const firstChildStart = startOfListItem + 1
+      if ($from.pos === firstChildStart) {
+        return d
+      }
+      return -1
+    }
+  }
+  return -1
+}
+
+/**
+ * Create a ProseMirror keymap plugin that handles Tab/Shift+Tab and Backspace.
+ * - Tab: indent list item or insert 4 spaces in code blocks
+ * - Shift+Tab: outdent list item or remove 4 spaces in code blocks
+ * - Backspace at start of list item: lift content out of list
+ *
+ * @param listItemNodeType - The ProseMirror NodeType for list_item from the schema
+ */
+function createListKeymapPlugin(listItemNodeType: Parameters<typeof sinkListItem>[0]): Plugin {
+  const INDENT = '    ' // 4 spaces
+
+  return createKeymap({
+    'Tab': (state, dispatch) => {
+      // In code blocks, insert 4 spaces
+      if (isInCodeBlock(state)) {
+        if (dispatch) {
+          dispatch(state.tr.insertText(INDENT))
+        }
+        return true
+      }
+
+      // In list items, try to sink (indent)
+      sinkListItem(listItemNodeType)(state, dispatch)
+
+      // Always return true to prevent focus escape
+      return true
+    },
+    'Shift-Tab': (state, dispatch) => {
+      // In code blocks, remove up to 4 spaces at start of line
+      if (isInCodeBlock(state)) {
+        if (dispatch) {
+          const { $from } = state.selection
+          // Find the start of the current line within the code block
+          const lineStart = $from.start()
+          const textBefore = state.doc.textBetween(lineStart, $from.pos)
+          const lastNewline = textBefore.lastIndexOf('\n')
+          const lineContentStart = lastNewline === -1 ? lineStart : lineStart + lastNewline + 1
+
+          // Check how many spaces are at the start of this line
+          const lineText = state.doc.textBetween(lineContentStart, $from.pos)
+          const leadingSpaces = lineText.match(/^ */)?.[0].length ?? 0
+          const spacesToRemove = Math.min(leadingSpaces, 4)
+
+          if (spacesToRemove > 0) {
+            dispatch(state.tr.delete(lineContentStart, lineContentStart + spacesToRemove))
+          }
+        }
+        return true
+      }
+
+      // In list items, try to lift (outdent)
+      liftListItem(listItemNodeType)(state, dispatch)
+
+      // Always return true to prevent focus escape
+      return true
+    },
+    'Backspace': (state, dispatch) => {
+      // Check if at the start of a list item
+      const listItemDepth = getListItemDepthAtStart(state)
+      if (listItemDepth === -1) {
+        // Not at start of list item, let default backspace handle it
+        return false
+      }
+
+      // At start of list item - lift it out of the list
+      // This converts the list item to a regular paragraph
+      return liftListItem(listItemNodeType)(state, dispatch)
+    },
+  })
+}
+
 interface MilkdownEditorProps {
   /** Current content value (markdown string) */
   value: string
@@ -361,6 +523,8 @@ interface MilkdownEditorProps {
   noPadding?: boolean
   /** Show Jinja2 template tools in toolbar (for prompts) */
   showJinjaTools?: boolean
+  /** Whether to auto-focus on mount */
+  autoFocus?: boolean
 }
 
 interface MilkdownEditorInnerProps {
@@ -371,6 +535,7 @@ interface MilkdownEditorInnerProps {
   placeholder?: string
   noPadding?: boolean
   showJinjaTools?: boolean
+  autoFocus?: boolean
 }
 
 function MilkdownEditorInner({
@@ -381,9 +546,11 @@ function MilkdownEditorInner({
   placeholder = 'Write your content in markdown...',
   noPadding = false,
   showJinjaTools = false,
+  autoFocus = false,
 }: MilkdownEditorInnerProps): ReactNode {
   const initialValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
+  const autoFocusRef = useRef(autoFocus)
 
   // Keep onChange ref up to date
   useEffect(() => {
@@ -392,6 +559,13 @@ function MilkdownEditorInner({
 
   // Create placeholder plugin with Milkdown's $prose utility
   const placeholderPluginSlice = $prose(() => createPlaceholderPlugin(placeholder))
+
+  // Create list keymap plugin with Milkdown's $prose utility
+  // This plugin handles Tab/Shift+Tab for list indentation and Backspace at list item start
+  const listKeymapPluginSlice = $prose((ctx) => {
+    const listItemNodeType = listItemSchema.type(ctx)
+    return createListKeymapPlugin(listItemNodeType)
+  })
 
   // Initialize the Milkdown editor.
   // Note: The empty dependency array is intentional. The editor is initialized once
@@ -404,6 +578,31 @@ function MilkdownEditorInner({
         ctx.set(rootCtx, root)
         ctx.set(defaultValueCtx, initialValueRef.current)
 
+        // Configure remark-stringify options for consistent markdown output
+        ctx.update(remarkStringifyOptionsCtx, (options) => ({
+          ...options,
+          bullet: '-' as const, // Use '-' for bullet markers consistently
+          bulletOrdered: '.' as const, // Use '1.' instead of '1)' for ordered lists
+          rule: '-' as const, // Use '---' for horizontal rules instead of '***'
+          emphasis: '*' as const, // Use *italic* not _italic_
+          strong: '*' as const, // Use **bold** not __bold__
+          fence: '`' as const, // Use ```code``` not ~~~code~~~
+          fences: true, // Use fenced code blocks, not indented
+          // Join handler to force tight lists (no blank lines between list items)
+          join: [
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ...(Array.isArray((options as any).join) ? (options as any).join : []),
+            // Return 0 to join list items without blank lines
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (_left: any, _right: any, parent: any) => {
+              if (parent && parent.type === 'list') {
+                return 0 // No blank lines between list items
+              }
+              return undefined // Use default behavior for other nodes
+            },
+          ],
+        }))
+
         // Set up listener for changes
         ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
           const cleanedMarkdown = cleanMarkdown(markdown)
@@ -415,36 +614,31 @@ function MilkdownEditorInner({
       .use(history)
       .use(clipboard)
       .use(listener)
-      .use(placeholderPluginSlice),
+      .use(remarkTightLists)
+      .use(placeholderPluginSlice)
+      .use(listKeymapPluginSlice),
     []
   )
+
+  // Auto-focus the editor on mount if requested
+  useEffect(() => {
+    if (autoFocusRef.current) {
+      // Small delay to ensure editor is fully mounted
+      const timer = setTimeout(() => {
+        const editor = get()
+        if (editor) {
+          const view = editor.ctx.get(editorViewCtx)
+          view.focus()
+        }
+      }, 0)
+      return () => clearTimeout(timer)
+    }
+  }, [get])
 
   // Link dialog state
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [linkDialogInitialText, setLinkDialogInitialText] = useState('')
   const [linkDialogKey, setLinkDialogKey] = useState(0)
-
-  // Handle keyboard shortcuts
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      // Cmd+K or Ctrl+K to insert/edit link
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-
-        const editor = get()
-        if (!editor) return
-
-        const view = editor.ctx.get(editorViewCtx)
-        const { from, to } = view.state.selection
-        const selectedText = view.state.doc.textBetween(from, to)
-
-        setLinkDialogInitialText(selectedText)
-        setLinkDialogKey((k) => k + 1)
-        setLinkDialogOpen(true)
-      }
-    },
-    [get]
-  )
 
   // Handle link insertion from dialog
   const handleLinkSubmit = useCallback(
@@ -488,12 +682,12 @@ function MilkdownEditorInner({
     setLinkDialogOpen(true)
   }, [get])
 
-  // Handle toolbar task list button click
-  const handleTaskListClick = useCallback(() => {
-    const editor = get()
-    if (!editor) return
-
-    const view = editor.ctx.get(editorViewCtx)
+  /**
+   * Get the current list context for the selection.
+   * Returns { listType, listItemDepth, listDepth, isTask } or null if not in a list.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const getListContext = useCallback((view: any) => {
     const { $from } = view.state.selection
 
     // Find if we're in a list item (may be nested)
@@ -505,18 +699,136 @@ function MilkdownEditorInner({
       }
     }
 
-    if (listItemDepth >= 0) {
-      // Toggle the checked attribute on the current list item
+    if (listItemDepth < 0) return null
+
+    // Find the parent list (bullet_list or ordered_list)
+    let listDepth = -1
+    let listType: 'bullet_list' | 'ordered_list' | null = null
+    for (let d = listItemDepth - 1; d >= 0; d--) {
+      const nodeName = $from.node(d).type.name
+      if (nodeName === 'bullet_list' || nodeName === 'ordered_list') {
+        listDepth = d
+        listType = nodeName
+        break
+      }
+    }
+
+    // Check if it's a task list item
+    const listItem = $from.node(listItemDepth)
+    const isTask = listItem.attrs.checked !== null
+
+    return { listType, listItemDepth, listDepth, isTask }
+  }, [])
+
+  // Handle toolbar bullet list button click - toggle behavior
+  const handleBulletListClick = useCallback(() => {
+    const editor = get()
+    if (!editor) return
+
+    const view = editor.ctx.get(editorViewCtx)
+    const ctx = getListContext(view)
+
+    if (!ctx) {
+      // Not in a list - wrap in bullet list
+      editor.action(callCommand(wrapInBulletListCommand.key))
+      view.focus()
+      return
+    }
+
+    const { listType, listItemDepth, isTask } = ctx
+
+    if (listType === 'bullet_list' && !isTask) {
+      // Already in bullet list (not task) - lift out
+      const listItemNodeType = view.state.schema.nodes.list_item
+      liftListItem(listItemNodeType)(view.state, view.dispatch)
+      view.focus()
+      return
+    }
+
+    // In ordered list or task list - convert to bullet list
+    // First, if it's a task, remove the checked attribute
+    if (isTask) {
+      const { $from } = view.state.selection
       const listItem = $from.node(listItemDepth)
       const listItemPos = $from.before(listItemDepth)
-      const currentChecked = listItem.attrs.checked
       const tr = view.state.tr.setNodeMarkup(listItemPos, undefined, {
         ...listItem.attrs,
-        checked: currentChecked === null ? false : null, // null = not a task, false = unchecked task
+        checked: null,
       })
       view.dispatch(tr)
+    }
+
+    // If it was ordered, convert to bullet by changing the list type
+    if (ctx.listType === 'ordered_list') {
+      const { $from } = view.state.selection
+      const listPos = $from.before(ctx.listDepth)
+      const bulletListType = view.state.schema.nodes.bullet_list
+      const tr = view.state.tr.setNodeMarkup(listPos, bulletListType)
+      view.dispatch(tr)
+    }
+
+    view.focus()
+  }, [get, getListContext])
+
+  // Handle toolbar ordered list button click - toggle behavior
+  const handleOrderedListClick = useCallback(() => {
+    const editor = get()
+    if (!editor) return
+
+    const view = editor.ctx.get(editorViewCtx)
+    const ctx = getListContext(view)
+
+    if (!ctx) {
+      // Not in a list - wrap in ordered list
+      editor.action(callCommand(wrapInOrderedListCommand.key))
       view.focus()
-    } else {
+      return
+    }
+
+    const { listType, listItemDepth, isTask } = ctx
+
+    if (listType === 'ordered_list') {
+      // Already in ordered list - lift out
+      const listItemNodeType = view.state.schema.nodes.list_item
+      liftListItem(listItemNodeType)(view.state, view.dispatch)
+      view.focus()
+      return
+    }
+
+    // In bullet list or task list - convert to ordered list
+    // First, if it's a task, remove the checked attribute
+    if (isTask) {
+      const { $from } = view.state.selection
+      const listItem = $from.node(listItemDepth)
+      const listItemPos = $from.before(listItemDepth)
+      const tr = view.state.tr.setNodeMarkup(listItemPos, undefined, {
+        ...listItem.attrs,
+        checked: null,
+      })
+      view.dispatch(tr)
+    }
+
+    // Convert to ordered list by changing the list type
+    if (ctx.listType === 'bullet_list') {
+      const { $from } = view.state.selection
+      const listPos = $from.before(ctx.listDepth)
+      const orderedListType = view.state.schema.nodes.ordered_list
+      const tr = view.state.tr.setNodeMarkup(listPos, orderedListType)
+      view.dispatch(tr)
+    }
+
+    view.focus()
+  }, [get, getListContext])
+
+  // Handle toolbar task list button click
+  const handleTaskListClick = useCallback(() => {
+    const editor = get()
+    if (!editor) return
+
+    const view = editor.ctx.get(editorViewCtx)
+    const ctx = getListContext(view)
+
+    if (!ctx) {
       // Not in a list - first create a bullet list, then convert to task
       editor.action(callCommand(wrapInBulletListCommand.key))
       // After creating bullet list, find and convert the list item to task
@@ -539,8 +851,146 @@ function MilkdownEditorInner({
         }
         freshView.focus()
       }, 0)
+      return
     }
-  }, [get])
+
+    const { listItemDepth, isTask } = ctx
+
+    if (isTask) {
+      // Already a task - toggle it off (remove checked attribute)
+      const { $from } = view.state.selection
+      const listItem = $from.node(listItemDepth)
+      const listItemPos = $from.before(listItemDepth)
+      const tr = view.state.tr.setNodeMarkup(listItemPos, undefined, {
+        ...listItem.attrs,
+        checked: null,
+      })
+      view.dispatch(tr)
+      view.focus()
+      return
+    }
+
+    // In a list but not a task - convert to task
+    // If in ordered list, first convert to bullet list
+    if (ctx.listType === 'ordered_list') {
+      const { $from } = view.state.selection
+      const listPos = $from.before(ctx.listDepth)
+      const bulletListType = view.state.schema.nodes.bullet_list
+      const tr = view.state.tr.setNodeMarkup(listPos, bulletListType)
+      view.dispatch(tr)
+    }
+
+    // Now add the checked attribute
+    // Need fresh state after potential list type change
+    setTimeout(() => {
+      const freshView = editor.ctx.get(editorViewCtx)
+      const { $from: newFrom } = freshView.state.selection
+      for (let d = newFrom.depth; d >= 0; d--) {
+        const node = newFrom.node(d)
+        if (node.type.name === 'list_item') {
+          const pos = newFrom.before(d)
+          const tr = freshView.state.tr.setNodeMarkup(pos, undefined, {
+            ...node.attrs,
+            checked: false,
+          })
+          freshView.dispatch(tr)
+          break
+        }
+      }
+      freshView.focus()
+    }, 0)
+  }, [get, getListContext])
+
+  // Run a Milkdown command helper for keyboard shortcuts
+  const runCommand = useCallback(
+    (command: Parameters<typeof callCommand>[0]) => {
+      const editor = get()
+      if (editor) {
+        editor.action(callCommand(command))
+        const view = editor.ctx.get(editorViewCtx)
+        view.focus()
+      }
+    },
+    [get]
+  )
+
+  // Handle keyboard shortcuts (Tab/Shift+Tab handled by listKeymapPluginSlice at ProseMirror level)
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const isMod = e.metaKey || e.ctrlKey
+
+      // Cmd+K - Insert/edit link
+      if (isMod && e.key === 'k') {
+        e.preventDefault()
+        const editor = get()
+        if (!editor) return
+        const view = editor.ctx.get(editorViewCtx)
+        const { from, to } = view.state.selection
+        const selectedText = view.state.doc.textBetween(from, to)
+        setLinkDialogInitialText(selectedText)
+        setLinkDialogKey((k) => k + 1)
+        setLinkDialogOpen(true)
+        return
+      }
+
+      // Cmd+Shift+X - Strikethrough
+      if (isMod && e.shiftKey && e.key === 'x') {
+        e.preventDefault()
+        runCommand(toggleStrikethroughCommand.key)
+        return
+      }
+
+      // Cmd+E - Inline code
+      if (isMod && !e.shiftKey && e.key === 'e') {
+        e.preventDefault()
+        runCommand(toggleInlineCodeCommand.key)
+        return
+      }
+
+      // Cmd+Shift+C - Code block
+      if (isMod && e.shiftKey && e.key === 'c') {
+        e.preventDefault()
+        runCommand(createCodeBlockCommand.key)
+        return
+      }
+
+      // Cmd+Shift+7 - Bullet list
+      if (isMod && e.shiftKey && e.key === '7') {
+        e.preventDefault()
+        handleBulletListClick()
+        return
+      }
+
+      // Cmd+Shift+8 - Ordered list
+      if (isMod && e.shiftKey && e.key === '8') {
+        e.preventDefault()
+        handleOrderedListClick()
+        return
+      }
+
+      // Cmd+Shift+9 - Task list
+      if (isMod && e.shiftKey && e.key === '9') {
+        e.preventDefault()
+        handleTaskListClick()
+        return
+      }
+
+      // Cmd+Shift+. - Blockquote
+      if (isMod && e.shiftKey && e.key === '.') {
+        e.preventDefault()
+        runCommand(wrapInBlockquoteCommand.key)
+        return
+      }
+
+      // Cmd+Shift+- - Horizontal rule
+      if (isMod && e.shiftKey && e.key === '-') {
+        e.preventDefault()
+        runCommand(insertHrCommand.key)
+        return
+      }
+    },
+    [get, runCommand, handleBulletListClick, handleOrderedListClick, handleTaskListClick]
+  )
 
   // Handle mouse down - checkbox toggle and focus on empty space
   // Using mousedown instead of click to prevent focus flash (blur/refocus cycle)
@@ -617,7 +1067,7 @@ function MilkdownEditorInner({
 
   return (
     <>
-      {!disabled && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onTaskListClick={handleTaskListClick} showJinjaTools={showJinjaTools} />}
+      {!disabled && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onBulletListClick={handleBulletListClick} onOrderedListClick={handleOrderedListClick} onTaskListClick={handleTaskListClick} showJinjaTools={showJinjaTools} />}
       <div
         className={`milkdown-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''} ${noPadding ? 'no-padding' : ''}`}
         style={{ minHeight }}
@@ -658,6 +1108,7 @@ export function MilkdownEditor({
   placeholder = 'Write your content in markdown...',
   noPadding = false,
   showJinjaTools = false,
+  autoFocus = false,
 }: MilkdownEditorProps): ReactNode {
   return (
     <MilkdownProvider>
@@ -669,6 +1120,7 @@ export function MilkdownEditor({
         placeholder={placeholder}
         noPadding={noPadding}
         showJinjaTools={showJinjaTools}
+        autoFocus={autoFocus}
       />
     </MilkdownProvider>
   )

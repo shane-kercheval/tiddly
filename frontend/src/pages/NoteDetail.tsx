@@ -56,9 +56,11 @@ export function NoteDetail(): ReactNode {
   const [error, setError] = useState<string | null>(null)
 
   // Get navigation state
-  const locationState = location.state as { initialTags?: string[] } | undefined
+  const locationState = location.state as { initialTags?: string[]; note?: NoteType } | undefined
   const { selectedTags } = useTagFilterStore()
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
+  // Note passed via navigation state (used after create to avoid refetch)
+  const passedNote = locationState?.note
 
   // Navigation
   const { navigateBack } = useReturnNavigation()
@@ -90,6 +92,14 @@ export function NoteDetail(): ReactNode {
       return
     }
 
+    // If note was passed via navigation state (after create), use it directly
+    if (passedNote && passedNote.id === noteId) {
+      setNote(passedNote)
+      setIsLoading(false)
+      trackNoteUsage(noteId!)
+      return
+    }
+
     const loadNote = async (): Promise<void> => {
       setIsLoading(true)
       setError(null)
@@ -106,7 +116,7 @@ export function NoteDetail(): ReactNode {
     }
 
     loadNote()
-  }, [isCreate, noteId, isValidId, fetchNote, trackNoteUsage])
+  }, [isCreate, noteId, isValidId, fetchNote, trackNoteUsage, passedNote])
 
   // Navigation helper
   const handleBack = useCallback((): void => {
@@ -118,8 +128,12 @@ export function NoteDetail(): ReactNode {
     async (data: NoteCreate | NoteUpdate): Promise<void> => {
       if (isCreate) {
         try {
-          await createMutation.mutateAsync(data as NoteCreate)
-          navigateBack()
+          const createdNote = await createMutation.mutateAsync(data as NoteCreate)
+          // Navigate to the new note's URL, passing the note to avoid refetch
+          navigate(`/app/notes/${createdNote.id}`, {
+            replace: true,
+            state: { note: createdNote },
+          })
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Failed to create note'
           toast.error(message)
@@ -139,7 +153,7 @@ export function NoteDetail(): ReactNode {
         }
       }
     },
-    [isCreate, noteId, createMutation, updateMutation, navigateBack]
+    [isCreate, noteId, createMutation, updateMutation, navigate]
   )
 
   const handleArchive = useCallback(async (): Promise<void> => {
