@@ -272,7 +272,7 @@ export function ContentEditor({
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              Visual
+              Markdown
             </button>
             <button
               type="button"
@@ -289,7 +289,7 @@ export function ContentEditor({
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              Markdown
+              Text
             </button>
           </div>
         </div>

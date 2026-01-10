@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BookmarkForm } from './BookmarkForm'
 import type { Bookmark, TagCount } from '../types'
@@ -560,12 +560,12 @@ describe('BookmarkForm', () => {
 
       render(<BookmarkForm {...defaultProps} onSubmit={onSubmit} />)
 
-      await user.type(screen.getByLabelText(/URL/), 'https://example.com')
+      // Use fireEvent for long strings to avoid slow keystroke simulation
+      fireEvent.change(screen.getByLabelText(/URL/), { target: { value: 'https://example.com' } })
       // Input has maxLength so we need to set value directly
       const titleInput = screen.getByLabelText(/Title/)
-      await user.clear(titleInput)
       // Type up to maxLength (input will truncate), then verify form still works
-      await user.type(titleInput, 'a'.repeat(config.limits.maxTitleLength))
+      fireEvent.change(titleInput, { target: { value: 'a'.repeat(config.limits.maxTitleLength) } })
 
       await user.click(screen.getByRole('button', { name: 'Create' }))
 
@@ -581,10 +581,11 @@ describe('BookmarkForm', () => {
 
       render(<BookmarkForm {...defaultProps} onSubmit={onSubmit} />)
 
-      await user.type(screen.getByLabelText(/URL/), 'https://example.com')
+      // Use fireEvent for long strings to avoid slow keystroke simulation
+      fireEvent.change(screen.getByLabelText(/URL/), { target: { value: 'https://example.com' } })
       // Input has maxLength attribute, so type up to limit
       const descInput = screen.getByLabelText(/Description/)
-      await user.type(descInput, 'a'.repeat(100)) // Just verify it works
+      fireEvent.change(descInput, { target: { value: 'a'.repeat(100) } })
 
       await user.click(screen.getByRole('button', { name: 'Create' }))
 

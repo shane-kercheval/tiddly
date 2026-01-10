@@ -50,7 +50,7 @@ const customCommonmark = [
   markInputRules,
   commands,
   keymap,
-  // Plugins (without remarkPreserveEmptyLinePlugin)
+  // Plugins (excluding remarkPreserveEmptyLinePlugin which causes empty paragraphs to serialize as <br />)
   hardbreakClearMarkPlugin,
   hardbreakFilterNodes,
   hardbreakFilterPlugin,
@@ -58,7 +58,7 @@ const customCommonmark = [
   remarkAddOrderInListPlugin,
   remarkInlineLinkPlugin,
   remarkLineBreak,
-  remarkHtmlTransformer,
+  remarkHtmlTransformer, // Required for parsing HTML/XML blocks - escaping is handled by cleanMarkdown
   remarkMarker,
   syncHeadingIdPlugin,
   syncListOrderPlugin,
