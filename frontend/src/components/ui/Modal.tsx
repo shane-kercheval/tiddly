@@ -66,18 +66,21 @@ export function Modal({
       firstInput?.focus()
     })
 
-    // Handle escape key
+    // Handle escape key - stop immediate propagation to prevent other document-level
+    // listeners (like note/bookmark close handlers) from also firing
     function handleKeyDown(e: KeyboardEvent): void {
       if (e.key === 'Escape' && canClose) {
+        e.stopImmediatePropagation()
         onClose()
       }
     }
 
-    document.addEventListener('keydown', handleKeyDown)
+    // Use capture phase to ensure modal handles Escape before other listeners
+    document.addEventListener('keydown', handleKeyDown, true)
 
     return () => {
       document.body.style.overflow = ''
-      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('keydown', handleKeyDown, true)
       if (animationFrameId !== null) {
         cancelAnimationFrame(animationFrameId)
       }
