@@ -150,8 +150,18 @@ def downgrade() -> None:
 
 ### Testing Strategy
 - Run migration: `make migrate`
+- Verify migration in local Docker database:
+  ```bash
+  # Connect to local PostgreSQL
+  docker compose exec postgres psql -U postgres -d bookmarks
+
+  # Verify table was renamed
+  \dt content_filters
+
+  # Verify sidebar_order JSONB was updated (check for 'filter' and 'collection' types)
+  SELECT id, sidebar_order FROM user_settings WHERE sidebar_order IS NOT NULL LIMIT 5;
+  ```
 - Run existing test suite after migration to ensure no data corruption
-- Manually verify JSONB transformation with sample data
 - Test migration downgrade restores original state: `uv run alembic downgrade -1`
 
 ### Dependencies
