@@ -24,6 +24,7 @@ import { formatDate } from '../utils'
 import { TAG_PATTERN } from '../utils'
 import { config } from '../config'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
+import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import type { Note as NoteType, NoteCreate, NoteUpdate, TagCount } from '../types'
 
@@ -102,10 +103,6 @@ export function Note({
   const [current, setCurrent] = useState<NoteState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
 
-  // Cancel confirmation state
-  const [confirmingDiscard, setConfirmingDiscard] = useState(false)
-  const discardTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
   const formRef = useRef<HTMLFormElement>(null)
@@ -145,6 +142,13 @@ export function Note({
   // Navigation blocking when dirty
   const { showDialog, handleStay, handleLeave, confirmLeave } = useUnsavedChangesWarning(isDirty)
 
+  // Discard confirmation (shows "Discard?" for 3 seconds on first click)
+  const { isConfirming, requestDiscard, resetConfirmation } = useDiscardConfirmation({
+    isDirty,
+    onDiscard: onClose,
+    onConfirmLeave: confirmLeave,
+  })
+
   // Auto-focus title for new notes only
   useEffect(() => {
     if (isCreate && titleInputRef.current) {
@@ -181,51 +185,6 @@ export function Note({
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [isDirty])
 
-  // Handle discard with confirmation
-  const handleDiscardRequest = useCallback((): void => {
-    // Clear any existing timeout
-    if (discardTimeoutRef.current) {
-      clearTimeout(discardTimeoutRef.current)
-      discardTimeoutRef.current = null
-    }
-
-    if (!isDirty) {
-      onClose()
-      return
-    }
-
-    if (confirmingDiscard) {
-      // Already confirming, execute discard
-      confirmLeave() // Prevent navigation blocker from showing
-      onClose()
-    } else {
-      // Start confirmation
-      setConfirmingDiscard(true)
-      // Auto-reset after 3 seconds
-      discardTimeoutRef.current = setTimeout(() => {
-        setConfirmingDiscard(false)
-      }, 3000)
-    }
-  }, [isDirty, confirmingDiscard, onClose, confirmLeave])
-
-  // Cleanup discard timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (discardTimeoutRef.current) {
-        clearTimeout(discardTimeoutRef.current)
-      }
-    }
-  }, [])
-
-  // Reset discard confirmation
-  const resetDiscardConfirmation = useCallback((): void => {
-    if (discardTimeoutRef.current) {
-      clearTimeout(discardTimeoutRef.current)
-      discardTimeoutRef.current = null
-    }
-    setConfirmingDiscard(false)
-  }, [])
-
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
@@ -243,10 +202,10 @@ export function Note({
       }
 
       // When confirming discard: Escape backs out, Enter confirms
-      if (confirmingDiscard) {
+      if (isConfirming) {
         if (e.key === 'Escape') {
           e.preventDefault()
-          resetDiscardConfirmation()
+          resetConfirmation()
         } else if (e.key === 'Enter') {
           e.preventDefault()
           confirmLeave() // Prevent navigation blocker from showing
@@ -257,13 +216,13 @@ export function Note({
 
       // Escape to start discard (with confirmation if dirty)
       if (e.key === 'Escape') {
-        handleDiscardRequest()
+        requestDiscard()
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [handleDiscardRequest, confirmingDiscard, resetDiscardConfirmation, onClose, isReadOnly, isDirty, confirmLeave])
+  }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, confirmLeave])
 
   // Validation
   const validate = (): boolean => {
@@ -395,16 +354,16 @@ export function Note({
           {/* Close button */}
           <button
             type="button"
-            onClick={handleDiscardRequest}
+            onClick={requestDiscard}
             disabled={isSaving}
             className={`flex items-center gap-1.5 ${
-              confirmingDiscard
+              isConfirming
                 ? 'btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50'
                 : 'btn-secondary'
             }`}
           >
             <CloseIcon className="h-4 w-4" />
-            {confirmingDiscard ? (
+            {isConfirming ? (
               <span>Discard?</span>
             ) : (
               <span className="hidden md:inline">Close</span>
