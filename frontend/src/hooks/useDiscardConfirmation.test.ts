@@ -44,6 +44,11 @@ describe('useDiscardConfirmation', () => {
 
     expect(result.current.isConfirming).toBe(true)
     expect(onDiscard).not.toHaveBeenCalled()
+
+    // Clean up pending timer within act() to avoid warning
+    act(() => {
+      vi.runAllTimers()
+    })
   })
 
   it('should call onConfirmLeave then onDiscard on second requestDiscard when dirty', () => {
