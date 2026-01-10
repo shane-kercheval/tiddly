@@ -333,10 +333,12 @@ body {
 
 .milkdown-wrapper .milkdown li[data-item-type="task"]::before {
   content: '';
-  @apply mt-1 h-4 w-4 rounded border border-gray-300 bg-white flex-shrink-0 cursor-pointer;
+  @apply mt-1 h-4 w-4 rounded border border-gray-300 bg-white flex-shrink-0;
   display: inline-block;
   min-width: 1rem;
   min-height: 1rem;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 .milkdown-wrapper .milkdown li[data-item-type="task"][data-checked="true"]::before {
