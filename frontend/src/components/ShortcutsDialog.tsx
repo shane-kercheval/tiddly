@@ -33,6 +33,7 @@ const leftColumnGroups: ShortcutGroup[] = [
       { keys: ['e'], description: 'Edit note (when viewing)' },
       { keys: ['\u2318', 'V'], description: 'Paste URL to add bookmark' },
       { keys: ['\u21E7', '\u2318', 'Click'], description: 'Open link without tracking' },
+      { keys: ['\u2318', 'S'], description: 'Save' },
     ],
   },
   {
@@ -48,23 +49,28 @@ const leftColumnGroups: ShortcutGroup[] = [
       { keys: ['w'], description: 'Toggle full-width layout' },
       { keys: ['\u2318', '\\'], description: 'Toggle sidebar' },
       { keys: ['\u2318', '/'], description: 'Show shortcuts' },
+      { keys: ['\u2318', '\u21E7', 'M'], description: 'Toggle Visual/Markdown' },
+      { keys: ['\u2325', 'Z'], description: 'Toggle word wrap' },
     ],
   },
 ]
 
-// Right column: Markdown Editor only
+// Right column: Markdown Editor formatting shortcuts
 const rightColumnGroups: ShortcutGroup[] = [
   {
     title: 'Markdown Editor',
     shortcuts: [
-      { keys: ['\u2325', 'Z'], description: 'Toggle word wrap' },
       { keys: ['\u2318', 'B'], description: 'Bold' },
       { keys: ['\u2318', 'I'], description: 'Italic' },
-      { keys: ['\u2318', 'K'], description: 'Insert link' },
       { keys: ['\u2318', '\u21E7', 'X'], description: 'Strikethrough' },
-      { keys: ['\u2318', 'S'], description: 'Save' },
-      { keys: ['Esc'], description: 'Cancel / back out of discard prompt' },
-      { keys: ['Enter'], description: 'Confirm discard (when prompted)' },
+      { keys: ['\u2318', 'E'], description: 'Inline code' },
+      { keys: ['\u2318', '\u21E7', 'C'], description: 'Code block' },
+      { keys: ['\u2318', 'K'], description: 'Insert link' },
+      { keys: ['\u2318', '\u21E7', '.'], description: 'Blockquote' },
+      { keys: ['\u2318', '\u21E7', '-'], description: 'Horizontal rule' },
+      { keys: ['\u2318', '\u21E7', '7'], description: 'Bullet list' },
+      { keys: ['\u2318', '\u21E7', '8'], description: 'Numbered list' },
+      { keys: ['\u2318', '\u21E7', '9'], description: 'Task list' },
     ],
   },
 ]

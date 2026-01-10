@@ -157,15 +157,23 @@ export function ContentEditor({
     saveWrapTextPreference(wrap)
   }, [])
 
-  // Global keyboard handler for Alt+Z (Option+Z on Mac) to toggle wrap
-  // Uses capture phase to intercept before macOS converts to special character (Ω)
+  // Global keyboard handlers for editor shortcuts
+  // Uses capture phase to intercept before macOS converts to special character (Ω for Alt+Z)
   useEffect(() => {
-    if (mode !== 'markdown') return // Only applies to markdown mode
-
     const handleKeyDown = (e: KeyboardEvent): void => {
-      // Alt+Z (Option+Z on Mac) - toggle word wrap
+      const isMod = e.metaKey || e.ctrlKey
+
+      // Cmd+Shift+M - Toggle between Visual and Markdown modes
+      if (isMod && e.shiftKey && e.code === 'KeyM') {
+        e.preventDefault()
+        e.stopPropagation()
+        handleModeChange(mode === 'visual' ? 'markdown' : 'visual')
+        return
+      }
+
+      // Alt+Z (Option+Z on Mac) - toggle word wrap (only in markdown mode)
       // Use e.code which is independent of keyboard layout and modifier combinations
-      if (e.altKey && e.code === 'KeyZ') {
+      if (mode === 'markdown' && e.altKey && e.code === 'KeyZ') {
         e.preventDefault()
         e.stopPropagation()
         handleWrapTextChange(!wrapText)
@@ -174,7 +182,7 @@ export function ContentEditor({
 
     document.addEventListener('keydown', handleKeyDown, true)
     return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [mode, wrapText, handleWrapTextChange])
+  }, [mode, wrapText, handleWrapTextChange, handleModeChange])
 
   // Compute container border classes based on props
   // Three modes: no border, solid border, or subtle ring on focus
@@ -223,7 +231,7 @@ export function ContentEditor({
           )}
 
           {/* Mode toggle */}
-          <div className="inline-flex rounded-md bg-gray-100 p-0.5">
+          <div className="inline-flex rounded-md bg-gray-100 p-0.5" title="Toggle mode (⌘⇧M)">
             <button
               type="button"
               onClick={() => handleModeChange('visual')}

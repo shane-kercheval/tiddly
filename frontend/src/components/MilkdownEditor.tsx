@@ -180,15 +180,15 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
       <ToolbarButton onClick={() => runCommand(toggleEmphasisCommand.key)} title="Italic (⌘I)">
         <span className="w-4 h-4 flex items-center justify-center text-[17px] font-serif italic">I</span>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(toggleStrikethroughCommand.key)} title="Strikethrough">
+      <ToolbarButton onClick={() => runCommand(toggleStrikethroughCommand.key)} title="Strikethrough (⌘⇧X)">
         <span className="w-4 h-4 flex items-center justify-center text-[17px] line-through">S</span>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(toggleInlineCodeCommand.key)} title="Inline Code">
+      <ToolbarButton onClick={() => runCommand(toggleInlineCodeCommand.key)} title="Inline Code (⌘E)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(createCodeBlockCommand.key)} title="Code Block">
+      <ToolbarButton onClick={() => runCommand(createCodeBlockCommand.key)} title="Code Block (⌘⇧C)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h6" />
         </svg>
@@ -206,7 +206,7 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
       <ToolbarSeparator />
 
       {/* Lists */}
-      <ToolbarButton onClick={onBulletListClick} title="Bullet List">
+      <ToolbarButton onClick={onBulletListClick} title="Bullet List (⌘⇧7)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M8 12h12M8 18h12" />
           <circle cx="3" cy="6" r="2" fill="currentColor" />
@@ -214,7 +214,7 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
           <circle cx="3" cy="18" r="2" fill="currentColor" />
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={onOrderedListClick} title="Numbered List">
+      <ToolbarButton onClick={onOrderedListClick} title="Numbered List (⌘⇧8)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M8 12h12M8 18h12" />
           <text x="1" y="8" fontSize="7" fill="currentColor" fontWeight="bold">1</text>
@@ -222,7 +222,7 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
           <text x="1" y="20" fontSize="7" fill="currentColor" fontWeight="bold">3</text>
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={onTaskListClick} title="Task List (Checkbox)">
+      <ToolbarButton onClick={onTaskListClick} title="Task List (⌘⇧9)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <rect x="3" y="5" width="14" height="14" rx="2" strokeWidth={2} />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12l3 3 5-5" />
@@ -232,12 +232,12 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
       <ToolbarSeparator />
 
       {/* Block elements */}
-      <ToolbarButton onClick={() => runCommand(wrapInBlockquoteCommand.key)} title="Blockquote">
+      <ToolbarButton onClick={() => runCommand(wrapInBlockquoteCommand.key)} title="Blockquote (⌘⇧.)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-4l-4 4-4-4z" />
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(insertHrCommand.key)} title="Horizontal Rule">
+      <ToolbarButton onClick={() => runCommand(insertHrCommand.key)} title="Horizontal Rule (⌘⇧-)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h16" />
         </svg>
@@ -597,28 +597,6 @@ function MilkdownEditorInner({
   const [linkDialogInitialText, setLinkDialogInitialText] = useState('')
   const [linkDialogKey, setLinkDialogKey] = useState(0)
 
-  // Handle keyboard shortcuts (Tab/Shift+Tab handled by tabKeymapPluginSlice at ProseMirror level)
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      // Cmd+K or Ctrl+K to insert/edit link
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-
-        const editor = get()
-        if (!editor) return
-
-        const view = editor.ctx.get(editorViewCtx)
-        const { from, to } = view.state.selection
-        const selectedText = view.state.doc.textBetween(from, to)
-
-        setLinkDialogInitialText(selectedText)
-        setLinkDialogKey((k) => k + 1)
-        setLinkDialogOpen(true)
-      }
-    },
-    [get]
-  )
-
   // Handle link insertion from dialog
   const handleLinkSubmit = useCallback(
     (url: string, text: string) => {
@@ -879,6 +857,97 @@ function MilkdownEditorInner({
       freshView.focus()
     }, 0)
   }, [get, getListContext])
+
+  // Run a Milkdown command helper for keyboard shortcuts
+  const runCommand = useCallback(
+    (command: Parameters<typeof callCommand>[0]) => {
+      const editor = get()
+      if (editor) {
+        editor.action(callCommand(command))
+        const view = editor.ctx.get(editorViewCtx)
+        view.focus()
+      }
+    },
+    [get]
+  )
+
+  // Handle keyboard shortcuts (Tab/Shift+Tab handled by listKeymapPluginSlice at ProseMirror level)
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const isMod = e.metaKey || e.ctrlKey
+
+      // Cmd+K - Insert/edit link
+      if (isMod && e.key === 'k') {
+        e.preventDefault()
+        const editor = get()
+        if (!editor) return
+        const view = editor.ctx.get(editorViewCtx)
+        const { from, to } = view.state.selection
+        const selectedText = view.state.doc.textBetween(from, to)
+        setLinkDialogInitialText(selectedText)
+        setLinkDialogKey((k) => k + 1)
+        setLinkDialogOpen(true)
+        return
+      }
+
+      // Cmd+Shift+X - Strikethrough
+      if (isMod && e.shiftKey && e.key === 'x') {
+        e.preventDefault()
+        runCommand(toggleStrikethroughCommand.key)
+        return
+      }
+
+      // Cmd+E - Inline code
+      if (isMod && !e.shiftKey && e.key === 'e') {
+        e.preventDefault()
+        runCommand(toggleInlineCodeCommand.key)
+        return
+      }
+
+      // Cmd+Shift+C - Code block
+      if (isMod && e.shiftKey && e.key === 'c') {
+        e.preventDefault()
+        runCommand(createCodeBlockCommand.key)
+        return
+      }
+
+      // Cmd+Shift+7 - Bullet list
+      if (isMod && e.shiftKey && e.key === '7') {
+        e.preventDefault()
+        handleBulletListClick()
+        return
+      }
+
+      // Cmd+Shift+8 - Ordered list
+      if (isMod && e.shiftKey && e.key === '8') {
+        e.preventDefault()
+        handleOrderedListClick()
+        return
+      }
+
+      // Cmd+Shift+9 - Task list
+      if (isMod && e.shiftKey && e.key === '9') {
+        e.preventDefault()
+        handleTaskListClick()
+        return
+      }
+
+      // Cmd+Shift+. - Blockquote
+      if (isMod && e.shiftKey && e.key === '.') {
+        e.preventDefault()
+        runCommand(wrapInBlockquoteCommand.key)
+        return
+      }
+
+      // Cmd+Shift+- - Horizontal rule
+      if (isMod && e.shiftKey && e.key === '-') {
+        e.preventDefault()
+        runCommand(insertHrCommand.key)
+        return
+      }
+    },
+    [get, runCommand, handleBulletListClick, handleOrderedListClick, handleTaskListClick]
+  )
 
   // Handle mouse down - checkbox toggle and focus on empty space
   // Using mousedown instead of click to prevent focus flash (blur/refocus cycle)
