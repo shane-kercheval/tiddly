@@ -164,19 +164,6 @@ describe('Note component - specific behaviors', () => {
       expect(screen.getByText(/Created/)).toBeInTheDocument()
       expect(screen.getByText(/Updated/)).toBeInTheDocument()
     })
-
-    it('should show version for note with version > 1', () => {
-      render(
-        <Note
-          note={mockNote}
-          tagSuggestions={mockTagSuggestions}
-          onSave={mockOnSave}
-          onClose={mockOnClose}
-        />
-      )
-
-      expect(screen.getByText('v2')).toBeInTheDocument()
-    })
   })
 
   describe('description field', () => {

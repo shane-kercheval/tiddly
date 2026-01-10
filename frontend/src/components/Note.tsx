@@ -690,12 +690,6 @@ export function Note({
                     <span>Updated {formatDate(note.updated_at)}</span>
                   </>
                 )}
-                {note.version > 1 && (
-                  <>
-                    <span className="text-gray-300">·</span>
-                    <span>v{note.version}</span>
-                  </>
-                )}
               </>
             )}
           </div>
