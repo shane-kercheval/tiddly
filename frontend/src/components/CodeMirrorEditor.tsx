@@ -28,6 +28,8 @@ interface CodeMirrorEditorProps {
   wrapText?: boolean
   /** Remove padding to align text with other elements */
   noPadding?: boolean
+  /** Whether to auto-focus on mount */
+  autoFocus?: boolean
 }
 
 /**
@@ -138,6 +140,7 @@ export function CodeMirrorEditor({
   placeholder = 'Write your content in markdown...',
   wrapText = false,
   noPadding = false,
+  autoFocus = false,
 }: CodeMirrorEditorProps): ReactNode {
   // Build extensions array with optional line wrapping and keybindings
   const extensions = useMemo(() => {
@@ -158,6 +161,7 @@ export function CodeMirrorEditor({
         minHeight={minHeight}
         placeholder={placeholder}
         editable={!disabled}
+        autoFocus={autoFocus}
         basicSetup={{
           lineNumbers: false,
           foldGutter: false,

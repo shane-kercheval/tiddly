@@ -141,6 +141,9 @@ export function ContentEditor({
   // Track mode switches to force remount and clear undo history
   const [modeKey, setModeKey] = useState(0)
 
+  // Track if we should auto-focus the editor (after mode switch)
+  const [shouldAutoFocus, setShouldAutoFocus] = useState(false)
+
   // Wrap text preference (only applies to Markdown mode)
   const [wrapText, setWrapText] = useState(loadWrapTextPreference)
 
@@ -149,7 +152,17 @@ export function ContentEditor({
     setMode(newMode)
     saveModePreference(newMode)
     setModeKey((prev) => prev + 1) // Force remount to clear undo history
+    setShouldAutoFocus(true) // Auto-focus the new editor
   }, [])
+
+  // Reset shouldAutoFocus after editor mounts to prevent re-focusing on every render
+  useEffect(() => {
+    if (shouldAutoFocus) {
+      // Small delay to ensure focus has been applied
+      const timer = setTimeout(() => setShouldAutoFocus(false), 50)
+      return () => clearTimeout(timer)
+    }
+  }, [shouldAutoFocus])
 
   // Handle wrap text change
   const handleWrapTextChange = useCallback((wrap: boolean): void => {
@@ -213,7 +226,16 @@ export function ContentEditor({
       {/* Header with label and mode toggle - hidden until focused */}
       <div className="flex items-center justify-between mb-1">
         {label ? <label className="label">{label}</label> : <div />}
-        <div className="flex items-center gap-2 opacity-0 pointer-events-none group-focus-within/editor:opacity-100 group-focus-within/editor:pointer-events-auto transition-opacity">
+        <div
+          className="flex items-center gap-2 opacity-0 group-focus-within/editor:opacity-100 transition-opacity"
+          onClick={(e) => {
+            // Focus editor when clicking anywhere on the controls (reveals them when hidden)
+            const editorGroup = (e.currentTarget as HTMLElement).closest('.group\\/editor')
+            // Try ProseMirror (Milkdown) first, then CodeMirror
+            const editorElement = editorGroup?.querySelector('.ProseMirror, .cm-content') as HTMLElement
+            editorElement?.focus()
+          }}
+        >
           {/* Wrap text toggle (only in markdown mode) */}
           {mode === 'markdown' && (
             <label
@@ -230,11 +252,19 @@ export function ContentEditor({
             </label>
           )}
 
-          {/* Mode toggle */}
+          {/* Mode toggle - uses onMouseDown to fire before Safari drops focus-within */}
+          {/* Only executes if editor was already focused (controls were visible) */}
           <div className="inline-flex rounded-md bg-gray-100 p-0.5" title="Toggle mode (⌘⇧M)">
             <button
               type="button"
-              onClick={() => handleModeChange('visual')}
+              onMouseDown={(e) => {
+                const editorGroup = (e.currentTarget as HTMLElement).closest('.group\\/editor')
+                const editorHadFocus = editorGroup?.contains(document.activeElement) ?? false
+                if (editorHadFocus) {
+                  e.preventDefault()
+                  handleModeChange('visual')
+                }
+              }}
               className={`text-xs px-2 py-0.5 rounded transition-all ${
                 mode === 'visual'
                   ? 'bg-white text-gray-900 shadow-sm'
@@ -245,7 +275,14 @@ export function ContentEditor({
             </button>
             <button
               type="button"
-              onClick={() => handleModeChange('markdown')}
+              onMouseDown={(e) => {
+                const editorGroup = (e.currentTarget as HTMLElement).closest('.group\\/editor')
+                const editorHadFocus = editorGroup?.contains(document.activeElement) ?? false
+                if (editorHadFocus) {
+                  e.preventDefault()
+                  handleModeChange('markdown')
+                }
+              }}
               className={`text-xs px-2 py-0.5 rounded transition-all ${
                 mode === 'markdown'
                   ? 'bg-white text-gray-900 shadow-sm'
@@ -273,6 +310,7 @@ export function ContentEditor({
             placeholder={placeholder}
             noPadding={subtleBorder || !showBorder}
             showJinjaTools={showJinjaTools}
+            autoFocus={shouldAutoFocus}
           />
         ) : (
           <CodeMirrorEditor
@@ -284,12 +322,13 @@ export function ContentEditor({
             placeholder={placeholder}
             wrapText={wrapText}
             noPadding={subtleBorder || !showBorder}
+            autoFocus={shouldAutoFocus}
           />
         )}
       </div>
 
       {/* Footer with helper text and character count - hidden until focused */}
-      <div className="flex justify-between items-center mt-1 opacity-0 pointer-events-none group-focus-within/editor:opacity-100 group-focus-within/editor:pointer-events-auto transition-opacity">
+      <div className="flex justify-between items-center mt-1 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
         {errorMessage ? (
           <p className="error-text">{errorMessage}</p>
         ) : (

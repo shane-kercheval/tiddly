@@ -102,18 +102,32 @@ import type { Editor as EditorType } from '@milkdown/kit/core'
 
 /**
  * Toolbar button component for editor formatting actions.
+ * Uses onMouseDown to fire before Safari drops focus-within state.
+ * Only executes action if editor was already focused (toolbar was visible).
  */
 interface ToolbarButtonProps {
-  onClick: () => void
+  onAction: () => void
   title: string
   children: ReactNode
 }
 
-function ToolbarButton({ onClick, title, children }: ToolbarButtonProps): ReactNode {
+function ToolbarButton({ onAction, title, children }: ToolbarButtonProps): ReactNode {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onMouseDown={(e) => {
+        // Check if editor already has focus (toolbar was visible)
+        const editorGroup = (e.currentTarget as HTMLElement).closest('.group\\/editor')
+        const editorHadFocus = editorGroup?.contains(document.activeElement) ?? false
+
+        if (editorHadFocus) {
+          // Editor was focused - prevent default to avoid Safari focus issues, then execute action
+          e.preventDefault()
+          onAction()
+        }
+        // If editor wasn't focused, let the click naturally focus the editor
+        // which will reveal the toolbar (but won't execute the action)
+      }}
       title={title}
       className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
     >
@@ -168,27 +182,39 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
     [getEditor]
   )
 
+  // Focus editor when clicking anywhere on toolbar (reveals toolbar when hidden)
+  const handleToolbarClick = useCallback(() => {
+    const editor = getEditor()
+    if (editor) {
+      const view = editor.ctx.get(editorViewCtx)
+      view.focus()
+    }
+  }, [getEditor])
+
   return (
-    <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-gray-50/50 opacity-0 pointer-events-none group-focus-within/editor:opacity-100 group-focus-within/editor:pointer-events-auto transition-opacity">
+    <div
+      className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-gray-50/50 opacity-0 group-focus-within/editor:opacity-100 transition-opacity"
+      onClick={handleToolbarClick}
+    >
       {/* Text formatting */}
-      <ToolbarButton onClick={() => runCommand(toggleStrongCommand.key)} title="Bold (⌘B)">
+      <ToolbarButton onAction={() => runCommand(toggleStrongCommand.key)} title="Bold (⌘B)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 4h8a4 4 0 014 4 4 4 0 01-4 4H6z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12h9a4 4 0 014 4 4 4 0 01-4 4H6z" />
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(toggleEmphasisCommand.key)} title="Italic (⌘I)">
+      <ToolbarButton onAction={() => runCommand(toggleEmphasisCommand.key)} title="Italic (⌘I)">
         <span className="w-4 h-4 flex items-center justify-center text-[17px] font-serif italic">I</span>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(toggleStrikethroughCommand.key)} title="Strikethrough (⌘⇧X)">
+      <ToolbarButton onAction={() => runCommand(toggleStrikethroughCommand.key)} title="Strikethrough (⌘⇧X)">
         <span className="w-4 h-4 flex items-center justify-center text-[17px] line-through">S</span>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(toggleInlineCodeCommand.key)} title="Inline Code (⌘E)">
+      <ToolbarButton onAction={() => runCommand(toggleInlineCodeCommand.key)} title="Inline Code (⌘E)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(createCodeBlockCommand.key)} title="Code Block (⌘⇧C)">
+      <ToolbarButton onAction={() => runCommand(createCodeBlockCommand.key)} title="Code Block (⌘⇧C)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h6" />
         </svg>
@@ -197,7 +223,7 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
       <ToolbarSeparator />
 
       {/* Link */}
-      <ToolbarButton onClick={onLinkClick} title="Insert Link (⌘K)">
+      <ToolbarButton onAction={onLinkClick} title="Insert Link (⌘K)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
         </svg>
@@ -206,7 +232,7 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
       <ToolbarSeparator />
 
       {/* Lists */}
-      <ToolbarButton onClick={onBulletListClick} title="Bullet List (⌘⇧7)">
+      <ToolbarButton onAction={onBulletListClick} title="Bullet List (⌘⇧7)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M8 12h12M8 18h12" />
           <circle cx="3" cy="6" r="2" fill="currentColor" />
@@ -214,7 +240,7 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
           <circle cx="3" cy="18" r="2" fill="currentColor" />
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={onOrderedListClick} title="Numbered List (⌘⇧8)">
+      <ToolbarButton onAction={onOrderedListClick} title="Numbered List (⌘⇧8)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M8 12h12M8 18h12" />
           <text x="1" y="8" fontSize="7" fill="currentColor" fontWeight="bold">1</text>
@@ -222,7 +248,7 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
           <text x="1" y="20" fontSize="7" fill="currentColor" fontWeight="bold">3</text>
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={onTaskListClick} title="Task List (⌘⇧9)">
+      <ToolbarButton onAction={onTaskListClick} title="Task List (⌘⇧9)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <rect x="3" y="5" width="14" height="14" rx="2" strokeWidth={2} />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12l3 3 5-5" />
@@ -232,12 +258,12 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
       <ToolbarSeparator />
 
       {/* Block elements */}
-      <ToolbarButton onClick={() => runCommand(wrapInBlockquoteCommand.key)} title="Blockquote (⌘⇧.)">
+      <ToolbarButton onAction={() => runCommand(wrapInBlockquoteCommand.key)} title="Blockquote (⌘⇧.)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-4l-4 4-4-4z" />
         </svg>
       </ToolbarButton>
-      <ToolbarButton onClick={() => runCommand(insertHrCommand.key)} title="Horizontal Rule (⌘⇧-)">
+      <ToolbarButton onAction={() => runCommand(insertHrCommand.key)} title="Horizontal Rule (⌘⇧-)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h16" />
         </svg>
@@ -247,13 +273,13 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
       {showJinjaTools && (
         <>
           <ToolbarSeparator />
-          <ToolbarButton onClick={() => insertText('{{ variable }}')} title="Insert Variable {{ }}">
+          <ToolbarButton onAction={() => insertText('{{ variable }}')} title="Insert Variable {{ }}">
             <span className="w-4 h-4 flex items-center justify-center text-[11px] font-mono font-bold">{'{}'}</span>
           </ToolbarButton>
-          <ToolbarButton onClick={() => insertText('{% if variable %}\n\n{% endif %}')} title="If Block {% if %}">
+          <ToolbarButton onAction={() => insertText('{% if variable %}\n\n{% endif %}')} title="If Block {% if %}">
             <span className="w-4 h-4 flex items-center justify-center text-[10px] font-mono font-bold">if</span>
           </ToolbarButton>
-          <ToolbarButton onClick={() => insertText('{%- if variable %}\n\n{%- endif %}')} title="If Block with Whitespace Trim {%- if %}">
+          <ToolbarButton onAction={() => insertText('{%- if variable %}\n\n{%- endif %}')} title="If Block with Whitespace Trim {%- if %}">
             <span className="w-4 h-4 flex items-center justify-center text-[10px] font-mono font-bold">if-</span>
           </ToolbarButton>
         </>
@@ -500,6 +526,8 @@ interface MilkdownEditorProps {
   noPadding?: boolean
   /** Show Jinja2 template tools in toolbar (for prompts) */
   showJinjaTools?: boolean
+  /** Whether to auto-focus on mount */
+  autoFocus?: boolean
 }
 
 interface MilkdownEditorInnerProps {
@@ -510,6 +538,7 @@ interface MilkdownEditorInnerProps {
   placeholder?: string
   noPadding?: boolean
   showJinjaTools?: boolean
+  autoFocus?: boolean
 }
 
 function MilkdownEditorInner({
@@ -520,9 +549,11 @@ function MilkdownEditorInner({
   placeholder = 'Write your content in markdown...',
   noPadding = false,
   showJinjaTools = false,
+  autoFocus = false,
 }: MilkdownEditorInnerProps): ReactNode {
   const initialValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
+  const autoFocusRef = useRef(autoFocus)
 
   // Keep onChange ref up to date
   useEffect(() => {
@@ -591,6 +622,22 @@ function MilkdownEditorInner({
       .use(listKeymapPluginSlice),
     []
   )
+
+  // Auto-focus the editor on mount if requested
+  useEffect(() => {
+    if (autoFocusRef.current) {
+      // Small delay to ensure editor is fully mounted
+      const timer = setTimeout(() => {
+        const editor = get()
+        if (editor) {
+          const view = editor.ctx.get(editorViewCtx)
+          view.focus()
+        }
+      }, 0)
+      return () => clearTimeout(timer)
+    }
+  }, [get])
+
 
   // Link dialog state
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
@@ -1065,6 +1112,7 @@ export function MilkdownEditor({
   placeholder = 'Write your content in markdown...',
   noPadding = false,
   showJinjaTools = false,
+  autoFocus = false,
 }: MilkdownEditorProps): ReactNode {
   return (
     <MilkdownProvider>
@@ -1076,6 +1124,7 @@ export function MilkdownEditor({
         placeholder={placeholder}
         noPadding={noPadding}
         showJinjaTools={showJinjaTools}
+        autoFocus={autoFocus}
       />
     </MilkdownProvider>
   )
