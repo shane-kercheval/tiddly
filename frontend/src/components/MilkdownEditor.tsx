@@ -37,6 +37,8 @@ import {
   wrapInOrderedListCommand,
   insertHrCommand,
   createCodeBlockCommand,
+  // Schema for Tab key handling
+  listItemSchema,
 } from '@milkdown/kit/preset/commonmark'
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
 import { callCommand } from '@milkdown/kit/utils'
@@ -70,6 +72,8 @@ import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
 import { $prose } from '@milkdown/kit/utils'
 import { Plugin, TextSelection } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
+import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
+import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
 import { Modal } from './ui/Modal'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { shouldHandleEmptySpaceClick } from '../utils/editorUtils'
@@ -346,6 +350,78 @@ function createPlaceholderPlugin(placeholder: string): Plugin {
   })
 }
 
+/**
+ * Check if the selection is inside a code_block node.
+ */
+function isInCodeBlock(state: Parameters<Parameters<typeof createKeymap>[0][string]>[0]): boolean {
+  const { $from } = state.selection
+  for (let d = $from.depth; d >= 0; d--) {
+    if ($from.node(d).type.name === 'code_block') {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Create a ProseMirror keymap plugin that handles Tab/Shift+Tab.
+ * - In list items: indent/outdent the list item
+ * - In code blocks: insert/remove 4 spaces for indentation
+ * - Elsewhere: do nothing (but prevent focus escape)
+ *
+ * @param listItemNodeType - The ProseMirror NodeType for list_item from the schema
+ */
+function createTabKeymapPlugin(listItemNodeType: Parameters<typeof sinkListItem>[0]): Plugin {
+  const INDENT = '    ' // 4 spaces
+
+  return createKeymap({
+    'Tab': (state, dispatch) => {
+      // In code blocks, insert 4 spaces
+      if (isInCodeBlock(state)) {
+        if (dispatch) {
+          dispatch(state.tr.insertText(INDENT))
+        }
+        return true
+      }
+
+      // In list items, try to sink (indent)
+      sinkListItem(listItemNodeType)(state, dispatch)
+
+      // Always return true to prevent focus escape
+      return true
+    },
+    'Shift-Tab': (state, dispatch) => {
+      // In code blocks, remove up to 4 spaces at start of line
+      if (isInCodeBlock(state)) {
+        if (dispatch) {
+          const { $from } = state.selection
+          // Find the start of the current line within the code block
+          const lineStart = $from.start()
+          const textBefore = state.doc.textBetween(lineStart, $from.pos)
+          const lastNewline = textBefore.lastIndexOf('\n')
+          const lineContentStart = lastNewline === -1 ? lineStart : lineStart + lastNewline + 1
+
+          // Check how many spaces are at the start of this line
+          const lineText = state.doc.textBetween(lineContentStart, $from.pos)
+          const leadingSpaces = lineText.match(/^ */)?.[0].length ?? 0
+          const spacesToRemove = Math.min(leadingSpaces, 4)
+
+          if (spacesToRemove > 0) {
+            dispatch(state.tr.delete(lineContentStart, lineContentStart + spacesToRemove))
+          }
+        }
+        return true
+      }
+
+      // In list items, try to lift (outdent)
+      liftListItem(listItemNodeType)(state, dispatch)
+
+      // Always return true to prevent focus escape
+      return true
+    },
+  })
+}
+
 interface MilkdownEditorProps {
   /** Current content value (markdown string) */
   value: string
@@ -393,6 +469,13 @@ function MilkdownEditorInner({
   // Create placeholder plugin with Milkdown's $prose utility
   const placeholderPluginSlice = $prose(() => createPlaceholderPlugin(placeholder))
 
+  // Create Tab keymap plugin with Milkdown's $prose utility
+  // This plugin handles Tab/Shift+Tab for list indentation and prevents focus escape
+  const tabKeymapPluginSlice = $prose((ctx) => {
+    const listItemNodeType = listItemSchema.type(ctx)
+    return createTabKeymapPlugin(listItemNodeType)
+  })
+
   // Initialize the Milkdown editor.
   // Note: The empty dependency array is intentional. The editor is initialized once
   // with the initial value and placeholder. Changing these props after mount requires
@@ -415,7 +498,8 @@ function MilkdownEditorInner({
       .use(history)
       .use(clipboard)
       .use(listener)
-      .use(placeholderPluginSlice),
+      .use(placeholderPluginSlice)
+      .use(tabKeymapPluginSlice),
     []
   )
 
@@ -424,7 +508,7 @@ function MilkdownEditorInner({
   const [linkDialogInitialText, setLinkDialogInitialText] = useState('')
   const [linkDialogKey, setLinkDialogKey] = useState(0)
 
-  // Handle keyboard shortcuts
+  // Handle keyboard shortcuts (Tab/Shift+Tab handled by tabKeymapPluginSlice at ProseMirror level)
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       // Cmd+K or Ctrl+K to insert/edit link
