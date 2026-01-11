@@ -103,6 +103,24 @@ vi.mock('../stores/tagFilterStore', () => ({
   ),
 }))
 
+vi.mock('../stores/uiPreferencesStore', () => ({
+  useUIPreferencesStore: (selector: (state: { fullWidthLayout: boolean }) => boolean) =>
+    selector({ fullWidthLayout: false }),
+}))
+
+// Mock ContentEditor to avoid Milkdown timer issues in tests
+// Milkdown's internal timers try to call removeEventListener after test environment teardown
+vi.mock('../components/ContentEditor', () => ({
+  ContentEditor: ({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) => (
+    <textarea
+      data-testid="content-editor"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+    />
+  ),
+}))
+
 // Helper to render NoteDetail with router
 function renderWithRouter(initialRoute: string): void {
   render(
