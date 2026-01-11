@@ -45,7 +45,6 @@ import { FilterModal } from '../FilterModal'
 import { CollectionModal } from '../CollectionModal'
 import {
   SettingsIcon,
-  CollapseIcon,
   MenuIcon,
   CloseIcon,
   PlusIcon,
@@ -537,8 +536,8 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
   return (
     <div className="flex h-full flex-col">
-      {/* Quick-add bar: Collection/Filter on left, Bookmark/Note/Collapse on right */}
-      {!isCollapsed ? (
+      {/* Quick-add bar: Collection/Filter on left, Bookmark/Note/Prompt on right */}
+      {!isCollapsed && (
         <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200">
           {/* Hidden on mobile - drag-drop doesn't work well on touch */}
           <button
@@ -578,23 +577,6 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
             title="New Prompt"
           >
             <PromptIcon className="h-4 w-4" />
-          </button>
-          <button
-            onClick={toggleCollapse}
-            className="hidden md:block p-1.5 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-            title="Collapse sidebar"
-          >
-            <CollapseIcon className="h-4 w-4" />
-          </button>
-        </div>
-      ) : (
-        <div className="hidden md:flex items-center justify-center px-2 py-1.5 border-b border-gray-200">
-          <button
-            onClick={toggleCollapse}
-            className="p-1.5 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-            title="Expand sidebar"
-          >
-            <CollapseIcon className="h-4 w-4 rotate-180" />
           </button>
         </div>
       )}
@@ -668,8 +650,8 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       </DndContext>
 
       {/* User Section */}
-      <div className="border-t border-gray-200 px-2 h-12 shrink-0 flex items-center overflow-hidden">
-        <SidebarUserSection isCollapsed={isCollapsed} />
+      <div className={`border-t border-gray-200 px-2 shrink-0 flex items-center overflow-hidden ${isCollapsed ? 'h-20 py-2' : 'h-12'}`}>
+        <SidebarUserSection isCollapsed={isCollapsed} onToggleCollapse={toggleCollapse} />
       </div>
 
       {/* Filter Modal */}

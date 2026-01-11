@@ -1,12 +1,14 @@
 /**
- * Logout button at the bottom of the sidebar.
+ * User section at the bottom of the sidebar with logout and collapse buttons.
  */
 import { useAuth0 } from '@auth0/auth0-react'
 import type { ReactNode } from 'react'
 import { isDevMode } from '../../config'
+import { CollapseIcon } from '../icons'
 
 interface SidebarUserSectionProps {
   isCollapsed: boolean
+  onToggleCollapse?: () => void
 }
 
 function LogoutIcon(): ReactNode {
@@ -27,26 +29,43 @@ function LogoutIcon(): ReactNode {
   )
 }
 
-export function SidebarUserSection({ isCollapsed }: SidebarUserSectionProps): ReactNode {
+function CollapseButton({ isCollapsed, onToggleCollapse }: SidebarUserSectionProps): ReactNode {
+  if (!onToggleCollapse) return null
+
+  return (
+    <button
+      onClick={onToggleCollapse}
+      className="hidden md:block p-1.5 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+      title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+    >
+      <CollapseIcon className={`h-4 w-4 ${isCollapsed ? 'rotate-180' : ''}`} />
+    </button>
+  )
+}
+
+export function SidebarUserSection({ isCollapsed, onToggleCollapse }: SidebarUserSectionProps): ReactNode {
   // In dev mode, show button but don't use Auth0
   if (isDevMode) {
     return (
-      <button
-        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1 text-sm text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 ${
-          isCollapsed ? 'justify-center' : ''
-        }`}
-        title="Log out"
-      >
-        <LogoutIcon />
-        {!isCollapsed && <span>Log out</span>}
-      </button>
+      <div className={`flex w-full ${isCollapsed ? 'flex-col items-center gap-1' : 'items-center'}`}>
+        <button
+          className={`flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 ${
+            isCollapsed ? 'justify-center' : 'flex-1'
+          }`}
+          title="Log out"
+        >
+          <LogoutIcon />
+          {!isCollapsed && <span>Log out</span>}
+        </button>
+        <CollapseButton isCollapsed={isCollapsed} onToggleCollapse={onToggleCollapse} />
+      </div>
     )
   }
 
-  return <LogoutButton isCollapsed={isCollapsed} />
+  return <LogoutButton isCollapsed={isCollapsed} onToggleCollapse={onToggleCollapse} />
 }
 
-function LogoutButton({ isCollapsed }: SidebarUserSectionProps): ReactNode {
+function LogoutButton({ isCollapsed, onToggleCollapse }: SidebarUserSectionProps): ReactNode {
   const { logout } = useAuth0()
 
   const handleLogout = (): void => {
@@ -54,15 +73,18 @@ function LogoutButton({ isCollapsed }: SidebarUserSectionProps): ReactNode {
   }
 
   return (
-    <button
-      onClick={handleLogout}
-      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1 text-sm text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 ${
-        isCollapsed ? 'justify-center' : ''
-      }`}
-      title="Log out"
-    >
-      <LogoutIcon />
-      {!isCollapsed && <span>Log out</span>}
-    </button>
+    <div className={`flex w-full ${isCollapsed ? 'flex-col items-center gap-1' : 'items-center'}`}>
+      <button
+        onClick={handleLogout}
+        className={`flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 ${
+          isCollapsed ? 'justify-center' : 'flex-1'
+        }`}
+        title="Log out"
+      >
+        <LogoutIcon />
+        {!isCollapsed && <span>Log out</span>}
+      </button>
+      <CollapseButton isCollapsed={isCollapsed} onToggleCollapse={onToggleCollapse} />
+    </div>
   )
 }
