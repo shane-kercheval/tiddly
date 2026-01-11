@@ -311,7 +311,7 @@ export function BookmarkCard({
                   <span>Archiving: {formatDate(bookmark.archived_at)}</span>
                   {onCancelScheduledArchive && (
                     <button
-                      onClick={() => onCancelScheduledArchive(bookmark)}
+                      onClick={(e) => { e.stopPropagation(); onCancelScheduledArchive(bookmark) }}
                       className="text-amber-500 hover:text-amber-700 transition-colors p-0.5 -m-0.5"
                       title="Cancel scheduled archive"
                       aria-label="Cancel scheduled archive"

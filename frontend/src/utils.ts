@@ -258,7 +258,7 @@ export function getFirstGroupTags(filter: ContentFilter | undefined): string[] |
 /**
  * Archive preset options for scheduling auto-archive dates.
  */
-export type ArchivePreset = 'none' | '1-week' | '1-month' | 'end-of-month' | '6-months' | '1-year' | 'custom'
+export type ArchivePreset = 'none' | '1-week' | '1-month' | 'end-of-month' | '3-months' | '6-months' | '1-year' | 'custom'
 
 /**
  * Adds months to a date while handling overflow by clamping to the last day of the target month.
@@ -301,6 +301,9 @@ export function calculateArchivePresetDate(preset: ArchivePreset, referenceDate?
     case 'end-of-month':
       // Last day of current month at 8:00 AM
       date = new Date(now.getFullYear(), now.getMonth() + 1, 0, 8, 0, 0)
+      break
+    case '3-months':
+      date = addMonthsWithClamp(now, 3)
       break
     case '6-months':
       date = addMonthsWithClamp(now, 6)

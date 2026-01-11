@@ -7,7 +7,7 @@ import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { formatDate, truncate } from '../utils'
 import { ConfirmDeleteButton, CopyContentButton } from './ui'
-import { NoteIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
+import { NoteIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
 import { Tag } from './Tag'
 
 interface NoteCardProps {
@@ -21,6 +21,8 @@ interface NoteCardProps {
   onRestore?: (note: NoteListItem) => void
   onTagClick?: (tag: string) => void
   onTagRemove?: (note: NoteListItem, tag: string) => void
+  /** Called when user cancels a scheduled auto-archive */
+  onCancelScheduledArchive?: (note: NoteListItem) => void
 }
 
 /**
@@ -46,9 +48,15 @@ export function NoteCard({
   onRestore,
   onTagClick,
   onTagRemove,
+  onCancelScheduledArchive,
 }: NoteCardProps): ReactNode {
   // Display description if present, otherwise show truncated content preview
   const previewText = note.description || ''
+
+  // Check if note has a scheduled future archive date
+  const hasScheduledArchive = view === 'active' &&
+    note.archived_at &&
+    new Date(note.archived_at) > new Date()
 
   // Dynamic date display based on current sort option
   const getDateDisplay = (): string => {
@@ -187,9 +195,26 @@ export function NoteCard({
                 </button>
               )}
             </div>
-            <span className="text-xs text-gray-400">
-              {getDateDisplay()}
-            </span>
+            <div className="flex flex-col items-end gap-0.5">
+              <span className="text-xs text-gray-400">
+                {getDateDisplay()}
+              </span>
+              {hasScheduledArchive && note.archived_at && (
+                <span className="flex items-center gap-1 text-xs text-amber-600">
+                  <span>Archiving: {formatDate(note.archived_at)}</span>
+                  {onCancelScheduledArchive && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onCancelScheduledArchive(note) }}
+                      className="text-amber-500 hover:text-amber-700 transition-colors p-0.5 -m-0.5"
+                      title="Cancel scheduled archive"
+                      aria-label="Cancel scheduled archive"
+                    >
+                      <CloseIcon className="w-3 h-3" />
+                    </button>
+                  )}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>

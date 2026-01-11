@@ -140,6 +140,7 @@ export function InlineEditableArchiveSchedule({
             <option value="1-week">In 1 week</option>
             <option value="1-month">In 1 month</option>
             <option value="end-of-month">End of month</option>
+            <option value="3-months">In 3 months</option>
             <option value="6-months">In 6 months</option>
             <option value="1-year">In 1 year</option>
             <option value="custom">Custom date...</option>

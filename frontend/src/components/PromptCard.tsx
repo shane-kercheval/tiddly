@@ -7,7 +7,7 @@ import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { formatDate, truncate } from '../utils'
 import { ConfirmDeleteButton, CopyContentButton } from './ui'
-import { PromptIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
+import { PromptIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
 import { Tag } from './Tag'
 
 interface PromptCardProps {
@@ -21,6 +21,8 @@ interface PromptCardProps {
   onRestore?: (prompt: PromptListItem) => void
   onTagClick?: (tag: string) => void
   onTagRemove?: (prompt: PromptListItem, tag: string) => void
+  /** Called when user cancels a scheduled auto-archive */
+  onCancelScheduledArchive?: (prompt: PromptListItem) => void
 }
 
 /**
@@ -46,11 +48,17 @@ export function PromptCard({
   onRestore,
   onTagClick,
   onTagRemove,
+  onCancelScheduledArchive,
 }: PromptCardProps): ReactNode {
   // Display title if present, otherwise use name
   const displayName = prompt.title || prompt.name
   // Show description if present
   const previewText = prompt.description || ''
+
+  // Check if prompt has a scheduled future archive date
+  const hasScheduledArchive = view === 'active' &&
+    prompt.archived_at &&
+    new Date(prompt.archived_at) > new Date()
 
   // Dynamic date display based on current sort option
   const getDateDisplay = (): string => {
@@ -194,9 +202,26 @@ export function PromptCard({
                 </button>
               )}
             </div>
-            <span className="text-xs text-gray-400">
-              {getDateDisplay()}
-            </span>
+            <div className="flex flex-col items-end gap-0.5">
+              <span className="text-xs text-gray-400">
+                {getDateDisplay()}
+              </span>
+              {hasScheduledArchive && prompt.archived_at && (
+                <span className="flex items-center gap-1 text-xs text-amber-600">
+                  <span>Archiving: {formatDate(prompt.archived_at)}</span>
+                  {onCancelScheduledArchive && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onCancelScheduledArchive(prompt) }}
+                      className="text-amber-500 hover:text-amber-700 transition-colors p-0.5 -m-0.5"
+                      title="Cancel scheduled archive"
+                      aria-label="Cancel scheduled archive"
+                    >
+                      <CloseIcon className="w-3 h-3" />
+                    </button>
+                  )}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>

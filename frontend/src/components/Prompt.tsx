@@ -18,12 +18,13 @@ import type { ReactNode, FormEvent } from 'react'
 import { InlineEditableTitle } from './InlineEditableTitle'
 import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEditableTags'
 import { InlineEditableText } from './InlineEditableText'
+import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { ArgumentsBuilder } from './ArgumentsBuilder'
 import { UnsavedChangesDialog } from './ui'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
-import { formatDate } from '../utils'
-import { TAG_PATTERN } from '../utils'
+import { formatDate, TAG_PATTERN } from '../utils'
+import type { ArchivePreset } from '../utils'
 import { config } from '../config'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
@@ -86,6 +87,8 @@ interface PromptState {
   content: string
   arguments: PromptArgument[]
   tags: string[]
+  archivedAt: string
+  archivePreset: ArchivePreset
 }
 
 /** Validation errors */
@@ -154,16 +157,29 @@ export function Prompt({
 }: PromptProps): ReactNode {
   const isCreate = !prompt
 
+  // Get initial archive state from prompt
+  const getInitialArchiveState = (): { archivedAt: string; archivePreset: ArchivePreset } => {
+    if (!prompt?.archived_at) {
+      return { archivedAt: '', archivePreset: 'none' }
+    }
+    return { archivedAt: prompt.archived_at, archivePreset: 'custom' }
+  }
+
   // Initialize state from prompt or defaults
   // Clean content on initialization to match what Milkdown will output, preventing false dirty state
-  const getInitialState = (): PromptState => ({
-    name: prompt?.name ?? '',
-    title: prompt?.title ?? '',
-    description: prompt?.description ?? '',
-    content: cleanMarkdown(prompt?.content ?? (isCreate ? DEFAULT_PROMPT_CONTENT : '')),
-    arguments: prompt?.arguments ?? [],
-    tags: prompt?.tags ?? initialTags ?? [],
-  })
+  const getInitialState = (): PromptState => {
+    const archiveState = getInitialArchiveState()
+    return {
+      name: prompt?.name ?? '',
+      title: prompt?.title ?? '',
+      description: prompt?.description ?? '',
+      content: cleanMarkdown(prompt?.content ?? (isCreate ? DEFAULT_PROMPT_CONTENT : '')),
+      arguments: prompt?.arguments ?? [],
+      tags: prompt?.tags ?? initialTags ?? [],
+      archivedAt: archiveState.archivedAt,
+      archivePreset: archiveState.archivePreset,
+    }
+  }
 
   const [original, setOriginal] = useState<PromptState>(getInitialState)
   const [current, setCurrent] = useState<PromptState>(getInitialState)
@@ -191,7 +207,8 @@ export function Prompt({
       current.tags.length !== original.tags.length ||
       current.tags.some((tag, i) => tag !== original.tags[i]) ||
       current.arguments.length !== original.arguments.length ||
-      JSON.stringify(current.arguments) !== JSON.stringify(original.arguments),
+      JSON.stringify(current.arguments) !== JSON.stringify(original.arguments) ||
+      current.archivedAt !== original.archivedAt,
     [current, original]
   )
 
@@ -409,6 +426,7 @@ export function Prompt({
           content: current.content || undefined,
           arguments: cleanedArgs.length > 0 ? cleanedArgs : undefined,
           tags: tagsToSubmit,
+          archived_at: current.archivedAt || undefined,
         }
         // For creates, onSave navigates away - prevent blocker from showing
         confirmLeave()
@@ -432,6 +450,12 @@ export function Prompt({
         if (JSON.stringify(tagsToSubmit) !== JSON.stringify(prompt?.tags ?? [])) {
           updates.tags = tagsToSubmit
         }
+        // Include archived_at if changed
+        const newArchivedAt = current.archivedAt || null
+        const oldArchivedAt = prompt?.archived_at || null
+        if (newArchivedAt !== oldArchivedAt) {
+          updates.archived_at = newArchivedAt
+        }
 
         // Early return if nothing changed (safety net for edge cases)
         if (Object.keys(updates).length === 0) {
@@ -449,6 +473,8 @@ export function Prompt({
         content: current.content,
         arguments: cleanedArgs,
         tags: tagsToSubmit,
+        archivedAt: current.archivedAt,
+        archivePreset: current.archivePreset,
       })
 
       // Restore focus if we saved via Cmd+S from CodeMirror (which loses focus during save)
@@ -493,6 +519,14 @@ export function Prompt({
 
   const handleTagsChange = useCallback((tags: string[]): void => {
     setCurrent((prev) => ({ ...prev, tags }))
+  }, [])
+
+  const handleArchiveScheduleChange = useCallback((archivedAt: string): void => {
+    setCurrent((prev) => ({ ...prev, archivedAt }))
+  }, [])
+
+  const handleArchivePresetChange = useCallback((archivePreset: ArchivePreset): void => {
+    setCurrent((prev) => ({ ...prev, archivePreset }))
   }, [])
 
   const handleArgumentsChange = useCallback((args: PromptArgument[]): void => {
@@ -664,7 +698,7 @@ export function Prompt({
             error={errors.description}
           />
 
-          {/* Metadata row: tags + timestamps */}
+          {/* Metadata row: tags + auto-archive + timestamps */}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
             <InlineEditableTags
               ref={tagInputRef}
@@ -673,6 +707,17 @@ export function Prompt({
               suggestions={tagSuggestions}
               disabled={isSaving || isReadOnly}
             />
+
+            <span className="text-gray-300">·</span>
+
+            <InlineEditableArchiveSchedule
+              value={current.archivedAt}
+              onChange={handleArchiveScheduleChange}
+              preset={current.archivePreset}
+              onPresetChange={handleArchivePresetChange}
+              disabled={isSaving || isReadOnly}
+            />
+
             {prompt && (
               <>
                 <span className="text-gray-300">·</span>

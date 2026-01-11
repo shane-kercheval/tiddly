@@ -17,11 +17,12 @@ import type { ReactNode, FormEvent } from 'react'
 import { InlineEditableTitle } from './InlineEditableTitle'
 import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEditableTags'
 import { InlineEditableText } from './InlineEditableText'
+import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { UnsavedChangesDialog } from './ui'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
-import { formatDate } from '../utils'
-import { TAG_PATTERN } from '../utils'
+import { formatDate, TAG_PATTERN } from '../utils'
+import type { ArchivePreset } from '../utils'
 import { config } from '../config'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
@@ -34,6 +35,8 @@ interface NoteState {
   description: string
   content: string
   tags: string[]
+  archivedAt: string
+  archivePreset: ArchivePreset
 }
 
 /** Validation errors */
@@ -89,15 +92,28 @@ export function Note({
 }: NoteProps): ReactNode {
   const isCreate = !note
 
+  // Get initial archive state from note
+  const getInitialArchiveState = (): { archivedAt: string; archivePreset: ArchivePreset } => {
+    if (!note?.archived_at) {
+      return { archivedAt: '', archivePreset: 'none' }
+    }
+    return { archivedAt: note.archived_at, archivePreset: 'custom' }
+  }
+
   // Initialize state from note or defaults
   // Note: useState only calls the initializer once, so useCallback would be unnecessary here
   // Clean content on initialization to match what Milkdown will output, preventing false dirty state
-  const getInitialState = (): NoteState => ({
-    title: note?.title ?? '',
-    description: note?.description ?? '',
-    content: cleanMarkdown(note?.content ?? ''),
-    tags: note?.tags ?? initialTags ?? [],
-  })
+  const getInitialState = (): NoteState => {
+    const archiveState = getInitialArchiveState()
+    return {
+      title: note?.title ?? '',
+      description: note?.description ?? '',
+      content: cleanMarkdown(note?.content ?? ''),
+      tags: note?.tags ?? initialTags ?? [],
+      archivedAt: archiveState.archivedAt,
+      archivePreset: archiveState.archivePreset,
+    }
+  }
 
   const [original, setOriginal] = useState<NoteState>(getInitialState)
   const [current, setCurrent] = useState<NoteState>(getInitialState)
@@ -122,7 +138,8 @@ export function Note({
       current.content.length !== original.content.length ||
       current.content !== original.content ||
       current.tags.length !== original.tags.length ||
-      current.tags.some((tag, i) => tag !== original.tags[i]),
+      current.tags.some((tag, i) => tag !== original.tags[i]) ||
+      current.archivedAt !== original.archivedAt,
     [current, original]
   )
 
@@ -270,6 +287,7 @@ export function Note({
           description: current.description || undefined,
           content: current.content || undefined,
           tags: tagsToSubmit,
+          archived_at: current.archivedAt || undefined,
         }
         // For creates, onSave navigates away - prevent blocker from showing
         confirmLeave()
@@ -286,6 +304,12 @@ export function Note({
         }
         if (JSON.stringify(tagsToSubmit) !== JSON.stringify(note?.tags ?? [])) {
           updates.tags = tagsToSubmit
+        }
+        // Include archived_at if changed
+        const newArchivedAt = current.archivedAt || null
+        const oldArchivedAt = note?.archived_at || null
+        if (newArchivedAt !== oldArchivedAt) {
+          updates.archived_at = newArchivedAt
         }
 
         // Early return if nothing changed (safety net for edge cases)
@@ -332,6 +356,14 @@ export function Note({
 
   const handleTagsChange = useCallback((tags: string[]): void => {
     setCurrent((prev) => ({ ...prev, tags }))
+  }, [])
+
+  const handleArchiveScheduleChange = useCallback((archivedAt: string): void => {
+    setCurrent((prev) => ({ ...prev, archivedAt }))
+  }, [])
+
+  const handleArchivePresetChange = useCallback((archivePreset: ArchivePreset): void => {
+    setCurrent((prev) => ({ ...prev, archivePreset }))
   }, [])
 
   // Prevent form submission on Enter in inputs
@@ -485,7 +517,7 @@ export function Note({
             error={errors.description}
           />
 
-          {/* Metadata row: tags + timestamps */}
+          {/* Metadata row: tags + auto-archive + timestamps */}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
             <InlineEditableTags
               ref={tagInputRef}
@@ -494,6 +526,17 @@ export function Note({
               suggestions={tagSuggestions}
               disabled={isSaving || isReadOnly}
             />
+
+            <span className="text-gray-300">·</span>
+
+            <InlineEditableArchiveSchedule
+              value={current.archivedAt}
+              onChange={handleArchiveScheduleChange}
+              preset={current.archivePreset}
+              onPresetChange={handleArchivePresetChange}
+              disabled={isSaving || isReadOnly}
+            />
+
             {note && (
               <>
                 <span className="text-gray-300">·</span>

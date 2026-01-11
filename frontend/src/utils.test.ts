@@ -521,6 +521,13 @@ describe('calculateArchivePresetDate', () => {
     expect(result.getDate()).toBe(31) // Last day of January
   })
 
+  it('should calculate 3-months preset correctly', () => {
+    const result = new Date(calculateArchivePresetDate('3-months', referenceDate))
+    expect(result.getFullYear()).toBe(2025)
+    expect(result.getMonth()).toBe(3) // April
+    expect(result.getDate()).toBe(15)
+  })
+
   it('should calculate 6-months preset correctly', () => {
     const result = new Date(calculateArchivePresetDate('6-months', referenceDate))
     expect(result.getFullYear()).toBe(2025)

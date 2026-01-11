@@ -367,6 +367,14 @@ export function AllContent(): ReactNode {
     }
   }
 
+  const handleCancelScheduledArchiveBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
+    try {
+      await updateBookmarkMutation.mutateAsync({ id: bookmark.id, data: { archived_at: null } })
+    } catch {
+      toast.error('Failed to cancel scheduled archive')
+    }
+  }
+
   // Note action handlers
   const handleViewNote = (note: NoteListItem): void => {
     navigate(`/app/notes/${note.id}`, { state: createReturnState() })
@@ -422,6 +430,14 @@ export function AllContent(): ReactNode {
     }
   }
 
+  const handleCancelScheduledArchiveNote = async (note: NoteListItem): Promise<void> => {
+    try {
+      await updateNoteMutation.mutateAsync({ id: note.id, data: { archived_at: null } })
+    } catch {
+      toast.error('Failed to cancel scheduled archive')
+    }
+  }
+
   // Prompt action handlers
   const handleViewPrompt = (prompt: PromptListItem): void => {
     navigate(`/app/prompts/${prompt.id}`, { state: createReturnState() })
@@ -474,6 +490,14 @@ export function AllContent(): ReactNode {
       await updatePromptMutation.mutateAsync({ id: prompt.id, data: { tags: newTags } })
     } catch {
       toast.error('Failed to remove tag')
+    }
+  }
+
+  const handleCancelScheduledArchivePrompt = async (prompt: PromptListItem): Promise<void> => {
+    try {
+      await updatePromptMutation.mutateAsync({ id: prompt.id, data: { archived_at: null } })
+    } catch {
+      toast.error('Failed to cancel scheduled archive')
     }
   }
 
@@ -672,6 +696,7 @@ export function AllContent(): ReactNode {
                   onArchive={currentView === 'active' ? handleArchiveBookmark : undefined}
                   onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
                   onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
+                  onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchiveBookmark : undefined}
                   onTagClick={handleTagClick}
                   onTagRemove={currentView !== 'deleted' ? handleTagRemoveBookmark : undefined}
                   onLinkClick={(b) => trackBookmarkUsage(b.id)}
@@ -690,6 +715,7 @@ export function AllContent(): ReactNode {
                   onArchive={currentView === 'active' ? handleArchivePrompt : undefined}
                   onUnarchive={currentView === 'archived' ? handleUnarchivePrompt : undefined}
                   onRestore={currentView === 'deleted' ? handleRestorePrompt : undefined}
+                  onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchivePrompt : undefined}
                   onTagClick={handleTagClick}
                   onTagRemove={currentView !== 'deleted' ? handleTagRemovePrompt : undefined}
                 />
@@ -706,6 +732,7 @@ export function AllContent(): ReactNode {
                 onArchive={currentView === 'active' ? handleArchiveNote : undefined}
                 onUnarchive={currentView === 'archived' ? handleUnarchiveNote : undefined}
                 onRestore={currentView === 'deleted' ? handleRestoreNote : undefined}
+                onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchiveNote : undefined}
                 onTagClick={handleTagClick}
                 onTagRemove={currentView !== 'deleted' ? handleTagRemoveNote : undefined}
               />
