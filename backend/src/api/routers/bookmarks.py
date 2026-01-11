@@ -171,9 +171,9 @@ async def get_bookmark(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkResponse:
-    """Get a single bookmark by ID (includes archived bookmarks)."""
+    """Get a single bookmark by ID (includes archived and deleted bookmarks)."""
     bookmark = await bookmark_service.get(
-        db, current_user.id, bookmark_id, include_archived=True,
+        db, current_user.id, bookmark_id, include_archived=True, include_deleted=True,
     )
     if bookmark is None:
         raise HTTPException(status_code=404, detail="Bookmark not found")

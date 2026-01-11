@@ -131,9 +131,9 @@ async def get_prompt(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptResponse:
-    """Get a single prompt by ID (includes archived prompts)."""
+    """Get a single prompt by ID (includes archived and deleted prompts)."""
     prompt = await prompt_service.get(
-        db, current_user.id, prompt_id, include_archived=True,
+        db, current_user.id, prompt_id, include_archived=True, include_deleted=True,
     )
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")

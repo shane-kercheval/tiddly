@@ -104,9 +104,9 @@ async def get_note(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
-    """Get a single note by ID (includes archived notes)."""
+    """Get a single note by ID (includes archived and deleted notes)."""
     note = await note_service.get(
-        db, current_user.id, note_id, include_archived=True,
+        db, current_user.id, note_id, include_archived=True, include_deleted=True,
     )
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
