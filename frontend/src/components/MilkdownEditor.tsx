@@ -290,11 +290,10 @@ function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletList
 
 /**
  * Width of the clickable area for task list checkboxes (in pixels).
- * This must match the CSS styling for li[data-item-type="task"]::before in index.css.
- * The checkbox pseudo-element is ~16px wide with ~8px margin, totaling ~24px.
- * We use 30px to provide a comfortable click target.
+ * This matches the checkbox pseudo-element which is 16px wide (w-4) in index.css.
+ * Only clicks directly on the checkbox should toggle it, not clicks in the gap.
  */
-const CHECKBOX_CLICK_AREA_WIDTH = 30
+const CHECKBOX_CLICK_AREA_WIDTH = 16
 
 /**
  * Link dialog for inserting/editing links.
@@ -1094,8 +1093,10 @@ function MilkdownEditorInner({
               }
             }
           }
+          // Only return after handling checkbox toggle
+          return
         }
-        return
+        // If click was outside checkbox area, fall through to let ProseMirror handle cursor placement
       }
 
       // If click was on empty space (not content), focus and place cursor at end
