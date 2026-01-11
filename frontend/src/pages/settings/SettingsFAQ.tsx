@@ -50,80 +50,102 @@ export function SettingsFAQ(): ReactNode {
 
       <FAQSection title="Navigation & Interaction">
         <FAQItem
-          question="What happens when I click the title of an item in a list?"
+          question="What happens when I click on an item in the content list?"
           answer={
             <>
               <p>
                 <strong>Bookmarks:</strong> Clicking the title or URL opens the bookmark
-                in a new browser tab.
+                in a new browser tab. To edit a bookmark, click the pencil icon that appears
+                on hover.
               </p>
               <p>
-                <strong>Notes:</strong> Clicking the title opens the note in view mode,
-                where you can read the full content.
+                <strong>Notes & Prompts:</strong> Clicking anywhere on the row opens the
+                item for viewing and editing.
               </p>
             </>
           }
         />
         <FAQItem
-          question="How do I edit a bookmark or note from the list?"
+          question="Why do bookmarks behave differently from notes and prompts?"
           answer={
             <p>
-              Click anywhere on the row (except the title/URL). A pencil icon appears on hover
-              to indicate the row is clickable. For bookmarks, this opens the edit dialog.
-              For notes, this opens the edit page.
+              The behavior is intentionally different to match user intent. When you click a
+              bookmark, you most likely want to visit that website. When you click a note or
+              prompt, you most likely want to read or edit the content. The edit icon on
+              bookmarks provides explicit access to edit mode when needed.
             </p>
           }
         />
       </FAQSection>
 
-      <FAQSection title="Lists & Groups">
+      <FAQSection title="Filters & Collections">
         <FAQItem
-          question="What is the purpose of a list?"
+          question="What is a filter?"
           answer={
             <p>
-              Lists are saved views that automatically filter your content based on content type and tags.
-              For example, you can create a "Work" list that shows all bookmarks and notes
-              tagged with "work". Lists support complex filters using AND/OR logic, so you
+              Filters are saved views that automatically show content based on content type and tags.
+              For example, you can create a "Work" filter that shows all bookmarks and notes
+              tagged with "work". Filters support complex logic using AND/OR operators, so you
               can create views like "items tagged 'python' AND 'tutorial'" or "items tagged
               'reading' OR 'research'".
             </p>
           }
         />
         <FAQItem
-          question="Does deleting a list delete the content in it?"
+          question="Does deleting a filter delete the content in it?"
           answer={
             <p>
-              No. Deleting a list only removes the saved filter view. Your bookmarks and
-              notes remain untouched. Lists are just a way to view your content - they
+              No. Deleting a filter only removes the saved view. Your bookmarks, notes, and
+              prompts remain untouched. Filters are just a way to view your content—they
               don't own or contain the actual items.
             </p>
           }
         />
         <FAQItem
-          question="What is a group?"
+          question="What is a collection?"
           answer={
             <p>
-              Groups are organizational folders in the sidebar that help you organize your
-              lists. You can drag lists into groups to keep your sidebar tidy. Groups are
-              purely for organization - they don't affect how your content is filtered.
+              Collections are organizational folders in the sidebar that help you group your
+              filters together. You can drag filters into collections to keep your sidebar tidy.
+              Collections are purely for organization—they don't affect how your content is filtered.
             </p>
           }
         />
         <FAQItem
-          question="Does deleting a group delete the lists in it?"
+          question="Does deleting a collection delete the filters in it?"
           answer={
             <p>
-              No. When you delete a group, the lists inside are moved back to the top level
-              of the sidebar. Your lists and their filter settings are preserved.
+              No. When you delete a collection, the filters inside are moved back to the top level
+              of the sidebar. Your filters and their settings are preserved.
             </p>
           }
         />
         <FAQItem
-          question="Can a list contain both bookmarks and notes?"
+          question="How do I reorder items in the sidebar?"
           answer={
             <p>
-              Yes. When creating or editing a list, you can choose which content types to
-              include. You can have a list with just bookmarks, just notes, or both.
+              Hover over any filter or collection to reveal the drag handle (grip icon) on the
+              right side. Click and drag to reorder items. You can rearrange filters, collections,
+              and even the built-in items like "All Content".
+            </p>
+          }
+        />
+        <FAQItem
+          question="How do I add a filter to a collection?"
+          answer={
+            <p>
+              Drag a filter and drop it onto a collection. The collection will highlight when
+              you hover over it. You can drop onto a collapsed collection, or drop within an
+              expanded collection to place it at a specific position.
+            </p>
+          }
+        />
+        <FAQItem
+          question="How do I remove a filter from a collection?"
+          answer={
+            <p>
+              Drag the filter out of the collection and drop it at the root level of the sidebar,
+              or into a different collection.
             </p>
           }
         />
@@ -131,12 +153,12 @@ export function SettingsFAQ(): ReactNode {
 
       <FAQSection title="Tags">
         <FAQItem
-          question="Are tags shared between bookmarks and notes?"
+          question="Are tags shared between bookmarks, notes, and prompts?"
           answer={
             <p>
               Yes. Tags are global across all content types. If you tag a bookmark with
               "work" and a note with "work", they share the same tag and will appear together
-              in any list or search that filters by that tag.
+              in any filter or search that uses that tag.
             </p>
           }
         />
@@ -144,8 +166,8 @@ export function SettingsFAQ(): ReactNode {
           question="What happens when I rename a tag?"
           answer={
             <p>
-              Renaming a tag updates it everywhere - on all bookmarks and notes that use it,
-              and in all list filters. It's a global rename across your entire account.
+              Renaming a tag updates it everywhere—on all bookmarks, notes, and prompts that
+              use it, and in all filters. It's a global rename across your entire account.
             </p>
           }
         />
@@ -153,9 +175,9 @@ export function SettingsFAQ(): ReactNode {
           question="What happens when I delete a tag?"
           answer={
             <p>
-              Deleting a tag removes it from all bookmarks and notes. The content itself is
-              not deleted - only the tag association is removed. If a list filter depends on
-              that tag, those items will no longer appear in that list.
+              Deleting a tag removes it from all bookmarks, notes, and prompts. The content
+              itself is not deleted—only the tag association is removed. If a filter depends
+              on that tag, those items will no longer appear in that filter.
             </p>
           }
         />
@@ -218,17 +240,17 @@ export function SettingsFAQ(): ReactNode {
           answer={
             <p>
               Search looks through titles, descriptions, URLs (for bookmarks), and the
-              full page content. For bookmarks, the page content is automatically extracted
-              when you save the URL. For notes, your markdown content is searched.
+              full content. For bookmarks, the page content is automatically extracted
+              when you save the URL. For notes and prompts, your markdown content is searched.
             </p>
           }
         />
         <FAQItem
-          question="Can I combine search with tag filters?"
+          question="Can I combine search with filters?"
           answer={
             <p>
-              Yes. You can search while viewing a specific list (which filters by tags),
-              and the search will only look within items matching that list's filter.
+              Yes. You can search while viewing a specific filter (which narrows by tags),
+              and the search will only look within items matching that filter's criteria.
               You can also add tag filters directly to your search.
             </p>
           }
