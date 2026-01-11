@@ -135,10 +135,19 @@ export function computedToMinimal(items: SidebarItemComputed[]): SidebarItem[] {
 /**
  * Custom collision detection for sidebar drag-and-drop with nested SortableContexts.
  *
- * Behavior:
- * - Pointer anywhere inside a different collection's bounds -> drop into that collection (dropzone)
- * - Pointer within own collection's content area -> reorder among siblings only
- * - Pointer outside all collections -> root-level sorting
+ * State Machine:
+ * ┌─────────────────────────────────────────────────────────────────────────────────┐
+ * │ Dragging Item             │ Pointer Location           │ Result                 │
+ * ├───────────────────────────┼────────────────────────────┼────────────────────────┤
+ * │ Collection child          │ Same collection            │ Reorder among siblings │
+ * │ Collection child          │ Different collection       │ Move to that collection│
+ * │ Collection child          │ Root area (outside all)    │ Extract to root level  │
+ * │ Root item (filter/builtin)│ Over collection dropzone   │ Insert into collection │
+ * │ Root item (filter/builtin)│ Root area                  │ Reorder at root        │
+ * │ Collection                │ Anywhere                   │ Reorder at root only   │
+ * └─────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * Note: Collections cannot be dropped into other collections (no nesting).
  */
 export const customCollisionDetection: CollisionDetection = (args) => {
   const activeId = String(args.active.id)

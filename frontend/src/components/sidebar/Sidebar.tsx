@@ -905,7 +905,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           {activeItem && (
             <div className="rounded-lg bg-white shadow-lg border border-gray-200 px-3 py-2">
               <span className="text-sm text-gray-700">
-                {activeItem.type === 'collection' ? activeItem.name : activeItem.name}
+                {activeItem.name}
               </span>
             </div>
           )}
