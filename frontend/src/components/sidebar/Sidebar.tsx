@@ -25,8 +25,8 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useFiltersStore } from '../../stores/filtersStore'
 import { useTagsStore } from '../../stores/tagsStore'
 import { useTabNavigation } from '../../hooks/useTabNavigation'
-import { queryClient } from '../../queryClient'
-import { invalidateFilterQueries } from '../../utils/invalidateFilterQueries'
+import { useCollectionOperations } from '../../hooks/useCollectionOperations'
+import { useFilterOperations } from '../../hooks/useFilterOperations'
 import { getFirstGroupTags } from '../../utils'
 import { SidebarGroup } from './SidebarGroup'
 import { SidebarNavItem } from './SidebarNavItem'
@@ -60,7 +60,6 @@ import type {
   SidebarCollectionComputed,
   SidebarOrder,
   ContentFilter,
-  ContentType,
 } from '../../types'
 
 const SIDEBAR_VERSION = 1
@@ -114,11 +113,22 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   const updateSidebar = useSettingsStore((state) => state.updateSidebar)
   const setSidebarOptimistic = useSettingsStore((state) => state.setSidebarOptimistic)
   const rollbackSidebar = useSettingsStore((state) => state.rollbackSidebar)
-  const fetchSidebar = useSettingsStore((state) => state.fetchSidebar)
   const filters = useFiltersStore((state) => state.filters)
-  const deleteFilter = useFiltersStore((state) => state.deleteFilter)
   const tags = useTagsStore((state) => state.tags)
   const { currentFilterId } = useTabNavigation()
+
+  // CRUD operations hooks
+  const {
+    createCollection,
+    updateCollection,
+    renameCollection,
+    deleteCollection,
+  } = useCollectionOperations()
+  const {
+    createFilter,
+    updateFilter,
+    deleteFilter,
+  } = useFilterOperations()
 
   const currentFilter = useMemo(
     () => currentFilterId !== undefined ? filters.find((filter) => filter.id === currentFilterId) : undefined,
@@ -240,120 +250,6 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     setIsCollectionModalOpen(true)
   }
 
-  // Create a new collection via modal - optimistic update
-  const handleCreateCollection = async (name: string, filterIds: string[]): Promise<void> => {
-    if (!sidebar) return
-
-    // Build collection items from filter IDs
-    const collectionItems = filterIds
-      .map((id) => {
-        const filter = getFilterById(id)
-        if (!filter) return null
-        return {
-          type: 'filter' as const,
-          id: filter.id,
-          name: filter.name,
-          content_types: filter.content_types,
-        }
-      })
-      .filter((item): item is SidebarFilterItemComputed => item !== null)
-
-    const newCollectionComputed: SidebarCollectionComputed = {
-      type: 'collection',
-      id: crypto.randomUUID(),
-      name,
-      items: collectionItems,
-    }
-
-    // Remove filters that are now in the collection from root level
-    const filterIdsInCollection = new Set(filterIds)
-    const filteredRootItems = sidebar.items.filter(
-      (item) => !(item.type === 'filter' && filterIdsInCollection.has(item.id))
-    )
-
-    // Optimistically add to UI
-    const optimisticItems = [newCollectionComputed, ...filteredRootItems]
-    setSidebarOptimistic(optimisticItems)
-
-    const updatedSidebar: SidebarOrder = {
-      version: SIDEBAR_VERSION,
-      items: computedToMinimal(optimisticItems),
-    }
-
-    try {
-      await updateSidebar(updatedSidebar)
-    } catch {
-      rollbackSidebar()
-      throw new Error('Failed to create collection')
-    }
-  }
-
-  // Update an existing collection via modal - optimistic update
-  const handleUpdateCollection = async (id: string, name: string, filterIds: string[]): Promise<void> => {
-    if (!sidebar) return
-
-    // Build collection items from filter IDs
-    const collectionItems = filterIds
-      .map((filterId) => {
-        const filter = getFilterById(filterId)
-        if (!filter) return null
-        return {
-          type: 'filter' as const,
-          id: filter.id,
-          name: filter.name,
-          content_types: filter.content_types,
-        }
-      })
-      .filter((item): item is SidebarFilterItemComputed => item !== null)
-
-    // Find the old collection to get its previous filter IDs
-    const oldCollection = sidebar.items.find(
-      (item): item is SidebarCollectionComputed => item.type === 'collection' && item.id === id
-    )
-    const oldFilterIds = new Set(
-      oldCollection?.items.filter((item) => item.type === 'filter').map((item) => item.id) ?? []
-    )
-    const newFilterIds = new Set(filterIds)
-
-    // Filters removed from collection should go back to root (at the end)
-    const removedFilterItems: SidebarFilterItemComputed[] = []
-    for (const filterId of oldFilterIds) {
-      if (!newFilterIds.has(filterId)) {
-        const filter = getFilterById(filterId)
-        if (filter) {
-          removedFilterItems.push({
-            type: 'filter',
-            id: filter.id,
-            name: filter.name,
-            content_types: filter.content_types,
-          })
-        }
-      }
-    }
-
-    // Filters added to collection should be removed from root
-    const optimisticItems = sidebar.items
-      .filter((item) => !(item.type === 'filter' && newFilterIds.has(item.id) && !oldFilterIds.has(item.id)))
-      .map((item) => {
-        if (item.type === 'collection' && item.id === id) {
-          return { ...item, name, items: collectionItems }
-        }
-        return item
-      })
-
-    // Add removed filters to root
-    optimisticItems.push(...removedFilterItems)
-
-    setSidebarOptimistic(optimisticItems)
-
-    try {
-      await updateSidebar({ version: SIDEBAR_VERSION, items: computedToMinimal(optimisticItems) })
-    } catch {
-      rollbackSidebar()
-      throw new Error('Failed to update collection')
-    }
-  }
-
   // Open collection modal for editing
   const handleEditCollection = (collectionId: string): void => {
     const collection = sidebar?.items.find(
@@ -362,54 +258,6 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     if (collection) {
       setEditingCollection(collection)
       setIsCollectionModalOpen(true)
-    }
-  }
-
-  // Rename a collection - optimistic update
-  const handleRenameCollection = async (collectionId: string, newName: string): Promise<void> => {
-    if (!sidebar) return
-
-    // Optimistically update UI
-    const optimisticItems = sidebar.items.map((item) => {
-      if (item.type === 'collection' && item.id === collectionId) {
-        return { ...item, name: newName }
-      }
-      return item
-    })
-    setSidebarOptimistic(optimisticItems)
-
-    try {
-      await updateSidebar({ version: SIDEBAR_VERSION, items: computedToMinimal(optimisticItems) })
-    } catch {
-      rollbackSidebar()
-      toast.error('Failed to rename collection')
-    }
-  }
-
-  // Delete a collection (moves contents to root) - optimistic update
-  const handleDeleteCollection = async (collectionId: string): Promise<void> => {
-    if (!sidebar) return
-
-    const collection = sidebar.items.find(
-      (item): item is SidebarCollectionComputed => item.type === 'collection' && item.id === collectionId
-    )
-
-    if (!collection) return
-
-    // Optimistically update UI - replace collection with its contents
-    const optimisticItems = sidebar.items.flatMap((item) => {
-      if (item.type === 'collection' && item.id === collectionId) {
-        return item.items // Return the collection's children directly
-      }
-      return [item]
-    })
-    setSidebarOptimistic(optimisticItems)
-
-    try {
-      await updateSidebar({ version: SIDEBAR_VERSION, items: computedToMinimal(optimisticItems) })
-    } catch {
-      rollbackSidebar()
-      toast.error('Failed to delete collection')
     }
   }
 
@@ -422,40 +270,13 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     }
   }
 
-  // Delete a filter (confirmation is handled in SidebarNavItem) - optimistic update
+  // Delete a filter - wraps hook with navigation
   const handleDeleteFilter = async (filterId: string): Promise<void> => {
-    // Helper to recursively remove filter from sidebar items (including from collections)
-    const removeFilterFromItems = (items: SidebarItemComputed[]): SidebarItemComputed[] => {
-      return items
-        .filter((item) => !(item.type === 'filter' && item.id === filterId))
-        .map((item) => {
-          if (item.type === 'collection') {
-            return {
-              ...item,
-              items: item.items.filter((child) => !(child.type === 'filter' && child.id === filterId)),
-            }
-          }
-          return item
-        })
-    }
-
-    // Optimistically remove from sidebar (instant visual feedback)
-    if (sidebar) {
-      const optimisticItems = removeFilterFromItems(sidebar.items)
-      setSidebarOptimistic(optimisticItems)
-    }
-
     const wasViewingDeletedFilter = currentFilterId === filterId
-
-    try {
-      await deleteFilter(filterId)
-      // Navigate after successful deletion (not before, to avoid confusing state on failure)
-      if (wasViewingDeletedFilter) {
-        navigate('/app/content')
-      }
-    } catch {
-      rollbackSidebar()
-      toast.error('Failed to delete filter')
+    const success = await deleteFilter(filterId)
+    // Navigate after successful deletion (not before, to avoid confusing state on failure)
+    if (success && wasViewingDeletedFilter) {
+      navigate('/app/content')
     }
   }
 
@@ -465,84 +286,18 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     setIsFilterModalOpen(true)
   }
 
-  // Filter modal handlers - wrap to refresh sidebar after changes
-  const createFilter = useFiltersStore((state) => state.createFilter)
-  const updateFilterStore = useFiltersStore((state) => state.updateFilter)
-
+  // Create filter - wraps hook with navigation
   const handleCreateFilter = async (
-    ...args: Parameters<typeof createFilter>
+    data: Parameters<typeof createFilter>[0]
   ): Promise<Awaited<ReturnType<typeof createFilter>>> => {
-    const result = await createFilter(...args)
-    // Refresh sidebar to show new filter
-    await fetchSidebar()
-    // Move the new filter to the top of the sidebar
-    const currentSidebar = useSettingsStore.getState().sidebar
-    if (currentSidebar) {
-      const newFilterItem = { type: 'filter' as const, id: result.id }
-      const otherItems = computedToMinimal(currentSidebar.items).filter(
-        (item) => !(item.type === 'filter' && item.id === result.id)
-      )
-      await updateSidebar({
-        version: SIDEBAR_VERSION,
-        items: [newFilterItem, ...otherItems],
-      })
-    }
+    const result = await createFilter(data)
     // Navigate to the new filter using path-based route
     navigate(getFilterRoute(result.id))
     return result
   }
 
-  const handleUpdateFilter = async (
-    ...args: Parameters<typeof updateFilterStore>
-  ): Promise<Awaited<ReturnType<typeof updateFilterStore>>> => {
-    const [filterId, data] = args
-
-    // Helper to update filter in sidebar items (including in collections)
-    const updateFilterInItems = (
-      items: SidebarItemComputed[],
-      id: string,
-      updates: { name?: string; content_types?: ContentType[] }
-    ): SidebarItemComputed[] => {
-      return items.map((item) => {
-        if (item.type === 'filter' && item.id === id) {
-          return { ...item, ...updates }
-        }
-        if (item.type === 'collection') {
-          return {
-            ...item,
-            items: item.items.map((child) =>
-              child.type === 'filter' && child.id === id
-                ? { ...child, ...updates }
-                : child
-            ),
-          }
-        }
-        return item
-      })
-    }
-
-    // Optimistically update sidebar if we have name or content_types changes
-    if (sidebar && (data.name || data.content_types)) {
-      const optimisticItems = updateFilterInItems(sidebar.items, filterId, {
-        name: data.name,
-        content_types: data.content_types,
-      })
-      setSidebarOptimistic(optimisticItems)
-    }
-
-    try {
-      const result = await updateFilterStore(...args)
-      // Invalidate queries for this filter since filter expression may have changed
-      await invalidateFilterQueries(queryClient, result.id)
-      return result
-    } catch (error) {
-      rollbackSidebar()
-      // Re-throw so FilterModal can display the error in its form UI and manage button state.
-      // This differs from other handlers that swallow errors and show toasts, because
-      // modal-based operations need error propagation for proper form state management.
-      throw error
-    }
-  }
+  // Update filter - direct passthrough to hook
+  const handleUpdateFilter = updateFilter
 
   // Drag handlers
   const handleDragStart = (event: DragStartEvent): void => {
@@ -770,8 +525,8 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           onEditFilter={handleEditFilter}
           onDeleteFilter={handleDeleteFilter}
           onEditCollection={() => handleEditCollection(item.id)}
-          onRenameCollection={(newName) => handleRenameCollection(item.id, newName)}
-          onDeleteCollection={() => handleDeleteCollection(item.id)}
+          onRenameCollection={(newName) => renameCollection(item.id, newName)}
+          onDeleteCollection={() => deleteCollection(item.id)}
           isDragging={activeId === getItemId(item)}
           activeId={activeId}
         />
@@ -939,8 +694,8 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
         }}
         collection={editingCollection}
         availableFilters={getAvailableFiltersForCollection(editingCollection?.id)}
-        onCreate={handleCreateCollection}
-        onUpdate={handleUpdateCollection}
+        onCreate={createCollection}
+        onUpdate={updateCollection}
       />
     </div>
   )
