@@ -118,16 +118,16 @@ vi.mock('./stores/sidebarStore', () => ({
   },
 }))
 
-vi.mock('./stores/listsStore', () => ({
-  useListsStore: (selector?: (state: Record<string, unknown>) => unknown) => {
+vi.mock('./stores/filtersStore', () => ({
+  useFiltersStore: (selector?: (state: Record<string, unknown>) => unknown) => {
     const state = {
-      lists: [],
+      filters: [],
       isLoading: false,
       error: null,
-      fetchLists: vi.fn(),
-      createList: vi.fn(),
-      updateList: vi.fn(),
-      deleteList: vi.fn(),
+      fetchFilters: vi.fn(),
+      createFilter: vi.fn(),
+      updateFilter: vi.fn(),
+      deleteFilter: vi.fn(),
     }
     return selector ? selector(state) : state
   },

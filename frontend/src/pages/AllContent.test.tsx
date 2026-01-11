@@ -168,7 +168,7 @@ vi.mock('../hooks/useEffectiveSort', () => ({
     setSort: vi.fn(),
     availableSortOptions: ['updated_at', 'created_at', 'last_used_at', 'title'],
   }),
-  getViewKey: (view: string, listId?: string) => listId ? `list-${listId}` : view,
+  getViewKey: (view: string, filterId?: string) => filterId ? `filter-${filterId}` : view,
 }))
 
 vi.mock('../stores/tagsStore', () => ({
@@ -213,14 +213,14 @@ vi.mock('../stores/contentTypeFilterStore', () => ({
   }),
 }))
 
-vi.mock('../stores/listsStore', () => ({
-  useListsStore: () => ({
-    lists: [
+vi.mock('../stores/filtersStore', () => ({
+  useFiltersStore: () => ({
+    filters: [
       {
         id: '1',
         name: 'Reading List',
         content_types: ['bookmark'],
-        filter_expression: { groups: [{ tags: ['list-tag-1', 'list-tag-2'], operator: 'AND' }], group_operator: 'OR' },
+        filter_expression: { groups: [{ tags: ['filter-tag-1', 'filter-tag-2'], operator: 'AND' }], group_operator: 'OR' },
         default_sort_by: null,
         default_sort_ascending: null,
         created_at: '2024-01-01T00:00:00Z',
@@ -266,7 +266,7 @@ function renderAtRoute(route: string): ReturnType<typeof render> {
         <Route path="/app/content" element={<AllContent />} />
         <Route path="/app/content/archived" element={<AllContent />} />
         <Route path="/app/content/trash" element={<AllContent />} />
-        <Route path="/app/content/lists/:listId" element={<AllContent />} />
+        <Route path="/app/content/filters/:filterId" element={<AllContent />} />
         <Route path="/app/notes/:id" element={<div data-testid="note-detail">Note Detail</div>} />
       </Routes>
     </MemoryRouter>
@@ -348,9 +348,9 @@ describe('AllContent', () => {
       })
     })
 
-    it('shows bookmark-only empty state in custom list view', async () => {
+    it('shows bookmark-only empty state in custom filter view', async () => {
       mockContentQueryData = createMockResponse([])
-      renderAtRoute('/app/content/lists/1')
+      renderAtRoute('/app/content/filters/1')
 
       await waitFor(() => {
         expect(screen.getByText('No bookmarks yet')).toBeInTheDocument()
@@ -389,20 +389,20 @@ describe('AllContent', () => {
       })
     })
 
-    it('shows QuickAddMenu in custom list view with mixed content types', async () => {
+    it('shows QuickAddMenu in custom filter view with mixed content types', async () => {
       mockContentQueryData = createMockResponse([mockBookmark])
-      // List 3 has content_types: ['bookmark', 'note'] so it shows the menu trigger
-      renderAtRoute('/app/content/lists/3')
+      // Filter 3 has content_types: ['bookmark', 'note'] so it shows the menu trigger
+      renderAtRoute('/app/content/filters/3')
 
       await waitFor(() => {
         expect(screen.getByTestId('quick-add-menu-trigger')).toBeInTheDocument()
       })
     })
 
-    it('shows single add button in bookmark-only list view', async () => {
+    it('shows single add button in bookmark-only filter view', async () => {
       mockContentQueryData = createMockResponse([mockBookmark])
-      // List 1 has content_types: ['bookmark'] so it shows single add button
-      renderAtRoute('/app/content/lists/1')
+      // Filter 1 has content_types: ['bookmark'] so it shows single add button
+      renderAtRoute('/app/content/filters/1')
 
       await waitFor(() => {
         expect(screen.getByTestId('quick-add-single')).toBeInTheDocument()

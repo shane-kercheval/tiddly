@@ -1,7 +1,7 @@
 /**
- * Sortable wrapper for sidebar groups with nested drag-and-drop support.
- * Includes GroupDropZone for dropping items into groups and SortableGroupChild
- * for items within groups.
+ * Sortable wrapper for sidebar collections with nested drag-and-drop support.
+ * Includes CollectionDropZone for dropping items into collections and SortableCollectionChild
+ * for items within collections.
  */
 import type { ReactNode } from 'react'
 import { useDroppable } from '@dnd-kit/core'
@@ -9,32 +9,32 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 import { SidebarGroup } from './SidebarGroup'
 import { SidebarNavItem } from './SidebarNavItem'
-import { getBuiltinRoute, getListRoute } from './routes'
+import { getBuiltinRoute, getFilterRoute } from './routes'
 import {
   getItemId,
-  getGroupChildId,
+  getCollectionChildId,
   getBuiltinIcon,
-  getListIcon,
+  getFilterIcon,
 } from './sidebarDndUtils'
 import { GripIcon, GroupIcon } from '../icons'
 import type {
   SidebarBuiltinItemComputed,
-  SidebarListItemComputed,
-  SidebarGroupComputed,
+  SidebarFilterItemComputed,
+  SidebarCollectionComputed,
 } from '../../types'
 
 /**
- * Droppable zone for a group - allows items to be dropped into groups.
+ * Droppable zone for a collection - allows items to be dropped into collections.
  */
-interface GroupDropZoneProps {
-  groupId: string
+interface CollectionDropZoneProps {
+  collectionId: string
   children: ReactNode
   isExpanded: boolean
 }
 
-function GroupDropZone({ groupId, children, isExpanded }: GroupDropZoneProps): ReactNode {
+function CollectionDropZone({ collectionId, children, isExpanded }: CollectionDropZoneProps): ReactNode {
   const { setNodeRef, isOver } = useDroppable({
-    id: `dropzone:${groupId}`,
+    id: `dropzone:${collectionId}`,
   })
 
   return (
@@ -43,10 +43,10 @@ function GroupDropZone({ groupId, children, isExpanded }: GroupDropZoneProps): R
       className={`transition-colors ${isOver ? 'bg-blue-50 ring-2 ring-blue-300 ring-inset rounded-lg' : ''}`}
     >
       {children}
-      {/* Show drop indicator when hovering and group is collapsed */}
+      {/* Show drop indicator when hovering and collection is collapsed */}
       {isOver && !isExpanded && (
         <div className="px-3 py-1 text-xs text-blue-600 text-center">
-          Drop here to add to group
+          Drop here to add to collection
         </div>
       )}
     </div>
@@ -54,11 +54,11 @@ function GroupDropZone({ groupId, children, isExpanded }: GroupDropZoneProps): R
 }
 
 /**
- * Sortable item inside a group - similar to SortableNavItem but uses group child IDs.
+ * Sortable item inside a collection - similar to SortableNavItem but uses collection child IDs.
  */
-interface SortableGroupChildProps {
-  groupId: string
-  item: SidebarBuiltinItemComputed | SidebarListItemComputed
+interface SortableCollectionChildProps {
+  collectionId: string
+  item: SidebarBuiltinItemComputed | SidebarFilterItemComputed
   isCollapsed: boolean
   onNavClick?: () => void
   onEdit?: () => void
@@ -66,16 +66,16 @@ interface SortableGroupChildProps {
   activeId: string | null
 }
 
-function SortableGroupChild({
-  groupId,
+function SortableCollectionChild({
+  collectionId,
   item,
   isCollapsed,
   onNavClick,
   onEdit,
   onDelete,
   activeId,
-}: SortableGroupChildProps): ReactNode {
-  const itemId = getGroupChildId(groupId, item)
+}: SortableCollectionChildProps): ReactNode {
+  const itemId = getCollectionChildId(collectionId, item)
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: itemId,
   })
@@ -89,12 +89,12 @@ function SortableGroupChild({
   const icon =
     item.type === 'builtin'
       ? getBuiltinIcon(item.key)
-      : getListIcon(item.content_types)
+      : getFilterIcon(item.content_types)
 
   const route =
     item.type === 'builtin'
       ? getBuiltinRoute(item.key)
-      : getListRoute(item.id)
+      : getFilterRoute(item.id)
 
   return (
     <div ref={setNodeRef} style={style} className="group/item flex w-full items-center min-w-0 overflow-hidden">
@@ -104,8 +104,8 @@ function SortableGroupChild({
         icon={icon}
         isCollapsed={isCollapsed}
         onClick={onNavClick}
-        onEdit={item.type === 'list' ? onEdit : undefined}
-        onDelete={item.type === 'list' ? onDelete : undefined}
+        onEdit={item.type === 'filter' ? onEdit : undefined}
+        onDelete={item.type === 'filter' ? onDelete : undefined}
       />
       {/* Drag handle on right */}
       {!isCollapsed && (
@@ -122,37 +122,39 @@ function SortableGroupChild({
   )
 }
 
-export interface SortableGroupItemProps {
-  item: SidebarGroupComputed
+export interface SortableCollectionItemProps {
+  item: SidebarCollectionComputed
   isCollapsed: boolean
   isGroupCollapsed: boolean
   onToggleGroup: () => void
   onNavClick?: () => void
-  onEditList: (listId: string) => void
-  onDeleteList: (listId: string) => void
-  onRenameGroup: (newName: string) => void
-  onDeleteGroup: () => void
+  onEditFilter: (filterId: string) => void
+  onDeleteFilter: (filterId: string) => void
+  onEditCollection: () => void
+  onRenameCollection: (newName: string) => void
+  onDeleteCollection: () => void
   isDragging?: boolean
   activeId: string | null
 }
 
 /**
- * A sortable group in the sidebar that can contain nested items.
- * Groups can be reordered at the root level and items can be dragged in/out.
+ * A sortable collection in the sidebar that can contain nested items.
+ * Collections can be reordered at the root level and items can be dragged in/out.
  */
-export function SortableGroupItem({
+export function SortableCollectionItem({
   item,
   isCollapsed,
   isGroupCollapsed,
   onToggleGroup,
   onNavClick,
-  onEditList,
-  onDeleteList,
-  onRenameGroup,
-  onDeleteGroup,
+  onEditFilter,
+  onDeleteFilter,
+  onEditCollection,
+  onRenameCollection,
+  onDeleteCollection,
   isDragging,
   activeId,
-}: SortableGroupItemProps): ReactNode {
+}: SortableCollectionItemProps): ReactNode {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: getItemId(item),
   })
@@ -163,12 +165,12 @@ export function SortableGroupItem({
     opacity: isDragging ? 0.5 : 1,
   }
 
-  // Get IDs for children within this group for nested SortableContext
-  const childIds = item.items.map((child) => getGroupChildId(item.id, child))
+  // Get IDs for children within this collection for nested SortableContext
+  const childIds = item.items.map((child) => getCollectionChildId(item.id, child))
 
   return (
     <div ref={setNodeRef} style={style} className="w-full min-w-0 overflow-hidden">
-      <GroupDropZone groupId={item.id} isExpanded={!isGroupCollapsed}>
+      <CollectionDropZone collectionId={item.id} isExpanded={!isGroupCollapsed}>
         <div className="flex items-center group/groupheader w-full min-w-0">
           <div className="flex-1 min-w-0 overflow-hidden">
             <SidebarGroup
@@ -177,27 +179,28 @@ export function SortableGroupItem({
               isCollapsed={isCollapsed}
               isGroupCollapsed={isGroupCollapsed}
               onToggle={onToggleGroup}
-              onRename={onRenameGroup}
-              onDelete={onDeleteGroup}
+              onEdit={onEditCollection}
+              onRename={onRenameCollection}
+              onDelete={onDeleteCollection}
             >
-              {/* Nested SortableContext for items within this group */}
+              {/* Nested SortableContext for items within this collection */}
               <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
                 {item.items.map((child) => (
-                  <SortableGroupChild
-                    key={getGroupChildId(item.id, child)}
-                    groupId={item.id}
+                  <SortableCollectionChild
+                    key={getCollectionChildId(item.id, child)}
+                    collectionId={item.id}
                     item={child}
                     isCollapsed={isCollapsed}
                     onNavClick={onNavClick}
-                    onEdit={child.type === 'list' ? () => onEditList(child.id) : undefined}
-                    onDelete={child.type === 'list' ? () => onDeleteList(child.id) : undefined}
+                    onEdit={child.type === 'filter' ? () => onEditFilter(child.id) : undefined}
+                    onDelete={child.type === 'filter' ? () => onDeleteFilter(child.id) : undefined}
                     activeId={activeId}
                   />
                 ))}
               </SortableContext>
             </SidebarGroup>
           </div>
-          {/* Drag handle for groups on right */}
+          {/* Drag handle for collections on right */}
           {!isCollapsed && (
             <button
               type="button"
@@ -209,7 +212,7 @@ export function SortableGroupItem({
             </button>
           )}
         </div>
-      </GroupDropZone>
+      </CollectionDropZone>
     </div>
   )
 }

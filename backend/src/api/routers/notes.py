@@ -17,7 +17,7 @@ from schemas.note import (
     NoteResponse,
     NoteUpdate,
 )
-from services import content_list_service
+from services import content_filter_service
 from services.exceptions import InvalidStateError
 from services.note_service import NoteService
 
@@ -47,7 +47,7 @@ async def list_notes(
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
     view: Literal["active", "archived", "deleted"] = Query(default="active", description="Which notes to show: active (default), archived, or deleted"),  # noqa: E501
-    list_id: UUID | None = Query(default=None, description="Filter by content list ID"),
+    filter_id: UUID | None = Query(default=None, description="Filter by content filter ID"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteListResponse:
@@ -60,15 +60,15 @@ async def list_notes(
     - **sort_by**: Sort by created_at (default), updated_at, last_used_at, title, etc.
     - **sort_order**: Sort ascending or descending (default: desc)
     - **view**: Which notes to show - 'active' (not deleted/archived), 'archived', or 'deleted'
-    - **list_id**: Filter by content list (can be combined with tags for additional filtering)
+    - **filter_id**: Filter by content filter (can be combined with tags for additional filtering)
     """
-    # If list_id provided, fetch the list and use its filter expression
+    # If filter_id provided, fetch the filter and use its filter expression
     filter_expression = None
-    if list_id is not None:
-        content_list = await content_list_service.get_list(db, current_user.id, list_id)
-        if content_list is None:
-            raise HTTPException(status_code=404, detail="List not found")
-        filter_expression = content_list.filter_expression
+    if filter_id is not None:
+        content_filter = await content_filter_service.get_filter(db, current_user.id, filter_id)
+        if content_filter is None:
+            raise HTTPException(status_code=404, detail="Filter not found")
+        filter_expression = content_filter.filter_expression
 
     try:
         notes, total = await note_service.search(

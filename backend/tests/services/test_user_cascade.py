@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from models.api_token import ApiToken
 from models.bookmark import Bookmark
-from models.content_list import ContentList
+from models.content_filter import ContentFilter
 from models.note import Note
 from models.note_version import NoteVersion
 from models.tag import Tag, bookmark_tags, note_tags
@@ -30,7 +30,7 @@ async def test__user_delete__cascades_to_all_user_data(
     - Note versions (for testing cascade from notes)
     - API tokens
     - User settings
-    - Content lists
+    - Content filters
 
     Then verifies that deleting the user removes ALL of this data,
     including junction table entries (bookmark_tags, note_tags).
@@ -132,14 +132,14 @@ async def test__user_delete__cascades_to_all_user_data(
     db_session.add(settings)
     await db_session.flush()
 
-    # Create content lists
-    list1 = ContentList(
+    # Create content filters
+    list1 = ContentFilter(
         user_id=user_id,
         name="Work",
         content_types=["bookmark", "note"],
         filter_expression={"groups": [{"tags": ["python"]}], "group_operator": "OR"},
     )
-    list2 = ContentList(
+    list2 = ContentFilter(
         user_id=user_id,
         name="Personal",
         content_types=["bookmark"],
@@ -147,7 +147,7 @@ async def test__user_delete__cascades_to_all_user_data(
     )
     db_session.add_all([list1, list2])
     await db_session.flush()
-    list_ids = [list1.id, list2.id]
+    filter_ids = [list1.id, list2.id]
 
     # ==========================================================================
     # Verify: All data exists before deletion
@@ -201,9 +201,9 @@ async def test__user_delete__cascades_to_all_user_data(
     )
     assert result.scalar_one_or_none() is not None
 
-    # Verify content lists exist
+    # Verify content filters exist
     result = await db_session.execute(
-        select(ContentList).where(ContentList.id.in_(list_ids)),
+        select(ContentFilter).where(ContentFilter.id.in_(filter_ids)),
     )
     assert len(result.scalars().all()) == 2
 
@@ -272,9 +272,9 @@ async def test__user_delete__cascades_to_all_user_data(
     )
     assert result.scalar_one_or_none() is None
 
-    # Content lists should be gone
+    # Content filters should be gone
     result = await db_session.execute(
-        select(ContentList).where(ContentList.id.in_(list_ids)),
+        select(ContentFilter).where(ContentFilter.id.in_(filter_ids)),
     )
     assert len(result.scalars().all()) == 0
 

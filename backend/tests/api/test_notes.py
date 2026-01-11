@@ -894,8 +894,8 @@ async def test_note_list_item_excludes_content(client: AsyncClient) -> None:
 # =============================================================================
 
 
-async def test_list_notes_with_list_id(client: AsyncClient) -> None:
-    """Test filtering notes by list_id parameter."""
+async def test_list_notes_with_filter_id(client: AsyncClient) -> None:
+    """Test filtering notes by filter_id parameter."""
     # Create notes with different tags
     await client.post(
         "/notes/",
@@ -912,7 +912,7 @@ async def test_list_notes_with_list_id(client: AsyncClient) -> None:
 
     # Create a list that filters for work AND priority
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Work Priority List",
             "filter_expression": {
@@ -922,10 +922,10 @@ async def test_list_notes_with_list_id(client: AsyncClient) -> None:
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
-    # Filter notes by list_id
-    response = await client.get(f"/notes/?list_id={list_id}")
+    # Filter notes by filter_id
+    response = await client.get(f"/notes/?filter_id={filter_id}")
     assert response.status_code == 200
 
     data = response.json()
@@ -933,7 +933,7 @@ async def test_list_notes_with_list_id(client: AsyncClient) -> None:
     assert data["items"][0]["title"] == "Work Priority"
 
 
-async def test_list_notes_with_list_id_complex_filter(client: AsyncClient) -> None:
+async def test_list_notes_with_filter_id_complex_filter(client: AsyncClient) -> None:
     """Test filtering with complex list expression: (work AND priority) OR (urgent)."""
     # Create notes
     await client.post(
@@ -951,7 +951,7 @@ async def test_list_notes_with_list_id_complex_filter(client: AsyncClient) -> No
 
     # Create a list with complex filter
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Priority Tasks",
             "filter_expression": {
@@ -964,10 +964,10 @@ async def test_list_notes_with_list_id_complex_filter(client: AsyncClient) -> No
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
-    # Filter notes by list_id
-    response = await client.get(f"/notes/?list_id={list_id}")
+    # Filter notes by filter_id
+    response = await client.get(f"/notes/?filter_id={filter_id}")
     assert response.status_code == 200
 
     data = response.json()
@@ -978,15 +978,15 @@ async def test_list_notes_with_list_id_complex_filter(client: AsyncClient) -> No
     assert "Personal" not in titles
 
 
-async def test_list_notes_with_list_id_not_found(client: AsyncClient) -> None:
-    """Test that non-existent list_id returns 404."""
-    response = await client.get("/notes/?list_id=00000000-0000-0000-0000-000000000000")
+async def test_list_notes_with_filter_id_not_found(client: AsyncClient) -> None:
+    """Test that non-existent filter_id returns 404."""
+    response = await client.get("/notes/?filter_id=00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
-    assert response.json()["detail"] == "List not found"
+    assert response.json()["detail"] == "Filter not found"
 
 
-async def test_list_notes_with_list_id_and_search(client: AsyncClient) -> None:
-    """Test combining list_id filter with text search."""
+async def test_list_notes_with_filter_id_and_search(client: AsyncClient) -> None:
+    """Test combining filter_id filter with text search."""
     # Create notes
     await client.post(
         "/notes/",
@@ -1003,7 +1003,7 @@ async def test_list_notes_with_list_id_and_search(client: AsyncClient) -> None:
 
     # Create a list for work+coding
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Work Coding",
             "filter_expression": {
@@ -1013,10 +1013,10 @@ async def test_list_notes_with_list_id_and_search(client: AsyncClient) -> None:
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
     # Filter by list AND search for "Python"
-    response = await client.get(f"/notes/?list_id={list_id}&q=python")
+    response = await client.get(f"/notes/?filter_id={filter_id}&q=python")
     assert response.status_code == 200
 
     data = response.json()
@@ -1024,8 +1024,8 @@ async def test_list_notes_with_list_id_and_search(client: AsyncClient) -> None:
     assert data["items"][0]["title"] == "Python Work"
 
 
-async def test_list_notes_list_id_combines_with_tags(client: AsyncClient) -> None:
-    """Test that list_id filter and tags parameter are combined with AND logic."""
+async def test_list_notes_filter_id_combines_with_tags(client: AsyncClient) -> None:
+    """Test that filter_id filter and tags parameter are combined with AND logic."""
     # Create notes
     await client.post(
         "/notes/",
@@ -1042,7 +1042,7 @@ async def test_list_notes_list_id_combines_with_tags(client: AsyncClient) -> Non
 
     # Create a list for work
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Work List",
             "filter_expression": {
@@ -1052,10 +1052,10 @@ async def test_list_notes_list_id_combines_with_tags(client: AsyncClient) -> Non
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
-    # Pass both list_id AND tags - should combine with AND logic
-    response = await client.get(f"/notes/?list_id={list_id}&tags=urgent")
+    # Pass both filter_id AND tags - should combine with AND logic
+    response = await client.get(f"/notes/?filter_id={filter_id}&tags=urgent")
     assert response.status_code == 200
 
     data = response.json()
@@ -1064,7 +1064,7 @@ async def test_list_notes_list_id_combines_with_tags(client: AsyncClient) -> Non
     assert data["items"][0]["title"] == "Work Urgent"
 
 
-async def test_list_notes_list_id_and_tags_no_overlap(client: AsyncClient) -> None:
+async def test_list_notes_filter_id_and_tags_no_overlap(client: AsyncClient) -> None:
     """Test that combining list filter and tags with no overlap returns empty."""
     # Note in work list
     await client.post(
@@ -1079,23 +1079,23 @@ async def test_list_notes_list_id_and_tags_no_overlap(client: AsyncClient) -> No
 
     # Create work list
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Work",
             "filter_expression": {"groups": [{"tags": ["work"]}], "group_operator": "OR"},
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
     # Filter work list by 'personal' tag - no note has both
-    response = await client.get(f"/notes/?list_id={list_id}&tags=personal")
+    response = await client.get(f"/notes/?filter_id={filter_id}&tags=personal")
     assert response.status_code == 200
     assert response.json()["total"] == 0
 
 
-async def test_list_notes_list_id_empty_results(client: AsyncClient) -> None:
-    """Test list_id filter with no matching notes."""
+async def test_list_notes_filter_id_empty_results(client: AsyncClient) -> None:
+    """Test filter_id filter with no matching notes."""
     # Create a note
     await client.post(
         "/notes/",
@@ -1104,7 +1104,7 @@ async def test_list_notes_list_id_empty_results(client: AsyncClient) -> None:
 
     # Create a list for non-existent tags
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Empty List",
             "filter_expression": {
@@ -1114,10 +1114,10 @@ async def test_list_notes_list_id_empty_results(client: AsyncClient) -> None:
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
     # Filter by list - should return empty
-    response = await client.get(f"/notes/?list_id={list_id}")
+    response = await client.get(f"/notes/?filter_id={filter_id}")
     assert response.status_code == 200
 
     data = response.json()

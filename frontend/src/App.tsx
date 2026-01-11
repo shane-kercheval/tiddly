@@ -56,11 +56,11 @@ const router = createBrowserRouter([
                   // /app root redirects to content
                   { path: '/app', element: <Navigate to="/app/content" replace /> },
 
-                  // Unified content routes (All, Archived, Trash, Lists)
+                  // Unified content routes (All, Archived, Trash, Filters)
                   { path: '/app/content', element: <AllContent /> },
                   { path: '/app/content/archived', element: <AllContent /> },
                   { path: '/app/content/trash', element: <AllContent /> },
-                  { path: '/app/content/lists/:listId', element: <AllContent /> },
+                  { path: '/app/content/filters/:filterId', element: <AllContent /> },
 
                   // Bookmark detail routes
                   { path: '/app/bookmarks/new', element: <BookmarkDetail /> },
@@ -105,7 +105,7 @@ const router = createBrowserRouter([
  *   - /app/content : Unified view - all content (bookmarks + notes + prompts)
  *   - /app/content/archived : Archived content
  *   - /app/content/trash : Deleted content
- *   - /app/content/lists/:listId : Custom list
+ *   - /app/content/filters/:filterId : Custom filter
  *   - /app/bookmarks/new : Create new bookmark
  *   - /app/bookmarks/:id : View/edit bookmark (unified component)
  *   - /app/notes/new : Create new note

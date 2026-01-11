@@ -91,14 +91,14 @@ describe('useBookmarksQuery', () => {
       expect(calledUrl).toContain('view=active')
     })
 
-    it('should include list_id in query string', async () => {
+    it('should include filter_id in query string', async () => {
       mockGet.mockResolvedValueOnce({ data: { items: [], total: 0 } })
 
       const { result } = renderHook(
         () =>
           useBookmarksQuery({
             view: 'active',
-            list_id: '123',
+            filter_id: '123',
           }),
         { wrapper: createWrapper() }
       )
@@ -108,7 +108,7 @@ describe('useBookmarksQuery', () => {
       })
 
       const calledUrl = mockGet.mock.calls[0][0] as string
-      expect(calledUrl).toContain('list_id=123')
+      expect(calledUrl).toContain('filter_id=123')
     })
 
     it('should handle errors', async () => {
@@ -200,8 +200,8 @@ describe('bookmarkKeys', () => {
       expect(key[2]).toBe('active')
     })
 
-    it('should use custom segment for queries with list_id', () => {
-      const params = { view: 'active' as const, list_id: '123' }
+    it('should use custom segment for queries with filter_id', () => {
+      const params = { view: 'active' as const, filter_id: '123' }
       const key = bookmarkKeys.list(params)
 
       // Custom lists use 'custom' segment instead of view
@@ -218,9 +218,9 @@ describe('bookmarkKeys', () => {
       expect(listKey.slice(0, viewKey.length)).toEqual(viewKey)
     })
 
-    it('customLists key should be prefix of list key with list_id', () => {
+    it('customLists key should be prefix of list key with filter_id', () => {
       const customKey = bookmarkKeys.customLists()
-      const listKey = bookmarkKeys.list({ view: 'active', list_id: '123' })
+      const listKey = bookmarkKeys.list({ view: 'active', filter_id: '123' })
 
       // customKey should be a prefix of listKey
       expect(listKey.slice(0, customKey.length)).toEqual(customKey)

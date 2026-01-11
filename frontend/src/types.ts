@@ -139,7 +139,7 @@ export interface NoteSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
-  list_id?: string
+  filter_id?: string
 }
 
 /** Tag with usage count */
@@ -175,7 +175,7 @@ export interface BookmarkSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
-  list_id?: string
+  filter_id?: string
 }
 
 // =============================================================================
@@ -228,15 +228,15 @@ export interface ContentSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
-  list_id?: string
+  filter_id?: string
   content_types?: ContentType[]
 }
 
 // =============================================================================
-// ContentList Types
+// ContentFilter Types
 // =============================================================================
 
-/** Valid content types for lists */
+/** Valid content types for filters */
 export type ContentType = 'bookmark' | 'note' | 'prompt'
 
 /** A group of tags combined with AND logic */
@@ -251,8 +251,8 @@ export interface FilterExpression {
   group_operator: 'OR'
 }
 
-/** ContentList data returned from the API */
-export interface ContentList {
+/** ContentFilter data returned from the API */
+export interface ContentFilter {
   id: string
   name: string
   content_types: ContentType[]
@@ -263,8 +263,8 @@ export interface ContentList {
   updated_at: string
 }
 
-/** Data for creating a new content list */
-export interface ContentListCreate {
+/** Data for creating a new content filter */
+export interface ContentFilterCreate {
   name: string
   content_types?: ContentType[]  // Defaults to ["bookmark", "note"]
   filter_expression: FilterExpression
@@ -272,8 +272,8 @@ export interface ContentListCreate {
   default_sort_ascending?: boolean | null
 }
 
-/** Data for updating an existing content list */
-export interface ContentListUpdate {
+/** Data for updating an existing content filter */
+export interface ContentFilterUpdate {
   name?: string
   content_types?: ContentType[]
   filter_expression?: FilterExpression
@@ -295,22 +295,22 @@ export interface SidebarBuiltinItem {
   key: BuiltinKey
 }
 
-/** A user-created list item in the sidebar (input format) */
-export interface SidebarListItem {
-  type: 'list'
+/** A user-created filter item in the sidebar (input format) */
+export interface SidebarFilterItem {
+  type: 'filter'
   id: string
 }
 
-/** A group containing other items in the sidebar (input format) */
-export interface SidebarGroup {
-  type: 'group'
+/** A collection containing other items in the sidebar (input format) */
+export interface SidebarCollection {
+  type: 'collection'
   id: string // UUID, generated client-side via crypto.randomUUID()
   name: string
-  items: (SidebarListItem | SidebarBuiltinItem)[]
+  items: (SidebarFilterItem | SidebarBuiltinItem)[]
 }
 
 /** Any sidebar item (input format) */
-export type SidebarItem = SidebarBuiltinItem | SidebarListItem | SidebarGroup
+export type SidebarItem = SidebarBuiltinItem | SidebarFilterItem | SidebarCollection
 
 /** Complete sidebar structure (input format for PUT) */
 export interface SidebarOrder {
@@ -325,25 +325,25 @@ export interface SidebarBuiltinItemComputed extends SidebarBuiltinItem {
   name: string // "All", "Archived", "Trash"
 }
 
-/** A list item with name and content types resolved from database */
-export interface SidebarListItemComputed extends SidebarListItem {
+/** A filter item with name and content types resolved from database */
+export interface SidebarFilterItemComputed extends SidebarFilterItem {
   name: string
-  content_types: string[]
+  content_types: ContentType[]
 }
 
-/** A group with resolved child items */
-export interface SidebarGroupComputed {
-  type: 'group'
+/** A collection with resolved child items */
+export interface SidebarCollectionComputed {
+  type: 'collection'
   id: string
   name: string
-  items: (SidebarListItemComputed | SidebarBuiltinItemComputed)[]
+  items: (SidebarFilterItemComputed | SidebarBuiltinItemComputed)[]
 }
 
 /** Any computed sidebar item */
 export type SidebarItemComputed =
   | SidebarBuiltinItemComputed
-  | SidebarListItemComputed
-  | SidebarGroupComputed
+  | SidebarFilterItemComputed
+  | SidebarCollectionComputed
 
 /** Complete sidebar structure with resolved names (from GET response) */
 export interface SidebarOrderComputed {
@@ -456,5 +456,5 @@ export interface PromptSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
-  list_id?: string
+  filter_id?: string
 }

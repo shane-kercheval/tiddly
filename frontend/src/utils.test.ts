@@ -14,7 +14,7 @@ import {
   addMonthsWithClamp,
   calculateArchivePresetDate,
 } from './utils'
-import type { ContentList, TagCount } from './types'
+import type { ContentFilter, TagCount } from './types'
 
 // ============================================================================
 // Date Utilities
@@ -302,9 +302,9 @@ describe('normalizeTag', () => {
 // ============================================================================
 
 describe('getFirstGroupTags', () => {
-  const createList = (groups: { tags: string[] }[]): ContentList => ({
+  const createFilter = (groups: { tags: string[] }[]): ContentFilter => ({
     id: '1',
-    name: 'Test List',
+    name: 'Test Filter',
     content_types: ['bookmark'],
     filter_expression: {
       groups: groups.map((g) => ({ tags: g.tags, operator: 'AND' as const })),
@@ -316,43 +316,43 @@ describe('getFirstGroupTags', () => {
     default_sort_ascending: null,
   })
 
-  it('should return tags from first group when list has single group', () => {
-    const list = createList([{ tags: ['react', 'typescript'] }])
-    expect(getFirstGroupTags(list)).toEqual(['react', 'typescript'])
+  it('should return tags from first group when filter has single group', () => {
+    const filter = createFilter([{ tags: ['react', 'typescript'] }])
+    expect(getFirstGroupTags(filter)).toEqual(['react', 'typescript'])
   })
 
-  it('should return only first group tags when list has multiple groups', () => {
+  it('should return only first group tags when filter has multiple groups', () => {
     // Filter: (react AND typescript) OR (vue) OR (angular AND rxjs)
-    const list = createList([
+    const filter = createFilter([
       { tags: ['react', 'typescript'] },
       { tags: ['vue'] },
       { tags: ['angular', 'rxjs'] },
     ])
-    expect(getFirstGroupTags(list)).toEqual(['react', 'typescript'])
+    expect(getFirstGroupTags(filter)).toEqual(['react', 'typescript'])
   })
 
-  it('should return undefined when list is undefined', () => {
+  it('should return undefined when filter is undefined', () => {
     expect(getFirstGroupTags(undefined)).toBeUndefined()
   })
 
   it('should return undefined when filter_expression is missing', () => {
-    const list = { id: '1', name: 'Test', created_at: '', updated_at: '' } as ContentList
-    expect(getFirstGroupTags(list)).toBeUndefined()
+    const filter = { id: '1', name: 'Test', created_at: '', updated_at: '' } as ContentFilter
+    expect(getFirstGroupTags(filter)).toBeUndefined()
   })
 
   it('should return undefined when groups array is empty', () => {
-    const list = createList([])
-    expect(getFirstGroupTags(list)).toBeUndefined()
+    const filter = createFilter([])
+    expect(getFirstGroupTags(filter)).toBeUndefined()
   })
 
   it('should return undefined when first group has no tags', () => {
-    const list = createList([{ tags: [] }])
-    expect(getFirstGroupTags(list)).toBeUndefined()
+    const filter = createFilter([{ tags: [] }])
+    expect(getFirstGroupTags(filter)).toBeUndefined()
   })
 
   it('should return single tag when first group has one tag', () => {
-    const list = createList([{ tags: ['javascript'] }])
-    expect(getFirstGroupTags(list)).toEqual(['javascript'])
+    const filter = createFilter([{ tags: ['javascript'] }])
+    expect(getFirstGroupTags(filter)).toEqual(['javascript'])
   })
 })
 

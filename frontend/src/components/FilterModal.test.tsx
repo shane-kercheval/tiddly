@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ListModal } from './ListModal'
-import type { ContentList, TagCount } from '../types'
+import { FilterModal } from './FilterModal'
+import type { ContentFilter, TagCount } from '../types'
 
 const mockSuggestions: TagCount[] = [
   { name: 'react', count: 5 },
@@ -10,7 +10,7 @@ const mockSuggestions: TagCount[] = [
   { name: 'javascript', count: 8 },
 ]
 
-const mockList: ContentList = {
+const mockFilter: ContentFilter = {
   id: '1',
   name: 'Work Resources',
   content_types: ['bookmark'],
@@ -24,45 +24,45 @@ const mockList: ContentList = {
   updated_at: '2024-01-01T00:00:00Z',
 }
 
-describe('ListModal', () => {
+describe('FilterModal', () => {
   describe('rendering', () => {
     it('should not render when closed', () => {
       render(
-        <ListModal
+        <FilterModal
           isOpen={false}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
         />
       )
 
-      expect(screen.queryByText('Create List')).not.toBeInTheDocument()
+      expect(screen.queryByText('Create Filter')).not.toBeInTheDocument()
     })
 
-    it('should render create mode when no list provided', () => {
+    it('should render create mode when no filter provided', () => {
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
         />
       )
 
-      expect(screen.getByRole('heading', { name: 'Create List' })).toBeInTheDocument()
-      expect(screen.getByLabelText('List Name')).toHaveValue('')
+      expect(screen.getByRole('heading', { name: /Create Filter/ })).toBeInTheDocument()
+      expect(screen.getByLabelText('Filter Name')).toHaveValue('')
     })
 
-    it('should render edit mode with populated form when list provided', () => {
+    it('should render edit mode with populated form when filter provided', () => {
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
-          list={mockList}
+          filter={mockFilter}
           tagSuggestions={mockSuggestions}
         />
       )
 
-      expect(screen.getByText('Edit List')).toBeInTheDocument()
-      expect(screen.getByLabelText('List Name')).toHaveValue('Work Resources')
+      expect(screen.getByText('Edit Filter')).toBeInTheDocument()
+      expect(screen.getByLabelText('Filter Name')).toHaveValue('Work Resources')
       expect(screen.getByText('work')).toBeInTheDocument()
       expect(screen.getByText('resources')).toBeInTheDocument()
     })
@@ -74,7 +74,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -83,15 +83,15 @@ describe('ListModal', () => {
       )
 
       // Enter a name but no tags
-      const nameInput = screen.getByLabelText('List Name')
-      await user.type(nameInput, 'My List')
+      const nameInput = screen.getByLabelText('Filter Name')
+      await user.type(nameInput, 'My Filter')
 
-      const submitButton = screen.getByRole('button', { name: 'Create List' })
+      const submitButton = screen.getByRole('button', { name: 'Create Filter' })
       await user.click(submitButton)
 
       await waitFor(() => {
         expect(onCreate).toHaveBeenCalledWith({
-          name: 'My List',
+          name: 'My Filter',
           content_types: ['bookmark', 'note'],
           filter_expression: {
             groups: [],
@@ -105,7 +105,7 @@ describe('ListModal', () => {
 
     it('should disable submit button when name is empty', () => {
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -113,7 +113,7 @@ describe('ListModal', () => {
         />
       )
 
-      const submitButton = screen.getByRole('button', { name: 'Create List' })
+      const submitButton = screen.getByRole('button', { name: 'Create Filter' })
       expect(submitButton).toBeDisabled()
     })
   })
@@ -125,7 +125,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={onClose}
           tagSuggestions={mockSuggestions}
@@ -134,8 +134,8 @@ describe('ListModal', () => {
       )
 
       // Enter name with extra whitespace
-      const nameInput = screen.getByLabelText('List Name')
-      await user.type(nameInput, '  My New List  ')
+      const nameInput = screen.getByLabelText('Filter Name')
+      await user.type(nameInput, '  My New Filter  ')
 
       // Add a tag and wait for it to appear
       const tagInput = screen.getByPlaceholderText('Add tag...')
@@ -147,12 +147,12 @@ describe('ListModal', () => {
       })
 
       // Submit
-      const submitButton = screen.getByRole('button', { name: 'Create List' })
+      const submitButton = screen.getByRole('button', { name: 'Create Filter' })
       await user.click(submitButton)
 
       await waitFor(() => {
         expect(onCreate).toHaveBeenCalledWith({
-          name: 'My New List',
+          name: 'My New Filter',
           content_types: ['bookmark', 'note'],  // Default to all types
           filter_expression: {
             groups: [{ tags: ['react'], operator: 'AND' }],
@@ -166,23 +166,23 @@ describe('ListModal', () => {
       expect(onClose).toHaveBeenCalled()
     })
 
-    it('should call onUpdate when editing existing list', async () => {
-      const onUpdate = vi.fn().mockResolvedValue(mockList)
+    it('should call onUpdate when editing existing filter', async () => {
+      const onUpdate = vi.fn().mockResolvedValue(mockFilter)
       const onClose = vi.fn()
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={onClose}
-          list={mockList}
+          filter={mockFilter}
           tagSuggestions={mockSuggestions}
           onUpdate={onUpdate}
         />
       )
 
       // Change the name
-      const nameInput = screen.getByLabelText('List Name')
+      const nameInput = screen.getByLabelText('Filter Name')
       await user.clear(nameInput)
       await user.type(nameInput, 'Updated Name')
 
@@ -193,8 +193,8 @@ describe('ListModal', () => {
       await waitFor(() => {
         expect(onUpdate).toHaveBeenCalledWith('1', {
           name: 'Updated Name',
-          content_types: mockList.content_types,
-          filter_expression: mockList.filter_expression,
+          content_types: mockFilter.content_types,
+          filter_expression: mockFilter.filter_expression,
           default_sort_by: null,
           default_sort_ascending: null,
         })
@@ -208,7 +208,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -217,8 +217,8 @@ describe('ListModal', () => {
       )
 
       // Enter name
-      const nameInput = screen.getByLabelText('List Name')
-      await user.type(nameInput, 'Test List')
+      const nameInput = screen.getByLabelText('Filter Name')
+      await user.type(nameInput, 'Test Filter')
 
       // Add a tag to first group
       const tagInput = screen.getByPlaceholderText('Add tag...')
@@ -234,12 +234,12 @@ describe('ListModal', () => {
       await user.click(addGroupButton)
 
       // Submit - empty group should be cleaned up
-      const submitButton = screen.getByRole('button', { name: 'Create List' })
+      const submitButton = screen.getByRole('button', { name: 'Create Filter' })
       await user.click(submitButton)
 
       await waitFor(() => {
         expect(onCreate).toHaveBeenCalledWith({
-          name: 'Test List',
+          name: 'Test Filter',
           content_types: ['bookmark', 'note'],
           filter_expression: {
             groups: [{ tags: ['react'], operator: 'AND' }],
@@ -256,7 +256,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -264,8 +264,8 @@ describe('ListModal', () => {
         />
       )
 
-      const nameInput = screen.getByLabelText('List Name')
-      await user.type(nameInput, 'Test List')
+      const nameInput = screen.getByLabelText('Filter Name')
+      await user.type(nameInput, 'Test Filter')
 
       const tagInput = screen.getByPlaceholderText('Add tag...')
       await user.type(tagInput, 'react{Enter}')
@@ -275,7 +275,7 @@ describe('ListModal', () => {
         expect(screen.getByText('react')).toBeInTheDocument()
       })
 
-      const submitButton = screen.getByRole('button', { name: 'Create List' })
+      const submitButton = screen.getByRole('button', { name: 'Create Filter' })
       await user.click(submitButton)
 
       await waitFor(() => {
@@ -290,7 +290,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={onClose}
           tagSuggestions={mockSuggestions}
@@ -308,7 +308,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={onClose}
           tagSuggestions={mockSuggestions}
@@ -329,7 +329,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={onClose}
           tagSuggestions={mockSuggestions}
@@ -349,7 +349,7 @@ describe('ListModal', () => {
   describe('sort configuration', () => {
     it('should render sort dropdown with system default selected', () => {
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -364,7 +364,7 @@ describe('ListModal', () => {
 
     it('should show all base sort options in dropdown', () => {
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -382,7 +382,7 @@ describe('ListModal', () => {
 
     it('should not show ascending checkbox when system default is selected', () => {
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -396,7 +396,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -413,7 +413,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -444,7 +444,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -453,8 +453,8 @@ describe('ListModal', () => {
       )
 
       // Enter name
-      const nameInput = screen.getByLabelText('List Name')
-      await user.type(nameInput, 'Sorted List')
+      const nameInput = screen.getByLabelText('Filter Name')
+      await user.type(nameInput, 'Sorted Filter')
 
       // Add a tag
       const tagInput = screen.getByPlaceholderText('Add tag...')
@@ -472,12 +472,12 @@ describe('ListModal', () => {
       await user.click(ascendingCheckbox)
 
       // Submit
-      const submitButton = screen.getByRole('button', { name: 'Create List' })
+      const submitButton = screen.getByRole('button', { name: 'Create Filter' })
       await user.click(submitButton)
 
       await waitFor(() => {
         expect(onCreate).toHaveBeenCalledWith({
-          name: 'Sorted List',
+          name: 'Sorted Filter',
           content_types: ['bookmark', 'note'],
           filter_expression: {
             groups: [{ tags: ['react'], operator: 'AND' }],
@@ -502,7 +502,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -511,7 +511,7 @@ describe('ListModal', () => {
       )
 
       // Enter name
-      await user.type(screen.getByLabelText('List Name'), 'My List')
+      await user.type(screen.getByLabelText('Filter Name'), 'My Filter')
 
       // Add a tag
       await user.type(screen.getByPlaceholderText('Add tag...'), 'test{Enter}')
@@ -523,7 +523,7 @@ describe('ListModal', () => {
       await user.selectOptions(screen.getByLabelText('Default Sort'), 'created_at')
 
       // Submit
-      await user.click(screen.getByRole('button', { name: 'Create List' }))
+      await user.click(screen.getByRole('button', { name: 'Create Filter' }))
 
       await waitFor(() => {
         expect(onCreate).toHaveBeenCalledWith(
@@ -535,18 +535,18 @@ describe('ListModal', () => {
       })
     })
 
-    it('should pre-populate sort config when editing list with sort', async () => {
-      const listWithSort: ContentList = {
-        ...mockList,
+    it('should pre-populate sort config when editing filter with sort', async () => {
+      const filterWithSort: ContentFilter = {
+        ...mockFilter,
         default_sort_by: 'created_at',
         default_sort_ascending: true,
       }
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
-          list={listWithSort}
+          filter={filterWithSort}
           tagSuggestions={mockSuggestions}
         />
       )
@@ -562,17 +562,17 @@ describe('ListModal', () => {
     })
 
     it('should pre-populate sort config with ascending false', () => {
-      const listWithSort: ContentList = {
-        ...mockList,
+      const filterWithSort: ContentFilter = {
+        ...mockFilter,
         default_sort_by: 'title',
         default_sort_ascending: false,
       }
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
-          list={listWithSort}
+          filter={filterWithSort}
           tagSuggestions={mockSuggestions}
         />
       )
@@ -584,15 +584,15 @@ describe('ListModal', () => {
       expect(ascendingCheckbox).not.toBeChecked()
     })
 
-    it('should update existing list with new sort config', async () => {
-      const onUpdate = vi.fn().mockResolvedValue(mockList)
+    it('should update existing filter with new sort config', async () => {
+      const onUpdate = vi.fn().mockResolvedValue(mockFilter)
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
-          list={mockList}
+          filter={mockFilter}
           tagSuggestions={mockSuggestions}
           onUpdate={onUpdate}
         />
@@ -611,8 +611,8 @@ describe('ListModal', () => {
       await waitFor(() => {
         expect(onUpdate).toHaveBeenCalledWith('1', {
           name: 'Work Resources',
-          content_types: mockList.content_types,
-          filter_expression: mockList.filter_expression,
+          content_types: mockFilter.content_types,
+          filter_expression: mockFilter.filter_expression,
           default_sort_by: 'updated_at',
           default_sort_ascending: true,
         })
@@ -620,19 +620,19 @@ describe('ListModal', () => {
     })
 
     it('should clear sort config when changing to system default', async () => {
-      const listWithSort: ContentList = {
-        ...mockList,
+      const filterWithSort: ContentFilter = {
+        ...mockFilter,
         default_sort_by: 'title',
         default_sort_ascending: true,
       }
-      const onUpdate = vi.fn().mockResolvedValue(mockList)
+      const onUpdate = vi.fn().mockResolvedValue(mockFilter)
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
-          list={listWithSort}
+          filter={filterWithSort}
           tagSuggestions={mockSuggestions}
           onUpdate={onUpdate}
         />
@@ -648,8 +648,8 @@ describe('ListModal', () => {
       await waitFor(() => {
         expect(onUpdate).toHaveBeenCalledWith('1', {
           name: 'Work Resources',
-          content_types: listWithSort.content_types,
-          filter_expression: mockList.filter_expression,
+          content_types: filterWithSort.content_types,
+          filter_expression: mockFilter.filter_expression,
           default_sort_by: null,
           default_sort_ascending: null,
         })
@@ -660,7 +660,7 @@ describe('ListModal', () => {
   describe('content types configuration', () => {
     it('should render content types checkboxes', () => {
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -673,9 +673,9 @@ describe('ListModal', () => {
       expect(screen.getByLabelText('Prompts')).toBeInTheDocument()
     })
 
-    it('should default to Bookmarks and Notes checked for new list', () => {
+    it('should default to Bookmarks and Notes checked for new filter', () => {
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -687,17 +687,17 @@ describe('ListModal', () => {
       expect(screen.getByLabelText('Prompts')).not.toBeChecked()
     })
 
-    it('should populate content types from existing list', () => {
-      const bookmarkOnlyList: ContentList = {
-        ...mockList,
+    it('should populate content types from existing filter', () => {
+      const bookmarkOnlyFilter: ContentFilter = {
+        ...mockFilter,
         content_types: ['bookmark'],
       }
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
-          list={bookmarkOnlyList}
+          filter={bookmarkOnlyFilter}
           tagSuggestions={mockSuggestions}
         />
       )
@@ -707,17 +707,17 @@ describe('ListModal', () => {
       expect(screen.getByLabelText('Prompts')).not.toBeChecked()
     })
 
-    it('should populate content types for prompt-only list', () => {
-      const promptOnlyList: ContentList = {
-        ...mockList,
+    it('should populate content types for prompt-only filter', () => {
+      const promptOnlyFilter: ContentFilter = {
+        ...mockFilter,
         content_types: ['prompt'],
       }
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
-          list={promptOnlyList}
+          filter={promptOnlyFilter}
           tagSuggestions={mockSuggestions}
         />
       )
@@ -731,7 +731,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -760,7 +760,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -777,16 +777,16 @@ describe('ListModal', () => {
     })
 
     it('should not allow unchecking last content type when only Prompts is checked', async () => {
-      const promptOnlyList: ContentList = {
-        ...mockList,
+      const promptOnlyFilter: ContentFilter = {
+        ...mockFilter,
         content_types: ['prompt'],
       }
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
-          list={promptOnlyList}
+          filter={promptOnlyFilter}
           tagSuggestions={mockSuggestions}
         />
       )
@@ -809,7 +809,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -818,7 +818,7 @@ describe('ListModal', () => {
       )
 
       // Enter name
-      await user.type(screen.getByLabelText('List Name'), 'Bookmarks Only')
+      await user.type(screen.getByLabelText('Filter Name'), 'Bookmarks Only')
 
       // Add a tag
       await user.type(screen.getByPlaceholderText('Add tag...'), 'test{Enter}')
@@ -830,7 +830,7 @@ describe('ListModal', () => {
       await user.click(screen.getByLabelText('Notes'))
 
       // Submit
-      await user.click(screen.getByRole('button', { name: 'Create List' }))
+      await user.click(screen.getByRole('button', { name: 'Create Filter' }))
 
       await waitFor(() => {
         expect(onCreate).toHaveBeenCalledWith({
@@ -846,21 +846,21 @@ describe('ListModal', () => {
       })
     })
 
-    it('should update list with modified content types', async () => {
-      const onUpdate = vi.fn().mockResolvedValue(mockList)
+    it('should update filter with modified content types', async () => {
+      const onUpdate = vi.fn().mockResolvedValue(mockFilter)
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
-          list={mockList}
+          filter={mockFilter}
           tagSuggestions={mockSuggestions}
           onUpdate={onUpdate}
         />
       )
 
-      // Check Notes (mockList has only bookmark)
+      // Check Notes (mockFilter has only bookmark)
       await user.click(screen.getByLabelText('Notes'))
 
       // Submit
@@ -870,7 +870,7 @@ describe('ListModal', () => {
         expect(onUpdate).toHaveBeenCalledWith('1', {
           name: 'Work Resources',
           content_types: ['bookmark', 'note'],
-          filter_expression: mockList.filter_expression,
+          filter_expression: mockFilter.filter_expression,
           default_sort_by: null,
           default_sort_ascending: null,
         })
@@ -889,7 +889,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -898,7 +898,7 @@ describe('ListModal', () => {
       )
 
       // Enter name
-      await user.type(screen.getByLabelText('List Name'), 'Prompts Only')
+      await user.type(screen.getByLabelText('Filter Name'), 'Prompts Only')
 
       // Uncheck Bookmarks and Notes, check Prompts
       await user.click(screen.getByLabelText('Prompts'))
@@ -906,7 +906,7 @@ describe('ListModal', () => {
       await user.click(screen.getByLabelText('Notes'))
 
       // Submit
-      await user.click(screen.getByRole('button', { name: 'Create List' }))
+      await user.click(screen.getByRole('button', { name: 'Create Filter' }))
 
       await waitFor(() => {
         expect(onCreate).toHaveBeenCalledWith({
@@ -934,7 +934,7 @@ describe('ListModal', () => {
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
           tagSuggestions={mockSuggestions}
@@ -943,13 +943,13 @@ describe('ListModal', () => {
       )
 
       // Enter name
-      await user.type(screen.getByLabelText('List Name'), 'Everything')
+      await user.type(screen.getByLabelText('Filter Name'), 'Everything')
 
       // Check Prompts (Bookmarks and Notes already checked by default)
       await user.click(screen.getByLabelText('Prompts'))
 
       // Submit
-      await user.click(screen.getByRole('button', { name: 'Create List' }))
+      await user.click(screen.getByRole('button', { name: 'Create Filter' }))
 
       await waitFor(() => {
         expect(onCreate).toHaveBeenCalledWith({
@@ -965,21 +965,21 @@ describe('ListModal', () => {
       })
     })
 
-    it('should update list to add prompts content type', async () => {
-      const onUpdate = vi.fn().mockResolvedValue(mockList)
+    it('should update filter to add prompts content type', async () => {
+      const onUpdate = vi.fn().mockResolvedValue(mockFilter)
       const user = userEvent.setup()
 
       render(
-        <ListModal
+        <FilterModal
           isOpen={true}
           onClose={vi.fn()}
-          list={mockList}
+          filter={mockFilter}
           tagSuggestions={mockSuggestions}
           onUpdate={onUpdate}
         />
       )
 
-      // Check Prompts (mockList has only bookmark)
+      // Check Prompts (mockFilter has only bookmark)
       await user.click(screen.getByLabelText('Prompts'))
 
       // Submit
@@ -989,7 +989,7 @@ describe('ListModal', () => {
         expect(onUpdate).toHaveBeenCalledWith('1', {
           name: 'Work Resources',
           content_types: ['bookmark', 'prompt'],
-          filter_expression: mockList.filter_expression,
+          filter_expression: mockFilter.filter_expression,
           default_sort_by: null,
           default_sort_ascending: null,
         })

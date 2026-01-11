@@ -115,8 +115,8 @@ describe('SidebarNavItem', () => {
         { wrapper: createWrapper() }
       )
 
-      expect(screen.queryByTitle('Edit list')).not.toBeInTheDocument()
-      expect(screen.queryByTitle('Delete list')).not.toBeInTheDocument()
+      expect(screen.queryByTitle('Edit filter')).not.toBeInTheDocument()
+      expect(screen.queryByTitle('Delete filter')).not.toBeInTheDocument()
     })
 
     it('should show edit button when onEdit is provided', () => {
@@ -130,7 +130,7 @@ describe('SidebarNavItem', () => {
         { wrapper: createWrapper() }
       )
 
-      expect(screen.getByTitle('Edit list')).toBeInTheDocument()
+      expect(screen.getByTitle('Edit filter')).toBeInTheDocument()
     })
 
     it('should show delete button when onDelete is provided', () => {
@@ -144,7 +144,7 @@ describe('SidebarNavItem', () => {
         { wrapper: createWrapper() }
       )
 
-      expect(screen.getByTitle('Delete list')).toBeInTheDocument()
+      expect(screen.getByTitle('Delete filter')).toBeInTheDocument()
     })
 
     it('should NOT show action buttons when sidebar is collapsed', () => {
@@ -159,8 +159,8 @@ describe('SidebarNavItem', () => {
         { wrapper: createWrapper() }
       )
 
-      expect(screen.queryByTitle('Edit list')).not.toBeInTheDocument()
-      expect(screen.queryByTitle('Delete list')).not.toBeInTheDocument()
+      expect(screen.queryByTitle('Edit filter')).not.toBeInTheDocument()
+      expect(screen.queryByTitle('Delete filter')).not.toBeInTheDocument()
     })
 
     it('should call onEdit when edit button is clicked', async () => {
@@ -177,7 +177,7 @@ describe('SidebarNavItem', () => {
         { wrapper: createWrapper() }
       )
 
-      await user.click(screen.getByTitle('Edit list'))
+      await user.click(screen.getByTitle('Edit filter'))
       expect(onEdit).toHaveBeenCalledTimes(1)
     })
   })
@@ -198,7 +198,7 @@ describe('SidebarNavItem', () => {
       )
 
       // First click
-      await user.click(screen.getByTitle('Delete list'))
+      await user.click(screen.getByTitle('Delete filter'))
 
       // Should show confirmation text
       expect(screen.getByText('Delete?')).toBeInTheDocument()
@@ -221,7 +221,7 @@ describe('SidebarNavItem', () => {
       )
 
       // First click
-      await user.click(screen.getByTitle('Delete list'))
+      await user.click(screen.getByTitle('Delete filter'))
 
       // Second click
       await user.click(screen.getByTitle('Click again to confirm'))
@@ -244,7 +244,7 @@ describe('SidebarNavItem', () => {
       )
 
       // First click
-      await user.click(screen.getByTitle('Delete list'))
+      await user.click(screen.getByTitle('Delete filter'))
       expect(screen.getByText('Delete?')).toBeInTheDocument()
 
       // Advance timers past the default timeout (3000ms)
@@ -255,7 +255,7 @@ describe('SidebarNavItem', () => {
       // Should reset to initial state
       await waitFor(() => {
         expect(screen.queryByText('Delete?')).not.toBeInTheDocument()
-        expect(screen.getByTitle('Delete list')).toBeInTheDocument()
+        expect(screen.getByTitle('Delete filter')).toBeInTheDocument()
       })
     })
 
@@ -274,14 +274,14 @@ describe('SidebarNavItem', () => {
       )
 
       // Initially both buttons should be present
-      expect(screen.getByTitle('Edit list')).toBeInTheDocument()
-      expect(screen.getByTitle('Delete list')).toBeInTheDocument()
+      expect(screen.getByTitle('Edit filter')).toBeInTheDocument()
+      expect(screen.getByTitle('Delete filter')).toBeInTheDocument()
 
       // First click on delete
-      await user.click(screen.getByTitle('Delete list'))
+      await user.click(screen.getByTitle('Delete filter'))
 
       // Edit button should be hidden during confirmation
-      expect(screen.queryByTitle('Edit list')).not.toBeInTheDocument()
+      expect(screen.queryByTitle('Edit filter')).not.toBeInTheDocument()
       expect(screen.getByTitle('Click again to confirm')).toBeInTheDocument()
     })
 
@@ -302,7 +302,7 @@ describe('SidebarNavItem', () => {
         { wrapper: createWrapper() }
       )
 
-      await user.click(screen.getByTitle('Delete list'))
+      await user.click(screen.getByTitle('Delete filter'))
 
       // Parent click should not be triggered
       expect(parentClick).not.toHaveBeenCalled()

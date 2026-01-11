@@ -359,10 +359,10 @@ async def test__list_all_content__negative_offset_returns_422(
 # =============================================================================
 
 
-async def test__list_content_with_list_id__returns_matching_bookmarks_and_notes(
+async def test__list_content_with_filter_id__returns_matching_bookmarks_and_notes(
     client: AsyncClient,
 ) -> None:
-    """Test filtering content by list_id returns both types when list includes both."""
+    """Test filtering content by filter_id returns both types when list includes both."""
     # Create bookmark with 'work' tag
     await client.post(
         '/bookmarks/',
@@ -381,7 +381,7 @@ async def test__list_content_with_list_id__returns_matching_bookmarks_and_notes(
 
     # Create a list that includes both types with 'work' tag filter
     response = await client.post(
-        '/lists/',
+        '/filters/',
         json={
             'name': 'Work List',
             'content_types': ['bookmark', 'note'],
@@ -389,10 +389,10 @@ async def test__list_content_with_list_id__returns_matching_bookmarks_and_notes(
         },
     )
     assert response.status_code == 201
-    list_id = response.json()['id']
+    filter_id = response.json()['id']
 
-    # Filter content by list_id
-    response = await client.get(f'/content/?list_id={list_id}')
+    # Filter content by filter_id
+    response = await client.get(f'/content/?filter_id={filter_id}')
     assert response.status_code == 200
 
     data = response.json()
@@ -403,10 +403,10 @@ async def test__list_content_with_list_id__returns_matching_bookmarks_and_notes(
     assert titles == {'Work Bookmark', 'Work Note'}
 
 
-async def test__list_content_with_list_id__respects_content_types_bookmarks_only(
+async def test__list_content_with_filter_id__respects_content_types_bookmarks_only(
     client: AsyncClient,
 ) -> None:
-    """Test that list_id respects content_types and returns only bookmarks when specified."""
+    """Test that filter_id respects content_types and returns only bookmarks when specified."""
     # Create bookmark and note with same tag
     await client.post(
         '/bookmarks/',
@@ -419,7 +419,7 @@ async def test__list_content_with_list_id__respects_content_types_bookmarks_only
 
     # Create a list with only bookmark type
     response = await client.post(
-        '/lists/',
+        '/filters/',
         json={
             'name': 'Bookmarks Only',
             'content_types': ['bookmark'],
@@ -427,10 +427,10 @@ async def test__list_content_with_list_id__respects_content_types_bookmarks_only
         },
     )
     assert response.status_code == 201
-    list_id = response.json()['id']
+    filter_id = response.json()['id']
 
-    # Filter content by list_id
-    response = await client.get(f'/content/?list_id={list_id}')
+    # Filter content by filter_id
+    response = await client.get(f'/content/?filter_id={filter_id}')
     assert response.status_code == 200
 
     data = response.json()
@@ -439,10 +439,10 @@ async def test__list_content_with_list_id__respects_content_types_bookmarks_only
     assert data['items'][0]['title'] == 'Work Bookmark'
 
 
-async def test__list_content_with_list_id__respects_content_types_notes_only(
+async def test__list_content_with_filter_id__respects_content_types_notes_only(
     client: AsyncClient,
 ) -> None:
-    """Test that list_id respects content_types and returns only notes when specified."""
+    """Test that filter_id respects content_types and returns only notes when specified."""
     # Create bookmark and note with same tag
     await client.post(
         '/bookmarks/',
@@ -455,7 +455,7 @@ async def test__list_content_with_list_id__respects_content_types_notes_only(
 
     # Create a list with only note type
     response = await client.post(
-        '/lists/',
+        '/filters/',
         json={
             'name': 'Notes Only',
             'content_types': ['note'],
@@ -463,10 +463,10 @@ async def test__list_content_with_list_id__respects_content_types_notes_only(
         },
     )
     assert response.status_code == 201
-    list_id = response.json()['id']
+    filter_id = response.json()['id']
 
-    # Filter content by list_id
-    response = await client.get(f'/content/?list_id={list_id}')
+    # Filter content by filter_id
+    response = await client.get(f'/content/?filter_id={filter_id}')
     assert response.status_code == 200
 
     data = response.json()
@@ -475,10 +475,10 @@ async def test__list_content_with_list_id__respects_content_types_notes_only(
     assert data['items'][0]['title'] == 'Work Note'
 
 
-async def test__list_content_with_list_id__filters_by_content_types_param(
+async def test__list_content_with_filter_id__filters_by_content_types_param(
     client: AsyncClient,
 ) -> None:
-    """Test that list_id respects the content_types query param within list types."""
+    """Test that filter_id respects the content_types query param within list types."""
     await client.post(
         '/bookmarks/',
         json={'url': 'https://work.com', 'title': 'Work Bookmark', 'tags': ['work']},
@@ -489,7 +489,7 @@ async def test__list_content_with_list_id__filters_by_content_types_param(
     )
 
     response = await client.post(
-        '/lists/',
+        '/filters/',
         json={
             'name': 'Mixed Work',
             'content_types': ['bookmark', 'note'],
@@ -497,9 +497,9 @@ async def test__list_content_with_list_id__filters_by_content_types_param(
         },
     )
     assert response.status_code == 201
-    list_id = response.json()['id']
+    filter_id = response.json()['id']
 
-    response = await client.get(f'/content/?list_id={list_id}&content_types=note')
+    response = await client.get(f'/content/?filter_id={filter_id}&content_types=note')
     assert response.status_code == 200
 
     data = response.json()
@@ -508,7 +508,7 @@ async def test__list_content_with_list_id__filters_by_content_types_param(
     assert data['items'][0]['title'] == 'Work Note'
 
 
-async def test__list_content_with_list_id__content_types_param_multiple(
+async def test__list_content_with_filter_id__content_types_param_multiple(
     client: AsyncClient,
 ) -> None:
     """Test that multiple content_types params are honored within a mixed list."""
@@ -522,7 +522,7 @@ async def test__list_content_with_list_id__content_types_param_multiple(
     )
 
     response = await client.post(
-        '/lists/',
+        '/filters/',
         json={
             'name': 'Mixed Work Multi',
             'content_types': ['bookmark', 'note'],
@@ -530,10 +530,10 @@ async def test__list_content_with_list_id__content_types_param_multiple(
         },
     )
     assert response.status_code == 201
-    list_id = response.json()['id']
+    filter_id = response.json()['id']
 
     response = await client.get(
-        f'/content/?list_id={list_id}&content_types=bookmark&content_types=note',
+        f'/content/?filter_id={filter_id}&content_types=bookmark&content_types=note',
     )
     assert response.status_code == 200
 
@@ -543,7 +543,7 @@ async def test__list_content_with_list_id__content_types_param_multiple(
     assert types == {'bookmark', 'note'}
 
 
-async def test__list_content_with_list_id__content_types_param_matches_list(
+async def test__list_content_with_filter_id__content_types_param_matches_list(
     client: AsyncClient,
 ) -> None:
     """Test that matching content_types param still returns list content."""
@@ -557,7 +557,7 @@ async def test__list_content_with_list_id__content_types_param_matches_list(
     )
 
     response = await client.post(
-        '/lists/',
+        '/filters/',
         json={
             'name': 'Bookmarks Only Match',
             'content_types': ['bookmark'],
@@ -565,9 +565,9 @@ async def test__list_content_with_list_id__content_types_param_matches_list(
         },
     )
     assert response.status_code == 201
-    list_id = response.json()['id']
+    filter_id = response.json()['id']
 
-    response = await client.get(f'/content/?list_id={list_id}&content_types=bookmark')
+    response = await client.get(f'/content/?filter_id={filter_id}&content_types=bookmark')
     assert response.status_code == 200
 
     data = response.json()
@@ -576,16 +576,16 @@ async def test__list_content_with_list_id__content_types_param_matches_list(
     assert data['items'][0]['title'] == 'Work Bookmark'
 
 
-async def test__list_content_with_list_id__not_found(
+async def test__list_content_with_filter_id__not_found(
     client: AsyncClient,
 ) -> None:
-    """Test that non-existent list_id returns 404."""
-    response = await client.get('/content/?list_id=00000000-0000-0000-0000-000000000000')
+    """Test that non-existent filter_id returns 404."""
+    response = await client.get('/content/?filter_id=00000000-0000-0000-0000-000000000000')
     assert response.status_code == 404
-    assert response.json()['detail'] == 'List not found'
+    assert response.json()['detail'] == 'Filter not found'
 
 
-async def test__list_content_with_list_id__complex_filter_expression(
+async def test__list_content_with_filter_id__complex_filter_expression(
     client: AsyncClient,
 ) -> None:
     """Test complex filter: (work AND priority) OR (urgent)."""
@@ -605,7 +605,7 @@ async def test__list_content_with_list_id__complex_filter_expression(
 
     # Create list with complex filter
     response = await client.post(
-        '/lists/',
+        '/filters/',
         json={
             'name': 'Complex',
             'content_types': ['bookmark', 'note'],
@@ -619,9 +619,9 @@ async def test__list_content_with_list_id__complex_filter_expression(
         },
     )
     assert response.status_code == 201
-    list_id = response.json()['id']
+    filter_id = response.json()['id']
 
-    response = await client.get(f'/content/?list_id={list_id}')
+    response = await client.get(f'/content/?filter_id={filter_id}')
     assert response.status_code == 200
 
     data = response.json()
@@ -630,10 +630,10 @@ async def test__list_content_with_list_id__complex_filter_expression(
     assert titles == {'Work Priority', 'Urgent Note'}
 
 
-async def test__list_content_with_list_id__combines_with_text_search(
+async def test__list_content_with_filter_id__combines_with_text_search(
     client: AsyncClient,
 ) -> None:
-    """Test combining list_id filter with text search."""
+    """Test combining filter_id filter with text search."""
     # Create content with 'work' tag
     await client.post(
         '/bookmarks/',
@@ -646,7 +646,7 @@ async def test__list_content_with_list_id__combines_with_text_search(
 
     # Create work list
     response = await client.post(
-        '/lists/',
+        '/filters/',
         json={
             'name': 'Work',
             'content_types': ['bookmark', 'note'],
@@ -654,10 +654,10 @@ async def test__list_content_with_list_id__combines_with_text_search(
         },
     )
     assert response.status_code == 201
-    list_id = response.json()['id']
+    filter_id = response.json()['id']
 
     # Filter by list AND search for 'Python'
-    response = await client.get(f'/content/?list_id={list_id}&q=python')
+    response = await client.get(f'/content/?filter_id={filter_id}&q=python')
     assert response.status_code == 200
 
     data = response.json()
@@ -665,10 +665,10 @@ async def test__list_content_with_list_id__combines_with_text_search(
     assert data['items'][0]['title'] == 'Python Work'
 
 
-async def test__list_content_with_list_id__combines_with_tag_filter(
+async def test__list_content_with_filter_id__combines_with_tag_filter(
     client: AsyncClient,
 ) -> None:
-    """Test that list_id filter and tags parameter combine with AND logic."""
+    """Test that filter_id filter and tags parameter combine with AND logic."""
     # Create content
     await client.post(
         '/bookmarks/',
@@ -681,7 +681,7 @@ async def test__list_content_with_list_id__combines_with_tag_filter(
 
     # Create work list
     response = await client.post(
-        '/lists/',
+        '/filters/',
         json={
             'name': 'Work',
             'content_types': ['bookmark', 'note'],
@@ -689,10 +689,10 @@ async def test__list_content_with_list_id__combines_with_tag_filter(
         },
     )
     assert response.status_code == 201
-    list_id = response.json()['id']
+    filter_id = response.json()['id']
 
     # Filter by list AND additional tag 'urgent'
-    response = await client.get(f'/content/?list_id={list_id}&tags=urgent')
+    response = await client.get(f'/content/?filter_id={filter_id}&tags=urgent')
     assert response.status_code == 200
 
     data = response.json()
@@ -700,10 +700,10 @@ async def test__list_content_with_list_id__combines_with_tag_filter(
     assert data['items'][0]['title'] == 'Work Urgent'
 
 
-async def test__list_content_with_list_id__empty_results(
+async def test__list_content_with_filter_id__empty_results(
     client: AsyncClient,
 ) -> None:
-    """Test list_id filter with no matching content."""
+    """Test filter_id filter with no matching content."""
     # Create content without 'work' tag
     await client.post(
         '/bookmarks/',
@@ -712,7 +712,7 @@ async def test__list_content_with_list_id__empty_results(
 
     # Create work list
     response = await client.post(
-        '/lists/',
+        '/filters/',
         json={
             'name': 'Work',
             'content_types': ['bookmark', 'note'],
@@ -720,9 +720,9 @@ async def test__list_content_with_list_id__empty_results(
         },
     )
     assert response.status_code == 201
-    list_id = response.json()['id']
+    filter_id = response.json()['id']
 
-    response = await client.get(f'/content/?list_id={list_id}')
+    response = await client.get(f'/content/?filter_id={filter_id}')
     assert response.status_code == 200
 
     data = response.json()
@@ -832,13 +832,13 @@ async def test__list_all_content__content_types_param_with_search(
     assert data['items'][0]['title'] == 'Python Bookmark'
 
 
-async def test__list_all_content__list_id_content_types_intersects_query_param(
+async def test__list_all_content__filter_id_content_types_intersects_query_param(
     client: AsyncClient,
 ) -> None:
     """
     Test that list's content_types intersects the content_types query param.
 
-    When both list_id and content_types query param are provided, the list's
+    When both filter_id and content_types query param are provided, the list's
     content_types act as the upper bound and the query param further filters.
     """
     # Create bookmark and note with same tag
@@ -853,7 +853,7 @@ async def test__list_all_content__list_id_content_types_intersects_query_param(
 
     # Create a list that only includes bookmarks
     response = await client.post(
-        '/lists/',
+        '/filters/',
         json={
             'name': 'Bookmarks Only List',
             'content_types': ['bookmark'],
@@ -861,11 +861,11 @@ async def test__list_all_content__list_id_content_types_intersects_query_param(
         },
     )
     assert response.status_code == 201
-    list_id = response.json()['id']
+    filter_id = response.json()['id']
 
-    # Query with list_id AND content_types=note
+    # Query with filter_id AND content_types=note
     # The list's content_types (bookmark) should intersect with query param (note)
-    response = await client.get(f'/content/?list_id={list_id}&content_types=note')
+    response = await client.get(f'/content/?filter_id={filter_id}&content_types=note')
     assert response.status_code == 200
 
     data = response.json()

@@ -9,7 +9,7 @@ from models.base import Base, TimestampMixin, UUIDv7Mixin
 if TYPE_CHECKING:
     from models.api_token import ApiToken
     from models.bookmark import Bookmark
-    from models.content_list import ContentList
+    from models.content_filter import ContentFilter
     from models.note import Note
     from models.prompt import Prompt
     from models.tag import Tag
@@ -52,7 +52,7 @@ class User(Base, UUIDv7Mixin, TimestampMixin):
         cascade="all, delete-orphan",
         uselist=False,
     )
-    content_lists: Mapped[list["ContentList"]] = relationship(
+    content_filters: Mapped[list["ContentFilter"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )

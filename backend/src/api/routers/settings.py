@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_async_session, get_current_user_auth0_only
 from models.user import User
 from schemas.sidebar import SidebarOrder, SidebarOrderComputed
-from services import content_list_service, sidebar_service
+from services import content_filter_service, sidebar_service
 from services.exceptions import SidebarValidationError
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -17,23 +17,23 @@ async def get_sidebar(
     db: AsyncSession = Depends(get_async_session),
 ) -> SidebarOrderComputed:
     """
-    Get the computed sidebar structure with resolved list names.
+    Get the computed sidebar structure with resolved filter names.
 
     **Authentication: Auth0 only (PATs not accepted - returns 403)**
 
     Returns the sidebar structure with:
     - Built-in items (All, Archived, Trash) with display names
-    - List items with names and content_types resolved from database
-    - Groups with their child items resolved
+    - Filter items with names and content_types resolved from database
+    - Collections with their child items resolved
 
-    Lists that exist in the database but are not in the sidebar structure
-    (orphaned lists) are prepended to the root level.
+    Filters that exist in the database but are not in the sidebar structure
+    (orphaned filters) are prepended to the root level.
 
-    Lists referenced in the sidebar but deleted from the database are
+    Filters referenced in the sidebar but deleted from the database are
     automatically filtered out.
     """
-    lists = await content_list_service.get_lists(db, current_user.id)
-    return await sidebar_service.get_computed_sidebar(db, current_user.id, lists)
+    filters = await content_filter_service.get_filters(db, current_user.id)
+    return await sidebar_service.get_computed_sidebar(db, current_user.id, filters)
 
 
 @router.put("/sidebar", response_model=SidebarOrderComputed)
@@ -48,20 +48,20 @@ async def update_sidebar(
     **Authentication: Auth0 only (PATs not accepted - returns 403)**
 
     Validates the structure:
-    - All list IDs must exist and belong to the user
-    - No duplicate items (same list, builtin, or group ID twice)
-    - Groups cannot be nested
+    - All filter IDs must exist and belong to the user
+    - No duplicate items (same filter, builtin, or collection ID twice)
+    - Collections cannot be nested
 
     Returns the computed sidebar after update.
     """
-    # Get user's list IDs for validation
-    lists = await content_list_service.get_lists(db, current_user.id)
-    user_list_ids = {lst.id for lst in lists}
+    # Get user's filter IDs for validation
+    filters = await content_filter_service.get_filters(db, current_user.id)
+    user_filter_ids = {f.id for f in filters}
 
     # Update and validate
     try:
         await sidebar_service.update_sidebar_order(
-            db, current_user.id, sidebar, user_list_ids,
+            db, current_user.id, sidebar, user_filter_ids,
         )
     except SidebarValidationError as e:
         raise HTTPException(
@@ -70,4 +70,4 @@ async def update_sidebar(
         ) from e
 
     # Return computed sidebar
-    return await sidebar_service.get_computed_sidebar(db, current_user.id, lists)
+    return await sidebar_service.get_computed_sidebar(db, current_user.id, filters)

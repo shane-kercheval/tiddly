@@ -18,7 +18,7 @@ import type { PromptListResponse, PromptSearchParams } from '../types'
  * - ['prompts', 'list', 'active', params]  - active view queries
  * - ['prompts', 'list', 'archived', params] - archived view queries
  * - ['prompts', 'list', 'deleted', params] - deleted view queries
- * - ['prompts', 'list', 'custom', params] - custom list queries (have list_id)
+ * - ['prompts', 'list', 'custom', params] - custom list queries (have filter_id)
  *
  * Invalidation Keys (prefix matching):
  * - promptKeys.view('active')  → ['prompts', 'list', 'active'] - all active queries
@@ -40,8 +40,8 @@ export const promptKeys = {
 
   /** Query key for fetching - includes view/custom segment for granular invalidation */
   list: (params: PromptSearchParams) => {
-    // Custom lists have list_id - group them separately
-    if (params.list_id !== undefined) {
+    // Custom lists have filter_id - group them separately
+    if (params.filter_id !== undefined) {
       return [...promptKeys.customLists(), params] as const
     }
     // Standard view queries - group by view type
@@ -79,8 +79,8 @@ function buildQueryString(params: PromptSearchParams): string {
   if (params.view) {
     queryParams.set('view', params.view)
   }
-  if (params.list_id !== undefined) {
-    queryParams.set('list_id', String(params.list_id))
+  if (params.filter_id !== undefined) {
+    queryParams.set('filter_id', String(params.filter_id))
   }
 
   return queryParams.toString()

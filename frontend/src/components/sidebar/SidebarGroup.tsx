@@ -13,6 +13,7 @@ interface SidebarGroupProps {
   isCollapsed: boolean
   isGroupCollapsed: boolean
   onToggle: () => void
+  onEdit?: () => void // Opens modal for full editing (name + filters)
   onRename?: (newName: string) => void
   onDelete?: () => void
   children: ReactNode
@@ -38,6 +39,7 @@ export function SidebarGroup({
   isCollapsed,
   isGroupCollapsed,
   onToggle,
+  onEdit,
   onRename,
   onDelete,
   children,
@@ -130,17 +132,21 @@ export function SidebarGroup({
         </button>
 
         {/* Hover actions - absolutely positioned with solid background, hidden on mobile */}
-        {!isEditing && (onRename || onDelete) && (
+        {!isEditing && (onEdit || onRename || onDelete) && (
           <div className={`absolute right-1 top-1/2 -translate-y-1/2 hidden md:flex items-center gap-0.5 transition-opacity bg-white rounded shadow-sm ${isConfirmingDelete ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100'}`}>
-            {onRename && !isConfirmingDelete && (
+            {(onEdit || onRename) && !isConfirmingDelete && (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation()
-                  setIsEditing(true)
+                  if (onEdit) {
+                    onEdit()
+                  } else {
+                    setIsEditing(true)
+                  }
                 }}
                 className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
-                title="Rename group"
+                title={onEdit ? 'Edit collection' : 'Rename group'}
               >
                 <EditIcon className="h-3.5 w-3.5" />
               </button>
@@ -155,7 +161,7 @@ export function SidebarGroup({
                     ? 'bg-red-100 text-red-600 hover:bg-red-200 px-2'
                     : 'text-gray-400 hover:text-red-500 hover:bg-gray-100'
                 }`}
-                title={isConfirmingDelete ? 'Click again to confirm' : 'Delete group'}
+                title={isConfirmingDelete ? 'Click again to confirm' : onEdit ? 'Delete collection' : 'Delete group'}
               >
                 {isConfirmingDelete ? (
                   <span className="text-xs font-medium whitespace-nowrap">Delete?</span>

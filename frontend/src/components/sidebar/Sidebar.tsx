@@ -22,29 +22,29 @@ import {
 } from '@dnd-kit/sortable'
 import { useSidebarStore } from '../../stores/sidebarStore'
 import { useSettingsStore } from '../../stores/settingsStore'
-import { useListsStore } from '../../stores/listsStore'
+import { useFiltersStore } from '../../stores/filtersStore'
 import { useTagsStore } from '../../stores/tagsStore'
 import { useTabNavigation } from '../../hooks/useTabNavigation'
-import { queryClient } from '../../queryClient'
-import { invalidateListQueries } from '../../utils/invalidateListQueries'
+import { useCollectionOperations } from '../../hooks/useCollectionOperations'
+import { useFilterOperations } from '../../hooks/useFilterOperations'
 import { getFirstGroupTags } from '../../utils'
 import { SidebarGroup } from './SidebarGroup'
 import { SidebarNavItem } from './SidebarNavItem'
 import { SidebarUserSection } from './SidebarUserSection'
 import { SortableNavItem } from './SortableSidebarItem'
-import { SortableGroupItem } from './SortableSidebarGroup'
+import { SortableCollectionItem } from './SortableSidebarCollection'
 import {
   getItemId,
-  getGroupChildId,
-  parseGroupChildId,
+  getCollectionChildId,
+  parseCollectionChildId,
   computedToMinimal,
   customCollisionDetection,
 } from './sidebarDndUtils'
-import { getListRoute } from './routes'
-import { ListModal } from '../ListModal'
+import { getFilterRoute } from './routes'
+import { FilterModal } from '../FilterModal'
+import { CollectionModal } from '../CollectionModal'
 import {
   SettingsIcon,
-  CollapseIcon,
   MenuIcon,
   CloseIcon,
   PlusIcon,
@@ -55,10 +55,10 @@ import {
 import type {
   SidebarItemComputed,
   SidebarBuiltinItemComputed,
-  SidebarListItemComputed,
-  SidebarGroupComputed,
+  SidebarFilterItemComputed,
+  SidebarCollectionComputed,
   SidebarOrder,
-  ContentList,
+  ContentFilter,
 } from '../../types'
 
 const SIDEBAR_VERSION = 1
@@ -112,21 +112,34 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   const updateSidebar = useSettingsStore((state) => state.updateSidebar)
   const setSidebarOptimistic = useSettingsStore((state) => state.setSidebarOptimistic)
   const rollbackSidebar = useSettingsStore((state) => state.rollbackSidebar)
-  const fetchSidebar = useSettingsStore((state) => state.fetchSidebar)
-  const lists = useListsStore((state) => state.lists)
-  const deleteList = useListsStore((state) => state.deleteList)
+  const filters = useFiltersStore((state) => state.filters)
   const tags = useTagsStore((state) => state.tags)
-  const { currentListId } = useTabNavigation()
+  const { currentFilterId } = useTabNavigation()
 
-  const currentList = useMemo(
-    () => currentListId !== undefined ? lists.find((list) => list.id === currentListId) : undefined,
-    [currentListId, lists]
+  // CRUD operations hooks
+  const {
+    createCollection,
+    updateCollection,
+    renameCollection,
+    deleteCollection,
+  } = useCollectionOperations()
+  const {
+    createFilter,
+    updateFilter,
+    deleteFilter,
+  } = useFilterOperations()
+
+  const currentFilter = useMemo(
+    () => currentFilterId !== undefined ? filters.find((filter) => filter.id === currentFilterId) : undefined,
+    [currentFilterId, filters]
   )
-  const initialTagsFromList = useMemo(() => getFirstGroupTags(currentList), [currentList])
+  const initialTagsFromFilter = useMemo(() => getFirstGroupTags(currentFilter), [currentFilter])
 
   // Modal state
-  const [isListModalOpen, setIsListModalOpen] = useState(false)
-  const [editingList, setEditingList] = useState<ContentList | undefined>(undefined)
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false)
+  const [editingFilter, setEditingFilter] = useState<ContentFilter | undefined>(undefined)
+  const [isCollectionModalOpen, setIsCollectionModalOpen] = useState(false)
+  const [editingCollection, setEditingCollection] = useState<SidebarCollectionComputed | undefined>(undefined)
 
   // Drag state
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -138,7 +151,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     navigate('/app/bookmarks/new', {
       state: {
         returnTo: location.pathname + location.search,
-        initialTags: initialTagsFromList,
+        initialTags: initialTagsFromFilter,
       },
     })
     onNavClick?.()
@@ -148,7 +161,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     navigate('/app/notes/new', {
       state: {
         returnTo: location.pathname + location.search,
-        initialTags: initialTagsFromList,
+        initialTags: initialTagsFromFilter,
       },
     })
     onNavClick?.()
@@ -158,7 +171,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     navigate('/app/prompts/new', {
       state: {
         returnTo: location.pathname + location.search,
-        initialTags: initialTagsFromList,
+        initialTags: initialTagsFromFilter,
       },
     })
     onNavClick?.()
@@ -200,220 +213,90 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     }
   }, [debouncedUpdateSidebar])
 
-  // Get full list data from store by ID
-  const getListById = useCallback(
-    (id: string): ContentList | undefined => {
-      return lists.find((l) => l.id === id)
+  // Get full filter data from store by ID
+  const getFilterById = useCallback(
+    (id: string): ContentFilter | undefined => {
+      return filters.find((f) => f.id === id)
     },
-    [lists]
+    [filters]
   )
 
-  // Create a new group (added to top of sidebar) - optimistic update
-  const handleNewGroup = async (): Promise<void> => {
-    if (!sidebar) return
+  // Compute filters available for collection modal (not already in other collections)
+  const getAvailableFiltersForCollection = useCallback(
+    (editingCollectionId?: string): ContentFilter[] => {
+      if (!sidebar) return filters
 
-    const newGroupComputed: SidebarGroupComputed = {
-      type: 'group',
-      id: crypto.randomUUID(),
-      name: 'New Group',
-      items: [],
-    }
-
-    // Optimistically add to UI
-    const optimisticItems = [newGroupComputed, ...sidebar.items]
-    setSidebarOptimistic(optimisticItems)
-
-    const updatedSidebar: SidebarOrder = {
-      version: SIDEBAR_VERSION,
-      items: computedToMinimal(optimisticItems),
-    }
-
-    try {
-      await updateSidebar(updatedSidebar)
-    } catch {
-      rollbackSidebar()
-      toast.error('Failed to create group')
-    }
-  }
-
-  // Rename a group - optimistic update
-  const handleRenameGroup = async (groupId: string, newName: string): Promise<void> => {
-    if (!sidebar) return
-
-    // Optimistically update UI
-    const optimisticItems = sidebar.items.map((item) => {
-      if (item.type === 'group' && item.id === groupId) {
-        return { ...item, name: newName }
-      }
-      return item
-    })
-    setSidebarOptimistic(optimisticItems)
-
-    try {
-      await updateSidebar({ version: SIDEBAR_VERSION, items: computedToMinimal(optimisticItems) })
-    } catch {
-      rollbackSidebar()
-      toast.error('Failed to rename group')
-    }
-  }
-
-  // Delete a group (moves contents to root) - optimistic update
-  const handleDeleteGroup = async (groupId: string): Promise<void> => {
-    if (!sidebar) return
-
-    const group = sidebar.items.find(
-      (item): item is SidebarGroupComputed => item.type === 'group' && item.id === groupId
-    )
-
-    if (!group) return
-
-    // Optimistically update UI - replace group with its contents
-    const optimisticItems = sidebar.items.flatMap((item) => {
-      if (item.type === 'group' && item.id === groupId) {
-        return item.items // Return the group's children directly
-      }
-      return [item]
-    })
-    setSidebarOptimistic(optimisticItems)
-
-    try {
-      await updateSidebar({ version: SIDEBAR_VERSION, items: computedToMinimal(optimisticItems) })
-    } catch {
-      rollbackSidebar()
-      toast.error('Failed to delete group')
-    }
-  }
-
-  // Open list modal for editing
-  const handleEditList = (listId: string): void => {
-    const list = getListById(listId)
-    if (list) {
-      setEditingList(list)
-      setIsListModalOpen(true)
-    }
-  }
-
-  // Delete a list (confirmation is handled in SidebarNavItem) - optimistic update
-  const handleDeleteList = async (listId: string): Promise<void> => {
-    // Helper to recursively remove list from sidebar items (including from groups)
-    const removeListFromItems = (items: SidebarItemComputed[]): SidebarItemComputed[] => {
-      return items
-        .filter((item) => !(item.type === 'list' && item.id === listId))
-        .map((item) => {
-          if (item.type === 'group') {
-            return {
-              ...item,
-              items: item.items.filter((child) => !(child.type === 'list' && child.id === listId)),
+      const placedFilterIds = new Set<string>()
+      for (const item of sidebar.items) {
+        // Skip the collection being edited (its filters should remain available)
+        if (item.type === 'collection' && item.id !== editingCollectionId) {
+          for (const child of item.items) {
+            if (child.type === 'filter') {
+              placedFilterIds.add(child.id)
             }
           }
-          return item
-        })
-    }
-
-    // Optimistically remove from sidebar (instant visual feedback)
-    if (sidebar) {
-      const optimisticItems = removeListFromItems(sidebar.items)
-      setSidebarOptimistic(optimisticItems)
-    }
-
-    const wasViewingDeletedList = currentListId === listId
-
-    try {
-      await deleteList(listId)
-      // Navigate after successful deletion (not before, to avoid confusing state on failure)
-      if (wasViewingDeletedList) {
-        navigate('/app/content')
+        }
       }
-    } catch {
-      rollbackSidebar()
-      toast.error('Failed to delete list')
+
+      return filters.filter((f) => !placedFilterIds.has(f.id))
+    },
+    [sidebar, filters]
+  )
+
+  // Open collection modal for creating
+  const handleNewCollection = (): void => {
+    setEditingCollection(undefined)
+    setIsCollectionModalOpen(true)
+  }
+
+  // Open collection modal for editing
+  const handleEditCollection = (collectionId: string): void => {
+    const collection = sidebar?.items.find(
+      (item): item is SidebarCollectionComputed => item.type === 'collection' && item.id === collectionId
+    )
+    if (collection) {
+      setEditingCollection(collection)
+      setIsCollectionModalOpen(true)
     }
   }
 
-  // Open list modal for creating
-  const handleNewList = (): void => {
-    setEditingList(undefined)
-    setIsListModalOpen(true)
+  // Open filter modal for editing
+  const handleEditFilter = (filterId: string): void => {
+    const filter = getFilterById(filterId)
+    if (filter) {
+      setEditingFilter(filter)
+      setIsFilterModalOpen(true)
+    }
   }
 
-  // List modal handlers - wrap to refresh sidebar after changes
-  const createList = useListsStore((state) => state.createList)
-  const updateListStore = useListsStore((state) => state.updateList)
-
-  const handleCreateList = async (
-    ...args: Parameters<typeof createList>
-  ): Promise<Awaited<ReturnType<typeof createList>>> => {
-    const result = await createList(...args)
-    // Refresh sidebar to show new list
-    await fetchSidebar()
-    // Move the new list to the top of the sidebar
-    const currentSidebar = useSettingsStore.getState().sidebar
-    if (currentSidebar) {
-      const newListItem = { type: 'list' as const, id: result.id }
-      const otherItems = computedToMinimal(currentSidebar.items).filter(
-        (item) => !(item.type === 'list' && item.id === result.id)
-      )
-      await updateSidebar({
-        version: SIDEBAR_VERSION,
-        items: [newListItem, ...otherItems],
-      })
+  // Delete a filter - wraps hook with navigation
+  const handleDeleteFilter = async (filterId: string): Promise<void> => {
+    const wasViewingDeletedFilter = currentFilterId === filterId
+    const success = await deleteFilter(filterId)
+    // Navigate after successful deletion (not before, to avoid confusing state on failure)
+    if (success && wasViewingDeletedFilter) {
+      navigate('/app/content')
     }
-    // Navigate to the new list using path-based route
-    navigate(getListRoute(result.id))
+  }
+
+  // Open filter modal for creating
+  const handleNewFilter = (): void => {
+    setEditingFilter(undefined)
+    setIsFilterModalOpen(true)
+  }
+
+  // Create filter - wraps hook with navigation
+  const handleCreateFilter = async (
+    data: Parameters<typeof createFilter>[0]
+  ): Promise<Awaited<ReturnType<typeof createFilter>>> => {
+    const result = await createFilter(data)
+    // Navigate to the new filter using path-based route
+    navigate(getFilterRoute(result.id))
     return result
   }
 
-  const handleUpdateList = async (
-    ...args: Parameters<typeof updateListStore>
-  ): Promise<Awaited<ReturnType<typeof updateListStore>>> => {
-    const [listId, data] = args
-
-    // Helper to update list in sidebar items (including in groups)
-    const updateListInItems = (
-      items: SidebarItemComputed[],
-      id: string,
-      updates: { name?: string; content_types?: string[] }
-    ): SidebarItemComputed[] => {
-      return items.map((item) => {
-        if (item.type === 'list' && item.id === id) {
-          return { ...item, ...updates }
-        }
-        if (item.type === 'group') {
-          return {
-            ...item,
-            items: item.items.map((child) =>
-              child.type === 'list' && child.id === id
-                ? { ...child, ...updates }
-                : child
-            ),
-          }
-        }
-        return item
-      })
-    }
-
-    // Optimistically update sidebar if we have name or content_types changes
-    if (sidebar && (data.name || data.content_types)) {
-      const optimisticItems = updateListInItems(sidebar.items, listId, {
-        name: data.name,
-        content_types: data.content_types,
-      })
-      setSidebarOptimistic(optimisticItems)
-    }
-
-    try {
-      const result = await updateListStore(...args)
-      // Invalidate queries for this list since filters may have changed
-      await invalidateListQueries(queryClient, result.id)
-      return result
-    } catch (error) {
-      rollbackSidebar()
-      // Re-throw so ListModal can display the error in its form UI and manage button state.
-      // This differs from other handlers that swallow errors and show toasts, because
-      // modal-based operations need error propagation for proper form state management.
-      throw error
-    }
-  }
+  // Update filter - direct passthrough to hook
+  const handleUpdateFilter = updateFilter
 
   // Drag handlers
   const handleDragStart = (event: DragStartEvent): void => {
@@ -421,7 +304,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   }
 
   const handleDragOver = (): void => {
-    // Could implement hover highlighting for groups here
+    // Could implement hover highlighting for collections here
   }
 
   const handleDragEnd = (event: DragEndEvent): void => {
@@ -436,75 +319,75 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     const items = [...sidebar.items]
 
     // Parse IDs to determine what's being dragged and where
-    const activeGroupChild = parseGroupChildId(activeIdStr)
-    const overGroupChild = parseGroupChildId(overIdStr)
+    const activeCollectionChild = parseCollectionChildId(activeIdStr)
+    const overCollectionChild = parseCollectionChildId(overIdStr)
     const isOverDropzone = overIdStr.startsWith('dropzone:')
-    const isDraggingGroup = activeIdStr.startsWith('group:')
+    const isDraggingCollection = activeIdStr.startsWith('collection:')
 
-    // Case 1: Dragging an item within a group (intra-group reorder)
-    if (activeGroupChild && overGroupChild && activeGroupChild.groupId === overGroupChild.groupId) {
-      const groupIndex = items.findIndex(
-        (item): item is SidebarGroupComputed =>
-          item.type === 'group' && item.id === activeGroupChild.groupId
+    // Case 1: Dragging an item within a collection (intra-collection reorder)
+    if (activeCollectionChild && overCollectionChild && activeCollectionChild.collectionId === overCollectionChild.collectionId) {
+      const collectionIndex = items.findIndex(
+        (item): item is SidebarCollectionComputed =>
+          item.type === 'collection' && item.id === activeCollectionChild.collectionId
       )
-      if (groupIndex === -1) return
+      if (collectionIndex === -1) return
 
-      const group = items[groupIndex] as SidebarGroupComputed
-      const groupItems = [...group.items]
+      const collection = items[collectionIndex] as SidebarCollectionComputed
+      const collectionItems = [...collection.items]
 
-      const activeChildIndex = groupItems.findIndex(
-        (child) => getGroupChildId(group.id, child) === activeIdStr
+      const activeChildIndex = collectionItems.findIndex(
+        (child) => getCollectionChildId(collection.id, child) === activeIdStr
       )
-      const overChildIndex = groupItems.findIndex(
-        (child) => getGroupChildId(group.id, child) === overIdStr
+      const overChildIndex = collectionItems.findIndex(
+        (child) => getCollectionChildId(collection.id, child) === overIdStr
       )
 
       if (activeChildIndex === -1 || overChildIndex === -1) return
 
-      // Reorder within group
-      const [removed] = groupItems.splice(activeChildIndex, 1)
-      groupItems.splice(overChildIndex, 0, removed)
+      // Reorder within collection
+      const [removed] = collectionItems.splice(activeChildIndex, 1)
+      collectionItems.splice(overChildIndex, 0, removed)
 
-      items[groupIndex] = { ...group, items: groupItems }
+      items[collectionIndex] = { ...collection, items: collectionItems }
 
       setSidebarOptimistic(items)
       debouncedUpdateSidebar({ version: SIDEBAR_VERSION, items: computedToMinimal(items) })
       return
     }
 
-    // Case 2: Dragging from a group to a dropzone (another group or same group)
-    if (activeGroupChild && isOverDropzone && !isDraggingGroup) {
-      const targetGroupId = overIdStr.replace('dropzone:', '')
+    // Case 2: Dragging from a collection to a dropzone (another collection or same collection)
+    if (activeCollectionChild && isOverDropzone && !isDraggingCollection) {
+      const targetCollectionId = overIdStr.replace('dropzone:', '')
 
-      // Find source and target groups
-      const sourceGroupIndex = items.findIndex(
-        (item): item is SidebarGroupComputed =>
-          item.type === 'group' && item.id === activeGroupChild.groupId
+      // Find source and target collections
+      const sourceCollectionIndex = items.findIndex(
+        (item): item is SidebarCollectionComputed =>
+          item.type === 'collection' && item.id === activeCollectionChild.collectionId
       )
-      const targetGroupIndex = items.findIndex(
-        (item): item is SidebarGroupComputed =>
-          item.type === 'group' && item.id === targetGroupId
+      const targetCollectionIndex = items.findIndex(
+        (item): item is SidebarCollectionComputed =>
+          item.type === 'collection' && item.id === targetCollectionId
       )
 
-      if (sourceGroupIndex === -1 || targetGroupIndex === -1) return
+      if (sourceCollectionIndex === -1 || targetCollectionIndex === -1) return
 
-      const sourceGroup = items[sourceGroupIndex] as SidebarGroupComputed
-      const sourceItems = [...sourceGroup.items]
+      const sourceCollection = items[sourceCollectionIndex] as SidebarCollectionComputed
+      const sourceItems = [...sourceCollection.items]
 
       const activeChildIndex = sourceItems.findIndex(
-        (child) => getGroupChildId(sourceGroup.id, child) === activeIdStr
+        (child) => getCollectionChildId(sourceCollection.id, child) === activeIdStr
       )
       if (activeChildIndex === -1) return
 
-      // Remove from source group
+      // Remove from source collection
       const [removed] = sourceItems.splice(activeChildIndex, 1)
-      items[sourceGroupIndex] = { ...sourceGroup, items: sourceItems }
+      items[sourceCollectionIndex] = { ...sourceCollection, items: sourceItems }
 
-      // Add to target group
-      const targetGroup = items[targetGroupIndex] as SidebarGroupComputed
-      items[targetGroupIndex] = {
-        ...targetGroup,
-        items: [...targetGroup.items, removed],
+      // Add to target collection
+      const targetCollection = items[targetCollectionIndex] as SidebarCollectionComputed
+      items[targetCollectionIndex] = {
+        ...targetCollection,
+        items: [...targetCollection.items, removed],
       }
 
       setSidebarOptimistic(items)
@@ -512,25 +395,25 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       return
     }
 
-    // Case 3: Dragging from a group to root level
-    if (activeGroupChild && !isOverDropzone && !overGroupChild) {
-      const sourceGroupIndex = items.findIndex(
-        (item): item is SidebarGroupComputed =>
-          item.type === 'group' && item.id === activeGroupChild.groupId
+    // Case 3: Dragging from a collection to root level
+    if (activeCollectionChild && !isOverDropzone && !overCollectionChild) {
+      const sourceCollectionIndex = items.findIndex(
+        (item): item is SidebarCollectionComputed =>
+          item.type === 'collection' && item.id === activeCollectionChild.collectionId
       )
-      if (sourceGroupIndex === -1) return
+      if (sourceCollectionIndex === -1) return
 
-      const sourceGroup = items[sourceGroupIndex] as SidebarGroupComputed
-      const sourceItems = [...sourceGroup.items]
+      const sourceCollection = items[sourceCollectionIndex] as SidebarCollectionComputed
+      const sourceItems = [...sourceCollection.items]
 
       const activeChildIndex = sourceItems.findIndex(
-        (child) => getGroupChildId(sourceGroup.id, child) === activeIdStr
+        (child) => getCollectionChildId(sourceCollection.id, child) === activeIdStr
       )
       if (activeChildIndex === -1) return
 
-      // Remove from source group
+      // Remove from source collection
       const [removed] = sourceItems.splice(activeChildIndex, 1)
-      items[sourceGroupIndex] = { ...sourceGroup, items: sourceItems }
+      items[sourceCollectionIndex] = { ...sourceCollection, items: sourceItems }
 
       // Add to root level at the position of the drop target
       const overIndex = items.findIndex((item) => getItemId(item) === overIdStr)
@@ -545,26 +428,26 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       return
     }
 
-    // Case 4: Dragging from root level to a group dropzone
-    if (!activeGroupChild && isOverDropzone && !isDraggingGroup) {
+    // Case 4: Dragging from root level to a collection dropzone
+    if (!activeCollectionChild && isOverDropzone && !isDraggingCollection) {
       const activeIndex = items.findIndex((item) => getItemId(item) === activeIdStr)
       if (activeIndex === -1) return
 
-      const targetGroupId = overIdStr.replace('dropzone:', '')
-      const targetGroupIndex = items.findIndex(
-        (item): item is SidebarGroupComputed =>
-          item.type === 'group' && item.id === targetGroupId
+      const targetCollectionId = overIdStr.replace('dropzone:', '')
+      const targetCollectionIndex = items.findIndex(
+        (item): item is SidebarCollectionComputed =>
+          item.type === 'collection' && item.id === targetCollectionId
       )
-      if (targetGroupIndex === -1) return
+      if (targetCollectionIndex === -1) return
 
-      const targetGroup = items[targetGroupIndex] as SidebarGroupComputed
+      const targetCollection = items[targetCollectionIndex] as SidebarCollectionComputed
       const [removed] = items.splice(activeIndex, 1)
 
-      const adjustedGroupIndex =
-        activeIndex < targetGroupIndex ? targetGroupIndex - 1 : targetGroupIndex
-      items[adjustedGroupIndex] = {
-        ...targetGroup,
-        items: [...targetGroup.items, removed as SidebarBuiltinItemComputed | SidebarListItemComputed],
+      const adjustedCollectionIndex =
+        activeIndex < targetCollectionIndex ? targetCollectionIndex - 1 : targetCollectionIndex
+      items[adjustedCollectionIndex] = {
+        ...targetCollection,
+        items: [...targetCollection.items, removed as SidebarBuiltinItemComputed | SidebarFilterItemComputed],
       }
 
       setSidebarOptimistic(items)
@@ -588,21 +471,21 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     })
   }
 
-  // Find the active item for the drag overlay (including items inside groups)
-  const activeItem = useMemo((): SidebarItemComputed | SidebarBuiltinItemComputed | SidebarListItemComputed | null => {
+  // Find the active item for the drag overlay (including items inside collections)
+  const activeItem = useMemo((): SidebarItemComputed | SidebarBuiltinItemComputed | SidebarFilterItemComputed | null => {
     if (!activeId || !sidebar) return null
 
-    // Check if it's an item inside a group
-    const groupChildInfo = parseGroupChildId(activeId)
-    if (groupChildInfo) {
-      // Find the group and then the child within it
-      const group = sidebar.items.find(
-        (item): item is SidebarGroupComputed =>
-          item.type === 'group' && item.id === groupChildInfo.groupId
+    // Check if it's an item inside a collection
+    const collectionChildInfo = parseCollectionChildId(activeId)
+    if (collectionChildInfo) {
+      // Find the collection and then the child within it
+      const collection = sidebar.items.find(
+        (item): item is SidebarCollectionComputed =>
+          item.type === 'collection' && item.id === collectionChildInfo.collectionId
       )
-      if (group) {
-        return group.items.find(
-          (child) => getGroupChildId(group.id, child) === activeId
+      if (collection) {
+        return collection.items.find(
+          (child) => getCollectionChildId(collection.id, child) === activeId
         ) ?? null
       }
       return null
@@ -612,36 +495,37 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     return sidebar.items.find((item) => getItemId(item) === activeId) ?? null
   }, [activeId, sidebar])
 
-  // Render a builtin or list item
+  // Render a builtin or filter item
   const renderNavItem = (
-    item: SidebarBuiltinItemComputed | SidebarListItemComputed
+    item: SidebarBuiltinItemComputed | SidebarFilterItemComputed
   ): ReactNode => (
     <SortableNavItem
       key={getItemId(item)}
       item={item}
       isCollapsed={isCollapsed}
       onNavClick={onNavClick}
-      onEdit={item.type === 'list' ? () => handleEditList(item.id) : undefined}
-      onDelete={item.type === 'list' ? () => handleDeleteList(item.id) : undefined}
+      onEdit={item.type === 'filter' ? () => handleEditFilter(item.id) : undefined}
+      onDelete={item.type === 'filter' ? () => handleDeleteFilter(item.id) : undefined}
       isDragging={activeId === getItemId(item)}
     />
   )
 
   // Render a sidebar item based on type
   const renderItem = (item: SidebarItemComputed): ReactNode => {
-    if (item.type === 'group') {
+    if (item.type === 'collection') {
       return (
-        <SortableGroupItem
+        <SortableCollectionItem
           key={getItemId(item)}
           item={item}
           isCollapsed={isCollapsed}
           isGroupCollapsed={isGroupCollapsed(item.id)}
           onToggleGroup={() => toggleGroup(item.id)}
           onNavClick={onNavClick}
-          onEditList={handleEditList}
-          onDeleteList={handleDeleteList}
-          onRenameGroup={(newName) => handleRenameGroup(item.id, newName)}
-          onDeleteGroup={() => handleDeleteGroup(item.id)}
+          onEditFilter={handleEditFilter}
+          onDeleteFilter={handleDeleteFilter}
+          onEditCollection={() => handleEditCollection(item.id)}
+          onRenameCollection={(newName) => renameCollection(item.id, newName)}
+          onDeleteCollection={() => deleteCollection(item.id)}
           isDragging={activeId === getItemId(item)}
           activeId={activeId}
         />
@@ -652,25 +536,25 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
   return (
     <div className="flex h-full flex-col">
-      {/* Quick-add bar: Group/List on left, Bookmark/Note/Collapse on right */}
-      {!isCollapsed ? (
+      {/* Quick-add bar: Collection/Filter on left, Bookmark/Note/Prompt on right */}
+      {!isCollapsed && (
         <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200">
           {/* Hidden on mobile - drag-drop doesn't work well on touch */}
           <button
-            onClick={handleNewGroup}
+            onClick={handleNewCollection}
             className="hidden md:flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-            title="New Group"
+            title="New Collection"
           >
             <PlusIcon className="h-3 w-3" />
-            <span>Group</span>
+            <span>Collection</span>
           </button>
           <button
-            onClick={handleNewList}
+            onClick={handleNewFilter}
             className="hidden md:flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-            title="New List"
+            title="New Filter"
           >
             <PlusIcon className="h-3 w-3" />
-            <span>List</span>
+            <span>Filter</span>
           </button>
           <div className="flex-1" />
           <button
@@ -693,23 +577,6 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
             title="New Prompt"
           >
             <PromptIcon className="h-4 w-4" />
-          </button>
-          <button
-            onClick={toggleCollapse}
-            className="hidden md:block p-1.5 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-            title="Collapse sidebar"
-          >
-            <CollapseIcon className="h-4 w-4" />
-          </button>
-        </div>
-      ) : (
-        <div className="hidden md:flex items-center justify-center px-2 py-1.5 border-b border-gray-200">
-          <button
-            onClick={toggleCollapse}
-            className="p-1.5 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-            title="Expand sidebar"
-          >
-            <CollapseIcon className="h-4 w-4 rotate-180" />
           </button>
         </div>
       )}
@@ -775,7 +642,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           {activeItem && (
             <div className="rounded-lg bg-white shadow-lg border border-gray-200 px-3 py-2">
               <span className="text-sm text-gray-700">
-                {activeItem.type === 'group' ? activeItem.name : activeItem.name}
+                {activeItem.name}
               </span>
             </div>
           )}
@@ -783,21 +650,34 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       </DndContext>
 
       {/* User Section */}
-      <div className="border-t border-gray-200 px-2 h-12 shrink-0 flex items-center overflow-hidden">
-        <SidebarUserSection isCollapsed={isCollapsed} />
+      <div className={`border-t border-gray-200 px-2 shrink-0 flex items-center overflow-hidden ${isCollapsed ? 'h-20 py-2' : 'h-12'}`}>
+        <SidebarUserSection isCollapsed={isCollapsed} onToggleCollapse={toggleCollapse} />
       </div>
 
-      {/* List Modal */}
-      <ListModal
-        isOpen={isListModalOpen}
+      {/* Filter Modal */}
+      <FilterModal
+        isOpen={isFilterModalOpen}
         onClose={() => {
-          setIsListModalOpen(false)
-          setEditingList(undefined)
+          setIsFilterModalOpen(false)
+          setEditingFilter(undefined)
         }}
-        list={editingList}
+        filter={editingFilter}
         tagSuggestions={tags}
-        onCreate={handleCreateList}
-        onUpdate={handleUpdateList}
+        onCreate={handleCreateFilter}
+        onUpdate={handleUpdateFilter}
+      />
+
+      {/* Collection Modal */}
+      <CollectionModal
+        isOpen={isCollectionModalOpen}
+        onClose={() => {
+          setIsCollectionModalOpen(false)
+          setEditingCollection(undefined)
+        }}
+        collection={editingCollection}
+        availableFilters={getAvailableFiltersForCollection(editingCollection?.id)}
+        onCreate={createCollection}
+        onUpdate={updateCollection}
       />
     </div>
   )

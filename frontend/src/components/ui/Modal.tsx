@@ -11,7 +11,7 @@ interface ModalProps {
   /** Called when the modal should close */
   onClose: () => void
   /** Modal title */
-  title: string
+  title: ReactNode
   /** Modal content */
   children: ReactNode
   /** Maximum width class (default: max-w-lg) */

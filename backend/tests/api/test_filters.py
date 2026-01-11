@@ -1,15 +1,15 @@
 """
-Tests for bookmark list API endpoints.
+Tests for content filter API endpoints.
 
-Tests cover list creation, retrieval, update, deletion, and user isolation.
+Tests cover filter creation, retrieval, update, deletion, and user isolation.
 """
 from httpx import AsyncClient
 
 
-async def test_create_list(client: AsyncClient) -> None:
-    """Test creating a new bookmark list."""
+async def test_create_filter(client: AsyncClient) -> None:
+    """Test creating a new content filter."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Work Tasks",
             "filter_expression": {
@@ -28,10 +28,10 @@ async def test_create_list(client: AsyncClient) -> None:
     assert "updated_at" in data
 
 
-async def test_create_list_normalizes_tags(client: AsyncClient) -> None:
+async def test_create_filter_normalizes_tags(client: AsyncClient) -> None:
     """Test that tags are normalized to lowercase."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Mixed Case",
             "filter_expression": {
@@ -46,11 +46,11 @@ async def test_create_list_normalizes_tags(client: AsyncClient) -> None:
     assert data["filter_expression"]["groups"][0]["tags"] == ["work", "priority"]
 
 
-async def test_create_list_validates_name(client: AsyncClient) -> None:
-    """Test that list name is required and validated."""
+async def test_create_filter_validates_name(client: AsyncClient) -> None:
+    """Test that filter name is required and validated."""
     # Empty name
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "",
             "filter_expression": {
@@ -63,7 +63,7 @@ async def test_create_list_validates_name(client: AsyncClient) -> None:
 
     # Missing name
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "filter_expression": {
                 "groups": [{"tags": ["tag"]}],
@@ -74,12 +74,12 @@ async def test_create_list_validates_name(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
-async def test_create_list_validates_filter_expression(client: AsyncClient) -> None:
+async def test_create_filter_validates_filter_expression(client: AsyncClient) -> None:
     """Test that filter expression can be empty (no tag filters)."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
-            "name": "No Filter List",
+            "name": "No Filter Expression",
             "filter_expression": {
                 "groups": [],
                 "group_operator": "OR",
@@ -91,11 +91,11 @@ async def test_create_list_validates_filter_expression(client: AsyncClient) -> N
     assert data["filter_expression"]["groups"] == []
 
 
-async def test_create_list_validates_tag_format(client: AsyncClient) -> None:
+async def test_create_filter_validates_tag_format(client: AsyncClient) -> None:
     """Test that tags are validated for proper format."""
     # Invalid tag with special characters
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Invalid Tags",
             "filter_expression": {
@@ -107,86 +107,86 @@ async def test_create_list_validates_tag_format(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
-async def test_get_lists_empty(client: AsyncClient) -> None:
-    """Test getting lists returns default lists for a new user."""
-    response = await client.get("/lists/")
+async def test_get_filters_empty(client: AsyncClient) -> None:
+    """Test getting filters returns default filters for a new user."""
+    response = await client.get("/filters/")
     assert response.status_code == 200
     data = response.json()
     names = {item["name"] for item in data}
     assert names == {"All Bookmarks", "All Notes", "All Prompts"}
 
 
-async def test_get_lists(client: AsyncClient) -> None:
-    """Test getting all lists for a user."""
-    # Create two lists
+async def test_get_filters(client: AsyncClient) -> None:
+    """Test getting all filters for a user."""
+    # Create two filters
     await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "First",
             "filter_expression": {"groups": [{"tags": ["tag1"]}], "group_operator": "OR"},
         },
     )
     await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Second",
             "filter_expression": {"groups": [{"tags": ["tag2"]}], "group_operator": "OR"},
         },
     )
 
-    response = await client.get("/lists/")
+    response = await client.get("/filters/")
     assert response.status_code == 200
 
     data = response.json()
-    custom_lists = [
+    custom_filters = [
         item for item in data if item["name"] not in {"All Bookmarks", "All Notes", "All Prompts"}
     ]
-    assert len(custom_lists) == 2
-    # Should be ordered by created_at for custom lists
-    assert custom_lists[0]["name"] == "First"
-    assert custom_lists[1]["name"] == "Second"
+    assert len(custom_filters) == 2
+    # Should be ordered by created_at for custom filters
+    assert custom_filters[0]["name"] == "First"
+    assert custom_filters[1]["name"] == "Second"
 
 
-async def test_get_list_by_id(client: AsyncClient) -> None:
-    """Test getting a specific list by ID."""
-    # Create a list
+async def test_get_filter_by_id(client: AsyncClient) -> None:
+    """Test getting a specific filter by ID."""
+    # Create a filter
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Target",
             "filter_expression": {"groups": [{"tags": ["target"]}], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
-    response = await client.get(f"/lists/{list_id}")
+    response = await client.get(f"/filters/{filter_id}")
     assert response.status_code == 200
 
     data = response.json()
-    assert data["id"] == list_id
+    assert data["id"] == filter_id
     assert data["name"] == "Target"
 
 
-async def test_get_list_not_found(client: AsyncClient) -> None:
-    """Test getting a non-existent list returns 404."""
-    response = await client.get("/lists/00000000-0000-0000-0000-000000000000")
+async def test_get_filter_not_found(client: AsyncClient) -> None:
+    """Test getting a non-existent filter returns 404."""
+    response = await client.get("/filters/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
 
 
-async def test_update_list_name(client: AsyncClient) -> None:
-    """Test updating a list name."""
-    # Create a list
+async def test_update_filter_name(client: AsyncClient) -> None:
+    """Test updating a filter name."""
+    # Create a filter
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Original",
             "filter_expression": {"groups": [{"tags": ["tag"]}], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     response = await client.patch(
-        f"/lists/{list_id}",
+        f"/filters/{filter_id}",
         json={"name": "Updated"},
     )
     assert response.status_code == 200
@@ -195,20 +195,20 @@ async def test_update_list_name(client: AsyncClient) -> None:
     assert data["name"] == "Updated"
 
 
-async def test_update_list_filter_expression(client: AsyncClient) -> None:
-    """Test updating a list filter expression."""
-    # Create a list
+async def test_update_filter_filter_expression(client: AsyncClient) -> None:
+    """Test updating a filter's filter expression."""
+    # Create a filter
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Test",
             "filter_expression": {"groups": [{"tags": ["old"]}], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     response = await client.patch(
-        f"/lists/{list_id}",
+        f"/filters/{filter_id}",
         json={
             "filter_expression": {
                 "groups": [{"tags": ["new1"]}, {"tags": ["new2"]}],
@@ -222,45 +222,45 @@ async def test_update_list_filter_expression(client: AsyncClient) -> None:
     assert len(data["filter_expression"]["groups"]) == 2
 
 
-async def test_update_list_not_found(client: AsyncClient) -> None:
-    """Test updating a non-existent list returns 404."""
+async def test_update_filter_not_found(client: AsyncClient) -> None:
+    """Test updating a non-existent filter returns 404."""
     response = await client.patch(
-        "/lists/00000000-0000-0000-0000-000000000000",
+        "/filters/00000000-0000-0000-0000-000000000000",
         json={"name": "New Name"},
     )
     assert response.status_code == 404
 
 
-async def test_delete_list(client: AsyncClient) -> None:
-    """Test deleting a list."""
-    # Create a list
+async def test_delete_filter(client: AsyncClient) -> None:
+    """Test deleting a filter."""
+    # Create a filter
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "To Delete",
             "filter_expression": {"groups": [{"tags": ["delete"]}], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
-    response = await client.delete(f"/lists/{list_id}")
+    response = await client.delete(f"/filters/{filter_id}")
     assert response.status_code == 204
 
     # Verify deleted
-    get_response = await client.get(f"/lists/{list_id}")
+    get_response = await client.get(f"/filters/{filter_id}")
     assert get_response.status_code == 404
 
 
-async def test_delete_list_not_found(client: AsyncClient) -> None:
-    """Test deleting a non-existent list returns 404."""
-    response = await client.delete("/lists/00000000-0000-0000-0000-000000000000")
+async def test_delete_filter_not_found(client: AsyncClient) -> None:
+    """Test deleting a non-existent filter returns 404."""
+    response = await client.delete("/filters/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
 
 
-async def test_create_list_complex_filter(client: AsyncClient) -> None:
-    """Test creating a list with a complex filter expression."""
+async def test_create_filter_complex_filter(client: AsyncClient) -> None:
+    """Test creating a filter with a complex filter expression."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Complex",
             "filter_expression": {
@@ -284,12 +284,12 @@ async def test_create_list_complex_filter(client: AsyncClient) -> None:
 # =============================================================================
 
 
-async def test_create_list_with_sort_defaults(client: AsyncClient) -> None:
-    """Test creating a list with default sort configuration."""
+async def test_create_filter_with_sort_defaults(client: AsyncClient) -> None:
+    """Test creating a filter with default sort configuration."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
-            "name": "Sorted List",
+            "name": "Sorted Filter",
             "filter_expression": {
                 "groups": [{"tags": ["work"]}],
                 "group_operator": "OR",
@@ -301,15 +301,15 @@ async def test_create_list_with_sort_defaults(client: AsyncClient) -> None:
     assert response.status_code == 201
 
     data = response.json()
-    assert data["name"] == "Sorted List"
+    assert data["name"] == "Sorted Filter"
     assert data["default_sort_by"] == "created_at"
     assert data["default_sort_ascending"] is True
 
 
-async def test_create_list_without_sort_defaults(client: AsyncClient) -> None:
-    """Test creating a list without sort configuration returns null values."""
+async def test_create_filter_without_sort_defaults(client: AsyncClient) -> None:
+    """Test creating a filter without sort configuration returns null values."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "No Sort Config",
             "filter_expression": {
@@ -325,10 +325,10 @@ async def test_create_list_without_sort_defaults(client: AsyncClient) -> None:
     assert data["default_sort_ascending"] is None
 
 
-async def test_create_list_with_invalid_sort_by(client: AsyncClient) -> None:
-    """Test that creating a list with invalid sort_by fails validation."""
+async def test_create_filter_with_invalid_sort_by(client: AsyncClient) -> None:
+    """Test that creating a filter with invalid sort_by fails validation."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Invalid Sort",
             "filter_expression": {
@@ -341,10 +341,10 @@ async def test_create_list_with_invalid_sort_by(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
-async def test_create_list_rejects_archived_at_sort(client: AsyncClient) -> None:
-    """Test that archived_at is not valid for list defaults."""
+async def test_create_filter_rejects_archived_at_sort(client: AsyncClient) -> None:
+    """Test that archived_at is not valid for filter defaults."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Archived Sort",
             "filter_expression": {
@@ -357,10 +357,10 @@ async def test_create_list_rejects_archived_at_sort(client: AsyncClient) -> None
     assert response.status_code == 422
 
 
-async def test_create_list_rejects_deleted_at_sort(client: AsyncClient) -> None:
-    """Test that deleted_at is not valid for list defaults."""
+async def test_create_filter_rejects_deleted_at_sort(client: AsyncClient) -> None:
+    """Test that deleted_at is not valid for filter defaults."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Deleted Sort",
             "filter_expression": {
@@ -373,11 +373,11 @@ async def test_create_list_rejects_deleted_at_sort(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
-async def test_update_list_sort_fields(client: AsyncClient) -> None:
-    """Test updating a list's sort configuration."""
-    # Create a list without sort config
+async def test_update_filter_sort_fields(client: AsyncClient) -> None:
+    """Test updating a filter's sort configuration."""
+    # Create a filter without sort config
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Update Sort",
             "filter_expression": {
@@ -386,11 +386,11 @@ async def test_update_list_sort_fields(client: AsyncClient) -> None:
             },
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     # Update with sort config
     response = await client.patch(
-        f"/lists/{list_id}",
+        f"/filters/{filter_id}",
         json={
             "default_sort_by": "title",
             "default_sort_ascending": True,
@@ -403,11 +403,11 @@ async def test_update_list_sort_fields(client: AsyncClient) -> None:
     assert data["default_sort_ascending"] is True
 
 
-async def test_update_list_invalid_sort_by(client: AsyncClient) -> None:
+async def test_update_filter_invalid_sort_by(client: AsyncClient) -> None:
     """Test that updating with invalid sort_by fails validation."""
-    # Create a list
+    # Create a filter
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Test",
             "filter_expression": {
@@ -416,21 +416,21 @@ async def test_update_list_invalid_sort_by(client: AsyncClient) -> None:
             },
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     # Update with invalid sort
     response = await client.patch(
-        f"/lists/{list_id}",
+        f"/filters/{filter_id}",
         json={"default_sort_by": "not_a_field"},
     )
     assert response.status_code == 422
 
 
-async def test_get_list_includes_sort_fields(client: AsyncClient) -> None:
-    """Test that get list response includes sort fields."""
-    # Create a list with sort config
+async def test_get_filter_includes_sort_fields(client: AsyncClient) -> None:
+    """Test that get filter response includes sort fields."""
+    # Create a filter with sort config
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Get With Sort",
             "filter_expression": {
@@ -441,10 +441,10 @@ async def test_get_list_includes_sort_fields(client: AsyncClient) -> None:
             "default_sort_ascending": False,
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
-    # Get the list
-    response = await client.get(f"/lists/{list_id}")
+    # Get the filter
+    response = await client.get(f"/filters/{filter_id}")
     assert response.status_code == 200
 
     data = response.json()
@@ -452,11 +452,11 @@ async def test_get_list_includes_sort_fields(client: AsyncClient) -> None:
     assert data["default_sort_ascending"] is False
 
 
-async def test_get_lists_includes_sort_fields(client: AsyncClient) -> None:
-    """Test that get lists response includes sort fields for all lists."""
-    # Create list with sort config
+async def test_get_filters_includes_sort_fields(client: AsyncClient) -> None:
+    """Test that get filters response includes sort fields for all filters."""
+    # Create filter with sort config
     await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "With Sort",
             "filter_expression": {
@@ -467,9 +467,9 @@ async def test_get_lists_includes_sort_fields(client: AsyncClient) -> None:
             "default_sort_ascending": True,
         },
     )
-    # Create list without sort config
+    # Create filter without sort config
     await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Without Sort",
             "filter_expression": {
@@ -479,7 +479,7 @@ async def test_get_lists_includes_sort_fields(client: AsyncClient) -> None:
         },
     )
 
-    response = await client.get("/lists/")
+    response = await client.get("/filters/")
     assert response.status_code == 200
 
     data = response.json()
@@ -490,15 +490,15 @@ async def test_get_lists_includes_sort_fields(client: AsyncClient) -> None:
     assert by_name["Without Sort"]["default_sort_ascending"] is None
 
 
-async def test_create_list_all_valid_sort_options(client: AsyncClient) -> None:
-    """Test creating lists with all valid sort options."""
+async def test_create_filter_all_valid_sort_options(client: AsyncClient) -> None:
+    """Test creating filters with all valid sort options."""
     valid_sort_options = ["created_at", "updated_at", "last_used_at", "title"]
 
     for i, sort_by in enumerate(valid_sort_options):
         response = await client.post(
-            "/lists/",
+            "/filters/",
             json={
-                "name": f"List {sort_by}",
+                "name": f"Filter {sort_by}",
                 "filter_expression": {
                     "groups": [{"tags": [f"tag-sort-{i}"]}],
                     "group_operator": "OR",
@@ -515,10 +515,10 @@ async def test_create_list_all_valid_sort_options(client: AsyncClient) -> None:
 # =============================================================================
 
 
-async def test_create_list_with_prompt_content_type(client: AsyncClient) -> None:
-    """Test creating a list for prompts only."""
+async def test_create_filter_with_prompt_content_type(client: AsyncClient) -> None:
+    """Test creating a filter for prompts only."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "My Prompts",
             "content_types": ["prompt"],
@@ -530,10 +530,10 @@ async def test_create_list_with_prompt_content_type(client: AsyncClient) -> None
     assert data["content_types"] == ["prompt"]
 
 
-async def test_create_list_with_all_content_types(client: AsyncClient) -> None:
-    """Test creating a list with all three content types."""
+async def test_create_filter_with_all_content_types(client: AsyncClient) -> None:
+    """Test creating a filter with all three content types."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Everything",
             "content_types": ["bookmark", "note", "prompt"],
@@ -545,10 +545,10 @@ async def test_create_list_with_all_content_types(client: AsyncClient) -> None:
     assert set(data["content_types"]) == {"bookmark", "note", "prompt"}
 
 
-async def test_create_list_with_bookmark_and_prompt(client: AsyncClient) -> None:
-    """Test creating a list with bookmark and prompt content types."""
+async def test_create_filter_with_bookmark_and_prompt(client: AsyncClient) -> None:
+    """Test creating a filter with bookmark and prompt content types."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Bookmarks and Prompts",
             "content_types": ["bookmark", "prompt"],
@@ -560,10 +560,10 @@ async def test_create_list_with_bookmark_and_prompt(client: AsyncClient) -> None
     assert set(data["content_types"]) == {"bookmark", "prompt"}
 
 
-async def test_create_list_with_note_and_prompt(client: AsyncClient) -> None:
-    """Test creating a list with note and prompt content types."""
+async def test_create_filter_with_note_and_prompt(client: AsyncClient) -> None:
+    """Test creating a filter with note and prompt content types."""
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Notes and Prompts",
             "content_types": ["note", "prompt"],
@@ -575,74 +575,74 @@ async def test_create_list_with_note_and_prompt(client: AsyncClient) -> None:
     assert set(data["content_types"]) == {"note", "prompt"}
 
 
-async def test_update_list_add_prompt_content_type(client: AsyncClient) -> None:
-    """Test adding prompt to existing list's content types."""
-    # Create list without prompt
+async def test_update_filter_add_prompt_content_type(client: AsyncClient) -> None:
+    """Test adding prompt to existing filter's content types."""
+    # Create filter without prompt
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Test",
             "content_types": ["bookmark"],
             "filter_expression": {"groups": [], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     # Update to include prompt
     response = await client.patch(
-        f"/lists/{list_id}",
+        f"/filters/{filter_id}",
         json={"content_types": ["bookmark", "prompt"]},
     )
     assert response.status_code == 200
     assert set(response.json()["content_types"]) == {"bookmark", "prompt"}
 
 
-async def test_update_list_change_to_prompt_only(client: AsyncClient) -> None:
-    """Test changing a list to prompt-only content type."""
-    # Create list with bookmark
+async def test_update_filter_change_to_prompt_only(client: AsyncClient) -> None:
+    """Test changing a filter to prompt-only content type."""
+    # Create filter with bookmark
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Test",
             "content_types": ["bookmark", "note"],
             "filter_expression": {"groups": [], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     # Update to prompt only
     response = await client.patch(
-        f"/lists/{list_id}",
+        f"/filters/{filter_id}",
         json={"content_types": ["prompt"]},
     )
     assert response.status_code == 200
     assert response.json()["content_types"] == ["prompt"]
 
 
-async def test_get_list_includes_prompt_content_type(client: AsyncClient) -> None:
-    """Test that get list response includes prompt content type."""
-    # Create a list with prompt
+async def test_get_filter_includes_prompt_content_type(client: AsyncClient) -> None:
+    """Test that get filter response includes prompt content type."""
+    # Create a filter with prompt
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
-            "name": "Prompt List",
+            "name": "Prompt Filter",
             "content_types": ["prompt"],
             "filter_expression": {"groups": [], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
-    # Get the list
-    response = await client.get(f"/lists/{list_id}")
+    # Get the filter
+    response = await client.get(f"/filters/{filter_id}")
     assert response.status_code == 200
     assert response.json()["content_types"] == ["prompt"]
 
 
-async def test_get_lists_includes_prompt_content_types(client: AsyncClient) -> None:
-    """Test that get lists response includes prompt content types."""
-    # Create list with prompt
+async def test_get_filters_includes_prompt_content_types(client: AsyncClient) -> None:
+    """Test that get filters response includes prompt content types."""
+    # Create filter with prompt
     await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "With Prompt",
             "content_types": ["bookmark", "prompt"],
@@ -650,7 +650,7 @@ async def test_get_lists_includes_prompt_content_types(client: AsyncClient) -> N
         },
     )
 
-    response = await client.get("/lists/")
+    response = await client.get("/filters/")
     assert response.status_code == 200
 
     data = response.json()
