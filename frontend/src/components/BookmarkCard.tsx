@@ -119,8 +119,8 @@ export function BookmarkCard({
       onLinkClick?.(bookmark)
       // Reset after brief flash
       setTimeout(() => setCopySuccess(false), 1000)
-    } catch {
-      // Silently fail - clipboard API may not be available
+    } catch (err) {
+      console.error('Failed to copy URL:', err)
     }
   }
 

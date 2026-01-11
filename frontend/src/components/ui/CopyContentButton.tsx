@@ -2,7 +2,7 @@
  * Button to copy note or prompt content to clipboard.
  * Fetches content via API since list views don't include full content.
  */
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { CopyIcon, CheckIcon } from '../icons'
 import { useNotes } from '../../hooks/useNotes'
@@ -20,7 +20,7 @@ interface CopyContentButtonProps {
 }
 
 /** Duration to show success/error state before returning to idle (ms) */
-const FEEDBACK_DURATION = 2000
+const FEEDBACK_DURATION = 1000
 
 /**
  * CopyContentButton fetches content and copies it to clipboard.
@@ -40,14 +40,6 @@ export function CopyContentButton({
   const { fetchNote } = useNotes()
   const { fetchPrompt } = usePrompts()
 
-  // Track mounted state to prevent state updates after unmount
-  const isMountedRef = useRef(true)
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false
-    }
-  }, [])
-
   const handleCopy = useCallback(async (e: React.MouseEvent): Promise<void> => {
     e.stopPropagation() // Prevent card click
 
@@ -56,34 +48,47 @@ export function CopyContentButton({
     setState('loading')
 
     try {
-      // Fetch full content
-      let content: string | null = null
-      if (contentType === 'note') {
-        const note = await fetchNote(id)
-        content = note.content
+      // Create fetch promise for content
+      const contentPromise = (async (): Promise<string> => {
+        if (contentType === 'note') {
+          const note = await fetchNote(id)
+          if (note.content === null || note.content === undefined) {
+            throw new Error('No content to copy')
+          }
+          return note.content
+        } else {
+          const prompt = await fetchPrompt(id)
+          if (prompt.content === null || prompt.content === undefined) {
+            throw new Error('No content to copy')
+          }
+          return prompt.content
+        }
+      })()
+
+      // Safari requires clipboard operations to be initiated synchronously during
+      // user gesture. Using ClipboardItem with a Promise allows us to start the
+      // clipboard write immediately while content is fetched asynchronously.
+      // Falls back to writeText for browsers that don't support ClipboardItem.
+      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+        const blobPromise = contentPromise.then(
+          (text) => new Blob([text], { type: 'text/plain' })
+        )
+        const clipboardItem = new ClipboardItem({ 'text/plain': blobPromise })
+        await navigator.clipboard.write([clipboardItem])
       } else {
-        const prompt = await fetchPrompt(id)
-        content = prompt.content
+        // Fallback for browsers without ClipboardItem support
+        const content = await contentPromise
+        await navigator.clipboard.writeText(content)
       }
 
-      // Copy to clipboard (empty string is valid - clipboard will just be empty)
-      if (content !== null && content !== undefined) {
-        await navigator.clipboard.writeText(content)
-        setState('success')
-      } else {
-        // No content to copy (null/undefined)
-        setState('error')
-      }
-    } catch {
+      setState('success')
+    } catch (err) {
+      console.error('Failed to copy content:', err)
       setState('error')
     }
 
-    // Reset to idle after feedback duration (only if still mounted)
-    setTimeout(() => {
-      if (isMountedRef.current) {
-        setState('idle')
-      }
-    }, FEEDBACK_DURATION)
+    // Reset to idle after feedback duration
+    setTimeout(() => setState('idle'), FEEDBACK_DURATION)
   }, [state, contentType, id, fetchNote, fetchPrompt])
 
   const getTitle = (): string => {
