@@ -41,7 +41,7 @@ import {
   listItemSchema,
 } from '@milkdown/kit/preset/commonmark'
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
-import { callCommand, $remark } from '@milkdown/kit/utils'
+import { callCommand, $remark, getMarkdown } from '@milkdown/kit/utils'
 
 // Custom commonmark without remarkPreserveEmptyLinePlugin
 const customCommonmark = [
@@ -624,9 +624,21 @@ function MilkdownEditorInner({
         }))
 
         // Set up listener for changes
-        ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
-          const cleanedMarkdown = cleanMarkdown(markdown)
-          onChangeRef.current(cleanedMarkdown)
+        // Using 'updated' instead of 'markdownUpdated' to avoid Milkdown's internal
+        // serialization which can error if editor is destroyed during the process.
+        // We manually serialize with try-catch to handle unmount race conditions.
+        ctx.get(listenerCtx).updated((updatedCtx) => {
+          if (!isMountedRef.current) return
+          try {
+            const markdown = getMarkdown()(updatedCtx)
+            const cleanedMarkdown = cleanMarkdown(markdown)
+            onChangeRef.current(cleanedMarkdown)
+          } catch (e) {
+            // Only ignore errors during unmount - log unexpected errors
+            if (isMountedRef.current) {
+              console.error('Milkdown serialization error:', e)
+            }
+          }
         })
       })
       .use(customCommonmark)
