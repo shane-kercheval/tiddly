@@ -567,6 +567,12 @@ function MilkdownEditorInner({
   const onChangeRef = useRef(onChange)
   const autoFocusRef = useRef(autoFocus)
 
+  // Track if component is still mounted to prevent async operations on unmounted component
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    return () => { isMountedRef.current = false }
+  }, [])
+
   // Keep onChange ref up to date
   useEffect(() => {
     onChangeRef.current = onChange
@@ -640,10 +646,14 @@ function MilkdownEditorInner({
     if (autoFocusRef.current) {
       // Small delay to ensure editor is fully mounted
       const timer = setTimeout(() => {
+        if (!isMountedRef.current) return
         const editor = get()
-        if (editor) {
+        if (!editor) return
+        try {
           const view = editor.ctx.get(editorViewCtx)
           view.focus()
+        } catch {
+          // Editor context destroyed during unmount
         }
       }, 0)
       return () => clearTimeout(timer)
@@ -849,22 +859,27 @@ function MilkdownEditorInner({
       // After creating bullet list, find and convert the list item to task
       // Need to get fresh state after the command
       setTimeout(() => {
-        const freshView = editor.ctx.get(editorViewCtx)
-        const { $from: newFrom } = freshView.state.selection
-        // Find the list item we're now in
-        for (let d = newFrom.depth; d >= 0; d--) {
-          const node = newFrom.node(d)
-          if (node.type.name === 'list_item') {
-            const pos = newFrom.before(d)
-            const tr = freshView.state.tr.setNodeMarkup(pos, undefined, {
-              ...node.attrs,
-              checked: false,
-            })
-            freshView.dispatch(tr)
-            break
+        if (!isMountedRef.current) return
+        try {
+          const freshView = editor.ctx.get(editorViewCtx)
+          const { $from: newFrom } = freshView.state.selection
+          // Find the list item we're now in
+          for (let d = newFrom.depth; d >= 0; d--) {
+            const node = newFrom.node(d)
+            if (node.type.name === 'list_item') {
+              const pos = newFrom.before(d)
+              const tr = freshView.state.tr.setNodeMarkup(pos, undefined, {
+                ...node.attrs,
+                checked: false,
+              })
+              freshView.dispatch(tr)
+              break
+            }
           }
+          freshView.focus()
+        } catch {
+          // Editor context destroyed during unmount
         }
-        freshView.focus()
       }, 0)
       return
     }
@@ -898,21 +913,26 @@ function MilkdownEditorInner({
     // Now add the checked attribute
     // Need fresh state after potential list type change
     setTimeout(() => {
-      const freshView = editor.ctx.get(editorViewCtx)
-      const { $from: newFrom } = freshView.state.selection
-      for (let d = newFrom.depth; d >= 0; d--) {
-        const node = newFrom.node(d)
-        if (node.type.name === 'list_item') {
-          const pos = newFrom.before(d)
-          const tr = freshView.state.tr.setNodeMarkup(pos, undefined, {
-            ...node.attrs,
-            checked: false,
-          })
-          freshView.dispatch(tr)
-          break
+      if (!isMountedRef.current) return
+      try {
+        const freshView = editor.ctx.get(editorViewCtx)
+        const { $from: newFrom } = freshView.state.selection
+        for (let d = newFrom.depth; d >= 0; d--) {
+          const node = newFrom.node(d)
+          if (node.type.name === 'list_item') {
+            const pos = newFrom.before(d)
+            const tr = freshView.state.tr.setNodeMarkup(pos, undefined, {
+              ...node.attrs,
+              checked: false,
+            })
+            freshView.dispatch(tr)
+            break
+          }
         }
+        freshView.focus()
+      } catch {
+        // Editor context destroyed during unmount
       }
-      freshView.focus()
     }, 0)
   }, [get, getListContext])
 

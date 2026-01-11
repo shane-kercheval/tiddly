@@ -226,14 +226,16 @@ export function NoteDetail(): ReactNode {
   }
 
   // Render existing note (requires note to be loaded)
-  if (!note) {
+  // Use passedNote if note state hasn't been set yet (avoids flash during navigation)
+  const effectiveNote = note ?? passedNote
+  if (!effectiveNote) {
     return <ErrorState message="Note not found" />
   }
 
   return (
     <Note
-      key={note.id}
-      note={note}
+      key={effectiveNote.id}
+      note={effectiveNote}
       tagSuggestions={tagSuggestions}
       onSave={handleSave}
       onClose={handleBack}

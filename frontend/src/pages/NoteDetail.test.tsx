@@ -369,10 +369,10 @@ describe('NoteDetail page', () => {
         </MemoryRouter>
       )
 
-      // Should display the passed note without fetching
-      await waitFor(() => {
-        expect(screen.getByDisplayValue('Passed Note')).toBeInTheDocument()
-      })
+      // Should immediately display the passed note without error flash
+      // This must NOT use waitFor - we're testing there's no flash before state syncs
+      expect(screen.queryByText('Note not found')).not.toBeInTheDocument()
+      expect(screen.getByDisplayValue('Passed Note')).toBeInTheDocument()
 
       // Should NOT have called fetchNote since we passed the note
       expect(mockFetchNote).not.toHaveBeenCalled()

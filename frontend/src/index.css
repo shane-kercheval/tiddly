@@ -388,6 +388,11 @@ body {
   @apply text-gray-400 italic pointer-events-none float-left h-0;
 }
 
+/* ProseMirror requires white-space: pre-wrap for proper text handling */
+.milkdown-wrapper .milkdown .ProseMirror {
+  white-space: pre-wrap;
+}
+
 /* Focus state for editor */
 .milkdown-wrapper .milkdown .ProseMirror:focus {
   @apply outline-none;

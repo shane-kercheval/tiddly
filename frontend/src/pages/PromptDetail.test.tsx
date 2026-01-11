@@ -502,10 +502,10 @@ describe('PromptDetail page', () => {
         </MemoryRouter>
       )
 
-      // Should display the passed prompt without fetching
-      await waitFor(() => {
-        expect(screen.getByDisplayValue('passed-prompt')).toBeInTheDocument()
-      })
+      // Should immediately display the passed prompt without error flash
+      // This must NOT use waitFor - we're testing there's no flash before state syncs
+      expect(screen.queryByText('Prompt not found')).not.toBeInTheDocument()
+      expect(screen.getByDisplayValue('passed-prompt')).toBeInTheDocument()
 
       // Should NOT have called fetchPrompt since we passed the prompt
       expect(mockFetchPrompt).not.toHaveBeenCalled()

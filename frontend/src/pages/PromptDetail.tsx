@@ -252,14 +252,16 @@ export function PromptDetail(): ReactNode {
   }
 
   // Render existing prompt (requires prompt to be loaded)
-  if (!prompt) {
+  // Use passedPrompt if prompt state hasn't been set yet (avoids flash during navigation)
+  const effectivePrompt = prompt ?? passedPrompt
+  if (!effectivePrompt) {
     return <ErrorState message="Prompt not found" />
   }
 
   return (
     <Prompt
-      key={prompt.id}
-      prompt={prompt}
+      key={effectivePrompt.id}
+      prompt={effectivePrompt}
       tagSuggestions={tagSuggestions}
       onSave={handleSave}
       onClose={handleBack}
