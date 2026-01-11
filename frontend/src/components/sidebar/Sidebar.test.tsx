@@ -333,9 +333,17 @@ describe('Sidebar', () => {
           wrapper: createWrapper(['/app/content']),
         })
 
-        // Click the "Collection" button to create a new collection
+        // Click the "Collection" button to open the modal
         const collectionButtons = screen.getAllByTitle('New Collection')
         await user.click(collectionButtons[0])
+
+        // Fill in the collection name in the modal
+        const nameInput = screen.getByLabelText('Collection Name')
+        await user.type(nameInput, 'My New Collection')
+
+        // Submit the modal
+        const createButton = screen.getByRole('button', { name: 'Create Collection' })
+        await user.click(createButton)
 
         await waitFor(() => {
           expect(mockSetSidebarOptimistic).toHaveBeenCalled()
@@ -356,8 +364,17 @@ describe('Sidebar', () => {
           wrapper: createWrapper(['/app/content']),
         })
 
+        // Click the "Collection" button to open the modal
         const collectionButtons = screen.getAllByTitle('New Collection')
         await user.click(collectionButtons[0])
+
+        // Fill in the collection name in the modal
+        const nameInput = screen.getByLabelText('Collection Name')
+        await user.type(nameInput, 'My New Collection')
+
+        // Submit the modal
+        const createButton = screen.getByRole('button', { name: 'Create Collection' })
+        await user.click(createButton)
 
         await waitFor(() => {
           expect(mockSetSidebarOptimistic).toHaveBeenCalled()
@@ -366,7 +383,7 @@ describe('Sidebar', () => {
         // Verify the new collection is added to the front
         const optimisticItems = mockSetSidebarOptimistic.mock.calls[0][0]
         expect(optimisticItems[0].type).toBe('collection')
-        expect(optimisticItems[0].name).toBe('New Collection')
+        expect(optimisticItems[0].name).toBe('My New Collection')
         expect(optimisticItems[0].items).toEqual([])
       })
 
@@ -379,8 +396,17 @@ describe('Sidebar', () => {
           wrapper: createWrapper(['/app/content']),
         })
 
+        // Click the "Collection" button to open the modal
         const collectionButtons = screen.getAllByTitle('New Collection')
         await user.click(collectionButtons[0])
+
+        // Fill in the collection name in the modal
+        const nameInput = screen.getByLabelText('Collection Name')
+        await user.type(nameInput, 'My New Collection')
+
+        // Submit the modal
+        const createButton = screen.getByRole('button', { name: 'Create Collection' })
+        await user.click(createButton)
 
         await waitFor(() => {
           expect(mockRollbackSidebar).toHaveBeenCalled()

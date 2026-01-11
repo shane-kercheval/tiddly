@@ -42,6 +42,7 @@ import {
 } from './sidebarDndUtils'
 import { getFilterRoute } from './routes'
 import { FilterModal } from '../FilterModal'
+import { CollectionModal } from '../CollectionModal'
 import {
   SettingsIcon,
   CollapseIcon,
@@ -127,6 +128,8 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   // Modal state
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false)
   const [editingFilter, setEditingFilter] = useState<ContentFilter | undefined>(undefined)
+  const [isCollectionModalOpen, setIsCollectionModalOpen] = useState(false)
+  const [editingCollection, setEditingCollection] = useState<SidebarCollectionComputed | undefined>(undefined)
 
   // Drag state
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -208,19 +211,67 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     [filters]
   )
 
-  // Create a new collection (added to top of sidebar) - optimistic update
-  const handleNewCollection = async (): Promise<void> => {
+  // Compute filters available for collection modal (not already in other collections)
+  const getAvailableFiltersForCollection = useCallback(
+    (editingCollectionId?: string): ContentFilter[] => {
+      if (!sidebar) return filters
+
+      const placedFilterIds = new Set<string>()
+      for (const item of sidebar.items) {
+        // Skip the collection being edited (its filters should remain available)
+        if (item.type === 'collection' && item.id !== editingCollectionId) {
+          for (const child of item.items) {
+            if (child.type === 'filter') {
+              placedFilterIds.add(child.id)
+            }
+          }
+        }
+      }
+
+      return filters.filter((f) => !placedFilterIds.has(f.id))
+    },
+    [sidebar, filters]
+  )
+
+  // Open collection modal for creating
+  const handleNewCollection = (): void => {
+    setEditingCollection(undefined)
+    setIsCollectionModalOpen(true)
+  }
+
+  // Create a new collection via modal - optimistic update
+  const handleCreateCollection = async (name: string, filterIds: string[]): Promise<void> => {
     if (!sidebar) return
+
+    // Build collection items from filter IDs
+    const collectionItems = filterIds
+      .map((id) => {
+        const filter = getFilterById(id)
+        if (!filter) return null
+        return {
+          type: 'filter' as const,
+          id: filter.id,
+          name: filter.name,
+          content_types: filter.content_types,
+        }
+      })
+      .filter((item): item is SidebarFilterItemComputed => item !== null)
 
     const newCollectionComputed: SidebarCollectionComputed = {
       type: 'collection',
       id: crypto.randomUUID(),
-      name: 'New Collection',
-      items: [],
+      name,
+      items: collectionItems,
     }
 
+    // Remove filters that are now in the collection from root level
+    const filterIdsInCollection = new Set(filterIds)
+    const filteredRootItems = sidebar.items.filter(
+      (item) => !(item.type === 'filter' && filterIdsInCollection.has(item.id))
+    )
+
     // Optimistically add to UI
-    const optimisticItems = [newCollectionComputed, ...sidebar.items]
+    const optimisticItems = [newCollectionComputed, ...filteredRootItems]
     setSidebarOptimistic(optimisticItems)
 
     const updatedSidebar: SidebarOrder = {
@@ -232,7 +283,84 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
       await updateSidebar(updatedSidebar)
     } catch {
       rollbackSidebar()
-      toast.error('Failed to create collection')
+      throw new Error('Failed to create collection')
+    }
+  }
+
+  // Update an existing collection via modal - optimistic update
+  const handleUpdateCollection = async (id: string, name: string, filterIds: string[]): Promise<void> => {
+    if (!sidebar) return
+
+    // Build collection items from filter IDs
+    const collectionItems = filterIds
+      .map((filterId) => {
+        const filter = getFilterById(filterId)
+        if (!filter) return null
+        return {
+          type: 'filter' as const,
+          id: filter.id,
+          name: filter.name,
+          content_types: filter.content_types,
+        }
+      })
+      .filter((item): item is SidebarFilterItemComputed => item !== null)
+
+    // Find the old collection to get its previous filter IDs
+    const oldCollection = sidebar.items.find(
+      (item): item is SidebarCollectionComputed => item.type === 'collection' && item.id === id
+    )
+    const oldFilterIds = new Set(
+      oldCollection?.items.filter((item) => item.type === 'filter').map((item) => item.id) ?? []
+    )
+    const newFilterIds = new Set(filterIds)
+
+    // Filters removed from collection should go back to root (at the end)
+    const removedFilterItems: SidebarFilterItemComputed[] = []
+    for (const filterId of oldFilterIds) {
+      if (!newFilterIds.has(filterId)) {
+        const filter = getFilterById(filterId)
+        if (filter) {
+          removedFilterItems.push({
+            type: 'filter',
+            id: filter.id,
+            name: filter.name,
+            content_types: filter.content_types,
+          })
+        }
+      }
+    }
+
+    // Filters added to collection should be removed from root
+    const optimisticItems = sidebar.items
+      .filter((item) => !(item.type === 'filter' && newFilterIds.has(item.id) && !oldFilterIds.has(item.id)))
+      .map((item) => {
+        if (item.type === 'collection' && item.id === id) {
+          return { ...item, name, items: collectionItems }
+        }
+        return item
+      })
+
+    // Add removed filters to root
+    optimisticItems.push(...removedFilterItems)
+
+    setSidebarOptimistic(optimisticItems)
+
+    try {
+      await updateSidebar({ version: SIDEBAR_VERSION, items: computedToMinimal(optimisticItems) })
+    } catch {
+      rollbackSidebar()
+      throw new Error('Failed to update collection')
+    }
+  }
+
+  // Open collection modal for editing
+  const handleEditCollection = (collectionId: string): void => {
+    const collection = sidebar?.items.find(
+      (item): item is SidebarCollectionComputed => item.type === 'collection' && item.id === collectionId
+    )
+    if (collection) {
+      setEditingCollection(collection)
+      setIsCollectionModalOpen(true)
     }
   }
 
@@ -640,6 +768,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           onNavClick={onNavClick}
           onEditFilter={handleEditFilter}
           onDeleteFilter={handleDeleteFilter}
+          onEditCollection={() => handleEditCollection(item.id)}
           onRenameCollection={(newName) => handleRenameCollection(item.id, newName)}
           onDeleteCollection={() => handleDeleteCollection(item.id)}
           isDragging={activeId === getItemId(item)}
@@ -798,6 +927,19 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
         tagSuggestions={tags}
         onCreate={handleCreateFilter}
         onUpdate={handleUpdateFilter}
+      />
+
+      {/* Collection Modal */}
+      <CollectionModal
+        isOpen={isCollectionModalOpen}
+        onClose={() => {
+          setIsCollectionModalOpen(false)
+          setEditingCollection(undefined)
+        }}
+        collection={editingCollection}
+        availableFilters={getAvailableFiltersForCollection(editingCollection?.id)}
+        onCreate={handleCreateCollection}
+        onUpdate={handleUpdateCollection}
       />
     </div>
   )

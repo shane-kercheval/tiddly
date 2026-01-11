@@ -130,6 +130,7 @@ export interface SortableCollectionItemProps {
   onNavClick?: () => void
   onEditFilter: (filterId: string) => void
   onDeleteFilter: (filterId: string) => void
+  onEditCollection: () => void
   onRenameCollection: (newName: string) => void
   onDeleteCollection: () => void
   isDragging?: boolean
@@ -148,6 +149,7 @@ export function SortableCollectionItem({
   onNavClick,
   onEditFilter,
   onDeleteFilter,
+  onEditCollection,
   onRenameCollection,
   onDeleteCollection,
   isDragging,
@@ -177,6 +179,7 @@ export function SortableCollectionItem({
               isCollapsed={isCollapsed}
               isGroupCollapsed={isGroupCollapsed}
               onToggle={onToggleGroup}
+              onEdit={onEditCollection}
               onRename={onRenameCollection}
               onDelete={onDeleteCollection}
             >
