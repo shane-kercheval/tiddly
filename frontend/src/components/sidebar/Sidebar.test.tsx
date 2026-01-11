@@ -9,7 +9,7 @@ import type { ReactNode } from 'react'
 import { useRef, useEffect } from 'react'
 
 // Mock the stores before importing Sidebar
-const mockDeleteList = vi.fn()
+const mockDeleteFilter = vi.fn()
 const mockFetchSidebar = vi.fn()
 const mockUpdateSidebar = vi.fn()
 const mockSetSidebarOptimistic = vi.fn()
@@ -28,7 +28,7 @@ vi.mock('../../stores/filtersStore', () => ({
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
       }],
-      deleteFilter: mockDeleteList,
+      deleteFilter: mockDeleteFilter,
       createFilter: vi.fn(),
       updateFilter: vi.fn(),
       fetchFilters: vi.fn(),
@@ -55,7 +55,7 @@ vi.mock('../../stores/settingsStore', () => ({
       }
       return selector(state)
     },
-    // Add getState for direct store access in handleCreateList
+    // Add getState for direct store access in handleCreateFilter
     {
       getState: () => ({
         sidebar: {
@@ -102,8 +102,8 @@ vi.mock('../../queryClient', () => ({
   },
 }))
 
-vi.mock('../../utils/invalidateListQueries', () => ({
-  invalidateListQueries: vi.fn().mockResolvedValue(undefined),
+vi.mock('../../utils/invalidateFilterQueries', () => ({
+  invalidateFilterQueries: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Import after mocks are set up
@@ -159,25 +159,25 @@ function createWrapper(
 describe('Sidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockDeleteList.mockResolvedValue(undefined)
+    mockDeleteFilter.mockResolvedValue(undefined)
     mockFetchSidebar.mockResolvedValue(undefined)
     mockUpdateSidebar.mockResolvedValue(undefined)
   })
 
-  describe('delete list navigation', () => {
-    it('should navigate to /app/content when deleting the currently viewed list', async () => {
+  describe('delete filter navigation', () => {
+    it('should navigate to /app/content when deleting the currently viewed filter', async () => {
       const user = userEvent.setup()
       const pathChanges: string[] = []
 
-      // Start with path-based route /app/bookmarks/lists/5 (viewing the list we're about to delete)
+      // Start with path-based route /app/content/filters/5 (viewing the filter we're about to delete)
       render(<Sidebar />, {
-        wrapper: createWrapper(['/app/bookmarks/lists/5'], (path) => {
+        wrapper: createWrapper(['/app/content/filters/5'], (path) => {
           pathChanges.push(path)
         }),
       })
 
       // Find the delete buttons (there are 2: mobile and desktop sidebars)
-      const deleteButtons = screen.getAllByTitle('Delete list')
+      const deleteButtons = screen.getAllByTitle('Delete filter')
       expect(deleteButtons.length).toBeGreaterThan(0)
 
       // Use the first one (desktop sidebar)
@@ -189,7 +189,7 @@ describe('Sidebar', () => {
 
       // Wait for delete to complete
       await waitFor(() => {
-        expect(mockDeleteList).toHaveBeenCalledWith('5')
+        expect(mockDeleteFilter).toHaveBeenCalledWith('5')
       })
 
       // Verify navigated to /app/content (the "All" route)
@@ -199,11 +199,11 @@ describe('Sidebar', () => {
       })
     })
 
-    it('should NOT navigate when deleting a list that is not currently viewed', async () => {
+    it('should NOT navigate when deleting a filter that is not currently viewed', async () => {
       const user = userEvent.setup()
       const pathChanges: string[] = []
 
-      // Start at /app/content (All view, NOT viewing list:5)
+      // Start at /app/content (All view, NOT viewing filter:5)
       render(<Sidebar />, {
         wrapper: createWrapper(['/app/content'], (path) => {
           pathChanges.push(path)
@@ -211,7 +211,7 @@ describe('Sidebar', () => {
       })
 
       // Find the delete buttons
-      const deleteButtons = screen.getAllByTitle('Delete list')
+      const deleteButtons = screen.getAllByTitle('Delete filter')
 
       // First click - shows confirmation
       await user.click(deleteButtons[0])
@@ -222,30 +222,30 @@ describe('Sidebar', () => {
 
       // Wait for delete to complete
       await waitFor(() => {
-        expect(mockDeleteList).toHaveBeenCalledWith('5')
+        expect(mockDeleteFilter).toHaveBeenCalledWith('5')
       })
 
-      // Path should NOT have changed since we weren't viewing list:5
+      // Path should NOT have changed since we weren't viewing filter:5
       await new Promise((resolve) => setTimeout(resolve, 100))
       expect(pathChanges.length).toBe(0)
     })
 
-    it('should NOT navigate away when delete fails while viewing the list', async () => {
+    it('should NOT navigate away when delete fails while viewing the filter', async () => {
       const user = userEvent.setup()
       const pathChanges: string[] = []
 
       // Make delete fail
-      mockDeleteList.mockRejectedValue(new Error('API error'))
+      mockDeleteFilter.mockRejectedValue(new Error('API error'))
 
-      // Start viewing list:5
+      // Start viewing filter:5
       render(<Sidebar />, {
-        wrapper: createWrapper(['/app/bookmarks/lists/5'], (path) => {
+        wrapper: createWrapper(['/app/content/filters/5'], (path) => {
           pathChanges.push(path)
         }),
       })
 
       // Find the delete buttons
-      const deleteButtons = screen.getAllByTitle('Delete list')
+      const deleteButtons = screen.getAllByTitle('Delete filter')
       await user.click(deleteButtons[0])
 
       // Second click - confirms delete
@@ -254,26 +254,26 @@ describe('Sidebar', () => {
 
       // Wait for delete attempt and rollback
       await waitFor(() => {
-        expect(mockDeleteList).toHaveBeenCalledWith('5')
+        expect(mockDeleteFilter).toHaveBeenCalledWith('5')
       })
 
       await waitFor(() => {
         expect(mockRollbackSidebar).toHaveBeenCalled()
       })
 
-      // User should NOT have been navigated away - they stay on the list page
+      // User should NOT have been navigated away - they stay on the filter page
       await new Promise((resolve) => setTimeout(resolve, 100))
       expect(pathChanges.length).toBe(0)
     })
   })
 
   describe('quick add navigation', () => {
-    it('uses the current list route when adding a bookmark from a list view', async () => {
+    it('uses the current filter route when adding a bookmark from a filter view', async () => {
       const user = userEvent.setup()
       const locations: ReturnType<typeof useLocation>[] = []
 
       render(<Sidebar />, {
-        wrapper: createWrapper(['/app/content/lists/5?foo=bar'], undefined, (location) => {
+        wrapper: createWrapper(['/app/content/filters/5?foo=bar'], undefined, (location) => {
           locations.push(location)
         }),
       })
@@ -285,18 +285,18 @@ describe('Sidebar', () => {
         const lastLocation = locations[locations.length - 1]
         expect(lastLocation?.pathname).toBe('/app/bookmarks/new')
         expect(lastLocation?.state).toMatchObject({
-          returnTo: '/app/content/lists/5?foo=bar',
+          returnTo: '/app/content/filters/5?foo=bar',
           initialTags: ['work', 'urgent'],
         })
       })
     })
 
-    it('passes list tags when creating a note from a list view', async () => {
+    it('passes filter tags when creating a note from a filter view', async () => {
       const user = userEvent.setup()
       const locations: ReturnType<typeof useLocation>[] = []
 
       render(<Sidebar />, {
-        wrapper: createWrapper(['/app/content/lists/5'], undefined, (location) => {
+        wrapper: createWrapper(['/app/content/filters/5'], undefined, (location) => {
           locations.push(location)
         }),
       })
@@ -308,7 +308,7 @@ describe('Sidebar', () => {
         const lastLocation = locations[locations.length - 1]
         expect(lastLocation?.pathname).toBe('/app/notes/new')
         expect(lastLocation?.state).toMatchObject({
-          returnTo: '/app/content/lists/5',
+          returnTo: '/app/content/filters/5',
           initialTags: ['work', 'urgent'],
         })
       })
@@ -316,7 +316,7 @@ describe('Sidebar', () => {
   })
 
   describe('optimistic updates', () => {
-    describe('create group', () => {
+    describe('create collection', () => {
       it('calls setSidebarOptimistic before updateSidebar', async () => {
         const user = userEvent.setup()
         const callOrder: string[] = []
@@ -333,9 +333,9 @@ describe('Sidebar', () => {
           wrapper: createWrapper(['/app/content']),
         })
 
-        // Click the "Group" button to create a new group
-        const groupButtons = screen.getAllByTitle('New Group')
-        await user.click(groupButtons[0])
+        // Click the "Collection" button to create a new collection
+        const collectionButtons = screen.getAllByTitle('New Collection')
+        await user.click(collectionButtons[0])
 
         await waitFor(() => {
           expect(mockSetSidebarOptimistic).toHaveBeenCalled()
@@ -349,24 +349,24 @@ describe('Sidebar', () => {
         expect(callOrder).toEqual(['setSidebarOptimistic', 'updateSidebar'])
       })
 
-      it('calls setSidebarOptimistic with new group at the beginning', async () => {
+      it('calls setSidebarOptimistic with new collection at the beginning', async () => {
         const user = userEvent.setup()
 
         render(<Sidebar />, {
           wrapper: createWrapper(['/app/content']),
         })
 
-        const groupButtons = screen.getAllByTitle('New Group')
-        await user.click(groupButtons[0])
+        const collectionButtons = screen.getAllByTitle('New Collection')
+        await user.click(collectionButtons[0])
 
         await waitFor(() => {
           expect(mockSetSidebarOptimistic).toHaveBeenCalled()
         })
 
-        // Verify the new group is added to the front
+        // Verify the new collection is added to the front
         const optimisticItems = mockSetSidebarOptimistic.mock.calls[0][0]
-        expect(optimisticItems[0].type).toBe('group')
-        expect(optimisticItems[0].name).toBe('New Group')
+        expect(optimisticItems[0].type).toBe('collection')
+        expect(optimisticItems[0].name).toBe('New Collection')
         expect(optimisticItems[0].items).toEqual([])
       })
 
@@ -379,8 +379,8 @@ describe('Sidebar', () => {
           wrapper: createWrapper(['/app/content']),
         })
 
-        const groupButtons = screen.getAllByTitle('New Group')
-        await user.click(groupButtons[0])
+        const collectionButtons = screen.getAllByTitle('New Collection')
+        await user.click(collectionButtons[0])
 
         await waitFor(() => {
           expect(mockRollbackSidebar).toHaveBeenCalled()
@@ -388,16 +388,16 @@ describe('Sidebar', () => {
       })
     })
 
-    describe('delete list', () => {
-      it('calls setSidebarOptimistic before deleteList API call', async () => {
+    describe('delete filter', () => {
+      it('calls setSidebarOptimistic before deleteFilter API call', async () => {
         const user = userEvent.setup()
         const callOrder: string[] = []
 
         mockSetSidebarOptimistic.mockImplementation(() => {
           callOrder.push('setSidebarOptimistic')
         })
-        mockDeleteList.mockImplementation(() => {
-          callOrder.push('deleteList')
+        mockDeleteFilter.mockImplementation(() => {
+          callOrder.push('deleteFilter')
           return Promise.resolve(undefined)
         })
 
@@ -406,7 +406,7 @@ describe('Sidebar', () => {
         })
 
         // Find the delete buttons
-        const deleteButtons = screen.getAllByTitle('Delete list')
+        const deleteButtons = screen.getAllByTitle('Delete filter')
         await user.click(deleteButtons[0])
 
         // Second click - confirms delete
@@ -418,21 +418,21 @@ describe('Sidebar', () => {
         })
 
         await waitFor(() => {
-          expect(mockDeleteList).toHaveBeenCalled()
+          expect(mockDeleteFilter).toHaveBeenCalled()
         })
 
         // Verify optimistic update happens before API call
-        expect(callOrder).toEqual(['setSidebarOptimistic', 'deleteList'])
+        expect(callOrder).toEqual(['setSidebarOptimistic', 'deleteFilter'])
       })
 
-      it('calls setSidebarOptimistic with list removed', async () => {
+      it('calls setSidebarOptimistic with filter removed', async () => {
         const user = userEvent.setup()
 
         render(<Sidebar />, {
           wrapper: createWrapper(['/app/content']),
         })
 
-        const deleteButtons = screen.getAllByTitle('Delete list')
+        const deleteButtons = screen.getAllByTitle('Delete filter')
         await user.click(deleteButtons[0])
 
         const confirmButtons = screen.getAllByTitle('Click again to confirm')
@@ -442,24 +442,24 @@ describe('Sidebar', () => {
           expect(mockSetSidebarOptimistic).toHaveBeenCalled()
         })
 
-        // Verify the list is removed from sidebar
+        // Verify the filter is removed from sidebar
         const optimisticItems = mockSetSidebarOptimistic.mock.calls[0][0]
-        const listItem = optimisticItems.find(
-          (item: { type: string; id?: number }) => item.type === 'list' && item.id === 5
+        const filterItem = optimisticItems.find(
+          (item: { type: string; id?: number }) => item.type === 'filter' && item.id === 5
         )
-        expect(listItem).toBeUndefined()
+        expect(filterItem).toBeUndefined()
       })
 
-      it('calls rollbackSidebar when deleteList fails', async () => {
+      it('calls rollbackSidebar when deleteFilter fails', async () => {
         const user = userEvent.setup()
 
-        mockDeleteList.mockRejectedValue(new Error('API error'))
+        mockDeleteFilter.mockRejectedValue(new Error('API error'))
 
         render(<Sidebar />, {
           wrapper: createWrapper(['/app/content']),
         })
 
-        const deleteButtons = screen.getAllByTitle('Delete list')
+        const deleteButtons = screen.getAllByTitle('Delete filter')
         await user.click(deleteButtons[0])
 
         const confirmButtons = screen.getAllByTitle('Click again to confirm')

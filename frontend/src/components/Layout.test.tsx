@@ -1,7 +1,7 @@
 /**
  * Tests for the Layout component.
  *
- * Key behavior: Layout fetches shared data (sidebar, lists, tags) exactly once on mount.
+ * Key behavior: Layout fetches shared data (sidebar, filters, tags) exactly once on mount.
  * This centralized fetching prevents duplicate API calls from child components.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -12,7 +12,7 @@ import { Layout } from './Layout'
 
 // Create mock functions that we can spy on
 const mockFetchSidebar = vi.fn()
-const mockFetchLists = vi.fn()
+const mockFetchFilters = vi.fn()
 const mockFetchTags = vi.fn()
 
 vi.mock('../stores/settingsStore', () => ({
@@ -24,7 +24,7 @@ vi.mock('../stores/settingsStore', () => ({
           { type: 'builtin', key: 'all', name: 'All Content' },
           { type: 'builtin', key: 'archived', name: 'Archived' },
           { type: 'builtin', key: 'trash', name: 'Trash' },
-          { type: 'list', id: 1, name: 'My List', content_types: ['bookmark', 'note'] },
+          { type: 'filter', id: 1, name: 'My Filter', content_types: ['bookmark', 'note'] },
         ],
       },
       fetchSidebar: mockFetchSidebar,
@@ -33,11 +33,11 @@ vi.mock('../stores/settingsStore', () => ({
   },
 }))
 
-vi.mock('../stores/listsStore', () => ({
-  useListsStore: (selector?: (state: Record<string, unknown>) => unknown) => {
+vi.mock('../stores/filtersStore', () => ({
+  useFiltersStore: (selector?: (state: Record<string, unknown>) => unknown) => {
     const state = {
-      lists: [],
-      fetchLists: mockFetchLists,
+      filters: [],
+      fetchFilters: mockFetchFilters,
     }
     return selector ? selector(state) : state
   },
@@ -109,10 +109,10 @@ describe('Layout', () => {
       expect(mockFetchSidebar).toHaveBeenCalledTimes(1)
     })
 
-    it('should fetch lists exactly once on mount', () => {
+    it('should fetch filters exactly once on mount', () => {
       renderLayout()
 
-      expect(mockFetchLists).toHaveBeenCalledTimes(1)
+      expect(mockFetchFilters).toHaveBeenCalledTimes(1)
     })
 
     it('should fetch tags exactly once on mount', () => {
@@ -126,7 +126,7 @@ describe('Layout', () => {
 
       // All three should be called exactly once
       expect(mockFetchSidebar).toHaveBeenCalledTimes(1)
-      expect(mockFetchLists).toHaveBeenCalledTimes(1)
+      expect(mockFetchFilters).toHaveBeenCalledTimes(1)
       expect(mockFetchTags).toHaveBeenCalledTimes(1)
     })
   })

@@ -164,14 +164,14 @@ class TestRateLimitAppliedToAllEndpoints:
         client: AsyncClient,
         low_rate_limits: None,  # noqa: ARG002
     ) -> None:
-        """GET /lists/ is rate limited."""
+        """GET /filters/ is rate limited."""
         # Make 2 requests (allowed)
         for _ in range(2):
-            response = await client.get("/lists/")
+            response = await client.get("/filters/")
             assert response.status_code == 200
 
         # 3rd request should be blocked
-        response = await client.get("/lists/")
+        response = await client.get("/filters/")
         assert response.status_code == 429
 
     async def test__lists_create__rate_limited(
@@ -179,13 +179,13 @@ class TestRateLimitAppliedToAllEndpoints:
         client: AsyncClient,
         low_rate_limits: None,  # noqa: ARG002
     ) -> None:
-        """POST /lists/ is rate limited."""
+        """POST /filters/ is rate limited."""
         import uuid
         # Make 2 requests (allowed) - use unique names and valid filter_expression
         filter_expr = {"groups": [{"tags": ["test"]}], "group_operator": "OR"}
         for i in range(2):
             response = await client.post(
-                "/lists/",
+                "/filters/",
                 json={
                     "name": f"List {uuid.uuid4().hex[:8]}-{i}",
                     "filter_expression": filter_expr,
@@ -195,7 +195,7 @@ class TestRateLimitAppliedToAllEndpoints:
 
         # 3rd request should be blocked
         response = await client.post(
-            "/lists/",
+            "/filters/",
             json={
                 "name": f"Blocked List {uuid.uuid4().hex[:8]}",
                 "filter_expression": filter_expr,

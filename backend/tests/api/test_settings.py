@@ -29,7 +29,7 @@ async def test__get_sidebar__resolves_list_names(client: AsyncClient) -> None:
     """Test that list names are resolved in sidebar response."""
     # Create a list first
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "My Reading List",
             "content_types": ["bookmark"],
@@ -37,7 +37,7 @@ async def test__get_sidebar__resolves_list_names(client: AsyncClient) -> None:
         },
     )
     assert create_response.status_code == 201
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     # Get sidebar
     response = await client.get("/settings/sidebar")
@@ -46,11 +46,11 @@ async def test__get_sidebar__resolves_list_names(client: AsyncClient) -> None:
     data = response.json()
 
     # Find the list in items
-    list_items = [item for item in data["items"] if item["type"] == "list"]
+    list_items = [item for item in data["items"] if item["type"] == "filter"]
     assert len(list_items) >= 1
 
     # Find our specific list
-    our_list = next((item for item in list_items if item["id"] == list_id), None)
+    our_list = next((item for item in list_items if item["id"] == filter_id), None)
     assert our_list is not None
     assert our_list["name"] == "My Reading List"
     assert our_list["content_types"] == ["bookmark"]
@@ -84,14 +84,14 @@ async def test__put_sidebar__with_groups(client: AsyncClient) -> None:
     """Test updating sidebar with groups."""
     # Create a list first
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Work Items",
             "content_types": ["bookmark", "note"],
             "filter_expression": {"groups": [{"tags": ["work"]}], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     response = await client.put(
         "/settings/sidebar",
@@ -100,11 +100,11 @@ async def test__put_sidebar__with_groups(client: AsyncClient) -> None:
             "items": [
                 {"type": "builtin", "key": "all"},
                 {
-                    "type": "group",
+                    "type": "collection",
                     "id": "550e8400-e29b-41d4-a716-446655440000",
                     "name": "Work",
                     "items": [
-                        {"type": "list", "id": list_id},
+                        {"type": "filter", "id": filter_id},
                     ],
                 },
                 {"type": "builtin", "key": "archived"},
@@ -116,7 +116,7 @@ async def test__put_sidebar__with_groups(client: AsyncClient) -> None:
 
     data = response.json()
     # Check group is present
-    groups = [item for item in data["items"] if item["type"] == "group"]
+    groups = [item for item in data["items"] if item["type"] == "collection"]
     assert len(groups) == 1
     assert groups[0]["name"] == "Work"
     assert len(groups[0]["items"]) == 1
@@ -126,27 +126,27 @@ async def test__put_sidebar__rejects_duplicate_list(client: AsyncClient) -> None
     """Test that duplicate list IDs are rejected."""
     # Create a list
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Test List",
             "content_types": ["bookmark"],
             "filter_expression": {"groups": [{"tags": ["test"]}], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     response = await client.put(
         "/settings/sidebar",
         json={
             "version": 1,
             "items": [
-                {"type": "list", "id": list_id},
-                {"type": "list", "id": list_id},  # Duplicate
+                {"type": "filter", "id": filter_id},
+                {"type": "filter", "id": filter_id},  # Duplicate
             ],
         },
     )
     assert response.status_code == 400
-    assert "Duplicate list item" in response.json()["detail"]
+    assert "Duplicate filter item" in response.json()["detail"]
 
 
 async def test__put_sidebar__rejects_duplicate_builtin(client: AsyncClient) -> None:
@@ -172,12 +172,12 @@ async def test__put_sidebar__rejects_nonexistent_list(client: AsyncClient) -> No
         json={
             "version": 1,
             "items": [
-                {"type": "list", "id": "00000000-0000-0000-0000-000000000000"},
+                {"type": "filter", "id": "00000000-0000-0000-0000-000000000000"},
             ],
         },
     )
     assert response.status_code == 400
-    assert "List not found" in response.json()["detail"]
+    assert "Filter not found" in response.json()["detail"]
 
 
 async def test__put_sidebar__rejects_invalid_uuid(client: AsyncClient) -> None:
@@ -188,7 +188,7 @@ async def test__put_sidebar__rejects_invalid_uuid(client: AsyncClient) -> None:
             "version": 1,
             "items": [
                 {
-                    "type": "group",
+                    "type": "collection",
                     "id": "not-a-uuid",
                     "name": "Test",
                     "items": [],
@@ -207,12 +207,12 @@ async def test__put_sidebar__rejects_nested_groups(client: AsyncClient) -> None:
             "version": 1,
             "items": [
                 {
-                    "type": "group",
+                    "type": "collection",
                     "id": "550e8400-e29b-41d4-a716-446655440000",
                     "name": "Outer",
                     "items": [
                         {
-                            "type": "group",
+                            "type": "collection",
                             "id": "660e8400-e29b-41d4-a716-446655440001",
                             "name": "Inner",
                             "items": [],
@@ -229,39 +229,39 @@ async def test__get_sidebar__filters_deleted_lists(client: AsyncClient) -> None:
     """Test that deleted list references are filtered from sidebar."""
     # Create and delete a list
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "To Delete",
             "content_types": ["bookmark"],
             "filter_expression": {"groups": [{"tags": ["delete"]}], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     # Delete the list
-    await client.delete(f"/lists/{list_id}")
+    await client.delete(f"/filters/{filter_id}")
 
     # Get sidebar - deleted list should not appear
     response = await client.get("/settings/sidebar")
     assert response.status_code == 200
 
     data = response.json()
-    list_ids = [item["id"] for item in data["items"] if item["type"] == "list"]
-    assert list_id not in list_ids
+    filter_ids = [item["id"] for item in data["items"] if item["type"] == "filter"]
+    assert filter_id not in filter_ids
 
 
 async def test__get_sidebar__prepends_orphan_lists(client: AsyncClient) -> None:
     """Test that lists not in sidebar_order are prepended."""
     # Create a list (automatically added to sidebar)
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "New List",
             "content_types": ["note"],
             "filter_expression": {"groups": [{"tags": ["new"]}], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     # Override sidebar to NOT include the list
     await client.put(
@@ -281,21 +281,21 @@ async def test__get_sidebar__prepends_orphan_lists(client: AsyncClient) -> None:
     data = response.json()
     # Find all list items that appear before the first builtin
     # (these are the prepended orphan lists)
-    orphan_list_ids = []
+    orphan_filter_ids = []
     for item in data["items"]:
-        if item["type"] == "list":
-            orphan_list_ids.append(item["id"])
+        if item["type"] == "filter":
+            orphan_filter_ids.append(item["id"])
         elif item["type"] == "builtin":
             break  # Stop at first builtin
     # Our created list should be among the prepended orphans
-    assert list_id in orphan_list_ids
+    assert filter_id in orphan_filter_ids
 
 
 async def test__list_creation__adds_to_sidebar(client: AsyncClient) -> None:
     """Test that creating a list adds it to sidebar_order."""
     # Create a list
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Auto Added List",
             "content_types": ["bookmark"],
@@ -303,42 +303,42 @@ async def test__list_creation__adds_to_sidebar(client: AsyncClient) -> None:
         },
     )
     assert create_response.status_code == 201
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     # Get sidebar
     response = await client.get("/settings/sidebar")
     assert response.status_code == 200
 
     data = response.json()
-    list_ids = [item["id"] for item in data["items"] if item["type"] == "list"]
-    assert list_id in list_ids
+    filter_ids = [item["id"] for item in data["items"] if item["type"] == "filter"]
+    assert filter_id in filter_ids
 
 
 async def test__list_deletion__removes_from_sidebar(client: AsyncClient) -> None:
     """Test that deleting a list removes it from sidebar_order."""
     # Create a list
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "To Be Deleted",
             "content_types": ["bookmark"],
             "filter_expression": {"groups": [{"tags": ["tbd"]}], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     # Verify it's in sidebar
     response = await client.get("/settings/sidebar")
-    list_ids = [item["id"] for item in response.json()["items"] if item["type"] == "list"]
-    assert list_id in list_ids
+    filter_ids = [item["id"] for item in response.json()["items"] if item["type"] == "filter"]
+    assert filter_id in filter_ids
 
     # Delete the list
-    await client.delete(f"/lists/{list_id}")
+    await client.delete(f"/filters/{filter_id}")
 
     # Verify it's removed from sidebar
     response = await client.get("/settings/sidebar")
-    list_ids = [item["id"] for item in response.json()["items"] if item["type"] == "list"]
-    assert list_id not in list_ids
+    filter_ids = [item["id"] for item in response.json()["items"] if item["type"] == "filter"]
+    assert filter_id not in filter_ids
 
 
 async def test__put_sidebar__rejects_duplicate_group_id(client: AsyncClient) -> None:
@@ -349,13 +349,13 @@ async def test__put_sidebar__rejects_duplicate_group_id(client: AsyncClient) -> 
             "version": 1,
             "items": [
                 {
-                    "type": "group",
+                    "type": "collection",
                     "id": "550e8400-e29b-41d4-a716-446655440000",
                     "name": "Group One",
                     "items": [],
                 },
                 {
-                    "type": "group",
+                    "type": "collection",
                     "id": "550e8400-e29b-41d4-a716-446655440000",  # Same ID
                     "name": "Group Two",
                     "items": [],
@@ -364,21 +364,21 @@ async def test__put_sidebar__rejects_duplicate_group_id(client: AsyncClient) -> 
         },
     )
     assert response.status_code == 400
-    assert "Duplicate group item" in response.json()["detail"]
+    assert "Duplicate collection item" in response.json()["detail"]
 
 
 async def test__list_deletion__removes_from_group_in_sidebar(client: AsyncClient) -> None:
     """Test that deleting a list removes it from a group in sidebar_order."""
     # Create a list
     create_response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "List In Group",
             "content_types": ["bookmark"],
             "filter_expression": {"groups": [{"tags": ["grouped"]}], "group_operator": "OR"},
         },
     )
-    list_id = create_response.json()["id"]
+    filter_id = create_response.json()["id"]
 
     # Put list inside a group in sidebar
     await client.put(
@@ -388,11 +388,11 @@ async def test__list_deletion__removes_from_group_in_sidebar(client: AsyncClient
             "items": [
                 {"type": "builtin", "key": "all"},
                 {
-                    "type": "group",
+                    "type": "collection",
                     "id": "550e8400-e29b-41d4-a716-446655440000",
                     "name": "Work",
                     "items": [
-                        {"type": "list", "id": list_id},
+                        {"type": "filter", "id": filter_id},
                     ],
                 },
                 {"type": "builtin", "key": "archived"},
@@ -403,17 +403,17 @@ async def test__list_deletion__removes_from_group_in_sidebar(client: AsyncClient
 
     # Verify list is in group
     response = await client.get("/settings/sidebar")
-    groups = [item for item in response.json()["items"] if item["type"] == "group"]
+    groups = [item for item in response.json()["items"] if item["type"] == "collection"]
     assert len(groups) == 1
     assert len(groups[0]["items"]) == 1
-    assert groups[0]["items"][0]["id"] == list_id
+    assert groups[0]["items"][0]["id"] == filter_id
 
     # Delete the list
-    await client.delete(f"/lists/{list_id}")
+    await client.delete(f"/filters/{filter_id}")
 
     # Verify list is removed from group
     response = await client.get("/settings/sidebar")
-    groups = [item for item in response.json()["items"] if item["type"] == "group"]
+    groups = [item for item in response.json()["items"] if item["type"] == "collection"]
     assert len(groups) == 1
     # Group should now be empty (list was removed)
     assert len(groups[0]["items"]) == 0

@@ -18,7 +18,7 @@ import type { BookmarkListResponse, BookmarkSearchParams } from '../types'
  * - ['bookmarks', 'list', 'active', params]  - active view queries
  * - ['bookmarks', 'list', 'archived', params] - archived view queries
  * - ['bookmarks', 'list', 'deleted', params] - deleted view queries
- * - ['bookmarks', 'list', 'custom', params] - custom list queries (have list_id)
+ * - ['bookmarks', 'list', 'custom', params] - custom list queries (have filter_id)
  *
  * Invalidation Keys (prefix matching):
  * - bookmarkKeys.view('active')  → ['bookmarks', 'list', 'active'] - all active queries
@@ -40,8 +40,8 @@ export const bookmarkKeys = {
 
   /** Query key for fetching - includes view/custom segment for granular invalidation */
   list: (params: BookmarkSearchParams) => {
-    // Custom lists have list_id - group them separately
-    if (params.list_id !== undefined) {
+    // Custom lists have filter_id - group them separately
+    if (params.filter_id !== undefined) {
       return [...bookmarkKeys.customLists(), params] as const
     }
     // Standard view queries - group by view type
@@ -79,8 +79,8 @@ function buildQueryString(params: BookmarkSearchParams): string {
   if (params.view) {
     queryParams.set('view', params.view)
   }
-  if (params.list_id !== undefined) {
-    queryParams.set('list_id', String(params.list_id))
+  if (params.filter_id !== undefined) {
+    queryParams.set('filter_id', String(params.filter_id))
   }
 
   return queryParams.toString()

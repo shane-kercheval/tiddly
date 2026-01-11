@@ -4,17 +4,17 @@
 import { describe, it, expect } from 'vitest'
 import {
   getItemId,
-  getGroupChildId,
-  parseGroupChildId,
+  getCollectionChildId,
+  parseCollectionChildId,
   computedToMinimal,
   getBuiltinIcon,
-  getListIcon,
+  getFilterIcon,
 } from './sidebarDndUtils'
 import type {
   SidebarItemComputed,
   SidebarBuiltinItemComputed,
-  SidebarListItemComputed,
-  SidebarGroupComputed,
+  SidebarFilterItemComputed,
+  SidebarCollectionComputed,
 } from '../../types'
 
 describe('sidebarDndUtils', () => {
@@ -35,24 +35,24 @@ describe('sidebarDndUtils', () => {
     })
   })
 
-  describe('getListIcon', () => {
-    it('should return bookmark icon for bookmark-only lists', () => {
-      const icon = getListIcon(['bookmark'])
+  describe('getFilterIcon', () => {
+    it('should return bookmark icon for bookmark-only filters', () => {
+      const icon = getFilterIcon(['bookmark'])
       expect(icon).toBeDefined()
     })
 
-    it('should return note icon for note-only lists', () => {
-      const icon = getListIcon(['note'])
+    it('should return note icon for note-only filters', () => {
+      const icon = getFilterIcon(['note'])
       expect(icon).toBeDefined()
     })
 
     it('should return list/shared icon for mixed content types', () => {
-      const icon = getListIcon(['bookmark', 'note'])
+      const icon = getFilterIcon(['bookmark', 'note'])
       expect(icon).toBeDefined()
     })
 
     it('should return list/shared icon for empty content types', () => {
-      const icon = getListIcon([])
+      const icon = getFilterIcon([])
       expect(icon).toBeDefined()
     })
   })
@@ -67,24 +67,24 @@ describe('sidebarDndUtils', () => {
       expect(getItemId(item)).toBe('builtin:all')
     })
 
-    it('should return correct ID for list item', () => {
-      const item: SidebarListItemComputed = {
-        type: 'list',
+    it('should return correct ID for filter item', () => {
+      const item: SidebarFilterItemComputed = {
+        type: 'filter',
         id: '42',
-        name: 'My List',
+        name: 'My Filter',
         content_types: ['bookmark'],
       }
-      expect(getItemId(item)).toBe('list:42')
+      expect(getItemId(item)).toBe('filter:42')
     })
 
-    it('should return correct ID for group item', () => {
-      const item: SidebarGroupComputed = {
-        type: 'group',
+    it('should return correct ID for collection item', () => {
+      const item: SidebarCollectionComputed = {
+        type: 'collection',
         id: 'abc-123',
         name: 'Work',
         items: [],
       }
-      expect(getItemId(item)).toBe('group:abc-123')
+      expect(getItemId(item)).toBe('collection:abc-123')
     })
 
     it('should handle all builtin keys', () => {
@@ -100,89 +100,89 @@ describe('sidebarDndUtils', () => {
     })
   })
 
-  describe('getGroupChildId', () => {
-    it('should return correct ID for builtin child in group', () => {
+  describe('getCollectionChildId', () => {
+    it('should return correct ID for builtin child in collection', () => {
       const child: SidebarBuiltinItemComputed = {
         type: 'builtin',
         key: 'archived',
         name: 'Archived',
       }
-      expect(getGroupChildId('group-123', child)).toBe('ingroup:group-123:builtin:archived')
+      expect(getCollectionChildId('collection-123', child)).toBe('incollection:collection-123:builtin:archived')
     })
 
-    it('should return correct ID for list child in group', () => {
-      const child: SidebarListItemComputed = {
-        type: 'list',
+    it('should return correct ID for filter child in collection', () => {
+      const child: SidebarFilterItemComputed = {
+        type: 'filter',
         id: '99',
-        name: 'My List',
+        name: 'My Filter',
         content_types: ['note'],
       }
-      expect(getGroupChildId('group-456', child)).toBe('ingroup:group-456:list:99')
+      expect(getCollectionChildId('collection-456', child)).toBe('incollection:collection-456:filter:99')
     })
 
-    it('should work with UUID format group IDs', () => {
-      const child: SidebarListItemComputed = {
-        type: 'list',
+    it('should work with UUID format collection IDs', () => {
+      const child: SidebarFilterItemComputed = {
+        type: 'filter',
         id: '1',
         name: 'Test',
         content_types: [],
       }
-      expect(getGroupChildId('550e8400-e29b-41d4-a716-446655440000', child)).toBe(
-        'ingroup:550e8400-e29b-41d4-a716-446655440000:list:1'
+      expect(getCollectionChildId('550e8400-e29b-41d4-a716-446655440000', child)).toBe(
+        'incollection:550e8400-e29b-41d4-a716-446655440000:filter:1'
       )
     })
   })
 
-  describe('parseGroupChildId', () => {
-    it('should return null for non-ingroup ID', () => {
-      expect(parseGroupChildId('builtin:all')).toBeNull()
-      expect(parseGroupChildId('list:5')).toBeNull()
-      expect(parseGroupChildId('group:abc')).toBeNull()
+  describe('parseCollectionChildId', () => {
+    it('should return null for non-incollection ID', () => {
+      expect(parseCollectionChildId('builtin:all')).toBeNull()
+      expect(parseCollectionChildId('filter:5')).toBeNull()
+      expect(parseCollectionChildId('collection:abc')).toBeNull()
     })
 
-    it('should return null for malformed ingroup ID', () => {
-      expect(parseGroupChildId('ingroup:only-two-parts')).toBeNull()
-      expect(parseGroupChildId('ingroup:one:two:three:four:five')).toBeNull()
+    it('should return null for malformed incollection ID', () => {
+      expect(parseCollectionChildId('incollection:only-two-parts')).toBeNull()
+      expect(parseCollectionChildId('incollection:one:two:three:four:five')).toBeNull()
     })
 
     it('should parse builtin child ID correctly', () => {
-      const result = parseGroupChildId('ingroup:group-123:builtin:archived')
+      const result = parseCollectionChildId('incollection:collection-123:builtin:archived')
 
       expect(result).toEqual({
-        groupId: 'group-123',
+        collectionId: 'collection-123',
         type: 'builtin',
         key: 'archived',
       })
     })
 
-    it('should parse list child ID correctly', () => {
-      const result = parseGroupChildId('ingroup:group-456:list:99')
+    it('should parse filter child ID correctly', () => {
+      const result = parseCollectionChildId('incollection:collection-456:filter:99')
 
       expect(result).toEqual({
-        groupId: 'group-456',
-        type: 'list',
-        listId: '99',
+        collectionId: 'collection-456',
+        type: 'filter',
+        filterId: '99',
       })
     })
 
-    it('should handle UUID format group IDs', () => {
-      const result = parseGroupChildId('ingroup:550e8400-e29b-41d4-a716-446655440000:list:42')
+    it('should handle UUID format collection IDs', () => {
+      const result = parseCollectionChildId('incollection:550e8400-e29b-41d4-a716-446655440000:filter:42')
 
       expect(result).toEqual({
-        groupId: '550e8400-e29b-41d4-a716-446655440000',
-        type: 'list',
-        listId: '42',
+        collectionId: '550e8400-e29b-41d4-a716-446655440000',
+        type: 'filter',
+        filterId: '42',
       })
     })
 
     it('should return null for invalid type', () => {
-      const result = parseGroupChildId('ingroup:group-123:invalid:foo')
+      const result = parseCollectionChildId('incollection:collection-123:invalid:foo')
       expect(result).toBeNull()
     })
 
-    it('should handle list ID that parses to string', () => {
-      const result = parseGroupChildId('ingroup:abc:list:123')
-      expect(result?.listId).toBe('123')
+    it('should handle filter ID that parses to string', () => {
+      const result = parseCollectionChildId('incollection:abc:filter:123')
+      expect(result?.filterId).toBe('123')
     })
   })
 
@@ -201,28 +201,28 @@ describe('sidebarDndUtils', () => {
       ])
     })
 
-    it('should convert list items correctly', () => {
+    it('should convert filter items correctly', () => {
       const items: SidebarItemComputed[] = [
-        { type: 'list', id: '1', name: 'List One', content_types: ['bookmark'] },
-        { type: 'list', id: '2', name: 'List Two', content_types: ['note', 'bookmark'] },
+        { type: 'filter', id: '1', name: 'Filter One', content_types: ['bookmark'] },
+        { type: 'filter', id: '2', name: 'Filter Two', content_types: ['note', 'bookmark'] },
       ]
 
       const result = computedToMinimal(items)
 
       expect(result).toEqual([
-        { type: 'list', id: '1' },
-        { type: 'list', id: '2' },
+        { type: 'filter', id: '1' },
+        { type: 'filter', id: '2' },
       ])
     })
 
-    it('should convert group items correctly', () => {
+    it('should convert collection items correctly', () => {
       const items: SidebarItemComputed[] = [
         {
-          type: 'group',
-          id: 'group-1',
+          type: 'collection',
+          id: 'collection-1',
           name: 'Work',
           items: [
-            { type: 'list', id: '5', name: 'Projects', content_types: ['note'] },
+            { type: 'filter', id: '5', name: 'Projects', content_types: ['note'] },
             { type: 'builtin', key: 'archived', name: 'Archived' },
           ],
         },
@@ -232,11 +232,11 @@ describe('sidebarDndUtils', () => {
 
       expect(result).toEqual([
         {
-          type: 'group',
-          id: 'group-1',
+          type: 'collection',
+          id: 'collection-1',
           name: 'Work',
           items: [
-            { type: 'list', id: '5' },
+            { type: 'filter', id: '5' },
             { type: 'builtin', key: 'archived' },
           ],
         },
@@ -250,12 +250,12 @@ describe('sidebarDndUtils', () => {
     it('should handle mixed items at root level', () => {
       const items: SidebarItemComputed[] = [
         { type: 'builtin', key: 'all', name: 'All Content' },
-        { type: 'list', id: '1', name: 'Test', content_types: [] },
+        { type: 'filter', id: '1', name: 'Test', content_types: [] },
         {
-          type: 'group',
-          id: 'g1',
-          name: 'Group',
-          items: [{ type: 'list', id: '2', name: 'Nested', content_types: [] }],
+          type: 'collection',
+          id: 'c1',
+          name: 'Collection',
+          items: [{ type: 'filter', id: '2', name: 'Nested', content_types: [] }],
         },
         { type: 'builtin', key: 'trash', name: 'Trash' },
       ]
@@ -264,22 +264,22 @@ describe('sidebarDndUtils', () => {
 
       expect(result).toEqual([
         { type: 'builtin', key: 'all' },
-        { type: 'list', id: '1' },
+        { type: 'filter', id: '1' },
         {
-          type: 'group',
-          id: 'g1',
-          name: 'Group',
-          items: [{ type: 'list', id: '2' }],
+          type: 'collection',
+          id: 'c1',
+          name: 'Collection',
+          items: [{ type: 'filter', id: '2' }],
         },
         { type: 'builtin', key: 'trash' },
       ])
     })
 
-    it('should handle groups with empty items array', () => {
+    it('should handle collections with empty items array', () => {
       const items: SidebarItemComputed[] = [
         {
-          type: 'group',
-          id: 'empty-group',
+          type: 'collection',
+          id: 'empty-collection',
           name: 'Empty',
           items: [],
         },
@@ -289,8 +289,8 @@ describe('sidebarDndUtils', () => {
 
       expect(result).toEqual([
         {
-          type: 'group',
-          id: 'empty-group',
+          type: 'collection',
+          id: 'empty-collection',
           name: 'Empty',
           items: [],
         },
@@ -300,12 +300,12 @@ describe('sidebarDndUtils', () => {
     it('should strip computed properties from nested items', () => {
       const items: SidebarItemComputed[] = [
         {
-          type: 'group',
-          id: 'g1',
+          type: 'collection',
+          id: 'c1',
           name: 'Work',
           items: [
             {
-              type: 'list',
+              type: 'filter',
               id: '42',
               name: 'This name should be stripped',
               content_types: ['bookmark', 'note'],
@@ -315,47 +315,47 @@ describe('sidebarDndUtils', () => {
       ]
 
       const result = computedToMinimal(items)
-      const groupResult = result[0] as { type: 'group'; items: Array<{ type: string; id: string; name?: string }> }
+      const collectionResult = result[0] as { type: 'collection'; items: Array<{ type: string; id: string; name?: string }> }
 
-      // The nested list should not have name or content_types
-      expect(groupResult.items[0]).toEqual({ type: 'list', id: '42' })
-      expect('name' in groupResult.items[0]).toBe(false)
+      // The nested filter should not have name or content_types
+      expect(collectionResult.items[0]).toEqual({ type: 'filter', id: '42' })
+      expect('name' in collectionResult.items[0]).toBe(false)
     })
   })
 
   describe('round-trip consistency', () => {
-    it('getGroupChildId and parseGroupChildId should be consistent', () => {
-      const listChild: SidebarListItemComputed = {
-        type: 'list',
+    it('getCollectionChildId and parseCollectionChildId should be consistent', () => {
+      const filterChild: SidebarFilterItemComputed = {
+        type: 'filter',
         id: '123',
         name: 'Test',
         content_types: [],
       }
 
-      const groupId = 'my-group-uuid'
-      const childId = getGroupChildId(groupId, listChild)
-      const parsed = parseGroupChildId(childId)
+      const collectionId = 'my-collection-uuid'
+      const childId = getCollectionChildId(collectionId, filterChild)
+      const parsed = parseCollectionChildId(childId)
 
       expect(parsed).toEqual({
-        groupId: 'my-group-uuid',
-        type: 'list',
-        listId: '123',
+        collectionId: 'my-collection-uuid',
+        type: 'filter',
+        filterId: '123',
       })
     })
 
-    it('getGroupChildId and parseGroupChildId should be consistent for builtins', () => {
+    it('getCollectionChildId and parseCollectionChildId should be consistent for builtins', () => {
       const builtinChild: SidebarBuiltinItemComputed = {
         type: 'builtin',
         key: 'all',
         name: 'All Content',
       }
 
-      const groupId = 'another-group'
-      const childId = getGroupChildId(groupId, builtinChild)
-      const parsed = parseGroupChildId(childId)
+      const collectionId = 'another-collection'
+      const childId = getCollectionChildId(collectionId, builtinChild)
+      const parsed = parseCollectionChildId(childId)
 
       expect(parsed).toEqual({
-        groupId: 'another-group',
+        collectionId: 'another-collection',
         type: 'builtin',
         key: 'all',
       })

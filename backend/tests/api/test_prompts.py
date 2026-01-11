@@ -943,8 +943,8 @@ async def test__list_prompts__view_active_excludes_deleted_and_archived(
 # =============================================================================
 
 
-async def test__list_prompts__with_list_id(client: AsyncClient) -> None:
-    """Test filtering prompts by list_id parameter."""
+async def test__list_prompts__with_filter_id(client: AsyncClient) -> None:
+    """Test filtering prompts by filter_id parameter."""
     # Create prompts with different tags
     await client.post(
         "/prompts/",
@@ -961,7 +961,7 @@ async def test__list_prompts__with_list_id(client: AsyncClient) -> None:
 
     # Create a list that filters for work AND priority
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Work Priority List",
             "content_types": ["prompt"],
@@ -972,10 +972,10 @@ async def test__list_prompts__with_list_id(client: AsyncClient) -> None:
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
-    # Filter prompts by list_id
-    response = await client.get(f"/prompts/?list_id={list_id}")
+    # Filter prompts by filter_id
+    response = await client.get(f"/prompts/?filter_id={filter_id}")
     assert response.status_code == 200
 
     data = response.json()
@@ -983,11 +983,11 @@ async def test__list_prompts__with_list_id(client: AsyncClient) -> None:
     assert data["items"][0]["name"] == "work-priority"
 
 
-async def test__list_prompts__with_list_id_not_found(client: AsyncClient) -> None:
-    """Test that non-existent list_id returns 404."""
-    response = await client.get("/prompts/?list_id=00000000-0000-0000-0000-000000000000")
+async def test__list_prompts__with_filter_id_not_found(client: AsyncClient) -> None:
+    """Test that non-existent filter_id returns 404."""
+    response = await client.get("/prompts/?filter_id=00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
-    assert response.json()["detail"] == "List not found"
+    assert response.json()["detail"] == "Filter not found"
 
 
 # =============================================================================

@@ -66,8 +66,8 @@ function buildQueryString(params: ContentSearchParams): string {
   if (params.view) {
     queryParams.set('view', params.view)
   }
-  if (params.list_id !== undefined) {
-    queryParams.set('list_id', String(params.list_id))
+  if (params.filter_id !== undefined) {
+    queryParams.set('filter_id', String(params.filter_id))
   }
   if (params.content_types && params.content_types.length > 0) {
     params.content_types.forEach((type) => queryParams.append('content_types', type))
