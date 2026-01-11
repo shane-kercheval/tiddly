@@ -9,6 +9,8 @@ import { useState, useEffect, useMemo } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import type { ContentFilter, SidebarCollectionComputed, SidebarFilterItemComputed } from '../types'
 import { Modal } from './ui/Modal'
+import { Tooltip } from './ui/Tooltip'
+import { HelpIcon } from './icons'
 
 interface CollectionModalProps {
   isOpen: boolean
@@ -111,14 +113,17 @@ export function CollectionModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={isEditing ? 'Edit Collection' : 'Create Collection'}
+      title={
+        <span className="inline-flex items-center gap-2">
+          {isEditing ? 'Edit Collection' : 'Create Collection'}
+          <Tooltip content="Collections group your filters together in the sidebar for better organization. You can drag/drop filters into and out of collections later.">
+            <HelpIcon className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+          </Tooltip>
+        </span>
+      }
       noPadding
     >
       <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
-        <p className="text-sm text-gray-500">
-          Collections group your filters together in the sidebar for better organization.
-        </p>
-
         {error && (
           <div className="rounded-lg bg-red-50 border border-red-200 p-3">
             <p className="text-sm text-red-700">{error}</p>
@@ -167,7 +172,7 @@ export function CollectionModal({
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-400 italic">No filters selected</p>
+            <p className="text-sm text-gray-400 italic">Select filters from below to add to this collection.</p>
           )}
         </div>
 

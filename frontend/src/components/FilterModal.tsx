@@ -7,6 +7,8 @@ import type { ContentFilter, ContentFilterCreate, ContentFilterUpdate, ContentTy
 import { BASE_SORT_OPTIONS, SORT_LABELS, type BaseSortOption } from '../constants/sortOptions'
 import { FilterExpressionBuilder } from './FilterExpressionBuilder'
 import { Modal } from './ui/Modal'
+import { Tooltip } from './ui/Tooltip'
+import { HelpIcon } from './icons'
 
 interface FilterModalProps {
   isOpen: boolean
@@ -132,16 +134,17 @@ export function FilterModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={isEditing ? 'Edit Filter' : 'Create Filter'}
+      title={
+        <span className="inline-flex items-center gap-2">
+          {isEditing ? 'Edit Filter' : 'Create Filter'}
+          <Tooltip content="Filters define which content to show based on tags and content types. Use Collections to organize filters in the sidebar.">
+            <HelpIcon className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+          </Tooltip>
+        </span>
+      }
       noPadding
     >
       <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
-        {/* Description text */}
-        <p className="text-sm text-gray-500">
-          Filters define which content to show based on tags and content types.
-          Use Collections to organize filters in the sidebar.
-        </p>
-
         {error && (
           <div className="rounded-lg bg-red-50 border border-red-200 p-3">
             <p className="text-sm text-red-700">{error}</p>

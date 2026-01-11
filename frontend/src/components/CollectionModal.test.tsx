@@ -71,7 +71,7 @@ describe('CollectionModal', () => {
         />
       )
 
-      expect(screen.getByRole('heading', { name: 'Create Collection' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: /Create Collection/ })).toBeInTheDocument()
     })
 
     it('renders with correct title for edit mode', () => {
@@ -85,10 +85,10 @@ describe('CollectionModal', () => {
         />
       )
 
-      expect(screen.getByRole('heading', { name: 'Edit Collection' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: /Edit Collection/ })).toBeInTheDocument()
     })
 
-    it('renders description text', () => {
+    it('renders help icon with tooltip', () => {
       render(
         <CollectionModal
           isOpen={true}
@@ -98,7 +98,9 @@ describe('CollectionModal', () => {
         />
       )
 
-      expect(screen.getByText(/Collections group your filters together/)).toBeInTheDocument()
+      // Help icon should be present in the title
+      const helpIcon = document.querySelector('svg[class*="cursor-help"]')
+      expect(helpIcon).toBeInTheDocument()
     })
 
     it('renders empty state when no filters selected', () => {
@@ -111,7 +113,7 @@ describe('CollectionModal', () => {
         />
       )
 
-      expect(screen.getByText('No filters selected')).toBeInTheDocument()
+      expect(screen.getByText('Select filters from below to add to this collection.')).toBeInTheDocument()
     })
 
     it('renders empty state when no filters available', () => {
@@ -154,7 +156,7 @@ describe('CollectionModal', () => {
 
       const nameInput = screen.getByLabelText('Collection Name') as HTMLInputElement
       expect(nameInput.value).toBe('')
-      expect(screen.getByText('No filters selected')).toBeInTheDocument()
+      expect(screen.getByText('Select filters from below to add to this collection.')).toBeInTheDocument()
     })
 
     it('shows all filters as available to add', () => {
@@ -320,7 +322,7 @@ describe('CollectionModal', () => {
       // Filter should now appear in available section
       expect(screen.getByRole('button', { name: '+ Work Filter' })).toBeInTheDocument()
       // No filters selected message should appear
-      expect(screen.getByText('No filters selected')).toBeInTheDocument()
+      expect(screen.getByText('Select filters from below to add to this collection.')).toBeInTheDocument()
     })
 
     it('maintains selection order when adding filters', async () => {
@@ -562,7 +564,7 @@ describe('CollectionModal', () => {
       // Should be reset
       const nameInput = screen.getByLabelText('Collection Name') as HTMLInputElement
       expect(nameInput.value).toBe('')
-      expect(screen.getByText('No filters selected')).toBeInTheDocument()
+      expect(screen.getByText('Select filters from below to add to this collection.')).toBeInTheDocument()
     })
   })
 })

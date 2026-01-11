@@ -47,7 +47,7 @@ describe('FilterModal', () => {
         />
       )
 
-      expect(screen.getByRole('heading', { name: 'Create Filter' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: /Create Filter/ })).toBeInTheDocument()
       expect(screen.getByLabelText('Filter Name')).toHaveValue('')
     })
 
