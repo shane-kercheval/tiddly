@@ -516,9 +516,14 @@ async def test_delete_note(client: AsyncClient) -> None:
     response = await client.delete(f"/notes/{note_id}")
     assert response.status_code == 204
 
-    # Verify it's not in active view
+    # GET by ID still returns the item (for viewing in trash), but with deleted_at set
     get_response = await client.get(f"/notes/{note_id}")
-    assert get_response.status_code == 404
+    assert get_response.status_code == 200
+    assert get_response.json()["deleted_at"] is not None
+
+    # Verify it's not in the active list view
+    list_response = await client.get("/notes/")
+    assert all(n["id"] != note_id for n in list_response.json()["items"])
 
 
 async def test_delete_note_permanent(client: AsyncClient, db_session: AsyncSession) -> None:

@@ -468,7 +468,7 @@ async def test_update_bookmark_not_found(client: AsyncClient) -> None:
 
 
 async def test_delete_bookmark(client: AsyncClient) -> None:
-    """Test deleting a bookmark."""
+    """Test soft deleting a bookmark."""
     # Create a bookmark
     create_response = await client.post(
         "/bookmarks/",
@@ -476,13 +476,18 @@ async def test_delete_bookmark(client: AsyncClient) -> None:
     )
     bookmark_id = create_response.json()["id"]
 
-    # Delete it
+    # Delete it (soft delete)
     response = await client.delete(f"/bookmarks/{bookmark_id}")
     assert response.status_code == 204
 
-    # Verify it's gone
+    # GET by ID still returns the item (for viewing in trash), but with deleted_at set
     get_response = await client.get(f"/bookmarks/{bookmark_id}")
-    assert get_response.status_code == 404
+    assert get_response.status_code == 200
+    assert get_response.json()["deleted_at"] is not None
+
+    # Verify it's not in the active list view
+    list_response = await client.get("/bookmarks/")
+    assert all(b["id"] != bookmark_id for b in list_response.json()["items"])
 
 
 async def test_delete_bookmark_not_found(client: AsyncClient) -> None:
