@@ -328,7 +328,7 @@ export interface SidebarBuiltinItemComputed extends SidebarBuiltinItem {
 /** A filter item with name and content types resolved from database */
 export interface SidebarFilterItemComputed extends SidebarFilterItem {
   name: string
-  content_types: string[]
+  content_types: ContentType[]
 }
 
 /** A collection with resolved child items */

@@ -373,9 +373,7 @@ describe('CollectionModal', () => {
   })
 
   describe('validation', () => {
-    it('shows error when submitting without name', async () => {
-      const user = userEvent.setup()
-
+    it('shows error when submitting without name', () => {
       render(
         <CollectionModal
           isOpen={true}

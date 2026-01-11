@@ -60,6 +60,7 @@ import type {
   SidebarCollectionComputed,
   SidebarOrder,
   ContentFilter,
+  ContentType,
 } from '../../types'
 
 const SIDEBAR_VERSION = 1
@@ -500,7 +501,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
     const updateFilterInItems = (
       items: SidebarItemComputed[],
       id: string,
-      updates: { name?: string; content_types?: string[] }
+      updates: { name?: string; content_types?: ContentType[] }
     ): SidebarItemComputed[] => {
       return items.map((item) => {
         if (item.type === 'filter' && item.id === id) {
