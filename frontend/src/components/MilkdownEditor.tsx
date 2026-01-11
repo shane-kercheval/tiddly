@@ -91,13 +91,15 @@ import { listener, listenerCtx } from '@milkdown/plugin-listener'
 import { clipboard } from '@milkdown/kit/plugin/clipboard'
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
 import { $prose } from '@milkdown/kit/utils'
-import { Plugin, TextSelection } from '@milkdown/kit/prose/state'
+import { Plugin, TextSelection, EditorState } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
 import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
+import { setBlockType } from '@milkdown/kit/prose/commands'
 import { Modal } from './ui/Modal'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { shouldHandleEmptySpaceClick, wasEditorFocused } from '../utils/editorUtils'
+import { findCodeBlockNode } from '../utils/milkdownHelpers'
 import type { Editor as EditorType } from '@milkdown/kit/core'
 
 /**
@@ -146,13 +148,14 @@ function ToolbarSeparator(): ReactNode {
 interface EditorToolbarProps {
   getEditor: () => EditorType | undefined
   onLinkClick: () => void
+  onCodeBlockToggle: () => void
   onBulletListClick: () => void
   onOrderedListClick: () => void
   onTaskListClick: () => void
   showJinjaTools?: boolean
 }
 
-function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedListClick, onTaskListClick, showJinjaTools = false }: EditorToolbarProps): ReactNode {
+function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletListClick, onOrderedListClick, onTaskListClick, showJinjaTools = false }: EditorToolbarProps): ReactNode {
   const runCommand = useCallback(
     (command: Parameters<typeof callCommand>[0]) => {
       const editor = getEditor()
@@ -211,7 +214,7 @@ function EditorToolbar({ getEditor, onLinkClick, onBulletListClick, onOrderedLis
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
         </svg>
       </ToolbarButton>
-      <ToolbarButton onAction={() => runCommand(createCodeBlockCommand.key)} title="Code Block (⌘⇧C)">
+      <ToolbarButton onAction={onCodeBlockToggle} title="Code Block (⌘⇧C)">
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h6" />
         </svg>
@@ -399,21 +402,15 @@ function createPlaceholderPlugin(placeholder: string): Plugin {
 /**
  * Check if the selection is inside a code_block node.
  */
-function isInCodeBlock(state: Parameters<Parameters<typeof createKeymap>[0][string]>[0]): boolean {
-  const { $from } = state.selection
-  for (let d = $from.depth; d >= 0; d--) {
-    if ($from.node(d).type.name === 'code_block') {
-      return true
-    }
-  }
-  return false
+function isInCodeBlock(state: EditorState): boolean {
+  return findCodeBlockNode(state) !== null
 }
 
 /**
  * Check if cursor is at the start of a list item's content.
  * Returns the list item depth if true, -1 otherwise.
  */
-function getListItemDepthAtStart(state: Parameters<Parameters<typeof createKeymap>[0][string]>[0]): number {
+function getListItemDepthAtStart(state: EditorState): number {
   const { $from } = state.selection
 
   // Must be a cursor selection (not a range)
@@ -494,6 +491,24 @@ function createListKeymapPlugin(listItemNodeType: Parameters<typeof sinkListItem
       return true
     },
     'Backspace': (state, dispatch) => {
+      // Handle empty code blocks: convert to paragraph
+      // Must be a cursor selection (not a range) for this behavior
+      if (state.selection.empty) {
+        const codeBlock = findCodeBlockNode(state)
+        if (codeBlock && codeBlock.node.textContent === '') {
+          // Empty code block - convert to paragraph
+          if (dispatch) {
+            const paragraphType = state.schema.nodes.paragraph
+            setBlockType(paragraphType)(state, dispatch)
+          }
+          return true
+        }
+        // Code block has content, let default backspace handle it
+        if (codeBlock) {
+          return false
+        }
+      }
+
       // Check if at the start of a list item
       const listItemDepth = getListItemDepthAtStart(state)
       if (listItemDepth === -1) {
@@ -901,6 +916,27 @@ function MilkdownEditorInner({
     }, 0)
   }, [get, getListContext])
 
+  // Handle toolbar code block button click - toggle behavior
+  const handleCodeBlockToggle = useCallback(() => {
+    const editor = get()
+    if (!editor) return
+
+    const view = editor.ctx.get(editorViewCtx)
+    const codeBlock = findCodeBlockNode(view.state)
+
+    if (codeBlock) {
+      // In code block - convert to paragraph using setBlockType
+      const paragraphType = view.state.schema.nodes.paragraph
+      setBlockType(paragraphType)(view.state, view.dispatch)
+      view.focus()
+      return
+    }
+
+    // Not in code block - create one
+    editor.action(callCommand(createCodeBlockCommand.key))
+    view.focus()
+  }, [get])
+
   // Run a Milkdown command helper for keyboard shortcuts
   const runCommand = useCallback(
     (command: Parameters<typeof callCommand>[0]) => {
@@ -947,10 +983,10 @@ function MilkdownEditorInner({
         return
       }
 
-      // Cmd+Shift+C - Code block
+      // Cmd+Shift+C - Code block (toggle)
       if (isMod && e.shiftKey && e.key === 'c') {
         e.preventDefault()
-        runCommand(createCodeBlockCommand.key)
+        handleCodeBlockToggle()
         return
       }
 
@@ -989,7 +1025,7 @@ function MilkdownEditorInner({
         return
       }
     },
-    [get, runCommand, handleBulletListClick, handleOrderedListClick, handleTaskListClick]
+    [get, runCommand, handleCodeBlockToggle, handleBulletListClick, handleOrderedListClick, handleTaskListClick]
   )
 
   // Handle mouse down - checkbox toggle and focus on empty space
@@ -1067,7 +1103,7 @@ function MilkdownEditorInner({
 
   return (
     <>
-      {!disabled && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onBulletListClick={handleBulletListClick} onOrderedListClick={handleOrderedListClick} onTaskListClick={handleTaskListClick} showJinjaTools={showJinjaTools} />}
+      {!disabled && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onCodeBlockToggle={handleCodeBlockToggle} onBulletListClick={handleBulletListClick} onOrderedListClick={handleOrderedListClick} onTaskListClick={handleTaskListClick} showJinjaTools={showJinjaTools} />}
       <div
         className={`milkdown-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''} ${noPadding ? 'no-padding' : ''}`}
         style={{ minHeight }}

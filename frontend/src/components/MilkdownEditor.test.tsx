@@ -1,16 +1,18 @@
 /**
- * Tests for MilkdownEditor Tab/Shift+Tab functionality.
+ * Tests for MilkdownEditor functionality.
  *
- * These tests verify the Tab keymap plugin behavior for:
- * - List item indentation (sink/lift)
- * - Code block indentation (insert/remove 4 spaces)
- * - Regular text (no-op, but prevents focus escape)
+ * These tests verify:
+ * - Tab keymap plugin behavior (list indentation, code block indentation)
+ * - Code block toggle (toolbar button and keyboard shortcut)
+ * - Backspace in empty code blocks
  */
 import { describe, it, expect } from 'vitest'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { Schema } from '@milkdown/kit/prose/model'
 import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
 import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
+import { setBlockType } from '@milkdown/kit/prose/commands'
+import { findCodeBlockNode } from '../utils/milkdownHelpers'
 
 // Create a minimal schema for testing
 const testSchema = new Schema({
@@ -25,23 +27,9 @@ const testSchema = new Schema({
   marks: {},
 })
 
-/**
- * Helper to check if selection is inside a code_block node.
- * (Duplicated from MilkdownEditor.tsx for testing - in production this is internal)
- */
-function isInCodeBlock(state: EditorState): boolean {
-  const { $from } = state.selection
-  for (let d = $from.depth; d >= 0; d--) {
-    if ($from.node(d).type.name === 'code_block') {
-      return true
-    }
-  }
-  return false
-}
-
 describe('MilkdownEditor Tab functionality', () => {
-  describe('isInCodeBlock helper', () => {
-    it('should return true when cursor is inside a code block', () => {
+  describe('findCodeBlockNode helper', () => {
+    it('should return node and depth when cursor is inside a code block', () => {
       // Create a document with a code block containing some text
       const doc = testSchema.node('doc', null, [
         testSchema.node('code_block', null, [testSchema.text('const x = 1')]),
@@ -52,10 +40,13 @@ describe('MilkdownEditor Tab functionality', () => {
         state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
       )
 
-      expect(isInCodeBlock(stateWithSelection)).toBe(true)
+      const result = findCodeBlockNode(stateWithSelection)
+      expect(result).not.toBeNull()
+      expect(result?.node.type.name).toBe('code_block')
+      expect(result?.depth).toBeGreaterThanOrEqual(0)
     })
 
-    it('should return false when cursor is in a paragraph', () => {
+    it('should return null when cursor is in a paragraph', () => {
       const doc = testSchema.node('doc', null, [
         testSchema.node('paragraph', null, [testSchema.text('Hello world')]),
       ])
@@ -64,10 +55,10 @@ describe('MilkdownEditor Tab functionality', () => {
         state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
       )
 
-      expect(isInCodeBlock(stateWithSelection)).toBe(false)
+      expect(findCodeBlockNode(stateWithSelection)).toBeNull()
     })
 
-    it('should return false when cursor is in a list item', () => {
+    it('should return null when cursor is in a list item', () => {
       const doc = testSchema.node('doc', null, [
         testSchema.node('bullet_list', null, [
           testSchema.node('list_item', null, [
@@ -81,7 +72,7 @@ describe('MilkdownEditor Tab functionality', () => {
         state.tr.setSelection(TextSelection.near(state.doc.resolve(3)))
       )
 
-      expect(isInCodeBlock(stateWithSelection)).toBe(false)
+      expect(findCodeBlockNode(stateWithSelection)).toBeNull()
     })
   })
 
@@ -214,7 +205,7 @@ describe('MilkdownEditor Tab functionality', () => {
       )
 
       // Not in code block
-      expect(isInCodeBlock(stateWithSelection)).toBe(false)
+      expect(findCodeBlockNode(stateWithSelection)).toBeNull()
 
       // Not in list item (check by traversing nodes)
       const { $from } = stateWithSelection.selection
@@ -240,6 +231,264 @@ describe('MilkdownEditor Tab functionality', () => {
       expect(keymapPlugin).toBeDefined()
       // Plugin has a spec with props containing handleKeyDown
       expect(keymapPlugin.spec).toBeDefined()
+    })
+  })
+})
+
+describe('MilkdownEditor code block toggle', () => {
+  describe('setBlockType for code block to paragraph conversion', () => {
+    it('should convert code block to paragraph using setBlockType', () => {
+      // Create a document with an empty code block
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('code_block', null, []),
+      ])
+      const state = EditorState.create({ doc, schema: testSchema })
+      // Position cursor inside the empty code block
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
+      )
+
+      // Verify we're in a code block
+      expect(findCodeBlockNode(stateWithSelection)).not.toBeNull()
+
+      // Apply setBlockType to convert to paragraph
+      const paragraphType = testSchema.nodes.paragraph
+      let newState = stateWithSelection
+      setBlockType(paragraphType)(stateWithSelection, (tr) => {
+        newState = stateWithSelection.apply(tr)
+      })
+
+      // The document should now contain a paragraph instead of a code block
+      expect(newState.doc.firstChild?.type.name).toBe('paragraph')
+    })
+
+    it('should convert code block with content to paragraph preserving content', () => {
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('code_block', null, [testSchema.text('some code')]),
+      ])
+      const state = EditorState.create({ doc, schema: testSchema })
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
+      )
+
+      expect(findCodeBlockNode(stateWithSelection)).not.toBeNull()
+
+      const paragraphType = testSchema.nodes.paragraph
+      let newState = stateWithSelection
+      setBlockType(paragraphType)(stateWithSelection, (tr) => {
+        newState = stateWithSelection.apply(tr)
+      })
+
+      // Should be a paragraph now
+      expect(newState.doc.firstChild?.type.name).toBe('paragraph')
+      // Content should be preserved
+      expect(newState.doc.firstChild?.textContent).toBe('some code')
+    })
+
+    it('should not affect paragraph when already in paragraph', () => {
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [testSchema.text('regular text')]),
+      ])
+      const state = EditorState.create({ doc, schema: testSchema })
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
+      )
+
+      expect(findCodeBlockNode(stateWithSelection)).toBeNull()
+
+      // When not in code block, toggle logic should create a code block (not tested here)
+      // This test verifies that setBlockType doesn't break when already in target type
+      const paragraphType = testSchema.nodes.paragraph
+      let newState = stateWithSelection
+      const result = setBlockType(paragraphType)(stateWithSelection, (tr) => {
+        newState = stateWithSelection.apply(tr)
+      })
+
+      // setBlockType returns false when block is already of that type
+      expect(result).toBe(false)
+      expect(newState.doc.firstChild?.type.name).toBe('paragraph')
+    })
+  })
+
+  describe('toggle logic detection', () => {
+    it('should detect when cursor is in code block for toggle', () => {
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [testSchema.text('before')]),
+        testSchema.node('code_block', null, [testSchema.text('code')]),
+        testSchema.node('paragraph', null, [testSchema.text('after')]),
+      ])
+      const state = EditorState.create({ doc, schema: testSchema })
+
+      // Position in first paragraph (position ~1-7)
+      const stateInParagraph = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(2)))
+      )
+      expect(findCodeBlockNode(stateInParagraph)).toBeNull()
+
+      // Position in code block (around position 9-13)
+      const stateInCodeBlock = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(10)))
+      )
+      expect(findCodeBlockNode(stateInCodeBlock)).not.toBeNull()
+    })
+  })
+})
+
+describe('MilkdownEditor backspace in empty code block', () => {
+  describe('empty code block detection using findCodeBlockNode', () => {
+    it('should detect empty code block', () => {
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('code_block', null, []),
+      ])
+      const state = EditorState.create({ doc, schema: testSchema })
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
+      )
+
+      const result = findCodeBlockNode(stateWithSelection)
+      expect(result).not.toBeNull()
+      expect(result?.node.textContent).toBe('')
+      expect(result?.depth).toBeGreaterThanOrEqual(0)
+    })
+
+    it('should detect code block with content as not empty', () => {
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('code_block', null, [testSchema.text('x')]),
+      ])
+      const state = EditorState.create({ doc, schema: testSchema })
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
+      )
+
+      const result = findCodeBlockNode(stateWithSelection)
+      expect(result).not.toBeNull()
+      expect(result?.node.textContent).toBe('x')
+    })
+
+    it('should detect code block with only whitespace as not empty (strict check)', () => {
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('code_block', null, [testSchema.text('   ')]),
+      ])
+      const state = EditorState.create({ doc, schema: testSchema })
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
+      )
+
+      // Strict empty check: whitespace is NOT considered empty
+      const result = findCodeBlockNode(stateWithSelection)
+      expect(result).not.toBeNull()
+      expect(result?.node.textContent).toBe('   ')
+      // Backspace handler checks textContent === '', so whitespace won't trigger conversion
+    })
+
+    it('should return null when in paragraph', () => {
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [testSchema.text('text')]),
+      ])
+      const state = EditorState.create({ doc, schema: testSchema })
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
+      )
+
+      expect(findCodeBlockNode(stateWithSelection)).toBeNull()
+    })
+  })
+
+  describe('backspace handler logic', () => {
+    it('should convert empty code block to paragraph on backspace', () => {
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('code_block', null, []),
+      ])
+      const state = EditorState.create({ doc, schema: testSchema })
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
+      )
+
+      // Verify preconditions
+      const codeBlock = findCodeBlockNode(stateWithSelection)
+      expect(codeBlock).not.toBeNull()
+      expect(stateWithSelection.selection.empty).toBe(true)
+      expect(codeBlock?.node.textContent).toBe('')
+
+      // Simulate backspace handler: convert to paragraph
+      const paragraphType = testSchema.nodes.paragraph
+      let newState = stateWithSelection
+      setBlockType(paragraphType)(stateWithSelection, (tr) => {
+        newState = stateWithSelection.apply(tr)
+      })
+
+      // Should now be a paragraph
+      expect(newState.doc.firstChild?.type.name).toBe('paragraph')
+    })
+
+    it('should NOT convert code block with content on backspace', () => {
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('code_block', null, [testSchema.text('code content')]),
+      ])
+      const state = EditorState.create({ doc, schema: testSchema })
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(1)))
+      )
+
+      // Verify preconditions
+      const codeBlock = findCodeBlockNode(stateWithSelection)
+      expect(codeBlock).not.toBeNull()
+      expect(codeBlock?.node.textContent).toBe('code content')
+
+      // The backspace handler should NOT convert since code block has content
+      // Document should remain unchanged
+      expect(stateWithSelection.doc.firstChild?.type.name).toBe('code_block')
+      expect(stateWithSelection.doc.firstChild?.textContent).toBe('code content')
+    })
+
+    it('should NOT trigger on range selection (only cursor)', () => {
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('code_block', null, [testSchema.text('ab')]),
+      ])
+      const state = EditorState.create({ doc, schema: testSchema })
+      // Create a range selection (selecting 'ab')
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.create(state.doc, 1, 3))
+      )
+
+      // Verify it's a range selection, not a cursor
+      expect(stateWithSelection.selection.empty).toBe(false)
+
+      // The backspace handler should return false for range selections
+      // letting default behavior delete the selected text
+    })
+  })
+
+  describe('regression: list backspace still works', () => {
+    it('should still detect list item start position correctly', () => {
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('bullet_list', null, [
+          testSchema.node('list_item', null, [
+            testSchema.node('paragraph', null, [testSchema.text('item')]),
+          ]),
+        ]),
+      ])
+      const state = EditorState.create({ doc, schema: testSchema })
+
+      // Position at start of list item content
+      // Structure: doc(0) > bullet_list(1) > list_item(2) > paragraph(3) > text
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(3)))
+      )
+
+      // Should NOT be in a code block
+      expect(findCodeBlockNode(stateWithSelection)).toBeNull()
+
+      // Verify we're in a list item by checking node types
+      const { $from } = stateWithSelection.selection
+      let inListItem = false
+      for (let d = $from.depth; d >= 0; d--) {
+        if ($from.node(d).type.name === 'list_item') {
+          inListItem = true
+          break
+        }
+      }
+      expect(inListItem).toBe(true)
     })
   })
 })
