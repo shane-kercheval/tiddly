@@ -567,8 +567,10 @@ function MilkdownEditorInner({
   const autoFocusRef = useRef(autoFocus)
 
   // Track if component is still mounted to prevent async operations on unmounted component
+  // Must set true in setup for React StrictMode which runs: setup → cleanup → setup
   const isMountedRef = useRef(true)
   useEffect(() => {
+    isMountedRef.current = true
     return () => { isMountedRef.current = false }
   }, [])
 
@@ -624,9 +626,11 @@ function MilkdownEditorInner({
         }))
 
         // Set up listener for changes
-        // Using 'updated' instead of 'markdownUpdated' to avoid Milkdown's internal
-        // serialization which can error if editor is destroyed during the process.
-        // We manually serialize with try-catch to handle unmount race conditions.
+        // Using 'updated' instead of 'markdownUpdated' to avoid errors during unmount.
+        // markdownUpdated fires during Milkdown's serialization which can error if
+        // the editor context is destroyed mid-process. With 'updated', we control
+        // when serialization happens and can skip it if unmounted.
+        // NOTE: This only works because we fixed isMountedRef for StrictMode above.
         ctx.get(listenerCtx).updated((updatedCtx) => {
           if (!isMountedRef.current) return
           try {
@@ -634,7 +638,7 @@ function MilkdownEditorInner({
             const cleanedMarkdown = cleanMarkdown(markdown)
             onChangeRef.current(cleanedMarkdown)
           } catch (e) {
-            // Only ignore errors during unmount - log unexpected errors
+            // Ignore errors during unmount (context destroyed)
             if (isMountedRef.current) {
               console.error('Milkdown serialization error:', e)
             }
@@ -895,18 +899,12 @@ function MilkdownEditorInner({
       return
     }
 
-    const { listItemDepth, isTask } = ctx
+    const { isTask } = ctx
 
     if (isTask) {
-      // Already a task - toggle it off (remove checked attribute)
-      const { $from } = view.state.selection
-      const listItem = $from.node(listItemDepth)
-      const listItemPos = $from.before(listItemDepth)
-      const tr = view.state.tr.setNodeMarkup(listItemPos, undefined, {
-        ...listItem.attrs,
-        checked: null,
-      })
-      view.dispatch(tr)
+      // Already a task - lift out of list entirely (consistent with bullet/ordered list toggle)
+      const listItemNodeType = view.state.schema.nodes.list_item
+      liftListItem(listItemNodeType)(view.state, view.dispatch)
       view.focus()
       return
     }
