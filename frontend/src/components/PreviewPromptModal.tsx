@@ -1,5 +1,5 @@
 /**
- * Modal for trying out a prompt with arguments and seeing the rendered output.
+ * Modal for previewing a prompt with arguments and seeing the rendered output.
  */
 import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
@@ -8,7 +8,7 @@ import { Modal } from './ui/Modal'
 import { usePrompts } from '../hooks/usePrompts'
 import { CopyIcon, CheckIcon } from './icons'
 
-interface TryPromptModalProps {
+interface PreviewPromptModalProps {
   isOpen: boolean
   onClose: () => void
   prompt: Prompt
@@ -20,7 +20,7 @@ interface TryPromptModalProps {
  * Users can input values for each argument and see the rendered output
  * in monospace format with whitespace preserved.
  */
-export function TryPromptModal({ isOpen, onClose, prompt }: TryPromptModalProps): ReactNode {
+export function PreviewPromptModal({ isOpen, onClose, prompt }: PreviewPromptModalProps): ReactNode {
   const { renderPrompt } = usePrompts()
 
   // Track argument values
@@ -49,8 +49,8 @@ export function TryPromptModal({ isOpen, onClose, prompt }: TryPromptModalProps)
       await navigator.clipboard.writeText(renderedOutput)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Silent fail
+    } catch (err) {
+      console.warn('Failed to copy to clipboard:', err)
     }
   }
 
@@ -89,13 +89,13 @@ export function TryPromptModal({ isOpen, onClose, prompt }: TryPromptModalProps)
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={`Try Prompt: ${prompt.name}`}
+      title={`Preview: ${prompt.name}`}
       maxWidth="max-w-4xl"
     >
       <div className="space-y-4">
         {/* Description */}
         <p className="text-sm text-gray-600">
-          Preview how this prompt will render with specific argument values. This shows exactly what AI agents will see when they use this prompt. It's useful for testing jinja syntax (e.g conditionals, whitespace control) and ensuring the prompt renders as expected.
+          Preview what AI agents will see when using this prompt. Useful for testing Jinja syntax (conditionals, whitespace control) and verifying the output.
         </p>
 
         {/* Error message */}

@@ -461,7 +461,7 @@ export interface PromptSearchParams {
 
 /** Request for rendering a prompt with arguments */
 export interface PromptRenderRequest {
-  arguments: Record<string, string>
+  arguments: Record<string, unknown>
 }
 
 /** Response from prompt render endpoint */

@@ -22,7 +22,7 @@ import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { ArgumentsBuilder } from './ArgumentsBuilder'
 import { UnsavedChangesDialog } from './ui'
-import { TryPromptModal } from './TryPromptModal'
+import { PreviewPromptModal } from './PreviewPromptModal'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
@@ -185,7 +185,7 @@ export function Prompt({
   const [original, setOriginal] = useState<PromptState>(getInitialState)
   const [current, setCurrent] = useState<PromptState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
-  const [isTryModalOpen, setIsTryModalOpen] = useState(false)
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -593,16 +593,16 @@ export function Prompt({
             </button>
           )}
 
-          {/* Try button - only for saved prompts, disabled when dirty */}
+          {/* Preview button - only for saved prompts, disabled when dirty */}
           {!isCreate && !isReadOnly && prompt && (
             <button
               type="button"
-              onClick={() => setIsTryModalOpen(true)}
+              onClick={() => setIsPreviewModalOpen(true)}
               disabled={isSaving || isDirty}
               className="btn-secondary"
-              title={isDirty ? 'Save changes before trying prompt' : 'Try this prompt with arguments'}
+              title={isDirty ? 'Save changes before previewing prompt' : 'Preview this prompt with arguments'}
             >
-              Try
+              Preview
             </button>
           )}
         </div>
@@ -784,11 +784,11 @@ export function Prompt({
         onLeave={handleLeave}
       />
 
-      {/* Try prompt modal - only rendered when prompt exists */}
+      {/* Preview prompt modal - only rendered when prompt exists */}
       {prompt && (
-        <TryPromptModal
-          isOpen={isTryModalOpen}
-          onClose={() => setIsTryModalOpen(false)}
+        <PreviewPromptModal
+          isOpen={isPreviewModalOpen}
+          onClose={() => setIsPreviewModalOpen(false)}
           prompt={prompt}
         />
       )}

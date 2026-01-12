@@ -235,9 +235,11 @@ class PromptListResponse(BaseModel):
 class PromptRenderRequest(BaseModel):
     """Request schema for rendering a prompt with arguments."""
 
-    arguments: dict[str, str] = Field(
+    arguments: dict[str, Any] = Field(
         default_factory=dict,
-        description="Argument values keyed by argument name",
+        description="Argument values keyed by argument name. Values can be strings, "
+        "lists, dicts, or other JSON-serializable types for use with Jinja2 features "
+        "like {% for %} loops.",
     )
 
 

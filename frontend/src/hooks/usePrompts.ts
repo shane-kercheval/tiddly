@@ -18,7 +18,7 @@ interface UsePromptsReturn {
   /** Track prompt usage (fire-and-forget) */
   trackPromptUsage: (id: string) => void
   /** Render a prompt with the given arguments */
-  renderPrompt: (id: string, args: Record<string, string>) => Promise<string>
+  renderPrompt: (id: string, args: Record<string, unknown>) => Promise<string>
 }
 
 /**
@@ -52,7 +52,7 @@ export function usePrompts(): UsePromptsReturn {
     })
   }, [])
 
-  const renderPrompt = useCallback(async (id: string, args: Record<string, string>): Promise<string> => {
+  const renderPrompt = useCallback(async (id: string, args: Record<string, unknown>): Promise<string> => {
     const response = await api.post<PromptRenderResponse>(
       `/prompts/${id}/render`,
       { arguments: args },
