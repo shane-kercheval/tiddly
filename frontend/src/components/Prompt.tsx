@@ -593,8 +593,8 @@ export function Prompt({
             </button>
           )}
 
-          {/* Preview button - only for saved prompts, disabled when dirty */}
-          {!isCreate && !isReadOnly && prompt && (
+          {/* Preview button - only for saved prompts with arguments, disabled when dirty */}
+          {!isCreate && !isReadOnly && prompt && prompt.arguments && prompt.arguments.length > 0 && (
             <button
               type="button"
               onClick={() => setIsPreviewModalOpen(true)}
