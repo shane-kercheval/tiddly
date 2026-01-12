@@ -2,7 +2,7 @@
 
 import pytest
 
-from prompt_mcp_server.template_renderer import TemplateError, render_template
+from services.template_renderer import TemplateError, render_template
 
 
 def test__render_template__simple_substitution() -> None:

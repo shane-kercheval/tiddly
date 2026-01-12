@@ -102,8 +102,8 @@ export function Modal({
       aria-labelledby="modal-title"
     >
       <div ref={modalRef} className={`modal-content ${maxWidth}`}>
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+        {/* Header - fixed at top */}
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 flex-shrink-0">
           <h2 id="modal-title" className="text-lg font-semibold text-gray-900">
             {title}
           </h2>
@@ -117,8 +117,8 @@ export function Modal({
           </button>
         </div>
 
-        {/* Content */}
-        <div className={noPadding ? '' : 'px-6 py-4'}>
+        {/* Content - scrollable */}
+        <div className={`flex-1 min-h-0 overflow-y-auto ${noPadding ? '' : 'px-6 py-4'}`}>
           {children}
         </div>
       </div>

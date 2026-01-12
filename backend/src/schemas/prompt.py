@@ -230,3 +230,22 @@ class PromptListResponse(BaseModel):
     offset: int  # Current pagination offset
     limit: int  # Current pagination limit
     has_more: bool  # True if there are more results beyond this page
+
+
+class PromptRenderRequest(BaseModel):
+    """Request schema for rendering a prompt with arguments."""
+
+    arguments: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Argument values keyed by argument name. Values can be strings, "
+        "lists, dicts, or other JSON-serializable types for use with Jinja2 features "
+        "like {% for %} loops.",
+    )
+
+
+class PromptRenderResponse(BaseModel):
+    """Response schema for rendered prompt content."""
+
+    rendered_content: str = Field(
+        description="The rendered template with arguments applied",
+    )

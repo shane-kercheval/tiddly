@@ -116,7 +116,7 @@ body {
   }
 
   .modal-content {
-    @apply relative max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white shadow-2xl border border-gray-100;
+    @apply relative max-h-[90vh] w-full flex flex-col rounded-2xl bg-white shadow-2xl border border-gray-100;
   }
 
   /* Consistent hover background for list items */

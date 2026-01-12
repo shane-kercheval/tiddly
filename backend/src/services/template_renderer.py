@@ -23,7 +23,7 @@ _jinja_env = Environment(undefined=StrictUndefined)
 
 def render_template(
     content: str | None,
-    arguments: dict[str, str] | None,
+    arguments: dict[str, Any] | None,
     defined_args: list[dict[str, Any]],
 ) -> str:
     """

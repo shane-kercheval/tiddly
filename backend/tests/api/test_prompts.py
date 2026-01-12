@@ -1093,3 +1093,347 @@ async def test__create_prompt__argument_name_with_hyphen_rejected(
         },
     )
     assert response.status_code == 422
+
+
+# =============================================================================
+# Render Prompt Tests
+# =============================================================================
+
+
+async def test__render_prompt__simple_template(client: AsyncClient) -> None:
+    """Test rendering a simple template with one argument."""
+    # Create prompt
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-simple",
+            "content": "Hello, {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Render with argument
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {"name": "World"}},
+    )
+    assert response.status_code == 200
+    assert response.json()["rendered_content"] == "Hello, World!"
+
+
+async def test__render_prompt__multiple_arguments(client: AsyncClient) -> None:
+    """Test rendering a template with multiple arguments."""
+    # Create prompt
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-multi",
+            "content": "{{ greeting }}, {{ name }}! Welcome to {{ place }}.",
+            "arguments": [
+                {"name": "greeting", "required": True},
+                {"name": "name", "required": True},
+                {"name": "place", "required": True},
+            ],
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Render with all arguments
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {"greeting": "Hello", "name": "Alice", "place": "Python"}},
+    )
+    assert response.status_code == 200
+    assert response.json()["rendered_content"] == "Hello, Alice! Welcome to Python."
+
+
+async def test__render_prompt__missing_required_argument(client: AsyncClient) -> None:
+    """Test that missing required argument returns 400."""
+    # Create prompt
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-required",
+            "content": "Hello, {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Render without required argument
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {}},
+    )
+    assert response.status_code == 400
+    assert "Missing required argument" in response.json()["detail"]
+    assert "name" in response.json()["detail"]
+
+
+async def test__render_prompt__unknown_argument(client: AsyncClient) -> None:
+    """Test that unknown argument returns 400."""
+    # Create prompt with one argument
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-unknown",
+            "content": "Hello, {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Render with extra argument
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {"name": "World", "extra": "value"}},
+    )
+    assert response.status_code == 400
+    assert "Unknown argument" in response.json()["detail"]
+    assert "extra" in response.json()["detail"]
+
+
+async def test__render_prompt__optional_argument_omitted(client: AsyncClient) -> None:
+    """Test that optional arguments default to empty string for conditionals."""
+    # Create prompt with optional argument
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-optional",
+            "content": "Hello{% if suffix %}, {{ suffix }}{% endif %}!",
+            "arguments": [{"name": "suffix", "required": False}],
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Render without optional argument
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {}},
+    )
+    assert response.status_code == 200
+    assert response.json()["rendered_content"] == "Hello!"
+
+
+async def test__render_prompt__optional_argument_provided(client: AsyncClient) -> None:
+    """Test that optional argument enables conditional block when provided."""
+    # Create prompt with optional argument
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-optional-provided",
+            "content": "Hello{% if suffix %}, {{ suffix }}{% endif %}!",
+            "arguments": [{"name": "suffix", "required": False}],
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Render with optional argument
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {"suffix": "friend"}},
+    )
+    assert response.status_code == 200
+    assert response.json()["rendered_content"] == "Hello, friend!"
+
+
+async def test__render_prompt__not_found(client: AsyncClient) -> None:
+    """Test that rendering non-existent prompt returns 404."""
+    response = await client.post(
+        "/prompts/00000000-0000-0000-0000-000000000000/render",
+        json={"arguments": {}},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Prompt not found"
+
+
+async def test__render_prompt__no_content(client: AsyncClient, db_session: AsyncSession) -> None:
+    """Test that prompt with no content returns empty string."""
+    # Create prompt with content, then update to remove it
+    # (content is required on create, so we need to update after)
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-no-content",
+            "content": "Initial content",
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Directly update in DB to set content to empty (bypass API validation)
+    result = await db_session.execute(select(Prompt).where(Prompt.id == UUID(prompt_id)))
+    prompt = result.scalar_one()
+    prompt.content = ""
+    await db_session.commit()
+
+    # Render prompt with empty content
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {}},
+    )
+    assert response.status_code == 200
+    assert response.json()["rendered_content"] == ""
+
+
+async def test__render_prompt__archived_prompt(client: AsyncClient) -> None:
+    """Test that archived prompts can be rendered."""
+    # Create prompt
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-archived",
+            "content": "Hello, {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Archive it
+    archive_response = await client.post(f"/prompts/{prompt_id}/archive")
+    assert archive_response.status_code == 200
+
+    # Render should still work
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {"name": "World"}},
+    )
+    assert response.status_code == 200
+    assert response.json()["rendered_content"] == "Hello, World!"
+
+
+async def test__render_prompt__deleted_prompt(client: AsyncClient) -> None:
+    """Test that soft-deleted prompts can be rendered."""
+    # Create prompt
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-deleted",
+            "content": "Hello, {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Soft delete it
+    delete_response = await client.delete(f"/prompts/{prompt_id}")
+    assert delete_response.status_code == 204
+
+    # Render should still work
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {"name": "World"}},
+    )
+    assert response.status_code == 200
+    assert response.json()["rendered_content"] == "Hello, World!"
+
+
+async def test__render_prompt__no_arguments_static_content(client: AsyncClient) -> None:
+    """Test rendering a prompt with no arguments (static content)."""
+    # Create prompt with no arguments
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-static",
+            "content": "This is static content with no variables.",
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Render with empty arguments
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {}},
+    )
+    assert response.status_code == 200
+    assert response.json()["rendered_content"] == "This is static content with no variables."
+
+
+async def test__render_prompt__complex_jinja_template(client: AsyncClient) -> None:
+    """Test rendering complex Jinja2 templates with conditionals and whitespace control."""
+    # Create prompt with complex template
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-complex",
+            "content": """{%- if formal -%}Dear {{ name }},{%- else -%}Hey {{ name }}!{%- endif -%}""",
+            "arguments": [
+                {"name": "name", "required": True},
+                {"name": "formal", "required": False},
+            ],
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Render with formal=true
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {"name": "Bob", "formal": "true"}},
+    )
+    assert response.status_code == 200
+    assert response.json()["rendered_content"] == "Dear Bob,"
+
+    # Render without formal (defaults to empty, falsy)
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {"name": "Bob"}},
+    )
+    assert response.status_code == 200
+    assert response.json()["rendered_content"] == "Hey Bob!"
+
+
+async def test__render_prompt__preserves_whitespace(client: AsyncClient) -> None:
+    """Test that rendering preserves whitespace in content."""
+    # Create prompt with intentional whitespace
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-whitespace",
+            "content": "Line 1\n\nLine 3\n  Indented line\n\n{{ text }}",
+            "arguments": [{"name": "text", "required": True}],
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Render and verify whitespace preserved
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {"text": "Final line"}},
+    )
+    assert response.status_code == 200
+    assert response.json()["rendered_content"] == "Line 1\n\nLine 3\n  Indented line\n\nFinal line"
+
+
+async def test__render_prompt__jinja_filter(client: AsyncClient) -> None:
+    """Test rendering template with Jinja2 filters."""
+    # Create prompt with filter
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-filter",
+            "content": "{{ name | upper }}",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    # Render with filter
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {"name": "hello"}},
+    )
+    assert response.status_code == 200
+    assert response.json()["rendered_content"] == "HELLO"

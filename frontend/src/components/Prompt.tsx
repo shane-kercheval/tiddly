@@ -22,6 +22,7 @@ import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { ArgumentsBuilder } from './ArgumentsBuilder'
 import { UnsavedChangesDialog } from './ui'
+import { PreviewPromptModal } from './PreviewPromptModal'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
@@ -184,6 +185,7 @@ export function Prompt({
   const [original, setOriginal] = useState<PromptState>(getInitialState)
   const [current, setCurrent] = useState<PromptState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -590,6 +592,19 @@ export function Prompt({
               )}
             </button>
           )}
+
+          {/* Preview button - only for saved prompts with arguments, disabled when dirty */}
+          {!isCreate && !isReadOnly && prompt && prompt.arguments && prompt.arguments.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsPreviewModalOpen(true)}
+              disabled={isSaving || isDirty}
+              className="btn-secondary"
+              title={isDirty ? 'Save changes before previewing prompt' : 'Preview this prompt with arguments'}
+            >
+              Preview
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -768,6 +783,15 @@ export function Prompt({
         onStay={handleStay}
         onLeave={handleLeave}
       />
+
+      {/* Preview prompt modal - only rendered when prompt exists */}
+      {prompt && (
+        <PreviewPromptModal
+          isOpen={isPreviewModalOpen}
+          onClose={() => setIsPreviewModalOpen(false)}
+          prompt={prompt}
+        />
+      )}
     </form>
   )
 }
