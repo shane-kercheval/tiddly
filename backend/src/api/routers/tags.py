@@ -18,18 +18,21 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 
 @router.get("/", response_model=TagListResponse)
 async def list_tags(
+    include_inactive: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> TagListResponse:
     """
     Get all tags for the current user with their usage counts.
 
-    Returns all tags (including those with zero active content) sorted by
-    count (most used first), then alphabetically.
+    By default, returns only tags with at least one active content item.
+    Use include_inactive=true to also include tags with no active content
+    (useful for tag management).
 
-    Counts include active bookmarks and notes (not deleted or archived).
+    Results are sorted by count (most used first), then alphabetically.
+    Counts include active bookmarks, notes, and prompts (not deleted or archived).
     """
-    tags = await get_user_tags_with_counts(db, current_user.id, include_zero_count=True)
+    tags = await get_user_tags_with_counts(db, current_user.id, include_inactive)
     return TagListResponse(tags=tags)
 
 

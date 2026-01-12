@@ -78,18 +78,20 @@ async def get_or_create_tags(
 async def get_user_tags_with_counts(
     db: AsyncSession,
     user_id: UUID,
-    include_zero_count: bool = True,
+    include_inactive: bool = False,
 ) -> list[TagCount]:
     """
     Get all tags for a user with their usage counts.
 
+    By default, only returns tags with at least one active content item.
     Counts include active bookmarks, notes, and prompts (not deleted or archived).
     Future-scheduled items (archived_at in future) count as active.
 
     Args:
         db: Database session.
         user_id: User ID to scope tags.
-        include_zero_count: If True, include tags with no active content.
+        include_inactive: If True, include tags with no active content (count=0).
+            Useful for tag management UI. Defaults to False.
 
     Returns:
         List of TagCount objects sorted by count desc, then name asc.
@@ -150,8 +152,7 @@ async def get_user_tags_with_counts(
         .order_by(total_count.desc(), Tag.name.asc())
     )
 
-    if not include_zero_count:
-        # Only include tags that have at least one active bookmark, note, or prompt
+    if not include_inactive:
         query = query.having(total_count > 0)
 
     result = await db.execute(query)

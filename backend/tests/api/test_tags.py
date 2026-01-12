@@ -150,7 +150,7 @@ async def test_list_tags_bookmark_without_tags(client: AsyncClient) -> None:
 
 
 async def test_list_tags_excludes_archived_and_deleted_bookmarks(client: AsyncClient) -> None:
-    """Test that tags from archived and deleted bookmarks are not counted but still appear."""
+    """Test that tags from archived and deleted bookmarks are excluded from listing."""
     # Create three bookmarks with different tags
     # Active bookmark - tags should be counted
     await client.post(
@@ -174,7 +174,7 @@ async def test_list_tags_excludes_archived_and_deleted_bookmarks(client: AsyncCl
     deleted_id = deleted_response.json()["id"]
     await client.delete(f"/bookmarks/{deleted_id}")
 
-    # Get tags - returns all tags with correct counts
+    # Get tags - returns only tags with active content
     response = await client.get("/tags/")
     assert response.status_code == 200
 
@@ -189,12 +189,115 @@ async def test_list_tags_excludes_archived_and_deleted_bookmarks(client: AsyncCl
     assert "shared-tag" in tag_counts
     assert tag_counts["shared-tag"] == 1
 
-    # Tags exclusive to archived/deleted bookmarks should appear but have count 0
-    # (API returns all tags including zero-count; frontend can filter if needed)
-    assert "archived-tag" in tag_counts
+    # Tags exclusive to archived/deleted bookmarks should NOT appear
+    # (they have zero active content, so they're excluded from the API response)
+    assert "archived-tag" not in tag_counts
+    assert "deleted-tag" not in tag_counts
+
+
+async def test_list_tags_include_inactive_shows_all_tags(client: AsyncClient) -> None:
+    """Test that include_inactive=true returns tags with zero active content."""
+    # Create three bookmarks with different tags
+    # Active bookmark - tags should be counted
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://active.com", "tags": ["active-tag", "shared-tag"]},
+    )
+
+    # Bookmark to be archived - tags should appear with count 0 when include_inactive=true
+    archived_response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://archived.com", "tags": ["archived-tag", "shared-tag"]},
+    )
+    archived_id = archived_response.json()["id"]
+    await client.post(f"/bookmarks/{archived_id}/archive")
+
+    # Bookmark to be deleted - tags should appear with count 0 when include_inactive=true
+    deleted_response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://deleted.com", "tags": ["deleted-tag", "shared-tag"]},
+    )
+    deleted_id = deleted_response.json()["id"]
+    await client.delete(f"/bookmarks/{deleted_id}")
+
+    # Get tags with include_inactive=true
+    response = await client.get("/tags/?include_inactive=true")
+    assert response.status_code == 200
+
+    data = response.json()
+    tag_counts = {tag["name"]: tag["count"] for tag in data["tags"]}
+
+    # All tags should be present
+    assert len(tag_counts) == 4
+
+    # Active bookmark's tags should have correct counts
+    assert tag_counts["active-tag"] == 1
+    assert tag_counts["shared-tag"] == 1
+
+    # Tags exclusive to archived/deleted bookmarks should appear with count 0
     assert tag_counts["archived-tag"] == 0
-    assert "deleted-tag" in tag_counts
     assert tag_counts["deleted-tag"] == 0
+
+
+async def test_list_tags_include_inactive_false_is_default(client: AsyncClient) -> None:
+    """Test that include_inactive=false behaves the same as no parameter."""
+    # Create bookmark then delete it
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["orphan-tag"]},
+    )
+    bookmark_id = response.json()["id"]
+    await client.delete(f"/bookmarks/{bookmark_id}")
+
+    # Both requests should return empty list (orphan tag excluded)
+    response_default = await client.get("/tags/")
+    response_explicit = await client.get("/tags/?include_inactive=false")
+
+    assert response_default.status_code == 200
+    assert response_explicit.status_code == 200
+    assert response_default.json()["tags"] == []
+    assert response_explicit.json()["tags"] == []
+
+
+async def test_list_tags_include_inactive_with_mixed_content_types(client: AsyncClient) -> None:
+    """Test include_inactive works across bookmarks, notes, and prompts."""
+    # Create active bookmark with tag
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["bookmark-tag"]},
+    )
+
+    # Create note then delete it
+    note_response = await client.post(
+        "/notes/",
+        json={"title": "Test Note", "content": "Content", "tags": ["note-tag"]},
+    )
+    note_id = note_response.json()["id"]
+    await client.delete(f"/notes/{note_id}")
+
+    # Create prompt then archive it
+    prompt_response = await client.post(
+        "/prompts/",
+        json={"name": "test-prompt", "content": "Hello world", "tags": ["prompt-tag"]},
+    )
+    assert prompt_response.status_code == 201, f"Failed to create prompt: {prompt_response.text}"
+    prompt_id = prompt_response.json()["id"]
+    await client.post(f"/prompts/{prompt_id}/archive")
+
+    # Without include_inactive: only bookmark-tag
+    response_default = await client.get("/tags/")
+    assert response_default.status_code == 200
+    tag_names = [t["name"] for t in response_default.json()["tags"]]
+    assert tag_names == ["bookmark-tag"]
+
+    # With include_inactive: all three tags
+    response_with_inactive = await client.get("/tags/?include_inactive=true")
+    assert response_with_inactive.status_code == 200
+    tag_counts = {t["name"]: t["count"] for t in response_with_inactive.json()["tags"]}
+    assert len(tag_counts) == 3
+    assert tag_counts["bookmark-tag"] == 1
+    assert tag_counts["note-tag"] == 0
+    assert tag_counts["prompt-tag"] == 0
 
 
 async def test_rename_tag_success(client: AsyncClient) -> None:

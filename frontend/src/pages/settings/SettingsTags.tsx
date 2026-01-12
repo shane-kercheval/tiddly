@@ -3,7 +3,7 @@
  *
  * Allows users to view all tags, rename them, and delete them.
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import toast from 'react-hot-toast'
 import { useTagsStore } from '../../stores/tagsStore'
@@ -185,11 +185,20 @@ function TagRow({
  * Tags management settings page.
  */
 export function SettingsTags(): ReactNode {
-  const { tags, isLoading, renameTag, deleteTag } = useTagsStore()
+  const { tags, isLoading, renameTag, deleteTag, fetchTags } = useTagsStore()
   const [editingState, setEditingState] = useState<EditingState | null>(null)
   const [sortOption, setSortOption] = useState<TagSortOption>('name-asc')
   const [activeTagsPage, setActiveTagsPage] = useState(1)
   const [unusedTagsPage, setUnusedTagsPage] = useState(1)
+
+  // Fetch all tags including inactive on mount, refetch without inactive on unmount
+  useEffect(() => {
+    fetchTags({ includeInactive: true })
+    return () => {
+      // Refetch without inactive tags when leaving settings page
+      fetchTags()
+    }
+  }, [fetchTags])
 
   const handleSortChange = (newSortOption: TagSortOption): void => {
     setSortOption(newSortOption)
