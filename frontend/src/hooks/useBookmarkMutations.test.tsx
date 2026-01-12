@@ -224,6 +224,128 @@ describe('useUpdateBookmark', () => {
 
     expect(mockFetchTags).not.toHaveBeenCalled()
   })
+
+  it('should optimistically update tags in cache before API completes', async () => {
+    const queryClient = createTestQueryClient()
+    // Set up initial cached data
+    const initialData = {
+      items: [
+        { id: '1', url: 'https://example.com', title: 'Test 1', tags: ['tag1', 'tag2'] },
+        { id: '2', url: 'https://other.com', title: 'Test 2', tags: ['tag3'] },
+      ],
+      total: 2,
+    }
+    queryClient.setQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 }), initialData)
+
+    // Create a promise that we control to delay API response
+    let resolvePatch: (value: { data: unknown }) => void
+    const patchPromise = new Promise<{ data: unknown }>((resolve) => {
+      resolvePatch = resolve
+    })
+    mockPatch.mockReturnValueOnce(patchPromise)
+
+    const { result } = renderHook(() => useUpdateBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    // Start the mutation but don't await it yet
+    let mutationPromise: Promise<unknown>
+    act(() => {
+      mutationPromise = result.current.mutateAsync({ id: '1', data: { tags: ['tag1'] } })
+    })
+
+    // Wait for optimistic update to apply
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // Check cache was optimistically updated BEFORE API completed
+    const cachedData = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 })) as { items: { id: string; tags: string[] }[]; total: number }
+    expect(cachedData.items[0].tags).toEqual(['tag1']) // tag2 was removed
+    expect(cachedData.items[1].tags).toEqual(['tag3']) // unchanged
+    expect(cachedData.total).toBe(2) // Total unchanged (update, not delete)
+
+    // Now complete the API call
+    await act(async () => {
+      resolvePatch!({ data: { id: '1', tags: ['tag1'] } })
+      await mutationPromise
+    })
+  })
+
+  it('should rollback optimistic update on API error', async () => {
+    const queryClient = createTestQueryClient()
+    // Set up initial cached data
+    const initialData = {
+      items: [
+        { id: '1', url: 'https://example.com', title: 'Test 1', tags: ['tag1', 'tag2'] },
+        { id: '2', url: 'https://other.com', title: 'Test 2', tags: ['tag3'] },
+      ],
+      total: 2,
+    }
+    queryClient.setQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 }), initialData)
+
+    // Make API fail
+    mockPatch.mockRejectedValueOnce(new Error('Network error'))
+
+    const { result } = renderHook(() => useUpdateBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    // Attempt the mutation (should fail)
+    await act(async () => {
+      try {
+        await result.current.mutateAsync({ id: '1', data: { tags: ['only-tag1'] } })
+      } catch {
+        // Expected to fail
+      }
+    })
+
+    // Cache should be rolled back to original state
+    const cachedData = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 })) as { items: { id: string; tags: string[] }[]; total: number }
+    expect(cachedData.items[0].tags).toEqual(['tag1', 'tag2']) // Restored
+    expect(cachedData.items[1].tags).toEqual(['tag3'])
+  })
+
+  it('should not modify items not matching the update id', async () => {
+    const queryClient = createTestQueryClient()
+    // Set up cached data with multiple pages
+    const page1Data = {
+      items: [
+        { id: '1', url: 'https://example.com', title: 'Test 1', tags: ['tag1'] },
+        { id: '2', url: 'https://other.com', title: 'Test 2', tags: ['tag2'] },
+      ],
+      total: 4,
+    }
+    const page2Data = {
+      items: [
+        { id: '3', url: 'https://third.com', title: 'Test 3', tags: ['tag3'] },
+        { id: '4', url: 'https://fourth.com', title: 'Test 4', tags: ['tag4'] },
+      ],
+      total: 4,
+    }
+    queryClient.setQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 2 }), page1Data)
+    queryClient.setQueryData(bookmarkKeys.list({ view: 'active', offset: 2, limit: 2 }), page2Data)
+
+    mockPatch.mockResolvedValueOnce({ data: { id: '3', tags: ['new-tag'] } })
+
+    const { result } = renderHook(() => useUpdateBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: '3', data: { tags: ['new-tag'] } })
+    })
+
+    // Page 1 should be unchanged
+    const cachedPage1 = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 2 })) as { items: { id: string; tags: string[] }[] }
+    expect(cachedPage1.items[0].tags).toEqual(['tag1'])
+    expect(cachedPage1.items[1].tags).toEqual(['tag2'])
+
+    // Page 2, item 3 should be updated, item 4 unchanged
+    const cachedPage2 = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 2, limit: 2 })) as { items: { id: string; tags: string[] }[] }
+    expect(cachedPage2.items[0].tags).toEqual(['new-tag'])
+    expect(cachedPage2.items[1].tags).toEqual(['tag4'])
+  })
 })
 
 describe('useDeleteBookmark', () => {

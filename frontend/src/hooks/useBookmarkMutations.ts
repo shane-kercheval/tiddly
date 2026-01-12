@@ -102,6 +102,75 @@ function rollbackOptimisticUpdate(
 }
 
 /**
+ * Optimistically update a bookmark's properties in all cached list queries.
+ * Used for tag updates to provide instant feedback.
+ * Returns previous data for rollback on error.
+ *
+ * Note: Only fields present in list items are updated here. Fields like
+ * `content` and `archived_at` are excluded because they're either not in
+ * list responses or don't require immediate visual feedback.
+ */
+function optimisticallyUpdateBookmark(
+  queryClient: QueryClient,
+  bookmarkId: string,
+  updates: BookmarkUpdate
+): OptimisticContext {
+  // Snapshot current data before modification
+  const previousBookmarkQueries = queryClient.getQueriesData<BookmarkListResponse>({
+    queryKey: bookmarkKeys.lists(),
+  })
+  const previousContentQueries = queryClient.getQueriesData<ContentListResponse>({
+    queryKey: contentKeys.lists(),
+  })
+
+  // Update all bookmark list queries
+  queryClient.setQueriesData<BookmarkListResponse>(
+    { queryKey: bookmarkKeys.lists() },
+    (old) => {
+      if (!old) return old
+      return {
+        ...old,
+        items: old.items.map((item) => {
+          if (item.id !== bookmarkId) return item
+          // Apply updates to the matching item
+          return {
+            ...item,
+            ...(updates.tags !== undefined && { tags: updates.tags }),
+            ...(updates.title !== undefined && { title: updates.title }),
+            ...(updates.description !== undefined && { description: updates.description }),
+            ...(updates.url !== undefined && { url: updates.url }),
+          }
+        }),
+      }
+    }
+  )
+
+  // Update all content list queries
+  queryClient.setQueriesData<ContentListResponse>(
+    { queryKey: contentKeys.lists() },
+    (old) => {
+      if (!old) return old
+      return {
+        ...old,
+        items: old.items.map((item) => {
+          if (!(item.type === 'bookmark' && item.id === bookmarkId)) return item
+          // Apply updates to the matching item
+          return {
+            ...item,
+            ...(updates.tags !== undefined && { tags: updates.tags }),
+            ...(updates.title !== undefined && { title: updates.title }),
+            ...(updates.description !== undefined && { description: updates.description }),
+            ...(updates.url !== undefined && { url: updates.url }),
+          }
+        }),
+      }
+    }
+  )
+
+  return { previousBookmarkQueries, previousContentQueries }
+}
+
+/**
  * Hook for creating a new bookmark.
  *
  * New bookmarks are always active, so invalidates:
@@ -129,10 +198,10 @@ export function useCreateBookmark() {
 /**
  * Hook for updating an existing bookmark.
  *
- * Updates can affect active or archived bookmarks, so invalidates:
- * - Active view queries
- * - Archived view queries
- * - Custom list queries (tag changes may affect list membership)
+ * Updates can affect active or archived bookmarks:
+ * - Optimistically updates item in cache immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, and custom list queries
  */
 export function useUpdateBookmark() {
   const queryClient = useQueryClient()
@@ -143,7 +212,20 @@ export function useUpdateBookmark() {
       const response = await api.patch<Bookmark>(`/bookmarks/${id}`, data)
       return response.data
     },
-    onSuccess: (_, { data }) => {
+    onMutate: async ({ id, data }) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: bookmarkKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically update the item in cache
+      return optimisticallyUpdateBookmark(queryClient, id, data)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: (_, __, { data }) => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })

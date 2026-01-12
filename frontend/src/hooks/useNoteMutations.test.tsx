@@ -230,6 +230,87 @@ describe('useUpdateNote', () => {
 
     expect(mockFetchTags).not.toHaveBeenCalled()
   })
+
+  it('should optimistically update tags in cache before API completes', async () => {
+    const queryClient = createTestQueryClient()
+    // Set up initial cached data
+    const initialData = {
+      items: [
+        { id: '1', title: 'Note 1', tags: ['tag1', 'tag2'], version: 1 },
+        { id: '2', title: 'Note 2', tags: ['tag3'], version: 1 },
+      ],
+      total: 2,
+    }
+    queryClient.setQueryData(noteKeys.list({ view: 'active', offset: 0, limit: 10 }), initialData)
+
+    // Create a promise that we control to delay API response
+    let resolvePatch: (value: { data: unknown }) => void
+    const patchPromise = new Promise<{ data: unknown }>((resolve) => {
+      resolvePatch = resolve
+    })
+    mockPatch.mockReturnValueOnce(patchPromise)
+
+    const { result } = renderHook(() => useUpdateNote(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    // Start the mutation but don't await it yet
+    let mutationPromise: Promise<unknown>
+    act(() => {
+      mutationPromise = result.current.mutateAsync({ id: '1', data: { tags: ['tag1'] } })
+    })
+
+    // Wait for optimistic update to apply
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // Check cache was optimistically updated BEFORE API completed
+    const cachedData = queryClient.getQueryData(noteKeys.list({ view: 'active', offset: 0, limit: 10 })) as { items: { id: string; tags: string[] }[]; total: number }
+    expect(cachedData.items[0].tags).toEqual(['tag1']) // tag2 was removed
+    expect(cachedData.items[1].tags).toEqual(['tag3']) // unchanged
+    expect(cachedData.total).toBe(2) // Total unchanged (update, not delete)
+
+    // Now complete the API call
+    await act(async () => {
+      resolvePatch!({ data: { id: '1', tags: ['tag1'] } })
+      await mutationPromise
+    })
+  })
+
+  it('should rollback optimistic update on API error', async () => {
+    const queryClient = createTestQueryClient()
+    // Set up initial cached data
+    const initialData = {
+      items: [
+        { id: '1', title: 'Note 1', tags: ['tag1', 'tag2'], version: 1 },
+        { id: '2', title: 'Note 2', tags: ['tag3'], version: 1 },
+      ],
+      total: 2,
+    }
+    queryClient.setQueryData(noteKeys.list({ view: 'active', offset: 0, limit: 10 }), initialData)
+
+    // Make API fail
+    mockPatch.mockRejectedValueOnce(new Error('Network error'))
+
+    const { result } = renderHook(() => useUpdateNote(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    // Attempt the mutation (should fail)
+    await act(async () => {
+      try {
+        await result.current.mutateAsync({ id: '1', data: { tags: ['only-tag1'] } })
+      } catch {
+        // Expected to fail
+      }
+    })
+
+    // Cache should be rolled back to original state
+    const cachedData = queryClient.getQueryData(noteKeys.list({ view: 'active', offset: 0, limit: 10 })) as { items: { id: string; tags: string[] }[]; total: number }
+    expect(cachedData.items[0].tags).toEqual(['tag1', 'tag2']) // Restored
+    expect(cachedData.items[1].tags).toEqual(['tag3'])
+  })
 })
 
 describe('useDeleteNote', () => {

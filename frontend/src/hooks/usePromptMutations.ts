@@ -102,6 +102,77 @@ function rollbackOptimisticUpdate(
 }
 
 /**
+ * Optimistically update a prompt's properties in all cached list queries.
+ * Used for tag updates to provide instant feedback.
+ * Returns previous data for rollback on error.
+ *
+ * Note: Only fields present in list items are updated here. Fields like
+ * `content` and `archived_at` are excluded because they're either not in
+ * list responses or don't require immediate visual feedback.
+ */
+function optimisticallyUpdatePrompt(
+  queryClient: QueryClient,
+  promptId: string,
+  updates: PromptUpdate
+): OptimisticContext {
+  // Snapshot current data before modification
+  const previousPromptQueries = queryClient.getQueriesData<PromptListResponse>({
+    queryKey: promptKeys.lists(),
+  })
+  const previousContentQueries = queryClient.getQueriesData<ContentListResponse>({
+    queryKey: contentKeys.lists(),
+  })
+
+  // Update all prompt list queries
+  queryClient.setQueriesData<PromptListResponse>(
+    { queryKey: promptKeys.lists() },
+    (old) => {
+      if (!old) return old
+      return {
+        ...old,
+        items: old.items.map((item) => {
+          if (item.id !== promptId) return item
+          // Apply updates to the matching item
+          return {
+            ...item,
+            ...(updates.tags !== undefined && { tags: updates.tags }),
+            ...(updates.title !== undefined && { title: updates.title }),
+            ...(updates.description !== undefined && { description: updates.description }),
+            ...(updates.name !== undefined && { name: updates.name }),
+            ...(updates.arguments !== undefined && { arguments: updates.arguments }),
+          }
+        }),
+      }
+    }
+  )
+
+  // Update all content list queries
+  queryClient.setQueriesData<ContentListResponse>(
+    { queryKey: contentKeys.lists() },
+    (old) => {
+      if (!old) return old
+      return {
+        ...old,
+        items: old.items.map((item) => {
+          if (!(item.type === 'prompt' && item.id === promptId)) return item
+          // Apply updates to the matching item
+          return {
+            ...item,
+            ...(updates.tags !== undefined && { tags: updates.tags }),
+            ...(updates.title !== undefined && { title: updates.title }),
+            ...(updates.description !== undefined && { description: updates.description }),
+            ...(updates.name !== undefined && { name: updates.name }),
+            ...(updates.arguments !== undefined && { arguments: updates.arguments }),
+          }
+        }),
+      }
+    }
+  )
+
+  return { previousPromptQueries, previousContentQueries }
+}
+
+/**
  * Hook for creating a new prompt.
  *
  * New prompts are always active, so invalidates:
@@ -129,10 +200,10 @@ export function useCreatePrompt() {
 /**
  * Hook for updating an existing prompt.
  *
- * Updates can affect active or archived prompts, so invalidates:
- * - Active view queries
- * - Archived view queries
- * - Custom list queries (tag changes may affect list membership)
+ * Updates can affect active or archived prompts:
+ * - Optimistically updates item in cache immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, and custom list queries
  */
 export function useUpdatePrompt() {
   const queryClient = useQueryClient()
@@ -143,7 +214,20 @@ export function useUpdatePrompt() {
       const response = await api.patch<Prompt>(`/prompts/${id}`, data)
       return response.data
     },
-    onSuccess: (_, { data }) => {
+    onMutate: async ({ id, data }) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: promptKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically update the item in cache
+      return optimisticallyUpdatePrompt(queryClient, id, data)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: (_, __, { data }) => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: promptKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: promptKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
