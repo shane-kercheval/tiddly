@@ -14,12 +14,15 @@ from schemas.prompt import (
     PromptCreate,
     PromptListItem,
     PromptListResponse,
+    PromptRenderRequest,
+    PromptRenderResponse,
     PromptResponse,
     PromptUpdate,
 )
 from services import content_filter_service
 from services.exceptions import InvalidStateError
 from services.prompt_service import NameConflictError, PromptService
+from services.template_renderer import TemplateError, render_template
 
 router = APIRouter(prefix="/prompts", tags=["prompts"])
 
@@ -269,3 +272,42 @@ async def track_prompt_usage(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Prompt not found")
+
+
+@router.post("/{prompt_id}/render", response_model=PromptRenderResponse)
+async def render_prompt(
+    prompt_id: UUID,
+    request: PromptRenderRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> PromptRenderResponse:
+    """
+    Render a prompt template with provided arguments.
+
+    Returns the template with Jinja2 variables replaced by argument values.
+    Uses identical rendering logic as the MCP server.
+
+    - Required arguments must be provided
+    - Unknown arguments are rejected
+    - Optional arguments default to empty string (enables {% if var %} conditionals)
+    """
+    # Fetch prompt (include archived/deleted so users can test any saved prompt)
+    prompt = await prompt_service.get(
+        db, current_user.id, prompt_id, include_archived=True, include_deleted=True,
+    )
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    if not prompt.content:
+        return PromptRenderResponse(rendered_content="")
+
+    try:
+        rendered = render_template(
+            content=prompt.content,
+            arguments=request.arguments,
+            defined_args=prompt.arguments or [],
+        )
+    except TemplateError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return PromptRenderResponse(rendered_content=rendered)

@@ -22,6 +22,7 @@ import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { ArgumentsBuilder } from './ArgumentsBuilder'
 import { UnsavedChangesDialog } from './ui'
+import { TryPromptModal } from './TryPromptModal'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
@@ -184,6 +185,7 @@ export function Prompt({
   const [original, setOriginal] = useState<PromptState>(getInitialState)
   const [current, setCurrent] = useState<PromptState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
+  const [isTryModalOpen, setIsTryModalOpen] = useState(false)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -590,6 +592,19 @@ export function Prompt({
               )}
             </button>
           )}
+
+          {/* Try button - only for saved prompts, disabled when dirty */}
+          {!isCreate && !isReadOnly && prompt && (
+            <button
+              type="button"
+              onClick={() => setIsTryModalOpen(true)}
+              disabled={isSaving || isDirty}
+              className="btn-secondary"
+              title={isDirty ? 'Save changes before trying prompt' : 'Try this prompt with arguments'}
+            >
+              Try
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -768,6 +783,15 @@ export function Prompt({
         onStay={handleStay}
         onLeave={handleLeave}
       />
+
+      {/* Try prompt modal - only rendered when prompt exists */}
+      {prompt && (
+        <TryPromptModal
+          isOpen={isTryModalOpen}
+          onClose={() => setIsTryModalOpen(false)}
+          prompt={prompt}
+        />
+      )}
     </form>
   )
 }

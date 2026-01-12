@@ -458,3 +458,13 @@ export interface PromptSearchParams {
   view?: 'active' | 'archived' | 'deleted'
   filter_id?: string
 }
+
+/** Request for rendering a prompt with arguments */
+export interface PromptRenderRequest {
+  arguments: Record<string, string>
+}
+
+/** Response from prompt render endpoint */
+export interface PromptRenderResponse {
+  rendered_content: string
+}

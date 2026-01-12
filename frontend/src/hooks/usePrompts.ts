@@ -10,13 +10,15 @@
  */
 import { useCallback } from 'react'
 import { api } from '../services/api'
-import type { Prompt } from '../types'
+import type { Prompt, PromptRenderResponse } from '../types'
 
 interface UsePromptsReturn {
   /** Fetch a single prompt by ID (with full content for viewing/editing) */
   fetchPrompt: (id: string) => Promise<Prompt>
   /** Track prompt usage (fire-and-forget) */
   trackPromptUsage: (id: string) => void
+  /** Render a prompt with the given arguments */
+  renderPrompt: (id: string, args: Record<string, string>) => Promise<string>
 }
 
 /**
@@ -24,13 +26,16 @@ interface UsePromptsReturn {
  *
  * @example
  * ```tsx
- * const { fetchPrompt, trackPromptUsage } = usePrompts()
+ * const { fetchPrompt, trackPromptUsage, renderPrompt } = usePrompts()
  *
  * // Fetch full prompt for viewing/editing
  * const prompt = await fetchPrompt(id)
  *
  * // Track when user views a prompt
  * trackPromptUsage(id)
+ *
+ * // Render a prompt with arguments
+ * const rendered = await renderPrompt(id, { name: 'World' })
  * ```
  */
 export function usePrompts(): UsePromptsReturn {
@@ -47,8 +52,17 @@ export function usePrompts(): UsePromptsReturn {
     })
   }, [])
 
+  const renderPrompt = useCallback(async (id: string, args: Record<string, string>): Promise<string> => {
+    const response = await api.post<PromptRenderResponse>(
+      `/prompts/${id}/render`,
+      { arguments: args },
+    )
+    return response.data.rendered_content
+  }, [])
+
   return {
     fetchPrompt,
     trackPromptUsage,
+    renderPrompt,
   }
 }

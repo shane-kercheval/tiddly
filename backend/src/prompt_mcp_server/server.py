@@ -17,7 +17,7 @@ from mcp.shared.exceptions import McpError
 
 from .api_client import api_get, api_post, get_api_base_url, get_default_timeout
 from .auth import AuthenticationError, get_bearer_token
-from .template_renderer import TemplateError, render_template
+from services.template_renderer import TemplateError, render_template
 
 logger = logging.getLogger(__name__)
 

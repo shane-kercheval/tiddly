@@ -230,3 +230,20 @@ class PromptListResponse(BaseModel):
     offset: int  # Current pagination offset
     limit: int  # Current pagination limit
     has_more: bool  # True if there are more results beyond this page
+
+
+class PromptRenderRequest(BaseModel):
+    """Request schema for rendering a prompt with arguments."""
+
+    arguments: dict[str, str] = Field(
+        default_factory=dict,
+        description="Argument values keyed by argument name",
+    )
+
+
+class PromptRenderResponse(BaseModel):
+    """Response schema for rendered prompt content."""
+
+    rendered_content: str = Field(
+        description="The rendered template with arguments applied",
+    )
