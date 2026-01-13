@@ -22,6 +22,7 @@ import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { UnsavedChangesDialog } from './ui'
+import { LoadingSpinner } from './ui/LoadingSpinner'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
 import { config } from '../config'
@@ -151,6 +152,8 @@ export function Bookmark({
   const urlInputRef = useRef<HTMLInputElement>(null)
   // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
   const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
+  // Track if we should close after save (for Cmd+Shift+S)
+  const shouldCloseAfterSaveRef = useRef(false)
 
   // Read-only mode for deleted bookmarks
   const isReadOnly = viewState === 'deleted'
@@ -289,6 +292,16 @@ export function Bookmark({
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
+      // Cmd+Shift+S or Ctrl+Shift+S to save and close
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 's') {
+        e.preventDefault()
+        if (!isReadOnly && isDirty) {
+          shouldCloseAfterSaveRef.current = true
+          formRef.current?.requestSubmit()
+        }
+        return
+      }
+
       // Cmd+S or Ctrl+S to save (only if there are changes)
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
@@ -470,6 +483,14 @@ export function Bookmark({
       // Update original to match current (form is now clean)
       setOriginal({ ...current, tags: tagsToSubmit })
 
+      // Close if requested (Cmd+Shift+S)
+      if (shouldCloseAfterSaveRef.current) {
+        shouldCloseAfterSaveRef.current = false
+        confirmLeave() // Prevent navigation blocker from showing
+        onClose()
+        return
+      }
+
       // Restore focus if we saved via Cmd+S from CodeMirror (which loses focus during save)
       if (refocusAfterSaveRef.current) {
         // Small delay to ensure React has finished updating
@@ -480,8 +501,9 @@ export function Bookmark({
       }
     } catch {
       // Error handling is done in the parent component
-      // Clear refocus ref on error too
+      // Clear refs on error
       refocusAfterSaveRef.current = null
+      shouldCloseAfterSaveRef.current = false
     }
   }
 
@@ -530,8 +552,15 @@ export function Bookmark({
       ref={formRef}
       onSubmit={handleSubmit}
       onKeyDown={handleKeyDown}
-      className={`flex flex-col h-full w-full ${fullWidth ? '' : 'max-w-4xl'}`}
+      className={`flex flex-col h-full w-full relative ${fullWidth ? '' : 'max-w-4xl'}`}
     >
+      {/* Page-level save overlay */}
+      {isSaving && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-gray-900/20 backdrop-blur-sm rounded-lg">
+          <LoadingSpinner size="lg" label="Saving..." />
+        </div>
+      )}
+
       {/* Fixed header with action buttons */}
       <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
@@ -561,17 +590,8 @@ export function Bookmark({
               disabled={isSaving || !canSave}
               className="btn-primary flex items-center gap-1.5"
             >
-              {isSaving ? (
-                <>
-                  <div className="spinner-sm" />
-                  <span className="hidden md:inline">Saving...</span>
-                </>
-              ) : (
-                <>
-                  <CheckIcon className="h-4 w-4" />
-                  <span className="hidden md:inline">{isCreate ? 'Create' : 'Save'}</span>
-                </>
-              )}
+              <CheckIcon className="h-4 w-4" />
+              <span className="hidden md:inline">{isCreate ? 'Create' : 'Save'}</span>
             </button>
           )}
         </div>

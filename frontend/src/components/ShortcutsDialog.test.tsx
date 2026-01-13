@@ -101,4 +101,11 @@ describe('ShortcutsDialog', () => {
     expect(screen.getByText('Toggle full-width layout')).toBeInTheDocument()
     expect(screen.getByText('Bold')).toBeInTheDocument()
   })
+
+  it('should display save and close shortcut', () => {
+    render(<ShortcutsDialog isOpen={true} onClose={vi.fn()} />)
+
+    expect(screen.getByText('Save')).toBeInTheDocument()
+    expect(screen.getByText('Save and close')).toBeInTheDocument()
+  })
 })
