@@ -2,11 +2,10 @@
  * Button to copy provided content to clipboard.
  * Unlike CopyContentButton, this doesn't fetch via API - it copies content directly.
  */
-import { useState, useCallback } from 'react'
+import { useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { CopyIcon, CheckIcon } from '../icons'
-
-type CopyState = 'idle' | 'success' | 'error'
+import { useCopyFeedback } from '../../hooks/useCopyFeedback'
 
 interface CopyToClipboardButtonProps {
   /** Content to copy to clipboard */
@@ -16,9 +15,6 @@ interface CopyToClipboardButtonProps {
   /** Optional title override */
   title?: string
 }
-
-/** Duration to show success/error state before returning to idle (ms) */
-const FEEDBACK_DURATION = 1000
 
 /**
  * CopyToClipboardButton copies provided content to clipboard.
@@ -33,28 +29,25 @@ export function CopyToClipboardButton({
   className = '',
   title = 'Copy content',
 }: CopyToClipboardButtonProps): ReactNode {
-  const [state, setState] = useState<CopyState>('idle')
+  const { state, setSuccess, setError } = useCopyFeedback()
 
   const handleCopy = useCallback(async (e: React.MouseEvent): Promise<void> => {
     e.preventDefault()
     e.stopPropagation()
 
     if (!content) {
-      setState('error')
-      setTimeout(() => setState('idle'), FEEDBACK_DURATION)
+      setError()
       return
     }
 
     try {
       await navigator.clipboard.writeText(content)
-      setState('success')
+      setSuccess()
     } catch (err) {
       console.error('Failed to copy content:', err)
-      setState('error')
+      setError()
     }
-
-    setTimeout(() => setState('idle'), FEEDBACK_DURATION)
-  }, [content])
+  }, [content, setSuccess, setError])
 
   const getTitle = (): string => {
     switch (state) {

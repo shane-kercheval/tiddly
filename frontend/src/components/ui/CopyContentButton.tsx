@@ -2,13 +2,12 @@
  * Button to copy note or prompt content to clipboard.
  * Fetches content via API since list views don't include full content.
  */
-import { useState, useCallback } from 'react'
+import { useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { CopyIcon, CheckIcon } from '../icons'
 import { useNotes } from '../../hooks/useNotes'
 import { usePrompts } from '../../hooks/usePrompts'
-
-type CopyState = 'idle' | 'loading' | 'success' | 'error'
+import { useCopyFeedback } from '../../hooks/useCopyFeedback'
 
 interface CopyContentButtonProps {
   /** Type of content to copy */
@@ -19,24 +18,21 @@ interface CopyContentButtonProps {
   className?: string
 }
 
-/** Duration to show success/error state before returning to idle (ms) */
-const FEEDBACK_DURATION = 1000
-
 /**
  * CopyContentButton fetches content and copies it to clipboard.
  *
  * States:
  * - idle: Shows copy icon
  * - loading: Shows spinner while fetching
- * - success: Shows green checkmark for 2s
- * - error: Shows red X for 2s
+ * - success: Shows green checkmark
+ * - error: Shows red X
  */
 export function CopyContentButton({
   contentType,
   id,
   className = '',
 }: CopyContentButtonProps): ReactNode {
-  const [state, setState] = useState<CopyState>('idle')
+  const { state, setLoading, setSuccess, setError } = useCopyFeedback()
   const { fetchNote } = useNotes()
   const { fetchPrompt } = usePrompts()
 
@@ -45,7 +41,7 @@ export function CopyContentButton({
 
     if (state === 'loading') return // Prevent double-clicks
 
-    setState('loading')
+    setLoading()
 
     try {
       // Create fetch promise for content
@@ -81,15 +77,12 @@ export function CopyContentButton({
         await navigator.clipboard.writeText(content)
       }
 
-      setState('success')
+      setSuccess()
     } catch (err) {
       console.error('Failed to copy content:', err)
-      setState('error')
+      setError()
     }
-
-    // Reset to idle after feedback duration
-    setTimeout(() => setState('idle'), FEEDBACK_DURATION)
-  }, [state, contentType, id, fetchNote, fetchPrompt])
+  }, [state, contentType, id, fetchNote, fetchPrompt, setLoading, setSuccess, setError])
 
   const getTitle = (): string => {
     switch (state) {

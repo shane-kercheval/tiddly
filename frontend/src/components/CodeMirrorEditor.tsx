@@ -13,6 +13,24 @@ import { keymap, EditorView } from '@codemirror/view'
 import type { KeyBinding } from '@codemirror/view'
 import { Prec } from '@codemirror/state'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
+import {
+  ToolbarSeparator,
+  BoldIcon,
+  ItalicIcon,
+  StrikethroughIcon,
+  InlineCodeIcon,
+  CodeBlockIcon,
+  LinkIcon,
+  BulletListIcon,
+  OrderedListIcon,
+  TaskListIcon,
+  BlockquoteIcon,
+  HorizontalRuleIcon,
+  JinjaVariableIcon,
+  JinjaIfIcon,
+  JinjaIfTrimIcon,
+} from './editor/EditorToolbarIcons'
+import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
 
 interface CodeMirrorEditorProps {
   /** Current content value */
@@ -182,6 +200,10 @@ function insertText(view: EditorView, text: string): boolean {
 /**
  * Dispatch a keyboard event to the document for global handlers to catch.
  * Used to pass shortcuts through from CodeMirror to global handlers.
+ *
+ * This enables shortcuts like Cmd+/ (help modal) and Cmd+\ (sidebar toggle)
+ * to work when the CodeMirror editor has focus. The events bubble up to
+ * document-level listeners in the parent components.
  */
 function dispatchGlobalShortcut(key: string, metaKey: boolean): void {
   const event = new KeyboardEvent('keydown', {
@@ -223,6 +245,11 @@ function createMarkdownKeyBindings(): KeyBinding[] {
 
 /**
  * Toolbar button for CodeMirror editor.
+ *
+ * Note: Unlike MilkdownEditor's ToolbarButton, this always executes the action
+ * on mousedown. MilkdownEditor uses wasEditorFocused() guard because Safari
+ * drops focus-within state before click events fire on toolbar buttons.
+ * CodeMirror doesn't have this issue because its focus model is different.
  */
 interface ToolbarButtonProps {
   onClick: () => void
@@ -245,13 +272,6 @@ function ToolbarButton({ onClick, title, children }: ToolbarButtonProps): ReactN
       {children}
     </button>
   )
-}
-
-/**
- * Toolbar separator for visual grouping.
- */
-function ToolbarSeparator(): ReactNode {
-  return <div className="w-px h-5 bg-gray-200 mx-1" />
 }
 
 /**
@@ -282,99 +302,14 @@ export function CodeMirrorEditor({
     return editorRef.current?.view
   }, [])
 
-  // Toolbar action handlers
-  const handleBold = useCallback(() => {
+  /**
+   * Run an action on the editor view, then refocus.
+   * Centralizes the common pattern of: get view -> run action -> focus.
+   */
+  const runAction = useCallback((action: (view: EditorView) => boolean): void => {
     const view = getView()
     if (view) {
-      wrapWithMarkers(view, '**', '**')
-      view.focus()
-    }
-  }, [getView])
-
-  const handleItalic = useCallback(() => {
-    const view = getView()
-    if (view) {
-      wrapWithMarkers(view, '*', '*')
-      view.focus()
-    }
-  }, [getView])
-
-  const handleStrikethrough = useCallback(() => {
-    const view = getView()
-    if (view) {
-      wrapWithMarkers(view, '~~', '~~')
-      view.focus()
-    }
-  }, [getView])
-
-  const handleInlineCode = useCallback(() => {
-    const view = getView()
-    if (view) {
-      wrapWithMarkers(view, '`', '`')
-      view.focus()
-    }
-  }, [getView])
-
-  const handleCodeBlock = useCallback(() => {
-    const view = getView()
-    if (view) {
-      toggleCodeBlock(view)
-      view.focus()
-    }
-  }, [getView])
-
-  const handleLink = useCallback(() => {
-    const view = getView()
-    if (view) {
-      insertLink(view)
-      view.focus()
-    }
-  }, [getView])
-
-  const handleBulletList = useCallback(() => {
-    const view = getView()
-    if (view) {
-      toggleLinePrefix(view, '- ')
-      view.focus()
-    }
-  }, [getView])
-
-  const handleOrderedList = useCallback(() => {
-    const view = getView()
-    if (view) {
-      toggleLinePrefix(view, '1. ')
-      view.focus()
-    }
-  }, [getView])
-
-  const handleTaskList = useCallback(() => {
-    const view = getView()
-    if (view) {
-      toggleLinePrefix(view, '- [ ] ')
-      view.focus()
-    }
-  }, [getView])
-
-  const handleBlockquote = useCallback(() => {
-    const view = getView()
-    if (view) {
-      toggleLinePrefix(view, '> ')
-      view.focus()
-    }
-  }, [getView])
-
-  const handleHorizontalRule = useCallback(() => {
-    const view = getView()
-    if (view) {
-      insertHorizontalRule(view)
-      view.focus()
-    }
-  }, [getView])
-
-  const handleInsertText = useCallback((text: string) => {
-    const view = getView()
-    if (view) {
-      insertText(view, text)
+      action(view)
       view.focus()
     }
   }, [getView])
@@ -397,90 +332,64 @@ export function CodeMirrorEditor({
           {/* Left: formatting buttons that fade in */}
           <div className="flex items-center gap-0.5 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
             {/* Text formatting */}
-            <ToolbarButton onClick={handleBold} title="Bold (⌘B)">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 4h8a4 4 0 014 4 4 4 0 01-4 4H6z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12h9a4 4 0 014 4 4 4 0 01-4 4H6z" />
-              </svg>
+            <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '**', '**'))} title="Bold (⌘B)">
+              <BoldIcon />
             </ToolbarButton>
-            <ToolbarButton onClick={handleItalic} title="Italic (⌘I)">
-              <span className="w-4 h-4 flex items-center justify-center text-[17px] font-serif italic">I</span>
+            <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '*', '*'))} title="Italic (⌘I)">
+              <ItalicIcon />
             </ToolbarButton>
-            <ToolbarButton onClick={handleStrikethrough} title="Strikethrough (⌘⇧X)">
-              <span className="w-4 h-4 flex items-center justify-center text-[17px] line-through">S</span>
+            <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '~~', '~~'))} title="Strikethrough (⌘⇧X)">
+              <StrikethroughIcon />
             </ToolbarButton>
-            <ToolbarButton onClick={handleInlineCode} title="Inline Code">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-              </svg>
+            <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '`', '`'))} title="Inline Code">
+              <InlineCodeIcon />
             </ToolbarButton>
-            <ToolbarButton onClick={handleCodeBlock} title="Code Block">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h6" />
-              </svg>
+            <ToolbarButton onClick={() => runAction(toggleCodeBlock)} title="Code Block">
+              <CodeBlockIcon />
             </ToolbarButton>
 
             <ToolbarSeparator />
 
             {/* Link */}
-            <ToolbarButton onClick={handleLink} title="Insert Link (⌘K)">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-              </svg>
+            <ToolbarButton onClick={() => runAction(insertLink)} title="Insert Link (⌘K)">
+              <LinkIcon />
             </ToolbarButton>
 
             <ToolbarSeparator />
 
             {/* Lists */}
-            <ToolbarButton onClick={handleBulletList} title="Bullet List">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M8 12h12M8 18h12" />
-                <circle cx="3" cy="6" r="2" fill="currentColor" />
-                <circle cx="3" cy="12" r="2" fill="currentColor" />
-                <circle cx="3" cy="18" r="2" fill="currentColor" />
-              </svg>
+            <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- '))} title="Bullet List">
+              <BulletListIcon />
             </ToolbarButton>
-            <ToolbarButton onClick={handleOrderedList} title="Numbered List">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M8 12h12M8 18h12" />
-                <text x="1" y="8" fontSize="7" fill="currentColor" fontWeight="bold">1</text>
-                <text x="1" y="14" fontSize="7" fill="currentColor" fontWeight="bold">2</text>
-                <text x="1" y="20" fontSize="7" fill="currentColor" fontWeight="bold">3</text>
-              </svg>
+            <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '1. '))} title="Numbered List">
+              <OrderedListIcon />
             </ToolbarButton>
-            <ToolbarButton onClick={handleTaskList} title="Task List">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <rect x="3" y="5" width="14" height="14" rx="2" strokeWidth={2} />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12l3 3 5-5" />
-              </svg>
+            <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- [ ] '))} title="Task List">
+              <TaskListIcon />
             </ToolbarButton>
 
             <ToolbarSeparator />
 
             {/* Block elements */}
-            <ToolbarButton onClick={handleBlockquote} title="Blockquote">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-4l-4 4-4-4z" />
-              </svg>
+            <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '> '))} title="Blockquote">
+              <BlockquoteIcon />
             </ToolbarButton>
-            <ToolbarButton onClick={handleHorizontalRule} title="Horizontal Rule">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h16" />
-              </svg>
+            <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title="Horizontal Rule">
+              <HorizontalRuleIcon />
             </ToolbarButton>
 
             {/* Jinja2 template tools (for prompts) */}
             {showJinjaTools && (
               <>
                 <ToolbarSeparator />
-                <ToolbarButton onClick={() => handleInsertText('{{ variable }}')} title="Insert Variable {{ }}">
-                  <span className="w-4 h-4 flex items-center justify-center text-[11px] font-mono font-bold">{'{}'}</span>
+                <ToolbarButton onClick={() => runAction((v) => insertText(v, JINJA_VARIABLE))} title="Insert Variable {{ }}">
+                  <JinjaVariableIcon />
                 </ToolbarButton>
-                <ToolbarButton onClick={() => handleInsertText('{% if variable %}\n\n{% endif %}')} title="If Block {% if %}">
-                  <span className="w-4 h-4 flex items-center justify-center text-[10px] font-mono font-bold">if</span>
+                <ToolbarButton onClick={() => runAction((v) => insertText(v, JINJA_IF_BLOCK))} title="If Block {% if %}">
+                  <JinjaIfIcon />
                 </ToolbarButton>
-                <ToolbarButton onClick={() => handleInsertText('{%- if variable %}\n\n{%- endif %}')} title="If Block with Whitespace Trim {%- if %}">
-                  <span className="w-4 h-4 flex items-center justify-center text-[10px] font-mono font-bold">if-</span>
+                <ToolbarButton onClick={() => runAction((v) => insertText(v, JINJA_IF_BLOCK_TRIM))} title="If Block with Whitespace Trim {%- if %}">
+                  <JinjaIfTrimIcon />
                 </ToolbarButton>
               </>
             )}
