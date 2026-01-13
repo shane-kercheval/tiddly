@@ -55,7 +55,7 @@ export function Layout(): ReactNode {
   return (
     <div className="flex h-screen bg-white">
       <Sidebar />
-      <main className="flex-1 flex flex-col min-w-0">
+      <main id="main-content" className="flex-1 flex flex-col min-w-0 relative">
         <div className="flex-1 overflow-y-auto">
           <div className={`flex flex-col min-h-0 px-4 pt-16 pb-4 md:px-6 md:pt-4 ${fullWidthLayout ? 'max-w-full' : 'max-w-5xl'}`}>
             <Outlet />

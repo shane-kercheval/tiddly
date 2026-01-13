@@ -1,9 +1,12 @@
 /**
  * SaveOverlay - Page-level overlay shown during save operations.
  *
- * Displays a centered spinner with blur backdrop over the content area,
+ * Displays a centered spinner with blur backdrop over the main content area,
  * ensuring the user sees saving feedback regardless of scroll position.
+ * Uses a portal to render into the main content container for full coverage.
+ * Falls back to inline rendering if the portal target doesn't exist (e.g., in tests).
  */
+import { createPortal } from 'react-dom'
 import { LoadingSpinner } from './LoadingSpinner'
 
 interface SaveOverlayProps {
@@ -16,9 +19,15 @@ interface SaveOverlayProps {
 export function SaveOverlay({ isVisible, label = 'Saving...' }: SaveOverlayProps): React.ReactNode {
   if (!isVisible) return null
 
-  return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-gray-900/20 backdrop-blur-sm rounded-lg">
+  const overlay = (
+    <div className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
       <LoadingSpinner size="lg" label={label} />
     </div>
   )
+
+  // Get the main content container for portal rendering
+  const container = document.getElementById('main-content')
+
+  // Use portal if container exists, otherwise render inline (for tests)
+  return container ? createPortal(overlay, container) : overlay
 }

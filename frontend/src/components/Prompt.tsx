@@ -570,7 +570,7 @@ export function Prompt({
       ref={formRef}
       onSubmit={handleSubmit}
       onKeyDown={handleKeyDown}
-      className={`flex flex-col h-full w-full relative ${fullWidth ? '' : 'max-w-4xl'}`}
+      className={`flex flex-col h-full w-full ${fullWidth ? '' : 'max-w-4xl'}`}
     >
       <SaveOverlay isVisible={isSaving} />
 
