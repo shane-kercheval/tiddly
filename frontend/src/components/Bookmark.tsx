@@ -7,7 +7,7 @@
  * Features:
  * - Inline editable URL (monospace), title, tags, description
  * - Archive scheduling with inline editing
- * - ContentEditor with Visual/Markdown toggle for content
+ * - ContentEditor with Markdown/Text toggle for content
  * - Save/Discard buttons appear when dirty
  * - Keyboard shortcuts: Cmd+S to save, Escape to cancel
  * - beforeunload warning when dirty

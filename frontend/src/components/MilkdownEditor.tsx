@@ -1,9 +1,9 @@
 /**
- * Milkdown-based WYSIWYG markdown editor.
+ * Milkdown-based rich markdown editor.
  * Renders markdown inline as you type (like Obsidian, Bear, Typora).
  *
- * This is the "Visual" mode editor used by ContentEditor.
- * For raw markdown editing, see CodeMirrorEditor.
+ * This is the "Markdown" mode editor used by ContentEditor.
+ * For plain text editing, see CodeMirrorEditor.
  */
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { ReactNode, FormEvent } from 'react'
@@ -376,6 +376,69 @@ function LinkDialog({
 }
 
 /**
+ * Create a ProseMirror plugin that adds copy buttons to code blocks.
+ * Uses widget decorations to insert a button element at the start of each code block.
+ * The button is positioned absolutely via CSS and copies the code content on click.
+ */
+function createCodeBlockCopyPlugin(): Plugin {
+  return new Plugin({
+    props: {
+      decorations(state) {
+        const decorations: Decoration[] = []
+
+        state.doc.descendants((node, pos) => {
+          if (node.type.name === 'code_block') {
+            decorations.push(
+              Decoration.widget(
+                pos + 1,
+                (view) => {
+                  const button = document.createElement('button')
+                  button.className = 'code-block-copy-btn'
+                  button.setAttribute('type', 'button')
+                  button.setAttribute('title', 'Copy code')
+                  button.setAttribute('aria-label', 'Copy code')
+
+                  button.innerHTML = `<svg class="copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>`
+
+                  button.onclick = async (e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+
+                    const resolvedPos = view.state.doc.resolve(pos)
+                    const codeBlockNode = resolvedPos.nodeAfter
+                    if (!codeBlockNode) return
+
+                    try {
+                      await navigator.clipboard.writeText(codeBlockNode.textContent)
+                      button.classList.add('copied')
+                      setTimeout(() => button.classList.remove('copied'), 1000)
+                    } catch (err) {
+                      console.error('Failed to copy code:', err)
+                    }
+                  }
+
+                  return button
+                },
+                { stopEvent: () => true, side: -1, key: `code-copy-${pos}` }
+              )
+            )
+          }
+          return true
+        })
+
+        return DecorationSet.create(state.doc, decorations)
+      },
+    },
+  })
+}
+
+/**
  * Create a ProseMirror plugin that shows placeholder text when the editor is empty.
  * Uses a node decoration to add a class to the empty paragraph, then CSS ::before
  * displays the placeholder. This approach doesn't insert DOM nodes that could
@@ -594,6 +657,9 @@ function MilkdownEditorInner({
   // Create placeholder plugin with Milkdown's $prose utility
   const placeholderPluginSlice = $prose(() => createPlaceholderPlugin(placeholder))
 
+  // Create code block copy button plugin
+  const codeBlockCopyPluginSlice = $prose(() => createCodeBlockCopyPlugin())
+
   // Create list keymap plugin with Milkdown's $prose utility
   // This plugin handles Tab/Shift+Tab for list indentation and Backspace at list item start
   const listKeymapPluginSlice = $prose((ctx) => {
@@ -664,6 +730,7 @@ function MilkdownEditorInner({
       .use(listener)
       .use(remarkTightLists)
       .use(placeholderPluginSlice)
+      .use(codeBlockCopyPluginSlice)
       .use(listKeymapPluginSlice),
     []
   )
@@ -1167,17 +1234,17 @@ function MilkdownEditorInner({
 }
 
 /**
- * MilkdownEditor provides a WYSIWYG markdown editor that renders inline.
+ * MilkdownEditor provides a rich markdown editor that renders inline.
  *
  * Features:
- * - WYSIWYG editing with inline markdown rendering
+ * - Rich editing with inline markdown rendering
  * - Keyboard shortcuts (Cmd+B, Cmd+I, Cmd+K)
  * - Task list checkbox toggling
  * - Placeholder text when empty
  * - Copy/paste preserves markdown
  *
  * Note: This component should be used via ContentEditor which provides
- * the mode toggle between Visual (Milkdown) and Markdown (CodeMirror) modes.
+ * the mode toggle between Markdown (Milkdown) and Text (CodeMirror) modes.
  */
 export function MilkdownEditor({
   value,

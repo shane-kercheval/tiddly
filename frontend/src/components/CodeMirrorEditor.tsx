@@ -1,9 +1,9 @@
 /**
- * CodeMirror-based raw markdown editor.
+ * CodeMirror-based plain text editor.
  * Provides syntax highlighting and formatting shortcuts for markdown editing.
  *
- * This is the "Markdown" mode editor used by ContentEditor.
- * For WYSIWYG editing, see MilkdownEditor.
+ * This is the "Text" mode editor used by ContentEditor.
+ * For rich markdown editing, see MilkdownEditor.
  */
 import { useMemo, useRef, useCallback } from 'react'
 import type { ReactNode } from 'react'

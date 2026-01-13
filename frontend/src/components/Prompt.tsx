@@ -7,7 +7,7 @@
  * Features:
  * - Inline editable name (monospace), title, tags, description
  * - ArgumentsBuilder for prompt arguments
- * - ContentEditor with Visual/Markdown toggle
+ * - ContentEditor with Markdown/Text toggle
  * - Save/Discard buttons appear when dirty
  * - Keyboard shortcuts: Cmd+S to save, Escape to cancel
  * - beforeunload warning when dirty

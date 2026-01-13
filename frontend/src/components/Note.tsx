@@ -6,7 +6,7 @@
  *
  * Features:
  * - Inline editable title, tags, description
- * - ContentEditor with Visual/Markdown toggle
+ * - ContentEditor with Markdown/Text toggle
  * - Save/Discard buttons appear when dirty
  * - Keyboard shortcuts: Cmd+S to save, Escape to cancel
  * - beforeunload warning when dirty
