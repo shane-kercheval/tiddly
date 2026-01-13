@@ -106,9 +106,10 @@ function insertLink(view: EditorView): boolean {
 }
 
 /**
- * Toggle code block. If in code block, remove markers. Otherwise, wrap selection or insert empty block.
+ * Insert a code block. Wraps selection in fenced code block markers, or inserts empty block at cursor.
+ * Note: This inserts only; it does not detect/remove existing code blocks (that would require parsing).
  */
-function toggleCodeBlock(view: EditorView): boolean {
+function insertCodeBlock(view: EditorView): boolean {
   const { state } = view
   const { from, to } = state.selection.main
   const selectedText = state.sliceDoc(from, to)
@@ -326,10 +327,10 @@ export function CodeMirrorEditor({
 
   return (
     <div className={noPadding ? 'codemirror-no-padding' : ''}>
-      {/* Toolbar - formatting buttons fade in, copy button always visible */}
+      {/* Toolbar - formatting buttons fade in on focus, copy button stays visible (doesn't fade) */}
       {!disabled && (
         <div className="flex items-center justify-between px-2 py-1.5 border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50 transition-colors">
-          {/* Left: formatting buttons that fade in */}
+          {/* Left: formatting buttons that fade in on focus */}
           <div className="flex items-center gap-0.5 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
             {/* Text formatting */}
             <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '**', '**'))} title="Bold (⌘B)">
@@ -344,7 +345,7 @@ export function CodeMirrorEditor({
             <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '`', '`'))} title="Inline Code">
               <InlineCodeIcon />
             </ToolbarButton>
-            <ToolbarButton onClick={() => runAction(toggleCodeBlock)} title="Code Block">
+            <ToolbarButton onClick={() => runAction(insertCodeBlock)} title="Code Block">
               <CodeBlockIcon />
             </ToolbarButton>
 

@@ -25,7 +25,7 @@ export function SaveOverlay({ isVisible, label = 'Saving...' }: SaveOverlayProps
     </div>
   )
 
-  // Get the main content container for portal rendering
+  // Get the main content container for portal rendering (defined in Layout.tsx)
   const container = document.getElementById('main-content')
 
   // Use portal if container exists, otherwise render inline (for tests)

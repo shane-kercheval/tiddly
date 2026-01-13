@@ -98,6 +98,7 @@ import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
 import { setBlockType } from '@milkdown/kit/prose/commands'
 import { Modal } from './ui/Modal'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
+import { COPY_FEEDBACK_DURATION } from '../hooks/useCopyFeedback'
 import {
   ToolbarSeparator,
   BoldIcon,
@@ -418,7 +419,7 @@ function createCodeBlockCopyPlugin(): Plugin {
                     try {
                       await navigator.clipboard.writeText(codeBlockNode.textContent)
                       button.classList.add('copied')
-                      setTimeout(() => button.classList.remove('copied'), 1000)
+                      setTimeout(() => button.classList.remove('copied'), COPY_FEEDBACK_DURATION)
                     } catch (err) {
                       console.error('Failed to copy code:', err)
                     }
