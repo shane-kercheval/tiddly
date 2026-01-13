@@ -311,6 +311,7 @@ export function ContentEditor({
             noPadding={subtleBorder || !showBorder}
             showJinjaTools={showJinjaTools}
             autoFocus={shouldAutoFocus}
+            copyContent={value}
           />
         ) : (
           <CodeMirrorEditor
@@ -323,6 +324,8 @@ export function ContentEditor({
             wrapText={wrapText}
             noPadding={subtleBorder || !showBorder}
             autoFocus={shouldAutoFocus}
+            copyContent={value}
+            showJinjaTools={showJinjaTools}
           />
         )}
       </div>

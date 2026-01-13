@@ -214,6 +214,11 @@ body {
   padding-left: 0.25rem; /* px-1 = 4px to match title/description */
 }
 
+/* Remove CodeMirror's default focus outline (we use our own focus styling) */
+.cm-editor.cm-focused {
+  outline: none;
+}
+
 /* Paragraph spacing */
 .milkdown-wrapper .milkdown p {
   @apply my-3 first:mt-0 last:mb-0;
