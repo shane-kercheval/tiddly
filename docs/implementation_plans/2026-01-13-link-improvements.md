@@ -75,24 +75,31 @@ function createLinkClickPlugin(): Plugin {
     props: {
       handleDOMEvents: {
         click(view, event) {
-          // Check for Cmd (Mac) or Ctrl (Windows/Linux)
-          const isModClick = event.metaKey || event.ctrlKey
+          // Platform-specific modifier key detection
+          // Mac: Cmd (metaKey), Windows/Linux: Ctrl (ctrlKey)
+          const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+          const isModClick = isMac ? event.metaKey : event.ctrlKey
           if (!isModClick) return false
 
-          // Find if clicked element is or contains a link
-          const target = event.target as HTMLElement
-          const link = target.closest('a')
-          if (!link) return false
+          // Get ProseMirror position at click location
+          const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
+          if (!coords) return false
 
-          // Get href and open in new tab
-          const href = link.getAttribute('href')
-          if (href) {
-            window.open(href, '_blank', 'noopener,noreferrer')
+          // Check if there's a link mark at this position
+          const $pos = view.state.doc.resolve(coords.pos)
+          const linkMarkType = view.state.schema.marks.link
+          const linkMark = linkMarkType?.isInSet($pos.marks())
 
-            // CRITICAL: handleDOMEvents does NOT automatically call preventDefault()
-            // You must call it explicitly yourself, even when returning true
-            event.preventDefault()
-            return true
+          if (linkMark) {
+            const href = linkMark.attrs.href
+            if (href) {
+              window.open(href, '_blank', 'noopener,noreferrer')
+
+              // CRITICAL: handleDOMEvents does NOT automatically call preventDefault()
+              // You must call it explicitly yourself, even when returning true
+              event.preventDefault()
+              return true
+            }
           }
 
           return false
@@ -128,7 +135,8 @@ const linkClickPluginSlice = $prose(() => createLinkClickPlugin())
 - Links with nested formatting (bold/italic link text)
 - Links at document boundaries
 - Empty links (should not open)
-- **Cmd+Click on selected link**: If user selects entire link text and Cmd+Clicks, it should open the link (selection is visual state, not navigation blocker). The `event.target.closest('a')` approach handles this correctly.
+- **Cmd+Click on selected link**: If user selects entire link text and Cmd+Clicks, it should open the link (selection is visual state, not navigation blocker). The position-based approach handles this correctly.
+- **Ctrl+Click on macOS**: Should NOT open link (Ctrl+Click is right-click/context menu on Mac). Only Cmd+Click opens links on Mac.
 
 **Browser Testing**:
 - Chrome/Edge (most users)
@@ -240,13 +248,23 @@ const handleToolbarLinkClick = useCallback(() => {
   const linkBoundaries = findLinkBoundaries(view, from, linkMarkType)
 
   if (linkBoundaries) {
-    // EXISTING LINK: Extract href and text
-    const href = linkBoundaries.mark.attrs.href || ''
-    const linkText = view.state.doc.textBetween(linkBoundaries.start, linkBoundaries.end)
+    // Verify selection is fully inside this link
+    // If selection extends beyond link, treat as "create new link"
+    if (to > linkBoundaries.end) {
+      // Selection spans beyond link - ambiguous, create new
+      const selectedText = view.state.doc.textBetween(from, to)
+      setLinkDialogInitialText(selectedText)
+      setLinkDialogInitialUrl('')
+      setLinkDialogIsEdit(false)
+    } else {
+      // EXISTING LINK: Extract href and text
+      const href = linkBoundaries.mark.attrs.href || ''
+      const linkText = view.state.doc.textBetween(linkBoundaries.start, linkBoundaries.end)
 
-    setLinkDialogInitialText(linkText)
-    setLinkDialogInitialUrl(href)
-    setLinkDialogIsEdit(true)
+      setLinkDialogInitialText(linkText)
+      setLinkDialogInitialUrl(href)
+      setLinkDialogIsEdit(true)
+    }
   } else {
     // NEW LINK: Use selected text if any
     const selectedText = view.state.doc.textBetween(from, to)
@@ -324,18 +342,18 @@ const handleLinkSubmit = useCallback((url: string, text: string) => {
 
     const tr = view.state.tr
 
-    // Remove old link mark from the detected boundaries
-    tr.removeMark(linkBoundaries.start, linkBoundaries.end, linkMarkType)
-
-    // Add new link mark with updated URL
-    const newMark = linkMarkType.create({ href: url })
-    tr.addMark(linkBoundaries.start, linkBoundaries.end, newMark)
-
-    // Only update text if user actually changed it
+    // Check if text was changed
     const originalText = view.state.doc.textBetween(linkBoundaries.start, linkBoundaries.end)
     if (text !== originalText) {
+      // Text changed - replace entire link (new text + new URL)
+      const newMark = linkMarkType.create({ href: url })
       const textNode = view.state.schema.text(text, [newMark])
       tr.replaceWith(linkBoundaries.start, linkBoundaries.end, textNode)
+    } else {
+      // Only URL changed - preserve existing text and formatting (bold/italic/etc)
+      tr.removeMark(linkBoundaries.start, linkBoundaries.end, linkMarkType)
+      const newMark = linkMarkType.create({ href: url })
+      tr.addMark(linkBoundaries.start, linkBoundaries.end, newMark)
     }
 
     view.dispatch(tr)
@@ -353,9 +371,10 @@ const handleLinkSubmit = useCallback((url: string, text: string) => {
 ```
 
 **Key differences**:
-- **Edit mode**: Re-detects boundaries at submission time using `findLinkBoundaries` helper, uses `removeMark` + `addMark` to update in-place
+- **Edit mode**: Re-detects boundaries at submission time using `findLinkBoundaries` helper
+- **Formatting preservation**: If only URL changed, uses `removeMark` + `addMark` to preserve bold/italic/code formatting. If text also changed, replaces text node (formatting on new text is intentional).
 - **Create mode**: Uses `replaceSelectionWith` to insert new link
-- **Text updates**: Only replaces text if user changed it (prevents unnecessary edits)
+- **Text change detection**: Compares original text with submitted text to determine which update strategy to use
 - **Empty text fallback**: If user clears text field, uses URL as link text (matches Google Docs behavior)
 - **Position safety**: Never stores positions in state - always detects fresh to avoid invalid position errors
 - **Edge case handling**: If link was deleted while dialog was open, falls back to creating new link instead of crashing
@@ -433,11 +452,11 @@ For each link, test:
 - **Empty link text in dialog**: User clears text field → uses URL as link text (e.g., `[https://example.com](https://example.com)`) - matches Google Docs behavior
 - Link with special characters: `[link](#section-1)`
 - Link with encoded characters: `[link](https://example.com/path%20with%20spaces)`
-- **Cursor between two adjacent links**: `[link1](url1)[link2](url2)` with cursor between `]` and `[` → should NOT detect any link, clicking link button creates new link (least surprise principle)
-- **Link with formatted text**: `[**bold** text](url)` → boundary detection should find entire link across multiple text nodes with same link mark
+- **Cursor between two adjacent links**: `[link1](url1)|[link2](url2)` with cursor at `|` → detects link2 (right-hand link). This matches ProseMirror's typing model where cursor position determines which marks apply when typing. The `nodeAfter` fallback enables this behavior.
+- **Link with formatted text**: `[**bold** text](url)` → boundary detection finds the text node containing the cursor. If cursor is in "text", it detects "text" only. However, formatting preservation (decision 10) ensures that if user only changes URL, all formatting is preserved via removeMark + addMark. Known limitation: if user edits both text AND URL with cursor in one node of multi-node link, only that node is updated.
 - Link with nested marks (bold/italic/code mixed within link text)
 - **Selection spanning multiple links**: `[link1](url1) text [link2](url2)` with selection from middle of link1 to middle of link2 → should NOT detect any link (ambiguous), treat as new link creation
-- **Links in code blocks**: Code blocks render as plain text, so links should not be clickable. Verify `event.target.closest('a')` doesn't trigger on code block content (Milkdown likely doesn't render code blocks as `<a>` tags, but verify during testing)
+- **Links in code blocks**: Code blocks render as plain text without markdown processing, so links inside code blocks should not be clickable. The position-based detection will not find link marks in code block text nodes (code blocks are separate node types), so this should work correctly by default.
 
 **Dependencies**:
 - Milestone 1 (optional, but recommended to complete first for logical progression)
@@ -469,9 +488,17 @@ For each link, test:
 
 7. **Empty link text**: If user clears the text field in LinkDialog, use the URL as link text (e.g., `[https://example.com](https://example.com)`). This matches Google Docs behavior and prevents links with empty text.
 
-8. **Selection spanning multiple links**: If selection overlaps multiple links, do NOT detect any link (ambiguous case). Treat as new link creation using the selected text.
+8. **Selection spanning multiple links**: If selection overlaps multiple links or extends beyond a detected link, do NOT detect any link (ambiguous case). Treat as new link creation using the selected text. Implemented via guard that checks `to > linkBoundaries.end`.
 
-9. **Milkdown plugin registration**: Use `$prose(() => createPlugin())` pattern verified in existing codebase (createCodeBlockCopyPlugin, createPlaceholderPlugin). Register with `.use(pluginSlice)` in editor chain.
+9. **Adjacent links cursor position**: Cursor between `[link1](url1)|[link2](url2)` detects link2 (right-hand link). This matches ProseMirror's typing model where cursor position determines which marks apply. The `nodeAfter` fallback in `findLinkBoundaries` enables this behavior.
+
+10. **Formatting preservation**: When editing an existing link, if only the URL changed (text unchanged), preserve all existing formatting (bold/italic/code) by using `removeMark` + `addMark`. Only replace text nodes when user actually changed the text.
+
+11. **Platform-specific modifier keys**: Use Cmd (metaKey) on macOS and Ctrl (ctrlKey) on Windows/Linux for clickable links. Prevent Ctrl+Click on macOS from triggering link navigation (Ctrl+Click is right-click/context menu on Mac).
+
+12. **Position-based click detection**: Use `view.posAtCoords()` + mark detection instead of DOM traversal (`closest('a')`). This is more robust and works regardless of how Milkdown renders links in the DOM.
+
+13. **Milkdown plugin registration**: Use `$prose(() => createPlugin())` pattern verified in existing codebase (createCodeBlockCopyPlugin, createPlaceholderPlugin). Register with `.use(pluginSlice)` in editor chain.
 
 ---
 
@@ -830,15 +857,18 @@ Before implementing, verify understanding:
 3. Do you understand why the `findLinkBoundaries` helper function is extracted and reused (prevents code duplication between `handleToolbarLinkClick` and `handleLinkSubmit`)?
 4. Do you understand why block-scoped search (`blockStart` to `blockEnd`) is required instead of full document search (`0` to `doc.content.size`) for performance?
 5. **CRITICAL**: Do you understand why ProseMirror positions must NOT be stored in React state and must be re-detected at submission time?
-6. Do you understand the difference between editing (removeMark + addMark) vs creating (replaceSelectionWith) links?
-7. Do you understand the expected behavior for cursor between adjacent links (should create new link, not edit either)?
-8. Do you understand the expected behavior for links with formatted text inside (should detect entire link across multiple text nodes)?
-9. Do you understand the expected behavior for selection spanning multiple links (should NOT detect any link, treat as new)?
-10. Do you understand the expected behavior for empty link text (use URL as fallback text)?
-11. **CRITICAL - BLOCKER**: Do you understand that performance testing with 5000+ line documents is MANDATORY before shipping Milestone 2, and what the pass criteria is (<100ms)?
-12. Do you understand why the original Milestone 3 diagnosis was incorrect (not missing preventDefault, but focus/timing issue)?
-13. Do you understand how the modal-aware beforeunload fix works and why it's better than removing `<form>` elements?
-14. Do you understand why CodeMirrorEditor needs `onModalStateChange` prop even though it never calls it (interface consistency)?
-15. Do you understand that handleDOMEvents does NOT automatically call preventDefault() and you must call it explicitly?
+6. Do you understand the difference between editing links (removeMark + addMark when URL-only change) vs creating links (replaceSelectionWith)?
+7. **CRITICAL**: Do you understand why formatting preservation matters (when only URL changes, use removeMark + addMark to keep bold/italic; when text changes, replaceWith is fine)?
+8. Do you understand the expected behavior for cursor between adjacent links (detects link2, the right-hand link, via nodeAfter)?
+9. Do you understand the expected behavior for links with formatted text inside (should detect entire link across multiple text nodes)?
+10. Do you understand the expected behavior for selection spanning beyond detected link boundaries (guard checks `to > linkBoundaries.end`, treats as new link)?
+11. Do you understand the expected behavior for empty link text (use URL as fallback text)?
+12. **CRITICAL - BLOCKER**: Do you understand that performance testing with 5000+ line documents is MANDATORY before shipping Milestone 2, and what the pass criteria is (<100ms)?
+13. Do you understand why the original Milestone 3 diagnosis was incorrect (not missing preventDefault, but focus/timing issue)?
+14. Do you understand how the modal-aware beforeunload fix works and why it's better than removing `<form>` elements?
+15. Do you understand why CodeMirrorEditor needs `onModalStateChange` prop even though it never calls it (interface consistency)?
+16. **CRITICAL**: Do you understand that handleDOMEvents does NOT automatically call preventDefault() and you must call it explicitly?
+17. Do you understand why platform-specific modifier key detection is needed (Cmd on Mac, Ctrl on Windows/Linux; prevent Ctrl+Click on Mac)?
+18. Do you understand why position-based click detection (`posAtCoords` + mark check) is more robust than DOM traversal (`closest('a')`)?
 
 Ask clarifying questions rather than making assumptions.
