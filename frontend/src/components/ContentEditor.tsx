@@ -107,6 +107,8 @@ interface ContentEditorProps {
   subtleBorder?: boolean
   /** Show Jinja2 template tools in toolbar (for prompts) */
   showJinjaTools?: boolean
+  /** Called when a modal opens/closes (for beforeunload handlers) */
+  onModalStateChange?: (isOpen: boolean) => void
 }
 
 /**
@@ -138,6 +140,7 @@ export function ContentEditor({
   showBorder = true,
   subtleBorder = false,
   showJinjaTools = false,
+  onModalStateChange,
 }: ContentEditorProps): ReactNode {
   // Mode state with localStorage persistence
   const [mode, setMode] = useState<EditorMode>(loadModePreference)
@@ -315,6 +318,7 @@ export function ContentEditor({
             showJinjaTools={showJinjaTools}
             autoFocus={shouldAutoFocus}
             copyContent={value}
+            onModalStateChange={onModalStateChange}
           />
         ) : (
           <CodeMirrorEditor
@@ -329,6 +333,7 @@ export function ContentEditor({
             autoFocus={shouldAutoFocus}
             copyContent={value}
             showJinjaTools={showJinjaTools}
+            onModalStateChange={onModalStateChange}
           />
         )}
       </div>

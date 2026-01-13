@@ -139,6 +139,7 @@ export function Bookmark({
   const [original, setOriginal] = useState<BookmarkState>(getInitialState)
   const [current, setCurrent] = useState<BookmarkState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
+  const [isModalOpen, setIsModalOpen] = useState(false)
 
   // Metadata fetch state
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
@@ -275,7 +276,8 @@ export function Bookmark({
   // beforeunload handler for navigation warning
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent): void => {
-      if (isDirty) {
+      // Only warn if dirty AND no modal is open
+      if (isDirty && !isModalOpen) {
         e.preventDefault()
         e.returnValue = '' // Required for Chrome to show the dialog
       }
@@ -283,7 +285,7 @@ export function Bookmark({
 
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isDirty])
+  }, [isDirty, isModalOpen])
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -752,6 +754,7 @@ export function Bookmark({
           label=""
           showBorder={true}
           subtleBorder={true}
+          onModalStateChange={setIsModalOpen}
         />
       </div>
 

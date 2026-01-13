@@ -92,7 +92,8 @@ import { clipboard } from '@milkdown/kit/plugin/clipboard'
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
 import { $prose } from '@milkdown/kit/utils'
 import { Plugin, TextSelection, EditorState } from '@milkdown/kit/prose/state'
-import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
+import { Decoration, DecorationSet, EditorView } from '@milkdown/kit/prose/view'
+import type { Mark, MarkType } from '@milkdown/kit/prose/model'
 import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
 import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
 import { setBlockType } from '@milkdown/kit/prose/commands'
@@ -320,9 +321,9 @@ function LinkDialog({
   onClose,
   onSubmit,
   initialText = '',
-  initialUrl = 'https://',
+  initialUrl = '',
 }: LinkDialogProps): ReactNode {
-  const [url, setUrl] = useState(initialUrl)
+  const [url, setUrl] = useState(initialUrl || 'https://')
   const [text, setText] = useState(initialText)
 
   const handleSubmit = (e: FormEvent): void => {
@@ -472,6 +473,56 @@ function createPlaceholderPlugin(placeholder: string): Plugin {
 }
 
 /**
+ * Find the boundaries of a link mark at the given cursor position.
+ * Uses block-scoped search for performance (O(m) where m = paragraph size).
+ *
+ * @param view - ProseMirror editor view
+ * @param cursorPos - Cursor position to check
+ * @param linkMarkType - Link mark type from schema
+ * @returns Object with start, end, and mark, or null if not in a link
+ */
+function findLinkBoundaries(
+  view: EditorView,
+  cursorPos: number,
+  linkMarkType: MarkType
+): { start: number; end: number; mark: Mark } | null {
+  const $from = view.state.doc.resolve(cursorPos)
+
+  // Check if cursor is in a link mark
+  // CRITICAL: $from.marks() doesn't include marks at exact start position
+  // Use nodeAfter fallback to detect cursor at link boundary
+  let linkMark = linkMarkType.isInSet($from.marks())
+
+  // Boundary case: cursor at start of link
+  if (!linkMark && $from.nodeAfter) {
+    linkMark = linkMarkType.isInSet($from.nodeAfter.marks)
+  }
+
+  if (!linkMark) return null
+
+  // Find link boundaries by walking current block
+  const blockStart = $from.start($from.depth)
+  const blockEnd = $from.end($from.depth)
+
+  let linkStart = cursorPos
+  let linkEnd = cursorPos
+
+  view.state.doc.nodesBetween(blockStart, blockEnd, (node, pos) => {
+    if (node.isText && node.marks.some((m) => m.type === linkMarkType)) {
+      const nodeEnd = pos + node.nodeSize
+      // Check if this text node contains our cursor position
+      if (pos <= cursorPos && nodeEnd >= cursorPos) {
+        // This is part of our link - expand boundaries
+        linkStart = Math.min(linkStart, pos)
+        linkEnd = Math.max(linkEnd, nodeEnd)
+      }
+    }
+  })
+
+  return { start: linkStart, end: linkEnd, mark: linkMark }
+}
+
+/**
  * Check if the selection is inside a code_block node.
  */
 function isInCodeBlock(state: EditorState): boolean {
@@ -504,6 +555,50 @@ function getListItemDepthAtStart(state: EditorState): number {
     }
   }
   return -1
+}
+
+/**
+ * Create a ProseMirror plugin that makes links clickable via Cmd+Click (Mac) or Ctrl+Click (Windows/Linux).
+ * Opens links in a new tab with noopener,noreferrer for security.
+ */
+function createLinkClickPlugin(): Plugin {
+  return new Plugin({
+    props: {
+      handleDOMEvents: {
+        click(view, event) {
+          // Platform-specific modifier key detection
+          // Mac: Cmd (metaKey), Windows/Linux: Ctrl (ctrlKey)
+          const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+          const isModClick = isMac ? event.metaKey : event.ctrlKey
+
+          if (!isModClick) return false
+
+          // Get ProseMirror position at click location
+          const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
+          if (!coords) return false
+
+          // Check if there's a link mark at this position
+          const $pos = view.state.doc.resolve(coords.pos)
+          const linkMarkType = view.state.schema.marks.link
+          const linkMark = linkMarkType?.isInSet($pos.marks())
+
+          if (linkMark) {
+            const href = linkMark.attrs.href
+            if (href) {
+              window.open(href, '_blank', 'noopener,noreferrer')
+
+              // CRITICAL: handleDOMEvents does NOT automatically call preventDefault()
+              // You must call it explicitly yourself, even when returning true
+              event.preventDefault()
+              return true
+            }
+          }
+
+          return false
+        },
+      },
+    },
+  })
 }
 
 /**
@@ -614,6 +709,8 @@ interface MilkdownEditorProps {
   autoFocus?: boolean
   /** Content for the copy button (if provided, copy button is shown) */
   copyContent?: string
+  /** Called when a modal opens/closes (for beforeunload handlers) */
+  onModalStateChange?: (isOpen: boolean) => void
 }
 
 interface MilkdownEditorInnerProps {
@@ -626,6 +723,7 @@ interface MilkdownEditorInnerProps {
   showJinjaTools?: boolean
   autoFocus?: boolean
   copyContent?: string
+  onModalStateChange?: (isOpen: boolean) => void
 }
 
 function MilkdownEditorInner({
@@ -638,6 +736,7 @@ function MilkdownEditorInner({
   showJinjaTools = false,
   autoFocus = false,
   copyContent,
+  onModalStateChange,
 }: MilkdownEditorInnerProps): ReactNode {
   const initialValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
@@ -668,6 +767,9 @@ function MilkdownEditorInner({
     const listItemNodeType = listItemSchema.type(ctx)
     return createListKeymapPlugin(listItemNodeType)
   })
+
+  // Create link click plugin for Cmd+Click (Mac) or Ctrl+Click (Windows/Linux) to open links
+  const linkClickPluginSlice = $prose(() => createLinkClickPlugin())
 
   // Initialize the Milkdown editor.
   // Note: The empty dependency array is intentional. The editor is initialized once
@@ -733,7 +835,8 @@ function MilkdownEditorInner({
       .use(remarkTightLists)
       .use(placeholderPluginSlice)
       .use(codeBlockCopyPluginSlice)
-      .use(listKeymapPluginSlice),
+      .use(listKeymapPluginSlice)
+      .use(linkClickPluginSlice),
     []
   )
 
@@ -759,6 +862,8 @@ function MilkdownEditorInner({
   // Link dialog state
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [linkDialogInitialText, setLinkDialogInitialText] = useState('')
+  const [linkDialogInitialUrl, setLinkDialogInitialUrl] = useState('')
+  const [linkDialogIsEdit, setLinkDialogIsEdit] = useState(false)
   const [linkDialogKey, setLinkDialogKey] = useState(0)
 
   // Handle link insertion from dialog
@@ -768,25 +873,55 @@ function MilkdownEditorInner({
       if (!editor) return
 
       const view = editor.ctx.get(editorViewCtx)
+      const linkMarkType = view.state.schema.marks.link
 
-      // Get the link mark type from the schema
-      const linkMark = view.state.schema.marks.link
-      if (!linkMark) return
+      if (linkDialogIsEdit) {
+        // EDITING EXISTING LINK
+        // Re-detect link boundaries at submission time using helper
+        // ProseMirror positions become invalid after document edits
+        const { from } = view.state.selection
+        const linkBoundaries = findLinkBoundaries(view, from, linkMarkType)
 
-      // Create the link mark with href attribute
-      const mark = linkMark.create({ href: url })
+        if (!linkBoundaries) {
+          // Link no longer exists (user may have deleted it while dialog was open)
+          // Fall back to creating new link
+          const mark = linkMarkType.create({ href: url })
+          const linkNode = view.state.schema.text(text, [mark])
+          const tr = view.state.tr.replaceSelectionWith(linkNode, false)
+          view.dispatch(tr)
+          view.focus()
+          return
+        }
 
-      // Create a text node with the link mark applied
-      const linkNode = view.state.schema.text(text, [mark])
+        const tr = view.state.tr
 
-      // Replace selection with the linked text
-      const tr = view.state.tr.replaceSelectionWith(linkNode, false)
-      view.dispatch(tr)
+        // Check if text was changed
+        const originalText = view.state.doc.textBetween(linkBoundaries.start, linkBoundaries.end)
+        if (text !== originalText) {
+          // Text changed - replace entire link (new text + new URL)
+          const newMark = linkMarkType.create({ href: url })
+          const textNode = view.state.schema.text(text, [newMark])
+          tr.replaceWith(linkBoundaries.start, linkBoundaries.end, textNode)
+        } else {
+          // Only URL changed - preserve existing text and formatting (bold/italic/etc)
+          tr.removeMark(linkBoundaries.start, linkBoundaries.end, linkMarkType)
+          const newMark = linkMarkType.create({ href: url })
+          tr.addMark(linkBoundaries.start, linkBoundaries.end, newMark)
+        }
 
-      // Focus back on editor
-      view.focus()
+        view.dispatch(tr)
+        view.focus()
+      } else {
+        // CREATING NEW LINK
+        // Existing logic works fine for new links
+        const mark = linkMarkType.create({ href: url })
+        const linkNode = view.state.schema.text(text || url, [mark]) // Use URL as fallback if text is empty
+        const tr = view.state.tr.replaceSelectionWith(linkNode, false)
+        view.dispatch(tr)
+        view.focus()
+      }
     },
-    [get]
+    [get, linkDialogIsEdit]
   )
 
   // Handle toolbar link button click
@@ -796,12 +931,48 @@ function MilkdownEditorInner({
 
     const view = editor.ctx.get(editorViewCtx)
     const { from, to } = view.state.selection
-    const selectedText = view.state.doc.textBetween(from, to)
+    const linkMarkType = view.state.schema.marks.link
+    if (!linkMarkType) return
 
-    setLinkDialogInitialText(selectedText)
+    // Use helper to detect if cursor is in a link
+    const linkBoundaries = findLinkBoundaries(view, from, linkMarkType)
+
+    if (linkBoundaries) {
+      // Verify selection is fully inside this link
+      // If selection extends beyond link, treat as "create new link"
+      if (to > linkBoundaries.end) {
+        // Selection spans beyond link - ambiguous, create new
+        const selectedText = view.state.doc.textBetween(from, to)
+        setLinkDialogInitialText(selectedText)
+        setLinkDialogInitialUrl('')
+        setLinkDialogIsEdit(false)
+      } else {
+        // EXISTING LINK: Extract href and text
+        const href = linkBoundaries.mark.attrs.href || ''
+        const linkText = view.state.doc.textBetween(linkBoundaries.start, linkBoundaries.end)
+
+        setLinkDialogInitialText(linkText)
+        setLinkDialogInitialUrl(href)
+        setLinkDialogIsEdit(true)
+      }
+    } else {
+      // NEW LINK: Use selected text if any
+      const selectedText = view.state.doc.textBetween(from, to)
+      setLinkDialogInitialText(selectedText)
+      setLinkDialogInitialUrl('')
+      setLinkDialogIsEdit(false)
+    }
+
     setLinkDialogKey((k) => k + 1)
     setLinkDialogOpen(true)
-  }, [get])
+    onModalStateChange?.(true)
+  }, [get, onModalStateChange])
+
+  // Handle link dialog close
+  const handleLinkDialogClose = useCallback(() => {
+    setLinkDialogOpen(false)
+    onModalStateChange?.(false)
+  }, [onModalStateChange])
 
   /**
    * Get the current list context for the selection.
@@ -1068,14 +1239,7 @@ function MilkdownEditorInner({
       // Cmd+K - Insert/edit link
       if (isMod && e.key === 'k') {
         e.preventDefault()
-        const editor = get()
-        if (!editor) return
-        const view = editor.ctx.get(editorViewCtx)
-        const { from, to } = view.state.selection
-        const selectedText = view.state.doc.textBetween(from, to)
-        setLinkDialogInitialText(selectedText)
-        setLinkDialogKey((k) => k + 1)
-        setLinkDialogOpen(true)
+        handleToolbarLinkClick()
         return
       }
 
@@ -1135,7 +1299,7 @@ function MilkdownEditorInner({
         return
       }
     },
-    [get, runCommand, handleCodeBlockToggle, handleBulletListClick, handleOrderedListClick, handleTaskListClick]
+    [get, runCommand, handleCodeBlockToggle, handleBulletListClick, handleOrderedListClick, handleTaskListClick, handleToolbarLinkClick]
   )
 
   // Handle mouse down - checkbox toggle and focus on empty space
@@ -1227,9 +1391,10 @@ function MilkdownEditorInner({
       <LinkDialog
         key={linkDialogKey}
         isOpen={linkDialogOpen}
-        onClose={() => setLinkDialogOpen(false)}
+        onClose={handleLinkDialogClose}
         onSubmit={handleLinkSubmit}
         initialText={linkDialogInitialText}
+        initialUrl={linkDialogInitialUrl}
       />
     </>
   )
@@ -1258,6 +1423,7 @@ export function MilkdownEditor({
   showJinjaTools = false,
   autoFocus = false,
   copyContent,
+  onModalStateChange,
 }: MilkdownEditorProps): ReactNode {
   return (
     <MilkdownProvider>
@@ -1271,6 +1437,7 @@ export function MilkdownEditor({
         showJinjaTools={showJinjaTools}
         autoFocus={autoFocus}
         copyContent={copyContent}
+        onModalStateChange={onModalStateChange}
       />
     </MilkdownProvider>
   )
