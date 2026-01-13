@@ -1,12 +1,12 @@
 /**
- * Unified content editor with Visual/Markdown mode toggle.
+ * Unified content editor with Markdown/Text mode toggle.
  *
- * Wraps MilkdownEditor (WYSIWYG) and CodeMirrorEditor (raw markdown)
+ * Wraps MilkdownEditor (Markdown mode) and CodeMirrorEditor (Text mode)
  * with a mode toggle that persists to localStorage.
  *
  * Features:
- * - Visual mode: WYSIWYG editing with Milkdown
- * - Markdown mode: Raw markdown editing with CodeMirror
+ * - Markdown mode: Rich editing with Milkdown (renders markdown inline)
+ * - Text mode: Raw markdown editing with CodeMirror
  * - Mode preference persisted to localStorage
  * - Undo history cleared on mode switch (via key prop)
  * - All formatting shortcuts work in both modes
@@ -17,8 +17,8 @@ import { MilkdownEditor } from './MilkdownEditor'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
 import { wasEditorFocused } from '../utils/editorUtils'
 
-/** Editor mode: visual (WYSIWYG) or markdown (raw) */
-export type EditorMode = 'visual' | 'markdown'
+/** Editor mode: 'markdown' for rich editing, 'text' for raw markdown */
+export type EditorMode = 'markdown' | 'text'
 
 /** localStorage key for mode preference */
 const EDITOR_MODE_KEY = 'editor_mode_preference'
@@ -28,18 +28,21 @@ const WRAP_TEXT_KEY = 'editor_wrap_text'
 
 /**
  * Load editor mode preference from localStorage.
- * Defaults to 'visual' if not set.
+ * Defaults to 'markdown' if not set.
+ * Migrates legacy 'visual' value to 'markdown'.
  */
 function loadModePreference(): EditorMode {
   try {
     const stored = localStorage.getItem(EDITOR_MODE_KEY)
-    if (stored === 'visual' || stored === 'markdown') {
+    // Migrate legacy values
+    if (stored === 'visual') return 'markdown'
+    if (stored === 'markdown' || stored === 'text') {
       return stored
     }
   } catch {
     // Ignore storage errors
   }
-  return 'visual'
+  return 'markdown'
 }
 
 /**
@@ -107,7 +110,7 @@ interface ContentEditorProps {
 }
 
 /**
- * ContentEditor provides a unified markdown editor with Visual/Markdown mode toggle.
+ * ContentEditor provides a unified markdown editor with Markdown/Text mode toggle.
  *
  * Usage:
  * ```tsx
@@ -145,7 +148,7 @@ export function ContentEditor({
   // Track if we should auto-focus the editor (after mode switch)
   const [shouldAutoFocus, setShouldAutoFocus] = useState(false)
 
-  // Wrap text preference (only applies to Markdown mode)
+  // Wrap text preference (only applies to Text mode)
   const [wrapText, setWrapText] = useState(loadWrapTextPreference)
 
   // Handle mode change
@@ -177,17 +180,17 @@ export function ContentEditor({
     const handleKeyDown = (e: KeyboardEvent): void => {
       const isMod = e.metaKey || e.ctrlKey
 
-      // Cmd+Shift+M - Toggle between Visual and Markdown modes
+      // Cmd+Shift+M - Toggle between Markdown and Text modes
       if (isMod && e.shiftKey && e.code === 'KeyM') {
         e.preventDefault()
         e.stopPropagation()
-        handleModeChange(mode === 'visual' ? 'markdown' : 'visual')
+        handleModeChange(mode === 'markdown' ? 'text' : 'markdown')
         return
       }
 
-      // Alt+Z (Option+Z on Mac) - toggle word wrap (only in markdown mode)
+      // Alt+Z (Option+Z on Mac) - toggle word wrap (only in Text mode)
       // Use e.code which is independent of keyboard layout and modifier combinations
-      if (mode === 'markdown' && e.altKey && e.code === 'KeyZ') {
+      if (mode === 'text' && e.altKey && e.code === 'KeyZ') {
         e.preventDefault()
         e.stopPropagation()
         handleWrapTextChange(!wrapText)
@@ -218,9 +221,9 @@ export function ContentEditor({
 
   // Default helper text based on mode
   const defaultHelperText =
-    mode === 'visual'
+    mode === 'markdown'
       ? 'Press ⌘/ to view keyboard shortcuts'
-      : 'Markdown mode: Supports **bold**, *italic*, `code`, [links](url), lists, tables'
+      : 'Text mode: Supports **bold**, *italic*, `code`, [links](url), lists, tables'
 
   return (
     <div className="group/editor">
@@ -237,8 +240,8 @@ export function ContentEditor({
             editorElement?.focus()
           }}
         >
-          {/* Wrap text toggle (only in markdown mode) */}
-          {mode === 'markdown' && (
+          {/* Wrap text toggle (only in Text mode) */}
+          {mode === 'text' && (
             <label
               className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer mr-2"
               title="Toggle word wrap (⌥Z)"
@@ -263,11 +266,11 @@ export function ContentEditor({
               onMouseDown={(e) => {
                 if (wasEditorFocused(e.currentTarget)) {
                   e.preventDefault()
-                  handleModeChange('visual')
+                  handleModeChange('markdown')
                 }
               }}
               className={`text-xs px-2 py-0.5 rounded transition-all ${
-                mode === 'visual'
+                mode === 'markdown'
                   ? 'bg-white text-gray-900 shadow-sm'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
@@ -280,11 +283,11 @@ export function ContentEditor({
               onMouseDown={(e) => {
                 if (wasEditorFocused(e.currentTarget)) {
                   e.preventDefault()
-                  handleModeChange('markdown')
+                  handleModeChange('text')
                 }
               }}
               className={`text-xs px-2 py-0.5 rounded transition-all ${
-                mode === 'markdown'
+                mode === 'text'
                   ? 'bg-white text-gray-900 shadow-sm'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
@@ -300,7 +303,7 @@ export function ContentEditor({
 
       {/* Editor container */}
       <div className={`overflow-hidden rounded-lg transition-shadow ${getContainerBorderClasses()}`}>
-        {mode === 'visual' ? (
+        {mode === 'markdown' ? (
           <MilkdownEditor
             key={`milkdown-${modeKey}`}
             value={value}
@@ -311,6 +314,7 @@ export function ContentEditor({
             noPadding={subtleBorder || !showBorder}
             showJinjaTools={showJinjaTools}
             autoFocus={shouldAutoFocus}
+            copyContent={value}
           />
         ) : (
           <CodeMirrorEditor
@@ -323,6 +327,8 @@ export function ContentEditor({
             wrapText={wrapText}
             noPadding={subtleBorder || !showBorder}
             autoFocus={shouldAutoFocus}
+            copyContent={value}
+            showJinjaTools={showJinjaTools}
           />
         )}
       </div>

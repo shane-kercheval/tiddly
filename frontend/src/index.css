@@ -214,6 +214,11 @@ body {
   padding-left: 0.25rem; /* px-1 = 4px to match title/description */
 }
 
+/* Remove CodeMirror's default focus outline (we use our own focus styling) */
+.cm-editor.cm-focused {
+  outline: none;
+}
+
 /* Paragraph spacing */
 .milkdown-wrapper .milkdown p {
   @apply my-3 first:mt-0 last:mb-0;
@@ -265,11 +270,45 @@ body {
 
 /* Code blocks */
 .milkdown-wrapper .milkdown pre {
-  @apply bg-gray-900 text-gray-100 rounded-lg p-4 overflow-auto my-4 text-sm;
+  @apply bg-gray-900 text-gray-100 rounded-lg p-4 overflow-auto my-4 text-sm relative;
 }
 
 .milkdown-wrapper .milkdown pre code {
   @apply bg-transparent text-gray-100 p-0 text-sm font-mono;
+}
+
+/* Code block copy button (only shown when code block has content) */
+.milkdown-wrapper .milkdown .code-block-copy-btn {
+  @apply absolute top-2 right-2 p-1.5 rounded z-10;
+  @apply flex items-center justify-center;
+  @apply bg-gray-700/90 text-gray-400 opacity-0 transition-opacity cursor-pointer;
+  border: none;
+  font-size: 0;
+  line-height: 0;
+}
+
+.milkdown-wrapper .milkdown pre:hover .code-block-copy-btn {
+  @apply opacity-100;
+}
+
+.milkdown-wrapper .milkdown .code-block-copy-btn:hover {
+  @apply bg-gray-600 text-gray-200;
+}
+
+.milkdown-wrapper .milkdown .code-block-copy-btn .copy-icon {
+  @apply block;
+}
+
+.milkdown-wrapper .milkdown .code-block-copy-btn .check-icon {
+  @apply hidden text-green-400;
+}
+
+.milkdown-wrapper .milkdown .code-block-copy-btn.copied .copy-icon {
+  @apply hidden;
+}
+
+.milkdown-wrapper .milkdown .code-block-copy-btn.copied .check-icon {
+  @apply block;
 }
 
 /* Blockquotes */

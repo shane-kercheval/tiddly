@@ -7,7 +7,7 @@
  * Features:
  * - Inline editable name (monospace), title, tags, description
  * - ArgumentsBuilder for prompt arguments
- * - ContentEditor with Visual/Markdown toggle
+ * - ContentEditor with Markdown/Text toggle
  * - Save/Discard buttons appear when dirty
  * - Keyboard shortcuts: Cmd+S to save, Escape to cancel
  * - beforeunload warning when dirty
@@ -22,6 +22,7 @@ import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { ArgumentsBuilder } from './ArgumentsBuilder'
 import { UnsavedChangesDialog } from './ui'
+import { SaveOverlay } from './ui/SaveOverlay'
 import { PreviewPromptModal } from './PreviewPromptModal'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
@@ -30,6 +31,7 @@ import { config } from '../config'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
+import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, TagCount } from '../types'
 
@@ -242,6 +244,12 @@ export function Prompt({
     onConfirmLeave: confirmLeave,
   })
 
+  // Save and close (Cmd+Shift+S)
+  const { requestSaveAndClose, checkAndClose, clearRequest: clearSaveAndClose } = useSaveAndClose({
+    confirmLeave,
+    onClose,
+  })
+
   // Auto-focus name for new prompts only
   useEffect(() => {
     if (isCreate && nameInputRef.current) {
@@ -280,6 +288,16 @@ export function Prompt({
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
+      // Cmd+Shift+S or Ctrl+Shift+S to save and close
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 's') {
+        e.preventDefault()
+        if (!isReadOnly && isDirty) {
+          requestSaveAndClose()
+          formRef.current?.requestSubmit()
+        }
+        return
+      }
+
       // Cmd+S or Ctrl+S to save (only if there are changes)
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
@@ -314,7 +332,7 @@ export function Prompt({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, confirmLeave])
+  }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, confirmLeave, requestSaveAndClose])
 
   // Validation
   const validate = (): boolean => {
@@ -479,6 +497,9 @@ export function Prompt({
         archivePreset: current.archivePreset,
       })
 
+      // Close if requested (Cmd+Shift+S)
+      if (checkAndClose()) return
+
       // Restore focus if we saved via Cmd+S from CodeMirror (which loses focus during save)
       if (refocusAfterSaveRef.current) {
         // Small delay to ensure React has finished updating
@@ -492,8 +513,9 @@ export function Prompt({
       if (err instanceof SaveError) {
         setErrors((prev) => ({ ...prev, ...err.fieldErrors }))
       }
-      // Clear refocus ref on error
+      // Clear refs on error
       refocusAfterSaveRef.current = null
+      clearSaveAndClose()
     }
   }
 
@@ -550,6 +572,8 @@ export function Prompt({
       onKeyDown={handleKeyDown}
       className={`flex flex-col h-full w-full ${fullWidth ? '' : 'max-w-4xl'}`}
     >
+      <SaveOverlay isVisible={isSaving} />
+
       {/* Fixed header with action buttons */}
       <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
@@ -579,17 +603,8 @@ export function Prompt({
               disabled={isSaving || !canSave}
               className="btn-primary flex items-center gap-1.5"
             >
-              {isSaving ? (
-                <>
-                  <div className="spinner-sm" />
-                  <span className="hidden md:inline">Saving...</span>
-                </>
-              ) : (
-                <>
-                  <CheckIcon className="h-4 w-4" />
-                  <span className="hidden md:inline">{isCreate ? 'Create' : 'Save'}</span>
-                </>
-              )}
+              <CheckIcon className="h-4 w-4" />
+              <span className="hidden md:inline">{isCreate ? 'Create' : 'Save'}</span>
             </button>
           )}
 

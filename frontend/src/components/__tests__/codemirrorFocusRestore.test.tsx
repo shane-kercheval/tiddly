@@ -23,7 +23,7 @@ vi.mock('../MilkdownEditor', () => ({
     disabled?: boolean
   }) => (
     <textarea
-      data-testid="content-editor-visual"
+      data-testid="content-editor-markdown"
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -42,7 +42,7 @@ vi.mock('../CodeMirrorEditor', () => ({
     // Wrap in a div with .cm-editor class so .closest('.cm-editor') works
     <div className="cm-editor">
       <textarea
-        data-testid="content-editor-markdown"
+        data-testid="content-editor-text"
         className="cm-content"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -98,8 +98,8 @@ describe('CodeMirror focus restoration after Cmd+S', () => {
 
   beforeEach(() => {
     localStorageMock.clear()
-    // Set editor mode to markdown so CodeMirror is used
-    localStorageMock.setItem('editor_mode_preference', 'markdown')
+    // Set editor mode to text so CodeMirror is used
+    localStorageMock.setItem('editor_mode_preference', 'text')
     mockOnSave = vi.fn().mockResolvedValue(undefined)
     mockOnClose = vi.fn()
   })
@@ -118,8 +118,8 @@ describe('CodeMirror focus restoration after Cmd+S', () => {
       />
     )
 
-    // Find the CodeMirror textarea (in markdown mode)
-    const editor = screen.getByTestId('content-editor-markdown')
+    // Find the CodeMirror textarea (in text mode)
+    const editor = screen.getByTestId('content-editor-text')
 
     // Focus the editor
     editor.focus()
@@ -141,7 +141,7 @@ describe('CodeMirror focus restoration after Cmd+S', () => {
     )
 
     // Find the CodeMirror textarea and make a change
-    const editor = screen.getByTestId('content-editor-markdown')
+    const editor = screen.getByTestId('content-editor-text')
     await user.click(editor)
     await user.type(editor, ' - updated')
 
@@ -167,7 +167,7 @@ describe('CodeMirror focus restoration after Cmd+S', () => {
     )
 
     // Find the CodeMirror textarea and make a change
-    const editor = screen.getByTestId('content-editor-markdown')
+    const editor = screen.getByTestId('content-editor-text')
     await user.click(editor)
     await user.type(editor, ' - updated')
 

@@ -1,9 +1,9 @@
 /**
- * Milkdown-based WYSIWYG markdown editor.
+ * Milkdown-based rich markdown editor.
  * Renders markdown inline as you type (like Obsidian, Bear, Typora).
  *
- * This is the "Visual" mode editor used by ContentEditor.
- * For raw markdown editing, see CodeMirrorEditor.
+ * This is the "Markdown" mode editor used by ContentEditor.
+ * For plain text editing, see CodeMirrorEditor.
  */
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { ReactNode, FormEvent } from 'react'
@@ -97,6 +97,26 @@ import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
 import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
 import { setBlockType } from '@milkdown/kit/prose/commands'
 import { Modal } from './ui/Modal'
+import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
+import { COPY_FEEDBACK_DURATION } from '../hooks/useCopyFeedback'
+import {
+  ToolbarSeparator,
+  BoldIcon,
+  ItalicIcon,
+  StrikethroughIcon,
+  InlineCodeIcon,
+  CodeBlockIcon,
+  LinkIcon,
+  BulletListIcon,
+  OrderedListIcon,
+  TaskListIcon,
+  BlockquoteIcon,
+  HorizontalRuleIcon,
+  JinjaVariableIcon,
+  JinjaIfIcon,
+  JinjaIfTrimIcon,
+} from './editor/EditorToolbarIcons'
+import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { shouldHandleEmptySpaceClick, wasEditorFocused } from '../utils/editorUtils'
 import { findCodeBlockNode } from '../utils/milkdownHelpers'
@@ -104,8 +124,20 @@ import type { Editor as EditorType } from '@milkdown/kit/core'
 
 /**
  * Toolbar button component for editor formatting actions.
- * Uses onMouseDown to fire before Safari drops focus-within state.
- * Only executes action if editor was already focused (toolbar was visible).
+ *
+ * IMPORTANT: This uses wasEditorFocused() guard, unlike CodeMirrorEditor's ToolbarButton.
+ *
+ * Safari has a quirk where clicking a button outside the ProseMirror editor causes
+ * focus-within to be lost BEFORE the click event fires. This means:
+ * 1. User clicks toolbar button
+ * 2. Safari immediately removes focus-within (toolbar starts fading)
+ * 3. Click event fires (but toolbar is already hidden/fading)
+ *
+ * The wasEditorFocused() check ensures we only execute the action if the editor
+ * was focused (toolbar was visible) when the user initiated the click. If the
+ * toolbar wasn't visible, the click just focuses the editor to reveal it.
+ *
+ * CodeMirrorEditor doesn't need this guard because its focus model behaves differently.
  */
 interface ToolbarButtonProps {
   onAction: () => void
@@ -136,13 +168,6 @@ function ToolbarButton({ onAction, title, children }: ToolbarButtonProps): React
 }
 
 /**
- * Toolbar separator for visual grouping.
- */
-function ToolbarSeparator(): ReactNode {
-  return <div className="w-px h-5 bg-gray-200 mx-1" />
-}
-
-/**
  * Formatting toolbar for the Milkdown editor.
  */
 interface EditorToolbarProps {
@@ -153,9 +178,11 @@ interface EditorToolbarProps {
   onOrderedListClick: () => void
   onTaskListClick: () => void
   showJinjaTools?: boolean
+  /** Content to copy (for always-visible copy button) */
+  copyContent?: string
 }
 
-function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletListClick, onOrderedListClick, onTaskListClick, showJinjaTools = false }: EditorToolbarProps): ReactNode {
+function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletListClick, onOrderedListClick, onTaskListClick, showJinjaTools = false, copyContent }: EditorToolbarProps): ReactNode {
   const runCommand = useCallback(
     (command: Parameters<typeof callCommand>[0]) => {
       const editor = getEditor()
@@ -193,96 +220,78 @@ function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletList
 
   return (
     <div
-      className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-gray-50/50 opacity-0 group-focus-within/editor:opacity-100 transition-opacity"
+      className="flex items-center justify-between px-2 py-1.5 border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50 transition-colors"
       onClick={handleToolbarClick}
     >
-      {/* Text formatting */}
-      <ToolbarButton onAction={() => runCommand(toggleStrongCommand.key)} title="Bold (⌘B)">
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 4h8a4 4 0 014 4 4 4 0 01-4 4H6z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12h9a4 4 0 014 4 4 4 0 01-4 4H6z" />
-        </svg>
-      </ToolbarButton>
-      <ToolbarButton onAction={() => runCommand(toggleEmphasisCommand.key)} title="Italic (⌘I)">
-        <span className="w-4 h-4 flex items-center justify-center text-[17px] font-serif italic">I</span>
-      </ToolbarButton>
-      <ToolbarButton onAction={() => runCommand(toggleStrikethroughCommand.key)} title="Strikethrough (⌘⇧X)">
-        <span className="w-4 h-4 flex items-center justify-center text-[17px] line-through">S</span>
-      </ToolbarButton>
-      <ToolbarButton onAction={() => runCommand(toggleInlineCodeCommand.key)} title="Inline Code (⌘E)">
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-        </svg>
-      </ToolbarButton>
-      <ToolbarButton onAction={onCodeBlockToggle} title="Code Block (⌘⇧C)">
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h6" />
-        </svg>
-      </ToolbarButton>
+      {/* Left: formatting buttons that fade in */}
+      <div className="flex items-center gap-0.5 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
+        {/* Text formatting */}
+        <ToolbarButton onAction={() => runCommand(toggleStrongCommand.key)} title="Bold (⌘B)">
+          <BoldIcon />
+        </ToolbarButton>
+        <ToolbarButton onAction={() => runCommand(toggleEmphasisCommand.key)} title="Italic (⌘I)">
+          <ItalicIcon />
+        </ToolbarButton>
+        <ToolbarButton onAction={() => runCommand(toggleStrikethroughCommand.key)} title="Strikethrough (⌘⇧X)">
+          <StrikethroughIcon />
+        </ToolbarButton>
+        <ToolbarButton onAction={() => runCommand(toggleInlineCodeCommand.key)} title="Inline Code (⌘E)">
+          <InlineCodeIcon />
+        </ToolbarButton>
+        <ToolbarButton onAction={onCodeBlockToggle} title="Code Block (⌘⇧C)">
+          <CodeBlockIcon />
+        </ToolbarButton>
 
-      <ToolbarSeparator />
+        <ToolbarSeparator />
 
-      {/* Link */}
-      <ToolbarButton onAction={onLinkClick} title="Insert Link (⌘K)">
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-        </svg>
-      </ToolbarButton>
+        {/* Link */}
+        <ToolbarButton onAction={onLinkClick} title="Insert Link (⌘K)">
+          <LinkIcon />
+        </ToolbarButton>
 
-      <ToolbarSeparator />
+        <ToolbarSeparator />
 
-      {/* Lists */}
-      <ToolbarButton onAction={onBulletListClick} title="Bullet List (⌘⇧7)">
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M8 12h12M8 18h12" />
-          <circle cx="3" cy="6" r="2" fill="currentColor" />
-          <circle cx="3" cy="12" r="2" fill="currentColor" />
-          <circle cx="3" cy="18" r="2" fill="currentColor" />
-        </svg>
-      </ToolbarButton>
-      <ToolbarButton onAction={onOrderedListClick} title="Numbered List (⌘⇧8)">
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 6h12M8 12h12M8 18h12" />
-          <text x="1" y="8" fontSize="7" fill="currentColor" fontWeight="bold">1</text>
-          <text x="1" y="14" fontSize="7" fill="currentColor" fontWeight="bold">2</text>
-          <text x="1" y="20" fontSize="7" fill="currentColor" fontWeight="bold">3</text>
-        </svg>
-      </ToolbarButton>
-      <ToolbarButton onAction={onTaskListClick} title="Task List (⌘⇧9)">
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <rect x="3" y="5" width="14" height="14" rx="2" strokeWidth={2} />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 12l3 3 5-5" />
-        </svg>
-      </ToolbarButton>
+        {/* Lists */}
+        <ToolbarButton onAction={onBulletListClick} title="Bullet List (⌘⇧7)">
+          <BulletListIcon />
+        </ToolbarButton>
+        <ToolbarButton onAction={onOrderedListClick} title="Numbered List (⌘⇧8)">
+          <OrderedListIcon />
+        </ToolbarButton>
+        <ToolbarButton onAction={onTaskListClick} title="Task List (⌘⇧9)">
+          <TaskListIcon />
+        </ToolbarButton>
 
-      <ToolbarSeparator />
+        <ToolbarSeparator />
 
-      {/* Block elements */}
-      <ToolbarButton onAction={() => runCommand(wrapInBlockquoteCommand.key)} title="Blockquote (⌘⇧.)">
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-4l-4 4-4-4z" />
-        </svg>
-      </ToolbarButton>
-      <ToolbarButton onAction={() => runCommand(insertHrCommand.key)} title="Horizontal Rule (⌘⇧-)">
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h16" />
-        </svg>
-      </ToolbarButton>
+        {/* Block elements */}
+        <ToolbarButton onAction={() => runCommand(wrapInBlockquoteCommand.key)} title="Blockquote (⌘⇧.)">
+          <BlockquoteIcon />
+        </ToolbarButton>
+        <ToolbarButton onAction={() => runCommand(insertHrCommand.key)} title="Horizontal Rule (⌘⇧-)">
+          <HorizontalRuleIcon />
+        </ToolbarButton>
 
-      {/* Jinja2 template tools (for prompts) */}
-      {showJinjaTools && (
-        <>
-          <ToolbarSeparator />
-          <ToolbarButton onAction={() => insertText('{{ variable }}')} title="Insert Variable {{ }}">
-            <span className="w-4 h-4 flex items-center justify-center text-[11px] font-mono font-bold">{'{}'}</span>
-          </ToolbarButton>
-          <ToolbarButton onAction={() => insertText('{% if variable %}\n\n{% endif %}')} title="If Block {% if %}">
-            <span className="w-4 h-4 flex items-center justify-center text-[10px] font-mono font-bold">if</span>
-          </ToolbarButton>
-          <ToolbarButton onAction={() => insertText('{%- if variable %}\n\n{%- endif %}')} title="If Block with Whitespace Trim {%- if %}">
-            <span className="w-4 h-4 flex items-center justify-center text-[10px] font-mono font-bold">if-</span>
-          </ToolbarButton>
-        </>
+        {/* Jinja2 template tools (for prompts) */}
+        {showJinjaTools && (
+          <>
+            <ToolbarSeparator />
+            <ToolbarButton onAction={() => insertText(JINJA_VARIABLE)} title="Insert Variable {{ }}">
+              <JinjaVariableIcon />
+            </ToolbarButton>
+            <ToolbarButton onAction={() => insertText(JINJA_IF_BLOCK)} title="If Block {% if %}">
+              <JinjaIfIcon />
+            </ToolbarButton>
+            <ToolbarButton onAction={() => insertText(JINJA_IF_BLOCK_TRIM)} title="If Block with Whitespace Trim {%- if %}">
+              <JinjaIfTrimIcon />
+            </ToolbarButton>
+          </>
+        )}
+      </div>
+
+      {/* Right: copy button - always visible */}
+      {copyContent !== undefined && (
+        <CopyToClipboardButton content={copyContent} title="Copy content" />
       )}
     </div>
   )
@@ -365,6 +374,70 @@ function LinkDialog({
       </form>
     </Modal>
   )
+}
+
+/**
+ * Create a ProseMirror plugin that adds copy buttons to code blocks.
+ * Uses widget decorations to insert a button element at the start of each code block.
+ * The button is positioned absolutely via CSS and copies the code content on click.
+ */
+function createCodeBlockCopyPlugin(): Plugin {
+  return new Plugin({
+    props: {
+      decorations(state) {
+        const decorations: Decoration[] = []
+
+        state.doc.descendants((node, pos) => {
+          // Only add copy button to code blocks that have content
+          if (node.type.name === 'code_block' && node.textContent.trim()) {
+            decorations.push(
+              Decoration.widget(
+                pos + 1,
+                (view) => {
+                  const button = document.createElement('button')
+                  button.className = 'code-block-copy-btn'
+                  button.setAttribute('type', 'button')
+                  button.setAttribute('title', 'Copy code')
+                  button.setAttribute('aria-label', 'Copy code')
+
+                  button.innerHTML = `<svg class="copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>`
+
+                  button.onclick = async (e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+
+                    const resolvedPos = view.state.doc.resolve(pos)
+                    const codeBlockNode = resolvedPos.nodeAfter
+                    if (!codeBlockNode) return
+
+                    try {
+                      await navigator.clipboard.writeText(codeBlockNode.textContent)
+                      button.classList.add('copied')
+                      setTimeout(() => button.classList.remove('copied'), COPY_FEEDBACK_DURATION)
+                    } catch (err) {
+                      console.error('Failed to copy code:', err)
+                    }
+                  }
+
+                  return button
+                },
+                { stopEvent: () => true, side: -1, key: `code-copy-${pos}` }
+              )
+            )
+          }
+          return true
+        })
+
+        return DecorationSet.create(state.doc, decorations)
+      },
+    },
+  })
 }
 
 /**
@@ -539,6 +612,8 @@ interface MilkdownEditorProps {
   showJinjaTools?: boolean
   /** Whether to auto-focus on mount */
   autoFocus?: boolean
+  /** Content for the copy button (if provided, copy button is shown) */
+  copyContent?: string
 }
 
 interface MilkdownEditorInnerProps {
@@ -550,6 +625,7 @@ interface MilkdownEditorInnerProps {
   noPadding?: boolean
   showJinjaTools?: boolean
   autoFocus?: boolean
+  copyContent?: string
 }
 
 function MilkdownEditorInner({
@@ -561,6 +637,7 @@ function MilkdownEditorInner({
   noPadding = false,
   showJinjaTools = false,
   autoFocus = false,
+  copyContent,
 }: MilkdownEditorInnerProps): ReactNode {
   const initialValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
@@ -581,6 +658,9 @@ function MilkdownEditorInner({
 
   // Create placeholder plugin with Milkdown's $prose utility
   const placeholderPluginSlice = $prose(() => createPlaceholderPlugin(placeholder))
+
+  // Create code block copy button plugin
+  const codeBlockCopyPluginSlice = $prose(() => createCodeBlockCopyPlugin())
 
   // Create list keymap plugin with Milkdown's $prose utility
   // This plugin handles Tab/Shift+Tab for list indentation and Backspace at list item start
@@ -652,6 +732,7 @@ function MilkdownEditorInner({
       .use(listener)
       .use(remarkTightLists)
       .use(placeholderPluginSlice)
+      .use(codeBlockCopyPluginSlice)
       .use(listKeymapPluginSlice),
     []
   )
@@ -1134,7 +1215,7 @@ function MilkdownEditorInner({
 
   return (
     <>
-      {!disabled && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onCodeBlockToggle={handleCodeBlockToggle} onBulletListClick={handleBulletListClick} onOrderedListClick={handleOrderedListClick} onTaskListClick={handleTaskListClick} showJinjaTools={showJinjaTools} />}
+      {!disabled && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onCodeBlockToggle={handleCodeBlockToggle} onBulletListClick={handleBulletListClick} onOrderedListClick={handleOrderedListClick} onTaskListClick={handleTaskListClick} showJinjaTools={showJinjaTools} copyContent={copyContent} />}
       <div
         className={`milkdown-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''} ${noPadding ? 'no-padding' : ''}`}
         style={{ minHeight }}
@@ -1155,17 +1236,17 @@ function MilkdownEditorInner({
 }
 
 /**
- * MilkdownEditor provides a WYSIWYG markdown editor that renders inline.
+ * MilkdownEditor provides a rich markdown editor that renders inline.
  *
  * Features:
- * - WYSIWYG editing with inline markdown rendering
+ * - Rich editing with inline markdown rendering
  * - Keyboard shortcuts (Cmd+B, Cmd+I, Cmd+K)
  * - Task list checkbox toggling
  * - Placeholder text when empty
  * - Copy/paste preserves markdown
  *
  * Note: This component should be used via ContentEditor which provides
- * the mode toggle between Visual (Milkdown) and Markdown (CodeMirror) modes.
+ * the mode toggle between Markdown (Milkdown) and Text (CodeMirror) modes.
  */
 export function MilkdownEditor({
   value,
@@ -1176,6 +1257,7 @@ export function MilkdownEditor({
   noPadding = false,
   showJinjaTools = false,
   autoFocus = false,
+  copyContent,
 }: MilkdownEditorProps): ReactNode {
   return (
     <MilkdownProvider>
@@ -1188,6 +1270,7 @@ export function MilkdownEditor({
         noPadding={noPadding}
         showJinjaTools={showJinjaTools}
         autoFocus={autoFocus}
+        copyContent={copyContent}
       />
     </MilkdownProvider>
   )

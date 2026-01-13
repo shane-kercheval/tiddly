@@ -1,7 +1,7 @@
 /**
  * Tests for ContentEditor component.
  *
- * Tests the mode toggle between Visual (Milkdown) and Markdown (CodeMirror) modes,
+ * Tests the mode toggle between Markdown (Milkdown) and Text (CodeMirror) modes,
  * localStorage persistence, and wrap text toggle.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -82,15 +82,15 @@ describe('ContentEditor', () => {
   })
 
   describe('mode toggle', () => {
-    it('should render Visual mode by default when no preference is stored', () => {
+    it('should render Markdown mode by default when no preference is stored', () => {
       render(<ContentEditor {...defaultProps} />)
 
       expect(screen.getByTestId('milkdown-mock')).toBeInTheDocument()
       expect(screen.queryByTestId('codemirror-mock')).not.toBeInTheDocument()
     })
 
-    it('should render Markdown mode when preference is stored', () => {
-      localStorageStore['editor_mode_preference'] = 'markdown'
+    it('should render Text mode when preference is stored', () => {
+      localStorageStore['editor_mode_preference'] = 'text'
 
       render(<ContentEditor {...defaultProps} />)
 
@@ -112,7 +112,7 @@ describe('ContentEditor', () => {
     })
 
     it('should switch to Markdown mode when Markdown button is clicked', async () => {
-      localStorageStore['editor_mode_preference'] = 'markdown'
+      localStorageStore['editor_mode_preference'] = 'text'
       const user = userEvent.setup()
 
       render(<ContentEditor {...defaultProps} />)
@@ -134,7 +134,7 @@ describe('ContentEditor', () => {
       await user.click(screen.getByTestId('milkdown-textarea'))
       await user.click(screen.getByRole('button', { name: 'Text' }))
 
-      expect(localStorageMock.setItem).toHaveBeenCalledWith('editor_mode_preference', 'markdown')
+      expect(localStorageMock.setItem).toHaveBeenCalledWith('editor_mode_preference', 'text')
     })
 
     it('should highlight the active mode button', async () => {
@@ -159,14 +159,14 @@ describe('ContentEditor', () => {
   })
 
   describe('wrap text toggle', () => {
-    it('should not show wrap checkbox in Visual mode', () => {
+    it('should not show wrap checkbox in Markdown mode', () => {
       render(<ContentEditor {...defaultProps} />)
 
       expect(screen.queryByLabelText('Wrap')).not.toBeInTheDocument()
     })
 
-    it('should show wrap checkbox in Markdown mode', async () => {
-      localStorageStore['editor_mode_preference'] = 'markdown'
+    it('should show wrap checkbox in Text mode', async () => {
+      localStorageStore['editor_mode_preference'] = 'text'
 
       render(<ContentEditor {...defaultProps} />)
 
@@ -174,7 +174,7 @@ describe('ContentEditor', () => {
     })
 
     it('should default to wrapped text', async () => {
-      localStorageStore['editor_mode_preference'] = 'markdown'
+      localStorageStore['editor_mode_preference'] = 'text'
 
       render(<ContentEditor {...defaultProps} />)
 
@@ -182,7 +182,7 @@ describe('ContentEditor', () => {
     })
 
     it('should persist wrap preference to localStorage', async () => {
-      localStorageStore['editor_mode_preference'] = 'markdown'
+      localStorageStore['editor_mode_preference'] = 'text'
       localStorageStore['editor_wrap_text'] = 'true'
       const user = userEvent.setup()
 
@@ -194,7 +194,7 @@ describe('ContentEditor', () => {
     })
 
     it('should pass wrapText prop to CodeMirrorEditor', async () => {
-      localStorageStore['editor_mode_preference'] = 'markdown'
+      localStorageStore['editor_mode_preference'] = 'text'
       localStorageStore['editor_wrap_text'] = 'true'
 
       render(<ContentEditor {...defaultProps} />)
@@ -235,18 +235,18 @@ describe('ContentEditor', () => {
   })
 
   describe('helper text and error messages', () => {
-    it('should show default helper text for Visual mode', () => {
+    it('should show default helper text for Markdown mode', () => {
       render(<ContentEditor {...defaultProps} />)
 
       expect(screen.getByText(/keyboard shortcuts/)).toBeInTheDocument()
     })
 
-    it('should show default helper text for Markdown mode', async () => {
-      localStorageStore['editor_mode_preference'] = 'markdown'
+    it('should show default helper text for Text mode', async () => {
+      localStorageStore['editor_mode_preference'] = 'text'
 
       render(<ContentEditor {...defaultProps} />)
 
-      expect(screen.getByText(/Markdown mode/)).toBeInTheDocument()
+      expect(screen.getByText(/Text mode/)).toBeInTheDocument()
     })
 
     it('should show custom helper text when provided', () => {
@@ -322,7 +322,7 @@ describe('ContentEditor', () => {
       // The first click should reveal the toolbar but NOT switch modes
       await user.click(screen.getByRole('button', { name: 'Text' }))
 
-      // Should still be in visual/WYSIWYG mode (milkdown)
+      // Should still be in Markdown mode (milkdown)
       expect(screen.getByTestId('milkdown-mock')).toBeInTheDocument()
       expect(screen.queryByTestId('codemirror-mock')).not.toBeInTheDocument()
     })

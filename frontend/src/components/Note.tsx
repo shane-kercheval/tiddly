@@ -6,7 +6,7 @@
  *
  * Features:
  * - Inline editable title, tags, description
- * - ContentEditor with Visual/Markdown toggle
+ * - ContentEditor with Markdown/Text toggle
  * - Save/Discard buttons appear when dirty
  * - Keyboard shortcuts: Cmd+S to save, Escape to cancel
  * - beforeunload warning when dirty
@@ -20,12 +20,14 @@ import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { UnsavedChangesDialog } from './ui'
+import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
 import { config } from '../config'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
+import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import type { Note as NoteType, NoteCreate, NoteUpdate, TagCount } from '../types'
 
@@ -166,6 +168,12 @@ export function Note({
     onConfirmLeave: confirmLeave,
   })
 
+  // Save and close (Cmd+Shift+S)
+  const { requestSaveAndClose, checkAndClose, clearRequest: clearSaveAndClose } = useSaveAndClose({
+    confirmLeave,
+    onClose,
+  })
+
   // Auto-focus title for new notes only
   useEffect(() => {
     if (isCreate && titleInputRef.current) {
@@ -205,6 +213,16 @@ export function Note({
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
+      // Cmd+Shift+S or Ctrl+Shift+S to save and close
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 's') {
+        e.preventDefault()
+        if (!isReadOnly && isDirty) {
+          requestSaveAndClose()
+          formRef.current?.requestSubmit()
+        }
+        return
+      }
+
       // Cmd+S or Ctrl+S to save (only if there are changes)
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
@@ -239,7 +257,7 @@ export function Note({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, confirmLeave])
+  }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, confirmLeave, requestSaveAndClose])
 
   // Validation
   const validate = (): boolean => {
@@ -323,6 +341,9 @@ export function Note({
       // Update original to match current (form is now clean)
       setOriginal({ ...current, tags: tagsToSubmit })
 
+      // Close if requested (Cmd+Shift+S)
+      if (checkAndClose()) return
+
       // Restore focus if we saved via Cmd+S from CodeMirror (which loses focus during save)
       if (refocusAfterSaveRef.current) {
         // Small delay to ensure React has finished updating
@@ -333,8 +354,9 @@ export function Note({
       }
     } catch {
       // Error handling is done in the parent component
-      // Clear refocus ref on error too
+      // Clear refs on error
       refocusAfterSaveRef.current = null
+      clearSaveAndClose()
     }
   }
 
@@ -380,6 +402,8 @@ export function Note({
       onKeyDown={handleKeyDown}
       className={`flex flex-col h-full w-full ${fullWidth ? '' : 'max-w-4xl'}`}
     >
+      <SaveOverlay isVisible={isSaving} />
+
       {/* Fixed header with action buttons */}
       <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
@@ -409,17 +433,8 @@ export function Note({
               disabled={isSaving || !canSave}
               className="btn-primary flex items-center gap-1.5"
             >
-              {isSaving ? (
-                <>
-                  <div className="spinner-sm" />
-                  <span className="hidden md:inline">Saving...</span>
-                </>
-              ) : (
-                <>
-                  <CheckIcon className="h-4 w-4" />
-                  <span className="hidden md:inline">{isCreate ? 'Create' : 'Save'}</span>
-                </>
-              )}
+              <CheckIcon className="h-4 w-4" />
+              <span className="hidden md:inline">{isCreate ? 'Create' : 'Save'}</span>
             </button>
           )}
         </div>

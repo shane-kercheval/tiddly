@@ -507,6 +507,92 @@ export function createContentComponentTests<TItem, TProps>(
           expect(mockOnSave).toHaveBeenCalled()
         })
       })
+
+      it('should save and close on Cmd+Shift+S when form is dirty', async () => {
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+        mockOnSave.mockResolvedValue(undefined)
+
+        render(
+          <TypedComponent
+            {...buildProps({
+              item: mockItem,
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+            })}
+          />
+        )
+
+        // Make the form dirty (use lowercase-with-hyphens to work for Prompt name validation)
+        await user.clear(screen.getByDisplayValue(getPrimaryFieldValue(mockItem)))
+        await user.type(screen.getByPlaceholderText(placeholders.primaryField), 'changed-value')
+
+        // Press Cmd+Shift+S
+        fireEvent.keyDown(document, { key: 's', metaKey: true, shiftKey: true })
+
+        // onSave should be called
+        await waitFor(() => {
+          expect(mockOnSave).toHaveBeenCalled()
+        })
+
+        // onClose should be called after save completes
+        await waitFor(() => {
+          expect(mockOnClose).toHaveBeenCalled()
+        })
+      })
+
+      it('should NOT save and close on Cmd+Shift+S when form is not dirty', () => {
+        render(
+          <TypedComponent
+            {...buildProps({
+              item: mockItem,
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+            })}
+          />
+        )
+
+        // Press Cmd+Shift+S without making any changes
+        fireEvent.keyDown(document, { key: 's', metaKey: true, shiftKey: true })
+
+        // onSave should not be called when form is not dirty
+        expect(mockOnSave).not.toHaveBeenCalled()
+        expect(mockOnClose).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('saving state', () => {
+      it('should show page-level spinner overlay when isSaving is true', () => {
+        render(
+          <TypedComponent
+            {...buildProps({
+              item: mockItem,
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+              isSaving: true,
+            })}
+          />
+        )
+
+        // Should show page-level loading spinner
+        expect(screen.getByRole('status')).toBeInTheDocument()
+        expect(screen.getByText('Saving...')).toBeInTheDocument()
+      })
+
+      it('should NOT show page-level spinner overlay when isSaving is false', () => {
+        render(
+          <TypedComponent
+            {...buildProps({
+              item: mockItem,
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+              isSaving: false,
+            })}
+          />
+        )
+
+        // Should not show page-level loading spinner
+        expect(screen.queryByRole('status')).not.toBeInTheDocument()
+      })
     })
 
     describe('action buttons', () => {

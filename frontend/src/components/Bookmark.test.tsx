@@ -38,7 +38,7 @@ vi.mock('./CodeMirrorEditor', () => ({
     disabled?: boolean
   }) => (
     <textarea
-      data-testid="content-editor-markdown"
+      data-testid="content-editor-text"
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
