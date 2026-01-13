@@ -22,12 +22,13 @@ import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { UnsavedChangesDialog } from './ui'
-import { LoadingSpinner } from './ui/LoadingSpinner'
+import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
 import { config } from '../config'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
+import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
 import type { ArchivePreset } from '../utils'
@@ -152,8 +153,6 @@ export function Bookmark({
   const urlInputRef = useRef<HTMLInputElement>(null)
   // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
   const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
-  // Track if we should close after save (for Cmd+Shift+S)
-  const shouldCloseAfterSaveRef = useRef(false)
 
   // Read-only mode for deleted bookmarks
   const isReadOnly = viewState === 'deleted'
@@ -194,6 +193,12 @@ export function Bookmark({
     isDirty,
     onDiscard: onClose,
     onConfirmLeave: confirmLeave,
+  })
+
+  // Save and close (Cmd+Shift+S)
+  const { requestSaveAndClose, checkAndClose, clearRequest: clearSaveAndClose } = useSaveAndClose({
+    confirmLeave,
+    onClose,
   })
 
   // Auto-focus URL for new bookmarks only (if no initialUrl)
@@ -296,7 +301,7 @@ export function Bookmark({
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 's') {
         e.preventDefault()
         if (!isReadOnly && isDirty) {
-          shouldCloseAfterSaveRef.current = true
+          requestSaveAndClose()
           formRef.current?.requestSubmit()
         }
         return
@@ -336,7 +341,7 @@ export function Bookmark({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, confirmLeave])
+  }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, confirmLeave, requestSaveAndClose])
 
   // Fetch metadata handler
   const handleFetchMetadata = useCallback(async (): Promise<void> => {
@@ -484,12 +489,7 @@ export function Bookmark({
       setOriginal({ ...current, tags: tagsToSubmit })
 
       // Close if requested (Cmd+Shift+S)
-      if (shouldCloseAfterSaveRef.current) {
-        shouldCloseAfterSaveRef.current = false
-        confirmLeave() // Prevent navigation blocker from showing
-        onClose()
-        return
-      }
+      if (checkAndClose()) return
 
       // Restore focus if we saved via Cmd+S from CodeMirror (which loses focus during save)
       if (refocusAfterSaveRef.current) {
@@ -503,7 +503,7 @@ export function Bookmark({
       // Error handling is done in the parent component
       // Clear refs on error
       refocusAfterSaveRef.current = null
-      shouldCloseAfterSaveRef.current = false
+      clearSaveAndClose()
     }
   }
 
@@ -554,12 +554,7 @@ export function Bookmark({
       onKeyDown={handleKeyDown}
       className={`flex flex-col h-full w-full relative ${fullWidth ? '' : 'max-w-4xl'}`}
     >
-      {/* Page-level save overlay */}
-      {isSaving && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-gray-900/20 backdrop-blur-sm rounded-lg">
-          <LoadingSpinner size="lg" label="Saving..." />
-        </div>
-      )}
+      <SaveOverlay isVisible={isSaving} />
 
       {/* Fixed header with action buttons */}
       <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
