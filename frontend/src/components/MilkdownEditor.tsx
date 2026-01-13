@@ -387,7 +387,8 @@ function createCodeBlockCopyPlugin(): Plugin {
         const decorations: Decoration[] = []
 
         state.doc.descendants((node, pos) => {
-          if (node.type.name === 'code_block') {
+          // Only add copy button to code blocks that have content
+          if (node.type.name === 'code_block' && node.textContent.trim()) {
             decorations.push(
               Decoration.widget(
                 pos + 1,

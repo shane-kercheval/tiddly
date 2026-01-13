@@ -277,7 +277,7 @@ body {
   @apply bg-transparent text-gray-100 p-0 text-sm font-mono;
 }
 
-/* Code block copy button */
+/* Code block copy button (only shown when code block has content) */
 .milkdown-wrapper .milkdown .code-block-copy-btn {
   @apply absolute top-2 right-2 p-1.5 rounded z-10;
   @apply flex items-center justify-center;
@@ -285,16 +285,6 @@ body {
   border: none;
   font-size: 0;
   line-height: 0;
-}
-
-/* Widget wrapper positioning to prevent layout impact */
-.milkdown-wrapper .milkdown pre code > span:has(.code-block-copy-btn) {
-  position: absolute;
-}
-
-/* Hide BR elements in code blocks to prevent extra height */
-.milkdown-wrapper .milkdown pre code br {
-  display: none;
 }
 
 .milkdown-wrapper .milkdown pre:hover .code-block-copy-btn {
