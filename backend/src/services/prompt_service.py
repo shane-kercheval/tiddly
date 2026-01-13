@@ -4,10 +4,10 @@ from typing import Any
 from uuid import UUID
 
 from jinja2 import Environment, TemplateSyntaxError, meta
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute, selectinload
+from sqlalchemy.orm import selectinload
 
 from models.prompt import Prompt
 from models.tag import prompt_tags
@@ -109,13 +109,13 @@ class PromptService(BaseEntityService[Prompt]):
             ),
         ]
 
-    def _get_sort_columns(self) -> dict[str, InstrumentedAttribute]:
+    def _get_sort_columns(self) -> dict[str, ColumnElement[Any]]:
         """Get sort columns for prompts."""
         return {
             "created_at": Prompt.created_at,
             "updated_at": Prompt.updated_at,
             "last_used_at": Prompt.last_used_at,
-            "title": func.coalesce(Prompt.title, Prompt.name),
+            "title": func.lower(func.coalesce(func.nullif(Prompt.title, ''), Prompt.name)),
             "archived_at": Prompt.archived_at,
             "deleted_at": Prompt.deleted_at,
         }

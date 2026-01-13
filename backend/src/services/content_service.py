@@ -247,6 +247,9 @@ async def search_all_content(
                 literal(None).label("version"),
                 literal(None).label("name"),
                 cast(literal(None), JSONB).label("arguments"),
+                # Computed sort_title: LOWER(COALESCE(NULLIF(title, ''), url))
+                func.lower(func.coalesce(func.nullif(Bookmark.title, ''), Bookmark.url)).\
+                    label("sort_title"),
             )
             .where(and_(*bookmark_filters))
         )
@@ -281,6 +284,8 @@ async def search_all_content(
                 Note.version.label("version"),
                 literal(None).label("name"),
                 cast(literal(None), JSONB).label("arguments"),
+                # Computed sort_title: LOWER(title) - notes always have title
+                func.lower(Note.title).label("sort_title"),
             )
             .where(and_(*note_filters))
         )
@@ -315,6 +320,9 @@ async def search_all_content(
                 literal(None).label("version"),
                 Prompt.name.label("name"),
                 Prompt.arguments.label("arguments"),
+                # Computed sort_title: LOWER(COALESCE(NULLIF(title, ''), name))
+                func.lower(func.coalesce(func.nullif(Prompt.title, ''), Prompt.name)).\
+                    label("sort_title"),
             )
             .where(and_(*prompt_filters))
         )
@@ -332,7 +340,9 @@ async def search_all_content(
     total = count_result.scalar() or 0
 
     # Build the final query with sorting and pagination
-    sort_column = getattr(combined.c, sort_by)
+    # Use sort_title (computed column) for title sorting to handle COALESCE/LOWER
+    sort_column_name = "sort_title" if sort_by == "title" else sort_by
+    sort_column = getattr(combined.c, sort_column_name)
     sort_column = sort_column.desc() if sort_order == "desc" else sort_column.asc()
 
     final_query = (

@@ -810,6 +810,28 @@ async def test__search_notes__sort_by_title_asc(
     assert notes[2].title == 'Zebra Note'
 
 
+async def test__search_notes__sort_by_title_case_insensitive(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that title sorting is case-insensitive."""
+    n1 = Note(user_id=test_user.id, title='banana')  # lowercase
+    n2 = Note(user_id=test_user.id, title='Apple')   # capitalized
+    n3 = Note(user_id=test_user.id, title='CHERRY')  # uppercase
+    db_session.add_all([n1, n2, n3])
+    await db_session.flush()
+
+    notes, total = await note_service.search(
+        db_session, test_user.id, sort_by='title', sort_order='asc',
+    )
+
+    # Case-insensitive order: Apple < banana < CHERRY
+    assert total == 3
+    assert notes[0].title == 'Apple'
+    assert notes[1].title == 'banana'
+    assert notes[2].title == 'CHERRY'
+
+
 # =============================================================================
 # Filter Expression Tests (for ContentList filtering)
 # =============================================================================

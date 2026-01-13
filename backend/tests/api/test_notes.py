@@ -839,6 +839,19 @@ async def test_list_notes_sort_by_title(client: AsyncClient) -> None:
     assert titles == ["Cherry", "Banana", "Apple"]
 
 
+async def test_list_notes_sort_by_title_case_insensitive(client: AsyncClient) -> None:
+    """Test that title sorting is case-insensitive."""
+    await client.post("/notes/", json={"title": "banana"})   # lowercase
+    await client.post("/notes/", json={"title": "Apple"})    # capitalized
+    await client.post("/notes/", json={"title": "CHERRY"})   # uppercase
+
+    response = await client.get("/notes/", params={"sort_by": "title", "sort_order": "asc"})
+    assert response.status_code == 200
+    titles = [item["title"] for item in response.json()["items"]]
+    # Case-insensitive order: Apple < banana < CHERRY
+    assert titles == ["Apple", "banana", "CHERRY"]
+
+
 async def test_list_notes_sort_by_created_at(client: AsyncClient) -> None:
     """Test sorting notes by created_at (default)."""
     await client.post("/notes/", json={"title": "First"})

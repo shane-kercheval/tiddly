@@ -832,6 +832,59 @@ async def test__search__sort_by_title_uses_coalesce(
     assert prompts[1].id == p1.id
 
 
+async def test__search__sort_by_title_case_insensitive(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that sorting by title is case-insensitive and properly interleaves titled/untitled."""
+    # Prompt without title - name starts with lowercase 'c'
+    p1 = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="code-review", content="Test content"),
+    )
+    # Prompt with title starting with uppercase 'D'
+    p2 = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="decision-prompt", content="Test content", title="Decision Clarity"),
+    )
+    # Prompt with title starting with lowercase 'c'
+    p3 = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="coding-prompt", content="Test content", title="coding Guidelines"),
+    )
+    await db_session.flush()
+
+    prompts, _ = await prompt_service.search(
+        db_session, test_user.id, sort_by="title", sort_order="asc",
+    )
+
+    # Case-insensitive order: "code-review" < "coding Guidelines" < "Decision Clarity"
+    assert prompts[0].id == p1.id  # code-review (name, no title)
+    assert prompts[1].id == p3.id  # coding Guidelines (title)
+    assert prompts[2].id == p2.id  # Decision Clarity (title)
+
+
+async def test__search__sort_by_title_handles_empty_string(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that empty string title falls back to name for sorting."""
+    # Prompt with empty string title (should fall back to name)
+    p1 = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="zebra-prompt", content="Test content", title=""),
+    )
+    # Prompt with actual title
+    p2 = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="aaa-prompt", content="Test content", title="Beta Title"),
+    )
+    await db_session.flush()
+
+    prompts, _ = await prompt_service.search(
+        db_session, test_user.id, sort_by="title", sort_order="asc",
+    )
+
+    # "Beta Title" < "zebra-prompt" (empty title falls back to name)
+    assert prompts[0].id == p2.id
+    assert prompts[1].id == p1.id
+
+
 # =============================================================================
 # Text Search Tests
 # =============================================================================

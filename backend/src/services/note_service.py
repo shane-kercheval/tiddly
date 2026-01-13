@@ -2,9 +2,10 @@
 import logging
 from uuid import UUID
 
-from sqlalchemy import func, or_
+from typing import Any
+
+from sqlalchemy import ColumnElement, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute
 
 from models.note import Note
 from models.tag import note_tags
@@ -38,13 +39,13 @@ class NoteService(BaseEntityService[Note]):
             ),
         ]
 
-    def _get_sort_columns(self) -> dict[str, InstrumentedAttribute]:
+    def _get_sort_columns(self) -> dict[str, ColumnElement[Any]]:
         """Get sort columns for notes."""
         return {
             "created_at": Note.created_at,
             "updated_at": Note.updated_at,
             "last_used_at": Note.last_used_at,
-            "title": Note.title,
+            "title": func.lower(Note.title),
             "archived_at": Note.archived_at,
             "deleted_at": Note.deleted_at,
         }

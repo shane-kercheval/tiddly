@@ -6,13 +6,13 @@ Entity-specific behavior is defined via abstract methods and class attributes.
 """
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Generic, Literal, Protocol, TypeVar
+from typing import Any, Generic, Literal, Protocol, TypeVar
 from uuid import UUID
 
-from sqlalchemy import Table, exists, func, select
+from sqlalchemy import Column, ColumnElement, Table, exists, func, select
 from sqlalchemy.sql import Select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute, selectinload
+from sqlalchemy.orm import selectinload
 
 from models.tag import Tag
 from schemas.validators import validate_and_normalize_tags
@@ -65,7 +65,7 @@ class BaseEntityService(ABC, Generic[T]):
 
     # --- Helper Methods ---
 
-    def _get_junction_entity_id_column(self) -> InstrumentedAttribute:
+    def _get_junction_entity_id_column(self) -> Column[Any]:
         """Get the entity ID column from the junction table (e.g., bookmark_id, note_id)."""
         junction_columns = [c.name for c in self.junction_table.columns if c.name != "tag_id"]
         return self.junction_table.c[junction_columns[0]]
@@ -98,17 +98,18 @@ class BaseEntityService(ABC, Generic[T]):
         ...
 
     @abstractmethod
-    def _get_sort_columns(self) -> dict[str, InstrumentedAttribute]:
+    def _get_sort_columns(self) -> dict[str, ColumnElement[Any]]:
         """
-        Get mapping of sort field names to SQLAlchemy columns.
+        Get mapping of sort field names to SQLAlchemy column expressions.
 
         Returns:
-            Dict mapping sort_by parameter values to columns.
+            Dict mapping sort_by parameter values to column expressions.
+            Values can be raw columns or computed expressions (e.g., func.lower()).
 
         Example for Bookmark:
             return {
                 "created_at": Bookmark.created_at,
-                "title": func.coalesce(Bookmark.title, Bookmark.url),
+                "title": func.lower(func.coalesce(Bookmark.title, Bookmark.url)),
                 ...
             }
         """

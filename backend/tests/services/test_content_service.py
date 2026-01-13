@@ -446,6 +446,47 @@ async def test__search_all_content__sort_by_title_asc(
     assert items[2].title == 'Zebra'
 
 
+async def test__search_all_content__sort_by_title_uses_name_fallback_for_prompts(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that prompts without titles sort by name and interleave correctly with titled items."""
+    # Prompt WITHOUT title - should sort by name "code-review"
+    prompt1 = await prompt_service.create(
+        db_session, test_user.id,
+        PromptCreate(name="code-review", content="Test content"),
+    )
+    # Prompt WITH title starting with uppercase 'D'
+    prompt2 = await prompt_service.create(
+        db_session, test_user.id,
+        PromptCreate(name="decision-prompt", title="Decision Clarity", content="Test content"),
+    )
+    # Prompt WITH title starting with lowercase 'c'
+    prompt3 = await prompt_service.create(
+        db_session, test_user.id,
+        PromptCreate(name="coding-prompt", title="coding Guidelines", content="Test content"),
+    )
+    # Bookmark with title starting with 'B'
+    bookmark = await bookmark_service.create(
+        db_session, test_user.id,
+        BookmarkCreate(url="https://example.com", title="Beta Site"),
+    )
+    await db_session.flush()
+
+    items, _ = await search_all_content(
+        db_session, test_user.id,
+        sort_by='title', sort_order='asc',
+        content_types=['prompt', 'bookmark'],
+    )
+
+    # Case-insensitive order: "Beta Site" < "code-review" < "coding Guidelines" < "Decision Clarity"
+    assert len(items) == 4
+    assert items[0].id == bookmark.id  # Beta Site
+    assert items[1].id == prompt1.id   # code-review (name, no title)
+    assert items[2].id == prompt3.id   # coding Guidelines (title)
+    assert items[3].id == prompt2.id   # Decision Clarity (title)
+
+
 # =============================================================================
 # Pagination Tests
 # =============================================================================

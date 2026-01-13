@@ -254,6 +254,41 @@ async def test__list_all_content__sorting_works(
     assert titles == ['Apple', 'Mango', 'Zebra']
 
 
+async def test__list_all_content__sort_by_title_case_insensitive(
+    client: AsyncClient,
+) -> None:
+    """Test that title sorting is case-insensitive across all content types."""
+    # Create mixed content types with varied casing
+    await client.post('/notes/', json={'title': 'delta'})              # lowercase note
+    await client.post('/bookmarks/', json={'url': 'https://a.com', 'title': 'Alpha'})  # capitalized bookmark
+    await client.post('/prompts/', json={'name': 'gamma-prompt', 'content': 'test'})   # prompt with no title (uses name)
+    await client.post('/notes/', json={'title': 'BETA'})               # uppercase note
+    await client.post('/prompts/', json={'name': 'e-prompt', 'title': 'epsilon', 'content': 'test'})  # prompt with lowercase title
+
+    response = await client.get('/content/?sort_by=title&sort_order=asc')
+    data = response.json()
+
+    # Verify case-insensitive order interleaves all content types correctly
+    # Expected: Alpha < BETA < delta < epsilon < gamma-prompt
+    items = data['items']
+    assert len(items) == 5
+
+    assert items[0]['title'] == 'Alpha'
+    assert items[0]['type'] == 'bookmark'
+
+    assert items[1]['title'] == 'BETA'
+    assert items[1]['type'] == 'note'
+
+    assert items[2]['title'] == 'delta'
+    assert items[2]['type'] == 'note'
+
+    assert items[3]['title'] == 'epsilon'
+    assert items[3]['type'] == 'prompt'
+
+    assert items[4]['name'] == 'gamma-prompt'  # Prompt without title, sorted by name
+    assert items[4]['type'] == 'prompt'
+
+
 async def test__list_all_content__pagination_works(
     client: AsyncClient,
 ) -> None:

@@ -1,11 +1,12 @@
 """Service layer for bookmark CRUD operations."""
 import logging
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute, selectinload
+from sqlalchemy.orm import selectinload
 
 from models.bookmark import Bookmark
 from models.tag import bookmark_tags
@@ -60,13 +61,13 @@ class BookmarkService(BaseEntityService[Bookmark]):
             ),
         ]
 
-    def _get_sort_columns(self) -> dict[str, InstrumentedAttribute]:
+    def _get_sort_columns(self) -> dict[str, ColumnElement[Any]]:
         """Get sort columns with title falling back to URL."""
         return {
             "created_at": Bookmark.created_at,
             "updated_at": Bookmark.updated_at,
             "last_used_at": Bookmark.last_used_at,
-            "title": func.coalesce(Bookmark.title, Bookmark.url),
+            "title": func.lower(func.coalesce(func.nullif(Bookmark.title, ''), Bookmark.url)),
             "archived_at": Bookmark.archived_at,
             "deleted_at": Bookmark.deleted_at,
         }
