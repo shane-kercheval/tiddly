@@ -88,6 +88,9 @@ function createLinkClickPlugin(): Plugin {
           const href = link.getAttribute('href')
           if (href) {
             window.open(href, '_blank', 'noopener,noreferrer')
+
+            // CRITICAL: handleDOMEvents does NOT automatically call preventDefault()
+            // You must call it explicitly yourself, even when returning true
             event.preventDefault()
             return true
           }
@@ -165,45 +168,81 @@ const [linkDialogIsEdit, setLinkDialogIsEdit] = useState(false)
 
 **IMPORTANT**: Do NOT store `linkStart` and `linkEnd` in component state. ProseMirror positions are absolute document offsets that become invalid after any edit. Instead, re-detect link boundaries when the dialog is submitted.
 
-2. **Update `handleToolbarLinkClick` callback** to detect existing links:
+2. **Create boundary detection helper function**:
 
-Core logic:
+This helper will be reused in both `handleToolbarLinkClick` and `handleLinkSubmit` to avoid code duplication:
+
+```typescript
+/**
+ * Find the boundaries of a link mark at the given cursor position.
+ * Uses block-scoped search for performance (O(m) where m = paragraph size).
+ *
+ * @param view - ProseMirror editor view
+ * @param cursorPos - Cursor position to check
+ * @param linkMarkType - Link mark type from schema
+ * @returns Object with start, end, and mark, or null if not in a link
+ */
+function findLinkBoundaries(
+  view: EditorView,
+  cursorPos: number,
+  linkMarkType: MarkType
+): { start: number; end: number; mark: Mark } | null {
+  const $from = view.state.doc.resolve(cursorPos)
+
+  // Check if cursor is in a link mark
+  // CRITICAL: $from.marks() doesn't include marks at exact start position
+  // Use nodeAfter fallback to detect cursor at link boundary
+  let linkMark = linkMarkType.isInSet($from.marks())
+
+  // Boundary case: cursor at start of link
+  if (!linkMark && $from.nodeAfter) {
+    linkMark = linkMarkType.isInSet($from.nodeAfter.marks)
+  }
+
+  if (!linkMark) return null
+
+  // Find link boundaries by walking current block
+  const blockStart = $from.start($from.depth)
+  const blockEnd = $from.end($from.depth)
+
+  let linkStart = cursorPos
+  let linkEnd = cursorPos
+
+  view.state.doc.nodesBetween(blockStart, blockEnd, (node, pos) => {
+    if (node.isText && node.marks.some(m => m.type === linkMarkType)) {
+      const nodeEnd = pos + node.nodeSize
+      // Check if this text node contains our cursor position
+      if (pos <= cursorPos && nodeEnd >= cursorPos) {
+        // This is part of our link - expand boundaries
+        linkStart = Math.min(linkStart, pos)
+        linkEnd = Math.max(linkEnd, nodeEnd)
+      }
+    }
+  })
+
+  return { start: linkStart, end: linkEnd, mark: linkMark }
+}
+```
+
+3. **Update `handleToolbarLinkClick` callback** to use the helper:
+
 ```typescript
 const handleToolbarLinkClick = useCallback(() => {
   const editor = get()
   if (!editor) return
 
   const view = editor.ctx.get(editorViewCtx)
-  const { from, to, $from } = view.state.selection
-
-  // Get link mark type from schema
+  const { from, to } = view.state.selection
   const linkMarkType = view.state.schema.marks.link
   if (!linkMarkType) return
 
-  // Get marks at cursor position
-  // For empty selection: check storedMarks (about to apply) or marks at position
-  // For text selection: check marks at start of selection
-  const marks = view.state.selection.empty
-    ? (view.state.storedMarks || $from.marks())
-    : $from.marks()
+  // Use helper to detect if cursor is in a link
+  const linkBoundaries = findLinkBoundaries(view, from, linkMarkType)
 
-  // Check if a link mark exists
-  const linkMark = linkMarkType.isInSet(marks)
-
-  if (linkMark) {
-    // EXISTING LINK: Extract href and find link boundaries
-    const href = linkMark.attrs.href || ''
-
-    // Find the full extent of the link by walking the document
-    let linkStart = from
-    let linkEnd = to
-
-    // TODO: Implement boundary detection
-    // Walk backwards from cursor to find link start
-    // Walk forwards from cursor to find link end
-    // Handle edge case: cursor at exact link start (mark may not be in $from.marks())
-
-    const linkText = view.state.doc.textBetween(linkStart, linkEnd)
+  if (linkBoundaries) {
+    // EXISTING LINK: Extract href and text
+    const href = linkBoundaries.mark.attrs.href || ''
+    const linkText = view.state.doc.textBetween(linkBoundaries.start, linkBoundaries.end)
 
     setLinkDialogInitialText(linkText)
     setLinkDialogInitialUrl(href)
@@ -221,43 +260,19 @@ const handleToolbarLinkClick = useCallback(() => {
 }, [get])
 ```
 
-**Boundary Detection Implementation**:
+**Key Implementation Details**:
 
-ProseMirror challenge: `$from.marks()` doesn't include marks at the exact start position.
+The `findLinkBoundaries` helper handles several critical edge cases:
 
-Solution - Walk only the current block/paragraph to find link boundaries (for performance):
+1. **Cursor at link start**: Uses `nodeAfter` fallback because `$from.marks()` doesn't include marks at exact start position
+2. **Block-scoped search**: Only searches current paragraph (O(m)) not entire document (O(n)) to prevent lag on large documents
+3. **Multi-node links**: Finds all text nodes with the same link mark (handles links with formatted text like `[**bold** text](url)`)
 
-```typescript
-// IMPORTANT: Only search within current block, not entire document
-// This is O(m) where m = paragraph size, not O(n) where n = document size
-const $from = view.state.selection.$from
-const blockStart = $from.start($from.depth)
-const blockEnd = $from.end($from.depth)
-
-// Find the full extent of the link by walking current block
-let linkStart = from
-let linkEnd = to
-
-view.state.doc.nodesBetween(blockStart, blockEnd, (node, pos) => {
-  if (node.isText && node.marks.some(m => m.type === linkMarkType)) {
-    const nodeEnd = pos + node.nodeSize
-    // Check if this text node contains our cursor position
-    if (pos <= from && nodeEnd >= from) {
-      // This is part of our link - expand boundaries
-      linkStart = Math.min(linkStart, pos)
-      linkEnd = Math.max(linkEnd, nodeEnd)
-    }
-  }
-})
-```
-
-**Why block-scoped**: Walking the entire document (`0` to `doc.content.size`) is O(n) and causes lag on large documents (5000+ lines). Walking only the current block is O(m) where m is typically <1000 characters.
-
-This approach handles all edge cases including cursor at:
-- Character 0 of link (exact start) - adjacent node within block will be found
-- Middle of link - current node will be found
-- Last character of link - current node will be found
-- With entire link selected - all nodes in range will be found
+This approach handles all cursor positions:
+- Character 0 of link (exact start) - `nodeAfter` fallback detects the link
+- Middle of link - `$from.marks()` detects the link
+- Last character of link - `$from.marks()` detects the link
+- With entire link selected - link boundaries are found via block walk
 
 **Limitation**: Links cannot span multiple blocks (paragraphs), but this matches markdown semantics where links are inline elements.
 
@@ -291,42 +306,36 @@ const handleLinkSubmit = useCallback((url: string, text: string) => {
 
   if (linkDialogIsEdit) {
     // EDITING EXISTING LINK
-    // Re-detect link boundaries at submission time (DON'T use stored positions)
+    // Re-detect link boundaries at submission time using helper
     // ProseMirror positions become invalid after document edits
-
     const { from } = view.state.selection
-    const $from = view.state.selection.$from
-    const blockStart = $from.start($from.depth)
-    const blockEnd = $from.end($from.depth)
+    const linkBoundaries = findLinkBoundaries(view, from, linkMarkType)
 
-    let linkStart = from
-    let linkEnd = from
-
-    // Re-detect boundaries by walking current block
-    view.state.doc.nodesBetween(blockStart, blockEnd, (node, pos) => {
-      if (node.isText && node.marks.some(m => m.type === linkMarkType)) {
-        const nodeEnd = pos + node.nodeSize
-        if (pos <= from && nodeEnd >= from) {
-          linkStart = Math.min(linkStart, pos)
-          linkEnd = Math.max(linkEnd, nodeEnd)
-        }
-      }
-    })
+    if (!linkBoundaries) {
+      // Link no longer exists (user may have deleted it while dialog was open)
+      // Fall back to creating new link
+      const mark = linkMarkType.create({ href: url })
+      const linkNode = view.state.schema.text(text, [mark])
+      const tr = view.state.tr.replaceSelectionWith(linkNode, false)
+      view.dispatch(tr)
+      view.focus()
+      return
+    }
 
     const tr = view.state.tr
 
     // Remove old link mark from the detected boundaries
-    tr.removeMark(linkStart, linkEnd, linkMarkType)
+    tr.removeMark(linkBoundaries.start, linkBoundaries.end, linkMarkType)
 
     // Add new link mark with updated URL
     const newMark = linkMarkType.create({ href: url })
-    tr.addMark(linkStart, linkEnd, newMark)
+    tr.addMark(linkBoundaries.start, linkBoundaries.end, newMark)
 
     // Only update text if user actually changed it
-    const originalText = view.state.doc.textBetween(linkStart, linkEnd)
+    const originalText = view.state.doc.textBetween(linkBoundaries.start, linkBoundaries.end)
     if (text !== originalText) {
       const textNode = view.state.schema.text(text, [newMark])
-      tr.replaceWith(linkStart, linkEnd, textNode)
+      tr.replaceWith(linkBoundaries.start, linkBoundaries.end, textNode)
     }
 
     view.dispatch(tr)
@@ -335,7 +344,7 @@ const handleLinkSubmit = useCallback((url: string, text: string) => {
     // CREATING NEW LINK
     // Existing logic (MilkdownEditor.tsx:765-790) works fine for new links
     const mark = linkMarkType.create({ href: url })
-    const linkNode = view.state.schema.text(text, [mark])
+    const linkNode = view.state.schema.text(text || url, [mark])  // Use URL as fallback if text is empty
     const tr = view.state.tr.replaceSelectionWith(linkNode, false)
     view.dispatch(tr)
     view.focus()
@@ -344,10 +353,12 @@ const handleLinkSubmit = useCallback((url: string, text: string) => {
 ```
 
 **Key differences**:
-- **Edit mode**: Re-detects boundaries at submission time (positions may have changed), uses `removeMark` + `addMark` to update in-place
+- **Edit mode**: Re-detects boundaries at submission time using `findLinkBoundaries` helper, uses `removeMark` + `addMark` to update in-place
 - **Create mode**: Uses `replaceSelectionWith` to insert new link
 - **Text updates**: Only replaces text if user changed it (prevents unnecessary edits)
+- **Empty text fallback**: If user clears text field, uses URL as link text (matches Google Docs behavior)
 - **Position safety**: Never stores positions in state - always detects fresh to avoid invalid position errors
+- **Edge case handling**: If link was deleted while dialog was open, falls back to creating new link instead of crashing
 
 5. **Update Cmd+K keyboard shortcut** to use same logic:
 
@@ -355,13 +366,29 @@ The existing shortcut handler (lines 1068-1080) should call the same link detect
 
 **Testing Strategy**:
 
-**Performance Testing** (Critical):
-- Create a large note (5000+ lines or 50,000+ characters)
-- Place cursor in middle of link
-- Click link toolbar button
-- **Verify**: No noticeable lag (<100ms)
-- **Why**: Ensures block-scoped search is working, not full document walk
-- If lag occurs, check that `nodesBetween` uses `blockStart/blockEnd`, not `0/doc.content.size`
+**Performance Testing** (MANDATORY - BLOCKER FOR MILESTONE 2):
+
+This testing is **required before shipping** Milestone 2. If performance requirements are not met, the implementation must be revised.
+
+**Setup**:
+1. Create a test note with 5000+ lines (or 50,000+ characters)
+2. Add several links throughout the document
+3. Place cursor at various positions within links
+
+**Test Procedure**:
+1. Place cursor at start of link in middle of document
+2. Click link toolbar button
+3. Measure time to open dialog with pre-filled URL
+4. **PASS CRITERIA**: Dialog opens in <100ms with no visible lag
+5. Repeat at end of document to verify no degradation
+
+**Failure Investigation**:
+- If lag occurs (>100ms), check `findLinkBoundaries` implementation
+- Verify `nodesBetween` uses `blockStart/blockEnd`, not `0/doc.content.size`
+- Check browser console for performance warnings
+- Consider adding performance.now() timing logs if needed
+
+**Why this is critical**: Block-scoped search is O(m) where m = paragraph size. If implementation accidentally uses full document search O(n), large documents will lag severely (5+ seconds on 10,000 line documents).
 
 **Unit/Integration Tests** (High Value):
 - Mock ProseMirror state with link marks at various positions
@@ -403,11 +430,14 @@ For each link, test:
 **Edge Cases**:
 - Empty link text: `[](https://example.com)`
 - Empty URL: `[text]()`
+- **Empty link text in dialog**: User clears text field → uses URL as link text (e.g., `[https://example.com](https://example.com)`) - matches Google Docs behavior
 - Link with special characters: `[link](#section-1)`
 - Link with encoded characters: `[link](https://example.com/path%20with%20spaces)`
 - **Cursor between two adjacent links**: `[link1](url1)[link2](url2)` with cursor between `]` and `[` → should NOT detect any link, clicking link button creates new link (least surprise principle)
 - **Link with formatted text**: `[**bold** text](url)` → boundary detection should find entire link across multiple text nodes with same link mark
 - Link with nested marks (bold/italic/code mixed within link text)
+- **Selection spanning multiple links**: `[link1](url1) text [link2](url2)` with selection from middle of link1 to middle of link2 → should NOT detect any link (ambiguous), treat as new link creation
+- **Links in code blocks**: Code blocks render as plain text, so links should not be clickable. Verify `event.target.closest('a')` doesn't trigger on code block content (Milkdown likely doesn't render code blocks as `<a>` tags, but verify during testing)
 
 **Dependencies**:
 - Milestone 1 (optional, but recommended to complete first for logical progression)
@@ -431,9 +461,17 @@ For each link, test:
 
 3. **Dialog button text**: Keep "Insert Link" for simplicity. Changing to "Update Link" when editing requires conditional logic that adds complexity without significant UX benefit.
 
-4. **Boundary detection library**: The codebase doesn't include `prosemirror-utils` as a dependency (verified via package.json). Use manual block-scoped boundary detection as specified in the plan. Do NOT add new dependencies.
+4. **Boundary detection library**: The codebase doesn't include `prosemirror-utils` as a dependency (verified via package.json). Use manual block-scoped boundary detection via `findLinkBoundaries` helper function. Do NOT add new dependencies.
 
-5. **Position storage**: Never store ProseMirror positions (`linkStart`, `linkEnd`) in React state. Positions are absolute offsets that become invalid after any document edit. Always re-detect boundaries at submission time.
+5. **Position storage**: Never store ProseMirror positions (`linkStart`, `linkEnd`) in React state. Positions are absolute offsets that become invalid after any document edit. Always re-detect boundaries at submission time using the `findLinkBoundaries` helper.
+
+6. **Code reuse**: Extract boundary detection logic into a shared `findLinkBoundaries` helper function used by both `handleToolbarLinkClick` and `handleLinkSubmit`. This prevents code duplication and ensures consistent behavior.
+
+7. **Empty link text**: If user clears the text field in LinkDialog, use the URL as link text (e.g., `[https://example.com](https://example.com)`). This matches Google Docs behavior and prevents links with empty text.
+
+8. **Selection spanning multiple links**: If selection overlaps multiple links, do NOT detect any link (ambiguous case). Treat as new link creation using the selected text.
+
+9. **Milkdown plugin registration**: Use `$prose(() => createPlugin())` pattern verified in existing codebase (createCodeBlockCopyPlugin, createPlaceholderPlugin). Register with `.use(pluginSlice)` in editor chain.
 
 ---
 
@@ -787,16 +825,20 @@ Focus on the three milestones defined above. Do not implement these unless expli
 
 Before implementing, verify understanding:
 
-1. Do you understand the ProseMirror plugin pattern from existing plugins in the codebase?
-2. Are the mark detection edge cases clear (Milestone 2)?
-3. Do you understand why block-scoped search is required for performance (Milestone 2)?
-4. Do you understand the difference between editing (removeMark + addMark) vs creating (replaceSelectionWith) links (Milestone 2)?
+1. Do you understand the ProseMirror plugin pattern (`$prose(() => createPlugin())`) verified in the existing codebase?
+2. **CRITICAL**: Do you understand why `$from.marks()` doesn't include marks at exact start position, and why `nodeAfter` fallback is required?
+3. Do you understand why the `findLinkBoundaries` helper function is extracted and reused (prevents code duplication between `handleToolbarLinkClick` and `handleLinkSubmit`)?
+4. Do you understand why block-scoped search (`blockStart` to `blockEnd`) is required instead of full document search (`0` to `doc.content.size`) for performance?
 5. **CRITICAL**: Do you understand why ProseMirror positions must NOT be stored in React state and must be re-detected at submission time?
-6. Do you understand the expected behavior for cursor between adjacent links (should create new link, not edit either existing link)?
-7. Do you understand the expected behavior for links with formatted text inside (should detect entire link across multiple text nodes)?
-8. Do you understand why the original Milestone 3 diagnosis was incorrect?
-9. Do you understand how the modal-aware beforeunload fix works and why it's better than removing `<form>` elements (Milestone 3)?
-10. Do you understand why CodeMirrorEditor needs `onModalStateChange` prop even though it never calls it?
-11. Are the testing requirements clear for all three milestones, especially performance testing with large documents?
+6. Do you understand the difference between editing (removeMark + addMark) vs creating (replaceSelectionWith) links?
+7. Do you understand the expected behavior for cursor between adjacent links (should create new link, not edit either)?
+8. Do you understand the expected behavior for links with formatted text inside (should detect entire link across multiple text nodes)?
+9. Do you understand the expected behavior for selection spanning multiple links (should NOT detect any link, treat as new)?
+10. Do you understand the expected behavior for empty link text (use URL as fallback text)?
+11. **CRITICAL - BLOCKER**: Do you understand that performance testing with 5000+ line documents is MANDATORY before shipping Milestone 2, and what the pass criteria is (<100ms)?
+12. Do you understand why the original Milestone 3 diagnosis was incorrect (not missing preventDefault, but focus/timing issue)?
+13. Do you understand how the modal-aware beforeunload fix works and why it's better than removing `<form>` elements?
+14. Do you understand why CodeMirrorEditor needs `onModalStateChange` prop even though it never calls it (interface consistency)?
+15. Do you understand that handleDOMEvents does NOT automatically call preventDefault() and you must call it explicitly?
 
 Ask clarifying questions rather than making assumptions.
