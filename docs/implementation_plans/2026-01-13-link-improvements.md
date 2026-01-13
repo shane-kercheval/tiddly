@@ -2,14 +2,14 @@
 
 **Date**: 2026-01-13
 **Status**: Ready for Implementation
-**Complexity**: Milestone 1 (LOW) + Milestone 2 (MEDIUM) + Milestone 3 (VERY LOW)
+**Complexity**: Milestone 1 (LOW) + Milestone 2 (MEDIUM-HIGH) + Milestone 3 (LOW)
 
 ## Overview
 
 Enhance the Milkdown editor's link handling capabilities by:
 1. Making links clickable via Cmd+Click (Mac) or Ctrl+Click (Windows/Linux) to open in new tab
-2. Detecting existing links when editing, pre-populating both link text and URL in the dialog
-3. Fixing "Leave Site?" warning when submitting link dialog + adding Enter key support
+2. Detecting existing links when editing, pre-populating both link text and URL in the dialog, and updating links in-place
+3. Fixing "Leave Site?" warning when submitting link dialog by making beforeunload handlers modal-aware
 
 ## Background
 
@@ -222,11 +222,20 @@ const handleToolbarLinkClick = useCallback(() => {
 
 ProseMirror challenge: `$from.marks()` doesn't include marks at the exact start position.
 
-Solution - Walk the document to find all text nodes with link marks that contain the cursor:
+Solution - Walk only the current block/paragraph to find link boundaries (for performance):
 
 ```typescript
-// Find the full extent of the link by walking the document
-view.state.doc.nodesBetween(0, view.state.doc.content.size, (node, pos) => {
+// IMPORTANT: Only search within current block, not entire document
+// This is O(m) where m = paragraph size, not O(n) where n = document size
+const $from = view.state.selection.$from
+const blockStart = $from.start($from.depth)
+const blockEnd = $from.end($from.depth)
+
+// Find the full extent of the link by walking current block
+let linkStart = from
+let linkEnd = to
+
+view.state.doc.nodesBetween(blockStart, blockEnd, (node, pos) => {
   if (node.isText && node.marks.some(m => m.type === linkMarkType)) {
     const nodeEnd = pos + node.nodeSize
     // Check if this text node contains our cursor position
@@ -239,11 +248,15 @@ view.state.doc.nodesBetween(0, view.state.doc.content.size, (node, pos) => {
 })
 ```
 
+**Why block-scoped**: Walking the entire document (`0` to `doc.content.size`) is O(n) and causes lag on large documents (5000+ lines). Walking only the current block is O(m) where m is typically <1000 characters.
+
 This approach handles all edge cases including cursor at:
-- Character 0 of link (exact start) - adjacent node will be found
+- Character 0 of link (exact start) - adjacent node within block will be found
 - Middle of link - current node will be found
 - Last character of link - current node will be found
 - With entire link selected - all nodes in range will be found
+
+**Limitation**: Links cannot span multiple blocks (paragraphs), but this matches markdown semantics where links are inline elements.
 
 3. **Update `LinkDialog` component** to accept and display URL:
 
@@ -252,21 +265,80 @@ interface LinkDialogProps {
   open: boolean
   initialText: string
   initialUrl: string  // NEW
-  isEdit: boolean     // NEW (optional, for UI messaging)
+  isEdit: boolean     // NEW
   onSubmit: (url: string, text: string) => void
   onClose: () => void
 }
 
 // In component:
 // Pre-fill URL field with initialUrl
-// Consider showing "Edit Link" vs "Insert Link" title based on isEdit
 ```
 
-4. **Update Cmd+K keyboard shortcut** to use same logic:
+4. **Update `handleLinkSubmit` to distinguish editing vs creating**:
+
+**CRITICAL**: The existing codebase's `handleLinkSubmit` (MilkdownEditor.tsx:765-789) creates a NEW link and replaces the selection. When editing an existing link, this would split the link or create nested marks. We need to update the link in-place.
+
+```typescript
+const handleLinkSubmit = useCallback((url: string, text: string) => {
+  const editor = get()
+  if (!editor) return
+
+  const view = editor.ctx.get(editorViewCtx)
+  const linkMarkType = view.state.schema.marks.link
+
+  if (linkDialogIsEdit) {
+    // EDITING EXISTING LINK
+    // Remove old link mark and add new one to the SAME text range
+    // This preserves the link boundaries and updates it in-place
+
+    const tr = view.state.tr
+
+    // Remove old link mark from the detected boundaries
+    tr.removeMark(linkStart, linkEnd, linkMarkType)
+
+    // Add new link mark with updated URL
+    const newMark = linkMarkType.create({ href: url })
+    tr.addMark(linkStart, linkEnd, newMark)
+
+    // Only update text if user actually changed it
+    const originalText = view.state.doc.textBetween(linkStart, linkEnd)
+    if (text !== originalText) {
+      const textNode = view.state.schema.text(text, [newMark])
+      tr.replaceWith(linkStart, linkEnd, textNode)
+    }
+
+    view.dispatch(tr)
+    view.focus()
+  } else {
+    // CREATING NEW LINK
+    // Existing logic (MilkdownEditor.tsx:765-790) works fine for new links
+    const mark = linkMarkType.create({ href: url })
+    const linkNode = view.state.schema.text(text, [mark])
+    const tr = view.state.tr.replaceSelectionWith(linkNode, false)
+    view.dispatch(tr)
+    view.focus()
+  }
+}, [get, linkDialogIsEdit, linkStart, linkEnd])
+```
+
+**Key differences**:
+- **Edit mode**: Uses `removeMark` + `addMark` to update in-place, preserves boundaries
+- **Create mode**: Uses `replaceSelectionWith` to insert new link
+- **Text updates**: Only replaces text if user changed it (prevents unnecessary edits)
+
+5. **Update Cmd+K keyboard shortcut** to use same logic:
 
 The existing shortcut handler (lines 1068-1080) should call the same link detection logic to maintain consistency.
 
 **Testing Strategy**:
+
+**Performance Testing** (Critical):
+- Create a large note (5000+ lines or 50,000+ characters)
+- Place cursor in middle of link
+- Click link toolbar button
+- **Verify**: No noticeable lag (<100ms)
+- **Why**: Ensures block-scoped search is working, not full document walk
+- If lag occurs, check that `nodesBetween` uses `blockStart/blockEnd`, not `0/doc.content.size`
 
 **Unit/Integration Tests** (High Value):
 - Mock ProseMirror state with link marks at various positions
@@ -280,6 +352,10 @@ The existing shortcut handler (lines 1068-1080) should call the same link detect
   - Multi-word links
   - Links with punctuation
   - Adjacent links (should detect only one)
+- Test editing vs creating:
+  - Editing link preserves boundaries
+  - Creating link replaces selection
+  - Text only updates if changed
 
 **Manual Testing** (Critical):
 Create test document with these scenarios:
@@ -313,11 +389,13 @@ For each link, test:
 - Milestone 1 (optional, but recommended to complete first for logical progression)
 
 **Risk Factors**:
-- **MEDIUM RISK**: Mark detection at boundaries is tricky
+- **MEDIUM-HIGH RISK**: Mark detection at boundaries is tricky
 - ProseMirror's `marks()` behavior varies by position (see documentation)
-- Boundary detection requires walking document (O(n) complexity)
+- Boundary detection requires walking paragraph (O(m) complexity where m = paragraph size)
   - Mitigation: Only runs on button click, not per keystroke
-  - Performance: Document walks happen elsewhere (e.g., code block plugin), no issues observed
+  - Mitigation: Block-scoped search prevents performance issues on large documents
+  - Performance testing required with 5000+ line documents
+- Edit vs create logic adds complexity - must preserve link boundaries when editing
 - Multiple edge cases require thorough testing
 - Risk: Might miss edge cases in initial implementation → Plan for iteration after testing
 
@@ -331,206 +409,192 @@ For each link, test:
 
 ---
 
-### Milestone 3: Fix Modal Form Submission Architecture
+### Milestone 3: Make beforeunload Handlers Modal-Aware
 
-**Goal**: Fix the "Leave Site?" dialog that appears when submitting the LinkDialog form, and apply the same architectural fix to all modal forms for consistency and future-proofing. Add Enter key support for form submission.
+**Goal**: Fix the "Leave Site?" dialog that appears when submitting the LinkDialog form by making the beforeunload handlers aware of modal state, so they don't fire during legitimate modal interactions.
 
 **Success Criteria**:
+- [ ] Note.tsx: beforeunload handler checks `isModalOpen` flag
+- [ ] Bookmark.tsx: beforeunload handler checks `isModalOpen` flag
+- [ ] Prompt.tsx: beforeunload handler checks `isModalOpen` flag
+- [ ] MilkdownEditor: Sets `isModalOpen` when LinkDialog opens/closes
 - [ ] LinkDialog: Clicking "Insert Link" button does NOT trigger "Leave Site?" warning
-- [ ] LinkDialog: Pressing Enter in either input field submits the form
 - [ ] LinkDialog: Works correctly in all contexts (Notes, Bookmarks, Prompts)
-- [ ] CreateTokenModal: Updated to same pattern (remove `<form>`)
-- [ ] FilterModal: Updated to same pattern (remove `<form>`)
-- [ ] CollectionModal: Updated to same pattern (remove `<form>`)
-- [ ] All modals: Enter key submits from input fields
-- [ ] No regression in existing form behavior
+- [ ] No regression in existing beforeunload behavior (still warns on actual navigation)
+- [ ] Native form Enter key submission still works
 
 **Root Cause Analysis**:
 
-The bug occurs in LinkDialog when:
-1. User is editing a Note/Bookmark/Prompt with unsaved changes (`isDirty=true`)
-2. Parent component has active `beforeunload` event handler (see Note.tsx:200-211, Bookmark.tsx:275-285, Prompt.tsx:275-285)
-3. User submits LinkDialog form
-4. Form submission (even with `preventDefault()`) triggers browser navigation check
-5. `beforeunload` handler intercepts and shows "Leave Site?" warning
+**Original diagnosis was incorrect**. The LinkDialog already has `e.preventDefault()` (line 329), so it's NOT attempting navigation.
+
+**Actual root cause**: The beforeunload event fires due to a focus/timing issue when clicking the submit button. The browser sees potential navigation before React processes the click, triggering the beforeunload check.
 
 **Research Sources**:
 - [How to Use onbeforeunload with Form Submit Buttons](https://randomdrake.com/2009/09/23/how-to-use-onbeforeunload-with-form-submit-buttons/)
 - [MDN: beforeunload event](https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeunload_event)
 - [Implementing Unsaved Changes Alert in React App](https://taran.hashnode.dev/preventing-data-loss-implementing-unsaved-changes-alert-in-react-app)
 
-**The Issue**: HTML forms without explicit `action` attribute default to submitting to the current URL. Even though React's `preventDefault()` stops the submission, the browser's navigation check can fire BEFORE preventDefault is called, triggering the beforeunload handler.
-
-**Architectural Fix**: While only LinkDialog currently exhibits this bug (due to context), we're fixing all modal forms for consistency and to prevent future issues. Modal dialogs conceptually shouldn't use `<form>` elements that attempt navigation - they're UI interactions with inputs, not traditional HTML form submissions.
+**Industry Standard Solution**: VS Code, GitHub, and Google Docs all use modal-aware beforeunload handlers that check if a modal is currently open before showing the warning.
 
 **Key Changes**:
 
-Apply this pattern to all 4 modal forms: **LinkDialog**, **CreateTokenModal**, **FilterModal**, and **CollectionModal**.
+**1. Update parent components (Note.tsx, Bookmark.tsx, Prompt.tsx)**:
 
-For each modal, remove the `<form>` element and use explicit button handlers. Example (LinkDialog):
+Add `isModalOpen` state and pass it to editor:
 
 ```typescript
-function LinkDialog({
-  isOpen,
-  onClose,
-  onSubmit,
-  initialText = '',
-  initialUrl = 'https://',
-}: LinkDialogProps): ReactNode {
-  const [url, setUrl] = useState(initialUrl)
-  const [text, setText] = useState(initialText)
+// In Note.tsx (same pattern for Bookmark.tsx, Prompt.tsx)
+const [isModalOpen, setIsModalOpen] = useState(false)
 
-  const handleSubmit = (): void => {
-    if (url && url !== 'https://') {
-      onSubmit(url, text || url)
-      onClose()
-    }
-  }
-
-  // Add Enter key handler for inputs
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'Enter') {
+// Update beforeunload handler
+useEffect(() => {
+  const handleBeforeUnload = (e: BeforeUnloadEvent): void => {
+    // Only warn if dirty AND no modal is open
+    if (isDirty && !isModalOpen) {
       e.preventDefault()
-      handleSubmit()
+      e.returnValue = '' // Required for Chrome
     }
   }
 
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Insert Link" maxWidth="max-w-md">
-      {/* No longer a form - just a div */}
-      <div className="space-y-4">
-        <div>
-          <label htmlFor="link-text" className="label mb-1">
-            Link Text
-          </label>
-          <input
-            id="link-text"
-            type="text"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Display text for the link"
-            className="input"
-          />
-        </div>
-        <div>
-          <label htmlFor="link-url" className="label mb-1">
-            URL
-          </label>
-          <input
-            id="link-url"
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="https://example.com"
-            className="input"
-            required
-          />
-        </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="btn-secondary">
-            Cancel
-          </button>
-          <button type="button" onClick={handleSubmit} className="btn-primary">
-            Insert Link
-          </button>
-        </div>
-      </div>
-    </Modal>
-  )
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+}, [isDirty, isModalOpen])  // Add isModalOpen to dependency array
+
+// Pass to ContentEditor
+<ContentEditor
+  value={content}
+  onChange={handleContentChange}
+  onModalStateChange={setIsModalOpen}  // NEW PROP
+  // ... other props
+/>
+```
+
+**2. Update ContentEditor.tsx**:
+
+Accept `onModalStateChange` prop and pass to editors:
+
+```typescript
+interface ContentEditorProps {
+  // ... existing props
+  onModalStateChange?: (isOpen: boolean) => void
 }
+
+// Pass to both editors
+{mode === 'markdown' ? (
+  <MilkdownEditor
+    value={value}
+    onChange={onChange}
+    onModalStateChange={onModalStateChange}  // NEW PROP
+    // ... other props
+  />
+) : (
+  <CodeMirrorEditor
+    // CodeMirrorEditor doesn't have modals, so no prop needed
+  />
+)}
+```
+
+**3. Update MilkdownEditor.tsx**:
+
+Call `onModalStateChange` when LinkDialog opens/closes:
+
+```typescript
+interface MilkdownEditorProps {
+  // ... existing props
+  onModalStateChange?: (isOpen: boolean) => void
+}
+
+// Update handleToolbarLinkClick
+const handleToolbarLinkClick = useCallback(() => {
+  // ... existing link detection logic ...
+
+  setLinkDialogOpen(true)
+  onModalStateChange?.(true)  // Notify parent modal is opening
+}, [get, onModalStateChange])
+
+// Update dialog close handler
+const handleLinkDialogClose = useCallback(() => {
+  setLinkDialogOpen(false)
+  onModalStateChange?.(false)  // Notify parent modal is closing
+}, [onModalStateChange])
+
+// Use in LinkDialog component
+<LinkDialog
+  isOpen={linkDialogOpen}
+  onClose={handleLinkDialogClose}  // Use new handler
+  // ... other props
+/>
 ```
 
 **Why this approach**:
-- No `<form>` element means no form submission event
-- No navigation attempt means beforeunload never fires
-- Enter key explicitly handled via `onKeyDown`
-- Cleaner and more explicit control over submission
-- No risk of browser form submission quirks
-- Consistent with other non-navigating UI patterns (dialogs shouldn't trigger navigation)
+- **Fixes root cause**: Prevents beforeunload from firing during legitimate modal interactions
+- **Preserves semantic HTML**: LinkDialog keeps `<form>` element with native validation
+- **Preserves accessibility**: Form landmarks remain for screen readers
+- **Keeps native Enter key**: HTML forms already handle Enter submission
+- **Minimal code churn**: Only touch beforeunload handlers and editor props
+- **Industry standard**: Same pattern used by VS Code, GitHub, Google Docs
+- **Surgical fix**: Only affects the interaction causing the bug
 
 **Testing Strategy**:
 
 **Manual Testing** (Critical):
 
-**LinkDialog** (has the bug):
+**LinkDialog in Note/Bookmark/Prompt** (has the bug):
 1. Create a Note with some content (triggers isDirty=true)
 2. Click link toolbar button to open dialog
-3. Enter URL and click "Insert Link"
+3. Enter URL and click "Insert Link" button
 4. **Verify**: No "Leave Site?" warning appears
 5. **Verify**: Link is inserted correctly
-6. Repeat test:
-   - Press Enter in text field → should submit
-   - Press Enter in URL field → should submit
-   - Click Cancel → should close without inserting
+6. Press Enter in URL field → should submit (native form behavior)
 7. Test in Bookmark and Prompt editors (same beforeunload handlers)
 
-**CreateTokenModal** (no bug, but test pattern):
-1. Navigate to Settings → API Tokens
-2. Click "Create Token" button
-3. Enter token name, select expiry
-4. Press Enter in name field → should submit
-5. Click "Create Token" → should show token
-6. **Verify**: No unexpected warnings or errors
+**beforeunload still works for actual navigation**:
+1. Create a Note with unsaved changes (isDirty=true)
+2. Do NOT open any dialog
+3. Try to close browser tab or navigate away
+4. **Verify**: "Leave Site?" warning DOES appear
+5. Click "Leave" → navigates away
+6. Click "Stay" → remains on page
 
-**FilterModal** (no bug, but test pattern):
-1. Navigate to Lists page
-2. Click filter icon on any list
-3. Enter filter text
-4. Press Enter in filter field → should apply filter
-5. Click "Apply" → should filter list
-6. **Verify**: No unexpected warnings or errors
+**Modal state tracking**:
+1. Open LinkDialog
+2. **Verify**: isModalOpen is true (check React DevTools if needed)
+3. Close LinkDialog (Cancel or Insert)
+4. **Verify**: isModalOpen is false
+5. Try to navigate away with unsaved changes
+6. **Verify**: Warning appears (modal is closed, so warning should show)
 
-**CollectionModal** (no bug, but test pattern):
-1. Navigate to Lists page
-2. Click "New List" button
-3. Enter list name
-4. Press Enter in name field → should submit
-5. Click submit button → should create list
-6. **Verify**: No unexpected warnings or errors
+**Edge Cases**:
+- Multiple modals open simultaneously (shouldn't happen, but verify isModalOpen handles it)
+- Dialog closed via Escape key → verify isModalOpen set to false
+- Dialog closed via X button → verify isModalOpen set to false
+- Error in form submission → modal stays open, isModalOpen stays true
 
-**Edge Cases** (test on all modals):
-- Empty required fields (should not submit)
-- Rapid Enter key presses (should not double-submit)
-- Tab to Cancel button, press Enter → should close without submitting
-- Escape key → should close (existing Modal behavior)
-
-**Unit Tests** (Medium Value if easy to implement):
-- Test that Enter key in either field triggers submission
-- Test that empty/placeholder URL doesn't submit
-- Mock beforeunload and verify it's not triggered
-
-**Testing Note**: The user mentioned "It seems like we should have tests that would catch this but perhaps the testing strategy for this is too complex given the low risk."
-
-**Decision on tests**:
-- **DO add**: Simple manual test checklist (already defined above)
-- **DON'T add**: Complex automated tests that mock beforeunload handlers
-  - Reason: beforeunload is browser-level, hard to test in Jest
-  - Manual testing is sufficient given LOW risk after fix
-  - Test value doesn't justify effort for this specific issue
+**Unit Tests** (Low Value - Skip):
+- beforeunload is browser-level, difficult to test in Jest
+- Modal state management is simple useState
+- Manual testing is sufficient given LOW risk
 
 **Dependencies**:
-- None (can be done independently or alongside Milestone 2)
+- None (can be done independently of other milestones)
 
 **Risk Factors**:
-- **VERY LOW RISK**: Straightforward fix
-- Removing `<form>` element is safe - dialog is internal component
-- Enter key handling is explicit and testable
-- No changes to parent components (Note/Bookmark/Prompt)
+- **LOW RISK**: Simple state management change
+- beforeunload logic is well-isolated in useEffect hooks
+- Only 3 files to modify (Note, Bookmark, Prompt)
+- ContentEditor and MilkdownEditor just pass props through
+- No changes to dialog components themselves
+- Easy to rollback if issues arise
 
 **Implementation Decisions**:
 
-1. **Scope**: Fix all 4 modal forms (LinkDialog, CreateTokenModal, FilterModal, CollectionModal) for consistency and future-proofing, even though only LinkDialog currently has the bug. This ensures all modals follow the same architectural pattern.
+1. **Scope**: Only modify Note.tsx, Bookmark.tsx, Prompt.tsx, ContentEditor.tsx, and MilkdownEditor.tsx. Do NOT modify any dialog/modal components.
 
-2. **Enter key handling**: Only handle Enter in input fields (not buttons). Let default focus/tab behavior work naturally. Test to verify Cancel button doesn't submit on Enter.
+2. **State management**: Use simple boolean flag `isModalOpen` tracked in parent components. No need for complex modal management library.
 
-3. **Code changes per modal**: Each modal requires the same pattern:
-   - Remove `<form>` wrapper, replace with `<div>`
-   - Change `onSubmit={handleSubmit}` to `onClick={handleSubmit}` on submit button
-   - Change `type="submit"` to `type="button"` on submit button
-   - Add `onKeyDown` handler to input fields for Enter key
-   - Remove `e.preventDefault()` from handleSubmit (no longer needed)
+3. **Modal types**: Only track LinkDialog for now. Other modals (filter, collection, token) don't appear in contexts with beforeunload handlers.
+
+4. **Prop naming**: Use `onModalStateChange` to be clear about purpose and follow React event naming conventions.
 
 ---
 
@@ -625,8 +689,10 @@ Before implementing, verify understanding:
 
 1. Do you understand the ProseMirror plugin pattern from existing plugins in the codebase?
 2. Are the mark detection edge cases clear (Milestone 2)?
-3. Do you need clarification on any ProseMirror concepts?
-4. Are the testing requirements clear for all three milestones?
-5. Do you understand why the beforeunload bug occurs and how the fix prevents it (Milestone 3)?
+3. Do you understand why block-scoped search is required for performance (Milestone 2)?
+4. Do you understand the difference between editing (removeMark + addMark) vs creating (replaceSelectionWith) links (Milestone 2)?
+5. Do you understand why the original Milestone 3 diagnosis was incorrect?
+6. Do you understand how the modal-aware beforeunload fix works and why it's better than removing `<form>` elements (Milestone 3)?
+7. Are the testing requirements clear for all three milestones, especially performance testing?
 
 Ask clarifying questions rather than making assumptions.
