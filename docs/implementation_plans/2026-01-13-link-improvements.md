@@ -125,6 +125,7 @@ const linkClickPluginSlice = $prose(() => createLinkClickPlugin())
 - Links with nested formatting (bold/italic link text)
 - Links at document boundaries
 - Empty links (should not open)
+- **Cmd+Click on selected link**: If user selects entire link text and Cmd+Clicks, it should open the link (selection is visual state, not navigation blocker). The `event.target.closest('a')` approach handles this correctly.
 
 **Browser Testing**:
 - Chrome/Edge (most users)
@@ -161,6 +162,8 @@ const linkClickPluginSlice = $prose(() => createLinkClickPlugin())
 const [linkDialogInitialUrl, setLinkDialogInitialUrl] = useState('')
 const [linkDialogIsEdit, setLinkDialogIsEdit] = useState(false)
 ```
+
+**IMPORTANT**: Do NOT store `linkStart` and `linkEnd` in component state. ProseMirror positions are absolute document offsets that become invalid after any edit. Instead, re-detect link boundaries when the dialog is submitted.
 
 2. **Update `handleToolbarLinkClick` callback** to detect existing links:
 
@@ -288,8 +291,27 @@ const handleLinkSubmit = useCallback((url: string, text: string) => {
 
   if (linkDialogIsEdit) {
     // EDITING EXISTING LINK
-    // Remove old link mark and add new one to the SAME text range
-    // This preserves the link boundaries and updates it in-place
+    // Re-detect link boundaries at submission time (DON'T use stored positions)
+    // ProseMirror positions become invalid after document edits
+
+    const { from } = view.state.selection
+    const $from = view.state.selection.$from
+    const blockStart = $from.start($from.depth)
+    const blockEnd = $from.end($from.depth)
+
+    let linkStart = from
+    let linkEnd = from
+
+    // Re-detect boundaries by walking current block
+    view.state.doc.nodesBetween(blockStart, blockEnd, (node, pos) => {
+      if (node.isText && node.marks.some(m => m.type === linkMarkType)) {
+        const nodeEnd = pos + node.nodeSize
+        if (pos <= from && nodeEnd >= from) {
+          linkStart = Math.min(linkStart, pos)
+          linkEnd = Math.max(linkEnd, nodeEnd)
+        }
+      }
+    })
 
     const tr = view.state.tr
 
@@ -318,13 +340,14 @@ const handleLinkSubmit = useCallback((url: string, text: string) => {
     view.dispatch(tr)
     view.focus()
   }
-}, [get, linkDialogIsEdit, linkStart, linkEnd])
+}, [get, linkDialogIsEdit])
 ```
 
 **Key differences**:
-- **Edit mode**: Uses `removeMark` + `addMark` to update in-place, preserves boundaries
+- **Edit mode**: Re-detects boundaries at submission time (positions may have changed), uses `removeMark` + `addMark` to update in-place
 - **Create mode**: Uses `replaceSelectionWith` to insert new link
 - **Text updates**: Only replaces text if user changed it (prevents unnecessary edits)
+- **Position safety**: Never stores positions in state - always detects fresh to avoid invalid position errors
 
 5. **Update Cmd+K keyboard shortcut** to use same logic:
 
@@ -382,8 +405,9 @@ For each link, test:
 - Empty URL: `[text]()`
 - Link with special characters: `[link](#section-1)`
 - Link with encoded characters: `[link](https://example.com/path%20with%20spaces)`
-- Cursor between two adjacent links
-- Link with nested marks (bold/italic/code)
+- **Cursor between two adjacent links**: `[link1](url1)[link2](url2)` with cursor between `]` and `[` → should NOT detect any link, clicking link button creates new link (least surprise principle)
+- **Link with formatted text**: `[**bold** text](url)` → boundary detection should find entire link across multiple text nodes with same link mark
+- Link with nested marks (bold/italic/code mixed within link text)
 
 **Dependencies**:
 - Milestone 1 (optional, but recommended to complete first for logical progression)
@@ -401,11 +425,15 @@ For each link, test:
 
 **Implementation Decisions**:
 
-1. **Partial link selection**: If user highlights "lin" in "[link](url)", detect and edit the full link (more intuitive than creating new nested link)
+1. **Partial link selection**: If user highlights "lin" in "[link](url)", detect and edit the full link. This matches Google Docs/Notion behavior and is more intuitive because links have URLs that need full context to edit (unlike bold/italic which are just styles).
 
 2. **Link mark spec**: Do NOT add `inclusive: true` to the link mark schema initially. Only add if boundary detection proves problematic during testing.
 
 3. **Dialog button text**: Keep "Insert Link" for simplicity. Changing to "Update Link" when editing requires conditional logic that adds complexity without significant UX benefit.
+
+4. **Boundary detection library**: The codebase doesn't include `prosemirror-utils` as a dependency (verified via package.json). Use manual block-scoped boundary detection as specified in the plan. Do NOT add new dependencies.
+
+5. **Position storage**: Never store ProseMirror positions (`linkStart`, `linkEnd`) in React state. Positions are absolute offsets that become invalid after any document edit. Always re-detect boundaries at submission time.
 
 ---
 
@@ -471,30 +499,100 @@ useEffect(() => {
 
 **2. Update ContentEditor.tsx**:
 
-Accept `onModalStateChange` prop and pass to editors:
+Accept `onModalStateChange` prop and pass to both editors:
 
 ```typescript
+// Update interface (around line 83)
 interface ContentEditorProps {
-  // ... existing props
-  onModalStateChange?: (isOpen: boolean) => void
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+  hasError?: boolean
+  minHeight?: string
+  placeholder?: string
+  helperText?: string
+  label?: string
+  maxLength?: number
+  showJinjaTools?: boolean
+  onModalStateChange?: (isOpen: boolean) => void  // NEW
 }
 
-// Pass to both editors
-{mode === 'markdown' ? (
-  <MilkdownEditor
-    value={value}
-    onChange={onChange}
-    onModalStateChange={onModalStateChange}  // NEW PROP
-    // ... other props
-  />
-) : (
-  <CodeMirrorEditor
-    // CodeMirrorEditor doesn't have modals, so no prop needed
-  />
-)}
+// Update component signature (around line 115)
+export function ContentEditor({
+  value,
+  onChange,
+  disabled = false,
+  hasError = false,
+  minHeight,
+  placeholder,
+  helperText,
+  label,
+  maxLength,
+  showJinjaTools = false,
+  onModalStateChange,  // NEW
+}: ContentEditorProps): ReactNode {
+  // ... existing code ...
+
+  // Pass to both editors (around line 319)
+  {mode === 'markdown' ? (
+    <MilkdownEditor
+      value={value}
+      onChange={onChange}
+      onModalStateChange={onModalStateChange}  // NEW PROP
+      // ... other props
+    />
+  ) : (
+    <CodeMirrorEditor
+      value={value}
+      onChange={onChange}
+      onModalStateChange={onModalStateChange}  // NEW PROP (for consistency)
+      // ... other props
+    />
+  )}
+}
 ```
 
-**3. Update MilkdownEditor.tsx**:
+**3. Update CodeMirrorEditor.tsx**:
+
+Add `onModalStateChange` to interface for consistency (but don't implement - CodeMirrorEditor has no modals):
+
+```typescript
+// Update interface (around line 35)
+interface CodeMirrorEditorProps {
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+  minHeight?: string
+  placeholder?: string
+  wrapText?: boolean
+  noPadding?: boolean
+  autoFocus?: boolean
+  copyContent?: string
+  showJinjaTools?: boolean
+  onModalStateChange?: (isOpen: boolean) => void  // NEW (no-op, for consistency)
+}
+
+// Component signature - add to destructuring
+export function CodeMirrorEditor({
+  value,
+  onChange,
+  disabled = false,
+  minHeight = '200px',
+  placeholder,
+  wrapText = true,
+  noPadding = false,
+  autoFocus = false,
+  copyContent,
+  showJinjaTools = false,
+  onModalStateChange,  // NEW (unused, but accepted)
+}: CodeMirrorEditorProps): ReactNode {
+  // ... existing code, no need to call onModalStateChange anywhere
+}
+```
+
+**Note**: CodeMirrorEditor never calls `onModalStateChange` because it has no modal dialogs. This prop exists purely for interface consistency with MilkdownEditor.
+
+**4. Update MilkdownEditor.tsx**:
 
 Call `onModalStateChange` when LinkDialog opens/closes:
 
@@ -588,13 +686,15 @@ const handleLinkDialogClose = useCallback(() => {
 
 **Implementation Decisions**:
 
-1. **Scope**: Only modify Note.tsx, Bookmark.tsx, Prompt.tsx, ContentEditor.tsx, and MilkdownEditor.tsx. Do NOT modify any dialog/modal components.
+1. **Scope**: Modify Note.tsx, Bookmark.tsx, Prompt.tsx, ContentEditor.tsx, MilkdownEditor.tsx, and CodeMirrorEditor.tsx. Do NOT modify any dialog/modal components.
 
 2. **State management**: Use simple boolean flag `isModalOpen` tracked in parent components. No need for complex modal management library.
 
-3. **Modal types**: Only track LinkDialog for now. Other modals (filter, collection, token) don't appear in contexts with beforeunload handlers.
+3. **Modal types**: Only track LinkDialog for now. Other modals (filter, collection, token) don't appear in contexts with beforeunload handlers. If future features add more dialogs to editor contexts, extend this pattern.
 
 4. **Prop naming**: Use `onModalStateChange` to be clear about purpose and follow React event naming conventions.
+
+5. **CodeMirrorEditor interface**: Add `onModalStateChange` prop to CodeMirrorEditor for interface consistency with MilkdownEditor, even though CodeMirrorEditor never calls it (has no modals). This makes the editor interface uniform.
 
 ---
 
@@ -691,8 +791,12 @@ Before implementing, verify understanding:
 2. Are the mark detection edge cases clear (Milestone 2)?
 3. Do you understand why block-scoped search is required for performance (Milestone 2)?
 4. Do you understand the difference between editing (removeMark + addMark) vs creating (replaceSelectionWith) links (Milestone 2)?
-5. Do you understand why the original Milestone 3 diagnosis was incorrect?
-6. Do you understand how the modal-aware beforeunload fix works and why it's better than removing `<form>` elements (Milestone 3)?
-7. Are the testing requirements clear for all three milestones, especially performance testing?
+5. **CRITICAL**: Do you understand why ProseMirror positions must NOT be stored in React state and must be re-detected at submission time?
+6. Do you understand the expected behavior for cursor between adjacent links (should create new link, not edit either existing link)?
+7. Do you understand the expected behavior for links with formatted text inside (should detect entire link across multiple text nodes)?
+8. Do you understand why the original Milestone 3 diagnosis was incorrect?
+9. Do you understand how the modal-aware beforeunload fix works and why it's better than removing `<form>` elements (Milestone 3)?
+10. Do you understand why CodeMirrorEditor needs `onModalStateChange` prop even though it never calls it?
+11. Are the testing requirements clear for all three milestones, especially performance testing with large documents?
 
 Ask clarifying questions rather than making assumptions.
