@@ -120,7 +120,7 @@ import {
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { shouldHandleEmptySpaceClick, wasEditorFocused } from '../utils/editorUtils'
-import { findCodeBlockNode } from '../utils/milkdownHelpers'
+import { findCodeBlockNode, findLinkBoundaries } from '../utils/milkdownHelpers'
 import type { Editor as EditorType } from '@milkdown/kit/core'
 
 /**
@@ -470,56 +470,6 @@ function createPlaceholderPlugin(placeholder: string): Plugin {
       },
     },
   })
-}
-
-/**
- * Find the boundaries of a link mark at the given cursor position.
- * Uses block-scoped search for performance (O(m) where m = paragraph size).
- *
- * @param view - ProseMirror editor view
- * @param cursorPos - Cursor position to check
- * @param linkMarkType - Link mark type from schema
- * @returns Object with start, end, and mark, or null if not in a link
- */
-function findLinkBoundaries(
-  view: EditorView,
-  cursorPos: number,
-  linkMarkType: MarkType
-): { start: number; end: number; mark: Mark } | null {
-  const $from = view.state.doc.resolve(cursorPos)
-
-  // Check if cursor is in a link mark
-  // CRITICAL: $from.marks() doesn't include marks at exact start position
-  // Use nodeAfter fallback to detect cursor at link boundary
-  let linkMark = linkMarkType.isInSet($from.marks())
-
-  // Boundary case: cursor at start of link
-  if (!linkMark && $from.nodeAfter) {
-    linkMark = linkMarkType.isInSet($from.nodeAfter.marks)
-  }
-
-  if (!linkMark) return null
-
-  // Find link boundaries by walking current block
-  const blockStart = $from.start($from.depth)
-  const blockEnd = $from.end($from.depth)
-
-  let linkStart = cursorPos
-  let linkEnd = cursorPos
-
-  view.state.doc.nodesBetween(blockStart, blockEnd, (node, pos) => {
-    if (node.isText && node.marks.some((m) => m.type === linkMarkType)) {
-      const nodeEnd = pos + node.nodeSize
-      // Check if this text node contains our cursor position
-      if (pos <= cursorPos && nodeEnd >= cursorPos) {
-        // This is part of our link - expand boundaries
-        linkStart = Math.min(linkStart, pos)
-        linkEnd = Math.max(linkEnd, nodeEnd)
-      }
-    }
-  })
-
-  return { start: linkStart, end: linkEnd, mark: linkMark }
 }
 
 /**

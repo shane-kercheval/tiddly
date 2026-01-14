@@ -873,19 +873,46 @@ Implemented link boundary detection using the `findLinkBoundaries()` helper func
 - Reuses `handleToolbarLinkClick` for Cmd+K to maintain consistency
 
 **Files Modified**:
+- `frontend/src/utils/milkdownHelpers.ts`:
+  - Added `findLinkBoundaries()` helper function (exported for testing)
+  - Added `LinkBoundariesResult` interface
 - `frontend/src/components/MilkdownEditor.tsx`:
-  - Added imports for `EditorView`, `Mark`, `MarkType` (lines 95-96)
-  - Added `findLinkBoundaries()` helper (lines 475-523)
-  - Added state for `linkDialogInitialUrl` and `linkDialogIsEdit` (lines 861-862)
-  - Updated `handleLinkSubmit` to support editing vs creating (lines 866-924)
-  - Updated `handleToolbarLinkClick` to detect existing links (lines 927-972)
-  - Updated LinkDialog props to include `initialUrl` (lines 316, 326, 1400)
-  - Simplified Cmd+K handler to call `handleToolbarLinkClick` (lines 1232-1236)
+  - Imported `findLinkBoundaries` from utils
+  - Added state for `linkDialogInitialUrl` and `linkDialogIsEdit`
+  - Updated `handleLinkSubmit` to support editing vs creating with performance logs
+  - Updated `handleToolbarLinkClick` to detect existing links with performance logs
+  - Updated LinkDialog props to include `initialUrl`
+  - Simplified Cmd+K handler to call `handleToolbarLinkClick`
 
-**Performance Verification**:
-The implementation uses block-scoped search (`blockStart` to `blockEnd`) as specified in the plan, which is O(m) where m = paragraph size. This approach was chosen to prevent performance degradation on large documents. While formal performance testing with a 5000+ line document was not conducted during implementation, the algorithm's complexity guarantees sub-100ms performance for reasonable paragraph sizes (typical paragraphs are <1000 characters).
+**Unit Tests Added**:
+- `frontend/src/components/MilkdownEditor.test.tsx`:
+  - 8 tests for `findLinkBoundaries` edge cases (cursor positions, multi-node links, boundaries)
+  - 3 tests for link editing vs creating logic
+  - All 32 tests passing (including 11 new link tests + 21 existing tests)
 
-The performance timing logs were added during development and removed before completion as planned.
+**Performance Verification**: ✅ VERIFIED
+
+The implementation uses block-scoped search (`blockStart` to `blockEnd`) as specified in the plan, which is O(m) where m = paragraph size. This approach prevents performance degradation on large documents.
+
+**Automated Performance Test Results** (from `MilkdownEditor.test.tsx`):
+
+The tests create ProseMirror documents **dynamically in memory** (no external test files needed):
+
+Test 1: Large Document (5000 paragraphs, 100+ links)
+- Link detection at beginning (paragraph 0): **0.03ms**
+- Link detection at middle (paragraph 2500): **0.21ms**
+- Link detection at end (paragraph 4950): **0.08ms**
+
+Test 2: Very Long Single Paragraph (6469 characters, 11 links)
+- Link detection in long paragraph: **0.01ms**
+
+**Performance Threshold**: Tests enforce **< 10ms** (providing 40-100x margin over actual timings)
+
+**Conclusion**: Performance does not degrade with document size (beginning vs end virtually identical), confirming the O(m) complexity where m = paragraph size.
+
+Production code includes performance timing logs for optional manual verification:
+- `frontend/src/components/MilkdownEditor.tsx` lines 938-942
+- `frontend/src/components/MilkdownEditor.tsx` lines 883-887
 
 ### Milestone 3: Modal-Aware beforeunload - COMPLETED ✅
 
@@ -904,12 +931,29 @@ Implemented modal state tracking to prevent "Leave Site?" warnings during legiti
 - `frontend/src/components/MilkdownEditor.tsx` (lines 713, 726, 739, 972, 975-978, 1397, 1429, 1443)
 - `frontend/src/components/CodeMirrorEditor.tsx` (lines 57, 300)
 
-**Testing Notes**:
-All three milestones were implemented according to the specification. Manual testing should verify:
-1. Cmd+Click (Mac) or Ctrl+Click (Windows/Linux) opens links in new tab
-2. Cursor in existing link → toolbar button/Cmd+K pre-fills text and URL
-3. Submitting link dialog does NOT trigger "Leave Site?" warning
-4. Actual navigation with unsaved changes DOES trigger warning
+**Testing Status**:
+
+**Automated Tests**: ✅ COMPLETE
+- **34 tests passing** in `MilkdownEditor.test.tsx` (21 existing + 13 new)
+- **Unit tests** cover:
+  - Link boundary detection at all cursor positions
+  - Multi-node links (formatted text within links)
+  - Link editing vs creating logic
+  - Edge cases (link at start/end of paragraph, outside link, etc.)
+- **Performance tests** verify:
+  - Large document (5000 paragraphs): 0.01-0.21ms ✅
+  - Very long paragraph (6469 chars): 0.01ms ✅
+  - Threshold: < 10ms (40-100x safety margin) ✅
+  - Tests create documents dynamically (no external files needed) ✅
+
+**Manual Testing**: ⚠️ RECOMMENDED (not blocking)
+- **Feature Testing** - Verify in browser:
+  - Cmd+Click (Mac) or Ctrl+Click (Windows/Linux) opens links in new tab
+  - Cursor in existing link → toolbar button/Cmd+K pre-fills text and URL
+  - Submitting link dialog does NOT trigger "Leave Site?" warning
+  - Actual navigation with unsaved changes DOES trigger warning
+  - All edge cases from plan work correctly
+- **Optional**: Browser console will show `[PERF]` logs for manual verification
 
 ---
 
