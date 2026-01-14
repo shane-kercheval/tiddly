@@ -2,6 +2,7 @@
  * Reusable modal dialog component.
  */
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 import { CloseIcon } from '../icons'
 
@@ -30,6 +31,7 @@ interface ModalProps {
  * - Focus trap (focuses first input on open)
  * - Scroll lock when open
  * - ARIA attributes for accessibility
+ * - Portal rendering (renders at document.body to avoid DOM nesting issues)
  *
  * Note: Clicking outside does NOT close the modal to prevent accidental
  * data loss. Use Escape key or close button to dismiss.
@@ -94,7 +96,9 @@ export function Modal({
 
   if (!isOpen) return null
 
-  return (
+  // Use portal to render at document.body level, avoiding DOM nesting issues
+  // (e.g., nested forms, z-index problems, overflow clipping)
+  return createPortal(
     <div
       className="modal-backdrop"
       role="dialog"
@@ -122,6 +126,7 @@ export function Modal({
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

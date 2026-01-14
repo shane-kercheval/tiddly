@@ -41,7 +41,7 @@ import {
   listItemSchema,
 } from '@milkdown/kit/preset/commonmark'
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
-import { callCommand, $remark, getMarkdown } from '@milkdown/kit/utils'
+import { callCommand, $remark } from '@milkdown/kit/utils'
 
 // Custom commonmark without remarkPreserveEmptyLinePlugin
 const customCommonmark = [
@@ -769,8 +769,6 @@ function MilkdownEditorInner({
   const initialValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
   const autoFocusRef = useRef(autoFocus)
-  // Track last emitted markdown to avoid unnecessary onChange calls (e.g., on cursor movement)
-  const lastMarkdownRef = useRef(value)
 
   // Track if component is still mounted to prevent async operations on unmounted component
   // Must set true in setup for React StrictMode which runs: setup → cleanup → setup
@@ -840,28 +838,16 @@ function MilkdownEditorInner({
           ],
         }))
 
-        // Set up listener for changes
-        // Using 'updated' instead of 'markdownUpdated' to avoid errors during unmount.
-        // markdownUpdated fires during Milkdown's serialization which can error if
-        // the editor context is destroyed mid-process. With 'updated', we control
-        // when serialization happens and can skip it if unmounted.
-        // NOTE: This only works because we fixed isMountedRef for StrictMode above.
-        ctx.get(listenerCtx).updated((updatedCtx) => {
+        // Set up listener for document changes
+        // Using 'markdownUpdated' which only fires when the document actually changes,
+        // not on selection changes or cursor movements. This is more efficient than
+        // 'updated' + manual getMarkdown() since Milkdown handles serialization internally.
+        // The markdown is already cleaned by remarkCleanMarkdown plugin during serialization.
+        ctx.get(listenerCtx).markdownUpdated((_, markdown, prevMarkdown) => {
           if (!isMountedRef.current) return
-          try {
-            // Get markdown (already cleaned by remarkCleanMarkdown plugin)
-            const markdown = getMarkdown()(updatedCtx)
-            // Only call onChange if content actually changed
-            // This avoids unnecessary callbacks on cursor movement, selection changes, etc.
-            if (markdown !== lastMarkdownRef.current) {
-              lastMarkdownRef.current = markdown
-              onChangeRef.current(markdown)
-            }
-          } catch (e) {
-            // Ignore errors during unmount (context destroyed)
-            if (isMountedRef.current) {
-              console.error('Milkdown serialization error:', e)
-            }
+          // Only call onChange if content actually changed (defensive check)
+          if (markdown !== prevMarkdown) {
+            onChangeRef.current(markdown)
           }
         })
       })

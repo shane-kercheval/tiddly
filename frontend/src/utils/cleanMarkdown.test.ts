@@ -265,9 +265,17 @@ describe('cleanTextContent', () => {
 })
 
 describe('cleanMdastTree', () => {
+  // Test helper type for mdast-like tree structures
+  interface TestNode {
+    type: string
+    value?: string
+    lang?: string
+    children?: TestNode[]
+  }
+
   describe('text node cleaning', () => {
     it('should clean text nodes', () => {
-      const tree = {
+      const tree: TestNode = {
         type: 'root',
         children: [
           {
@@ -279,11 +287,11 @@ describe('cleanMdastTree', () => {
         ]
       }
       cleanMdastTree(tree)
-      expect(tree.children[0].children[0].value).toBe('Hello World with_underscores')
+      expect(tree.children![0].children![0].value).toBe('Hello World with_underscores')
     })
 
     it('should clean nested text nodes', () => {
-      const tree = {
+      const tree: TestNode = {
         type: 'root',
         children: [
           {
@@ -302,15 +310,15 @@ describe('cleanMdastTree', () => {
         ]
       }
       cleanMdastTree(tree)
-      expect(tree.children[0].children[0].value).toBe('Normal text')
-      expect(tree.children[0].children[1].children[0].value).toBe('Bold_text')
-      expect(tree.children[0].children[2].value).toBe(' and <more>')
+      expect(tree.children![0].children![0].value).toBe('Normal text')
+      expect(tree.children![0].children![1].children![0].value).toBe('Bold_text')
+      expect(tree.children![0].children![2].value).toBe(' and <more>')
     })
   })
 
   describe('code block preservation', () => {
     it('should NOT clean fenced code block content', () => {
-      const tree = {
+      const tree: TestNode = {
         type: 'root',
         children: [
           {
@@ -322,11 +330,11 @@ describe('cleanMdastTree', () => {
       }
       cleanMdastTree(tree)
       // Code block content should be preserved exactly
-      expect(tree.children[0].value).toBe('echo "\\_HOME\\_"')
+      expect(tree.children![0].value).toBe('echo "\\_HOME\\_"')
     })
 
     it('should NOT clean inline code content', () => {
-      const tree = {
+      const tree: TestNode = {
         type: 'root',
         children: [
           {
@@ -341,14 +349,14 @@ describe('cleanMdastTree', () => {
       }
       cleanMdastTree(tree)
       // Inline code should be preserved
-      expect(tree.children[0].children[1].value).toBe('\\_underscore\\_')
+      expect(tree.children![0].children![1].value).toBe('\\_underscore\\_')
       // But surrounding text should be cleaned
-      expect(tree.children[0].children[0].value).toBe('Use ')
-      expect(tree.children[0].children[2].value).toBe(' in code')
+      expect(tree.children![0].children![0].value).toBe('Use ')
+      expect(tree.children![0].children![2].value).toBe(' in code')
     })
 
     it('should NOT clean HTML block content', () => {
-      const tree = {
+      const tree: TestNode = {
         type: 'root',
         children: [
           {
@@ -358,13 +366,13 @@ describe('cleanMdastTree', () => {
         ]
       }
       cleanMdastTree(tree)
-      expect(tree.children[0].value).toBe('<div class="my\\_class">\\<content\\></div>')
+      expect(tree.children![0].value).toBe('<div class="my\\_class">\\<content\\></div>')
     })
   })
 
   describe('mixed content', () => {
     it('should clean text but preserve code in mixed document', () => {
-      const tree = {
+      const tree: TestNode = {
         type: 'root',
         children: [
           {
@@ -388,14 +396,14 @@ describe('cleanMdastTree', () => {
       }
       cleanMdastTree(tree)
       // Text paragraphs should be cleaned
-      expect(tree.children[0].children[0].value).toBe('Text with_underscore')
-      expect(tree.children[2].children[0].value).toBe('More text with <brackets>')
+      expect(tree.children![0].children![0].value).toBe('Text with_underscore')
+      expect(tree.children![2].children![0].value).toBe('More text with <brackets>')
       // Code block should be preserved
-      expect(tree.children[1].value).toBe('my\\_var = "\\<value\\>"')
+      expect(tree.children![1].value).toBe('my\\_var = "\\<value\\>"')
     })
 
     it('should handle real-world LaTeX in code example', () => {
-      const tree = {
+      const tree: TestNode = {
         type: 'root',
         children: [
           {
@@ -410,13 +418,13 @@ describe('cleanMdastTree', () => {
       }
       cleanMdastTree(tree)
       // The inline code \_ should be preserved (LaTeX escape)
-      expect(tree.children[0].children[1].value).toBe('\\_')
+      expect(tree.children![0].children![1].value).toBe('\\_')
     })
   })
 
   describe('edge cases', () => {
     it('should handle empty tree', () => {
-      const tree = { type: 'root', children: [] }
+      const tree: TestNode = { type: 'root', children: [] }
       cleanMdastTree(tree)
       expect(tree.children).toEqual([])
     })
@@ -427,12 +435,12 @@ describe('cleanMdastTree', () => {
     })
 
     it('should handle nodes without children', () => {
-      const tree = { type: 'root' }
+      const tree: TestNode = { type: 'root' }
       expect(() => cleanMdastTree(tree)).not.toThrow()
     })
 
     it('should handle text node without value', () => {
-      const tree = {
+      const tree: TestNode = {
         type: 'root',
         children: [
           { type: 'text' } // No value property
