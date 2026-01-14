@@ -53,6 +53,8 @@ interface CodeMirrorEditorProps {
   copyContent?: string
   /** Show Jinja2 template tools in toolbar (for prompts) */
   showJinjaTools?: boolean
+  /** Called when a modal opens/closes (for beforeunload handlers) */
+  onModalStateChange?: (isOpen: boolean) => void
 }
 
 /**
@@ -295,6 +297,7 @@ export function CodeMirrorEditor({
   autoFocus = false,
   copyContent,
   showJinjaTools = false,
+  onModalStateChange: _onModalStateChange, // eslint-disable-line @typescript-eslint/no-unused-vars
 }: CodeMirrorEditorProps): ReactNode {
   const editorRef = useRef<ReactCodeMirrorRef>(null)
 

@@ -187,6 +187,7 @@ export function Prompt({
   const [original, setOriginal] = useState<PromptState>(getInitialState)
   const [current, setCurrent] = useState<PromptState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
+  const [isModalOpen, setIsModalOpen] = useState(false)
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
 
   // Refs
@@ -275,7 +276,8 @@ export function Prompt({
   // beforeunload handler for navigation warning
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent): void => {
-      if (isDirty) {
+      // Only warn if dirty AND no modal is open (editor modal OR preview modal)
+      if (isDirty && !isModalOpen && !isPreviewModalOpen) {
         e.preventDefault()
         e.returnValue = '' // Required for Chrome to show the dialog
       }
@@ -283,7 +285,7 @@ export function Prompt({
 
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isDirty])
+  }, [isDirty, isModalOpen, isPreviewModalOpen])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -788,6 +790,7 @@ export function Prompt({
             showBorder={true}
             subtleBorder={true}
             showJinjaTools={true}
+            onModalStateChange={setIsModalOpen}
           />
         </div>
       </div>

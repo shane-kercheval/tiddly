@@ -120,6 +120,7 @@ export function Note({
   const [original, setOriginal] = useState<NoteState>(getInitialState)
   const [current, setCurrent] = useState<NoteState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
+  const [isModalOpen, setIsModalOpen] = useState(false)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -200,7 +201,8 @@ export function Note({
   // beforeunload handler for navigation warning
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent): void => {
-      if (isDirty) {
+      // Only warn if dirty AND no modal is open
+      if (isDirty && !isModalOpen) {
         e.preventDefault()
         e.returnValue = '' // Required for Chrome to show the dialog
       }
@@ -208,7 +210,7 @@ export function Note({
 
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isDirty])
+  }, [isDirty, isModalOpen])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -580,6 +582,7 @@ export function Note({
           label=""
           showBorder={true}
           subtleBorder={true}
+          onModalStateChange={setIsModalOpen}
         />
       </div>
 
