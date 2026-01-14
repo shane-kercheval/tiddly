@@ -59,7 +59,10 @@ export function createLinkExitOnSpacePlugin(): Plugin {
 
         const cursorPos = pos + 1
         const linkRange = findLinkRangeInDoc(newState.doc, cursorPos, linkMarkType)
-        if (!linkRange || cursorPos !== linkRange.end) continue
+        if (!linkRange || cursorPos > linkRange.end) continue
+
+        const trailingText = newState.doc.textBetween(cursorPos, linkRange.end)
+        if (trailingText.length > 0 && !/^[ ]+$/.test(trailingText)) continue
 
         tr = tr.removeMark(pos, pos + 1, linkMarkType)
       }

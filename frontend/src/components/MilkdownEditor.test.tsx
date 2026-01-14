@@ -7,7 +7,7 @@
  * - Backspace in empty code blocks
  */
 import { describe, it, expect } from 'vitest'
-import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
+import { EditorState, TextSelection, Plugin } from '@milkdown/kit/prose/state'
 import { Schema } from '@milkdown/kit/prose/model'
 import type { MarkType } from '@milkdown/kit/prose/model'
 import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
@@ -44,6 +44,17 @@ const testSchema = new Schema({
 function hasMarkBeforePos(state: EditorState, pos: number, markType: MarkType): boolean {
   const nodeBefore = state.doc.resolve(pos).nodeBefore
   return !!(nodeBefore && nodeBefore.isText && markType.isInSet(nodeBefore.marks))
+}
+
+function createShiftPlugin(): Plugin {
+  return new Plugin({
+    appendTransaction: (transactions, _oldState, newState) => {
+      if (transactions.some((tr) => tr.getMeta('shifted'))) return
+      if (!transactions.some((tr) => tr.getMeta('shift'))) return
+
+      return newState.tr.insertText('x', 1).setMeta('shifted', true)
+    },
+  })
 }
 
 describe('MilkdownEditor Tab functionality', () => {
@@ -1224,6 +1235,71 @@ describe('MilkdownEditor link improvements', () => {
       // Verify content: "before l ink after"
       const textContent = stateAfterSpace.doc.textContent
       expect(textContent).toBe('before l ink after')
+    })
+
+    it('test__linkExitOnSpace__removes_link_marks_for_multiple_spaces_in_single_step', () => {
+      const linkMark = testSchema.marks.link.create({ href: 'https://example.com' })
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('text '),
+          testSchema.text('link', [linkMark]),
+        ]),
+      ])
+
+      const state = EditorState.create({
+        doc,
+        schema: testSchema,
+        plugins: [createLinkExitOnSpacePlugin()],
+      })
+      const stateWithSelection = state.apply(
+        state.tr
+          .setSelection(TextSelection.near(state.doc.resolve(10)))
+          .setStoredMarks([linkMark])
+      )
+
+      const { state: stateAfterSpace } = stateWithSelection.applyTransaction(
+        stateWithSelection.tr.insertText('  ')
+      )
+
+      const posAfterSpaces = stateAfterSpace.selection.from
+      const linkMarkType = testSchema.marks.link
+
+      expect(stateAfterSpace.doc.textBetween(posAfterSpaces - 2, posAfterSpaces)).toBe('  ')
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpaces, linkMarkType)).toBeFalsy()
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpaces - 1, linkMarkType)).toBeFalsy()
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpaces - 2, linkMarkType)).toBeTruthy()
+    })
+
+    it('test__linkExitOnSpace__maps_positions_across_multiple_transactions', () => {
+      const linkMark = testSchema.marks.link.create({ href: 'https://example.com' })
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('text '),
+          testSchema.text('link', [linkMark]),
+        ]),
+      ])
+
+      const state = EditorState.create({
+        doc,
+        schema: testSchema,
+        plugins: [createShiftPlugin(), createLinkExitOnSpacePlugin()],
+      })
+      const stateWithSelection = state.apply(
+        state.tr
+          .setSelection(TextSelection.near(state.doc.resolve(10)))
+          .setStoredMarks([linkMark])
+      )
+
+      const { state: stateAfterSpace } = stateWithSelection.applyTransaction(
+        stateWithSelection.tr.insertText(' ').setMeta('shift', true)
+      )
+
+      const posAfterSpace = stateAfterSpace.selection.from
+      const linkMarkType = testSchema.marks.link
+
+      expect(stateAfterSpace.doc.textBetween(posAfterSpace - 1, posAfterSpace)).toBe(' ')
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpace, linkMarkType)).toBeFalsy()
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpace - 1, linkMarkType)).toBeTruthy()
     })
   })
 })

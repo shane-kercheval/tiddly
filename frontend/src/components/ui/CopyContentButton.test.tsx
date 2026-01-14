@@ -40,14 +40,18 @@ async function flushPromisesAndTimers(ms: number = 0): Promise<void> {
 }
 
 describe('CopyContentButton', () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>
+
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers()
     mockWriteText.mockResolvedValue(undefined)
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
   afterEach(() => {
     vi.useRealTimers()
+    consoleErrorSpy.mockRestore()
   })
 
   describe('initial state', () => {
