@@ -40,18 +40,14 @@ async function flushPromisesAndTimers(ms: number = 0): Promise<void> {
 }
 
 describe('CopyContentButton', () => {
-  let consoleErrorSpy: ReturnType<typeof vi.spyOn>
-
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers()
     mockWriteText.mockResolvedValue(undefined)
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
   afterEach(() => {
     vi.useRealTimers()
-    consoleErrorSpy.mockRestore()
   })
 
   describe('initial state', () => {
@@ -163,6 +159,16 @@ describe('CopyContentButton', () => {
   })
 
   describe('error states', () => {
+    let consoleErrorSpy: ReturnType<typeof vi.spyOn>
+
+    beforeEach(() => {
+      consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+      consoleErrorSpy.mockRestore()
+    })
+
     it('shows error state when fetch fails', async () => {
       mockFetchNote.mockRejectedValue(new Error('Network error'))
 
@@ -172,6 +178,7 @@ describe('CopyContentButton', () => {
       await flushPromisesAndTimers()
 
       expect(screen.getByRole('button')).toHaveAttribute('title', 'Failed to copy')
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
     })
 
     it('shows error state when content is null', async () => {
@@ -184,6 +191,7 @@ describe('CopyContentButton', () => {
 
       expect(screen.getByRole('button')).toHaveAttribute('title', 'Failed to copy')
       expect(mockWriteText).not.toHaveBeenCalled()
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
     })
 
     it('shows success state when content is empty string', async () => {
@@ -209,6 +217,7 @@ describe('CopyContentButton', () => {
       await flushPromisesAndTimers()
 
       expect(screen.getByRole('button')).toHaveAttribute('title', 'Failed to copy')
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -230,6 +239,7 @@ describe('CopyContentButton', () => {
     })
 
     it('resets to idle after error feedback duration', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       mockFetchNote.mockRejectedValue(new Error('Network error'))
 
       render(<CopyContentButton contentType="note" id="123" />)
@@ -243,6 +253,8 @@ describe('CopyContentButton', () => {
       await flushPromisesAndTimers(2001)
 
       expect(screen.getByRole('button')).toHaveAttribute('title', 'Copy note content')
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
+      consoleErrorSpy.mockRestore()
     })
   })
 
