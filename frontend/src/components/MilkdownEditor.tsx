@@ -323,7 +323,8 @@ function LinkDialog({
   initialText = '',
   initialUrl = '',
 }: LinkDialogProps): ReactNode {
-  const [url, setUrl] = useState(initialUrl || 'https://')
+  // Use provided URL or default to https:// prefix for new links
+  const [url, setUrl] = useState(initialUrl !== '' ? initialUrl : 'https://')
   const [text, setText] = useState(initialText)
 
   const handleSubmit = (e: FormEvent): void => {
@@ -829,16 +830,17 @@ function MilkdownEditorInner({
         // EDITING EXISTING LINK
         // Re-detect link boundaries at submission time using helper
         // ProseMirror positions become invalid after document edits
+        // Use current selection (not stale captured position) to handle any cursor movement
         const { from } = view.state.selection
         const linkBoundaries = findLinkBoundaries(view, from, linkMarkType)
 
         if (!linkBoundaries) {
-          // Link no longer exists (user may have deleted it while dialog was open)
-          // Fall back to creating new link
-          const mark = linkMarkType.create({ href: url })
-          const linkNode = view.state.schema.text(text, [mark])
-          const tr = view.state.tr.replaceSelectionWith(linkNode, false)
-          view.dispatch(tr)
+          // Link no longer exists at cursor position
+          // This can happen if:
+          // 1. User deleted the link while dialog was open
+          // 2. User moved cursor away from the link (if modal allows interaction)
+          // Abort edit rather than creating new link at unexpected position
+          console.warn('Link edit aborted - link no longer found at cursor position')
           view.focus()
           return
         }

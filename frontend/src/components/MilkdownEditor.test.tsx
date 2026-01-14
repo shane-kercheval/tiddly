@@ -692,6 +692,93 @@ describe('MilkdownEditor link improvements', () => {
       view.destroy()
     })
 
+    it('test__findLinkBoundaries__multiple_links_in_same_paragraph', () => {
+      // Test that we correctly detect only the link containing the cursor
+      // when multiple links exist in the same paragraph
+      // "Text " = 1-6, "link1" = 6-11, " middle " = 11-19, "link2" = 19-24, " end" = 24-28
+      const link1Mark = testSchema.marks.link.create({ href: 'https://link1.com' })
+      const link2Mark = testSchema.marks.link.create({ href: 'https://link2.com' })
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('Text '),
+          testSchema.text('link1', [link1Mark]),
+          testSchema.text(' middle '),
+          testSchema.text('link2', [link2Mark]),
+          testSchema.text(' end'),
+        ]),
+      ])
+
+      const state = EditorState.create({ doc, schema: testSchema })
+      const view = new EditorView(null, { state })
+      const linkMarkType = testSchema.marks.link
+
+      // Test cursor in link1 - should find only link1
+      const posInLink1 = 8
+      const result1 = findLinkBoundaries(view, posInLink1, linkMarkType)
+      expect(result1).not.toBeNull()
+      expect(result1?.start).toBe(6)
+      expect(result1?.end).toBe(11)
+      expect(result1?.mark.attrs.href).toBe('https://link1.com')
+
+      // Test cursor in link2 - should find only link2
+      const posInLink2 = 21
+      const result2 = findLinkBoundaries(view, posInLink2, linkMarkType)
+      expect(result2).not.toBeNull()
+      expect(result2?.start).toBe(19)
+      expect(result2?.end).toBe(24)
+      expect(result2?.mark.attrs.href).toBe('https://link2.com')
+
+      // Test cursor between links - should find nothing
+      const posInMiddle = 15
+      const result3 = findLinkBoundaries(view, posInMiddle, linkMarkType)
+      expect(result3).toBeNull()
+
+      view.destroy()
+    })
+
+    it('test__findLinkBoundaries__adjacent_links_no_space', () => {
+      // Test adjacent links with no space between them
+      // This is valid markdown: [link1](url1)[link2](url2)
+      // "link1" = 1-6, "link2" = 6-11
+      const link1Mark = testSchema.marks.link.create({ href: 'https://first.com' })
+      const link2Mark = testSchema.marks.link.create({ href: 'https://second.com' })
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('link1', [link1Mark]),
+          testSchema.text('link2', [link2Mark]),
+        ]),
+      ])
+
+      const state = EditorState.create({ doc, schema: testSchema })
+      const view = new EditorView(null, { state })
+      const linkMarkType = testSchema.marks.link
+
+      // Cursor in link1 - should find only link1
+      const posInLink1 = 3
+      const result1 = findLinkBoundaries(view, posInLink1, linkMarkType)
+      expect(result1).not.toBeNull()
+      expect(result1?.start).toBe(1)
+      expect(result1?.end).toBe(6)
+      expect(result1?.mark.attrs.href).toBe('https://first.com')
+
+      // Cursor in link2 - should find only link2
+      const posInLink2 = 8
+      const result2 = findLinkBoundaries(view, posInLink2, linkMarkType)
+      expect(result2).not.toBeNull()
+      expect(result2?.start).toBe(6)
+      expect(result2?.end).toBe(11)
+      expect(result2?.mark.attrs.href).toBe('https://second.com')
+
+      // Cursor at exact boundary (position 6) - should detect link2 via nodeAfter
+      const posAtBoundary = 6
+      const result3 = findLinkBoundaries(view, posAtBoundary, linkMarkType)
+      expect(result3).not.toBeNull()
+      // Should find link2 (the nodeAfter at this position)
+      expect(result3?.mark.attrs.href).toBe('https://second.com')
+
+      view.destroy()
+    })
+
     // Skipping empty link test because ProseMirror doesn't allow empty text nodes
   })
 

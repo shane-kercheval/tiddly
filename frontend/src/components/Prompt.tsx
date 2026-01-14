@@ -276,8 +276,8 @@ export function Prompt({
   // beforeunload handler for navigation warning
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent): void => {
-      // Only warn if dirty AND no modal is open
-      if (isDirty && !isModalOpen) {
+      // Only warn if dirty AND no modal is open (editor modal OR preview modal)
+      if (isDirty && !isModalOpen && !isPreviewModalOpen) {
         e.preventDefault()
         e.returnValue = '' // Required for Chrome to show the dialog
       }
@@ -285,7 +285,7 @@ export function Prompt({
 
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isDirty, isModalOpen])
+  }, [isDirty, isModalOpen, isPreviewModalOpen])
 
   // Keyboard shortcuts
   useEffect(() => {
