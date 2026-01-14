@@ -92,8 +92,7 @@ import { clipboard } from '@milkdown/kit/plugin/clipboard'
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
 import { $prose } from '@milkdown/kit/utils'
 import { Plugin, TextSelection, EditorState } from '@milkdown/kit/prose/state'
-import { Decoration, DecorationSet, EditorView } from '@milkdown/kit/prose/view'
-import type { Mark, MarkType } from '@milkdown/kit/prose/model'
+import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
 import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
 import { setBlockType } from '@milkdown/kit/prose/commands'
@@ -324,25 +323,13 @@ function LinkDialog({
   initialUrl = '',
 }: LinkDialogProps): ReactNode {
   // Use provided URL or default to https:// prefix for new links
+  // Note: Parent component uses key prop to force remount, ensuring state resets
   const [url, setUrl] = useState(initialUrl !== '' ? initialUrl : 'https://')
   const [text, setText] = useState(initialText)
 
   // Refs for smart focus management
   const textInputRef = useRef<HTMLInputElement>(null)
   const urlInputRef = useRef<HTMLInputElement>(null)
-
-  // Reset state when dialog opens or props change
-  // This ensures stale state doesn't persist between dialog opens
-  // ONLY reset when dialog transitions from closed to open to avoid mid-interaction resets
-  const prevIsOpenRef = useRef(false)
-  useEffect(() => {
-    if (isOpen && !prevIsOpenRef.current) {
-      // Dialog just opened - reset state
-      setUrl(initialUrl !== '' ? initialUrl : 'https://')
-      setText(initialText)
-    }
-    prevIsOpenRef.current = isOpen
-  }, [isOpen, initialUrl, initialText])
 
   // Smart focus: Override Modal's generic auto-focus with context-aware behavior
   useEffect(() => {
@@ -1325,6 +1312,7 @@ function MilkdownEditorInner({
         return
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [get, runCommand, handleCodeBlockToggle, handleBulletListClick, handleOrderedListClick, handleTaskListClick, handleToolbarLinkClick]
   )
 

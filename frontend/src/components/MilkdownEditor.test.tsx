@@ -834,7 +834,6 @@ describe('MilkdownEditor link improvements', () => {
 
         // Add offset to get to the middle of the link in this paragraph
         // "Paragraph X with some text before " + middle of "link text"
-        const para = doc.child(linkParagraphIndex)
         const textBefore = `Paragraph ${linkParagraphIndex} with some text before `
         pos += textBefore.length + 3 // Position in middle of "link text"
 

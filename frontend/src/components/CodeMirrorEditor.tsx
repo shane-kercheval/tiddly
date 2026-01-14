@@ -297,7 +297,7 @@ export function CodeMirrorEditor({
   autoFocus = false,
   copyContent,
   showJinjaTools = false,
-  onModalStateChange,
+  onModalStateChange: _onModalStateChange, // eslint-disable-line @typescript-eslint/no-unused-vars
 }: CodeMirrorEditorProps): ReactNode {
   const editorRef = useRef<ReactCodeMirrorRef>(null)
 
