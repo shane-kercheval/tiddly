@@ -56,52 +56,32 @@ describe('cleanMarkdown', () => {
     })
   })
 
-  describe('trimming', () => {
-    it('should trim leading whitespace', () => {
+  describe('whitespace preservation', () => {
+    it('should preserve leading whitespace', () => {
       const input = '   Hello World'
-      expect(cleanMarkdown(input)).toBe('Hello World')
+      expect(cleanMarkdown(input)).toBe('   Hello World')
     })
 
-    it('should trim trailing whitespace (but not newlines)', () => {
+    it('should preserve trailing whitespace', () => {
       const input = 'Hello World   '
-      expect(cleanMarkdown(input)).toBe('Hello World')
+      expect(cleanMarkdown(input)).toBe('Hello World   ')
     })
 
-    it('should trim both leading and trailing whitespace', () => {
+    it('should preserve leading and trailing whitespace', () => {
       const input = '   Hello World   '
-      expect(cleanMarkdown(input)).toBe('Hello World')
+      expect(cleanMarkdown(input)).toBe('   Hello World   ')
     })
 
-    it('should trim leading newlines but preserve up to 2 trailing newlines', () => {
+    it('should preserve leading and trailing newlines', () => {
       const input = '\n\nHello World\n\n'
-      expect(cleanMarkdown(input)).toBe('Hello World\n\n')
-    })
-
-    it('should preserve single trailing newline', () => {
-      const input = 'Hello World\n'
-      expect(cleanMarkdown(input)).toBe('Hello World\n')
-    })
-
-    it('should preserve two trailing newlines', () => {
-      const input = 'Hello World\n\n'
-      expect(cleanMarkdown(input)).toBe('Hello World\n\n')
-    })
-
-    it('should limit trailing newlines to maximum of 2', () => {
-      const input = 'Hello World\n\n\n\n\n'
-      expect(cleanMarkdown(input)).toBe('Hello World\n\n')
-    })
-
-    it('should handle trailing spaces after newlines', () => {
-      const input = 'Hello World\n\n   '
-      expect(cleanMarkdown(input)).toBe('Hello World\n\n')
+      expect(cleanMarkdown(input)).toBe('\n\nHello World\n\n')
     })
   })
 
   describe('combined transformations', () => {
-    it('should handle NBSP cleanup and trimming together', () => {
+    it('should handle NBSP cleanup without trimming', () => {
       const input = '  Hello\u00a0World&nbsp;Test  '
-      expect(cleanMarkdown(input)).toBe('Hello World Test')
+      expect(cleanMarkdown(input)).toBe('  Hello World Test  ')
     })
 
     it('should handle real markdown content with NBSP issues', () => {
@@ -128,12 +108,12 @@ More content here.
   describe('hex-encoded spaces', () => {
     it('should convert &#x20; to regular spaces', () => {
       const input = '&#x20;Hello'
-      expect(cleanMarkdown(input)).toBe('Hello')
+      expect(cleanMarkdown(input)).toBe(' Hello')
     })
 
     it('should handle multiple &#x20; entities', () => {
       const input = '&#x20;&#x20;&#x20;indented text'
-      expect(cleanMarkdown(input)).toBe('indented text')
+      expect(cleanMarkdown(input)).toBe('   indented text')
     })
 
     it('should handle &#x20; in middle of content', () => {
@@ -239,15 +219,15 @@ More content here.
     })
 
     it('should handle whitespace-only string', () => {
-      expect(cleanMarkdown('   ')).toBe('')
+      expect(cleanMarkdown('   ')).toBe('   ')
     })
 
-    it('should handle newlines-only string at start (trimmed)', () => {
-      expect(cleanMarkdown('\n\n\n')).toBe('')
+    it('should handle newlines-only string', () => {
+      expect(cleanMarkdown('\n\n\n')).toBe('\n\n\n')
     })
 
     it('should handle string with only non-breaking spaces', () => {
-      expect(cleanMarkdown('\u00a0\u00a0\u00a0')).toBe('')
+      expect(cleanMarkdown('\u00a0\u00a0\u00a0')).toBe('   ')
     })
 
     it('should not alter clean markdown without trailing newlines', () => {
