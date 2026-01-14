@@ -85,6 +85,25 @@ const remarkTightLists = $remark('remarkTightLists', () => () => (tree: unknown)
   setTightLists(tree)
 })
 
+/**
+ * Remark plugin to clean markdown text nodes.
+ * This is AST-aware and only cleans text nodes, preserving content in:
+ * - code blocks (fenced code)
+ * - inline code (backticks)
+ * - HTML blocks
+ *
+ * Transformations applied to text nodes:
+ * - \u00a0 (non-breaking space) → regular space
+ * - &nbsp; → regular space
+ * - &#x20; → regular space
+ * - \_ → _ (remove unnecessary escape)
+ * - \< → < (remove unnecessary escape)
+ * - \> → > (remove unnecessary escape)
+ */
+const remarkCleanMarkdown = $remark('remarkCleanMarkdown', () => () => (tree: unknown) => {
+  cleanMdastTree(tree)
+})
+
 import { gfm } from '@milkdown/kit/preset/gfm'
 import { history } from '@milkdown/kit/plugin/history'
 import { listener, listenerCtx } from '@milkdown/plugin-listener'
@@ -117,7 +136,7 @@ import {
   JinjaIfTrimIcon,
 } from './editor/EditorToolbarIcons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
-import { cleanMarkdown } from '../utils/cleanMarkdown'
+import { cleanMdastTree } from '../utils/cleanMarkdown'
 import { createLinkExitOnSpacePlugin } from '../utils/linkExitOnSpacePlugin'
 import { shouldHandleEmptySpaceClick, wasEditorFocused } from '../utils/editorUtils'
 import { findCodeBlockNode, findLinkBoundaries, normalizeUrl } from '../utils/milkdownHelpers'
@@ -750,6 +769,8 @@ function MilkdownEditorInner({
   const initialValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
   const autoFocusRef = useRef(autoFocus)
+  // Track last emitted markdown to avoid unnecessary onChange calls (e.g., on cursor movement)
+  const lastMarkdownRef = useRef(value)
 
   // Track if component is still mounted to prevent async operations on unmounted component
   // Must set true in setup for React StrictMode which runs: setup → cleanup → setup
@@ -828,9 +849,14 @@ function MilkdownEditorInner({
         ctx.get(listenerCtx).updated((updatedCtx) => {
           if (!isMountedRef.current) return
           try {
+            // Get markdown (already cleaned by remarkCleanMarkdown plugin)
             const markdown = getMarkdown()(updatedCtx)
-            const cleanedMarkdown = cleanMarkdown(markdown)
-            onChangeRef.current(cleanedMarkdown)
+            // Only call onChange if content actually changed
+            // This avoids unnecessary callbacks on cursor movement, selection changes, etc.
+            if (markdown !== lastMarkdownRef.current) {
+              lastMarkdownRef.current = markdown
+              onChangeRef.current(markdown)
+            }
           } catch (e) {
             // Ignore errors during unmount (context destroyed)
             if (isMountedRef.current) {
@@ -845,6 +871,7 @@ function MilkdownEditorInner({
       .use(clipboard)
       .use(listener)
       .use(remarkTightLists)
+      .use(remarkCleanMarkdown)
       .use(placeholderPluginSlice)
       .use(codeBlockCopyPluginSlice)
       .use(listKeymapPluginSlice)

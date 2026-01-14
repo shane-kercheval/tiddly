@@ -26,7 +26,6 @@ import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
 import { config } from '../config'
-import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -122,14 +121,13 @@ export function Bookmark({
   const isCreate = !bookmark
 
   // Initialize state from bookmark or defaults
-  // Clean content on initialization to match what Milkdown will output, preventing false dirty state
   const getInitialState = (): BookmarkState => {
     const archiveState = getInitialArchiveState(bookmark)
     return {
       url: bookmark?.url ?? initialUrl ?? '',
       title: bookmark?.title ?? '',
       description: bookmark?.description ?? '',
-      content: cleanMarkdown(bookmark?.content ?? ''),
+      content: bookmark?.content ?? '',
       tags: bookmark?.tags ?? initialTags ?? [],
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
