@@ -120,7 +120,7 @@ import {
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
 import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { shouldHandleEmptySpaceClick, wasEditorFocused } from '../utils/editorUtils'
-import { findCodeBlockNode, findLinkBoundaries } from '../utils/milkdownHelpers'
+import { findCodeBlockNode, findLinkBoundaries, normalizeUrl } from '../utils/milkdownHelpers'
 import type { Editor as EditorType } from '@milkdown/kit/core'
 
 /**
@@ -327,11 +327,75 @@ function LinkDialog({
   const [url, setUrl] = useState(initialUrl !== '' ? initialUrl : 'https://')
   const [text, setText] = useState(initialText)
 
+  // Refs for smart focus management
+  const textInputRef = useRef<HTMLInputElement>(null)
+  const urlInputRef = useRef<HTMLInputElement>(null)
+
+  // Reset state when dialog opens or props change
+  // This ensures stale state doesn't persist between dialog opens
+  // ONLY reset when dialog transitions from closed to open to avoid mid-interaction resets
+  const prevIsOpenRef = useRef(false)
+  useEffect(() => {
+    if (isOpen && !prevIsOpenRef.current) {
+      // Dialog just opened - reset state
+      setUrl(initialUrl !== '' ? initialUrl : 'https://')
+      setText(initialText)
+    }
+    prevIsOpenRef.current = isOpen
+  }, [isOpen, initialUrl, initialText])
+
+  // Smart focus: Override Modal's generic auto-focus with context-aware behavior
+  useEffect(() => {
+    if (!isOpen) return
+
+    // Use setTimeout to run after Modal's requestAnimationFrame focus
+    const focusTimer = setTimeout(() => {
+      // Editing existing link → focus text field (user might want to change display text)
+      if (initialUrl !== '') {
+        textInputRef.current?.focus()
+        textInputRef.current?.select() // Select all text for easy replacement
+      }
+      // Creating new link with selected text → focus URL field (text is already filled)
+      else if (initialText !== '') {
+        urlInputRef.current?.focus()
+        // Select the https:// prefix for easy typing over
+        urlInputRef.current?.setSelectionRange(0, 8)
+      }
+      // Creating new link with no selection → focus text field (let user type display text first)
+      else {
+        textInputRef.current?.focus()
+      }
+    }, 0)
+
+    return () => clearTimeout(focusTimer)
+  }, [isOpen, initialText, initialUrl])
+
   const handleSubmit = (e: FormEvent): void => {
     e.preventDefault()
+    e.stopPropagation() // Prevent event from bubbling to parent forms
     if (url && url !== 'https://') {
-      onSubmit(url, text || url)
-      onClose()
+      // Normalize URL to add protocol if missing
+      const normalizedUrl = normalizeUrl(url)
+      onSubmit(normalizedUrl, text || url)
+
+      // Defer close to next tick to ensure editor transaction completes
+      setTimeout(() => {
+        onClose()
+      }, 0)
+    }
+  }
+
+  // Handle Enter key - must stop propagation at keydown level to prevent parent form submission
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      e.stopPropagation() // CRITICAL: Stop at keydown level before it becomes a submit event
+      // Create synthetic FormEvent instead of casting keyboard event
+      const syntheticEvent = {
+        preventDefault: () => {},
+        stopPropagation: () => {},
+      } as FormEvent
+      handleSubmit(syntheticEvent)
     }
   }
 
@@ -343,10 +407,12 @@ function LinkDialog({
             Link Text
           </label>
           <input
+            ref={textInputRef}
             id="link-text"
             type="text"
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="Display text for the link"
             className="input"
           />
@@ -356,11 +422,13 @@ function LinkDialog({
             URL
           </label>
           <input
+            ref={urlInputRef}
             id="link-url"
-            type="url"
+            type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://example.com"
+            onKeyDown={handleKeyDown}
+            placeholder="example.com or https://example.com"
             className="input"
             required
           />
@@ -536,7 +604,9 @@ function createLinkClickPlugin(): Plugin {
           if (linkMark) {
             const href = linkMark.attrs.href
             if (href) {
-              window.open(href, '_blank', 'noopener,noreferrer')
+              // Normalize URL to add protocol if missing (prevents relative URL interpretation)
+              const normalizedHref = normalizeUrl(href)
+              window.open(normalizedHref, '_blank', 'noopener,noreferrer')
 
               // CRITICAL: handleDOMEvents does NOT automatically call preventDefault()
               // You must call it explicitly yourself, even when returning true
@@ -890,16 +960,20 @@ function MilkdownEditorInner({
     const linkBoundaries = findLinkBoundaries(view, from, linkMarkType)
 
     if (linkBoundaries) {
-      // Verify selection is fully inside this link
-      // If selection extends beyond link, treat as "create new link"
-      if (to > linkBoundaries.end) {
-        // Selection spans beyond link - ambiguous, create new
+      // Check if selection spans beyond the link boundaries
+      // Allow selecting the entire link (from >= start && to <= end) for editing
+      // Only treat as "create new" if selection includes content outside the link
+      const selectionStart = Math.min(from, to)
+      const selectionEnd = Math.max(from, to)
+
+      if (selectionStart < linkBoundaries.start || selectionEnd > linkBoundaries.end) {
+        // Selection spans beyond link boundaries - ambiguous, create new
         const selectedText = view.state.doc.textBetween(from, to)
         setLinkDialogInitialText(selectedText)
         setLinkDialogInitialUrl('')
         setLinkDialogIsEdit(false)
       } else {
-        // EXISTING LINK: Extract href and text
+        // Selection is fully within link boundaries (including entire link) - edit mode
         const href = linkBoundaries.mark.attrs.href || ''
         const linkText = view.state.doc.textBetween(linkBoundaries.start, linkBoundaries.end)
 

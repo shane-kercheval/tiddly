@@ -87,3 +87,36 @@ export function findLinkBoundaries(
 
   return { start: linkStart, end: linkEnd, mark: linkMark }
 }
+
+/**
+ * Normalize a URL by adding https:// prefix if no protocol is present.
+ * Handles common patterns like example.com, www.example.com, etc.
+ * Preserves mailto:, tel:, and other special protocols.
+ *
+ * @param url - URL string to normalize
+ * @returns Normalized URL with protocol
+ *
+ * @example
+ * normalizeUrl('example.com') // 'https://example.com'
+ * normalizeUrl('https://example.com') // 'https://example.com'
+ * normalizeUrl('mailto:user@example.com') // 'mailto:user@example.com'
+ */
+export function normalizeUrl(url: string): string {
+  const trimmed = url.trim()
+  if (!trimmed) return trimmed
+
+  // Check for URL protocols (http://, https://, ftp://, etc.)
+  // These require :// after the scheme
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed)) {
+    return trimmed
+  }
+
+  // Check for special protocols that don't use :// (mailto:, tel:, etc.)
+  // These use just : after the scheme
+  if (/^(mailto|tel|sms|news|urn|data):/.test(trimmed)) {
+    return trimmed
+  }
+
+  // Add https:// prefix for URLs without protocol
+  return `https://${trimmed}`
+}

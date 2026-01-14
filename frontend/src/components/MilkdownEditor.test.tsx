@@ -12,7 +12,7 @@ import { Schema } from '@milkdown/kit/prose/model'
 import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
 import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
 import { setBlockType } from '@milkdown/kit/prose/commands'
-import { findCodeBlockNode, findLinkBoundaries } from '../utils/milkdownHelpers'
+import { findCodeBlockNode, findLinkBoundaries, normalizeUrl } from '../utils/milkdownHelpers'
 import { EditorView } from '@milkdown/kit/prose/view'
 
 // Create a minimal schema for testing
@@ -1012,6 +1012,53 @@ describe('MilkdownEditor link improvements', () => {
       expect(textNode?.marks.some((m) => m.attrs.href === 'https://example.com')).toBe(true)
 
       view.destroy()
+    })
+  })
+
+  describe('normalizeUrl', () => {
+    it('test__normalizeUrl__adds_https_to_domain_without_protocol', () => {
+      expect(normalizeUrl('example.com')).toBe('https://example.com')
+      expect(normalizeUrl('www.example.com')).toBe('https://www.example.com')
+      expect(normalizeUrl('subdomain.example.com')).toBe('https://subdomain.example.com')
+    })
+
+    it('test__normalizeUrl__preserves_existing_https_protocol', () => {
+      expect(normalizeUrl('https://example.com')).toBe('https://example.com')
+      expect(normalizeUrl('https://www.example.com/path')).toBe('https://www.example.com/path')
+    })
+
+    it('test__normalizeUrl__preserves_existing_http_protocol', () => {
+      expect(normalizeUrl('http://example.com')).toBe('http://example.com')
+      expect(normalizeUrl('http://localhost:3000')).toBe('http://localhost:3000')
+    })
+
+    it('test__normalizeUrl__preserves_special_protocols', () => {
+      expect(normalizeUrl('mailto:user@example.com')).toBe('mailto:user@example.com')
+      expect(normalizeUrl('tel:+1234567890')).toBe('tel:+1234567890')
+      expect(normalizeUrl('ftp://files.example.com')).toBe('ftp://files.example.com')
+      expect(normalizeUrl('file:///path/to/file')).toBe('file:///path/to/file')
+    })
+
+    it('test__normalizeUrl__handles_whitespace', () => {
+      expect(normalizeUrl('  example.com  ')).toBe('https://example.com')
+      expect(normalizeUrl('  https://example.com  ')).toBe('https://example.com')
+    })
+
+    it('test__normalizeUrl__handles_empty_string', () => {
+      expect(normalizeUrl('')).toBe('')
+      expect(normalizeUrl('   ')).toBe('')
+    })
+
+    it('test__normalizeUrl__handles_urls_with_paths_and_queries', () => {
+      expect(normalizeUrl('example.com/path/to/page')).toBe('https://example.com/path/to/page')
+      expect(normalizeUrl('example.com?query=value')).toBe('https://example.com?query=value')
+      expect(normalizeUrl('example.com#fragment')).toBe('https://example.com#fragment')
+    })
+
+    it('test__normalizeUrl__handles_localhost_and_ips', () => {
+      expect(normalizeUrl('localhost:3000')).toBe('https://localhost:3000')
+      expect(normalizeUrl('192.168.1.1')).toBe('https://192.168.1.1')
+      expect(normalizeUrl('127.0.0.1:8080')).toBe('https://127.0.0.1:8080')
     })
   })
 })
