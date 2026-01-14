@@ -96,6 +96,7 @@ import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
 import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
 import { setBlockType } from '@milkdown/kit/prose/commands'
+import { ReplaceStep } from '@milkdown/kit/prose/transform'
 import { Modal } from './ui/Modal'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
 import { COPY_FEEDBACK_DURATION } from '../hooks/useCopyFeedback'
@@ -610,6 +611,85 @@ function createLinkClickPlugin(): Plugin {
 }
 
 /**
+ * Create a ProseMirror plugin that exits link marks when space is typed.
+ *
+ * This solves a common UX issue where typing after a link at the end of a line
+ * causes the new text to become part of the link. When the user types space
+ * while at the end of a link, we remove the link mark from the space character,
+ * allowing subsequent text to be non-linked.
+ *
+ * Implementation uses appendTransaction to inspect completed transactions,
+ * detect space insertion, and remove link marks. This approach:
+ * - Runs after text insertion (safer than beforeinput interception)
+ * - Handles composition events (IME input) automatically
+ * - Follows existing Milkdown patterns (hardbreakClearMarkPlugin, etc.)
+ *
+ * @returns A ProseMirror plugin that removes link marks on space insertion
+ */
+function createLinkExitOnSpacePlugin(): Plugin {
+  return new Plugin({
+    appendTransaction: (transactions, _oldState, newState) => {
+      // Early exit: no transactions to process
+      if (!transactions.length) return
+
+      // Only process transactions that aren't in the middle of IME composition
+      // During composition, wait for compositionend before processing
+      const lastTr = transactions[transactions.length - 1]
+      if (lastTr.getMeta('composing')) return
+
+      // Check each transaction for text insertion
+      for (const tr of transactions) {
+        const steps = tr.steps
+        if (!steps.length) continue
+
+        // Only handle text replacement (typing, paste, etc.)
+        const lastStep = steps[steps.length - 1]
+        if (!(lastStep instanceof ReplaceStep)) continue
+
+        // Get the position where text was inserted
+        // ReplaceStep has from/to properties but TypeScript doesn't know about them
+        const stepData = lastStep as unknown as { from: number; to: number; slice: { content: { size: number } } }
+        const insertPos = stepData.from + stepData.slice.content.size
+
+        // Validate position before trying to read text
+        // Skip if position is invalid (e.g., after paragraph breaks)
+        if (insertPos < 1 || insertPos > newState.doc.content.size) continue
+
+        // Check if a space was just inserted
+        // We check the character right before the current cursor position
+        // Wrap in try-catch to handle paragraph breaks and other non-text insertions
+        let charBeforeCursor: string
+        try {
+          charBeforeCursor = newState.doc.textBetween(insertPos - 1, insertPos)
+        } catch {
+          // Position is not valid for text reading (e.g., paragraph break)
+          continue
+        }
+
+        if (charBeforeCursor !== ' ') continue
+
+        // Check if the space has a link mark
+        const $pos = newState.doc.resolve(insertPos)
+        const linkMarkType = newState.schema.marks.link
+        if (!linkMarkType) continue
+
+        // Check marks at the position where space was inserted
+        // Note: $pos.marks() returns marks at this exact position
+        const linkMark = linkMarkType.isInSet($pos.marks())
+        if (!linkMark) continue
+
+        // Remove the link mark from the space character only
+        // This allows the user to continue typing non-linked text
+        // The link text before the space retains its link mark
+        return newState.tr.removeMark(insertPos - 1, insertPos, linkMarkType)
+      }
+
+      return undefined
+    },
+  })
+}
+
+/**
  * Create a ProseMirror keymap plugin that handles Tab/Shift+Tab and Backspace.
  * - Tab: indent list item or insert 4 spaces in code blocks
  * - Shift+Tab: outdent list item or remove 4 spaces in code blocks
@@ -779,6 +859,9 @@ function MilkdownEditorInner({
   // Create link click plugin for Cmd+Click (Mac) or Ctrl+Click (Windows/Linux) to open links
   const linkClickPluginSlice = $prose(() => createLinkClickPlugin())
 
+  // Create link exit on space plugin to remove link mark when typing space after a link
+  const linkExitOnSpacePluginSlice = $prose(() => createLinkExitOnSpacePlugin())
+
   // Initialize the Milkdown editor.
   // Note: The empty dependency array is intentional. The editor is initialized once
   // with the initial value and placeholder. Changing these props after mount requires
@@ -844,7 +927,8 @@ function MilkdownEditorInner({
       .use(placeholderPluginSlice)
       .use(codeBlockCopyPluginSlice)
       .use(listKeymapPluginSlice)
-      .use(linkClickPluginSlice),
+      .use(linkClickPluginSlice)
+      .use(linkExitOnSpacePluginSlice),
     []
   )
 

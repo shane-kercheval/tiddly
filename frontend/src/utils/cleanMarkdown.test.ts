@@ -62,7 +62,7 @@ describe('cleanMarkdown', () => {
       expect(cleanMarkdown(input)).toBe('Hello World')
     })
 
-    it('should trim trailing whitespace', () => {
+    it('should trim trailing whitespace (but not newlines)', () => {
       const input = 'Hello World   '
       expect(cleanMarkdown(input)).toBe('Hello World')
     })
@@ -72,9 +72,29 @@ describe('cleanMarkdown', () => {
       expect(cleanMarkdown(input)).toBe('Hello World')
     })
 
-    it('should trim newlines at start and end', () => {
+    it('should trim leading newlines but preserve up to 2 trailing newlines', () => {
       const input = '\n\nHello World\n\n'
-      expect(cleanMarkdown(input)).toBe('Hello World')
+      expect(cleanMarkdown(input)).toBe('Hello World\n\n')
+    })
+
+    it('should preserve single trailing newline', () => {
+      const input = 'Hello World\n'
+      expect(cleanMarkdown(input)).toBe('Hello World\n')
+    })
+
+    it('should preserve two trailing newlines', () => {
+      const input = 'Hello World\n\n'
+      expect(cleanMarkdown(input)).toBe('Hello World\n\n')
+    })
+
+    it('should limit trailing newlines to maximum of 2', () => {
+      const input = 'Hello World\n\n\n\n\n'
+      expect(cleanMarkdown(input)).toBe('Hello World\n\n')
+    })
+
+    it('should handle trailing spaces after newlines', () => {
+      const input = 'Hello World\n\n   '
+      expect(cleanMarkdown(input)).toBe('Hello World\n\n')
     })
   })
 
@@ -99,7 +119,8 @@ Some text with non-breaking spaces.
 
 ## Another Section
 
-More content here.`
+More content here.
+`
       expect(cleanMarkdown(input)).toBe(expected)
     })
   })
@@ -221,7 +242,7 @@ More content here.`
       expect(cleanMarkdown('   ')).toBe('')
     })
 
-    it('should handle newlines-only string (trimmed to empty)', () => {
+    it('should handle newlines-only string at start (trimmed)', () => {
       expect(cleanMarkdown('\n\n\n')).toBe('')
     })
 
@@ -229,7 +250,7 @@ More content here.`
       expect(cleanMarkdown('\u00a0\u00a0\u00a0')).toBe('')
     })
 
-    it('should not alter clean markdown', () => {
+    it('should not alter clean markdown without trailing newlines', () => {
       const clean = `# Title
 
 This is a paragraph.
@@ -239,6 +260,19 @@ This is a paragraph.
 
 **Bold** and *italic* text.`
       expect(cleanMarkdown(clean)).toBe(clean)
+    })
+
+    it('should preserve trailing newlines in clean markdown', () => {
+      const input = `# Title
+
+This is a paragraph.
+
+- Item 1
+- Item 2
+
+**Bold** and *italic* text.
+`
+      expect(cleanMarkdown(input)).toBe(input)
     })
   })
 })

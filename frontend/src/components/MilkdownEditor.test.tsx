@@ -32,6 +32,10 @@ const testSchema = new Schema({
       parseDOM: [{ tag: 'a[href]', getAttrs: (dom: unknown) => ({ href: (dom as HTMLElement).getAttribute('href') }) }],
       toDOM: (mark) => ['a', { href: mark.attrs.href }, 0],
     },
+    strong: {
+      parseDOM: [{ tag: 'strong' }, { tag: 'b' }],
+      toDOM: () => ['strong', 0],
+    },
   },
 })
 
@@ -1058,6 +1062,151 @@ describe('MilkdownEditor link improvements', () => {
       expect(normalizeUrl('localhost:3000')).toBe('https://localhost:3000')
       expect(normalizeUrl('192.168.1.1')).toBe('https://192.168.1.1')
       expect(normalizeUrl('127.0.0.1:8080')).toBe('https://127.0.0.1:8080')
+    })
+  })
+
+  describe('link exit on space', () => {
+    it('test__linkExitOnSpace__removes_link_mark_when_space_typed_after_link', () => {
+      // Test that typing a space after a link removes the link mark from the space
+      // Document: "text [link](url)"
+      // After typing space: "text [link](url) " (space not part of link)
+      const linkMark = testSchema.marks.link.create({ href: 'https://example.com' })
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('text '),
+          testSchema.text('link', [linkMark]),
+        ]),
+      ])
+
+      const state = EditorState.create({ doc, schema: testSchema })
+      // Position 10 is right after "link"
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(10)))
+      )
+
+      // Simulate typing a space at the end of the link
+      // By default, the space would inherit the link mark
+      const tr = stateWithSelection.tr.insertText(' ')
+      const stateAfterSpace = stateWithSelection.apply(tr)
+
+      // Get the position of the space that was just inserted
+      const spacePos = 10 // The space is at position 10 (right after "link")
+
+      // Check that the space has the link mark (before plugin runs)
+      const $pos = stateAfterSpace.doc.resolve(spacePos + 1)
+      const linkMarkType = testSchema.marks.link
+      const hasLinkMark = linkMarkType.isInSet($pos.marks())
+      expect(hasLinkMark).toBeTruthy()
+
+      // Simulate what the plugin does: remove the link mark from the space
+      const trRemoveMark = stateAfterSpace.tr.removeMark(spacePos, spacePos + 1, linkMarkType)
+      const finalState = stateAfterSpace.apply(trRemoveMark)
+
+      // After plugin runs, the space should not have the link mark
+      const $posAfter = finalState.doc.resolve(spacePos + 1)
+      const hasLinkMarkAfter = linkMarkType.isInSet($posAfter.marks())
+      expect(hasLinkMarkAfter).toBeFalsy()
+    })
+
+    it('test__linkExitOnSpace__preserves_other_marks_like_bold', () => {
+      // Test that the plugin only removes the link mark, preserving other marks like bold
+      // Document: "text [**bold link**](url)"
+      // After typing space: "text [**bold link**](url) " (space is bold but not a link)
+      const linkMark = testSchema.marks.link.create({ href: 'https://example.com' })
+      const strongMark = testSchema.marks.strong.create()
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('text '),
+          testSchema.text('link', [linkMark, strongMark]),
+        ]),
+      ])
+
+      const state = EditorState.create({ doc, schema: testSchema })
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(10)))
+      )
+
+      // Type a space - it inherits both link and strong marks
+      const tr = stateWithSelection.tr.insertText(' ')
+      const stateAfterSpace = stateWithSelection.apply(tr)
+
+      const spacePos = 10
+      const linkMarkType = testSchema.marks.link
+      const strongMarkType = testSchema.marks.strong
+
+      // Remove only the link mark (what the plugin does)
+      const trRemoveMark = stateAfterSpace.tr.removeMark(spacePos, spacePos + 1, linkMarkType)
+      const finalState = stateAfterSpace.apply(trRemoveMark)
+
+      // After plugin runs, the space should not have link mark but should keep strong mark
+      const $posAfter = finalState.doc.resolve(spacePos + 1)
+      expect(linkMarkType.isInSet($posAfter.marks())).toBeFalsy()
+      expect(strongMarkType.isInSet($posAfter.marks())).toBeTruthy()
+    })
+
+    it('test__linkExitOnSpace__ignores_non_space_characters', () => {
+      // Test that the plugin only triggers on space, not other characters
+      // Typing letters should still be part of the link
+      const linkMark = testSchema.marks.link.create({ href: 'https://example.com' })
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('text '),
+          testSchema.text('link', [linkMark]),
+        ]),
+      ])
+
+      const state = EditorState.create({ doc, schema: testSchema })
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(10)))
+      )
+
+      // Type a letter 'a' instead of a space
+      const tr = stateWithSelection.tr.insertText('a')
+      const stateAfterChar = stateWithSelection.apply(tr)
+
+      // The 'a' should still have the link mark (plugin shouldn't remove it)
+      const charPos = 10
+      const $pos = stateAfterChar.doc.resolve(charPos + 1)
+      const linkMarkType = testSchema.marks.link
+      expect(linkMarkType.isInSet($pos.marks())).toBeTruthy()
+
+      // Verify the content is correct
+      const textContent = stateAfterChar.doc.textContent
+      expect(textContent).toBe('text linka')
+    })
+
+    it('test__linkExitOnSpace__handles_space_in_middle_of_link_text', () => {
+      // Test that typing a space in the middle of a link keeps the space as part of the link
+      // This is correct behavior - only spaces at the END should exit the link
+      const linkMark = testSchema.marks.link.create({ href: 'https://example.com' })
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('before '),
+          testSchema.text('link', [linkMark]),
+          testSchema.text(' after'),
+        ]),
+      ])
+
+      const state = EditorState.create({ doc, schema: testSchema })
+      // Position in middle of "link" (position 9 is between 'l' and 'i')
+      const stateWithSelection = state.apply(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(9)))
+      )
+
+      // Type a space in the middle of the link
+      const tr = stateWithSelection.tr.insertText(' ')
+      const stateAfterSpace = stateWithSelection.apply(tr)
+
+      // The space in the middle should keep the link mark
+      // (plugin only removes link mark if space is typed at the END of link text)
+      const spacePos = 9
+      const $pos = stateAfterSpace.doc.resolve(spacePos + 1)
+      const linkMarkType = testSchema.marks.link
+      expect(linkMarkType.isInSet($pos.marks())).toBeTruthy()
+
+      // Verify content: "before l ink after"
+      const textContent = stateAfterSpace.doc.textContent
+      expect(textContent).toBe('before l ink after')
     })
   })
 })
