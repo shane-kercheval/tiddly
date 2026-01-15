@@ -9,6 +9,7 @@
  * - Strikethrough text
  * - Horizontal rules
  * - Styled links (Cmd+click to open)
+ * - Styled images (alt text in green, syntax dimmed)
  *
  * This is a "text-first" approach - the source is never modified by the styling,
  * only decorated visually.
@@ -162,6 +163,54 @@ function findStrikethrough(text: string): Array<{ from: number; to: number }> {
 }
 
 /**
+ * Find all markdown images in a line.
+ * Returns structured info about each image for styling.
+ */
+interface ImageMatch {
+  from: number
+  to: number
+  exclamation: number     // !
+  openBracket: number     // [
+  altStart: number        // start of alt text
+  altEnd: number          // end of alt text
+  closeBracket: number    // ]
+  openParen: number       // (
+  urlStart: number        // start of URL
+  urlEnd: number          // end of URL
+  closeParen: number      // )
+}
+
+function findImages(text: string): ImageMatch[] {
+  const results: ImageMatch[] = []
+  // Match ![alt](url) - the ! prefix distinguishes from links
+  const regex = /!\[([^\]]*)\]\(([^)]+)\)/g
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    const fullMatch = match[0]
+    const altText = match[1]
+    const url = match[2]
+    const start = match.index
+
+    results.push({
+      from: start,
+      to: start + fullMatch.length,
+      exclamation: start,
+      openBracket: start + 1,
+      altStart: start + 2,
+      altEnd: start + 2 + altText.length,
+      closeBracket: start + 2 + altText.length,
+      openParen: start + 2 + altText.length + 1,
+      urlStart: start + 2 + altText.length + 2,
+      urlEnd: start + 2 + altText.length + 2 + url.length,
+      closeParen: start + fullMatch.length - 1,
+    })
+  }
+
+  return results
+}
+
+/**
  * Find all markdown links in a line.
  * Returns structured info about each link for different styling.
  */
@@ -253,6 +302,11 @@ const linkBracketMark = Decoration.mark({ class: 'cm-md-link-bracket' })
 const linkTextMark = Decoration.mark({ class: 'cm-md-link-text' })
 const linkUrlMark = Decoration.mark({ class: 'cm-md-link-url' })
 
+// Decorations for images
+const imageSyntaxMark = Decoration.mark({ class: 'cm-md-image-syntax' })
+const imageAltMark = Decoration.mark({ class: 'cm-md-image-alt' })
+const imageUrlMark = Decoration.mark({ class: 'cm-md-image-url' })
+
 /**
  * Build decorations for the entire document.
  */
@@ -320,8 +374,26 @@ function buildDecorations(view: EditorView): DecorationSet {
         inlineDecorations.push({ from: line.from + from, to: line.from + to, decoration: strikethroughMark })
       }
 
-      // Links - multiple decorations per link
-      const links = findLinks(line.text)
+      // Images - style syntax similar to links but with different color for alt text
+      const images = findImages(line.text)
+      for (const image of images) {
+        // ! and opening bracket ![
+        inlineDecorations.push({ from: line.from + image.exclamation, to: line.from + image.openBracket + 1, decoration: imageSyntaxMark })
+        // Alt text
+        if (image.altEnd > image.altStart) {
+          inlineDecorations.push({ from: line.from + image.altStart, to: line.from + image.altEnd, decoration: imageAltMark })
+        }
+        // Closing bracket ]
+        inlineDecorations.push({ from: line.from + image.closeBracket, to: line.from + image.closeBracket + 1, decoration: imageSyntaxMark })
+        // Opening paren and URL (url)
+        inlineDecorations.push({ from: line.from + image.openParen, to: line.from + image.closeParen + 1, decoration: imageUrlMark })
+      }
+
+      // Links - multiple decorations per link (exclude images which start with !)
+      const links = findLinks(line.text).filter(link => {
+        // Check if this link is actually part of an image (preceded by !)
+        return link.openBracket === 0 || line.text[link.openBracket - 1] !== '!'
+      })
       for (const link of links) {
         // Opening bracket [
         inlineDecorations.push({ from: line.from + link.openBracket, to: line.from + link.openBracket + 1, decoration: linkBracketMark })
@@ -626,6 +698,25 @@ const markdownBaseTheme = EditorView.baseTheme({
     color: '#9ca3af !important',
     textDecoration: 'none !important',
   },
+
+  // Images - similar to links but with green alt text to distinguish
+  '.cm-md-image-syntax': {
+    color: '#9ca3af !important',
+    textDecoration: 'none !important',
+  },
+  '.cm-md-image-alt': {
+    color: '#059669 !important',
+    textDecoration: 'none !important',
+  },
+  '.cm-md-image-url': {
+    color: '#9ca3af !important',
+    textDecoration: 'none !important',
+  },
+  // Override any nested syntax highlighting in images
+  '.cm-md-image-syntax *, .cm-md-image-url *': {
+    color: '#9ca3af !important',
+    textDecoration: 'none !important',
+  },
 })
 
 /**
@@ -689,3 +780,12 @@ export const markdownStyleExtension = [
   markdownBaseTheme,
   linkClickHandler,
 ]
+
+// Export helper functions for testing
+export const _testExports = {
+  findImages,
+  findLinks,
+  findInlineCode,
+  findStrikethrough,
+  parseLine,
+}
