@@ -409,123 +409,127 @@ export function CodeMirrorEditor({
   return (
     <div ref={containerRef} className={noPadding ? 'codemirror-no-padding' : ''}>
       {/* Toolbar - formatting buttons fade in on focus, copy button stays visible (doesn't fade) */}
-      {!disabled && (
-        <div className="flex items-center justify-between px-2 py-1.5 border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50 transition-colors">
-          {/* Left: formatting buttons that fade in on focus */}
-          <div className="flex items-center gap-0.5 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
-            {/* Text formatting */}
-            <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '**', '**'))} title="Bold (⌘B)">
-              <BoldIcon />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '*', '*'))} title="Italic (⌘I)">
-              <ItalicIcon />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '~~', '~~'))} title="Strikethrough (⌘⇧X)">
-              <StrikethroughIcon />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '`', '`'))} title="Inline Code">
-              <InlineCodeIcon />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => runAction(insertCodeBlock)} title="Code Block">
-              <CodeBlockIcon />
-            </ToolbarButton>
+      {/* Always render toolbar to prevent layout shift; buttons are disabled when editor is disabled */}
+      {/* min-h and transform-gpu prevent Safari reflow issues during focus/blur transitions */}
+      <div className="flex items-center justify-between px-2 py-1.5 min-h-[38px] transform-gpu border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50 transition-colors">
+        {/* Left: formatting buttons that fade in on focus */}
+        <div className={`flex items-center gap-0.5 opacity-0 group-focus-within/editor:opacity-100 transition-opacity ${disabled ? 'pointer-events-none' : ''}`}>
+          {/* Text formatting */}
+          <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '**', '**'))} title="Bold (⌘B)">
+            <BoldIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '*', '*'))} title="Italic (⌘I)">
+            <ItalicIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '~~', '~~'))} title="Strikethrough (⌘⇧X)">
+            <StrikethroughIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '`', '`'))} title="Inline Code">
+            <InlineCodeIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title="Code Block">
+            <CodeBlockIcon />
+          </ToolbarButton>
 
-            <ToolbarSeparator />
+          <ToolbarSeparator />
 
-            {/* Link */}
-            <ToolbarButton onClick={() => runAction(insertLink)} title="Insert Link (⌘K)">
-              <LinkIcon />
-            </ToolbarButton>
+          {/* Link */}
+          <ToolbarButton onClick={() => runAction(insertLink)} title="Insert Link (⌘K)">
+            <LinkIcon />
+          </ToolbarButton>
 
-            <ToolbarSeparator />
+          <ToolbarSeparator />
 
-            {/* Lists */}
-            <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- '))} title="Bullet List">
-              <BulletListIcon />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '1. '))} title="Numbered List">
-              <OrderedListIcon />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- [ ] '))} title="Task List">
-              <TaskListIcon />
-            </ToolbarButton>
+          {/* Lists */}
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- '))} title="Bullet List">
+            <BulletListIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '1. '))} title="Numbered List">
+            <OrderedListIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- [ ] '))} title="Task List">
+            <TaskListIcon />
+          </ToolbarButton>
 
-            <ToolbarSeparator />
+          <ToolbarSeparator />
 
-            {/* Block elements */}
-            <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '> '))} title="Blockquote">
-              <BlockquoteIcon />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title="Horizontal Rule">
-              <HorizontalRuleIcon />
-            </ToolbarButton>
+          {/* Block elements */}
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '> '))} title="Blockquote">
+            <BlockquoteIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title="Horizontal Rule">
+            <HorizontalRuleIcon />
+          </ToolbarButton>
 
-            {/* Jinja2 template tools (for prompts) */}
-            {showJinjaTools && (
-              <>
-                <ToolbarSeparator />
-                <ToolbarButton onClick={() => runAction((v) => insertText(v, JINJA_VARIABLE))} title="Insert Variable {{ }}">
-                  <JinjaVariableIcon />
-                </ToolbarButton>
-                <ToolbarButton onClick={() => runAction((v) => insertText(v, JINJA_IF_BLOCK))} title="If Block {% if %}">
-                  <JinjaIfIcon />
-                </ToolbarButton>
-                <ToolbarButton onClick={() => runAction((v) => insertText(v, JINJA_IF_BLOCK_TRIM))} title="If Block with Whitespace Trim {%- if %}">
-                  <JinjaIfTrimIcon />
-                </ToolbarButton>
-              </>
-            )}
-          </div>
+          {/* Jinja2 template tools (for prompts) */}
+          {showJinjaTools && (
+            <>
+              <ToolbarSeparator />
+              <ToolbarButton onClick={() => runAction((v) => insertText(v, JINJA_VARIABLE))} title="Insert Variable {{ }}">
+                <JinjaVariableIcon />
+              </ToolbarButton>
+              <ToolbarButton onClick={() => runAction((v) => insertText(v, JINJA_IF_BLOCK))} title="If Block {% if %}">
+                <JinjaIfIcon />
+              </ToolbarButton>
+              <ToolbarButton onClick={() => runAction((v) => insertText(v, JINJA_IF_BLOCK_TRIM))} title="If Block with Whitespace Trim {%- if %}">
+                <JinjaIfTrimIcon />
+              </ToolbarButton>
+            </>
+          )}
+        </div>
 
-          {/* Right: Wrap (fades in), Reading and Copy (always visible) */}
-          <div className="flex items-center gap-2">
-            {/* Wrap toggle - fades in on focus, only shown when not in reading mode */}
-            {onWrapTextChange && !effectiveReadingMode && (
-              <button
-                type="button"
-                tabIndex={-1}
-                onMouseDown={(e) => {
-                  if (wasEditorFocused(e.currentTarget)) {
-                    e.preventDefault()
-                    onWrapTextChange(!wrapText)
-                  }
-                }}
-                title="Toggle word wrap (⌥Z)"
-                className={`text-xs px-2 py-0.5 rounded transition-all opacity-0 group-focus-within/editor:opacity-100 ${
-                  wrapText
-                    ? 'bg-gray-200 text-gray-700'
-                    : 'border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                Wrap
-              </button>
-            )}
-
-            {/* Reading mode toggle - always visible */}
+        {/* Right: Wrap (fades in), Reading and Copy (always visible) */}
+        <div className="flex items-center gap-2">
+          {/* Wrap toggle - fades in on focus, only shown when not in reading mode */}
+          {onWrapTextChange && !effectiveReadingMode && (
             <button
               type="button"
               tabIndex={-1}
+              disabled={disabled}
               onMouseDown={(e) => {
-                e.preventDefault()
-                toggleReadingMode()
+                if (!disabled && wasEditorFocused(e.currentTarget)) {
+                  e.preventDefault()
+                  onWrapTextChange(!wrapText)
+                }
               }}
-              title="Toggle reading mode (⌘⇧M)"
-              className={`text-xs px-2 py-0.5 rounded transition-all ${
-                effectiveReadingMode
+              title="Toggle word wrap (⌥Z)"
+              className={`text-xs px-2 py-0.5 rounded transition-all opacity-0 group-focus-within/editor:opacity-100 ${
+                wrapText
                   ? 'bg-gray-200 text-gray-700'
                   : 'border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-              }`}
+              } ${disabled ? 'cursor-not-allowed' : ''}`}
             >
-              Reading
+              Wrap
             </button>
+          )}
 
-            {/* Copy button - always visible */}
-            {copyContent !== undefined && (
-              <CopyToClipboardButton content={copyContent} title="Copy content" />
-            )}
-          </div>
+          {/* Reading mode toggle - always visible */}
+          <button
+            type="button"
+            tabIndex={-1}
+            disabled={disabled}
+            onMouseDown={(e) => {
+              if (!disabled) {
+                e.preventDefault()
+                toggleReadingMode()
+              }
+            }}
+            title="Toggle reading mode (⌘⇧M)"
+            className={`text-xs px-2 py-0.5 rounded transition-all ${
+              effectiveReadingMode
+                ? 'bg-gray-200 text-gray-700'
+                : 'border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+            } ${disabled ? 'cursor-not-allowed' : ''}`}
+          >
+            Reading
+          </button>
+
+          {/* Copy button - always visible */}
+          {copyContent !== undefined && (
+            <CopyToClipboardButton content={copyContent} title="Copy content" />
+          )}
         </div>
-      )}
+      </div>
       {/* Show CodeMirror for editing, Milkdown for reading */}
       {effectiveReadingMode ? (
         <MilkdownEditor

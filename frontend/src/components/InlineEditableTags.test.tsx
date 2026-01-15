@@ -48,7 +48,7 @@ describe('InlineEditableTags', () => {
       expect(screen.getByRole('button', { name: 'Add tag' })).toBeInTheDocument()
     })
 
-    it('should not render add button when disabled', () => {
+    it('should disable add button when disabled (but keep it visible to prevent layout shift)', () => {
       render(
         <InlineEditableTags
           value={[]}
@@ -58,7 +58,9 @@ describe('InlineEditableTags', () => {
         />
       )
 
-      expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
+      const addButton = screen.getByRole('button', { name: 'Add tag' })
+      expect(addButton).toBeInTheDocument()
+      expect(addButton).toBeDisabled()
     })
   })
 
