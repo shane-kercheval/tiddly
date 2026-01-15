@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import { _testExports } from './markdownStyleExtension'
 
-const { findImages, findLinks, findInlineCode, findStrikethrough, parseLine } = _testExports
+const { findImages, findLinks, findInlineCode, findStrikethrough, findBlockquoteSyntax, parseLine } = _testExports
 
 describe('findImages', () => {
   it('should find a simple image', () => {
@@ -174,6 +174,32 @@ describe('findStrikethrough', () => {
   it('should not match single tildes', () => {
     const result = findStrikethrough('~not strikethrough~')
     expect(result).toHaveLength(0)
+  })
+})
+
+describe('findBlockquoteSyntax', () => {
+  it('should find blockquote with space', () => {
+    const result = findBlockquoteSyntax('> Quote text')
+    expect(result).not.toBeNull()
+    expect(result?.from).toBe(0)
+    expect(result?.to).toBe(2) // "> "
+  })
+
+  it('should find blockquote without space', () => {
+    const result = findBlockquoteSyntax('>Quote text')
+    expect(result).not.toBeNull()
+    expect(result?.from).toBe(0)
+    expect(result?.to).toBe(1) // ">"
+  })
+
+  it('should return null for non-blockquote', () => {
+    const result = findBlockquoteSyntax('Regular text')
+    expect(result).toBeNull()
+  })
+
+  it('should return null for > not at start', () => {
+    const result = findBlockquoteSyntax('Text > with arrow')
+    expect(result).toBeNull()
   })
 })
 

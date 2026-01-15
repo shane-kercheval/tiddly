@@ -273,6 +273,9 @@ const taskSyntaxMark = Decoration.mark({ class: 'cm-md-task-syntax' })
 // Decoration for header syntax
 const headerSyntaxMark = Decoration.mark({ class: 'cm-md-header-syntax' })
 
+// Decoration for blockquote syntax
+const blockquoteSyntaxMark = Decoration.mark({ class: 'cm-md-blockquote-syntax' })
+
 /**
  * Find task list syntax in a line (e.g., "- [ ] " or "- [x] ").
  * Returns the range to gray out, or null if not a task line.
@@ -291,6 +294,18 @@ function findTaskSyntax(text: string): { from: number; to: number } | null {
  */
 function findHeaderSyntax(text: string): { from: number; to: number } | null {
   const match = text.match(/^(#{1,6})\s/)
+  if (match) {
+    return { from: 0, to: match[0].length }
+  }
+  return null
+}
+
+/**
+ * Find blockquote syntax in a line (e.g., "> " or ">").
+ * Returns the range of the > and optional space, or null if not a blockquote.
+ */
+function findBlockquoteSyntax(text: string): { from: number; to: number } | null {
+  const match = text.match(/^>\s?/)
   if (match) {
     return { from: 0, to: match[0].length }
   }
@@ -360,6 +375,12 @@ function buildDecorations(view: EditorView): DecorationSet {
       const headerSyntax = findHeaderSyntax(line.text)
       if (headerSyntax) {
         inlineDecorations.push({ from: line.from + headerSyntax.from, to: line.from + headerSyntax.to, decoration: headerSyntaxMark })
+      }
+
+      // Blockquote syntax (> )
+      const blockquoteSyntax = findBlockquoteSyntax(line.text)
+      if (blockquoteSyntax) {
+        inlineDecorations.push({ from: line.from + blockquoteSyntax.from, to: line.from + blockquoteSyntax.to, decoration: blockquoteSyntaxMark })
       }
 
       // Inline code
@@ -665,6 +686,12 @@ const markdownBaseTheme = EditorView.baseTheme({
     fontSize: 'inherit !important',
   },
 
+  // Blockquote syntax (> ) - dimmed gray, lighter than blockquote text
+  '.cm-md-blockquote-syntax, .cm-md-blockquote-syntax *': {
+    color: '#d1d5db !important',
+    fontStyle: 'normal !important',
+  },
+
   // Strikethrough
   '.cm-md-strikethrough': {
     textDecoration: 'line-through',
@@ -787,5 +814,6 @@ export const _testExports = {
   findLinks,
   findInlineCode,
   findStrikethrough,
+  findBlockquoteSyntax,
   parseLine,
 }
