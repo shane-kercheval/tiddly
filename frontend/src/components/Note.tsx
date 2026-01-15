@@ -25,7 +25,6 @@ import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './ico
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
 import { config } from '../config'
-import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -104,13 +103,12 @@ export function Note({
 
   // Initialize state from note or defaults
   // Note: useState only calls the initializer once, so useCallback would be unnecessary here
-  // Clean content on initialization to match what Milkdown will output, preventing false dirty state
   const getInitialState = (): NoteState => {
     const archiveState = getInitialArchiveState()
     return {
       title: note?.title ?? '',
       description: note?.description ?? '',
-      content: cleanMarkdown(note?.content ?? ''),
+      content: note?.content ?? '',
       tags: note?.tags ?? initialTags ?? [],
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,

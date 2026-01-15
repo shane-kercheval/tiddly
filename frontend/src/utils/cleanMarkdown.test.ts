@@ -5,7 +5,7 @@
  * to sanitize output and ensure clean markdown storage.
  */
 import { describe, it, expect } from 'vitest'
-import { cleanMarkdown } from './cleanMarkdown'
+import { cleanMarkdown, cleanTextContent, cleanMdastTree } from './cleanMarkdown'
 
 describe('cleanMarkdown', () => {
   describe('non-breaking spaces', () => {
@@ -56,32 +56,32 @@ describe('cleanMarkdown', () => {
     })
   })
 
-  describe('trimming', () => {
-    it('should trim leading whitespace', () => {
+  describe('whitespace preservation', () => {
+    it('should preserve leading whitespace', () => {
       const input = '   Hello World'
-      expect(cleanMarkdown(input)).toBe('Hello World')
+      expect(cleanMarkdown(input)).toBe('   Hello World')
     })
 
-    it('should trim trailing whitespace', () => {
+    it('should preserve trailing whitespace', () => {
       const input = 'Hello World   '
-      expect(cleanMarkdown(input)).toBe('Hello World')
+      expect(cleanMarkdown(input)).toBe('Hello World   ')
     })
 
-    it('should trim both leading and trailing whitespace', () => {
+    it('should preserve leading and trailing whitespace', () => {
       const input = '   Hello World   '
-      expect(cleanMarkdown(input)).toBe('Hello World')
+      expect(cleanMarkdown(input)).toBe('   Hello World   ')
     })
 
-    it('should trim newlines at start and end', () => {
+    it('should preserve leading and trailing newlines', () => {
       const input = '\n\nHello World\n\n'
-      expect(cleanMarkdown(input)).toBe('Hello World')
+      expect(cleanMarkdown(input)).toBe('\n\nHello World\n\n')
     })
   })
 
   describe('combined transformations', () => {
-    it('should handle NBSP cleanup and trimming together', () => {
+    it('should handle NBSP cleanup without trimming', () => {
       const input = '  Hello\u00a0World&nbsp;Test  '
-      expect(cleanMarkdown(input)).toBe('Hello World Test')
+      expect(cleanMarkdown(input)).toBe('  Hello World Test  ')
     })
 
     it('should handle real markdown content with NBSP issues', () => {
@@ -99,7 +99,8 @@ Some text with non-breaking spaces.
 
 ## Another Section
 
-More content here.`
+More content here.
+`
       expect(cleanMarkdown(input)).toBe(expected)
     })
   })
@@ -107,12 +108,12 @@ More content here.`
   describe('hex-encoded spaces', () => {
     it('should convert &#x20; to regular spaces', () => {
       const input = '&#x20;Hello'
-      expect(cleanMarkdown(input)).toBe('Hello')
+      expect(cleanMarkdown(input)).toBe(' Hello')
     })
 
     it('should handle multiple &#x20; entities', () => {
       const input = '&#x20;&#x20;&#x20;indented text'
-      expect(cleanMarkdown(input)).toBe('indented text')
+      expect(cleanMarkdown(input)).toBe('   indented text')
     })
 
     it('should handle &#x20; in middle of content', () => {
@@ -218,18 +219,18 @@ More content here.`
     })
 
     it('should handle whitespace-only string', () => {
-      expect(cleanMarkdown('   ')).toBe('')
+      expect(cleanMarkdown('   ')).toBe('   ')
     })
 
-    it('should handle newlines-only string (trimmed to empty)', () => {
-      expect(cleanMarkdown('\n\n\n')).toBe('')
+    it('should handle newlines-only string', () => {
+      expect(cleanMarkdown('\n\n\n')).toBe('\n\n\n')
     })
 
     it('should handle string with only non-breaking spaces', () => {
-      expect(cleanMarkdown('\u00a0\u00a0\u00a0')).toBe('')
+      expect(cleanMarkdown('\u00a0\u00a0\u00a0')).toBe('   ')
     })
 
-    it('should not alter clean markdown', () => {
+    it('should not alter clean markdown without trailing newlines', () => {
       const clean = `# Title
 
 This is a paragraph.
@@ -239,6 +240,213 @@ This is a paragraph.
 
 **Bold** and *italic* text.`
       expect(cleanMarkdown(clean)).toBe(clean)
+    })
+
+    it('should preserve trailing newlines in clean markdown', () => {
+      const input = `# Title
+
+This is a paragraph.
+
+- Item 1
+- Item 2
+
+**Bold** and *italic* text.
+`
+      expect(cleanMarkdown(input)).toBe(input)
+    })
+  })
+})
+
+describe('cleanTextContent', () => {
+  it('should clean text the same as cleanMarkdown', () => {
+    const input = 'Hello\u00a0World with\\_underscores and \\<brackets\\>'
+    expect(cleanTextContent(input)).toBe('Hello World with_underscores and <brackets>')
+  })
+})
+
+describe('cleanMdastTree', () => {
+  // Test helper type for mdast-like tree structures
+  interface TestNode {
+    type: string
+    value?: string
+    lang?: string
+    children?: TestNode[]
+  }
+
+  describe('text node cleaning', () => {
+    it('should clean text nodes', () => {
+      const tree: TestNode = {
+        type: 'root',
+        children: [
+          {
+            type: 'paragraph',
+            children: [
+              { type: 'text', value: 'Hello\u00a0World with\\_underscores' }
+            ]
+          }
+        ]
+      }
+      cleanMdastTree(tree)
+      expect(tree.children![0].children![0].value).toBe('Hello World with_underscores')
+    })
+
+    it('should clean nested text nodes', () => {
+      const tree: TestNode = {
+        type: 'root',
+        children: [
+          {
+            type: 'paragraph',
+            children: [
+              { type: 'text', value: 'Normal text' },
+              {
+                type: 'strong',
+                children: [
+                  { type: 'text', value: 'Bold\\_text' }
+                ]
+              },
+              { type: 'text', value: ' and \\<more\\>' }
+            ]
+          }
+        ]
+      }
+      cleanMdastTree(tree)
+      expect(tree.children![0].children![0].value).toBe('Normal text')
+      expect(tree.children![0].children![1].children![0].value).toBe('Bold_text')
+      expect(tree.children![0].children![2].value).toBe(' and <more>')
+    })
+  })
+
+  describe('code block preservation', () => {
+    it('should NOT clean fenced code block content', () => {
+      const tree: TestNode = {
+        type: 'root',
+        children: [
+          {
+            type: 'code',
+            lang: 'bash',
+            value: 'echo "\\_HOME\\_"'
+          }
+        ]
+      }
+      cleanMdastTree(tree)
+      // Code block content should be preserved exactly
+      expect(tree.children![0].value).toBe('echo "\\_HOME\\_"')
+    })
+
+    it('should NOT clean inline code content', () => {
+      const tree: TestNode = {
+        type: 'root',
+        children: [
+          {
+            type: 'paragraph',
+            children: [
+              { type: 'text', value: 'Use ' },
+              { type: 'inlineCode', value: '\\_underscore\\_' },
+              { type: 'text', value: ' in code' }
+            ]
+          }
+        ]
+      }
+      cleanMdastTree(tree)
+      // Inline code should be preserved
+      expect(tree.children![0].children![1].value).toBe('\\_underscore\\_')
+      // But surrounding text should be cleaned
+      expect(tree.children![0].children![0].value).toBe('Use ')
+      expect(tree.children![0].children![2].value).toBe(' in code')
+    })
+
+    it('should NOT clean HTML block content', () => {
+      const tree: TestNode = {
+        type: 'root',
+        children: [
+          {
+            type: 'html',
+            value: '<div class="my\\_class">\\<content\\></div>'
+          }
+        ]
+      }
+      cleanMdastTree(tree)
+      expect(tree.children![0].value).toBe('<div class="my\\_class">\\<content\\></div>')
+    })
+  })
+
+  describe('mixed content', () => {
+    it('should clean text but preserve code in mixed document', () => {
+      const tree: TestNode = {
+        type: 'root',
+        children: [
+          {
+            type: 'paragraph',
+            children: [
+              { type: 'text', value: 'Text with\\_underscore' }
+            ]
+          },
+          {
+            type: 'code',
+            lang: 'python',
+            value: 'my\\_var = "\\<value\\>"'
+          },
+          {
+            type: 'paragraph',
+            children: [
+              { type: 'text', value: 'More text with \\<brackets\\>' }
+            ]
+          }
+        ]
+      }
+      cleanMdastTree(tree)
+      // Text paragraphs should be cleaned
+      expect(tree.children![0].children![0].value).toBe('Text with_underscore')
+      expect(tree.children![2].children![0].value).toBe('More text with <brackets>')
+      // Code block should be preserved
+      expect(tree.children![1].value).toBe('my\\_var = "\\<value\\>"')
+    })
+
+    it('should handle real-world LaTeX in code example', () => {
+      const tree: TestNode = {
+        type: 'root',
+        children: [
+          {
+            type: 'paragraph',
+            children: [
+              { type: 'text', value: 'Use ' },
+              { type: 'inlineCode', value: '\\_' },
+              { type: 'text', value: ' for escaping in LaTeX.' }
+            ]
+          }
+        ]
+      }
+      cleanMdastTree(tree)
+      // The inline code \_ should be preserved (LaTeX escape)
+      expect(tree.children![0].children![1].value).toBe('\\_')
+    })
+  })
+
+  describe('edge cases', () => {
+    it('should handle empty tree', () => {
+      const tree: TestNode = { type: 'root', children: [] }
+      cleanMdastTree(tree)
+      expect(tree.children).toEqual([])
+    })
+
+    it('should handle null/undefined gracefully', () => {
+      expect(() => cleanMdastTree(null)).not.toThrow()
+      expect(() => cleanMdastTree(undefined)).not.toThrow()
+    })
+
+    it('should handle nodes without children', () => {
+      const tree: TestNode = { type: 'root' }
+      expect(() => cleanMdastTree(tree)).not.toThrow()
+    })
+
+    it('should handle text node without value', () => {
+      const tree: TestNode = {
+        type: 'root',
+        children: [
+          { type: 'text' } // No value property
+        ]
+      }
+      expect(() => cleanMdastTree(tree)).not.toThrow()
     })
   })
 })

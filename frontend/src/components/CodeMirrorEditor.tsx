@@ -2,17 +2,19 @@
  * CodeMirror-based plain text editor.
  * Provides syntax highlighting and formatting shortcuts for markdown editing.
  *
- * This is the "Text" mode editor used by ContentEditor.
- * For rich markdown editing, see MilkdownEditor.
+ * This is the main editor used by ContentEditor.
+ * Includes optional "Reading" mode that shows read-only Milkdown preview.
  */
-import { useMemo, useRef, useCallback } from 'react'
+import { useMemo, useRef, useCallback, useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { keymap, EditorView } from '@codemirror/view'
+import { markdownStyleExtension } from '../utils/markdownStyleExtension'
 import type { KeyBinding } from '@codemirror/view'
 import { Prec } from '@codemirror/state'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
+import { MilkdownEditor } from './MilkdownEditor'
 import {
   ToolbarSeparator,
   BoldIcon,
@@ -31,6 +33,7 @@ import {
   JinjaIfTrimIcon,
 } from './editor/EditorToolbarIcons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
+import { wasEditorFocused } from '../utils/editorUtils'
 
 interface CodeMirrorEditorProps {
   /** Current content value */
@@ -45,6 +48,8 @@ interface CodeMirrorEditorProps {
   placeholder?: string
   /** Whether to wrap long lines */
   wrapText?: boolean
+  /** Called when wrap text preference changes */
+  onWrapTextChange?: (wrap: boolean) => void
   /** Remove padding to align text with other elements */
   noPadding?: boolean
   /** Whether to auto-focus on mount */
@@ -249,10 +254,9 @@ function createMarkdownKeyBindings(): KeyBinding[] {
 /**
  * Toolbar button for CodeMirror editor.
  *
- * Note: Unlike MilkdownEditor's ToolbarButton, this always executes the action
- * on mousedown. MilkdownEditor uses wasEditorFocused() guard because Safari
- * drops focus-within state before click events fire on toolbar buttons.
- * CodeMirror doesn't have this issue because its focus model is different.
+ * Uses wasEditorFocused() guard to prevent clicks on invisible buttons.
+ * When the toolbar is hidden (opacity-0), clicking where a button would be
+ * should just focus the editor and reveal the toolbar, not trigger the action.
  */
 interface ToolbarButtonProps {
   onClick: () => void
@@ -266,8 +270,13 @@ function ToolbarButton({ onClick, title, children }: ToolbarButtonProps): ReactN
       type="button"
       tabIndex={-1}
       onMouseDown={(e) => {
-        e.preventDefault() // Prevent focus loss
-        onClick()
+        if (wasEditorFocused(e.currentTarget)) {
+          // Editor was focused (toolbar visible) - execute action
+          e.preventDefault()
+          onClick()
+        }
+        // If editor wasn't focused, let the click naturally focus the editor
+        // which will reveal the toolbar (but won't execute the action)
       }}
       title={title}
       className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
@@ -293,6 +302,7 @@ export function CodeMirrorEditor({
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
   wrapText = false,
+  onWrapTextChange,
   noPadding = false,
   autoFocus = false,
   copyContent,
@@ -300,6 +310,70 @@ export function CodeMirrorEditor({
   onModalStateChange: _onModalStateChange, // eslint-disable-line @typescript-eslint/no-unused-vars
 }: CodeMirrorEditorProps): ReactNode {
   const editorRef = useRef<ReactCodeMirrorRef>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Reading mode state (local, not persisted)
+  const [readingMode, setReadingMode] = useState(false)
+
+  // Store scroll position when toggling modes to preserve reading position
+  const scrollPositionRef = useRef<number>(0)
+
+  // Toggle reading mode with scroll position preservation
+  const toggleReadingMode = useCallback((): void => {
+    if (!readingMode) {
+      // Switching TO reading mode - save scroll position
+      const scroller = containerRef.current?.querySelector('.cm-scroller')
+      if (scroller) {
+        scrollPositionRef.current = scroller.scrollTop
+      }
+    }
+    setReadingMode((prev) => !prev)
+  }, [readingMode])
+
+  // Restore scroll position when switching back from reading mode
+  useEffect(() => {
+    if (!readingMode && scrollPositionRef.current > 0) {
+      // Switching FROM reading mode - restore scroll position
+      // Use requestAnimationFrame to ensure CodeMirror has rendered
+      requestAnimationFrame(() => {
+        const scroller = containerRef.current?.querySelector('.cm-scroller')
+        if (scroller) {
+          scroller.scrollTop = scrollPositionRef.current
+        }
+      })
+    }
+  }, [readingMode])
+
+  // Derive effective reading mode - disabled editor can't be in reading mode
+  // This prevents user from being stuck in reading mode when disabled
+  const effectiveReadingMode = readingMode && !disabled
+
+  // Keyboard shortcuts for editor
+  // Uses capture phase to intercept before macOS converts to special character (Ω for Alt+Z)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      const isMod = e.metaKey || e.ctrlKey
+
+      // Cmd+Shift+M - toggle reading mode
+      if (isMod && e.shiftKey && e.code === 'KeyM') {
+        e.preventDefault()
+        e.stopPropagation()
+        toggleReadingMode()
+        return
+      }
+
+      // Option+Z (Alt+Z) - toggle word wrap (only when not in reading mode)
+      // Uses e.code which is independent of keyboard layout
+      if (e.altKey && e.code === 'KeyZ' && !effectiveReadingMode && onWrapTextChange) {
+        e.preventDefault()
+        e.stopPropagation()
+        onWrapTextChange(!wrapText)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
+  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange])
 
   // Get the EditorView from ref
   const getView = useCallback((): EditorView | undefined => {
@@ -321,7 +395,11 @@ export function CodeMirrorEditor({
   // Build extensions array with optional line wrapping and keybindings
   const extensions = useMemo(() => {
     const bindings = createMarkdownKeyBindings()
-    const exts = [markdown(), Prec.highest(keymap.of(bindings))]
+    const exts = [
+      markdown(),
+      Prec.highest(keymap.of(bindings)),
+      markdownStyleExtension,
+    ]
     if (wrapText) {
       exts.push(EditorView.lineWrapping)
     }
@@ -329,7 +407,7 @@ export function CodeMirrorEditor({
   }, [wrapText])
 
   return (
-    <div className={noPadding ? 'codemirror-no-padding' : ''}>
+    <div ref={containerRef} className={noPadding ? 'codemirror-no-padding' : ''}>
       {/* Toolbar - formatting buttons fade in on focus, copy button stays visible (doesn't fade) */}
       {!disabled && (
         <div className="flex items-center justify-between px-2 py-1.5 border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50 transition-colors">
@@ -399,28 +477,84 @@ export function CodeMirrorEditor({
             )}
           </div>
 
-          {/* Right: copy button - always visible */}
-          {copyContent !== undefined && (
-            <CopyToClipboardButton content={copyContent} title="Copy content" />
-          )}
+          {/* Right: Wrap (fades in), Reading and Copy (always visible) */}
+          <div className="flex items-center gap-2">
+            {/* Wrap toggle - fades in on focus, only shown when not in reading mode */}
+            {onWrapTextChange && !effectiveReadingMode && (
+              <button
+                type="button"
+                tabIndex={-1}
+                onMouseDown={(e) => {
+                  if (wasEditorFocused(e.currentTarget)) {
+                    e.preventDefault()
+                    onWrapTextChange(!wrapText)
+                  }
+                }}
+                title="Toggle word wrap (⌥Z)"
+                className={`text-xs px-2 py-0.5 rounded transition-all opacity-0 group-focus-within/editor:opacity-100 ${
+                  wrapText
+                    ? 'bg-gray-200 text-gray-700'
+                    : 'border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                Wrap
+              </button>
+            )}
+
+            {/* Reading mode toggle - always visible */}
+            <button
+              type="button"
+              tabIndex={-1}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                toggleReadingMode()
+              }}
+              title="Toggle reading mode (⌘⇧M)"
+              className={`text-xs px-2 py-0.5 rounded transition-all ${
+                effectiveReadingMode
+                  ? 'bg-gray-200 text-gray-700'
+                  : 'border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              Reading
+            </button>
+
+            {/* Copy button - always visible */}
+            {copyContent !== undefined && (
+              <CopyToClipboardButton content={copyContent} title="Copy content" />
+            )}
+          </div>
         </div>
       )}
-      <CodeMirror
-        ref={editorRef}
-        value={value}
-        onChange={onChange}
-        extensions={extensions}
-        minHeight={minHeight}
-        placeholder={placeholder}
-        editable={!disabled}
-        autoFocus={autoFocus}
-        basicSetup={{
-          lineNumbers: false,
-          foldGutter: false,
-          highlightActiveLine: true,
-        }}
-        className="text-sm"
-      />
+      {/* Show CodeMirror for editing, Milkdown for reading */}
+      {effectiveReadingMode ? (
+        <MilkdownEditor
+          value={value}
+          onChange={() => {}} // Read-only: ignore changes
+          disabled={false}
+          readOnly={true}
+          minHeight={minHeight}
+          placeholder={placeholder}
+          noPadding={noPadding}
+        />
+      ) : (
+        <CodeMirror
+          ref={editorRef}
+          value={value}
+          onChange={onChange}
+          extensions={extensions}
+          minHeight={minHeight}
+          placeholder={placeholder}
+          editable={!disabled}
+          autoFocus={autoFocus}
+          basicSetup={{
+            lineNumbers: false,
+            foldGutter: false,
+            highlightActiveLine: false,
+          }}
+          className="text-sm"
+        />
+      )}
     </div>
   )
 }

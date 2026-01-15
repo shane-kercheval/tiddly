@@ -11,25 +11,7 @@ import { Prompt } from './Prompt'
 import { createContentComponentTests } from './__tests__/createContentComponentTests'
 import type { Prompt as PromptType, TagCount } from '../types'
 
-// Mock MilkdownEditor - simulates the editor with a simple textarea
-vi.mock('./MilkdownEditor', () => ({
-  MilkdownEditor: ({ value, onChange, placeholder, disabled }: {
-    value: string
-    onChange: (value: string) => void
-    placeholder?: string
-    disabled?: boolean
-  }) => (
-    <textarea
-      data-testid="content-editor"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-    />
-  ),
-}))
-
-// Mock CodeMirrorEditor
+// Mock CodeMirrorEditor - now the default editor
 vi.mock('./CodeMirrorEditor', () => ({
   CodeMirrorEditor: ({ value, onChange, placeholder, disabled }: {
     value: string
@@ -38,7 +20,7 @@ vi.mock('./CodeMirrorEditor', () => ({
     disabled?: boolean
   }) => (
     <textarea
-      data-testid="content-editor-text"
+      data-testid="content-editor"
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}

@@ -7,12 +7,14 @@
  * - Backspace in empty code blocks
  */
 import { describe, it, expect } from 'vitest'
-import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
+import { EditorState, TextSelection, Plugin } from '@milkdown/kit/prose/state'
 import { Schema } from '@milkdown/kit/prose/model'
+import type { MarkType } from '@milkdown/kit/prose/model'
 import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
 import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
 import { setBlockType } from '@milkdown/kit/prose/commands'
 import { findCodeBlockNode, findLinkBoundaries, normalizeUrl } from '../utils/milkdownHelpers'
+import { createLinkExitOnSpacePlugin } from '../utils/linkExitOnSpacePlugin'
 import { EditorView } from '@milkdown/kit/prose/view'
 
 // Create a minimal schema for testing
@@ -32,8 +34,28 @@ const testSchema = new Schema({
       parseDOM: [{ tag: 'a[href]', getAttrs: (dom: unknown) => ({ href: (dom as HTMLElement).getAttribute('href') }) }],
       toDOM: (mark) => ['a', { href: mark.attrs.href }, 0],
     },
+    strong: {
+      parseDOM: [{ tag: 'strong' }, { tag: 'b' }],
+      toDOM: () => ['strong', 0],
+    },
   },
 })
+
+function hasMarkBeforePos(state: EditorState, pos: number, markType: MarkType): boolean {
+  const nodeBefore = state.doc.resolve(pos).nodeBefore
+  return !!(nodeBefore && nodeBefore.isText && markType.isInSet(nodeBefore.marks))
+}
+
+function createShiftPlugin(): Plugin {
+  return new Plugin({
+    appendTransaction: (transactions, _oldState, newState) => {
+      if (transactions.some((tr) => tr.getMeta('shifted'))) return
+      if (!transactions.some((tr) => tr.getMeta('shift'))) return
+
+      return newState.tr.insertText('x', 1).setMeta('shifted', true)
+    },
+  })
+}
 
 describe('MilkdownEditor Tab functionality', () => {
   describe('findCodeBlockNode helper', () => {
@@ -1058,6 +1080,226 @@ describe('MilkdownEditor link improvements', () => {
       expect(normalizeUrl('localhost:3000')).toBe('https://localhost:3000')
       expect(normalizeUrl('192.168.1.1')).toBe('https://192.168.1.1')
       expect(normalizeUrl('127.0.0.1:8080')).toBe('https://127.0.0.1:8080')
+    })
+  })
+
+  describe('link exit on space', () => {
+    it('test__linkExitOnSpace__removes_link_mark_when_space_typed_after_link', () => {
+      // Test that typing a space while inside a link context removes the link mark from the space
+      // when it's at the END of the link.
+      // Scenario: User is editing link text, types space at the end
+      // Document: "text [link](url)"
+      // The space gets the link mark because we're typing within the link context
+      // Plugin should remove it since it's at the end
+      const linkMark = testSchema.marks.link.create({ href: 'https://example.com' })
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('text '),
+          testSchema.text('link', [linkMark]),
+        ]),
+      ])
+
+      const state = EditorState.create({
+        doc,
+        schema: testSchema,
+        plugins: [createLinkExitOnSpacePlugin()],
+      })
+      // Position 10 is right after "link"
+      const stateWithSelection = state.apply(
+        state.tr
+          .setSelection(TextSelection.near(state.doc.resolve(10)))
+          .setStoredMarks([linkMark])
+      )
+
+      // Simulate typing a space while in link context (e.g., editing the link text).
+      const { state: stateAfterSpace } = stateWithSelection.applyTransaction(
+        stateWithSelection.tr.insertText(' ')
+      )
+
+      const posAfterSpace = stateAfterSpace.selection.from
+      const linkMarkType = testSchema.marks.link
+      expect(stateAfterSpace.doc.textBetween(posAfterSpace - 1, posAfterSpace)).toBe(' ')
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpace, linkMarkType)).toBeFalsy()
+    })
+
+    it('test__linkExitOnSpace__preserves_other_marks_like_bold', () => {
+      // Test that the plugin only removes the link mark, preserving other marks like bold
+      // Document: "text [**bold link**](url)"
+      // After typing space: "text [**bold link**](url) " (space is bold but not a link)
+      const linkMark = testSchema.marks.link.create({ href: 'https://example.com' })
+      const strongMark = testSchema.marks.strong.create()
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('text '),
+          testSchema.text('link', [linkMark, strongMark]),
+        ]),
+      ])
+
+      const state = EditorState.create({
+        doc,
+        schema: testSchema,
+        plugins: [createLinkExitOnSpacePlugin()],
+      })
+      const stateWithSelection = state.apply(
+        state.tr
+          .setSelection(TextSelection.near(state.doc.resolve(10)))
+          .setStoredMarks([linkMark, strongMark])
+      )
+
+      // Type a space - it inherits both link and strong marks
+      const { state: stateAfterSpace } = stateWithSelection.applyTransaction(
+        stateWithSelection.tr.insertText(' ')
+      )
+
+      const posAfterSpace = stateAfterSpace.selection.from
+      const linkMarkType = testSchema.marks.link
+      const strongMarkType = testSchema.marks.strong
+
+      // After plugin runs, the space should not have link mark but should keep strong mark
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpace, linkMarkType)).toBeFalsy()
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpace, strongMarkType)).toBeTruthy()
+    })
+
+    it('test__linkExitOnSpace__ignores_non_space_characters', () => {
+      // Test that the plugin only triggers on space, not other characters
+      // When typing letters within link context, they should keep the link mark
+      const linkMark = testSchema.marks.link.create({ href: 'https://example.com' })
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('text '),
+          testSchema.text('link', [linkMark]),
+        ]),
+      ])
+
+      const state = EditorState.create({
+        doc,
+        schema: testSchema,
+        plugins: [createLinkExitOnSpacePlugin()],
+      })
+      const stateWithSelection = state.apply(
+        state.tr
+          .setSelection(TextSelection.near(state.doc.resolve(10)))
+          .setStoredMarks([linkMark])
+      )
+
+      // Type a letter 'a' while in link context (e.g., extending the link text)
+      const { state: stateAfterChar } = stateWithSelection.applyTransaction(
+        stateWithSelection.tr.insertText('a')
+      )
+
+      // The 'a' should still have the link mark (plugin shouldn't remove it)
+      const posAfterChar = stateAfterChar.selection.from
+      const linkMarkType = testSchema.marks.link
+      expect(hasMarkBeforePos(stateAfterChar, posAfterChar, linkMarkType)).toBeTruthy()
+
+      // Verify the content is correct
+      const textContent = stateAfterChar.doc.textContent
+      expect(textContent).toBe('text linka')
+    })
+
+    it('test__linkExitOnSpace__handles_space_in_middle_of_link_text', () => {
+      // Test that typing a space in the middle of a link keeps the space as part of the link
+      // This is correct behavior - only spaces at the END should exit the link
+      const linkMark = testSchema.marks.link.create({ href: 'https://example.com' })
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('before '),
+          testSchema.text('link', [linkMark]),
+          testSchema.text(' after'),
+        ]),
+      ])
+
+      const state = EditorState.create({
+        doc,
+        schema: testSchema,
+        plugins: [createLinkExitOnSpacePlugin()],
+      })
+      // Position in middle of "link" (position 9 is between 'l' and 'i')
+      const stateWithSelection = state.apply(
+        state.tr
+          .setSelection(TextSelection.near(state.doc.resolve(9)))
+          .setStoredMarks([linkMark])
+      )
+
+      // Type a space in the middle of the link
+      const { state: stateAfterSpace } = stateWithSelection.applyTransaction(
+        stateWithSelection.tr.insertText(' ')
+      )
+
+      // The space in the middle should keep the link mark
+      // (plugin only removes link mark if space is typed at the END of link text)
+      const posAfterSpace = stateAfterSpace.selection.from
+      const linkMarkType = testSchema.marks.link
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpace, linkMarkType)).toBeTruthy()
+
+      // Verify content: "before l ink after"
+      const textContent = stateAfterSpace.doc.textContent
+      expect(textContent).toBe('before l ink after')
+    })
+
+    it('test__linkExitOnSpace__removes_link_marks_for_multiple_spaces_in_single_step', () => {
+      const linkMark = testSchema.marks.link.create({ href: 'https://example.com' })
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('text '),
+          testSchema.text('link', [linkMark]),
+        ]),
+      ])
+
+      const state = EditorState.create({
+        doc,
+        schema: testSchema,
+        plugins: [createLinkExitOnSpacePlugin()],
+      })
+      const stateWithSelection = state.apply(
+        state.tr
+          .setSelection(TextSelection.near(state.doc.resolve(10)))
+          .setStoredMarks([linkMark])
+      )
+
+      const { state: stateAfterSpace } = stateWithSelection.applyTransaction(
+        stateWithSelection.tr.insertText('  ')
+      )
+
+      const posAfterSpaces = stateAfterSpace.selection.from
+      const linkMarkType = testSchema.marks.link
+
+      expect(stateAfterSpace.doc.textBetween(posAfterSpaces - 2, posAfterSpaces)).toBe('  ')
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpaces, linkMarkType)).toBeFalsy()
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpaces - 1, linkMarkType)).toBeFalsy()
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpaces - 2, linkMarkType)).toBeTruthy()
+    })
+
+    it('test__linkExitOnSpace__maps_positions_across_multiple_transactions', () => {
+      const linkMark = testSchema.marks.link.create({ href: 'https://example.com' })
+      const doc = testSchema.node('doc', null, [
+        testSchema.node('paragraph', null, [
+          testSchema.text('text '),
+          testSchema.text('link', [linkMark]),
+        ]),
+      ])
+
+      const state = EditorState.create({
+        doc,
+        schema: testSchema,
+        plugins: [createShiftPlugin(), createLinkExitOnSpacePlugin()],
+      })
+      const stateWithSelection = state.apply(
+        state.tr
+          .setSelection(TextSelection.near(state.doc.resolve(10)))
+          .setStoredMarks([linkMark])
+      )
+
+      const { state: stateAfterSpace } = stateWithSelection.applyTransaction(
+        stateWithSelection.tr.insertText(' ').setMeta('shift', true)
+      )
+
+      const posAfterSpace = stateAfterSpace.selection.from
+      const linkMarkType = testSchema.marks.link
+
+      expect(stateAfterSpace.doc.textBetween(posAfterSpace - 1, posAfterSpace)).toBe(' ')
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpace, linkMarkType)).toBeFalsy()
+      expect(hasMarkBeforePos(stateAfterSpace, posAfterSpace - 1, linkMarkType)).toBeTruthy()
     })
   })
 })

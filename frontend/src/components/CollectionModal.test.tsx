@@ -2,7 +2,7 @@
  * Tests for CollectionModal component.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CollectionModal } from './CollectionModal'
 import type { ContentFilter, SidebarCollectionComputed } from '../types'
@@ -508,7 +508,7 @@ describe('CollectionModal', () => {
       await user.type(screen.getByLabelText('Collection Name'), 'Test')
 
       // Start the submit but don't wait for it
-      fireEvent.click(screen.getByRole('button', { name: 'Create Collection' }))
+      await user.click(screen.getByRole('button', { name: 'Create Collection' }))
 
       // Check the submitting state
       await waitFor(() => {
@@ -518,7 +518,9 @@ describe('CollectionModal', () => {
       expect(screen.getByLabelText('Collection Name')).toBeDisabled()
 
       // Resolve the promise to clean up
-      resolvePromise!()
+      await act(async () => {
+        resolvePromise!()
+      })
     })
   })
 

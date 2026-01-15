@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { ReactNode, FormEvent } from 'react'
-import { Editor, rootCtx, defaultValueCtx, editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
+import { Editor, rootCtx, defaultValueCtx, editorViewCtx, remarkStringifyOptionsCtx, editorViewOptionsCtx } from '@milkdown/kit/core'
 import {
   // Import individual parts instead of full commonmark to exclude remarkPreserveEmptyLinePlugin
   schema,
@@ -41,7 +41,7 @@ import {
   listItemSchema,
 } from '@milkdown/kit/preset/commonmark'
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
-import { callCommand, $remark, getMarkdown } from '@milkdown/kit/utils'
+import { callCommand, $remark } from '@milkdown/kit/utils'
 
 // Custom commonmark without remarkPreserveEmptyLinePlugin
 const customCommonmark = [
@@ -85,6 +85,25 @@ const remarkTightLists = $remark('remarkTightLists', () => () => (tree: unknown)
   setTightLists(tree)
 })
 
+/**
+ * Remark plugin to clean markdown text nodes.
+ * This is AST-aware and only cleans text nodes, preserving content in:
+ * - code blocks (fenced code)
+ * - inline code (backticks)
+ * - HTML blocks
+ *
+ * Transformations applied to text nodes:
+ * - \u00a0 (non-breaking space) → regular space
+ * - &nbsp; → regular space
+ * - &#x20; → regular space
+ * - \_ → _ (remove unnecessary escape)
+ * - \< → < (remove unnecessary escape)
+ * - \> → > (remove unnecessary escape)
+ */
+const remarkCleanMarkdown = $remark('remarkCleanMarkdown', () => () => (tree: unknown) => {
+  cleanMdastTree(tree)
+})
+
 import { gfm } from '@milkdown/kit/preset/gfm'
 import { history } from '@milkdown/kit/plugin/history'
 import { listener, listenerCtx } from '@milkdown/plugin-listener'
@@ -117,7 +136,8 @@ import {
   JinjaIfTrimIcon,
 } from './editor/EditorToolbarIcons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
-import { cleanMarkdown } from '../utils/cleanMarkdown'
+import { cleanMdastTree } from '../utils/cleanMarkdown'
+import { createLinkExitOnSpacePlugin } from '../utils/linkExitOnSpacePlugin'
 import { shouldHandleEmptySpaceClick, wasEditorFocused } from '../utils/editorUtils'
 import { findCodeBlockNode, findLinkBoundaries, normalizeUrl } from '../utils/milkdownHelpers'
 import type { Editor as EditorType } from '@milkdown/kit/core'
@@ -703,8 +723,10 @@ interface MilkdownEditorProps {
   value: string
   /** Called when content changes */
   onChange: (value: string) => void
-  /** Whether the editor is disabled */
+  /** Whether the editor is disabled (grayed out, no interaction) */
   disabled?: boolean
+  /** Whether the editor is read-only (no editing, but can select/click, not grayed out) */
+  readOnly?: boolean
   /** Minimum height for the editor */
   minHeight?: string
   /** Placeholder text shown when empty */
@@ -725,6 +747,7 @@ interface MilkdownEditorInnerProps {
   value: string
   onChange: (value: string) => void
   disabled?: boolean
+  readOnly?: boolean
   minHeight?: string
   placeholder?: string
   noPadding?: boolean
@@ -738,6 +761,7 @@ function MilkdownEditorInner({
   value,
   onChange,
   disabled = false,
+  readOnly = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
   noPadding = false,
@@ -749,6 +773,7 @@ function MilkdownEditorInner({
   const initialValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
   const autoFocusRef = useRef(autoFocus)
+  const readOnlyRef = useRef(readOnly)
 
   // Track if component is still mounted to prevent async operations on unmounted component
   // Must set true in setup for React StrictMode which runs: setup → cleanup → setup
@@ -762,6 +787,11 @@ function MilkdownEditorInner({
   useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
+
+  // Keep readOnly ref up to date
+  useEffect(() => {
+    readOnlyRef.current = readOnly
+  }, [readOnly])
 
   // Create placeholder plugin with Milkdown's $prose utility
   const placeholderPluginSlice = $prose(() => createPlaceholderPlugin(placeholder))
@@ -778,6 +808,9 @@ function MilkdownEditorInner({
 
   // Create link click plugin for Cmd+Click (Mac) or Ctrl+Click (Windows/Linux) to open links
   const linkClickPluginSlice = $prose(() => createLinkClickPlugin())
+
+  // Create link exit on space plugin to remove link mark when typing space after a link
+  const linkExitOnSpacePluginSlice = $prose(() => createLinkExitOnSpacePlugin())
 
   // Initialize the Milkdown editor.
   // Note: The empty dependency array is intentional. The editor is initialized once
@@ -815,25 +848,25 @@ function MilkdownEditorInner({
           ],
         }))
 
-        // Set up listener for changes
-        // Using 'updated' instead of 'markdownUpdated' to avoid errors during unmount.
-        // markdownUpdated fires during Milkdown's serialization which can error if
-        // the editor context is destroyed mid-process. With 'updated', we control
-        // when serialization happens and can skip it if unmounted.
-        // NOTE: This only works because we fixed isMountedRef for StrictMode above.
-        ctx.get(listenerCtx).updated((updatedCtx) => {
+        // Set up listener for document changes
+        // Using 'markdownUpdated' which only fires when the document actually changes,
+        // not on selection changes or cursor movements. This is more efficient than
+        // 'updated' + manual getMarkdown() since Milkdown handles serialization internally.
+        // The markdown is already cleaned by remarkCleanMarkdown plugin during serialization.
+        ctx.get(listenerCtx).markdownUpdated((_, markdown, prevMarkdown) => {
           if (!isMountedRef.current) return
-          try {
-            const markdown = getMarkdown()(updatedCtx)
-            const cleanedMarkdown = cleanMarkdown(markdown)
-            onChangeRef.current(cleanedMarkdown)
-          } catch (e) {
-            // Ignore errors during unmount (context destroyed)
-            if (isMountedRef.current) {
-              console.error('Milkdown serialization error:', e)
-            }
+          // Only call onChange if content actually changed (defensive check)
+          if (markdown !== prevMarkdown) {
+            onChangeRef.current(markdown)
           }
         })
+
+        // Configure read-only mode via ProseMirror's editable option
+        // Uses ref so we can update readOnly without reinitializing the editor
+        ctx.update(editorViewOptionsCtx, (prev) => ({
+          ...prev,
+          editable: () => !readOnlyRef.current,
+        }))
       })
       .use(customCommonmark)
       .use(gfm)
@@ -841,10 +874,12 @@ function MilkdownEditorInner({
       .use(clipboard)
       .use(listener)
       .use(remarkTightLists)
+      .use(remarkCleanMarkdown)
       .use(placeholderPluginSlice)
       .use(codeBlockCopyPluginSlice)
       .use(listKeymapPluginSlice)
-      .use(linkClickPluginSlice),
+      .use(linkClickPluginSlice)
+      .use(linkExitOnSpacePluginSlice),
     []
   )
 
@@ -1393,7 +1428,7 @@ function MilkdownEditorInner({
 
   return (
     <>
-      {!disabled && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onCodeBlockToggle={handleCodeBlockToggle} onBulletListClick={handleBulletListClick} onOrderedListClick={handleOrderedListClick} onTaskListClick={handleTaskListClick} showJinjaTools={showJinjaTools} copyContent={copyContent} />}
+      {!disabled && !readOnly && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onCodeBlockToggle={handleCodeBlockToggle} onBulletListClick={handleBulletListClick} onOrderedListClick={handleOrderedListClick} onTaskListClick={handleTaskListClick} showJinjaTools={showJinjaTools} copyContent={copyContent} />}
       <div
         className={`milkdown-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''} ${noPadding ? 'no-padding' : ''}`}
         style={{ minHeight }}
@@ -1431,6 +1466,7 @@ export function MilkdownEditor({
   value,
   onChange,
   disabled = false,
+  readOnly = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
   noPadding = false,
@@ -1445,6 +1481,7 @@ export function MilkdownEditor({
         value={value}
         onChange={onChange}
         disabled={disabled}
+        readOnly={readOnly}
         minHeight={minHeight}
         placeholder={placeholder}
         noPadding={noPadding}

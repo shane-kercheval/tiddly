@@ -29,7 +29,6 @@ import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
 import { config } from '../config'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
-import { cleanMarkdown } from '../utils/cleanMarkdown'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -169,14 +168,13 @@ export function Prompt({
   }
 
   // Initialize state from prompt or defaults
-  // Clean content on initialization to match what Milkdown will output, preventing false dirty state
   const getInitialState = (): PromptState => {
     const archiveState = getInitialArchiveState()
     return {
       name: prompt?.name ?? '',
       title: prompt?.title ?? '',
       description: prompt?.description ?? '',
-      content: cleanMarkdown(prompt?.content ?? (isCreate ? DEFAULT_PROMPT_CONTENT : '')),
+      content: prompt?.content ?? (isCreate ? DEFAULT_PROMPT_CONTENT : ''),
       arguments: prompt?.arguments ?? [],
       tags: prompt?.tags ?? initialTags ?? [],
       archivedAt: archiveState.archivedAt,
