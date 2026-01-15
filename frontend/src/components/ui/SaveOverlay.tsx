@@ -1,7 +1,7 @@
 /**
  * SaveOverlay - Page-level overlay shown during save operations.
  *
- * Displays a centered spinner with blur backdrop over the main content area,
+ * Displays a centered spinner with semi-transparent backdrop over the main content area,
  * ensuring the user sees saving feedback regardless of scroll position.
  * Uses a portal to render into the main content container for full coverage.
  * Falls back to inline rendering if the portal target doesn't exist (e.g., in tests).

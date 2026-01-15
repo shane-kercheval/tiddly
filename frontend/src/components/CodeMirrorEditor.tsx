@@ -524,9 +524,9 @@ export function CodeMirrorEditor({
             Reading
           </button>
 
-          {/* Copy button - always visible */}
+          {/* Copy button - always visible but disabled when editor is disabled */}
           {copyContent !== undefined && (
-            <CopyToClipboardButton content={copyContent} title="Copy content" />
+            <CopyToClipboardButton content={copyContent} title="Copy content" disabled={disabled} />
           )}
         </div>
       </div>
