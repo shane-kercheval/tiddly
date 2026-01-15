@@ -20,7 +20,7 @@
  * - Wrap text preference persisted to localStorage
  * - All formatting shortcuts work via toolbar and keyboard
  */
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import type { ReactNode } from 'react'
 // MilkdownEditor now used inside CodeMirrorEditor for reading mode
 // import { MilkdownEditor } from './MilkdownEditor'
@@ -151,31 +151,8 @@ export function ContentEditor({
     saveWrapTextPreference(wrap)
   }, [])
 
-  // Global keyboard handlers for editor shortcuts
-  // Uses capture phase to intercept before macOS converts to special character (Ω for Alt+Z)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent): void => {
-      // Mode toggle commented out - now handled in toolbar
-      // const isMod = e.metaKey || e.ctrlKey
-      // if (isMod && e.shiftKey && e.code === 'KeyM') {
-      //   e.preventDefault()
-      //   e.stopPropagation()
-      //   handleModeChange(mode === 'markdown' ? 'text' : 'markdown')
-      //   return
-      // }
-
-      // Alt+Z (Option+Z on Mac) - toggle word wrap
-      // Use e.code which is independent of keyboard layout and modifier combinations
-      if (e.altKey && e.code === 'KeyZ') {
-        e.preventDefault()
-        e.stopPropagation()
-        handleWrapTextChange(!wrapText)
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown, true)
-    return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [wrapText, handleWrapTextChange])
+  // Note: Option+Z (wrap toggle) handler moved to CodeMirrorEditor
+  // where it can check readingMode state
 
   // Compute container border classes based on props
   // Three modes: no border, solid border, or subtle ring on focus

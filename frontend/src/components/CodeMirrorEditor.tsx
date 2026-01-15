@@ -344,20 +344,36 @@ export function CodeMirrorEditor({
     }
   }, [readingMode])
 
-  // Keyboard shortcut: Cmd+Shift+M to toggle reading mode
+  // Derive effective reading mode - disabled editor can't be in reading mode
+  // This prevents user from being stuck in reading mode when disabled
+  const effectiveReadingMode = readingMode && !disabled
+
+  // Keyboard shortcuts for editor
+  // Uses capture phase to intercept before macOS converts to special character (Ω for Alt+Z)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
       const isMod = e.metaKey || e.ctrlKey
+
+      // Cmd+Shift+M - toggle reading mode
       if (isMod && e.shiftKey && e.code === 'KeyM') {
         e.preventDefault()
         e.stopPropagation()
         toggleReadingMode()
+        return
+      }
+
+      // Option+Z (Alt+Z) - toggle word wrap (only when not in reading mode)
+      // Uses e.code which is independent of keyboard layout
+      if (e.altKey && e.code === 'KeyZ' && !effectiveReadingMode && onWrapTextChange) {
+        e.preventDefault()
+        e.stopPropagation()
+        onWrapTextChange(!wrapText)
       }
     }
 
     document.addEventListener('keydown', handleKeyDown, true)
     return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [toggleReadingMode])
+  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange])
 
   // Get the EditorView from ref
   const getView = useCallback((): EditorView | undefined => {
@@ -464,7 +480,7 @@ export function CodeMirrorEditor({
           {/* Right: Wrap (fades in), Reading and Copy (always visible) */}
           <div className="flex items-center gap-2">
             {/* Wrap toggle - fades in on focus, only shown when not in reading mode */}
-            {onWrapTextChange && !readingMode && (
+            {onWrapTextChange && !effectiveReadingMode && (
               <button
                 type="button"
                 tabIndex={-1}
@@ -495,7 +511,7 @@ export function CodeMirrorEditor({
               }}
               title="Toggle reading mode (⌘⇧M)"
               className={`text-xs px-2 py-0.5 rounded transition-all ${
-                readingMode
+                effectiveReadingMode
                   ? 'bg-gray-200 text-gray-700'
                   : 'border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-100'
               }`}
@@ -511,7 +527,7 @@ export function CodeMirrorEditor({
         </div>
       )}
       {/* Show CodeMirror for editing, Milkdown for reading */}
-      {readingMode ? (
+      {effectiveReadingMode ? (
         <MilkdownEditor
           value={value}
           onChange={() => {}} // Read-only: ignore changes
