@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { ReactNode, FormEvent } from 'react'
-import { Editor, rootCtx, defaultValueCtx, editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core'
+import { Editor, rootCtx, defaultValueCtx, editorViewCtx, remarkStringifyOptionsCtx, editorViewOptionsCtx } from '@milkdown/kit/core'
 import {
   // Import individual parts instead of full commonmark to exclude remarkPreserveEmptyLinePlugin
   schema,
@@ -723,8 +723,10 @@ interface MilkdownEditorProps {
   value: string
   /** Called when content changes */
   onChange: (value: string) => void
-  /** Whether the editor is disabled */
+  /** Whether the editor is disabled (grayed out, no interaction) */
   disabled?: boolean
+  /** Whether the editor is read-only (no editing, but can select/click, not grayed out) */
+  readOnly?: boolean
   /** Minimum height for the editor */
   minHeight?: string
   /** Placeholder text shown when empty */
@@ -745,6 +747,7 @@ interface MilkdownEditorInnerProps {
   value: string
   onChange: (value: string) => void
   disabled?: boolean
+  readOnly?: boolean
   minHeight?: string
   placeholder?: string
   noPadding?: boolean
@@ -758,6 +761,7 @@ function MilkdownEditorInner({
   value,
   onChange,
   disabled = false,
+  readOnly = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
   noPadding = false,
@@ -769,6 +773,7 @@ function MilkdownEditorInner({
   const initialValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
   const autoFocusRef = useRef(autoFocus)
+  const readOnlyRef = useRef(readOnly)
 
   // Track if component is still mounted to prevent async operations on unmounted component
   // Must set true in setup for React StrictMode which runs: setup → cleanup → setup
@@ -782,6 +787,11 @@ function MilkdownEditorInner({
   useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
+
+  // Keep readOnly ref up to date
+  useEffect(() => {
+    readOnlyRef.current = readOnly
+  }, [readOnly])
 
   // Create placeholder plugin with Milkdown's $prose utility
   const placeholderPluginSlice = $prose(() => createPlaceholderPlugin(placeholder))
@@ -850,6 +860,13 @@ function MilkdownEditorInner({
             onChangeRef.current(markdown)
           }
         })
+
+        // Configure read-only mode via ProseMirror's editable option
+        // Uses ref so we can update readOnly without reinitializing the editor
+        ctx.update(editorViewOptionsCtx, (prev) => ({
+          ...prev,
+          editable: () => !readOnlyRef.current,
+        }))
       })
       .use(customCommonmark)
       .use(gfm)
@@ -1411,7 +1428,7 @@ function MilkdownEditorInner({
 
   return (
     <>
-      {!disabled && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onCodeBlockToggle={handleCodeBlockToggle} onBulletListClick={handleBulletListClick} onOrderedListClick={handleOrderedListClick} onTaskListClick={handleTaskListClick} showJinjaTools={showJinjaTools} copyContent={copyContent} />}
+      {!disabled && !readOnly && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onCodeBlockToggle={handleCodeBlockToggle} onBulletListClick={handleBulletListClick} onOrderedListClick={handleOrderedListClick} onTaskListClick={handleTaskListClick} showJinjaTools={showJinjaTools} copyContent={copyContent} />}
       <div
         className={`milkdown-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''} ${noPadding ? 'no-padding' : ''}`}
         style={{ minHeight }}
@@ -1449,6 +1466,7 @@ export function MilkdownEditor({
   value,
   onChange,
   disabled = false,
+  readOnly = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
   noPadding = false,
@@ -1463,6 +1481,7 @@ export function MilkdownEditor({
         value={value}
         onChange={onChange}
         disabled={disabled}
+        readOnly={readOnly}
         minHeight={minHeight}
         placeholder={placeholder}
         noPadding={noPadding}

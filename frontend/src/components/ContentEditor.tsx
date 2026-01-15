@@ -1,60 +1,43 @@
 /**
- * Unified content editor with Markdown/Text mode toggle.
+ * Content editor wrapper component.
  *
- * Wraps MilkdownEditor (Markdown mode) and CodeMirrorEditor (Text mode)
- * with a mode toggle that persists to localStorage.
+ * ARCHITECTURE NOTE (Jan 2026):
+ * Previously supported a Markdown/Text mode toggle where:
+ * - Markdown mode used MilkdownEditor (rich editing with inline rendering)
+ * - Text mode used CodeMirrorEditor (raw markdown with syntax highlighting)
  *
- * Features:
- * - Markdown mode: Rich editing with Milkdown (renders markdown inline)
- * - Text mode: Raw markdown editing with CodeMirror
- * - Mode preference persisted to localStorage
- * - Undo history cleared on mode switch (via key prop)
- * - All formatting shortcuts work in both modes
+ * MilkdownEditor caused various issues (AST normalization, cursor behavior,
+ * formatting edge cases) so we've simplified to always use CodeMirrorEditor
+ * with custom visual markdown styling. MilkdownEditor is now only used as a
+ * read-only preview (via "Reading" toggle in toolbar).
+ *
+ * The commented-out mode toggle code is preserved for potential future
+ * revisiting once Milkdown matures or if we find better solutions.
+ *
+ * Current features:
+ * - CodeMirror-based editing with visual markdown styling
+ * - "Reading" mode toggle for rendered preview (uses MilkdownEditor read-only)
+ * - Wrap text preference persisted to localStorage
+ * - All formatting shortcuts work via toolbar and keyboard
  */
 import { useState, useCallback, useEffect } from 'react'
 import type { ReactNode } from 'react'
-import { MilkdownEditor } from './MilkdownEditor'
+// MilkdownEditor now used inside CodeMirrorEditor for reading mode
+// import { MilkdownEditor } from './MilkdownEditor'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
-import { wasEditorFocused } from '../utils/editorUtils'
+// wasEditorFocused no longer needed - mode toggle commented out
+// import { wasEditorFocused } from '../utils/editorUtils'
 
 /** Editor mode: 'markdown' for rich editing, 'text' for raw markdown */
 export type EditorMode = 'markdown' | 'text'
 
-/** localStorage key for mode preference */
-const EDITOR_MODE_KEY = 'editor_mode_preference'
+// Mode preference functions commented out - mode toggle disabled
+// const EDITOR_MODE_KEY = 'editor_mode_preference'
+// function loadModePreference(): EditorMode { ... }
+// function saveModePreference(mode: EditorMode): void { ... }
 
 /** localStorage key for wrap text preference */
 const WRAP_TEXT_KEY = 'editor_wrap_text'
-
-/**
- * Load editor mode preference from localStorage.
- * Defaults to 'markdown' if not set.
- * Migrates legacy 'visual' value to 'markdown'.
- */
-function loadModePreference(): EditorMode {
-  try {
-    const stored = localStorage.getItem(EDITOR_MODE_KEY)
-    // Migrate legacy values
-    if (stored === 'visual') return 'markdown'
-    if (stored === 'markdown' || stored === 'text') {
-      return stored
-    }
-  } catch {
-    // Ignore storage errors
-  }
-  return 'markdown'
-}
-
-/**
- * Save editor mode preference to localStorage.
- */
-function saveModePreference(mode: EditorMode): void {
-  try {
-    localStorage.setItem(EDITOR_MODE_KEY, mode)
-  } catch {
-    // Ignore storage errors
-  }
-}
 
 /**
  * Load wrap text preference from localStorage.
@@ -142,34 +125,25 @@ export function ContentEditor({
   showJinjaTools = false,
   onModalStateChange,
 }: ContentEditorProps): ReactNode {
-  // Mode state with localStorage persistence
-  const [mode, setMode] = useState<EditorMode>(loadModePreference)
+  // Mode state commented out - now always using CodeMirror
+  // const [mode, setMode] = useState<EditorMode>(loadModePreference)
+  // const [modeKey, setModeKey] = useState(0)
+  // const [shouldAutoFocus, setShouldAutoFocus] = useState(false)
+  // const handleModeChange = useCallback((newMode: EditorMode): void => {
+  //   setMode(newMode)
+  //   saveModePreference(newMode)
+  //   setModeKey((prev) => prev + 1)
+  //   setShouldAutoFocus(true)
+  // }, [])
+  // useEffect(() => {
+  //   if (shouldAutoFocus) {
+  //     const timer = setTimeout(() => setShouldAutoFocus(false), 50)
+  //     return () => clearTimeout(timer)
+  //   }
+  // }, [shouldAutoFocus])
 
-  // Track mode switches to force remount and clear undo history
-  const [modeKey, setModeKey] = useState(0)
-
-  // Track if we should auto-focus the editor (after mode switch)
-  const [shouldAutoFocus, setShouldAutoFocus] = useState(false)
-
-  // Wrap text preference (only applies to Text mode)
+  // Wrap text preference
   const [wrapText, setWrapText] = useState(loadWrapTextPreference)
-
-  // Handle mode change
-  const handleModeChange = useCallback((newMode: EditorMode): void => {
-    setMode(newMode)
-    saveModePreference(newMode)
-    setModeKey((prev) => prev + 1) // Force remount to clear undo history
-    setShouldAutoFocus(true) // Auto-focus the new editor
-  }, [])
-
-  // Reset shouldAutoFocus after editor mounts to prevent re-focusing on every render
-  useEffect(() => {
-    if (shouldAutoFocus) {
-      // Small delay to ensure focus has been applied
-      const timer = setTimeout(() => setShouldAutoFocus(false), 50)
-      return () => clearTimeout(timer)
-    }
-  }, [shouldAutoFocus])
 
   // Handle wrap text change
   const handleWrapTextChange = useCallback((wrap: boolean): void => {
@@ -181,19 +155,18 @@ export function ContentEditor({
   // Uses capture phase to intercept before macOS converts to special character (Ω for Alt+Z)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
-      const isMod = e.metaKey || e.ctrlKey
+      // Mode toggle commented out - now handled in toolbar
+      // const isMod = e.metaKey || e.ctrlKey
+      // if (isMod && e.shiftKey && e.code === 'KeyM') {
+      //   e.preventDefault()
+      //   e.stopPropagation()
+      //   handleModeChange(mode === 'markdown' ? 'text' : 'markdown')
+      //   return
+      // }
 
-      // Cmd+Shift+M - Toggle between Markdown and Text modes
-      if (isMod && e.shiftKey && e.code === 'KeyM') {
-        e.preventDefault()
-        e.stopPropagation()
-        handleModeChange(mode === 'markdown' ? 'text' : 'markdown')
-        return
-      }
-
-      // Alt+Z (Option+Z on Mac) - toggle word wrap (only in Text mode)
+      // Alt+Z (Option+Z on Mac) - toggle word wrap
       // Use e.code which is independent of keyboard layout and modifier combinations
-      if (mode === 'text' && e.altKey && e.code === 'KeyZ') {
+      if (e.altKey && e.code === 'KeyZ') {
         e.preventDefault()
         e.stopPropagation()
         handleWrapTextChange(!wrapText)
@@ -202,7 +175,7 @@ export function ContentEditor({
 
     document.addEventListener('keydown', handleKeyDown, true)
     return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [mode, wrapText, handleWrapTextChange, handleModeChange])
+  }, [wrapText, handleWrapTextChange])
 
   // Compute container border classes based on props
   // Three modes: no border, solid border, or subtle ring on focus
@@ -222,11 +195,8 @@ export function ContentEditor({
     return `border ${borderColor}`
   }
 
-  // Default helper text based on mode
-  const defaultHelperText =
-    mode === 'markdown'
-      ? 'Press ⌘/ to view keyboard shortcuts'
-      : 'Text mode: Supports **bold**, *italic*, `code`, [links](url), lists, tables'
+  // Default helper text
+  const defaultHelperText = 'Supports **bold**, *italic*, `code`, [links](url), lists. Press ⌘/ for shortcuts'
 
   return (
     <div className="group/editor">
@@ -243,8 +213,8 @@ export function ContentEditor({
             editorElement?.focus()
           }}
         >
-          {/* Wrap text toggle (only in Text mode) */}
-          {mode === 'text' && (
+          {/* Mode toggle commented out - now using CodeMirror with Reading mode toggle in toolbar */}
+          {/* {mode === 'text' && (
             <label
               className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer mr-2"
               title="Toggle word wrap (⌥Z)"
@@ -259,9 +229,6 @@ export function ContentEditor({
               Wrap
             </label>
           )}
-
-          {/* Mode toggle - uses onMouseDown to fire before Safari drops focus-within */}
-          {/* Only executes if editor was already focused (controls were visible) */}
           <div className="inline-flex rounded-md bg-gray-100 p-0.5" title="Toggle mode (⌘⇧M)">
             <button
               type="button"
@@ -297,45 +264,28 @@ export function ContentEditor({
             >
               Text
             </button>
-          </div>
+          </div> */}
         </div>
       </div>
 
       {/* Top divider - hidden when focused since ring takes over */}
       <div className="h-0.5 bg-gray-100 mx-2 group-focus-within/editor:opacity-0 transition-opacity" />
 
-      {/* Editor container */}
+      {/* Editor container - always CodeMirror with Reading/Wrap toggles in toolbar */}
       <div className={`overflow-hidden rounded-lg transition-shadow ${getContainerBorderClasses()}`}>
-        {mode === 'markdown' ? (
-          <MilkdownEditor
-            key={`milkdown-${modeKey}`}
-            value={value}
-            onChange={onChange}
-            disabled={disabled}
-            minHeight={minHeight}
-            placeholder={placeholder}
-            noPadding={subtleBorder || !showBorder}
-            showJinjaTools={showJinjaTools}
-            autoFocus={shouldAutoFocus}
-            copyContent={value}
-            onModalStateChange={onModalStateChange}
-          />
-        ) : (
-          <CodeMirrorEditor
-            key={`codemirror-${modeKey}`}
-            value={value}
-            onChange={onChange}
-            disabled={disabled}
-            minHeight={minHeight}
-            placeholder={placeholder}
-            wrapText={wrapText}
-            noPadding={subtleBorder || !showBorder}
-            autoFocus={shouldAutoFocus}
-            copyContent={value}
-            showJinjaTools={showJinjaTools}
-            onModalStateChange={onModalStateChange}
-          />
-        )}
+        <CodeMirrorEditor
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+          minHeight={minHeight}
+          placeholder={placeholder}
+          wrapText={wrapText}
+          onWrapTextChange={handleWrapTextChange}
+          noPadding={subtleBorder || !showBorder}
+          copyContent={value}
+          showJinjaTools={showJinjaTools}
+          onModalStateChange={onModalStateChange}
+        />
       </div>
 
       {/* Footer with helper text and character count - hidden until focused, but always visible when error */}
