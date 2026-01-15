@@ -168,6 +168,68 @@ export function getUrlWithoutProtocol(url: string): string {
   return url.replace(/^https?:\/\//, '').replace(/^www\./, '')
 }
 
+/**
+ * Google product favicon URLs.
+ * These are the official favicon URLs hosted by Google.
+ * If these break, the integration tests will catch it.
+ */
+export const GOOGLE_FAVICON_URLS = {
+  docs: 'https://ssl.gstatic.com/docs/documents/images/kix-favicon7.ico',
+  sheets: 'https://ssl.gstatic.com/docs/spreadsheets/favicon3.ico',
+  slides: 'https://ssl.gstatic.com/docs/presentations/images/favicon5.ico',
+  gmail: 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico',
+} as const
+
+export type GoogleProduct = keyof typeof GOOGLE_FAVICON_URLS
+
+/**
+ * Detect Google product from URL and return the appropriate favicon URL.
+ * Returns null if the URL is not a recognized Google product.
+ *
+ * @param url - The bookmark URL to check
+ * @returns The Google product favicon URL, or null if not a Google product
+ *
+ * @example
+ * getGoogleFaviconUrl('https://docs.google.com/document/d/123/edit')
+ * // => 'https://ssl.gstatic.com/docs/documents/images/kix-favicon7.ico'
+ *
+ * getGoogleFaviconUrl('https://github.com')
+ * // => null
+ */
+export function getGoogleFaviconUrl(url: string): string | null {
+  try {
+    const urlObj = new URL(url)
+    const hostname = urlObj.hostname
+    const pathname = urlObj.pathname
+
+    // Google Docs: docs.google.com/document/...
+    if (hostname === 'docs.google.com' && pathname.startsWith('/document')) {
+      return GOOGLE_FAVICON_URLS.docs
+    }
+
+    // Google Sheets: docs.google.com/spreadsheets/...
+    if (hostname === 'docs.google.com' && pathname.startsWith('/spreadsheets')) {
+      return GOOGLE_FAVICON_URLS.sheets
+    }
+
+    // Google Slides: docs.google.com/presentation/...
+    if (hostname === 'docs.google.com' && pathname.startsWith('/presentation')) {
+      return GOOGLE_FAVICON_URLS.slides
+    }
+
+    // Gmail: mail.google.com/...
+    if (hostname === 'mail.google.com') {
+      return GOOGLE_FAVICON_URLS.gmail
+    }
+
+    // Not a recognized Google product
+    return null
+  } catch {
+    // Invalid URL
+    return null
+  }
+}
+
 // ============================================================================
 // Tag Utilities
 // ============================================================================

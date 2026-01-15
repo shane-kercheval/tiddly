@@ -5,9 +5,10 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { BookmarkListItem } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
-import { formatDate, truncate, getDomain, getUrlWithoutProtocol } from '../utils'
+import { formatDate, truncate, getDomain, getUrlWithoutProtocol, getGoogleFaviconUrl } from '../utils'
 import { ConfirmDeleteButton } from './ui'
 import {
+  BookmarkIcon,
   CopyIcon,
   CheckIcon,
   EditIcon,
@@ -16,12 +17,19 @@ import {
   TrashIcon,
   CloseIcon,
 } from './icons'
+import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { Tag } from './Tag'
 
 interface BookmarkCardProps {
   bookmark: BookmarkListItem
   view?: 'active' | 'archived' | 'deleted'
   sortBy?: SortByOption
+  /**
+   * Whether to show the bookmark content type icon on the left.
+   * When true (default): [BookmarkIcon] [Title] [Favicon] [URL]
+   * When false: [Favicon] [Title] [URL] (used in bookmarks-only views)
+   */
+  showContentTypeIcon?: boolean
   onEdit?: (bookmark: BookmarkListItem) => void
   onDelete: (bookmark: BookmarkListItem) => void
   onArchive?: (bookmark: BookmarkListItem) => void
@@ -52,6 +60,7 @@ export function BookmarkCard({
   bookmark,
   view = 'active',
   sortBy = 'created_at',
+  showContentTypeIcon = true,
   onEdit,
   onDelete,
   onArchive,
@@ -67,7 +76,8 @@ export function BookmarkCard({
   const displayTitle = bookmark.title || getDomain(bookmark.url)
   const urlDisplay = getUrlWithoutProtocol(bookmark.url)
   const domain = getDomain(bookmark.url)
-  const faviconUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`
+  // Use Google product-specific favicon if available, otherwise fall back to DuckDuckGo
+  const faviconUrl = getGoogleFaviconUrl(bookmark.url) ?? `https://icons.duckduckgo.com/ip3/${domain}.ico`
   const defaultFavicon = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%239CA3AF" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`
 
   // Dynamic date display based on current sort option
@@ -124,6 +134,27 @@ export function BookmarkCard({
     }
   }
 
+  // Render favicon with link to URL
+  const renderFavicon = (): ReactNode => (
+    <a
+      href={bookmark.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={handleLinkClick}
+      className="shrink-0"
+    >
+      <img
+        src={faviconUrl}
+        alt=""
+        className="w-4 h-4"
+        loading="lazy"
+        onError={(e) => {
+          e.currentTarget.src = defaultFavicon
+        }}
+      />
+    </a>
+  )
+
   return (
     <div
       className="card card-interactive group cursor-pointer"
@@ -134,23 +165,14 @@ export function BookmarkCard({
         <div className="min-w-0 flex-1 overflow-hidden">
           {/* Title row */}
           <div className="flex items-center gap-2 md:flex-wrap">
-            <a
-              href={bookmark.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={handleLinkClick}
-              className="shrink-0"
-            >
-              <img
-                src={faviconUrl}
-                alt=""
-                className="w-4 h-4"
-                loading="lazy"
-                onError={(e) => {
-                  e.currentTarget.src = defaultFavicon
-                }}
-              />
-            </a>
+            {/* Left icon: BookmarkIcon in multi-content view, Favicon in bookmarks-only view */}
+            {showContentTypeIcon ? (
+              <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.bookmark}`}>
+                <BookmarkIcon className="w-4 h-4" />
+              </span>
+            ) : (
+              renderFavicon()
+            )}
             <a
               href={bookmark.url}
               target="_blank"
@@ -161,6 +183,8 @@ export function BookmarkCard({
             >
               {truncate(displayTitle, 60)}
             </a>
+            {/* Favicon between title and URL - only in multi-content view */}
+            {showContentTypeIcon && renderFavicon()}
             {/* URL inline on desktop */}
             {hasTitle && (
               <a

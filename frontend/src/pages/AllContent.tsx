@@ -148,6 +148,10 @@ export function AllContent(): ReactNode {
     ? getSelectedTypes(contentTypeFilterKey, availableContentTypes)
     : undefined
 
+  // Determine if we're showing bookmarks only (hide content type icon in favor of favicon)
+  const effectiveContentTypes = selectedContentTypes ?? availableContentTypes
+  const isBookmarksOnly = effectiveContentTypes.length === 1 && effectiveContentTypes[0] === 'bookmark'
+
   // Per-view sort
   const viewKey = useMemo(() => getViewKey(currentView, currentFilterId), [currentView, currentFilterId])
   const filterDefault = useMemo(
@@ -691,6 +695,7 @@ export function AllContent(): ReactNode {
                   bookmark={toBookmarkListItem(item)}
                   view={currentView}
                   sortBy={sortBy}
+                  showContentTypeIcon={!isBookmarksOnly}
                   onEdit={currentView !== 'deleted' ? handleEditClick : undefined}
                   onDelete={handleDeleteBookmark}
                   onArchive={currentView === 'active' ? handleArchiveBookmark : undefined}

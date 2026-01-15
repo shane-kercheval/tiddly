@@ -6,6 +6,8 @@ import {
   normalizeUrl,
   isValidUrl,
   getDomain,
+  getGoogleFaviconUrl,
+  GOOGLE_FAVICON_URLS,
   validateTag,
   normalizeTag,
   getFirstGroupTags,
@@ -211,6 +213,100 @@ describe('getDomain', () => {
 
   it('should preserve port numbers', () => {
     expect(getDomain('https://example.com:8080')).toBe('example.com:8080')
+  })
+})
+
+describe('getGoogleFaviconUrl', () => {
+  describe('Google Docs', () => {
+    it('test__getGoogleFaviconUrl__returns_docs_favicon_for_document_urls', () => {
+      expect(getGoogleFaviconUrl('https://docs.google.com/document/d/abc123/edit'))
+        .toBe(GOOGLE_FAVICON_URLS.docs)
+    })
+
+    it('test__getGoogleFaviconUrl__handles_docs_with_various_paths', () => {
+      expect(getGoogleFaviconUrl('https://docs.google.com/document/d/abc123'))
+        .toBe(GOOGLE_FAVICON_URLS.docs)
+      expect(getGoogleFaviconUrl('https://docs.google.com/document/u/0/d/abc123/edit'))
+        .toBe(GOOGLE_FAVICON_URLS.docs)
+      expect(getGoogleFaviconUrl('https://docs.google.com/document/d/abc123/edit?usp=sharing'))
+        .toBe(GOOGLE_FAVICON_URLS.docs)
+    })
+  })
+
+  describe('Google Sheets', () => {
+    it('test__getGoogleFaviconUrl__returns_sheets_favicon_for_spreadsheets_urls', () => {
+      expect(getGoogleFaviconUrl('https://docs.google.com/spreadsheets/d/abc123/edit'))
+        .toBe(GOOGLE_FAVICON_URLS.sheets)
+    })
+
+    it('test__getGoogleFaviconUrl__handles_sheets_with_various_paths', () => {
+      expect(getGoogleFaviconUrl('https://docs.google.com/spreadsheets/d/abc123'))
+        .toBe(GOOGLE_FAVICON_URLS.sheets)
+      expect(getGoogleFaviconUrl('https://docs.google.com/spreadsheets/u/0/d/abc123/edit'))
+        .toBe(GOOGLE_FAVICON_URLS.sheets)
+      expect(getGoogleFaviconUrl('https://docs.google.com/spreadsheets/d/abc123/edit#gid=0'))
+        .toBe(GOOGLE_FAVICON_URLS.sheets)
+    })
+  })
+
+  describe('Google Slides', () => {
+    it('test__getGoogleFaviconUrl__returns_slides_favicon_for_presentation_urls', () => {
+      expect(getGoogleFaviconUrl('https://docs.google.com/presentation/d/abc123/edit'))
+        .toBe(GOOGLE_FAVICON_URLS.slides)
+    })
+
+    it('test__getGoogleFaviconUrl__handles_slides_with_various_paths', () => {
+      expect(getGoogleFaviconUrl('https://docs.google.com/presentation/d/abc123'))
+        .toBe(GOOGLE_FAVICON_URLS.slides)
+      expect(getGoogleFaviconUrl('https://docs.google.com/presentation/u/0/d/abc123/edit'))
+        .toBe(GOOGLE_FAVICON_URLS.slides)
+      expect(getGoogleFaviconUrl('https://docs.google.com/presentation/d/abc123/present'))
+        .toBe(GOOGLE_FAVICON_URLS.slides)
+    })
+  })
+
+  describe('Gmail', () => {
+    it('test__getGoogleFaviconUrl__returns_gmail_favicon_for_mail_urls', () => {
+      expect(getGoogleFaviconUrl('https://mail.google.com/mail/u/0/'))
+        .toBe(GOOGLE_FAVICON_URLS.gmail)
+    })
+
+    it('test__getGoogleFaviconUrl__handles_gmail_with_various_paths', () => {
+      expect(getGoogleFaviconUrl('https://mail.google.com/'))
+        .toBe(GOOGLE_FAVICON_URLS.gmail)
+      expect(getGoogleFaviconUrl('https://mail.google.com/mail/u/0/#inbox'))
+        .toBe(GOOGLE_FAVICON_URLS.gmail)
+      expect(getGoogleFaviconUrl('https://mail.google.com/mail/u/1/#sent'))
+        .toBe(GOOGLE_FAVICON_URLS.gmail)
+    })
+  })
+
+  describe('Non-Google URLs', () => {
+    it('test__getGoogleFaviconUrl__returns_null_for_non_google_urls', () => {
+      expect(getGoogleFaviconUrl('https://github.com')).toBeNull()
+      expect(getGoogleFaviconUrl('https://example.com')).toBeNull()
+      expect(getGoogleFaviconUrl('https://google.com')).toBeNull()
+    })
+
+    it('test__getGoogleFaviconUrl__returns_null_for_other_google_domains', () => {
+      // Other docs.google.com paths that aren't recognized products
+      expect(getGoogleFaviconUrl('https://docs.google.com/')).toBeNull()
+      expect(getGoogleFaviconUrl('https://docs.google.com/forms/d/abc123')).toBeNull()
+      expect(getGoogleFaviconUrl('https://drive.google.com/drive/folders/abc123')).toBeNull()
+      expect(getGoogleFaviconUrl('https://calendar.google.com/')).toBeNull()
+    })
+  })
+
+  describe('Edge cases', () => {
+    it('test__getGoogleFaviconUrl__returns_null_for_invalid_urls', () => {
+      expect(getGoogleFaviconUrl('not a url')).toBeNull()
+      expect(getGoogleFaviconUrl('')).toBeNull()
+    })
+
+    it('test__getGoogleFaviconUrl__handles_http_protocol', () => {
+      expect(getGoogleFaviconUrl('http://docs.google.com/document/d/abc123'))
+        .toBe(GOOGLE_FAVICON_URLS.docs)
+    })
   })
 })
 
