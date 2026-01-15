@@ -32,6 +32,15 @@ Refactor favicon handling to move logic from frontend to backend. Currently, the
 
 - **Favicon fetched during bookmark creation**: NOT during `/fetch-metadata`. The favicon is fetched and stored when the bookmark is actually saved (POST /bookmarks/).
 
+- **Inline async fetch (not background)**: The favicon is fetched inline during the save request using async I/O. This adds ~100-500ms latency but ensures:
+  - Favicon is included in the save response for immediate display
+  - No need for polling, websockets, or a second request
+  - Simpler architecture (no task queue needed)
+
+- **Timeout**: 3 seconds. If it doesn't respond by then, it won't.
+
+- **Favicon size**: Request 32x32 from Google API (`sz=32`). Crisp on retina displays when shown at 16x16 CSS pixels.
+
 ---
 
 ## Milestone 1: Database Migration & Model Update
@@ -95,7 +104,7 @@ Refactor favicon handling to move logic from frontend to backend. Currently, the
        'gmail': 'https://www.gstatic.com/images/branding/product/1x/gmail_2020q4_48dp.png',
    }
 
-   async def get_favicon(url: str, timeout: float = 5.0) -> str | None:
+   async def get_favicon(url: str, timeout: float = 3.0) -> str | None:
        """
        Fetch favicon for a URL and return as base64 data URL.
        Returns None if no valid favicon exists (404 or error).
@@ -168,7 +177,6 @@ Refactor favicon handling to move logic from frontend to backend. Currently, the
 
 **Risk Factors**:
 - Google favicon API could change behavior
-- Need appropriate timeout (5 seconds suggested)
 
 ---
 
@@ -226,8 +234,7 @@ Refactor favicon handling to move logic from frontend to backend. Currently, the
 - URL changes trigger favicon re-fetch
 
 **Risk Factors**:
-- Favicon fetch adds latency to bookmark creation (~100-500ms)
-- Consider making favicon fetch async/background if latency is problematic
+- Favicon fetch adds ~100-500ms latency to bookmark creation (acceptable tradeoff for immediate display)
 
 ---
 
@@ -371,16 +378,6 @@ Refactor favicon handling to move logic from frontend to backend. Currently, the
 - `frontend/src/components/BookmarkCard.tsx` - Simplify to use API data
 - `frontend/src/utils/favicon.ts` - DELETE
 - `frontend/src/components/BookmarkCard.test.tsx` - Remove favicon fetching tests
-
----
-
-## Open Questions
-
-1. **Latency concern**: Favicon fetch adds ~100-500ms to bookmark creation. Is this acceptable, or should we make it async/background?
-
-2. **Timeout value**: Suggest 5 seconds for favicon fetch timeout. Adjust if needed.
-
-3. **Favicon size**: Store as-is from Google (typically 16x16 or 32x32). The `sz=32` param requests 32x32.
 
 ---
 
