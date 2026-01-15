@@ -27,6 +27,52 @@ describe('BookmarkCard', () => {
     vi.clearAllMocks()
   })
 
+  describe('showContentTypeIcon prop', () => {
+    it('test__BookmarkCard__shows_bookmark_icon_by_default', () => {
+      const { container } = render(<BookmarkCard bookmark={mockBookmark} onDelete={vi.fn()} />)
+
+      // BookmarkIcon should be rendered (it's in a span with the blue color class)
+      const bookmarkIconSpan = container.querySelector('.text-blue-500')
+      expect(bookmarkIconSpan).toBeInTheDocument()
+
+      // There should be one favicon image (between title and URL)
+      const faviconImages = container.querySelectorAll('img')
+      expect(faviconImages).toHaveLength(1)
+    })
+
+    it('test__BookmarkCard__shows_bookmark_icon_when_showContentTypeIcon_true', () => {
+      const { container } = render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          onDelete={vi.fn()}
+          showContentTypeIcon={true}
+        />
+      )
+
+      // BookmarkIcon should be rendered
+      const bookmarkIconSpan = container.querySelector('.text-blue-500')
+      expect(bookmarkIconSpan).toBeInTheDocument()
+    })
+
+    it('test__BookmarkCard__hides_bookmark_icon_when_showContentTypeIcon_false', () => {
+      const { container } = render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          onDelete={vi.fn()}
+          showContentTypeIcon={false}
+        />
+      )
+
+      // BookmarkIcon should NOT be rendered
+      const bookmarkIconSpan = container.querySelector('.text-blue-500')
+      expect(bookmarkIconSpan).not.toBeInTheDocument()
+
+      // Favicon should still be visible (now in left position)
+      const faviconImages = container.querySelectorAll('img')
+      expect(faviconImages).toHaveLength(1)
+    })
+  })
+
   describe('copy button', () => {
     it('copies URL to clipboard when clicked', async () => {
       const writeText = vi.fn().mockResolvedValue(undefined)
