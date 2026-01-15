@@ -134,6 +134,27 @@ export function BookmarkCard({
     }
   }
 
+  // Render favicon with link to URL
+  const renderFavicon = (): ReactNode => (
+    <a
+      href={bookmark.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={handleLinkClick}
+      className="shrink-0"
+    >
+      <img
+        src={faviconUrl}
+        alt=""
+        className="w-4 h-4"
+        loading="lazy"
+        onError={(e) => {
+          e.currentTarget.src = defaultFavicon
+        }}
+      />
+    </a>
+  )
+
   return (
     <div
       className="card card-interactive group cursor-pointer"
@@ -150,23 +171,7 @@ export function BookmarkCard({
                 <BookmarkIcon className="w-4 h-4" />
               </span>
             ) : (
-              <a
-                href={bookmark.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={handleLinkClick}
-                className="shrink-0"
-              >
-                <img
-                  src={faviconUrl}
-                  alt=""
-                  className="w-4 h-4"
-                  loading="lazy"
-                  onError={(e) => {
-                    e.currentTarget.src = defaultFavicon
-                  }}
-                />
-              </a>
+              renderFavicon()
             )}
             <a
               href={bookmark.url}
@@ -179,25 +184,7 @@ export function BookmarkCard({
               {truncate(displayTitle, 60)}
             </a>
             {/* Favicon between title and URL - only in multi-content view */}
-            {showContentTypeIcon && (
-              <a
-                href={bookmark.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={handleLinkClick}
-                className="shrink-0"
-              >
-                <img
-                  src={faviconUrl}
-                  alt=""
-                  className="w-4 h-4"
-                  loading="lazy"
-                  onError={(e) => {
-                    e.currentTarget.src = defaultFavicon
-                  }}
-                />
-              </a>
-            )}
+            {showContentTypeIcon && renderFavicon()}
             {/* URL inline on desktop */}
             {hasTitle && (
               <a
