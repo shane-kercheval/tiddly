@@ -8,6 +8,7 @@ import type { SortByOption } from '../constants/sortOptions'
 import { formatDate, truncate, getDomain, getUrlWithoutProtocol } from '../utils'
 import { ConfirmDeleteButton } from './ui'
 import {
+  BookmarkIcon,
   CopyIcon,
   CheckIcon,
   EditIcon,
@@ -16,6 +17,7 @@ import {
   TrashIcon,
   CloseIcon,
 } from './icons'
+import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { Tag } from './Tag'
 
 interface BookmarkCardProps {
@@ -134,6 +136,20 @@ export function BookmarkCard({
         <div className="min-w-0 flex-1 overflow-hidden">
           {/* Title row */}
           <div className="flex items-center gap-2 md:flex-wrap">
+            <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.bookmark}`}>
+              <BookmarkIcon className="w-4 h-4" />
+            </span>
+            <a
+              href={bookmark.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleLinkClick}
+              className="text-base font-medium text-gray-900 truncate min-w-0 md:shrink-0"
+              title={bookmark.url}
+            >
+              {truncate(displayTitle, 60)}
+            </a>
+            {/* Favicon - links to URL */}
             <a
               href={bookmark.url}
               target="_blank"
@@ -150,16 +166,6 @@ export function BookmarkCard({
                   e.currentTarget.src = defaultFavicon
                 }}
               />
-            </a>
-            <a
-              href={bookmark.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={handleLinkClick}
-              className="text-base font-medium text-gray-900 truncate min-w-0 md:shrink-0"
-              title={bookmark.url}
-            >
-              {truncate(displayTitle, 60)}
             </a>
             {/* URL inline on desktop */}
             {hasTitle && (
