@@ -20,6 +20,7 @@ import {
   BoldIcon,
   ItalicIcon,
   StrikethroughIcon,
+  HighlightIcon,
   InlineCodeIcon,
   CodeBlockIcon,
   LinkIcon,
@@ -233,6 +234,7 @@ function createMarkdownKeyBindings(): KeyBinding[] {
     { key: 'Mod-i', run: (view) => wrapWithMarkers(view, '*', '*') },
     { key: 'Mod-k', run: (view) => insertLink(view) },
     { key: 'Mod-Shift-x', run: (view) => wrapWithMarkers(view, '~~', '~~') },
+    { key: 'Mod-Shift-h', run: (view) => wrapWithMarkers(view, '==', '==') },
     // Pass through to global handlers (consume event, then dispatch globally)
     {
       key: 'Mod-/',
@@ -423,6 +425,9 @@ export function CodeMirrorEditor({
           </ToolbarButton>
           <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '~~', '~~'))} title="Strikethrough (⌘⇧X)">
             <StrikethroughIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '==', '=='))} title="Highlight (⌘⇧H)">
+            <HighlightIcon />
           </ToolbarButton>
           <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '`', '`'))} title="Inline Code">
             <InlineCodeIcon />

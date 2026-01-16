@@ -117,11 +117,24 @@ function parseLine(text: string, inCodeBlock: boolean): LineInfo | null {
 }
 
 /**
- * Find all inline code spans in a line (text between single backticks).
- * Returns array of {from, to} positions relative to line start.
+ * Match info for inline code (backticks).
+ * Separates marker positions from content for independent styling.
  */
-function findInlineCode(text: string): Array<{ from: number; to: number }> {
-  const results: Array<{ from: number; to: number }> = []
+interface InlineCodeMatch {
+  from: number           // Start of full match
+  to: number             // End of full match
+  markerStart: number    // Position of opening backtick
+  contentStart: number   // Start of content
+  contentEnd: number     // End of content
+  markerEnd: number      // Position after closing backtick
+}
+
+/**
+ * Find all inline code spans in a line (text between single backticks).
+ * Returns structured info for separate marker/content styling.
+ */
+function findInlineCode(text: string): InlineCodeMatch[] {
+  const results: InlineCodeMatch[] = []
   let i = 0
 
   while (i < text.length) {
@@ -135,7 +148,14 @@ function findInlineCode(text: string): Array<{ from: number; to: number }> {
       }
       if (i < text.length && text[i] === '`') {
         // Found complete inline code span
-        results.push({ from: start, to: i + 1 })
+        results.push({
+          from: start,
+          to: i + 1,
+          markerStart: start,
+          contentStart: start + 1,
+          contentEnd: i,
+          markerEnd: i + 1,
+        })
       }
       i++
     } else {
@@ -147,16 +167,136 @@ function findInlineCode(text: string): Array<{ from: number; to: number }> {
 }
 
 /**
- * Find all strikethrough spans in a line (text between ~~).
- * Returns array of {from, to} positions relative to line start.
+ * Match info for inline formatting (bold, italic, strikethrough, highlight).
+ * Separates marker positions from content for independent styling.
  */
-function findStrikethrough(text: string): Array<{ from: number; to: number }> {
-  const results: Array<{ from: number; to: number }> = []
+interface InlineFormatMatch {
+  from: number           // Start of full match
+  to: number             // End of full match
+  markerStart: number    // Start of opening marker
+  markerStartEnd: number // End of opening marker
+  contentStart: number   // Start of content
+  contentEnd: number     // End of content
+  markerEndStart: number // Start of closing marker
+  markerEnd: number      // End of closing marker
+}
+
+/**
+ * Find all strikethrough spans in a line (text between ~~).
+ * Returns structured info for separate marker/content styling.
+ */
+function findStrikethrough(text: string): InlineFormatMatch[] {
+  const results: InlineFormatMatch[] = []
   const regex = /~~([^~]+)~~/g
   let match
 
   while ((match = regex.exec(text)) !== null) {
-    results.push({ from: match.index, to: match.index + match[0].length })
+    const start = match.index
+    const content = match[1]
+    results.push({
+      from: start,
+      to: start + match[0].length,
+      markerStart: start,
+      markerStartEnd: start + 2,
+      contentStart: start + 2,
+      contentEnd: start + 2 + content.length,
+      markerEndStart: start + 2 + content.length,
+      markerEnd: start + match[0].length,
+    })
+  }
+
+  return results
+}
+
+/**
+ * Find all highlight spans in a line (text between ==).
+ * Returns structured info for separate marker/content styling.
+ */
+function findHighlight(text: string): InlineFormatMatch[] {
+  const results: InlineFormatMatch[] = []
+  const regex = /==([^=]+)==/g
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    const start = match.index
+    const content = match[1]
+    results.push({
+      from: start,
+      to: start + match[0].length,
+      markerStart: start,
+      markerStartEnd: start + 2,
+      contentStart: start + 2,
+      contentEnd: start + 2 + content.length,
+      markerEndStart: start + 2 + content.length,
+      markerEnd: start + match[0].length,
+    })
+  }
+
+  return results
+}
+
+/**
+ * Find all bold spans in a line (text between **).
+ * Returns structured info for separate marker/content styling.
+ * Careful to not match *** which could be bold+italic.
+ */
+function findBold(text: string): InlineFormatMatch[] {
+  const results: InlineFormatMatch[] = []
+  // Match ** not followed by another * (to avoid ***), content without *, then **
+  const regex = /\*\*(?!\*)([^*]+)\*\*(?!\*)/g
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    const start = match.index
+    const content = match[1]
+    results.push({
+      from: start,
+      to: start + match[0].length,
+      markerStart: start,
+      markerStartEnd: start + 2,
+      contentStart: start + 2,
+      contentEnd: start + 2 + content.length,
+      markerEndStart: start + 2 + content.length,
+      markerEnd: start + match[0].length,
+    })
+  }
+
+  return results
+}
+
+/**
+ * Find all italic spans in a line (text between single *).
+ * Must exclude bold (**) spans to avoid conflicts.
+ * Returns structured info for separate marker/content styling.
+ */
+function findItalic(text: string, boldMatches: InlineFormatMatch[]): InlineFormatMatch[] {
+  const results: InlineFormatMatch[] = []
+  // Match single * not preceded or followed by another *
+  const regex = /(?<!\*)\*(?!\*)([^*]+)\*(?!\*)/g
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    const start = match.index
+    const content = match[1]
+    const end = start + match[0].length
+
+    // Check if this italic span overlaps with any bold span
+    const overlapsWithBold = boldMatches.some(
+      (bold) => (start >= bold.from && start < bold.to) || (end > bold.from && end <= bold.to)
+    )
+
+    if (!overlapsWithBold) {
+      results.push({
+        from: start,
+        to: end,
+        markerStart: start,
+        markerStartEnd: start + 1,
+        contentStart: start + 1,
+        contentEnd: start + 1 + content.length,
+        markerEndStart: start + 1 + content.length,
+        markerEnd: end,
+      })
+    }
   }
 
   return results
@@ -261,11 +401,23 @@ function findLinks(text: string): LinkMatch[] {
   return results
 }
 
-// Decoration for inline code
-const inlineCodeMark = Decoration.mark({ class: 'cm-md-inline-code' })
+// Shared decoration for all syntax markers (**, *, ~~, ==, `)
+const syntaxMarkerMark = Decoration.mark({ class: 'cm-md-syntax-marker' })
 
-// Decoration for strikethrough
-const strikethroughMark = Decoration.mark({ class: 'cm-md-strikethrough' })
+// Decorations for inline code (backticks)
+const inlineCodeContentMark = Decoration.mark({ class: 'cm-md-inline-code-content' })
+
+// Decorations for strikethrough
+const strikethroughContentMark = Decoration.mark({ class: 'cm-md-strikethrough-content' })
+
+// Decorations for highlight
+const highlightContentMark = Decoration.mark({ class: 'cm-md-highlight-content' })
+
+// Decorations for bold
+const boldContentMark = Decoration.mark({ class: 'cm-md-bold-content' })
+
+// Decorations for italic
+const italicContentMark = Decoration.mark({ class: 'cm-md-italic-content' })
 
 // Decoration for task syntax
 const taskSyntaxMark = Decoration.mark({ class: 'cm-md-task-syntax' })
@@ -383,16 +535,69 @@ function buildDecorations(view: EditorView): DecorationSet {
         inlineDecorations.push({ from: line.from + blockquoteSyntax.from, to: line.from + blockquoteSyntax.to, decoration: blockquoteSyntaxMark })
       }
 
+      // Bold - must be processed before italic to handle ** vs *
+      const bolds = findBold(line.text)
+      for (const bold of bolds) {
+        // Opening **
+        inlineDecorations.push({ from: line.from + bold.markerStart, to: line.from + bold.markerStartEnd, decoration: syntaxMarkerMark })
+        // Bold content
+        if (bold.contentEnd > bold.contentStart) {
+          inlineDecorations.push({ from: line.from + bold.contentStart, to: line.from + bold.contentEnd, decoration: boldContentMark })
+        }
+        // Closing **
+        inlineDecorations.push({ from: line.from + bold.markerEndStart, to: line.from + bold.markerEnd, decoration: syntaxMarkerMark })
+      }
+
+      // Italic - exclude spans that overlap with bold
+      const italics = findItalic(line.text, bolds)
+      for (const italic of italics) {
+        // Opening *
+        inlineDecorations.push({ from: line.from + italic.markerStart, to: line.from + italic.markerStartEnd, decoration: syntaxMarkerMark })
+        // Italic content
+        if (italic.contentEnd > italic.contentStart) {
+          inlineDecorations.push({ from: line.from + italic.contentStart, to: line.from + italic.contentEnd, decoration: italicContentMark })
+        }
+        // Closing *
+        inlineDecorations.push({ from: line.from + italic.markerEndStart, to: line.from + italic.markerEnd, decoration: syntaxMarkerMark })
+      }
+
       // Inline code
       const inlineCodes = findInlineCode(line.text)
-      for (const { from, to } of inlineCodes) {
-        inlineDecorations.push({ from: line.from + from, to: line.from + to, decoration: inlineCodeMark })
+      for (const code of inlineCodes) {
+        // Opening backtick
+        inlineDecorations.push({ from: line.from + code.markerStart, to: line.from + code.contentStart, decoration: syntaxMarkerMark })
+        // Code content
+        if (code.contentEnd > code.contentStart) {
+          inlineDecorations.push({ from: line.from + code.contentStart, to: line.from + code.contentEnd, decoration: inlineCodeContentMark })
+        }
+        // Closing backtick
+        inlineDecorations.push({ from: line.from + code.contentEnd, to: line.from + code.markerEnd, decoration: syntaxMarkerMark })
       }
 
       // Strikethrough
       const strikethroughs = findStrikethrough(line.text)
-      for (const { from, to } of strikethroughs) {
-        inlineDecorations.push({ from: line.from + from, to: line.from + to, decoration: strikethroughMark })
+      for (const strike of strikethroughs) {
+        // Opening ~~
+        inlineDecorations.push({ from: line.from + strike.markerStart, to: line.from + strike.markerStartEnd, decoration: syntaxMarkerMark })
+        // Strikethrough content
+        if (strike.contentEnd > strike.contentStart) {
+          inlineDecorations.push({ from: line.from + strike.contentStart, to: line.from + strike.contentEnd, decoration: strikethroughContentMark })
+        }
+        // Closing ~~
+        inlineDecorations.push({ from: line.from + strike.markerEndStart, to: line.from + strike.markerEnd, decoration: syntaxMarkerMark })
+      }
+
+      // Highlight
+      const highlights = findHighlight(line.text)
+      for (const highlight of highlights) {
+        // Opening ==
+        inlineDecorations.push({ from: line.from + highlight.markerStart, to: line.from + highlight.markerStartEnd, decoration: syntaxMarkerMark })
+        // Highlight content
+        if (highlight.contentEnd > highlight.contentStart) {
+          inlineDecorations.push({ from: line.from + highlight.contentStart, to: line.from + highlight.contentEnd, decoration: highlightContentMark })
+        }
+        // Closing ==
+        inlineDecorations.push({ from: line.from + highlight.markerEndStart, to: line.from + highlight.markerEnd, decoration: syntaxMarkerMark })
       }
 
       // Images - style syntax similar to links but with different color for alt text
@@ -640,13 +845,40 @@ const markdownBaseTheme = EditorView.baseTheme({
     borderLeftColor: '#ffffff !important',
   },
 
-  // Inline code - light pink background with pink text
-  '.cm-md-inline-code': {
+  // Shared syntax marker style for all inline formatting (**, *, ~~, ==, `)
+  // Using a slightly lighter gray for better readability
+  '.cm-md-syntax-marker, .cm-md-syntax-marker *': {
+    color: '#b0b5bd !important',
+    fontWeight: 'normal !important',
+    fontStyle: 'normal !important',
+    textDecoration: 'none !important',
+  },
+
+  // Inline code content - light pink background with pink text
+  '.cm-md-inline-code-content': {
     backgroundColor: '#fdf2f8',
     color: '#db2777',
     fontFamily: '"Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: '0.9em',
-    padding: '0.1em 0.3em',
+    padding: '0.1em 0.2em',
+    borderRadius: '3px',
+  },
+
+  // Bold content
+  '.cm-md-bold-content, .cm-md-bold-content *': {
+    fontWeight: '700 !important',
+  },
+
+  // Italic content
+  '.cm-md-italic-content, .cm-md-italic-content *': {
+    fontStyle: 'italic !important',
+  },
+
+  // Highlight content - yellow/amber background
+  '.cm-md-highlight-content': {
+    backgroundColor: '#fef3c7',
+    color: '#92400e',
+    padding: '0.1em 0.2em',
     borderRadius: '3px',
   },
 
@@ -674,28 +906,28 @@ const markdownBaseTheme = EditorView.baseTheme({
     textDecoration: 'none !important',
   },
 
-  // Header syntax (# marks) - dimmed gray
+  // Header syntax (# marks) - dimmed gray (using shared lighter gray)
   '.cm-md-header-syntax': {
-    color: '#9ca3af !important',
+    color: '#b0b5bd !important',
     fontWeight: 'normal !important',
     fontSize: '0.75em !important',
   },
   '.cm-md-header-syntax *': {
-    color: '#9ca3af !important',
+    color: '#b0b5bd !important',
     fontWeight: 'normal !important',
     fontSize: 'inherit !important',
   },
 
-  // Blockquote syntax (> ) - dimmed gray, lighter than blockquote text
+  // Blockquote syntax (> ) - dimmed gray (using shared lighter gray)
   '.cm-md-blockquote-syntax, .cm-md-blockquote-syntax *': {
-    color: '#d1d5db !important',
+    color: '#b0b5bd !important',
     fontStyle: 'normal !important',
   },
 
-  // Strikethrough
-  '.cm-md-strikethrough': {
-    textDecoration: 'line-through',
-    color: '#9ca3af',
+  // Strikethrough content
+  '.cm-md-strikethrough-content, .cm-md-strikethrough-content *': {
+    textDecoration: 'line-through !important',
+    color: '#9ca3af !important',
   },
 
   // Horizontal rule - full width line with --- text visible
@@ -706,9 +938,9 @@ const markdownBaseTheme = EditorView.baseTheme({
     marginRight: '0.5em',
   },
 
-  // Links - text looks like a link, brackets/URL are dimmed gray
+  // Links - text looks like a link, brackets/URL are dimmed gray (using shared lighter gray)
   '.cm-md-link-bracket': {
-    color: '#9ca3af !important',
+    color: '#b0b5bd !important',
     textDecoration: 'none !important',
   },
   '.cm-md-link-text': {
@@ -717,18 +949,18 @@ const markdownBaseTheme = EditorView.baseTheme({
     textDecorationColor: '#93c5fd',
   },
   '.cm-md-link-url': {
-    color: '#9ca3af !important',
+    color: '#b0b5bd !important',
     textDecoration: 'none !important',
   },
   // Override any nested syntax highlighting in links
   '.cm-md-link-bracket *, .cm-md-link-url *': {
-    color: '#9ca3af !important',
+    color: '#b0b5bd !important',
     textDecoration: 'none !important',
   },
 
   // Images - similar to links but with green alt text to distinguish
   '.cm-md-image-syntax': {
-    color: '#9ca3af !important',
+    color: '#b0b5bd !important',
     textDecoration: 'none !important',
   },
   '.cm-md-image-alt': {
@@ -736,12 +968,12 @@ const markdownBaseTheme = EditorView.baseTheme({
     textDecoration: 'none !important',
   },
   '.cm-md-image-url': {
-    color: '#9ca3af !important',
+    color: '#b0b5bd !important',
     textDecoration: 'none !important',
   },
   // Override any nested syntax highlighting in images
   '.cm-md-image-syntax *, .cm-md-image-url *': {
-    color: '#9ca3af !important',
+    color: '#b0b5bd !important',
     textDecoration: 'none !important',
   },
 })
@@ -814,6 +1046,9 @@ export const _testExports = {
   findLinks,
   findInlineCode,
   findStrikethrough,
+  findHighlight,
+  findBold,
+  findItalic,
   findBlockquoteSyntax,
   parseLine,
 }

@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import { _testExports } from './markdownStyleExtension'
 
-const { findImages, findLinks, findInlineCode, findStrikethrough, findBlockquoteSyntax, parseLine } = _testExports
+const { findImages, findLinks, findInlineCode, findStrikethrough, findHighlight, findBold, findItalic, findBlockquoteSyntax, parseLine } = _testExports
 
 describe('findImages', () => {
   it('should find a simple image', () => {
@@ -151,6 +151,16 @@ describe('findInlineCode', () => {
     expect(result[0].from).toBe(0)
     expect(result[0].to).toBe(3)
   })
+
+  it('should correctly identify marker and content positions', () => {
+    const result = findInlineCode('`code`')
+    expect(result).toHaveLength(1)
+    const code = result[0]
+    expect(code.markerStart).toBe(0)    // Opening `
+    expect(code.contentStart).toBe(1)   // c
+    expect(code.contentEnd).toBe(5)     // after "code"
+    expect(code.markerEnd).toBe(6)      // after closing `
+  })
 })
 
 describe('findStrikethrough', () => {
@@ -174,6 +184,143 @@ describe('findStrikethrough', () => {
   it('should not match single tildes', () => {
     const result = findStrikethrough('~not strikethrough~')
     expect(result).toHaveLength(0)
+  })
+
+  it('should correctly identify marker and content positions', () => {
+    const result = findStrikethrough('~~deleted~~')
+    expect(result).toHaveLength(1)
+    const strike = result[0]
+    expect(strike.markerStart).toBe(0)      // Opening ~~
+    expect(strike.markerStartEnd).toBe(2)   // After opening ~~
+    expect(strike.contentStart).toBe(2)     // d
+    expect(strike.contentEnd).toBe(9)       // After "deleted"
+    expect(strike.markerEndStart).toBe(9)   // Before closing ~~
+    expect(strike.markerEnd).toBe(11)       // After closing ~~
+  })
+})
+
+describe('findHighlight', () => {
+  it('should find highlight text', () => {
+    const result = findHighlight('This is ==important== text')
+    expect(result).toHaveLength(1)
+    expect(result[0].from).toBe(8)
+    expect(result[0].to).toBe(21)
+  })
+
+  it('should find multiple highlights', () => {
+    const result = findHighlight('==first== and ==second==')
+    expect(result).toHaveLength(2)
+  })
+
+  it('should return empty array for text without highlight', () => {
+    const result = findHighlight('Regular text')
+    expect(result).toHaveLength(0)
+  })
+
+  it('should not match single equals', () => {
+    const result = findHighlight('=not highlight=')
+    expect(result).toHaveLength(0)
+  })
+
+  it('should correctly identify marker and content positions', () => {
+    const result = findHighlight('==highlight==')
+    expect(result).toHaveLength(1)
+    const hl = result[0]
+    expect(hl.markerStart).toBe(0)      // Opening ==
+    expect(hl.markerStartEnd).toBe(2)   // After opening ==
+    expect(hl.contentStart).toBe(2)     // h
+    expect(hl.contentEnd).toBe(11)      // After "highlight"
+    expect(hl.markerEndStart).toBe(11)  // Before closing ==
+    expect(hl.markerEnd).toBe(13)       // After closing ==
+  })
+})
+
+describe('findBold', () => {
+  it('should find bold text', () => {
+    const result = findBold('This is **bold** text')
+    expect(result).toHaveLength(1)
+    expect(result[0].from).toBe(8)
+    expect(result[0].to).toBe(16)
+  })
+
+  it('should find multiple bold spans', () => {
+    const result = findBold('**first** and **second**')
+    expect(result).toHaveLength(2)
+  })
+
+  it('should return empty array for text without bold', () => {
+    const result = findBold('Regular text')
+    expect(result).toHaveLength(0)
+  })
+
+  it('should not match single asterisks (italic)', () => {
+    const result = findBold('*not bold*')
+    expect(result).toHaveLength(0)
+  })
+
+  it('should correctly identify marker and content positions', () => {
+    const result = findBold('**bold**')
+    expect(result).toHaveLength(1)
+    const bold = result[0]
+    expect(bold.markerStart).toBe(0)      // Opening **
+    expect(bold.markerStartEnd).toBe(2)   // After opening **
+    expect(bold.contentStart).toBe(2)     // b
+    expect(bold.contentEnd).toBe(6)       // After "bold"
+    expect(bold.markerEndStart).toBe(6)   // Before closing **
+    expect(bold.markerEnd).toBe(8)        // After closing **
+  })
+})
+
+describe('findItalic', () => {
+  it('should find italic text', () => {
+    const boldMatches = findBold('This is *italic* text')
+    const result = findItalic('This is *italic* text', boldMatches)
+    expect(result).toHaveLength(1)
+    expect(result[0].from).toBe(8)
+    expect(result[0].to).toBe(16)
+  })
+
+  it('should find multiple italic spans', () => {
+    const text = '*first* and *second*'
+    const boldMatches = findBold(text)
+    const result = findItalic(text, boldMatches)
+    expect(result).toHaveLength(2)
+  })
+
+  it('should return empty array for text without italic', () => {
+    const boldMatches = findBold('Regular text')
+    const result = findItalic('Regular text', boldMatches)
+    expect(result).toHaveLength(0)
+  })
+
+  it('should not match double asterisks (bold)', () => {
+    const text = '**not italic**'
+    const boldMatches = findBold(text)
+    const result = findItalic(text, boldMatches)
+    expect(result).toHaveLength(0)
+  })
+
+  it('should correctly identify marker and content positions', () => {
+    const text = '*italic*'
+    const boldMatches = findBold(text)
+    const result = findItalic(text, boldMatches)
+    expect(result).toHaveLength(1)
+    const italic = result[0]
+    expect(italic.markerStart).toBe(0)      // Opening *
+    expect(italic.markerStartEnd).toBe(1)   // After opening *
+    expect(italic.contentStart).toBe(1)     // i
+    expect(italic.contentEnd).toBe(7)       // After "italic"
+    expect(italic.markerEndStart).toBe(7)   // Before closing *
+    expect(italic.markerEnd).toBe(8)        // After closing *
+  })
+
+  it('should exclude italic spans that overlap with bold', () => {
+    const text = '**bold** and *italic*'
+    const boldMatches = findBold(text)
+    const result = findItalic(text, boldMatches)
+    // Should only find the italic, not the * inside **
+    expect(result).toHaveLength(1)
+    expect(result[0].contentStart).toBe(14) // "italic" starts at position 14
   })
 })
 
