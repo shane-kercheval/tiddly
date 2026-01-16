@@ -746,7 +746,7 @@ export function Bookmark({
           disabled={isSaving || isReadOnly}
           hasError={!!errors.content}
           minHeight="200px"
-          placeholder="Content is only used in search results. Auto-filled from public URLs or paste for private pages."
+          placeholder="Content can be either auto-filled from public URLs or manually entered for private pages or custom notes. Content is used in search results."
           maxLength={config.limits.maxContentLength}
           errorMessage={errors.content}
           label=""

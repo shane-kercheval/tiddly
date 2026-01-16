@@ -297,7 +297,7 @@ export function SettingsTags(): ReactNode {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tags</h1>
           <p className="mt-1 text-gray-500">
-            Manage your tags. Rename or delete tags across all bookmarks.
+            Manage your tags. Rename or delete tags across all content.
           </p>
         </div>
         <select
@@ -318,7 +318,7 @@ export function SettingsTags(): ReactNode {
         </div>
       ) : tags.length === 0 ? (
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-8 text-center">
-          <p className="text-gray-500">No tags yet. Tags will appear here once you add them to bookmarks.</p>
+          <p className="text-gray-500">No tags yet. Tags will appear here once you add them to your content.</p>
         </div>
       ) : (
         <>
@@ -338,7 +338,7 @@ export function SettingsTags(): ReactNode {
                         Tag
                       </th>
                       <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Bookmarks
+                        Items
                       </th>
                       <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
                         Actions
@@ -377,7 +377,7 @@ export function SettingsTags(): ReactNode {
                 Inactive Tags ({unusedTags.length})
               </h2>
               <p className="mb-4 text-sm text-gray-500">
-                These tags are not used by any active bookmarks. They may be associated with archived or deleted bookmarks.
+                These tags are not used by any active content. They may be associated with archived or deleted items.
               </p>
               <div className="overflow-hidden rounded-lg border border-gray-200">
                 <table className="w-full">

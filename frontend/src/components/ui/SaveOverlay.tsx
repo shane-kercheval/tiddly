@@ -1,7 +1,7 @@
 /**
  * SaveOverlay - Page-level overlay shown during save operations.
  *
- * Displays a centered spinner with blur backdrop over the main content area,
+ * Displays a centered spinner with semi-transparent backdrop over the main content area,
  * ensuring the user sees saving feedback regardless of scroll position.
  * Uses a portal to render into the main content container for full coverage.
  * Falls back to inline rendering if the portal target doesn't exist (e.g., in tests).
@@ -20,7 +20,7 @@ export function SaveOverlay({ isVisible, label = 'Saving...' }: SaveOverlayProps
   if (!isVisible) return null
 
   const overlay = (
-    <div className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-sm">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/35">
       <LoadingSpinner size="lg" label={label} />
     </div>
   )

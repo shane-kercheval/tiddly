@@ -14,6 +14,8 @@ interface CopyToClipboardButtonProps {
   className?: string
   /** Optional title override */
   title?: string
+  /** Whether the button is disabled */
+  disabled?: boolean
 }
 
 /**
@@ -28,6 +30,7 @@ export function CopyToClipboardButton({
   content,
   className = '',
   title = 'Copy content',
+  disabled = false,
 }: CopyToClipboardButtonProps): ReactNode {
   const { state, setSuccess, setError } = useCopyFeedback()
 
@@ -75,7 +78,10 @@ export function CopyToClipboardButton({
     <button
       type="button"
       onClick={handleCopy}
-      className={`p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors ${className}`}
+      disabled={disabled}
+      className={`p-1 rounded text-gray-400 transition-colors ${
+        disabled ? 'cursor-not-allowed opacity-50' : 'hover:text-gray-600 hover:bg-gray-100'
+      } ${className}`}
       title={getTitle()}
       aria-label={getTitle()}
       tabIndex={-1}

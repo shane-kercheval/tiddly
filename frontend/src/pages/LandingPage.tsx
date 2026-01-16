@@ -35,7 +35,7 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
             </span>
           </div>
           <p className="mx-auto mb-4 max-w-3xl text-2xl leading-relaxed text-gray-600">
-            Your personal knowledge base. Save and organize content with tags, search, and AI integration.
+            A simple, AI-integrated personal knowledge base.
           </p>
           <p className="mx-auto mb-16 text-base text-gray-500">
             Currently in beta.
@@ -64,13 +64,19 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-500">Prompts</span>
+              <span className="font-semibold text-gray-900">Prompts</span>
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                Available
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">Tasks</span>
               <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
                 Coming soon
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-500">Tasks</span>
+              <span className="text-gray-500">AI Assistant</span>
               <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
                 Coming soon
               </span>
@@ -82,30 +88,31 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
         <div className="mx-auto mt-24 max-w-4xl">
           <div className="grid gap-x-12 gap-y-10 sm:grid-cols-2">
             <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Full-text search</h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Markdown editor</h3>
               <p className="text-gray-600">
-                Search across titles, descriptions, and content. Filter by tags with AND/OR
-                matching. Sort by date created, modified, or last accessed.
+                Write notes with markdown syntax highlighting, formatting toolbar, and keyboard
+                shortcuts. Toggle reading mode to preview rendered markdown.
               </p>
             </div>
             <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Tags & custom lists</h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Prompt templates</h3>
               <p className="text-gray-600">
-                Organize with flexible tags. Create saved lists with complex filter expressions.
-                Rename or delete tags across all content from settings.
+                Create reusable prompt templates with Jinja2 syntax. Define arguments for
+                dynamic content. Organize and tag prompts for easy access.
               </p>
             </div>
             <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Markdown notes</h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Prompt MCP Server</h3>
               <p className="text-gray-600">
-                Write notes with GitHub Flavored Markdown. Live preview, auto-saving drafts,
-                and keyboard shortcuts for formatting.
+                Expose your prompts to Claude Desktop, Claude Code, or any MCP-compatible AI agent.
+                List, render, and create prompts through natural language.
               </p>
             </div>
             <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Keyboard shortcuts</h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Content MCP Server</h3>
               <p className="text-gray-600">
-                <kbd className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">Cmd+/</kbd> to see all shortcuts.
+                Connect AI agents to search and manage your bookmarks and notes. Create content
+                using natural language through Model Context Protocol.
               </p>
             </div>
             <div>
@@ -116,10 +123,10 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
               </p>
             </div>
             <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">MCP integration</h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Open source</h3>
               <p className="text-gray-600">
-                Connect Claude Desktop via Model Context Protocol. Search and create content
-                using natural language through AI agents.
+                Use the hosted version by signing up above, or self-host for full control
+                over your data. Open source with PostgreSQL backend.
               </p>
             </div>
           </div>
@@ -220,9 +227,10 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
               </h3>
               <p className="text-gray-600">
                 MCP (Model Context Protocol) allows AI agents like Claude to interact with your
-                content. Connect Claude Desktop or other MCP-compatible tools to search, create,
-                and organize bookmarks and notes using natural language. Requires a Personal
-                Access Token for authentication.
+                data. Tiddly provides two MCP servers: the <strong>Content MCP Server</strong> for
+                searching and managing bookmarks and notes, and the <strong>Prompt MCP Server</strong> for
+                listing and rendering your prompt templates. Connect Claude Desktop, Claude Code,
+                or other MCP-compatible tools. Requires a Personal Access Token for authentication.
               </p>
             </div>
 

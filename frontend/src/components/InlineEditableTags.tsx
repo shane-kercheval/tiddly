@@ -162,65 +162,64 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
         />
       ))}
 
-      {/* Add button or input */}
-      {!disabled && (
-        <>
-          {isAddingTag ? (
-            <div className="relative">
-              <input
-                ref={inputRef}
-                type="text"
-                value={inputValue}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                onFocus={openSuggestions}
-                placeholder="Add tag..."
-                className="min-w-[80px] w-24 text-xs px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400/20"
-              />
+      {/* Add button or input - always render to prevent layout shift, but disable interactions when disabled */}
+      {isAddingTag && !disabled ? (
+        <div className="relative">
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onFocus={openSuggestions}
+            placeholder="Add tag..."
+            className="min-w-[80px] w-24 text-xs px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400/20"
+          />
 
-              {/* Error message */}
-              {error && (
-                <div className="absolute left-0 top-full mt-1 z-20">
-                  <p className="text-xs text-red-500 whitespace-nowrap">{error}</p>
-                </div>
-              )}
-
-              {/* Suggestions dropdown */}
-              {showSuggestions && filteredSuggestions.length > 0 && (
-                <div className="absolute left-0 top-full mt-1 z-10 max-h-48 w-48 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
-                  {filteredSuggestions.map((suggestion, index) => (
-                    <button
-                      key={suggestion.name}
-                      type="button"
-                      onClick={() => handleSuggestionClick(suggestion.name)}
-                      aria-selected={index === highlightedIndex}
-                      className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition-colors ${
-                        index === highlightedIndex
-                          ? 'bg-gray-100 text-gray-900'
-                          : 'text-gray-600 hover:bg-gray-50'
-                      }`}
-                    >
-                      <span>{suggestion.name}</span>
-                      <span className="text-gray-400">{suggestion.count}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+          {/* Error message */}
+          {error && (
+            <div className="absolute left-0 top-full mt-1 z-20">
+              <p className="text-xs text-red-500 whitespace-nowrap">{error}</p>
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={handleAddClick}
-              className="inline-flex items-center gap-0.5 h-5 px-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
-              aria-label="Add tag"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              <span>Tags</span>
-            </button>
           )}
-        </>
+
+          {/* Suggestions dropdown */}
+          {showSuggestions && filteredSuggestions.length > 0 && (
+            <div className="absolute left-0 top-full mt-1 z-10 max-h-48 w-48 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
+              {filteredSuggestions.map((suggestion, index) => (
+                <button
+                  key={suggestion.name}
+                  type="button"
+                  onClick={() => handleSuggestionClick(suggestion.name)}
+                  aria-selected={index === highlightedIndex}
+                  className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition-colors ${
+                    index === highlightedIndex
+                      ? 'bg-gray-100 text-gray-900'
+                      : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <span>{suggestion.name}</span>
+                  <span className="text-gray-400">{suggestion.count}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={handleAddClick}
+          disabled={disabled}
+          className={`inline-flex items-center gap-0.5 h-5 px-1 text-xs text-gray-400 rounded transition-colors ${
+            disabled ? 'cursor-not-allowed' : 'hover:text-gray-600 hover:bg-gray-100'
+          }`}
+          aria-label="Add tag"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          <span>Tags</span>
+        </button>
       )}
     </div>
   )
