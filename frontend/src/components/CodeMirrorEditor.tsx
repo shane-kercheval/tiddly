@@ -235,6 +235,7 @@ function createMarkdownKeyBindings(): KeyBinding[] {
     { key: 'Mod-k', run: (view) => insertLink(view) },
     { key: 'Mod-Shift-x', run: (view) => wrapWithMarkers(view, '~~', '~~') },
     { key: 'Mod-Shift-h', run: (view) => wrapWithMarkers(view, '==', '==') },
+    { key: 'Mod-Shift-7', run: (view) => toggleLinePrefix(view, '- [ ] ') },
     // Pass through to global handlers (consume event, then dispatch globally)
     {
       key: 'Mod-/',
@@ -452,7 +453,7 @@ export function CodeMirrorEditor({
           <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '1. '))} title="Numbered List">
             <OrderedListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- [ ] '))} title="Task List">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- [ ] '))} title="Task List (⌘⇧7)">
             <TaskListIcon />
           </ToolbarButton>
 
