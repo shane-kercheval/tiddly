@@ -5,7 +5,7 @@
 Implement HTTP caching to reduce bandwidth and improve mobile app performance. Two complementary strategies:
 
 1. **ETag Middleware** - Automatically hash JSON responses and return 304 Not Modified when client has current version
-2. **Manual Last-Modified** - For single-resource endpoints, skip DB queries entirely when resource unchanged
+2. **Manual Last-Modified** - For single-resource endpoints, skip the full DB query (large content fields, tag joins) when resource unchanged
 
 **Problem:** Mobile app makes full API requests even when data hasn't changed, wasting bandwidth and battery.
 
@@ -47,11 +47,11 @@ Later:
 Later:
 4. Client: GET /bookmarks/{id}, If-Modified-Since: Wed, 15 Jan 2026 10:30:00 GMT
 5. Server: Quick query - SELECT updated_at WHERE id = ? AND user_id = ?
-6a. If updated_at <= If-Modified-Since: 304 Not Modified - saves DB work AND bandwidth
+6a. If updated_at <= If-Modified-Since: 304 Not Modified - skips full query AND saves bandwidth
 6b. If updated_at > If-Modified-Since: Full query, 200 OK with new data
 ```
 
-**Trade-off:** Requires extra code per endpoint, but can skip expensive queries entirely.
+**Trade-off:** Requires extra code per endpoint, but can skip the expensive full query (we still do a lightweight `SELECT updated_at` check).
 
 ---
 
@@ -103,13 +103,24 @@ def generate_etag(content: bytes) -> str:
 
 When both `If-None-Match` (ETag) and `If-Modified-Since` are present, `If-None-Match` takes precedence per HTTP spec. Our Last-Modified decorator should check for ETag header first and skip if present (let middleware handle it).
 
-### 5. Cache-Control Headers
+### 5. Cache-Control and Vary Headers
 
-Add `Cache-Control: private, must-revalidate` to cached responses:
-- `private` - Response is user-specific, don't cache in shared caches (CDNs)
-- `must-revalidate` - Client must validate with server before using cached response
+Add these headers to all cacheable responses:
+- `Cache-Control: private, must-revalidate`
+  - `private` - Response is user-specific, don't cache in shared caches (CDNs)
+  - `must-revalidate` - Client must validate with server before using cached response
+  - No `max-age` - we want clients to always revalidate (send If-None-Match/If-Modified-Since)
+- `Vary: Authorization` - Tells caches the response varies by auth header, preventing cross-user cache pollution
 
-No `max-age` - we want clients to always revalidate (send If-None-Match/If-Modified-Since).
+### 6. 304 Response Headers
+
+Per HTTP spec, 304 responses must include headers that would affect caching of the stored response. Our 304 responses must include:
+- `ETag` (if validating via If-None-Match)
+- `Last-Modified` (if validating via If-Modified-Since)
+- `Cache-Control: private, must-revalidate`
+- `Vary: Authorization`
+
+Security headers (HSTS, X-Frame-Options, etc.) are added by `SecurityHeadersMiddleware` which runs after `ETagMiddleware`, so they're automatically included on 304 responses.
 
 ---
 
@@ -132,6 +143,11 @@ Create middleware that automatically adds ETag headers to GET JSON responses and
    - `generate_etag(content: bytes) -> str` function
    - Middleware logic:
      ```python
+     CACHE_HEADERS = {
+         "Cache-Control": "private, must-revalidate",
+         "Vary": "Authorization",
+     }
+
      async def dispatch(self, request: Request, call_next) -> Response:
          # Skip non-GET requests
          if request.method != "GET":
@@ -151,13 +167,14 @@ Create middleware that automatically adds ETag headers to GET JSON responses and
          # Check If-None-Match
          if_none_match = request.headers.get("if-none-match")
          if if_none_match and if_none_match == etag:
-             return Response(status_code=304, headers={"ETag": etag})
+             # 304 must include caching headers per HTTP spec
+             return Response(status_code=304, headers={"ETag": etag, **CACHE_HEADERS})
 
-         # Return response with ETag header
+         # Return response with caching headers
          return Response(
              content=body,
              status_code=response.status_code,
-             headers={**response.headers, "ETag": etag, "Cache-Control": "private, must-revalidate"},
+             headers={**response.headers, "ETag": etag, **CACHE_HEADERS},
              media_type=response.media_type,
          )
      ```
@@ -183,8 +200,10 @@ Create `backend/tests/api/test_http_cache.py`:
    - Error responses (4xx, 5xx) don't get ETag headers
    - Non-JSON responses don't get ETag headers
 
-3. **Test Cache-Control header:**
-   - Verify `Cache-Control: private, must-revalidate` is present on cached responses
+3. **Test caching headers:**
+   - Verify `Cache-Control: private, must-revalidate` is present on 200 responses
+   - Verify `Cache-Control: private, must-revalidate` is present on 304 responses
+   - Verify `Vary: Authorization` is present on both 200 and 304 responses
 
 4. **Integration test with real endpoint:**
    - Create bookmark, GET it, note ETag
@@ -203,14 +222,15 @@ None
 ## Milestone 2: Last-Modified for Single Resource Endpoints
 
 ### Goal
-Add Last-Modified support to single-resource GET endpoints (`/bookmarks/{id}`, `/notes/{id}`, `/prompts/{id}`, `/prompts/name/{name}`) to skip database queries when resource unchanged.
+Add Last-Modified support to single-resource GET endpoints (`/bookmarks/{id}`, `/notes/{id}`, `/prompts/{id}`, `/prompts/name/{name}`) to skip the full database query when resource unchanged.
 
 ### Success Criteria
 - Single-resource endpoints include `Last-Modified` header
 - Requests with `If-Modified-Since` >= `updated_at` receive 304 (when no `If-None-Match` present)
 - Requests with `If-Modified-Since` < `updated_at` receive full response
 - When `If-None-Match` is present, defer to ETag middleware (skip Last-Modified check)
-- Database query is skipped when returning 304
+- Full database query is skipped when returning 304 (only lightweight `SELECT updated_at` runs)
+- OpenAPI schema remains intact (200 responses still show correct response model)
 
 ### Key Changes
 
@@ -239,15 +259,20 @@ Add Last-Modified support to single-resource GET endpoints (`/bookmarks/{id}`, `
 
          # Compare timestamps (truncate to seconds for HTTP date precision)
          if updated_at.replace(microsecond=0) <= client_date:
+             # 304 must include caching headers per HTTP spec
              return Response(
                  status_code=304,
-                 headers={"Last-Modified": format_http_date(updated_at)},
+                 headers={
+                     "Last-Modified": format_http_date(updated_at),
+                     "Cache-Control": "private, must-revalidate",
+                     "Vary": "Authorization",
+                 },
              )
 
          return None
      ```
 
-2. **Add service method to check updated_at without full fetch**:
+2. **Add service methods to check updated_at without full fetch**:
 
    In `backend/src/services/base_entity_service.py`, add:
    ```python
@@ -263,16 +288,33 @@ Add Last-Modified support to single-resource GET endpoints (`/bookmarks/{id}`, `
        return result.scalar_one_or_none()
    ```
 
+   In `backend/src/services/prompt_service.py`, add (for name-based lookup):
+   ```python
+   async def get_updated_at_by_name(
+       self, db: AsyncSession, user_id: UUID, name: str
+   ) -> datetime | None:
+       """Get updated_at timestamp by prompt name for cache validation."""
+       stmt = select(Prompt.updated_at).where(
+           Prompt.name == name,
+           Prompt.user_id == user_id,
+           Prompt.deleted_at.is_(None),
+       )
+       result = await db.execute(stmt)
+       return result.scalar_one_or_none()
+   ```
+
 3. **Update single-resource endpoints** (example for bookmarks):
 
    In `backend/src/api/routers/bookmarks.py`:
    ```python
+   from fastapi import Response as FastAPIResponse
    from core.http_cache import check_not_modified, format_http_date
 
    @router.get("/{bookmark_id}", response_model=BookmarkResponse)
    async def get_bookmark(
        bookmark_id: UUID,
-       request: Request,  # Add this
+       request: Request,  # For reading If-Modified-Since header
+       response: FastAPIResponse,  # FastAPI injects this, lets us set headers on 200
        current_user: User = Depends(get_current_user),
        db: AsyncSession = Depends(get_async_session),
    ) -> BookmarkResponse:
@@ -284,7 +326,7 @@ Add Last-Modified support to single-resource GET endpoints (`/bookmarks/{id}`, `
 
        not_modified = check_not_modified(request, updated_at)
        if not_modified:
-           return not_modified  # 304 response
+           return not_modified  # 304 response - bypasses response_model
 
        # Full fetch
        bookmark = await bookmark_service.get(
@@ -293,19 +335,18 @@ Add Last-Modified support to single-resource GET endpoints (`/bookmarks/{id}`, `
        if bookmark is None:
            raise HTTPException(status_code=404, detail="Bookmark not found")
 
-       response = BookmarkResponse.model_validate(bookmark)
-       # Add Last-Modified header - ETag middleware will add ETag
-       return Response(
-           content=response.model_dump_json(),
-           media_type="application/json",
-           headers={"Last-Modified": format_http_date(updated_at)},
-       )
+       # Set Last-Modified header on the injected response object
+       # This preserves the OpenAPI schema (returning Pydantic model, not Response)
+       response.headers["Last-Modified"] = format_http_date(updated_at)
+       return BookmarkResponse.model_validate(bookmark)
    ```
+
+   **Note on OpenAPI schema:** By returning the Pydantic model for 200 responses and using the injected `response` parameter to set headers, the OpenAPI schema remains correct. The 304 response bypasses the `response_model` validation, which is allowed by FastAPI.
 
 4. **Apply same pattern to:**
    - `GET /notes/{note_id}` in `notes.py`
    - `GET /prompts/{prompt_id}` in `prompts.py`
-   - `GET /prompts/name/{name}` in `prompts.py` (use name lookup for updated_at)
+   - `GET /prompts/name/{name}` in `prompts.py` (use `get_updated_at_by_name` instead of `get_updated_at`)
 
 ### Testing Strategy
 
@@ -321,13 +362,20 @@ Add tests to `backend/tests/api/test_http_cache.py`:
    - Returns None when `If-None-Match` header present (ETag precedence)
    - Returns 304 when `If-Modified-Since` >= `updated_at`
    - Returns None when `If-Modified-Since` < `updated_at`
+   - 304 response includes `Cache-Control` and `Vary: Authorization` headers
 
 3. **Test `get_updated_at` service method:**
    - Returns timestamp for existing entity
    - Returns None for non-existent entity
    - Respects user_id (can't see other user's timestamps)
 
-4. **Integration tests per endpoint:**
+4. **Test `get_updated_at_by_name` (PromptService):**
+   - Returns timestamp for existing prompt by name
+   - Returns None for non-existent name
+   - Returns None for deleted prompts (respects soft delete)
+   - Respects user_id (can't see other user's timestamps)
+
+5. **Integration tests per endpoint:**
    - `GET /bookmarks/{id}`:
      - Without headers: returns 200 with Last-Modified and ETag
      - With old `If-Modified-Since`: returns 200 (data changed)
@@ -335,7 +383,7 @@ Add tests to `backend/tests/api/test_http_cache.py`:
      - With `If-None-Match` (matching): returns 304 (ETag precedence)
    - Same tests for `/notes/{id}`, `/prompts/{id}`, `/prompts/name/{name}`
 
-5. **Test 404 handling:**
+6. **Test 404 handling:**
    - Non-existent resource with `If-Modified-Since` returns 404, not 304
 
 ### Dependencies
@@ -344,7 +392,6 @@ Milestone 1 (ETag middleware must be in place)
 ### Risk Factors
 - **Timestamp precision:** HTTP dates have second precision; `updated_at` has microsecond precision. Truncate appropriately when comparing.
 - **Timezone handling:** Ensure `updated_at` (stored with timezone) converts correctly to HTTP date (always GMT).
-- **Response type change:** Returning `Response` instead of Pydantic model changes return type. Verify this works with FastAPI's response handling and doesn't break OpenAPI schema.
 
 ---
 
@@ -381,17 +428,19 @@ Ensure comprehensive test coverage and update API documentation.
    **ETag (all GET JSON endpoints):**
    - Server includes `ETag` header with response hash
    - Client sends `If-None-Match: <etag>` on subsequent requests
-   - Server returns 304 Not Modified if content unchanged
+   - Server returns 304 Not Modified if content unchanged (saves bandwidth, not DB work)
 
    **Last-Modified (single-resource endpoints):**
    - `/bookmarks/{id}`, `/notes/{id}`, `/prompts/{id}`, `/prompts/name/{name}`
    - Server includes `Last-Modified` header with `updated_at` timestamp
    - Client sends `If-Modified-Since: <date>` on subsequent requests
-   - Server can skip database query if resource unchanged
+   - Server can skip the full database query if resource unchanged (only runs lightweight `SELECT updated_at`)
 
    **Header Precedence:** `If-None-Match` takes precedence over `If-Modified-Since`
 
-   **Cache-Control:** All cacheable responses include `Cache-Control: private, must-revalidate`
+   **Caching Headers:** All cacheable responses include:
+   - `Cache-Control: private, must-revalidate` - User-specific data, always revalidate
+   - `Vary: Authorization` - Response varies by auth header
    ```
 
 ### Testing Strategy
@@ -416,6 +465,7 @@ Milestones 1 and 2
 ### Modified Files
 - `backend/src/api/main.py` - Add ETagMiddleware
 - `backend/src/services/base_entity_service.py` - Add `get_updated_at` method
+- `backend/src/services/prompt_service.py` - Add `get_updated_at_by_name` method
 - `backend/src/api/routers/bookmarks.py` - Add Last-Modified to `get_bookmark`
 - `backend/src/api/routers/notes.py` - Add Last-Modified to `get_note`
 - `backend/src/api/routers/prompts.py` - Add Last-Modified to `get_prompt` and `get_prompt_by_name`
