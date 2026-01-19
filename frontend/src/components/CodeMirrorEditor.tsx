@@ -395,6 +395,26 @@ export function CodeMirrorEditor({
     }
   }, [getView])
 
+  // Semi-controlled mode: pass value for initial render, ignore prop updates after mount.
+  // This works around a Safari bug in @uiw/react-codemirror where content disappears
+  // after fast typing then pausing (controlled value sync issue).
+  // See: https://github.com/uiwjs/react-codemirror/issues/694
+  //
+  // How it works:
+  // - useState(value) captures the initial value once on mount
+  // - User edits flow through onChange, keeping parent state in sync
+  // - Subsequent value prop changes are ignored (initialValue never updates)
+  //
+  // This is safe because:
+  // - Document switching uses key prop (e.g., key={note?.id}) which forces remount
+  // - On remount, useState captures the new document's content fresh
+  // - There's no feature that programmatically changes content mid-edit
+  //
+  // If programmatic content changes were needed, options would be:
+  // - Change the key prop to force remount
+  // - Use imperative ref to dispatch changes directly to CodeMirror
+  const [initialValue] = useState(value)
+
   // Build extensions array with optional line wrapping and keybindings
   const extensions = useMemo(() => {
     const bindings = createMarkdownKeyBindings()
@@ -550,7 +570,7 @@ export function CodeMirrorEditor({
       ) : (
         <CodeMirror
           ref={editorRef}
-          value={value}
+          value={initialValue}
           onChange={onChange}
           extensions={extensions}
           minHeight={minHeight}
