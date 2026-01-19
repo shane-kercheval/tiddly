@@ -6,6 +6,8 @@ import pytest
 from httpx import AsyncClient
 
 from core.http_cache import (
+    _etag_matches,
+    _parse_if_none_match,
     check_not_modified,
     format_http_date,
     generate_etag,
@@ -47,6 +49,60 @@ class TestGenerateEtag:
         etag = generate_etag(b"")
         assert etag.startswith('W/"')
         assert etag.endswith('"')
+
+
+class TestParseIfNoneMatch:
+    """Tests for If-None-Match header parsing."""
+
+    def test__parse_if_none_match__single_etag(self) -> None:
+        """Single ETag should be parsed correctly."""
+        result = _parse_if_none_match('W/"abc123"')
+        assert result == ['W/"abc123"']
+
+    def test__parse_if_none_match__comma_separated(self) -> None:
+        """Comma-separated ETags should be parsed into list."""
+        result = _parse_if_none_match('W/"abc", W/"def", W/"ghi"')
+        assert result == ['W/"abc"', 'W/"def"', 'W/"ghi"']
+
+    def test__parse_if_none_match__wildcard(self) -> None:
+        """Wildcard should be parsed correctly."""
+        result = _parse_if_none_match("*")
+        assert result == ["*"]
+
+    def test__parse_if_none_match__empty_string(self) -> None:
+        """Empty string should return empty list."""
+        result = _parse_if_none_match("")
+        assert result == []
+
+    def test__parse_if_none_match__whitespace_handling(self) -> None:
+        """Whitespace should be stripped from ETags."""
+        result = _parse_if_none_match('  W/"abc"  ,  W/"def"  ')
+        assert result == ['W/"abc"', 'W/"def"']
+
+
+class TestEtagMatches:
+    """Tests for ETag matching logic."""
+
+    def test__etag_matches__exact_match(self) -> None:
+        """Exact ETag match should return True."""
+        assert _etag_matches('W/"abc"', ['W/"abc"']) is True
+
+    def test__etag_matches__no_match(self) -> None:
+        """Non-matching ETag should return False."""
+        assert _etag_matches('W/"abc"', ['W/"def"']) is False
+
+    def test__etag_matches__wildcard_matches_any(self) -> None:
+        """Wildcard should match any ETag."""
+        assert _etag_matches('W/"abc"', ["*"]) is True
+        assert _etag_matches('W/"anything"', ["*"]) is True
+
+    def test__etag_matches__match_in_list(self) -> None:
+        """ETag in list should match."""
+        assert _etag_matches('W/"def"', ['W/"abc"', 'W/"def"', 'W/"ghi"']) is True
+
+    def test__etag_matches__no_match_in_list(self) -> None:
+        """ETag not in list should not match."""
+        assert _etag_matches('W/"xyz"', ['W/"abc"', 'W/"def"']) is False
 
 
 class TestETagMiddleware:
@@ -109,6 +165,30 @@ class TestETagMiddleware:
         response = await client.get("/bookmarks/00000000-0000-0000-0000-000000000000")
         assert response.status_code == 404
         assert "etag" not in response.headers
+
+    @pytest.mark.asyncio
+    async def test__etag_middleware__wildcard_if_none_match_returns_304(
+        self, client: AsyncClient,
+    ) -> None:
+        """GET with wildcard If-None-Match should return 304."""
+        response = await client.get("/health", headers={"If-None-Match": "*"})
+        assert response.status_code == 304
+
+    @pytest.mark.asyncio
+    async def test__etag_middleware__comma_separated_if_none_match_returns_304(
+        self, client: AsyncClient,
+    ) -> None:
+        """GET with comma-separated If-None-Match containing matching ETag should return 304."""
+        # First request to get ETag
+        response1 = await client.get("/health")
+        etag = response1.headers["etag"]
+
+        # Second request with comma-separated list containing the ETag
+        response2 = await client.get(
+            "/health",
+            headers={"If-None-Match": f'W/"other1", {etag}, W/"other2"'},
+        )
+        assert response2.status_code == 304
 
 
 class TestCachingHeaders:
@@ -288,6 +368,19 @@ class TestHttpDateFormatting:
         """parse_http_date should return None for invalid dates."""
         assert parse_http_date("not a date") is None
         assert parse_http_date("") is None
+
+    def test__format_http_date__handles_naive_datetime(self) -> None:
+        """format_http_date should handle naive datetimes (assumed UTC)."""
+        # Naive datetime (no tzinfo)
+        naive_dt = datetime(2026, 1, 15, 10, 30, 0)
+        # Equivalent aware datetime
+        aware_dt = datetime(2026, 1, 15, 10, 30, 0, tzinfo=UTC)
+
+        naive_result = format_http_date(naive_dt)
+        aware_result = format_http_date(aware_dt)
+
+        # Both should produce the same output
+        assert naive_result == aware_result
 
     def test__format_parse_roundtrip(self) -> None:
         """Formatting then parsing should return equivalent datetime."""

@@ -25,6 +25,37 @@ def generate_etag(content: bytes) -> str:
     return f'W/"{hash_value}"'
 
 
+def _parse_if_none_match(header_value: str) -> list[str]:
+    """
+    Parse If-None-Match header value into list of ETags.
+
+    Handles:
+    - Single ETag: 'W/"abc123"' -> ['W/"abc123"']
+    - Comma-separated: 'W/"abc", W/"def"' -> ['W/"abc"', 'W/"def"']
+    - Wildcard: '*' -> ['*']
+    """
+    if not header_value:
+        return []
+    # Handle wildcard
+    if header_value.strip() == "*":
+        return ["*"]
+    # Split by comma and strip whitespace
+    return [etag.strip() for etag in header_value.split(",") if etag.strip()]
+
+
+def _etag_matches(etag: str, if_none_match_values: list[str]) -> bool:
+    """
+    Check if ETag matches any value in If-None-Match list.
+
+    Per RFC 7232, weak comparison is used for If-None-Match:
+    - Wildcard '*' matches any ETag
+    - Otherwise, compare ETag values (weak ETags match if quoted values are equal)
+    """
+    if "*" in if_none_match_values:
+        return True
+    return etag in if_none_match_values
+
+
 class ETagMiddleware(BaseHTTPMiddleware):
     """
     Middleware that adds ETag headers to GET JSON responses.
@@ -55,14 +86,16 @@ class ETagMiddleware(BaseHTTPMiddleware):
         body = b"".join([chunk async for chunk in response.body_iterator])
         etag = generate_etag(body)
 
-        # Check If-None-Match header
+        # Check If-None-Match header (supports comma-separated lists and wildcard *)
         if_none_match = request.headers.get("if-none-match")
-        if if_none_match and if_none_match == etag:
-            # Return 304 with caching headers (security headers added by outer middleware)
-            return Response(
-                status_code=304,
-                headers={"ETag": etag, **CACHE_HEADERS},
-            )
+        if if_none_match:
+            if_none_match_values = _parse_if_none_match(if_none_match)
+            if _etag_matches(etag, if_none_match_values):
+                # Return 304 with caching headers (security headers added by outer middleware)
+                return Response(
+                    status_code=304,
+                    headers={"ETag": etag, **CACHE_HEADERS},
+                )
 
         # Build new response with ETag and caching headers
         # Preserve original headers (rate limit, etc.) and add our caching headers
@@ -83,7 +116,14 @@ def format_http_date(dt: datetime) -> str:
     Format datetime as HTTP date (RFC 7231).
 
     Example: "Wed, 15 Jan 2026 10:30:00 GMT"
+
+    Handles both timezone-aware and naive datetimes. Naive datetimes are
+    assumed to be UTC (consistent with how PostgreSQL TIMESTAMP WITH TIME ZONE
+    values are returned when the session timezone is UTC).
     """
+    # Normalize naive datetimes to UTC
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
     # Convert to UTC timestamp, then format as HTTP date
     timestamp = dt.timestamp()
     return formatdate(timestamp, usegmt=True)
