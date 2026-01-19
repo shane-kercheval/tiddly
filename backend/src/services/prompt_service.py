@@ -1,5 +1,6 @@
 """Service layer for prompt CRUD operations."""
 import logging
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -280,6 +281,36 @@ class PromptService(BaseEntityService[Prompt]):
             select(Prompt)
             .options(selectinload(Prompt.tag_objects))
             .where(
+                Prompt.user_id == user_id,
+                Prompt.name == name,
+                Prompt.deleted_at.is_(None),
+                ~Prompt.is_archived,
+            ),
+        )
+        return result.scalar_one_or_none()
+
+    async def get_updated_at_by_name(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        name: str,
+    ) -> datetime | None:
+        """
+        Get updated_at timestamp by prompt name for cache validation.
+
+        Returns only for active prompts (excludes deleted AND archived).
+        This is a lightweight query for HTTP Last-Modified support.
+
+        Args:
+            db: Database session.
+            user_id: User ID to scope the prompt.
+            name: Name of the prompt to find.
+
+        Returns:
+            The updated_at timestamp if found and active, None otherwise.
+        """
+        result = await db.execute(
+            select(Prompt.updated_at).where(
                 Prompt.user_id == user_id,
                 Prompt.name == name,
                 Prompt.deleted_at.is_(None),

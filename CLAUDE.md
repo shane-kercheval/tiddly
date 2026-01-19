@@ -145,6 +145,33 @@ User lookups are cached in Redis for 5 minutes to reduce database load:
 - Invalidated on consent updates (`POST /consent/me`)
 - Falls back to database on cache miss or Redis unavailability
 
+### HTTP Caching
+
+The API supports HTTP caching via ETag and Last-Modified headers to reduce bandwidth and improve client performance:
+
+**ETag (all GET JSON endpoints):**
+- Server includes `ETag` header with response content hash
+- Client sends `If-None-Match: <etag>` on subsequent requests
+- Server returns 304 Not Modified if content unchanged (saves bandwidth, not DB work)
+- Implemented via `ETagMiddleware` in `core/http_cache.py`
+
+**Last-Modified (single-resource endpoints):**
+- Endpoints: `/bookmarks/{id}`, `/notes/{id}`, `/prompts/{id}`, `/prompts/name/{name}`
+- Server includes `Last-Modified` header with `updated_at` timestamp
+- Client sends `If-Modified-Since: <date>` on subsequent requests
+- Server can skip the full database query if resource unchanged (only runs lightweight `SELECT updated_at`)
+
+**Header Precedence:** `If-None-Match` takes precedence over `If-Modified-Since` per HTTP spec.
+
+**Caching Headers on all cacheable responses:**
+- `Cache-Control: private, must-revalidate` - User-specific data, always revalidate
+- `Vary: Authorization` - Response varies by auth header
+
+**Implementation Files:**
+- `core/http_cache.py`: ETagMiddleware, format_http_date, parse_http_date, check_not_modified
+- `services/base_entity_service.py`: get_updated_at() method
+- `services/prompt_service.py`: get_updated_at_by_name() method
+
 ## Testing
 
 Backend tests use pytest with async support. The `conftest.py` sets up:

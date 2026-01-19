@@ -2,13 +2,15 @@
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import Response as FastAPIResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import (
     get_async_session,
     get_current_user,
 )
+from core.http_cache import check_not_modified, format_http_date
 from models.user import User
 from schemas.note import (
     NoteCreate,
@@ -101,15 +103,32 @@ async def list_notes(
 @router.get("/{note_id}", response_model=NoteResponse)
 async def get_note(
     note_id: UUID,
+    request: Request,
+    response: FastAPIResponse,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
     """Get a single note by ID (includes archived and deleted notes)."""
+    # Quick check: can we return 304?
+    updated_at = await note_service.get_updated_at(
+        db, current_user.id, note_id, include_deleted=True,
+    )
+    if updated_at is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    not_modified = check_not_modified(request, updated_at)
+    if not_modified:
+        return not_modified  # type: ignore[return-value]
+
+    # Full fetch
     note = await note_service.get(
         db, current_user.id, note_id, include_archived=True, include_deleted=True,
     )
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
+
+    # Set Last-Modified header
+    response.headers["Last-Modified"] = format_http_date(updated_at)
     return NoteResponse.model_validate(note)
 
 

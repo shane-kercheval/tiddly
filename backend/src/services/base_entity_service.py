@@ -425,6 +425,37 @@ class BaseEntityService(ABC, Generic[T]):
         await db.flush()
         return True
 
+    async def get_updated_at(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        entity_id: UUID,
+        include_deleted: bool = False,
+    ) -> datetime | None:
+        """
+        Get just the updated_at timestamp for an entity.
+
+        This is a lightweight query for HTTP cache validation (Last-Modified).
+        Returns None if entity not found (or deleted, unless include_deleted=True).
+
+        Args:
+            db: Database session.
+            user_id: User ID to scope the entity.
+            entity_id: ID of the entity.
+            include_deleted: If True, include soft-deleted entities. Default False.
+
+        Returns:
+            The updated_at timestamp, or None if not found.
+        """
+        stmt = select(self.model.updated_at).where(
+            self.model.id == entity_id,
+            self.model.user_id == user_id,
+        )
+        if not include_deleted:
+            stmt = stmt.where(self.model.deleted_at.is_(None))
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
     # --- Private Helper Methods ---
 
     def _apply_view_filter(

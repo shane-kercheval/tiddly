@@ -2,7 +2,8 @@
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import Response as FastAPIResponse
 from pydantic import HttpUrl
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +12,7 @@ from api.dependencies import (
     get_current_user,
     get_current_user_auth0_only,
 )
+from core.http_cache import check_not_modified, format_http_date
 from models.user import User
 from schemas.bookmark import (
     BookmarkCreate,
@@ -168,15 +170,32 @@ async def list_bookmarks(
 @router.get("/{bookmark_id}", response_model=BookmarkResponse)
 async def get_bookmark(
     bookmark_id: UUID,
+    request: Request,
+    response: FastAPIResponse,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkResponse:
     """Get a single bookmark by ID (includes archived and deleted bookmarks)."""
+    # Quick check: can we return 304?
+    updated_at = await bookmark_service.get_updated_at(
+        db, current_user.id, bookmark_id, include_deleted=True,
+    )
+    if updated_at is None:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    not_modified = check_not_modified(request, updated_at)
+    if not_modified:
+        return not_modified  # type: ignore[return-value]
+
+    # Full fetch
     bookmark = await bookmark_service.get(
         db, current_user.id, bookmark_id, include_archived=True, include_deleted=True,
     )
     if bookmark is None:
         raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    # Set Last-Modified header
+    response.headers["Last-Modified"] = format_http_date(updated_at)
     return BookmarkResponse.model_validate(bookmark)
 
 
