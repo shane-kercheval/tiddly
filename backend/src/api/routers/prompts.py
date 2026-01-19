@@ -2,13 +2,15 @@
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import Response as FastAPIResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import (
     get_async_session,
     get_current_user,
 )
+from core.http_cache import check_not_modified, format_http_date
 from models.user import User
 from schemas.prompt import (
     PromptCreate,
@@ -113,6 +115,8 @@ async def list_prompts(
 @router.get("/name/{name}", response_model=PromptResponse)
 async def get_prompt_by_name(
     name: str,
+    request: Request,
+    response: FastAPIResponse,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptResponse:
@@ -122,24 +126,54 @@ async def get_prompt_by_name(
     Returns only active prompts (excludes deleted and archived).
     This endpoint is primarily used by the MCP server for prompt lookups.
     """
+    # Quick check: can we return 304?
+    updated_at = await prompt_service.get_updated_at_by_name(db, current_user.id, name)
+    if updated_at is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    not_modified = check_not_modified(request, updated_at)
+    if not_modified:
+        return not_modified  # type: ignore[return-value]
+
+    # Full fetch
     prompt = await prompt_service.get_by_name(db, current_user.id, name)
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
+
+    # Set Last-Modified header
+    response.headers["Last-Modified"] = format_http_date(updated_at)
     return PromptResponse.model_validate(prompt)
 
 
 @router.get("/{prompt_id}", response_model=PromptResponse)
 async def get_prompt(
     prompt_id: UUID,
+    request: Request,
+    response: FastAPIResponse,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptResponse:
     """Get a single prompt by ID (includes archived and deleted prompts)."""
+    # Quick check: can we return 304?
+    updated_at = await prompt_service.get_updated_at(
+        db, current_user.id, prompt_id, include_deleted=True,
+    )
+    if updated_at is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    not_modified = check_not_modified(request, updated_at)
+    if not_modified:
+        return not_modified  # type: ignore[return-value]
+
+    # Full fetch
     prompt = await prompt_service.get(
         db, current_user.id, prompt_id, include_archived=True, include_deleted=True,
     )
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
+
+    # Set Last-Modified header
+    response.headers["Last-Modified"] = format_http_date(updated_at)
     return PromptResponse.model_validate(prompt)
 
 
