@@ -1,4 +1,5 @@
 """Tests for HTTP caching (ETag middleware and Last-Modified)."""
+import asyncio
 from datetime import datetime, UTC
 from unittest.mock import MagicMock
 
@@ -458,6 +459,20 @@ class TestCheckNotModified:
         result = check_not_modified(request, updated_at)
         assert result is None
 
+    def test__check_not_modified__naive_updated_at_treated_as_utc(self) -> None:
+        """Naive updated_at should be treated as UTC."""
+        request = MagicMock()
+        # Client has cached version from 10:30:00 UTC
+        request.headers = {"if-modified-since": "Wed, 15 Jan 2026 10:30:00 GMT"}
+
+        # Naive datetime (no tzinfo) - same time, should be treated as UTC
+        naive_updated_at = datetime(2026, 1, 15, 10, 30, 0)
+
+        result = check_not_modified(request, naive_updated_at)
+        # Should return 304 since times match (naive treated as UTC)
+        assert result is not None
+        assert result.status_code == 304
+
 
 class TestLastModifiedIntegration:
     """Integration tests for Last-Modified with real endpoints."""
@@ -631,3 +646,88 @@ class TestLastModifiedIntegration:
             headers={"If-Modified-Since": "Wed, 15 Jan 2026 10:30:00 GMT"},
         )
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test__last_modified__changes_after_update(
+        self, client: AsyncClient,
+    ) -> None:
+        """Last-Modified should change after resource update, invalidating cache."""
+        # Create bookmark
+        create_response = await client.post(
+            "/bookmarks/",
+            json={"url": "https://lastmod-update-test.com", "title": "Original"},
+        )
+        bookmark_id = create_response.json()["id"]
+
+        # GET to get initial Last-Modified
+        response1 = await client.get(f"/bookmarks/{bookmark_id}")
+        last_modified_1 = response1.headers["last-modified"]
+
+        # Verify 304 works with current Last-Modified
+        response2 = await client.get(
+            f"/bookmarks/{bookmark_id}",
+            headers={"If-Modified-Since": last_modified_1},
+        )
+        assert response2.status_code == 304
+
+        # Wait to ensure update happens in a different second (HTTP dates have second precision)
+        await asyncio.sleep(1.1)
+
+        # Update the bookmark
+        await client.patch(
+            f"/bookmarks/{bookmark_id}",
+            json={"title": "Updated Title"},
+        )
+
+        # Request with OLD Last-Modified should return 200 (cache invalidated)
+        response3 = await client.get(
+            f"/bookmarks/{bookmark_id}",
+            headers={"If-Modified-Since": last_modified_1},
+        )
+        assert response3.status_code == 200
+
+        # New Last-Modified should be different
+        last_modified_2 = response3.headers["last-modified"]
+        assert last_modified_2 != last_modified_1
+
+        # New Last-Modified should work for 304
+        response4 = await client.get(
+            f"/bookmarks/{bookmark_id}",
+            headers={"If-Modified-Since": last_modified_2},
+        )
+        assert response4.status_code == 304
+
+    @pytest.mark.asyncio
+    async def test__last_modified__soft_deleted_resource_supports_caching(
+        self, client: AsyncClient,
+    ) -> None:
+        """Soft-deleted resources should still support Last-Modified caching."""
+        # Create bookmark
+        create_response = await client.post(
+            "/bookmarks/",
+            json={"url": "https://soft-delete-cache.com", "title": "To Delete"},
+        )
+        bookmark_id = create_response.json()["id"]
+
+        # GET to get Last-Modified
+        response1 = await client.get(f"/bookmarks/{bookmark_id}")
+        assert response1.status_code == 200
+        response1.headers["last-modified"]
+
+        # Soft delete the bookmark
+        delete_response = await client.delete(f"/bookmarks/{bookmark_id}")
+        assert delete_response.status_code == 204
+
+        # GET deleted bookmark should still work (endpoint includes deleted)
+        response2 = await client.get(f"/bookmarks/{bookmark_id}")
+        assert response2.status_code == 200
+        assert "last-modified" in response2.headers
+
+        # If-Modified-Since should work on deleted resource
+        # Note: delete updates the timestamp, so we need the new Last-Modified
+        new_last_modified = response2.headers["last-modified"]
+        response3 = await client.get(
+            f"/bookmarks/{bookmark_id}",
+            headers={"If-Modified-Since": new_last_modified},
+        )
+        assert response3.status_code == 304
