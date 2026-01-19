@@ -78,7 +78,7 @@ fields: str = "content"  # Comma-separated: "content", "title", "description"
 ### Testing Strategy
 
 - Test searching in each content type (bookmark, note, prompt)
-- Test with `type` parameter specified vs auto-detection
+- Test with `type` parameter specified vs auto-detection (both should return same results)
 - Test multiple fields: `fields=content,title,description`
 - Test multiple matches in same content
 - Test no matches found (empty results)
