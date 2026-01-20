@@ -19,9 +19,22 @@ Add AI-friendly editing capabilities to the content management API. The design p
 1. **Content-based matching (str_replace)** - Primary edit operation requires unique string match
 2. **No line numbers in GET responses** - Prevents AI from trying to use them in edits
 3. **Line numbers in error messages and search results** - For navigation/understanding only
-4. **Progressive fuzzy matching** - Fallback strategy: exact → whitespace-normalized → indentation-relative (implemented from the start)
+4. **Progressive fuzzy matching** - Fallback strategy: exact → whitespace-normalized (indentation-relative deferred to future)
 5. **Per-content-type API endpoints** - API stays consistent (`/notes/{id}/...`, `/bookmarks/{id}/...`, `/prompts/{id}/...`)
 6. **Consolidated MCP tools** - MCP tools accept `type` parameter and route to appropriate API endpoint
+
+### Line Counting Convention
+
+Lines are counted using simple split semantics: `total_lines = len(content.split('\n'))`
+
+| Content | Line count |
+|---------|------------|
+| `"hello"` | 1 |
+| `"hello\n"` | 2 |
+| `"hello\nworld"` | 2 |
+| `"hello\nworld\n"` | 3 |
+
+This matches what editors like VS Code and Sublime display.
 
 ---
 
@@ -35,7 +48,7 @@ Add endpoints to search within a single content item's text fields, returning ma
 
 This endpoint serves several purposes for AI agents:
 1. **Pre-edit validation** - Confirm how many matches exist before attempting str_replace (avoid "multiple matches" errors)
-2. **Context building** - Get surrounding text to construct a unique `old_str` for editing
+2. **Context building** - Get surrounding lines to construct a unique `old_str` for editing
 3. **Content discovery** - Find where specific text appears in a document without reading the entire content into context
 4. **General search** - Non-editing use cases where agents need to locate information within content
 
@@ -57,7 +70,7 @@ None - can be implemented independently.
 q: str                          # Required search query (literal match)
 fields: str = "content"         # Comma-separated: "content", "title", "description"
 case_sensitive: bool = False    # Default case-insensitive
-context_chars: int = 50         # Characters before/after match for context
+context_lines: int = 2          # Lines before/after match for context
 
 # Response
 {
@@ -65,7 +78,7 @@ context_chars: int = 50         # Characters before/after match for context
         {
             "field": "content",
             "line": 15,
-            "context": "...surrounding text with match highlighted..."
+            "context": "line 13 content\nline 14 content\nline 15 with match\nline 16 content\nline 17 content"
         },
         {
             "field": "title",
@@ -82,7 +95,7 @@ context_chars: int = 50         # Characters before/after match for context
 - Create shared search logic in `backend/src/services/content_search_service.py`
 - The service should:
   - Split content into lines and search for query matches
-  - Return line numbers (1-indexed) and surrounding context
+  - Return line numbers (1-indexed) and surrounding context lines
   - Search specified fields only
   - Handle case sensitivity
 
@@ -95,7 +108,7 @@ context_chars: int = 50         # Characters before/after match for context
 - Test searching in each content type (bookmark, note, prompt)
 - Test multiple fields: `fields=content,title,description`
 - Test case sensitivity: `case_sensitive=true` vs default
-- Test `context_chars` parameter with various values
+- Test `context_lines` parameter with various values
 - Test multiple matches in same content
 - Test no matches found (empty results array, not error)
 - Test match at beginning/end of content (context truncation)
@@ -108,14 +121,14 @@ context_chars: int = 50         # Characters before/after match for context
 - [ ] Endpoint returns matches with line numbers and context
 - [ ] Supports searching multiple fields
 - [ ] Case sensitivity option works correctly
-- [ ] Context size is configurable
+- [ ] Context lines count is configurable
 - [ ] Returns empty matches array (not error) when no matches
 - [ ] Use cases documented in OpenAPI/docstrings
 - [ ] Tests cover all content types and edge cases
 
 ### Risk Factors
 
-- Performance with very large content (mitigated by context_chars limit)
+- Performance with very large content (mitigated by returning only context lines, not full content)
 
 ---
 
@@ -156,6 +169,7 @@ None - can be implemented independently (parallel with Milestone 1).
 - `end_line` out of range (> total_lines): **Clamp** to total_lines (no error, return what exists)
 - `start_line > end_line`: Return **400 error**
 - Lines are 1-indexed
+- Line count uses simple split: `total_lines = len(content.split('\n'))`
 
 **Files to read first:**
 - `backend/src/api/routers/bookmarks.py`, `notes.py`, `prompts.py` - existing GET endpoints
@@ -171,6 +185,7 @@ None - can be implemented independently (parallel with Milestone 1).
 - Test with empty content
 - Test content_metadata accuracy (total_lines, is_partial)
 - Test edge cases: single line, last line, first line
+- Test line counting with trailing newlines (e.g., `"hello\n"` = 2 lines)
 
 ### Success Criteria
 
@@ -179,6 +194,7 @@ None - can be implemented independently (parallel with Milestone 1).
 - [ ] Backwards compatible when no line params provided
 - [ ] start_line out of range returns 400
 - [ ] end_line out of range clamps gracefully
+- [ ] Line counting matches editor conventions
 - [ ] Tests verify all edge cases
 
 ### Risk Factors
@@ -214,7 +230,7 @@ None - can be implemented independently.
 # Success response (200)
 {
     "success": true,
-    "match_type": "exact",  # or "whitespace_normalized", "indentation_relative"
+    "match_type": "exact",  # or "whitespace_normalized"
     "line": 15,  # Line number where match was found
     "type": "note",
     "id": "...",
@@ -239,12 +255,15 @@ None - can be implemented independently.
 }
 ```
 
-**Progressive matching fallbacks (implement all from the start):**
+**Progressive matching fallbacks:**
 1. **Exact** - Character-for-character match
-2. **Whitespace normalized** - Strip trailing whitespace, normalize line endings (`\r\n` → `\n`)
-3. **Indentation relative** - Handle uniform indent/outdent (e.g., all lines shifted by same amount)
+2. **Whitespace normalized** - Strip trailing whitespace from each line, normalize line endings (`\r\n` → `\n`)
 
 Return `match_type` in response so caller knows which level succeeded.
+
+**Line ending behavior:**
+- **Matching:** Uses normalization (so `\r\n` in content matches `\n` in `old_str`)
+- **Replacement:** Literal - `new_str` is inserted exactly as provided
 
 **Implementation notes:**
 - Create `backend/src/services/content_edit_service.py` for shared edit logic
@@ -266,12 +285,13 @@ Return `match_type` in response so caller knows which level succeeded.
 - Test successful single-match replacement
 - Test no match found error
 - Test multiple matches error (with correct line numbers in response)
-- Test each fallback level: exact, whitespace normalized, indentation relative
+- Test each fallback level: exact, whitespace normalized
 - Test multiline old_str
 - Test replacement that changes line count
 - Test empty new_str (deletion via str_replace)
 - Test preserving other fields (tags, title, etc.)
 - Test with each content type
+- Test line ending normalization (content with `\r\n`, old_str with `\n`)
 - **For prompts:** Test that invalid Jinja2 after edit returns 400
 
 ### Success Criteria
@@ -280,14 +300,15 @@ Return `match_type` in response so caller knows which level succeeded.
 - [ ] Single unique match triggers successful replacement
 - [ ] Zero matches returns actionable error
 - [ ] Multiple matches returns locations with context
-- [ ] All three fallback levels implemented and working
+- [ ] Both fallback levels (exact, whitespace normalized) implemented and working
 - [ ] Response includes match_type used
+- [ ] Line ending behavior documented and tested
 - [ ] Prompt template validation after edit
 - [ ] Tests cover all scenarios
 
 ### Risk Factors
 
-- Indentation-relative matching is the most complex fallback - test thoroughly
+- None significant (indentation-relative matching deferred to future enhancement)
 
 ---
 
@@ -296,6 +317,8 @@ Return `match_type` in response so caller knows which level succeeded.
 ### Goal
 
 Add consolidated MCP tools (`get_content`, `edit_content`, `search_in_content`) to the Content MCP server. These tools require a `type` parameter and route to the appropriate per-type API endpoint.
+
+**Breaking Change:** This milestone removes the existing `get_bookmark` and `get_note` tools. Document this in release notes.
 
 ### Dependencies
 
@@ -314,7 +337,7 @@ Milestones 1, 2, 3 (API endpoints must exist first).
 )
 async def get_content(
     id: Annotated[str, Field(description="The content item ID (UUID)")],
-    type: Annotated[str, Field(description="Content type: 'bookmark' or 'note'")],
+    type: Annotated[str, Field(description="Content type: 'bookmark' or 'note'. Available in search results from search_all_content.")],
     start_line: Annotated[int | None, Field(description="Start line for partial read (1-indexed)")] = None,
     end_line: Annotated[int | None, Field(description="End line for partial read (1-indexed)")] = None,
 ) -> dict[str, Any]:
@@ -364,6 +387,7 @@ async def search_in_content(
 
 **Remove old tools:**
 - Remove `get_bookmark` and `get_note` (replaced by `get_content`)
+- This is a breaking change - document in release notes
 
 **API client addition:**
 - Add `api_patch()` helper to `backend/src/mcp_server/api_client.py`
@@ -390,6 +414,7 @@ async def search_in_content(
 - [ ] All tools require `type` parameter
 - [ ] Error responses are clear and actionable
 - [ ] Old `get_bookmark` and `get_note` tools removed
+- [ ] Breaking change documented
 - [ ] `api_patch()` helper added
 
 ### Risk Factors
@@ -434,20 +459,25 @@ async def update_prompt(
     - Provide arguments as a complete list to replace all arguments
     - Each argument: {"name": "arg_name", "description": "...", "required": true/false}
 
-    Both can be provided in a single call.
+    Both can be provided in a single call. The operation is atomic - if either
+    fails, neither change is applied.
     """
-    results = []
+    # If both str_replace and arguments provided, execute atomically:
+    # - If either operation would fail, return error without applying any changes
+    # - Only apply both if both would succeed
 
     if old_str is not None and new_str is not None:
         # Call PATCH /prompts/{id}/str-replace
-        # Append result to results
 
     if arguments is not None:
         # Call PATCH /prompts/{id} with {"arguments": arguments}
-        # Append result to results
-
-    return results
 ```
+
+**Atomic operation behavior:**
+- If both `old_str`/`new_str` and `arguments` are provided, the operation is atomic
+- If the str_replace would fail (no match, multiple matches, invalid template), return error without updating arguments
+- If the argument update would fail (validation error), return error without applying str_replace
+- This prevents partial updates that could leave the prompt in an inconsistent state
 
 **API client addition:**
 - Add `api_patch()` helper to `backend/src/prompt_mcp_server/api_client.py`
@@ -460,7 +490,9 @@ async def update_prompt(
 
 - Test content editing via str_replace
 - Test argument replacement
-- Test both operations in single call
+- Test both operations in single call (atomic success)
+- Test atomic failure: str_replace fails, arguments should not be updated
+- Test atomic failure: arguments fail, str_replace should not be applied
 - Test validation errors (invalid template after edit, duplicate argument names)
 - Test 404 for non-existent prompt
 
@@ -469,12 +501,13 @@ async def update_prompt(
 - [ ] Can edit prompt content via str_replace
 - [ ] Can replace arguments list
 - [ ] Can do both in one call
+- [ ] Atomic behavior: both succeed or both fail
 - [ ] Validation errors return clear messages
 - [ ] `api_patch()` helper added
 
 ### Risk Factors
 
-- Need to decide: if both operations requested and one fails, should the other still apply? (Recommend: fail both - atomic operation)
+- Atomic operation requires validating both changes before applying either - implementation must check str_replace match and argument validity before committing
 
 ---
 
@@ -485,8 +518,8 @@ async def update_prompt(
 | 1 | API | `GET /{type}/{id}/search` for notes, bookmarks, prompts |
 | 2 | API | Partial read params (`start_line`, `end_line`) on existing GET endpoints |
 | 3 | API | `PATCH /{type}/{id}/str-replace` for notes, bookmarks, prompts |
-| 4 | Content MCP | `get_content`, `edit_content`, `search_in_content` tools (replace per-type get tools) |
-| 5 | Prompt MCP | `update_prompt` tool for content and argument editing |
+| 4 | Content MCP | `get_content`, `edit_content`, `search_in_content` tools (replace per-type get tools) - **BREAKING** |
+| 5 | Prompt MCP | `update_prompt` tool for content and argument editing (atomic) |
 
 ---
 
@@ -552,3 +585,14 @@ This matches Claude Code, Aider, and Cursor which all use a single str_replace o
 **Decision:** Not implementing preview step before edits.
 
 **Rationale:** Adds latency and complexity. Good error messages enable self-correction. The agent can always read content after editing to verify.
+
+### Indentation-Relative Matching
+
+**Decision:** Deferred to future enhancement. Initial implementation includes only exact and whitespace-normalized matching.
+
+**Rationale:** Indentation-relative matching is complex (tabs vs spaces, mixed indentation, determining "uniform" offset). Exact + whitespace-normalized handles 90%+ of real cases. Add indentation matching only if users actually hit this issue.
+
+**Future algorithm (when needed):**
+1. Calculate the indentation difference of the first non-empty line between `old_str` and content
+2. Verify all non-empty lines in `old_str` share the same relative offset
+3. If consistent, apply the offset to match
