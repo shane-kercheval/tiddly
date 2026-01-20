@@ -12,6 +12,7 @@ from api.dependencies import (
 )
 from core.http_cache import check_not_modified, format_http_date
 from models.user import User
+from schemas.content_search import ContentSearchMatch, ContentSearchResponse
 from schemas.note import (
     NoteCreate,
     NoteListItem,
@@ -20,6 +21,7 @@ from schemas.note import (
     NoteUpdate,
 )
 from services import content_filter_service
+from services.content_search_service import SearchMatch, search_in_content
 from services.exceptions import InvalidStateError
 from services.note_service import NoteService
 
@@ -130,6 +132,89 @@ async def get_note(
     # Set Last-Modified header
     response.headers["Last-Modified"] = format_http_date(updated_at)
     return NoteResponse.model_validate(note)
+
+
+def _convert_search_matches(matches: list[SearchMatch]) -> list[ContentSearchMatch]:
+    """Convert internal SearchMatch objects to API response schema."""
+    return [
+        ContentSearchMatch(field=m.field, line=m.line, context=m.context)
+        for m in matches
+    ]
+
+
+@router.get("/{note_id}/search", response_model=ContentSearchResponse)
+async def search_in_note(
+    note_id: UUID,
+    q: str = Query(description="Text to search for (literal match)"),
+    fields: str = Query(
+        default="content",
+        description="Comma-separated fields to search: 'content', 'title', 'description'",
+    ),
+    case_sensitive: bool = Query(default=False, description="Case-sensitive search"),
+    context_lines: int = Query(
+        default=2,
+        ge=0,
+        le=10,
+        description="Lines of context before/after match (content field only)",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> ContentSearchResponse:
+    """
+    Search within a note's text fields to find matches with line numbers and context.
+
+    This endpoint serves several purposes for AI agents:
+
+    1. **Pre-edit validation** - Confirm how many matches exist before attempting
+       str_replace (avoid "multiple matches" errors)
+    2. **Context building** - Get surrounding lines to construct a unique `old_str`
+       for editing
+    3. **Content discovery** - Find where specific text appears in a document without
+       reading the entire content into context
+    4. **General search** - Non-editing use cases where agents need to locate
+       information within content
+
+    Returns:
+        - `matches`: List of matches found. Empty array if no matches (success, not error).
+        - `total_matches`: Count of matches found.
+
+    For the `content` field, matches include line numbers (1-indexed) and surrounding
+    context lines. For `title` and `description` fields, the full field value is
+    returned as context with `line: null`.
+    """
+    # Fetch the note
+    note = await note_service.get(
+        db, current_user.id, note_id, include_archived=True, include_deleted=True,
+    )
+    if note is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    # Parse and validate fields
+    field_list = [f.strip().lower() for f in fields.split(",")]
+    valid_fields = {"content", "title", "description"}
+    invalid_fields = set(field_list) - valid_fields
+    if invalid_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid fields: {', '.join(invalid_fields)}. "
+            "Valid fields: content, title, description",
+        )
+
+    # Perform search
+    matches = search_in_content(
+        content=note.content,
+        title=note.title,
+        description=note.description,
+        query=q,
+        fields=field_list,
+        case_sensitive=case_sensitive,
+        context_lines=context_lines,
+    )
+
+    return ContentSearchResponse(
+        matches=_convert_search_matches(matches),
+        total_matches=len(matches),
+    )
 
 
 @router.patch("/{note_id}", response_model=NoteResponse)

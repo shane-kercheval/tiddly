@@ -1437,3 +1437,234 @@ async def test__render_prompt__jinja_filter(client: AsyncClient) -> None:
     )
     assert response.status_code == 200
     assert response.json()["rendered_content"] == "HELLO"
+
+
+# =============================================================================
+# Within-Content Search Tests
+# =============================================================================
+
+
+async def test_search_in_prompt_basic(client: AsyncClient) -> None:
+    """Test basic search within a prompt's content."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "search-test-prompt",
+            "content": "line 1\nline 2 with target\nline 3",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.get(
+        f"/prompts/{prompt_id}/search",
+        params={"q": "target"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert len(data["matches"]) == 1
+    assert data["matches"][0]["field"] == "content"
+    assert data["matches"][0]["line"] == 2
+    assert "target" in data["matches"][0]["context"]
+
+
+async def test_search_in_prompt_no_matches_returns_empty(client: AsyncClient) -> None:
+    """Test that no matches returns empty array (not error)."""
+    response = await client.post(
+        "/prompts/",
+        json={"name": "no-matches-prompt", "content": "some content here"},
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.get(
+        f"/prompts/{prompt_id}/search",
+        params={"q": "nonexistent"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 0
+    assert data["matches"] == []
+
+
+async def test_search_in_prompt_title_field(client: AsyncClient) -> None:
+    """Test searching in title field returns full title as context."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "title-search-prompt",
+            "title": "Important Code Review Prompt",
+            "content": "content here",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.get(
+        f"/prompts/{prompt_id}/search",
+        params={"q": "review", "fields": "title"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert data["matches"][0]["field"] == "title"
+    assert data["matches"][0]["line"] is None
+    assert data["matches"][0]["context"] == "Important Code Review Prompt"
+
+
+async def test_search_in_prompt_multiple_fields(client: AsyncClient) -> None:
+    """Test searching across multiple fields."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "multi-field-prompt",
+            "title": "Python Code Review",
+            "description": "Review Python code for best practices",
+            "content": "Please review this Python code:\n{{ code }}",
+            "arguments": [{"name": "code", "required": True}],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.get(
+        f"/prompts/{prompt_id}/search",
+        params={"q": "python", "fields": "content,title,description"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 3
+    fields = {m["field"] for m in data["matches"]}
+    assert fields == {"content", "title", "description"}
+
+
+async def test_search_in_prompt_case_sensitive(client: AsyncClient) -> None:
+    """Test case-sensitive search."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "case-sensitive-prompt",
+            "content": "Hello World",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Case-sensitive search should not match
+    response = await client.get(
+        f"/prompts/{prompt_id}/search",
+        params={"q": "WORLD", "case_sensitive": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 0
+
+    # Exact case should match
+    response = await client.get(
+        f"/prompts/{prompt_id}/search",
+        params={"q": "World", "case_sensitive": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_prompt_not_found(client: AsyncClient) -> None:
+    """Test 404 when prompt doesn't exist."""
+    response = await client.get(
+        "/prompts/00000000-0000-0000-0000-000000000000/search",
+        params={"q": "test"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Prompt not found"
+
+
+async def test_search_in_prompt_invalid_field(client: AsyncClient) -> None:
+    """Test 400 when invalid field is specified."""
+    response = await client.post(
+        "/prompts/",
+        json={"name": "invalid-field-prompt", "content": "content"},
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.get(
+        f"/prompts/{prompt_id}/search",
+        params={"q": "test", "fields": "content,invalid"},
+    )
+    assert response.status_code == 400
+    assert "Invalid fields" in response.json()["detail"]
+
+
+async def test_search_in_prompt_works_on_archived(client: AsyncClient) -> None:
+    """Test that search works on archived prompts."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "archived-search-prompt",
+            "content": "search target here",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Archive the prompt
+    await client.post(f"/prompts/{prompt_id}/archive")
+
+    # Search should still work
+    response = await client.get(
+        f"/prompts/{prompt_id}/search",
+        params={"q": "target"},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_prompt_works_on_deleted(client: AsyncClient) -> None:
+    """Test that search works on soft-deleted prompts."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "deleted-search-prompt",
+            "content": "search target here",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Delete the prompt
+    await client.delete(f"/prompts/{prompt_id}")
+
+    # Search should still work
+    response = await client.get(
+        f"/prompts/{prompt_id}/search",
+        params={"q": "target"},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_prompt_jinja_template(client: AsyncClient) -> None:
+    """Test searching in a prompt with Jinja2 template syntax."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "jinja-search-prompt",
+            "content": "Please review:\n{{ code }}\nProvide feedback:",
+            "arguments": [{"name": "code", "required": True}],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Search for Jinja2 variable
+    response = await client.get(
+        f"/prompts/{prompt_id}/search",
+        params={"q": "{{ code }}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+    assert response.json()["matches"][0]["line"] == 2

@@ -1141,3 +1141,285 @@ async def test_list_notes_filter_id_empty_results(client: AsyncClient) -> None:
     data = response.json()
     assert data["total"] == 0
     assert data["items"] == []
+
+
+# =============================================================================
+# Within-Content Search Tests
+# =============================================================================
+
+
+async def test_search_in_note_basic(client: AsyncClient) -> None:
+    """Test basic search within a note's content."""
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "Test Note",
+            "content": "line 1\nline 2 with target\nline 3",
+        },
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/search", params={"q": "target"})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert len(data["matches"]) == 1
+    assert data["matches"][0]["field"] == "content"
+    assert data["matches"][0]["line"] == 2
+    assert "target" in data["matches"][0]["context"]
+
+
+async def test_search_in_note_no_matches_returns_empty(client: AsyncClient) -> None:
+    """Test that no matches returns empty array (not error)."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test Note", "content": "some content here"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/search", params={"q": "nonexistent"})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 0
+    assert data["matches"] == []
+
+
+async def test_search_in_note_title_field(client: AsyncClient) -> None:
+    """Test searching in title field returns full title as context."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Important Meeting Notes", "content": "content here"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "meeting", "fields": "title"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert data["matches"][0]["field"] == "title"
+    assert data["matches"][0]["line"] is None
+    assert data["matches"][0]["context"] == "Important Meeting Notes"
+
+
+async def test_search_in_note_description_field(client: AsyncClient) -> None:
+    """Test searching in description field."""
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "Test Note",
+            "description": "A detailed description for searching",
+            "content": "content",
+        },
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "detailed", "fields": "description"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert data["matches"][0]["field"] == "description"
+    assert data["matches"][0]["line"] is None
+    assert data["matches"][0]["context"] == "A detailed description for searching"
+
+
+async def test_search_in_note_multiple_fields(client: AsyncClient) -> None:
+    """Test searching across multiple fields."""
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "Python Tutorial",
+            "description": "Learn Python basics",
+            "content": "Python is a programming language",
+        },
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "python", "fields": "content,title,description"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 3
+    fields = {m["field"] for m in data["matches"]}
+    assert fields == {"content", "title", "description"}
+
+
+async def test_search_in_note_case_insensitive_default(client: AsyncClient) -> None:
+    """Test that search is case-insensitive by default."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello World"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/search", params={"q": "WORLD"})
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_note_case_sensitive(client: AsyncClient) -> None:
+    """Test case-sensitive search."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello World"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Case-sensitive search should not match
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "WORLD", "case_sensitive": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 0
+
+    # Exact case should match
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "World", "case_sensitive": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_note_context_lines(client: AsyncClient) -> None:
+    """Test context_lines parameter."""
+    content = "line 1\nline 2\nline 3 target\nline 4\nline 5"
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": content},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # With context_lines=1
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "target", "context_lines": 1},
+    )
+    assert response.status_code == 200
+    context = response.json()["matches"][0]["context"]
+    assert "line 2" in context
+    assert "line 3 target" in context
+    assert "line 4" in context
+    # Should not include line 1 or line 5
+    assert "line 1" not in context
+    assert "line 5" not in context
+
+
+async def test_search_in_note_multiple_matches_in_content(client: AsyncClient) -> None:
+    """Test multiple matches in content field."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "foo bar\nbar baz\nqux bar"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "bar", "context_lines": 0},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 3
+    lines = [m["line"] for m in data["matches"]]
+    assert lines == [1, 2, 3]
+
+
+async def test_search_in_note_not_found(client: AsyncClient) -> None:
+    """Test 404 when note doesn't exist."""
+    response = await client.get(
+        "/notes/00000000-0000-0000-0000-000000000000/search",
+        params={"q": "test"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Note not found"
+
+
+async def test_search_in_note_invalid_field(client: AsyncClient) -> None:
+    """Test 400 when invalid field is specified."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "content"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "test", "fields": "content,invalid"},
+    )
+    assert response.status_code == 400
+    assert "Invalid fields" in response.json()["detail"]
+
+
+async def test_search_in_note_works_on_archived(client: AsyncClient) -> None:
+    """Test that search works on archived notes."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "search target here"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Archive the note
+    await client.post(f"/notes/{note_id}/archive")
+
+    # Search should still work
+    response = await client.get(f"/notes/{note_id}/search", params={"q": "target"})
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_note_works_on_deleted(client: AsyncClient) -> None:
+    """Test that search works on soft-deleted notes."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "search target here"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Delete the note
+    await client.delete(f"/notes/{note_id}")
+
+    # Search should still work
+    response = await client.get(f"/notes/{note_id}/search", params={"q": "target"})
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_note_empty_content(client: AsyncClient) -> None:
+    """Test searching in note with empty/null content."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "No Content Note"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/search", params={"q": "anything"})
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 0
+    assert response.json()["matches"] == []

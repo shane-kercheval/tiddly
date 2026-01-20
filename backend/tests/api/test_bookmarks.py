@@ -2905,3 +2905,217 @@ async def test_sort_by_deleted_at_asc(client: AsyncClient) -> None:
     # First deleted should come first (least recent)
     ids = [b["id"] for b in data["items"]]
     assert ids.index(first_id) < ids.index(second_id)
+
+
+# =============================================================================
+# Within-Content Search Tests
+# =============================================================================
+
+
+async def test_search_in_bookmark_basic(client: AsyncClient) -> None:
+    """Test basic search within a bookmark's content."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://search-test.com",
+            "title": "Test Bookmark",
+            "content": "line 1\nline 2 with target\nline 3",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "target"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert len(data["matches"]) == 1
+    assert data["matches"][0]["field"] == "content"
+    assert data["matches"][0]["line"] == 2
+    assert "target" in data["matches"][0]["context"]
+
+
+async def test_search_in_bookmark_no_matches_returns_empty(client: AsyncClient) -> None:
+    """Test that no matches returns empty array (not error)."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://no-matches.com",
+            "title": "Test",
+            "content": "some content here",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "nonexistent"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 0
+    assert data["matches"] == []
+
+
+async def test_search_in_bookmark_title_field(client: AsyncClient) -> None:
+    """Test searching in title field returns full title as context."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://title-search.com",
+            "title": "Important Documentation Page",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "documentation", "fields": "title"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert data["matches"][0]["field"] == "title"
+    assert data["matches"][0]["line"] is None
+    assert data["matches"][0]["context"] == "Important Documentation Page"
+
+
+async def test_search_in_bookmark_multiple_fields(client: AsyncClient) -> None:
+    """Test searching across multiple fields."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://multi-field.com",
+            "title": "Python Tutorial",
+            "description": "Learn Python basics",
+            "content": "Python is a programming language",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "python", "fields": "content,title,description"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 3
+    fields = {m["field"] for m in data["matches"]}
+    assert fields == {"content", "title", "description"}
+
+
+async def test_search_in_bookmark_case_sensitive(client: AsyncClient) -> None:
+    """Test case-sensitive search."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://case-sensitive.com",
+            "title": "Test",
+            "content": "Hello World",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Case-sensitive search should not match
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "WORLD", "case_sensitive": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 0
+
+    # Exact case should match
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "World", "case_sensitive": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_bookmark_not_found(client: AsyncClient) -> None:
+    """Test 404 when bookmark doesn't exist."""
+    response = await client.get(
+        "/bookmarks/00000000-0000-0000-0000-000000000000/search",
+        params={"q": "test"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Bookmark not found"
+
+
+async def test_search_in_bookmark_invalid_field(client: AsyncClient) -> None:
+    """Test 400 when invalid field is specified."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://invalid-field.com", "title": "Test"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "test", "fields": "content,invalid"},
+    )
+    assert response.status_code == 400
+    assert "Invalid fields" in response.json()["detail"]
+
+
+async def test_search_in_bookmark_works_on_archived(client: AsyncClient) -> None:
+    """Test that search works on archived bookmarks."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://archived-search.com",
+            "title": "Test",
+            "content": "search target here",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Archive the bookmark
+    await client.post(f"/bookmarks/{bookmark_id}/archive")
+
+    # Search should still work
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "target"},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_bookmark_works_on_deleted(client: AsyncClient) -> None:
+    """Test that search works on soft-deleted bookmarks."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://deleted-search.com",
+            "title": "Test",
+            "content": "search target here",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Delete the bookmark
+    await client.delete(f"/bookmarks/{bookmark_id}")
+
+    # Search should still work
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "target"},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
