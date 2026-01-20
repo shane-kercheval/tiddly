@@ -2908,6 +2908,79 @@ async def test_sort_by_deleted_at_asc(client: AsyncClient) -> None:
 
 
 # =============================================================================
+# Partial Read Tests
+# =============================================================================
+
+
+async def test__get_bookmark__full_read_includes_content_metadata(client: AsyncClient) -> None:
+    """Test that full read includes content_metadata with is_partial=false."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://partial-test.com", "content": "line 1\nline 2\nline 3"},
+    )
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 1\nline 2\nline 3"
+    assert data["content_metadata"] is not None
+    assert data["content_metadata"]["total_lines"] == 3
+    assert data["content_metadata"]["is_partial"] is False
+
+
+async def test__get_bookmark__partial_read_with_both_params(client: AsyncClient) -> None:
+    """Test partial read with start_line and end_line."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://partial-test2.com", "content": "line 1\nline 2\nline 3\nline 4"},
+    )
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}",
+        params={"start_line": 2, "end_line": 3},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 2\nline 3"
+    assert data["content_metadata"]["total_lines"] == 4
+    assert data["content_metadata"]["start_line"] == 2
+    assert data["content_metadata"]["end_line"] == 3
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_bookmark__null_content_with_line_params_returns_400(
+    client: AsyncClient,
+) -> None:
+    """Test that null content with line params returns 400."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://no-content.com"},  # No content
+    )
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}", params={"start_line": 1})
+    assert response.status_code == 400
+    assert "Content is empty" in response.json()["detail"]
+
+
+async def test__get_bookmark__start_line_exceeds_total_returns_400(client: AsyncClient) -> None:
+    """Test that start_line > total_lines returns 400."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://partial-test3.com", "content": "line 1\nline 2"},
+    )
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}", params={"start_line": 10})
+    assert response.status_code == 400
+    assert "exceeds total lines" in response.json()["detail"]
+
+
+# =============================================================================
 # Within-Content Search Tests
 # =============================================================================
 

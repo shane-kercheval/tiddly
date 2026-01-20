@@ -21,6 +21,7 @@ from schemas.note import (
     NoteUpdate,
 )
 from services import content_filter_service
+from services.content_lines import apply_partial_read
 from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
 from services.note_service import NoteService
@@ -107,10 +108,27 @@ async def get_note(
     note_id: UUID,
     request: Request,
     response: FastAPIResponse,
+    start_line: int | None = Query(
+        default=None,
+        ge=1,
+        description="Start line for partial read (1-indexed). Defaults to 1 if end_line provided.",
+    ),
+    end_line: int | None = Query(
+        default=None,
+        ge=1,
+        description="End line for partial read (1-indexed, inclusive). "
+        "Defaults to total_lines if start_line provided.",
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
-    """Get a single note by ID (includes archived and deleted notes)."""
+    """
+    Get a single note by ID (includes archived and deleted notes).
+
+    Supports partial reads via start_line and end_line parameters.
+    When line params are provided, only the specified line range is returned
+    in the content field, with content_metadata indicating the range and total lines.
+    """
     # Quick check: can we return 304?
     updated_at = await note_service.get_updated_at(
         db, current_user.id, note_id, include_deleted=True,
@@ -131,7 +149,10 @@ async def get_note(
 
     # Set Last-Modified header
     response.headers["Last-Modified"] = format_http_date(updated_at)
-    return NoteResponse.model_validate(note)
+
+    response_data = NoteResponse.model_validate(note)
+    apply_partial_read(response_data, start_line, end_line)
+    return response_data
 
 
 @router.get("/{note_id}/search", response_model=ContentSearchResponse)

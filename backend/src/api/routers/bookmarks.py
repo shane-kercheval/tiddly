@@ -29,6 +29,7 @@ from services.bookmark_service import (
     DuplicateUrlError,
 )
 from services import content_filter_service
+from services.content_lines import apply_partial_read
 from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
 from services.url_scraper import scrape_url
@@ -174,10 +175,27 @@ async def get_bookmark(
     bookmark_id: UUID,
     request: Request,
     response: FastAPIResponse,
+    start_line: int | None = Query(
+        default=None,
+        ge=1,
+        description="Start line for partial read (1-indexed). Defaults to 1 if end_line provided.",
+    ),
+    end_line: int | None = Query(
+        default=None,
+        ge=1,
+        description="End line for partial read (1-indexed, inclusive). "
+        "Defaults to total_lines if start_line provided.",
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkResponse:
-    """Get a single bookmark by ID (includes archived and deleted bookmarks)."""
+    """
+    Get a single bookmark by ID (includes archived and deleted bookmarks).
+
+    Supports partial reads via start_line and end_line parameters.
+    When line params are provided, only the specified line range is returned
+    in the content field, with content_metadata indicating the range and total lines.
+    """
     # Quick check: can we return 304?
     updated_at = await bookmark_service.get_updated_at(
         db, current_user.id, bookmark_id, include_deleted=True,
@@ -198,7 +216,10 @@ async def get_bookmark(
 
     # Set Last-Modified header
     response.headers["Last-Modified"] = format_http_date(updated_at)
-    return BookmarkResponse.model_validate(bookmark)
+
+    response_data = BookmarkResponse.model_validate(bookmark)
+    apply_partial_read(response_data, start_line, end_line)
+    return response_data
 
 
 @router.get("/{bookmark_id}/search", response_model=ContentSearchResponse)

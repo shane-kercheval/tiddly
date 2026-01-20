@@ -1144,6 +1144,234 @@ async def test_list_notes_filter_id_empty_results(client: AsyncClient) -> None:
 
 
 # =============================================================================
+# Partial Read Tests
+# =============================================================================
+
+
+async def test__get_note__full_read_includes_content_metadata(client: AsyncClient) -> None:
+    """Test that full read includes content_metadata with is_partial=false."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2\nline 3"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 1\nline 2\nline 3"
+    assert data["content_metadata"] is not None
+    assert data["content_metadata"]["total_lines"] == 3
+    assert data["content_metadata"]["start_line"] == 1
+    assert data["content_metadata"]["end_line"] == 3
+    assert data["content_metadata"]["is_partial"] is False
+
+
+async def test__get_note__partial_read_with_both_params(client: AsyncClient) -> None:
+    """Test partial read with start_line and end_line."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2\nline 3\nline 4\nline 5"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 2, "end_line": 4})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 2\nline 3\nline 4"
+    assert data["content_metadata"]["total_lines"] == 5
+    assert data["content_metadata"]["start_line"] == 2
+    assert data["content_metadata"]["end_line"] == 4
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_note__partial_read_start_line_only(client: AsyncClient) -> None:
+    """Test partial read with only start_line (reads to end)."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2\nline 3"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 2})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 2\nline 3"
+    assert data["content_metadata"]["total_lines"] == 3
+    assert data["content_metadata"]["start_line"] == 2
+    assert data["content_metadata"]["end_line"] == 3
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_note__partial_read_end_line_only(client: AsyncClient) -> None:
+    """Test partial read with only end_line (reads from line 1)."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2\nline 3"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"end_line": 2})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 1\nline 2"
+    assert data["content_metadata"]["total_lines"] == 3
+    assert data["content_metadata"]["start_line"] == 1
+    assert data["content_metadata"]["end_line"] == 2
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_note__start_line_exceeds_total_returns_400(client: AsyncClient) -> None:
+    """Test that start_line > total_lines returns 400."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 10})
+    assert response.status_code == 400
+    assert "exceeds total lines" in response.json()["detail"]
+
+
+async def test__get_note__end_line_clamped_to_total(client: AsyncClient) -> None:
+    """Test that end_line > total_lines is clamped (no error)."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 1, "end_line": 100})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 1\nline 2"
+    assert data["content_metadata"]["end_line"] == 2  # Clamped to total
+
+
+async def test__get_note__start_greater_than_end_returns_400(client: AsyncClient) -> None:
+    """Test that start_line > end_line returns 400."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2\nline 3"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 3, "end_line": 2})
+    assert response.status_code == 400
+    assert "must be <=" in response.json()["detail"]
+
+
+async def test__get_note__null_content_no_params_omits_metadata(client: AsyncClient) -> None:
+    """Test that null content with no line params omits content_metadata."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "No Content Note"},  # No content
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] is None
+    assert data["content_metadata"] is None
+
+
+async def test__get_note__null_content_with_line_params_returns_400(client: AsyncClient) -> None:
+    """Test that null content with line params returns 400."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "No Content Note"},  # No content
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 1})
+    assert response.status_code == 400
+    assert "Content is empty" in response.json()["detail"]
+
+
+async def test__get_note__empty_string_content_is_valid(client: AsyncClient) -> None:
+    """Test that empty string content with no params shows 1 line."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Empty Content", "content": ""},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == ""
+    assert data["content_metadata"]["total_lines"] == 1
+    assert data["content_metadata"]["is_partial"] is False
+
+
+async def test__get_note__empty_string_content_with_start_line(client: AsyncClient) -> None:
+    """Test that empty string content with start_line=1 succeeds."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Empty Content", "content": ""},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 1})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == ""
+    assert data["content_metadata"]["total_lines"] == 1
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_note__trailing_newline_line_count(client: AsyncClient) -> None:
+    """Test that trailing newline is counted correctly (hello\\n = 2 lines)."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Trailing Newline", "content": "hello\n"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_metadata"]["total_lines"] == 2
+
+
+async def test__get_note__other_fields_unaffected_by_line_params(client: AsyncClient) -> None:
+    """Test that title, description, tags are returned in full regardless of line params."""
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "Full Title Here",
+            "description": "Full description text",
+            "content": "line 1\nline 2\nline 3",
+            "tags": ["tag1", "tag2"],
+        },
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 2, "end_line": 2})
+    assert response.status_code == 200
+
+    data = response.json()
+    # Content is partial
+    assert data["content"] == "line 2"
+    assert data["content_metadata"]["is_partial"] is True
+    # Other fields are complete
+    assert data["title"] == "Full Title Here"
+    assert data["description"] == "Full description text"
+    assert data["tags"] == ["tag1", "tag2"]
+
+
+# =============================================================================
 # Within-Content Search Tests
 # =============================================================================
 

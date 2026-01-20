@@ -1440,6 +1440,121 @@ async def test__render_prompt__jinja_filter(client: AsyncClient) -> None:
 
 
 # =============================================================================
+# Partial Read Tests
+# =============================================================================
+
+
+async def test__get_prompt__full_read_includes_content_metadata(client: AsyncClient) -> None:
+    """Test that full read includes content_metadata with is_partial=false."""
+    response = await client.post(
+        "/prompts/",
+        json={"name": "partial-test-prompt", "content": "line 1\nline 2\nline 3"},
+    )
+    prompt_id = response.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 1\nline 2\nline 3"
+    assert data["content_metadata"] is not None
+    assert data["content_metadata"]["total_lines"] == 3
+    assert data["content_metadata"]["is_partial"] is False
+
+
+async def test__get_prompt__partial_read_with_both_params(client: AsyncClient) -> None:
+    """Test partial read with start_line and end_line."""
+    response = await client.post(
+        "/prompts/",
+        json={"name": "partial-test-prompt-2", "content": "line 1\nline 2\nline 3\nline 4"},
+    )
+    prompt_id = response.json()["id"]
+
+    response = await client.get(
+        f"/prompts/{prompt_id}",
+        params={"start_line": 2, "end_line": 3},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 2\nline 3"
+    assert data["content_metadata"]["total_lines"] == 4
+    assert data["content_metadata"]["start_line"] == 2
+    assert data["content_metadata"]["end_line"] == 3
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_prompt_by_name__partial_read(client: AsyncClient) -> None:
+    """Test partial read via get_prompt_by_name endpoint."""
+    response = await client.post(
+        "/prompts/",
+        json={"name": "partial-name-test", "content": "line 1\nline 2\nline 3"},
+    )
+    assert response.status_code == 201
+
+    response = await client.get(
+        "/prompts/name/partial-name-test",
+        params={"start_line": 2, "end_line": 3},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 2\nline 3"
+    assert data["content_metadata"]["total_lines"] == 3
+    assert data["content_metadata"]["start_line"] == 2
+    assert data["content_metadata"]["end_line"] == 3
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_prompt_by_name__full_read_includes_metadata(client: AsyncClient) -> None:
+    """Test that get_prompt_by_name includes content_metadata for full reads."""
+    response = await client.post(
+        "/prompts/",
+        json={"name": "full-name-test", "content": "line 1\nline 2"},
+    )
+    assert response.status_code == 201
+
+    response = await client.get("/prompts/name/full-name-test")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_metadata"] is not None
+    assert data["content_metadata"]["total_lines"] == 2
+    assert data["content_metadata"]["is_partial"] is False
+
+
+async def test__get_prompt__start_line_exceeds_total_returns_400(client: AsyncClient) -> None:
+    """Test that start_line > total_lines returns 400."""
+    response = await client.post(
+        "/prompts/",
+        json={"name": "partial-test-prompt-3", "content": "line 1\nline 2"},
+    )
+    prompt_id = response.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}", params={"start_line": 10})
+    assert response.status_code == 400
+    assert "exceeds total lines" in response.json()["detail"]
+
+
+async def test__get_prompt_by_name__start_line_exceeds_total_returns_400(
+    client: AsyncClient,
+) -> None:
+    """Test that start_line > total_lines returns 400 for get_by_name."""
+    response = await client.post(
+        "/prompts/",
+        json={"name": "partial-name-err-test", "content": "line 1\nline 2"},
+    )
+    assert response.status_code == 201
+
+    response = await client.get(
+        "/prompts/name/partial-name-err-test",
+        params={"start_line": 10},
+    )
+    assert response.status_code == 400
+    assert "exceeds total lines" in response.json()["detail"]
+
+
+# =============================================================================
 # Within-Content Search Tests
 # =============================================================================
 

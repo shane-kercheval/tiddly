@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from core.config import get_settings
+from schemas.content_metadata import ContentMetadata
 from schemas.validators import (
     validate_and_normalize_tags,
     validate_description_length,
@@ -175,9 +176,14 @@ class NoteResponse(NoteListItem):
     Schema for full note responses (includes content).
 
     Returned by GET /notes/:id and mutation endpoints.
+
+    The content_metadata field is included whenever content is non-null,
+    providing line count information and indicating whether the response
+    contains partial or full content.
     """
 
     content: str | None
+    content_metadata: ContentMetadata | None = None
 
 
 class NoteListResponse(BaseModel):
