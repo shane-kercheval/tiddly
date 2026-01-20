@@ -162,6 +162,29 @@ None - can be implemented independently (parallel with Milestone 1).
 - `GET /bookmarks/{id}?start_line=X&end_line=Y`
 - `GET /notes/{id}?start_line=X&end_line=Y`
 - `GET /prompts/{id}?start_line=X&end_line=Y`
+- `GET /prompts/name/{name}?start_line=X&end_line=Y`
+
+**New shared modules:**
+- `backend/src/schemas/content_metadata.py` - ContentMetadata schema (shared across response types)
+- `backend/src/services/content_lines.py` - Line counting and extraction utilities
+
+```python
+# backend/src/schemas/content_metadata.py
+class ContentMetadata(BaseModel):
+    total_lines: int
+    start_line: int
+    end_line: int
+    is_partial: bool
+```
+
+```python
+# backend/src/services/content_lines.py
+def count_lines(content: str) -> int:
+    """Count lines using split semantics: len(content.split('\\n'))"""
+
+def extract_lines(content: str, start_line: int, end_line: int) -> str:
+    """Extract line range (1-indexed, inclusive). Caller handles validation."""
+```
 
 **Response additions:**
 ```python
@@ -177,42 +200,87 @@ None - can be implemented independently (parallel with Milestone 1).
 }
 ```
 
+**Query parameters:**
+```python
+start_line: int | None = None  # Start line (1-indexed). Defaults to 1 if end_line provided.
+end_line: int | None = None    # End line (1-indexed, inclusive). Defaults to total_lines if start_line provided.
+```
+
+**Parameter combinations:**
+
+| `start_line` | `end_line` | Behavior |
+|--------------|------------|----------|
+| Provided | Provided | Partial read from start_line to end_line |
+| Provided | Omitted | Read from start_line to end of content |
+| Omitted | Provided | Read from line 1 to end_line |
+| Omitted | Omitted | Full content read |
+
 **Behavior:**
 - **Scope:** Partial read only affects the `content` field. All other fields (title, description, tags, etc.) are always returned in full.
-- When `start_line`/`end_line` are NOT provided, `content_metadata` is omitted. Full content returned as before (backwards compatible).
-- `start_line` out of range (> total_lines): Return **400 error** with message indicating total lines
-- `end_line` out of range (> total_lines): **Clamp** to total_lines (no error, return what exists)
-- `start_line > end_line`: Return **400 error**
+- **`content_metadata` presence:**
+  - When `content` is non-null: Always include `content_metadata`
+  - When `content` is null: Omit `content_metadata` (no lines to count)
+- **`is_partial` flag:**
+  - `true` when returning a subset of lines (any line param provided)
+  - `false` when returning full content (no line params)
+- **Null content with line params:** Return **400 error** with message "Content is empty; cannot retrieve lines"
+- **Empty string content (`""`):** Treated as valid content with 1 line (since `"".split('\n')` = `['']`). Returns `content: ""` with `total_lines: 1`. This differs from null content - null means "no content exists", empty string means "content exists but is empty".
+- **`start_line` out of range (> total_lines):** Return **400 error** with message indicating total lines
+- **`end_line` out of range (> total_lines):** **Clamp** to total_lines (no error, return what exists)
+- **`start_line > end_line`:** Return **400 error**
 - Lines are 1-indexed
 - Line count uses simple split: `total_lines = len(content.split('\n'))`
 
-**Files to read first:**
-- `backend/src/api/routers/bookmarks.py`, `notes.py`, `prompts.py` - existing GET endpoints
-- `backend/src/schemas/bookmark.py`, `note.py`, `prompt.py` - response schemas
+**Files to modify:**
+- `backend/src/api/routers/bookmarks.py` - add params to `get_bookmark()`
+- `backend/src/api/routers/notes.py` - add params to `get_note()`
+- `backend/src/api/routers/prompts.py` - add params to `get_prompt()` and `get_prompt_by_name()`
+- `backend/src/schemas/bookmark.py` - add `content_metadata: ContentMetadata | None` to BookmarkResponse
+- `backend/src/schemas/note.py` - add `content_metadata: ContentMetadata | None` to NoteResponse
+- `backend/src/schemas/prompt.py` - add `content_metadata: ContentMetadata | None` to PromptResponse
 
 ### Testing Strategy
 
+**Unit tests for content_lines.py:**
+- Test `count_lines()` with various inputs (empty string, single line, trailing newline)
+- Test `count_lines("")` returns 1 (empty string splits to `['']`)
+- Test `extract_lines()` with valid ranges
+- Test `extract_lines("", 1, 1)` returns `""`
+- Test line counting matches convention: `"hello"` = 1, `"hello\n"` = 2, `"hello\nworld\n"` = 3
+
+**API integration tests:**
 - Test partial read with valid line ranges
-- Test full content when no line params (backwards compatibility)
+- Test full content when no line params (content_metadata present with is_partial=false)
+- Test `start_line` only (reads to end)
+- Test `end_line` only (reads from line 1)
 - Test `start_line` > total_lines returns 400
 - Test `end_line` > total_lines clamps correctly
 - Test `start_line` > `end_line` returns 400
-- Test with empty content
-- Test content_metadata accuracy (total_lines, is_partial)
-- Test edge cases: single line, last line, first line
-- Test line counting with trailing newlines (e.g., `"hello\n"` = 2 lines)
+- Test null content with no line params (content_metadata omitted)
+- Test null content with line params returns 400
+- Test empty string content (`""`) with no line params (content_metadata shows total_lines=1)
+- Test empty string content with `start_line=1` succeeds (returns `""`, total_lines=1)
+- Test content_metadata accuracy (total_lines, start_line, end_line, is_partial)
+- Test edge cases: single line content, last line, first line
 - Test that title, description, tags are returned in full regardless of line params
+- Test all four endpoints (bookmarks, notes, prompts by ID, prompts by name)
 
 ### Success Criteria
 
-- [ ] Partial reads return only requested line range
-- [ ] Response includes content_metadata with total_lines, start_line, end_line, is_partial
-- [ ] Backwards compatible when no line params provided
-- [ ] start_line out of range returns 400
-- [ ] end_line out of range clamps gracefully
+- [ ] Shared `ContentMetadata` schema created
+- [ ] Shared `content_lines.py` utility created with `count_lines()` and `extract_lines()`
+- [ ] All four GET endpoints support `start_line` and `end_line` params
+- [ ] `content_metadata` included whenever content is non-null
+- [ ] `content_metadata` omitted when content is null
+- [ ] `is_partial` correctly reflects whether a subset was requested
+- [ ] `start_line` defaults to 1 when only `end_line` provided
+- [ ] `end_line` defaults to total_lines when only `start_line` provided
+- [ ] Null content with line params returns 400
+- [ ] `start_line` out of range returns 400
+- [ ] `end_line` out of range clamps gracefully
 - [ ] Line counting matches editor conventions
 - [ ] Other fields (title, description, tags) unaffected by line params
-- [ ] Tests verify all edge cases
+- [ ] Tests cover all endpoints and edge cases
 
 ### Risk Factors
 
@@ -564,7 +632,7 @@ This sequence matters because the str_replace might change variable references i
 | Milestone | Component | Changes |
 |-----------|-----------|---------|
 | 1 | API | `GET /{type}/{id}/search` for notes, bookmarks, prompts |
-| 2 | API | Partial read params (`start_line`, `end_line`) on existing GET endpoints |
+| 2 | API | Partial read params (`start_line`, `end_line`) on 4 GET endpoints + `content_metadata` in responses + shared `content_lines.py` utility |
 | 3 | API | `PATCH /{type}/{id}/str-replace` for notes, bookmarks, prompts |
 | 4 | Content MCP | `get_content`, `edit_content`, `search_in_content` tools (replace per-type get tools) - **BREAKING** |
 | 5 | Prompt MCP | `update_prompt` tool for content and argument editing (atomic) |
