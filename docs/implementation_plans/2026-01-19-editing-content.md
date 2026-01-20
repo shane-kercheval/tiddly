@@ -513,7 +513,7 @@ If any step fails, return error without applying any changes.
 
 Add consolidated MCP tools (`get_content`, `edit_content`, `search_in_content`) to the Content MCP server. These tools require a `type` parameter and route to the appropriate per-type API endpoint.
 
-**Breaking Change:** This milestone removes the existing `get_bookmark` and `get_note` tools. Document this in release notes.
+**Breaking Change:** This milestone removes the existing `get_bookmark` and `get_note` tools.
 
 **Scope:** Content MCP handles bookmarks and notes only. Prompts are handled separately by the Prompt MCP server (see Milestone 5).
 
