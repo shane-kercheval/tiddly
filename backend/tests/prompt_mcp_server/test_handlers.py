@@ -361,13 +361,20 @@ async def test__get_prompt__returns_user_role_message(
 
 
 @pytest.mark.asyncio
-async def test__list_tools__returns_create_prompt() -> None:
-    """Test list_tools returns create_prompt tool."""
+async def test__list_tools__returns_create_prompt_and_update_prompt() -> None:
+    """Test list_tools returns create_prompt and update_prompt tools."""
     result = await handle_list_tools()
 
-    assert len(result) == 1
-    assert result[0].name == "create_prompt"
-    assert "Create a new prompt" in result[0].description
+    assert len(result) == 2
+    tool_names = {t.name for t in result}
+    assert tool_names == {"create_prompt", "update_prompt"}
+
+    create_prompt = next(t for t in result if t.name == "create_prompt")
+    assert "Create a new prompt" in create_prompt.description
+
+    update_prompt = next(t for t in result if t.name == "update_prompt")
+    assert "Update a prompt" in update_prompt.description
+    assert "string replacement" in update_prompt.description
 
 
 @pytest.mark.asyncio
@@ -552,6 +559,336 @@ async def test__create_prompt_tool__unknown_tool_error() -> None:
         await handle_call_tool("unknown_tool", {})
 
     assert "Unknown tool" in str(exc_info.value)
+
+
+# --- call_tool (update_prompt) tests ---
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__updates_content(mock_api, mock_auth) -> None:  # noqa: ARG001
+    """Test update_prompt tool performs str-replace successfully."""
+    updated_prompt = {
+        "id": "550e8400-e29b-41d4-a716-446655440010",
+        "name": "test-prompt",
+        "title": None,
+        "description": None,
+        "content": "Hello world!",
+        "arguments": [],
+        "tags": [],
+    }
+    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440010/str-replace").mock(
+        return_value=Response(
+            200,
+            json={
+                "match_type": "exact",
+                "line": 1,
+                "data": updated_prompt,
+            },
+        ),
+    )
+
+    result = await handle_call_tool(
+        "update_prompt",
+        {
+            "id": "550e8400-e29b-41d4-a716-446655440010",
+            "old_str": "Hello wrold",
+            "new_str": "Hello world!",
+        },
+    )
+
+    assert len(result) == 1
+    assert "test-prompt" in result[0].text
+    assert "exact" in result[0].text
+    assert "line 1" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__with_arguments(mock_api, mock_auth) -> None:  # noqa: ARG001
+    """Test update_prompt tool with atomic arguments update."""
+    import json
+
+    updated_prompt = {
+        "id": "550e8400-e29b-41d4-a716-446655440011",
+        "name": "with-new-var",
+        "title": None,
+        "description": None,
+        "content": "Hello {{ name }}!",
+        "arguments": [{"name": "name", "required": True}],
+        "tags": [],
+    }
+    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440011/str-replace").mock(
+        return_value=Response(
+            200,
+            json={
+                "match_type": "exact",
+                "line": 1,
+                "data": updated_prompt,
+            },
+        ),
+    )
+
+    result = await handle_call_tool(
+        "update_prompt",
+        {
+            "id": "550e8400-e29b-41d4-a716-446655440011",
+            "old_str": "Hello world!",
+            "new_str": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+
+    assert "with-new-var" in result[0].text
+
+    # Verify payload included arguments
+    payload = json.loads(mock_api.calls[0].request.content)
+    assert payload["old_str"] == "Hello world!"
+    assert payload["new_str"] == "Hello {{ name }}!"
+    assert payload["arguments"] == [{"name": "name", "required": True}]
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__whitespace_normalized_match(
+    mock_api, mock_auth,  # noqa: ARG001
+) -> None:
+    """Test update_prompt tool reports whitespace_normalized match type."""
+    updated_prompt = {
+        "id": "550e8400-e29b-41d4-a716-446655440012",
+        "name": "normalized",
+        "content": "Updated content",
+        "arguments": [],
+        "tags": [],
+    }
+    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440012/str-replace").mock(
+        return_value=Response(
+            200,
+            json={
+                "match_type": "whitespace_normalized",
+                "line": 5,
+                "data": updated_prompt,
+            },
+        ),
+    )
+
+    result = await handle_call_tool(
+        "update_prompt",
+        {
+            "id": "550e8400-e29b-41d4-a716-446655440012",
+            "old_str": "old text",
+            "new_str": "Updated content",
+        },
+    )
+
+    assert "whitespace_normalized" in result[0].text
+    assert "line 5" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__no_match_error(mock_api, mock_auth) -> None:  # noqa: ARG001
+    """Test update_prompt tool returns structured error when no match found."""
+    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440013/str-replace").mock(
+        return_value=Response(
+            400,
+            json={
+                "detail": {
+                    "error": "no_match",
+                    "message": "The specified text was not found in the content",
+                    "suggestion": "Verify the text exists and check for whitespace differences",
+                },
+            },
+        ),
+    )
+
+    result = await handle_call_tool(
+        "update_prompt",
+        {
+            "id": "550e8400-e29b-41d4-a716-446655440013",
+            "old_str": "nonexistent text",
+            "new_str": "replacement",
+        },
+    )
+
+    # Returns structured error (not exception)
+    assert len(result) == 1
+    assert "no_match" in result[0].text
+    assert "not found" in result[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__multiple_matches_error(
+    mock_api, mock_auth,  # noqa: ARG001
+) -> None:
+    """Test update_prompt tool returns structured error with match locations."""
+    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440014/str-replace").mock(
+        return_value=Response(
+            400,
+            json={
+                "detail": {
+                    "error": "multiple_matches",
+                    "matches": [
+                        {"field": "content", "line": 5, "context": "line 5 with foo"},
+                        {"field": "content", "line": 12, "context": "line 12 with foo"},
+                    ],
+                    "suggestion": "Include more surrounding context to ensure uniqueness",
+                },
+            },
+        ),
+    )
+
+    result = await handle_call_tool(
+        "update_prompt",
+        {
+            "id": "550e8400-e29b-41d4-a716-446655440014",
+            "old_str": "foo",
+            "new_str": "bar",
+        },
+    )
+
+    assert "multiple_matches" in result[0].text
+    assert "2 matches" in result[0].text
+    assert "Line 5" in result[0].text
+    assert "Line 12" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__template_validation_error(
+    mock_api, mock_auth,  # noqa: ARG001
+) -> None:
+    """Test update_prompt tool handles template validation error (string detail)."""
+    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440015/str-replace").mock(
+        return_value=Response(
+            400,
+            json={
+                "detail": "Replacement would create invalid template: undefined variable(s): name",
+            },
+        ),
+    )
+
+    result = await handle_call_tool(
+        "update_prompt",
+        {
+            "id": "550e8400-e29b-41d4-a716-446655440015",
+            "old_str": "Hello",
+            "new_str": "Hello {{ name }}",
+        },
+    )
+
+    assert "Error" in result[0].text
+    assert "undefined variable" in result[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__not_found_error(mock_api, mock_auth) -> None:  # noqa: ARG001
+    """Test update_prompt tool raises McpError when prompt not found."""
+    from mcp.shared.exceptions import McpError
+
+    mock_api.patch("/prompts/nonexistent-id/str-replace").mock(
+        return_value=Response(404, json={"detail": "Prompt not found"}),
+    )
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool(
+            "update_prompt",
+            {
+                "id": "nonexistent-id",
+                "old_str": "text",
+                "new_str": "replacement",
+            },
+        )
+
+    assert "not found" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__missing_id_error() -> None:
+    """Test update_prompt tool requires id parameter."""
+    from mcp.shared.exceptions import McpError
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool(
+            "update_prompt",
+            {"old_str": "text", "new_str": "replacement"},
+        )
+
+    assert "id" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__missing_old_str_error() -> None:
+    """Test update_prompt tool requires old_str parameter."""
+    from mcp.shared.exceptions import McpError
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool(
+            "update_prompt",
+            {"id": "some-id", "new_str": "replacement"},
+        )
+
+    assert "old_str" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__missing_new_str_error() -> None:
+    """Test update_prompt tool requires new_str parameter."""
+    from mcp.shared.exceptions import McpError
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool(
+            "update_prompt",
+            {"id": "some-id", "old_str": "text"},
+        )
+
+    assert "new_str" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__empty_new_str_allowed(
+    mock_api, mock_auth,  # noqa: ARG001
+) -> None:
+    """Test update_prompt tool allows empty new_str for deletion."""
+    updated_prompt = {
+        "id": "550e8400-e29b-41d4-a716-446655440016",
+        "name": "deleted-text",
+        "content": "Remaining content",
+        "arguments": [],
+        "tags": [],
+    }
+    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440016/str-replace").mock(
+        return_value=Response(
+            200,
+            json={
+                "match_type": "exact",
+                "line": 1,
+                "data": updated_prompt,
+            },
+        ),
+    )
+
+    result = await handle_call_tool(
+        "update_prompt",
+        {
+            "id": "550e8400-e29b-41d4-a716-446655440016",
+            "old_str": "text to delete",
+            "new_str": "",  # Empty string = deletion
+        },
+    )
+
+    assert "deleted-text" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test__list_tools__update_prompt_has_schema() -> None:
+    """Test update_prompt tool has proper input schema."""
+    result = await handle_list_tools()
+
+    update_prompt = next(t for t in result if t.name == "update_prompt")
+    schema = update_prompt.inputSchema
+    assert schema["type"] == "object"
+    assert "id" in schema["properties"]
+    assert "old_str" in schema["properties"]
+    assert "new_str" in schema["properties"]
+    assert "arguments" in schema["properties"]
+    # id, old_str, and new_str are required
+    assert set(schema["required"]) == {"id", "old_str", "new_str"}
 
 
 # --- Authentication error tests ---
