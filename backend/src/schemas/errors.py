@@ -56,6 +56,22 @@ class PromptStrReplaceRequest(BaseModel):
         return self
 
 
+class ContentEmptyError(BaseModel):
+    """Error response when entity has no content to edit."""
+
+    error: Literal["content_empty"] = Field(
+        default="content_empty",
+        description="Error type identifier",
+    )
+    message: str = Field(
+        description="Human-readable error message describing which entity has no content",
+    )
+    suggestion: str = Field(
+        default="Use PATCH to set content before attempting str-replace",
+        description="Suggested action to resolve the error",
+    )
+
+
 class StrReplaceNoMatchError(BaseModel):
     """Error response when old_str is not found in content."""
 

@@ -15,6 +15,7 @@ from core.http_cache import check_not_modified, format_http_date
 from models.user import User
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
 from schemas.errors import (
+    ContentEmptyError,
     StrReplaceMultipleMatchesError,
     StrReplaceNoMatchError,
     StrReplaceRequest,
@@ -295,7 +296,7 @@ async def str_replace_note(
     if note.content is None:
         raise HTTPException(
             status_code=400,
-            detail=StrReplaceNoMatchError(
+            detail=ContentEmptyError(
                 message="Note has no content to edit",
             ).model_dump(),
         )

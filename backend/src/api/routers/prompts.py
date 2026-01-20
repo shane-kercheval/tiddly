@@ -15,6 +15,7 @@ from core.http_cache import check_not_modified, format_http_date
 from models.user import User
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
 from schemas.errors import (
+    ContentEmptyError,
     PromptStrReplaceRequest,
     StrReplaceMultipleMatchesError,
     StrReplaceNoMatchError,
@@ -390,7 +391,7 @@ async def str_replace_prompt(
     if prompt.content is None:
         raise HTTPException(
             status_code=400,
-            detail=StrReplaceNoMatchError(
+            detail=ContentEmptyError(
                 message="Prompt has no content to edit",
             ).model_dump(),
         )

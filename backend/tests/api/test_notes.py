@@ -8,6 +8,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.note import Note
+from models.user import User
+from models.user_consent import UserConsent
+
+
+async def add_consent_for_user(db_session: AsyncSession, user: User) -> None:
+    """Add valid consent record for a user (required for non-dev mode tests)."""
+    from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
+
+    consent = UserConsent(
+        user_id=user.id,
+        consented_at=datetime.now(UTC),
+        privacy_policy_version=PRIVACY_POLICY_VERSION,
+        terms_of_service_version=TERMS_OF_SERVICE_VERSION,
+    )
+    db_session.add(consent)
+    await db_session.flush()
 
 
 # =============================================================================
@@ -1805,7 +1821,7 @@ async def test_str_replace_note_whitespace_normalized(client: AsyncClient) -> No
 
 
 async def test_str_replace_note_null_content(client: AsyncClient) -> None:
-    """Test str-replace on note with null content."""
+    """Test str-replace on note with null content returns content_empty error."""
     response = await client.post(
         "/notes/",
         json={"title": "No Content Note"},
@@ -1820,8 +1836,9 @@ async def test_str_replace_note_null_content(client: AsyncClient) -> None:
     assert response.status_code == 400
 
     data = response.json()["detail"]
-    assert data["error"] == "no_match"
+    assert data["error"] == "content_empty"
     assert "no content" in data["message"].lower()
+    assert "suggestion" in data
 
 
 async def test_str_replace_note_not_found(client: AsyncClient) -> None:
@@ -1920,3 +1937,81 @@ async def test_str_replace_note_preserves_other_fields(client: AsyncClient) -> N
     assert data["description"] == "My Description"
     assert data["tags"] == ["tag1", "tag2"]
     assert data["content"] == "Hello universe"
+
+
+# =============================================================================
+# Cross-User Isolation (IDOR) Tests
+# =============================================================================
+
+
+async def test_user_cannot_str_replace_other_users_note(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot str-replace another user's note (returns 404)."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from services.token_service import create_token
+    from schemas.token import TokenCreate
+
+    # Create a note as the dev user with content
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "Test",
+            "content": "Original content that should not be modified",
+        },
+    )
+    assert response.status_code == 201
+    user1_note_id = response.json()["id"]
+
+    # Create a second user and a PAT for them
+    user2 = User(auth0_id="auth0|user2-note-str-replace-test", email="user2-note-str-replace@example.com")
+    db_session.add(user2)
+    await db_session.flush()
+
+    # Add consent for user2 (required when dev_mode=False)
+    await add_consent_for_user(db_session, user2)
+
+    _, user2_token = await create_token(
+        db_session, user2.id, TokenCreate(name="Test Token"),
+    )
+    await db_session.flush()
+
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user2_token}"},
+    ) as user2_client:
+        # Try to str-replace user1's note - should get 404
+        response = await user2_client.patch(
+            f"/notes/{user1_note_id}/str-replace",
+            json={"old_str": "Original", "new_str": "HACKED"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Note not found"
+
+    app.dependency_overrides.clear()
+
+    # Verify the note content was not modified via database query
+    result = await db_session.execute(
+        select(Note).where(Note.id == user1_note_id),
+    )
+    note = result.scalar_one()
+    assert note.content == "Original content that should not be modified"

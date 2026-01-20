@@ -25,6 +25,7 @@ from schemas.bookmark import (
 )
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
 from schemas.errors import (
+    ContentEmptyError,
     StrReplaceMultipleMatchesError,
     StrReplaceNoMatchError,
     StrReplaceRequest,
@@ -371,7 +372,7 @@ async def str_replace_bookmark(
     if bookmark.content is None:
         raise HTTPException(
             status_code=400,
-            detail=StrReplaceNoMatchError(
+            detail=ContentEmptyError(
                 message="Bookmark has no content to edit",
             ).model_dump(),
         )

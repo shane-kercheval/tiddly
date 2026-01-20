@@ -2398,6 +2398,81 @@ async def test_user_cannot_delete_other_users_bookmark(
     assert bookmark.deleted_at is None  # Not soft-deleted either
 
 
+async def test_user_cannot_str_replace_other_users_bookmark(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot str-replace another user's bookmark (returns 404)."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from models.user import User
+    from services.token_service import create_token
+    from schemas.token import TokenCreate
+
+    # Create a bookmark as the dev user with content
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://user1-str-replace-test.com",
+            "title": "Test",
+            "content": "Original content that should not be modified",
+        },
+    )
+    assert response.status_code == 201
+    user1_bookmark_id = response.json()["id"]
+
+    # Create a second user and a PAT for them
+    user2 = User(auth0_id="auth0|user2-str-replace-test", email="user2-str-replace@example.com")
+    db_session.add(user2)
+    await db_session.flush()
+
+    # Add consent for user2 (required when dev_mode=False)
+    await add_consent_for_user(db_session, user2)
+
+    _, user2_token = await create_token(
+        db_session, user2.id, TokenCreate(name="Test Token"),
+    )
+    await db_session.flush()
+
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user2_token}"},
+    ) as user2_client:
+        # Try to str-replace user1's bookmark - should get 404
+        response = await user2_client.patch(
+            f"/bookmarks/{user1_bookmark_id}/str-replace",
+            json={"old_str": "Original", "new_str": "HACKED"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Bookmark not found"
+
+    app.dependency_overrides.clear()
+
+    # Verify the bookmark content was not modified via database query
+    result = await db_session.execute(
+        select(Bookmark).where(Bookmark.id == user1_bookmark_id),
+    )
+    bookmark = result.scalar_one()
+    assert bookmark.content == "Original content that should not be modified"
+
+
 # =============================================================================
 # Track Usage Endpoint Tests
 # =============================================================================
@@ -3363,7 +3438,7 @@ async def test_str_replace_bookmark_whitespace_normalized(client: AsyncClient) -
 
 
 async def test_str_replace_bookmark_null_content(client: AsyncClient) -> None:
-    """Test str-replace on bookmark with null content returns 400."""
+    """Test str-replace on bookmark with null content returns content_empty error."""
     response = await client.post(
         "/bookmarks/",
         json={
@@ -3379,7 +3454,11 @@ async def test_str_replace_bookmark_null_content(client: AsyncClient) -> None:
         json={"old_str": "test", "new_str": "replaced"},
     )
     assert response.status_code == 400
-    assert "no content" in response.json()["detail"]["message"].lower()
+
+    data = response.json()["detail"]
+    assert data["error"] == "content_empty"
+    assert "no content" in data["message"].lower()
+    assert "suggestion" in data
 
 
 async def test_str_replace_bookmark_not_found(client: AsyncClient) -> None:

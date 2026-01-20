@@ -8,6 +8,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.prompt import Prompt
+from models.user import User
+from models.user_consent import UserConsent
+
+
+async def add_consent_for_user(db_session: AsyncSession, user: User) -> None:
+    """Add valid consent record for a user (required for non-dev mode tests)."""
+    from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
+
+    consent = UserConsent(
+        user_id=user.id,
+        consented_at=datetime.now(UTC),
+        privacy_policy_version=PRIVACY_POLICY_VERSION,
+        terms_of_service_version=TERMS_OF_SERVICE_VERSION,
+    )
+    db_session.add(consent)
+    await db_session.flush()
 
 
 # =============================================================================
@@ -1955,6 +1971,45 @@ async def test_str_replace_prompt_not_found(client: AsyncClient) -> None:
     assert response.json()["detail"] == "Prompt not found"
 
 
+async def test_str_replace_prompt_null_content(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test str-replace on prompt with null content returns content_empty error."""
+    # First create a prompt via API to ensure user exists
+    response = await client.post(
+        "/prompts/",
+        json={"name": "temp-for-user-creation", "content": "temp"},
+    )
+    assert response.status_code == 201
+
+    # Get the dev user
+    result = await db_session.execute(
+        select(User).where(User.auth0_id == "dev|local-development-user"),
+    )
+    dev_user = result.scalar_one()
+
+    # Create a prompt directly in DB with null content
+    prompt = Prompt(
+        user_id=dev_user.id,
+        name="null-content-prompt",
+        content=None,
+    )
+    db_session.add(prompt)
+    await db_session.flush()
+
+    response = await client.patch(
+        f"/prompts/{prompt.id}/str-replace",
+        json={"old_str": "test", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+
+    data = response.json()["detail"]
+    assert data["error"] == "content_empty"
+    assert "no content" in data["message"].lower()
+    assert "suggestion" in data
+
+
 async def test_str_replace_prompt_updates_updated_at(client: AsyncClient) -> None:
     """Test that str-replace updates the updated_at timestamp."""
     response = await client.post(
@@ -2490,3 +2545,81 @@ async def test_str_replace_prompt_arguments_preserved_when_omitted(client: Async
     assert len(data["arguments"]) == 1
     assert data["arguments"][0]["name"] == "name"
     assert data["arguments"][0]["description"] == "The name"  # Preserved!
+
+
+# =============================================================================
+# Cross-User Isolation (IDOR) Tests
+# =============================================================================
+
+
+async def test_user_cannot_str_replace_other_users_prompt(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot str-replace another user's prompt (returns 404)."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from services.token_service import create_token
+    from schemas.token import TokenCreate
+
+    # Create a prompt as the dev user with content
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "user1-str-replace-test-prompt",
+            "content": "Original content that should not be modified",
+        },
+    )
+    assert response.status_code == 201
+    user1_prompt_id = response.json()["id"]
+
+    # Create a second user and a PAT for them
+    user2 = User(auth0_id="auth0|user2-prompt-str-replace-test", email="user2-prompt-str-replace@example.com")
+    db_session.add(user2)
+    await db_session.flush()
+
+    # Add consent for user2 (required when dev_mode=False)
+    await add_consent_for_user(db_session, user2)
+
+    _, user2_token = await create_token(
+        db_session, user2.id, TokenCreate(name="Test Token"),
+    )
+    await db_session.flush()
+
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user2_token}"},
+    ) as user2_client:
+        # Try to str-replace user1's prompt - should get 404
+        response = await user2_client.patch(
+            f"/prompts/{user1_prompt_id}/str-replace",
+            json={"old_str": "Original", "new_str": "HACKED"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Prompt not found"
+
+    app.dependency_overrides.clear()
+
+    # Verify the prompt content was not modified via database query
+    result = await db_session.execute(
+        select(Prompt).where(Prompt.id == user1_prompt_id),
+    )
+    prompt = result.scalar_one()
+    assert prompt.content == "Original content that should not be modified"
