@@ -345,7 +345,8 @@ class TestSearchInContent:
         assert "line 5" in matches[1].context
 
     def test__search_in_content__non_overlapping_matches(self) -> None:
-        """Test that matches are non-overlapping (important for str_replace use case).
+        """
+        Test that matches are non-overlapping (important for str_replace use case).
 
         Searching for "aa" in "aaaa" returns 2 non-overlapping matches, not 3
         overlapping ones. This aligns with how str_replace would work: replacing
