@@ -356,11 +356,27 @@ This distinction is intentional. Document clearly in API docs.
 - Use same `context_lines` default (2 lines before/after) as search endpoint for consistency
 - Matches in error responses use same format as search results
 
-**Progressive matching fallbacks:**
-1. **Exact** - Character-for-character match
-2. **Whitespace normalized** - Strip trailing whitespace from each line, normalize line endings (`\r\n` → `\n`)
+**Progressive matching strategy:**
 
-Return `match_type` in response so caller knows which level succeeded.
+The str-replace operation uses progressive matching to handle minor whitespace differences while preferring exact matches.
+
+**Matching order:**
+1. **Exact match** (try first) - Search for `old_str` verbatim in content
+2. **Whitespace-normalized match** (fallback if exact fails) - Normalize both `old_str` AND content, then search
+
+**Whitespace normalization definition:**
+- Normalize line endings: `\r\n` → `\n`
+- Strip trailing whitespace from each line
+
+**Important:** Normalization is applied to **both** `old_str` and content for comparison purposes only. The actual replacement uses the original character positions in the content. This means:
+- If content has `"hello  \nworld"` and `old_str` is `"hello\nworld"`, the normalized match finds it
+- The replacement still happens at the exact positions in the original content
+
+**Response `match_type` values:**
+- `"exact"` - The `old_str` was found character-for-character in the content
+- `"whitespace_normalized"` - Exact match failed, but match found after whitespace normalization
+
+This information helps AI agents understand when their context had whitespace differences from the actual content.
 
 **Line ending behavior:**
 - **Matching:** Uses normalization (so `\r\n` in content matches `\n` in `old_str`)
