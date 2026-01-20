@@ -80,7 +80,7 @@ def _search_content_field(
     Search within the content field, returning matches with line numbers and context.
 
     Searches the full content for the query (supporting multiline patterns).
-    Returns one match per occurrence, with the starting line number.
+    Returns one match per non-overlapping occurrence, with the starting line number.
 
     Args:
         content: The content text to search.
@@ -97,24 +97,27 @@ def _search_content_field(
     search_content = content if case_sensitive else content.lower()
     search_query = query if case_sensitive else query.lower()
 
-    # Find all occurrences in the content
+    # Pre-compute values used in the loop
+    lines = content.split("\n")
+    query_newlines = query.count("\n")
+
+    # Track line number incrementally to avoid O(n) scan from start each time
+    current_line = 1
+    last_pos = 0
+
+    # Find all non-overlapping occurrences in the content
     start_pos = 0
     while True:
         pos = search_content.find(search_query, start_pos)
         if pos == -1:
             break
 
-        # Calculate the line number (1-indexed) where this match starts
-        line_number = content[:pos].count("\n") + 1
+        # Incremental line counting - only count newlines since last match
+        current_line += content[last_pos:pos].count("\n")
+        last_pos = pos
 
-        # Calculate context: find start and end lines based on context_lines
-        lines = content.split("\n")
-        line_idx = line_number - 1  # Convert to 0-indexed
-
-        # For multiline matches, find the end line
-        match_text = content[pos : pos + len(query)]
-        match_line_count = match_text.count("\n")
-        end_line_idx = line_idx + match_line_count
+        line_idx = current_line - 1  # Convert to 0-indexed
+        end_line_idx = line_idx + query_newlines
 
         # Context window: context_lines before start, context_lines after end
         context_start = max(0, line_idx - context_lines)
@@ -122,11 +125,11 @@ def _search_content_field(
         context = "\n".join(lines[context_start:context_end])
 
         matches.append(
-            ContentSearchMatch(field="content", line=line_number, context=context),
+            ContentSearchMatch(field="content", line=current_line, context=context),
         )
 
-        # Move past this match to find the next one
-        start_pos = pos + 1
+        # Move past this match (non-overlapping)
+        start_pos = pos + len(query)
 
     return matches
 
