@@ -661,21 +661,25 @@ async def _handle_update_prompt(arguments: dict[str, Any]) -> list[types.TextCon
             ) from e
         if e.response.status_code == 400:
             # Return structured error response (no_match, multiple_matches, content_empty,
-            # template validation errors) - follow Content MCP pattern
+            # template validation errors) as JSON - matches Content MCP pattern
+            # for AI agent parseability
             try:
+                import json
+
                 error_detail = e.response.json().get("detail", {})
                 if isinstance(error_detail, dict):
                     return [
                         types.TextContent(
                             type="text",
-                            text=_format_error_response(error_detail),
+                            text=json.dumps(error_detail),
                         ),
                     ]
                 # String error (e.g., template validation)
+                error_json = {"error": "validation_error", "message": str(error_detail)}
                 return [
                     types.TextContent(
                         type="text",
-                        text=f"Error: {error_detail}",
+                        text=json.dumps(error_json),
                     ),
                 ]
             except (ValueError, KeyError):
@@ -704,25 +708,3 @@ async def _handle_update_prompt(arguments: dict[str, Any]) -> list[types.TextCon
     ]
 
 
-def _format_error_response(error_detail: dict[str, Any]) -> str:
-    """Format structured error response for display."""
-    error_type = error_detail.get("error", "unknown")
-    message = error_detail.get("message", "")
-    suggestion = error_detail.get("suggestion", "")
-
-    parts = [f"Error: {error_type}"]
-    if message:
-        parts.append(message)
-    if suggestion:
-        parts.append(f"Suggestion: {suggestion}")
-
-    # For multiple_matches, include match locations
-    matches = error_detail.get("matches", [])
-    if matches:
-        parts.append(f"Found {len(matches)} matches:")
-        for match in matches:
-            line = match.get("line", "?")
-            context = match.get("context", "")
-            parts.append(f"  Line {line}: {context[:100]}...")
-
-    return "\n".join(parts)
