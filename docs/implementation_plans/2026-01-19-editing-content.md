@@ -11,7 +11,7 @@ Add AI-friendly editing capabilities to the content management API. The design p
 
 - Enable AI agents to make targeted edits to notes, bookmarks, and prompts without replacing entire content
 - Provide within-content search to help agents locate and construct unique match strings
-- Consolidate MCP tools to reduce cognitive load on AI agents (unified ID-based operations)
+- Consolidate MCP tools to reduce cognitive load on AI agents
 - Support partial reads for large documents (pagination via line ranges)
 
 ### Key Design Decisions
@@ -19,16 +19,27 @@ Add AI-friendly editing capabilities to the content management API. The design p
 1. **Content-based matching (str_replace)** - Primary edit operation requires unique string match
 2. **No line numbers in GET responses** - Prevents AI from trying to use them in edits
 3. **Line numbers in error messages and search results** - For navigation/understanding only
-4. **Progressive fuzzy matching** - Fallback strategy: exact → whitespace-normalized → indentation-relative
-5. **Unified MCP tools** - `get_content`, `edit_content`, `search_in_content` replace per-type tools
+4. **Progressive fuzzy matching** - Fallback strategy: exact → whitespace-normalized → indentation-relative (implemented from the start)
+5. **Per-content-type API endpoints** - API stays consistent (`/notes/{id}/...`, `/bookmarks/{id}/...`, `/prompts/{id}/...`)
+6. **Consolidated MCP tools** - MCP tools accept `type` parameter and route to appropriate API endpoint
 
 ---
 
-## Milestone 1: Within-Content Search API Endpoint
+## Milestone 1: Within-Content Search API Endpoints
 
 ### Goal
 
-Add an endpoint to search within a single content item's text fields, returning matches with line numbers and context. This is the foundation for AI agents to locate content before editing.
+Add endpoints to search within a single content item's text fields, returning matches with line numbers and context.
+
+### Use Cases
+
+This endpoint serves several purposes for AI agents:
+1. **Pre-edit validation** - Confirm how many matches exist before attempting str_replace (avoid "multiple matches" errors)
+2. **Context building** - Get surrounding text to construct a unique `old_str` for editing
+3. **Content discovery** - Find where specific text appears in a document without reading the entire content into context
+4. **General search** - Non-editing use cases where agents need to locate information within content
+
+Document these use cases in the endpoint's OpenAPI description and docstrings.
 
 ### Dependencies
 
@@ -36,13 +47,17 @@ None - can be implemented independently.
 
 ### Key Changes
 
-**New endpoint:** `GET /content/{id}/search`
+**New endpoints:**
+- `GET /notes/{id}/search`
+- `GET /bookmarks/{id}/search`
+- `GET /prompts/{id}/search`
 
 ```python
 # Query parameters
-q: str              # Required search query
-type: str | None    # Optional: "bookmark", "note", "prompt" (auto-detect if omitted)
-fields: str = "content"  # Comma-separated: "content", "title", "description"
+q: str                          # Required search query (literal match)
+fields: str = "content"         # Comma-separated: "content", "title", "description"
+case_sensitive: bool = False    # Default case-insensitive
+context_chars: int = 50         # Characters before/after match for context
 
 # Response
 {
@@ -50,7 +65,7 @@ fields: str = "content"  # Comma-separated: "content", "title", "description"
         {
             "field": "content",
             "line": 15,
-            "context": "...surrounding text with **match** highlighted..."
+            "context": "...surrounding text with match highlighted..."
         },
         {
             "field": "title",
@@ -63,41 +78,44 @@ fields: str = "content"  # Comma-separated: "content", "title", "description"
 ```
 
 **Implementation notes:**
-- Add to `backend/src/api/routers/content.py` (extends existing unified content router)
-- Create a new service function in a shared location (perhaps `backend/src/services/content_search_service.py`)
+- Add to respective routers: `bookmarks.py`, `notes.py`, `prompts.py`
+- Create shared search logic in `backend/src/services/content_search_service.py`
 - The service should:
-  - Look up the item by ID (checking bookmarks, notes, prompts if type not specified)
   - Split content into lines and search for query matches
-  - Return line numbers (1-indexed) and surrounding context (e.g., 50 chars before/after)
+  - Return line numbers (1-indexed) and surrounding context
   - Search specified fields only
+  - Handle case sensitivity
 
 **Files to read first:**
-- `backend/src/api/routers/content.py` - existing unified content patterns
+- `backend/src/api/routers/notes.py` - existing endpoint patterns
 - `backend/src/services/base_entity_service.py` - understand service patterns
 
 ### Testing Strategy
 
 - Test searching in each content type (bookmark, note, prompt)
-- Test with `type` parameter specified vs auto-detection (both should return same results)
 - Test multiple fields: `fields=content,title,description`
+- Test case sensitivity: `case_sensitive=true` vs default
+- Test `context_chars` parameter with various values
 - Test multiple matches in same content
-- Test no matches found (empty results)
+- Test no matches found (empty results array, not error)
 - Test match at beginning/end of content (context truncation)
 - Test with special characters in query
 - Test 404 when ID not found
 
 ### Success Criteria
 
+- [ ] Each content type has its own search endpoint
 - [ ] Endpoint returns matches with line numbers and context
 - [ ] Supports searching multiple fields
-- [ ] Auto-detects content type when not specified
+- [ ] Case sensitivity option works correctly
+- [ ] Context size is configurable
 - [ ] Returns empty matches array (not error) when no matches
+- [ ] Use cases documented in OpenAPI/docstrings
 - [ ] Tests cover all content types and edge cases
 
 ### Risk Factors
 
-- Performance with very large content (consider limiting context size)
-- Regex vs literal search (start with literal, add regex later if needed)
+- Performance with very large content (mitigated by context_chars limit)
 
 ---
 
@@ -117,7 +135,6 @@ None - can be implemented independently (parallel with Milestone 1).
 - `GET /bookmarks/{id}?start_line=X&end_line=Y`
 - `GET /notes/{id}?start_line=X&end_line=Y`
 - `GET /prompts/{id}?start_line=X&end_line=Y`
-- `GET /content/{id}?start_line=X&end_line=Y` (new unified endpoint)
 
 **Response additions:**
 ```python
@@ -133,7 +150,12 @@ None - can be implemented independently (parallel with Milestone 1).
 }
 ```
 
-**Important:** When `start_line`/`end_line` are NOT provided, `content_metadata` is omitted or `is_partial` is `false`. The raw content field remains unchanged for backwards compatibility.
+**Behavior:**
+- When `start_line`/`end_line` are NOT provided, `content_metadata` is omitted. Full content returned as before (backwards compatible).
+- `start_line` out of range (> total_lines): Return **400 error** with message indicating total lines
+- `end_line` out of range (> total_lines): **Clamp** to total_lines (no error, return what exists)
+- `start_line > end_line`: Return **400 error**
+- Lines are 1-indexed
 
 **Files to read first:**
 - `backend/src/api/routers/bookmarks.py`, `notes.py`, `prompts.py` - existing GET endpoints
@@ -143,87 +165,29 @@ None - can be implemented independently (parallel with Milestone 1).
 
 - Test partial read with valid line ranges
 - Test full content when no line params (backwards compatibility)
-- Test edge cases: start_line > total lines, end_line > total lines (should clamp or error?)
-- Test start_line > end_line (should error)
+- Test `start_line` > total_lines returns 400
+- Test `end_line` > total_lines clamps correctly
+- Test `start_line` > `end_line` returns 400
 - Test with empty content
-- Test content_metadata accuracy
+- Test content_metadata accuracy (total_lines, is_partial)
+- Test edge cases: single line, last line, first line
 
 ### Success Criteria
 
 - [ ] Partial reads return only requested line range
-- [ ] Response includes metadata about total lines and range
+- [ ] Response includes content_metadata with total_lines, start_line, end_line, is_partial
 - [ ] Backwards compatible when no line params provided
-- [ ] Edge cases handled gracefully
-- [ ] Tests verify metadata accuracy
+- [ ] start_line out of range returns 400
+- [ ] end_line out of range clamps gracefully
+- [ ] Tests verify all edge cases
 
 ### Risk Factors
 
-- Decision needed: Clamp out-of-range values or return 400? (Recommend: clamp with metadata indicating actual range returned)
+- None significant
 
 ---
 
-## Milestone 3: Unified Get Content Endpoint
-
-### Goal
-
-Add `GET /content/{id}` to retrieve any content item by ID without knowing the type upfront. Supports the MCP tool consolidation goal.
-
-### Dependencies
-
-Milestone 2 (partial read support should be included).
-
-### Key Changes
-
-**New endpoint:** `GET /content/{id}`
-
-```python
-# Query parameters
-type: str | None        # Optional: "bookmark", "note", "prompt"
-start_line: int | None  # Optional: for partial reads
-end_line: int | None    # Optional: for partial reads
-
-# Response: Full item response (BookmarkResponse, NoteResponse, or PromptResponse)
-# Plus a "type" field to identify which it is
-{
-    "type": "note",
-    "id": "...",
-    "title": "...",
-    "content": "...",
-    # ... rest of fields depend on type
-}
-```
-
-**Implementation notes:**
-- If `type` is provided, query only that table (faster)
-- If `type` is omitted, query all three tables by ID (UUIDs are globally unique)
-- Return 404 if not found in any table
-
-**Files to read first:**
-- `backend/src/api/routers/content.py` - add to existing content router
-
-### Testing Strategy
-
-- Test retrieving each content type
-- Test with and without `type` parameter
-- Test 404 for non-existent ID
-- Test partial read params work
-- Test that response includes correct `type` field
-
-### Success Criteria
-
-- [ ] Can retrieve bookmark, note, or prompt by ID
-- [ ] Type auto-detection works
-- [ ] Explicit type parameter skips unnecessary queries
-- [ ] Partial read parameters supported
-- [ ] Response includes `type` field
-
-### Risk Factors
-
-- Minor performance concern with type auto-detection (3 queries worst case) - acceptable for convenience
-
----
-
-## Milestone 4: String Replace Edit Endpoint
+## Milestone 3: String Replace Edit Endpoints
 
 ### Goal
 
@@ -231,18 +195,20 @@ Implement the primary editing operation: content-based string replacement with u
 
 ### Dependencies
 
-Milestone 3 (unified get endpoint for type detection pattern).
+None - can be implemented independently.
 
 ### Key Changes
 
-**New endpoint:** `PATCH /content/{id}/str-replace`
+**New endpoints:**
+- `PATCH /notes/{id}/str-replace`
+- `PATCH /bookmarks/{id}/str-replace`
+- `PATCH /prompts/{id}/str-replace`
 
 ```python
 # Request body
 {
     "old_str": "exact content to find\nincluding multiple lines",
-    "new_str": "replacement content",
-    "type": "note"  # Optional
+    "new_str": "replacement content"
 }
 
 # Success response (200)
@@ -250,7 +216,9 @@ Milestone 3 (unified get endpoint for type detection pattern).
     "success": true,
     "match_type": "exact",  # or "whitespace_normalized", "indentation_relative"
     "line": 15,  # Line number where match was found
-    "content": "..."  # Updated full content (or partial if large?)
+    "type": "note",
+    "id": "...",
+    # Full updated entity response (NoteResponse, BookmarkResponse, or PromptResponse)
 }
 
 # Error response (400) - no matches
@@ -271,25 +239,27 @@ Milestone 3 (unified get endpoint for type detection pattern).
 }
 ```
 
-**Progressive matching fallbacks:**
+**Progressive matching fallbacks (implement all from the start):**
 1. **Exact** - Character-for-character match
-2. **Whitespace normalized** - Strip trailing whitespace, normalize line endings
-3. **Indentation relative** - Handle uniform indent/outdent (important for code/markdown)
+2. **Whitespace normalized** - Strip trailing whitespace, normalize line endings (`\r\n` → `\n`)
+3. **Indentation relative** - Handle uniform indent/outdent (e.g., all lines shifted by same amount)
 
 Return `match_type` in response so caller knows which level succeeded.
 
 **Implementation notes:**
-- Create `backend/src/services/content_edit_service.py` for edit logic
+- Create `backend/src/services/content_edit_service.py` for shared edit logic
 - The service should:
-  - Find all occurrences of `old_str` (using progressive matching)
+  - Find all occurrences of `old_str` using progressive matching
   - If 0 matches: return error with suggestion
-  - If 1 match: perform replacement, return success
+  - If 1 match: perform replacement, return success with match_type
   - If multiple matches: return error with match locations and contexts
 - Update the entity via existing service update methods
+- **For prompts:** After content replacement, validate the updated Jinja2 template. Return 400 if template becomes invalid.
 
 **Files to read first:**
 - `backend/src/services/note_service.py` - understand update patterns
 - `backend/src/services/base_entity_service.py` - base update method
+- `backend/src/services/prompt_service.py` - template validation logic
 
 ### Testing Strategy
 
@@ -299,100 +269,37 @@ Return `match_type` in response so caller knows which level succeeded.
 - Test each fallback level: exact, whitespace normalized, indentation relative
 - Test multiline old_str
 - Test replacement that changes line count
-- Test empty new_str (deletion)
+- Test empty new_str (deletion via str_replace)
 - Test preserving other fields (tags, title, etc.)
 - Test with each content type
+- **For prompts:** Test that invalid Jinja2 after edit returns 400
 
 ### Success Criteria
 
+- [ ] Each content type has its own str-replace endpoint
 - [ ] Single unique match triggers successful replacement
 - [ ] Zero matches returns actionable error
 - [ ] Multiple matches returns locations with context
-- [ ] Fallback matching works progressively
+- [ ] All three fallback levels implemented and working
 - [ ] Response includes match_type used
-- [ ] All content types supported
+- [ ] Prompt template validation after edit
+- [ ] Tests cover all scenarios
 
 ### Risk Factors
 
-- Indentation-relative matching is complex - start with exact + whitespace normalized, add indentation later if needed
-- Large content performance - may need to optimize search algorithm
+- Indentation-relative matching is the most complex fallback - test thoroughly
 
 ---
 
-## Milestone 5: Insert and Delete Content Endpoints
+## Milestone 4: Content MCP Tool Consolidation
 
 ### Goal
 
-Add content-based insert and delete operations as alternatives to str_replace.
+Add consolidated MCP tools (`get_content`, `edit_content`, `search_in_content`) to the Content MCP server. These tools require a `type` parameter and route to the appropriate per-type API endpoint.
 
 ### Dependencies
 
-Milestone 4 (shares matching logic and service structure).
-
-### Key Changes
-
-**Insert endpoint:** `POST /content/{id}/insert`
-
-```python
-# Request body
-{
-    "after_str": "anchor text to insert after",  # Required
-    "new_str": "content to insert",              # Required
-    "type": "note"                               # Optional
-}
-
-# Success response includes line number where insertion occurred
-```
-
-**Delete endpoint:** `DELETE /content/{id}/content`
-
-```python
-# Request body (yes, DELETE with body - or use POST /content/{id}/delete-content)
-{
-    "content_to_delete": "exact text to remove",
-    "type": "note"  # Optional
-}
-```
-
-**Alternative:** Use POST for delete operation if DELETE-with-body is problematic:
-`POST /content/{id}/delete-content`
-
-**Implementation notes:**
-- Reuse matching logic from str_replace
-- Insert: find anchor, insert new_str after it
-- Delete: find content, remove it (equivalent to str_replace with empty new_str)
-
-### Testing Strategy
-
-- Test insert after unique anchor
-- Test insert with multiple anchor matches (error)
-- Test insert at end of content
-- Test delete unique content
-- Test delete with multiple matches (error)
-- Test delete non-existent content (error)
-
-### Success Criteria
-
-- [ ] Insert works with unique anchor
-- [ ] Delete works with unique match
-- [ ] Both return actionable errors on no match or multiple matches
-- [ ] Both support all content types
-
-### Risk Factors
-
-- DELETE with body may have HTTP client compatibility issues - consider POST alternative
-
----
-
-## Milestone 6: MCP Tool Consolidation
-
-### Goal
-
-Add consolidated MCP tools (`get_content`, `edit_content`, `search_in_content`) to the Content MCP server, replacing per-type get tools.
-
-### Dependencies
-
-Milestones 1, 3, 4 (API endpoints must exist first).
+Milestones 1, 2, 3 (API endpoints must exist first).
 
 ### Key Changes
 
@@ -402,17 +309,17 @@ Milestones 1, 3, 4 (API endpoints must exist first).
 
 ```python
 @mcp.tool(
-    description="Get any content item (bookmark, note) by ID",
+    description="Get a bookmark or note by ID. Supports partial reads for large content.",
     annotations={"readOnlyHint": True}
 )
 async def get_content(
     id: Annotated[str, Field(description="The content item ID (UUID)")],
-    type: Annotated[str | None, Field(description="Content type: 'bookmark' or 'note'. Auto-detected if omitted.")] = None,
+    type: Annotated[str, Field(description="Content type: 'bookmark' or 'note'")],
     start_line: Annotated[int | None, Field(description="Start line for partial read (1-indexed)")] = None,
     end_line: Annotated[int | None, Field(description="End line for partial read (1-indexed)")] = None,
 ) -> dict[str, Any]:
-    """Get a bookmark or note by ID. Supports partial reads for large content."""
-    # Implementation calls GET /content/{id}
+    """Get a bookmark or note by ID."""
+    # Route to GET /bookmarks/{id} or GET /notes/{id} based on type
 ```
 
 ```python
@@ -422,32 +329,41 @@ async def get_content(
 )
 async def edit_content(
     id: Annotated[str, Field(description="The content item ID (UUID)")],
-    old_str: Annotated[str, Field(description="Exact text to find (include surrounding context for uniqueness)")],
-    new_str: Annotated[str, Field(description="Replacement text")],
-    type: Annotated[str | None, Field(description="Content type: 'bookmark' or 'note'. Auto-detected if omitted.")] = None,
+    type: Annotated[str, Field(description="Content type: 'bookmark' or 'note'")],
+    old_str: Annotated[str, Field(description="Exact text to find (include 3-5 lines of surrounding context for uniqueness)")],
+    new_str: Annotated[str, Field(description="Replacement text (use empty string to delete)")],
 ) -> dict[str, Any]:
-    """Replace old_str with new_str in the content. Fails if old_str matches 0 or multiple locations."""
-    # Implementation calls PATCH /content/{id}/str-replace
+    """Replace old_str with new_str in the content. Fails if old_str matches 0 or multiple locations.
+
+    Tips for successful edits:
+    - Include enough surrounding context in old_str to ensure uniqueness
+    - Use search_in_content first to check how many matches exist
+    - For deletion, use empty string as new_str
+    """
+    # Route to PATCH /bookmarks/{id}/str-replace or PATCH /notes/{id}/str-replace
 ```
 
 ```python
 @mcp.tool(
-    description="Search within a content item's text to find matches with line numbers",
+    description="Search within a content item's text to find matches with line numbers and context.",
     annotations={"readOnlyHint": True}
 )
 async def search_in_content(
     id: Annotated[str, Field(description="The content item ID (UUID)")],
+    type: Annotated[str, Field(description="Content type: 'bookmark' or 'note'")],
     query: Annotated[str, Field(description="Text to search for")],
-    type: Annotated[str | None, Field(description="Content type: 'bookmark' or 'note'. Auto-detected if omitted.")] = None,
-    fields: Annotated[str | None, Field(description="Comma-separated fields to search: 'content', 'title', 'description'. Default: 'content'")] = None,
+    fields: Annotated[str | None, Field(description="Comma-separated fields: 'content', 'title', 'description'. Default: 'content'")] = None,
+    case_sensitive: Annotated[bool | None, Field(description="Case-sensitive search. Default: false")] = None,
 ) -> dict[str, Any]:
-    """Find all occurrences of query within the item. Returns line numbers and context for each match."""
-    # Implementation calls GET /content/{id}/search
+    """Find all occurrences of query within the item. Use this before editing to:
+    - Check how many matches exist (avoid 'multiple matches' errors)
+    - Get surrounding context to build a unique old_str for edit_content
+    """
+    # Route to GET /bookmarks/{id}/search or GET /notes/{id}/search
 ```
 
-**Deprecation approach for old tools:**
-- Keep `get_bookmark` and `get_note` temporarily but mark descriptions as "DEPRECATED: Use get_content instead"
-- Remove in a future release
+**Remove old tools:**
+- Remove `get_bookmark` and `get_note` (replaced by `get_content`)
 
 **API client addition:**
 - Add `api_patch()` helper to `backend/src/mcp_server/api_client.py`
@@ -459,7 +375,8 @@ async def search_in_content(
 ### Testing Strategy
 
 - Test each new tool with valid inputs
-- Test type auto-detection
+- Test routing to correct endpoint based on type
+- Test invalid type returns clear error
 - Test error handling (404, validation errors)
 - Test edit_content with various match scenarios
 - Test search_in_content returns correct line numbers
@@ -467,11 +384,13 @@ async def search_in_content(
 
 ### Success Criteria
 
-- [ ] `get_content` works for bookmarks and notes
+- [ ] `get_content` routes correctly to bookmark/note endpoints
 - [ ] `edit_content` performs str_replace correctly
 - [ ] `search_in_content` returns matches with line numbers
+- [ ] All tools require `type` parameter
 - [ ] Error responses are clear and actionable
-- [ ] Old tools marked deprecated (or removed if breaking changes OK)
+- [ ] Old `get_bookmark` and `get_note` tools removed
+- [ ] `api_patch()` helper added
 
 ### Risk Factors
 
@@ -479,40 +398,95 @@ async def search_in_content(
 
 ---
 
-## Milestone 7: Insert/Delete MCP Tools (Optional)
+## Milestone 5: Prompt MCP Editing Tool
 
 ### Goal
 
-Add MCP tools for insert and delete operations if they prove useful after Milestone 6.
+Add an `update_prompt` tool to the Prompt MCP server that supports both content editing (str_replace) and argument updates (full replacement).
 
 ### Dependencies
 
-Milestones 5, 6.
+Milestone 3 (str-replace API endpoint for prompts).
 
 ### Key Changes
 
-Add `insert_content` and `delete_content` tools following the same patterns as `edit_content`.
+**File:** `backend/src/prompt_mcp_server/server.py`
 
-**Decision point:** Evaluate after Milestone 6 whether these are needed. The `edit_content` tool with `new_str=""` can handle deletion. Insert can be done with `edit_content` using `old_str` as the anchor and `new_str` including the anchor + new content.
+**New tool:**
+
+```python
+@server.call_tool()
+async def update_prompt(
+    id: str,
+    # For content editing (str_replace):
+    old_str: str | None = None,
+    new_str: str | None = None,
+    # For argument updates (full replacement):
+    arguments: list[dict] | None = None,
+) -> list[types.TextContent]:
+    """Update a prompt's content or arguments.
+
+    For content editing:
+    - Provide old_str and new_str to perform string replacement
+    - old_str must match exactly one location in the prompt content
+
+    For argument updates:
+    - Provide arguments as a complete list to replace all arguments
+    - Each argument: {"name": "arg_name", "description": "...", "required": true/false}
+
+    Both can be provided in a single call.
+    """
+    results = []
+
+    if old_str is not None and new_str is not None:
+        # Call PATCH /prompts/{id}/str-replace
+        # Append result to results
+
+    if arguments is not None:
+        # Call PATCH /prompts/{id} with {"arguments": arguments}
+        # Append result to results
+
+    return results
+```
+
+**API client addition:**
+- Add `api_patch()` helper to `backend/src/prompt_mcp_server/api_client.py`
+
+**Files to read first:**
+- `backend/src/prompt_mcp_server/server.py` - existing tool/handler patterns
+- `backend/src/prompt_mcp_server/api_client.py` - HTTP helpers
+
+### Testing Strategy
+
+- Test content editing via str_replace
+- Test argument replacement
+- Test both operations in single call
+- Test validation errors (invalid template after edit, duplicate argument names)
+- Test 404 for non-existent prompt
 
 ### Success Criteria
 
-- [ ] Decide if these tools add value beyond edit_content
-- [ ] If yes, implement following established patterns
+- [ ] Can edit prompt content via str_replace
+- [ ] Can replace arguments list
+- [ ] Can do both in one call
+- [ ] Validation errors return clear messages
+- [ ] `api_patch()` helper added
+
+### Risk Factors
+
+- Need to decide: if both operations requested and one fails, should the other still apply? (Recommend: fail both - atomic operation)
 
 ---
 
 ## Summary
 
-| Milestone | Component | New Endpoints/Tools |
-|-----------|-----------|---------------------|
-| 1 | API | `GET /content/{id}/search` |
-| 2 | API | Partial read params on existing GET endpoints |
-| 3 | API | `GET /content/{id}` |
-| 4 | API | `PATCH /content/{id}/str-replace` |
-| 5 | API | `POST /content/{id}/insert`, `POST /content/{id}/delete-content` |
-| 6 | MCP | `get_content`, `edit_content`, `search_in_content` |
-| 7 | MCP | `insert_content`, `delete_content` (optional) |
+| Milestone | Component | Changes |
+|-----------|-----------|---------|
+| 1 | API | `GET /{type}/{id}/search` for notes, bookmarks, prompts |
+| 2 | API | Partial read params (`start_line`, `end_line`) on existing GET endpoints |
+| 3 | API | `PATCH /{type}/{id}/str-replace` for notes, bookmarks, prompts |
+| 4 | Content MCP | `get_content`, `edit_content`, `search_in_content` tools (replace per-type get tools) |
+| 5 | Prompt MCP | `update_prompt` tool for content and argument editing |
 
 ---
 
@@ -531,6 +505,41 @@ Line numbers are used only for:
 - Error messages (to help locate issues)
 - Search results (to help build unique match strings)
 - Partial reads (pagination use case, not editing)
+
+### Unified API Endpoints
+
+**Decision:** Keep per-content-type API endpoints (`/notes/{id}/...`, `/bookmarks/{id}/...`) rather than unified (`/content/{id}/...`).
+
+**Rationale:**
+- API stays consistent - all content types follow the same pattern
+- No type auto-detection complexity (avoids 3-query worst case)
+- Type-specific validation is cleaner (e.g., Jinja2 validation for prompts)
+- MCP tools handle consolidation - they accept `type` param and route to appropriate endpoint
+- API users who know their content type get direct, predictable endpoints
+
+The existing `/content/` endpoint for cross-type listing/searching is the right exception - that's genuinely a cross-type operation.
+
+### Separate Insert/Delete Endpoints
+
+**Decision:** Not implementing separate insert and delete endpoints.
+
+**Rationale:** str_replace handles both cases:
+- **Delete:** Use `new_str=""` (empty string)
+- **Insert:** Include anchor text in `old_str`, put anchor + new content in `new_str`
+
+This matches Claude Code, Aider, and Cursor which all use a single str_replace operation. Fewer endpoints = less API surface to maintain and fewer tools for AI to choose between.
+
+### Regex Search
+
+**Decision:** Not implementing regex search (literal match only).
+
+**Rationale:** Security (ReDoS attacks) and performance concerns. Literal search handles the primary use cases. Can be added later with proper safeguards if needed.
+
+### Version/Concurrency Detection
+
+**Decision:** Not implementing `expected_version` parameter for optimistic locking.
+
+**Rationale:** The Note model has a `version` field but it's intended for future version history functionality. Concurrency detection and version history are naturally connected - implement together when building history feature. For now, the "no match found" error will surface stale content issues (less cleanly, but functional).
 
 ### Unified Diff/Patch Format
 
