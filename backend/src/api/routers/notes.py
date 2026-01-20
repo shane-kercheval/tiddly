@@ -12,7 +12,7 @@ from api.dependencies import (
 )
 from core.http_cache import check_not_modified, format_http_date
 from models.user import User
-from schemas.content_search import ContentSearchMatch, ContentSearchResponse
+from schemas.content_search import ContentSearchResponse
 from schemas.note import (
     NoteCreate,
     NoteListItem,
@@ -21,7 +21,7 @@ from schemas.note import (
     NoteUpdate,
 )
 from services import content_filter_service
-from services.content_search_service import SearchMatch, search_in_content
+from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
 from services.note_service import NoteService
 
@@ -134,18 +134,10 @@ async def get_note(
     return NoteResponse.model_validate(note)
 
 
-def _convert_search_matches(matches: list[SearchMatch]) -> list[ContentSearchMatch]:
-    """Convert internal SearchMatch objects to API response schema."""
-    return [
-        ContentSearchMatch(field=m.field, line=m.line, context=m.context)
-        for m in matches
-    ]
-
-
 @router.get("/{note_id}/search", response_model=ContentSearchResponse)
 async def search_in_note(
     note_id: UUID,
-    q: str = Query(description="Text to search for (literal match)"),
+    q: str = Query(min_length=1, description="Text to search for (literal match)"),
     fields: str = Query(
         default="content",
         description="Comma-separated fields to search: 'content', 'title', 'description'",
@@ -212,7 +204,7 @@ async def search_in_note(
     )
 
     return ContentSearchResponse(
-        matches=_convert_search_matches(matches),
+        matches=matches,
         total_matches=len(matches),
     )
 

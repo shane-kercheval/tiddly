@@ -22,14 +22,14 @@ from schemas.bookmark import (
     BookmarkUpdate,
     MetadataPreviewResponse,
 )
-from schemas.content_search import ContentSearchMatch, ContentSearchResponse
+from schemas.content_search import ContentSearchResponse
 from services.bookmark_service import (
     ArchivedUrlExistsError,
     BookmarkService,
     DuplicateUrlError,
 )
 from services import content_filter_service
-from services.content_search_service import SearchMatch, search_in_content
+from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
 from services.url_scraper import scrape_url
 
@@ -201,18 +201,10 @@ async def get_bookmark(
     return BookmarkResponse.model_validate(bookmark)
 
 
-def _convert_search_matches(matches: list[SearchMatch]) -> list[ContentSearchMatch]:
-    """Convert internal SearchMatch objects to API response schema."""
-    return [
-        ContentSearchMatch(field=m.field, line=m.line, context=m.context)
-        for m in matches
-    ]
-
-
 @router.get("/{bookmark_id}/search", response_model=ContentSearchResponse)
 async def search_in_bookmark(
     bookmark_id: UUID,
-    q: str = Query(description="Text to search for (literal match)"),
+    q: str = Query(min_length=1, description="Text to search for (literal match)"),
     fields: str = Query(
         default="content",
         description="Comma-separated fields to search: 'content', 'title', 'description'",
@@ -279,7 +271,7 @@ async def search_in_bookmark(
     )
 
     return ContentSearchResponse(
-        matches=_convert_search_matches(matches),
+        matches=matches,
         total_matches=len(matches),
     )
 

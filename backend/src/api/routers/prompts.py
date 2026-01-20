@@ -12,7 +12,7 @@ from api.dependencies import (
 )
 from core.http_cache import check_not_modified, format_http_date
 from models.user import User
-from schemas.content_search import ContentSearchMatch, ContentSearchResponse
+from schemas.content_search import ContentSearchResponse
 from schemas.prompt import (
     PromptCreate,
     PromptListItem,
@@ -23,7 +23,7 @@ from schemas.prompt import (
     PromptUpdate,
 )
 from services import content_filter_service
-from services.content_search_service import SearchMatch, search_in_content
+from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
 from services.prompt_service import NameConflictError, PromptService
 from services.template_renderer import TemplateError, render_template
@@ -179,18 +179,10 @@ async def get_prompt(
     return PromptResponse.model_validate(prompt)
 
 
-def _convert_search_matches(matches: list[SearchMatch]) -> list[ContentSearchMatch]:
-    """Convert internal SearchMatch objects to API response schema."""
-    return [
-        ContentSearchMatch(field=m.field, line=m.line, context=m.context)
-        for m in matches
-    ]
-
-
 @router.get("/{prompt_id}/search", response_model=ContentSearchResponse)
 async def search_in_prompt(
     prompt_id: UUID,
-    q: str = Query(description="Text to search for (literal match)"),
+    q: str = Query(min_length=1, description="Text to search for (literal match)"),
     fields: str = Query(
         default="content",
         description="Comma-separated fields to search: 'content', 'title', 'description'",
@@ -257,7 +249,7 @@ async def search_in_prompt(
     )
 
     return ContentSearchResponse(
-        matches=_convert_search_matches(matches),
+        matches=matches,
         total_matches=len(matches),
     )
 

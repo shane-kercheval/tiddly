@@ -28,8 +28,8 @@ class TestSearchInContent:
         assert "line 2 with target" in matches[0].context
         assert "line 3" in matches[0].context
 
-    def test__search_in_content__multiple_matches_in_content(self) -> None:
-        """Test finding multiple matches in content field."""
+    def test__search_in_content__multiple_matches_across_lines(self) -> None:
+        """Test finding multiple matches across different lines."""
         content = "foo bar\nbar baz\nqux bar"
         matches = search_in_content(
             content=content,
@@ -44,6 +44,22 @@ class TestSearchInContent:
         assert matches[0].line == 1
         assert matches[1].line == 2
         assert matches[2].line == 3
+
+    def test__search_in_content__multiple_occurrences_same_line(self) -> None:
+        """Test that multiple occurrences on the same line are counted separately."""
+        content = "foo bar foo baz foo"
+        matches = search_in_content(
+            content=content,
+            title=None,
+            description=None,
+            query="foo",
+            fields=["content"],
+            case_sensitive=False,
+            context_lines=0,
+        )
+        # Should find 3 matches, all on line 1
+        assert len(matches) == 3
+        assert all(m.line == 1 for m in matches)
 
     def test__search_in_content__no_matches_returns_empty_list(self) -> None:
         """Test that no matches returns empty list (not error)."""
@@ -258,15 +274,33 @@ class TestSearchInContent:
         assert len(matches) == 1
         assert matches[0].line == 1
 
-    def test__search_in_content__multiline_match_within_line(self) -> None:
-        """Test that search is line-based, not multiline."""
-        # The search is line-by-line, so a pattern spanning lines won't match
-        content = "line one\nline two"
+    def test__search_in_content__multiline_query(self) -> None:
+        """Test searching for a multiline pattern."""
+        content = "line one\nline two\nline three"
         matches = search_in_content(
             content=content,
             title=None,
             description=None,
-            query="one\nline",  # Spans two lines
+            query="one\nline two",  # Spans two lines
+            fields=["content"],
+            context_lines=1,
+        )
+        # Should find the multiline pattern
+        assert len(matches) == 1
+        assert matches[0].line == 1  # Starts on line 1
+        # Context should include lines around the multiline match
+        assert "line one" in matches[0].context
+        assert "line two" in matches[0].context
+        assert "line three" in matches[0].context
+
+    def test__search_in_content__multiline_query_not_found(self) -> None:
+        """Test that a multiline pattern that doesn't exist returns no matches."""
+        content = "line one\nline two\nline three"
+        matches = search_in_content(
+            content=content,
+            title=None,
+            description=None,
+            query="one\nline three",  # These lines aren't adjacent
             fields=["content"],
         )
         assert matches == []
@@ -285,6 +319,30 @@ class TestSearchInContent:
         assert len(matches) == 2
         assert matches[0].line == 1
         assert matches[1].line == 2
+
+    def test__search_in_content__overlapping_context_adjacent_matches(self) -> None:
+        """Test context extraction when matches are adjacent (overlapping windows)."""
+        content = "line 1\nmatch A\nline 3\nmatch B\nline 5"
+        matches = search_in_content(
+            content=content,
+            title=None,
+            description=None,
+            query="match",
+            fields=["content"],
+            context_lines=2,
+        )
+        assert len(matches) == 2
+        # Match A (line 2) context should be lines 1-4 (2 before=line 1, 2 after=lines 3-4)
+        # Note: "line 1" is the only line before, so context starts at line 1
+        assert "line 1" in matches[0].context
+        assert "match A" in matches[0].context
+        assert "line 3" in matches[0].context
+        assert "match B" in matches[0].context
+        # Match B (line 4) context should be lines 2-5
+        assert "match A" in matches[1].context
+        assert "line 3" in matches[1].context
+        assert "match B" in matches[1].context
+        assert "line 5" in matches[1].context
 
 
 class TestGetMatchContext:
