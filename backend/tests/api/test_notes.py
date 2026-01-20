@@ -1347,7 +1347,7 @@ async def test__get_note__empty_string_content_with_start_line(client: AsyncClie
 
 
 async def test__get_note__trailing_newline_line_count(client: AsyncClient) -> None:
-    """Test that trailing newline is counted correctly (hello\\n = 2 lines)."""
+    r"""Test that trailing newline is counted correctly (hello\\n = 2 lines)."""
     response = await client.post(
         "/notes/",
         json={"title": "Trailing Newline", "content": "hello\n"},
