@@ -707,11 +707,14 @@ async def test__update_prompt_tool__no_match_error(mock_api, mock_auth) -> None:
         },
     )
 
-    # Returns structured JSON error (not exception) - matches Content MCP pattern
+    # Returns CallToolResult with isError=True per MCP spec
     import json
+    from mcp import types
 
-    assert len(result) == 1
-    error_data = json.loads(result[0].text)
+    assert isinstance(result, types.CallToolResult)
+    assert result.isError is True
+    assert len(result.content) == 1
+    error_data = json.loads(result.content[0].text)
     assert error_data["error"] == "no_match"
     assert "not found" in error_data["message"].lower()
 
@@ -746,11 +749,14 @@ async def test__update_prompt_tool__multiple_matches_error(
         },
     )
 
-    # Returns structured JSON error - matches Content MCP pattern
+    # Returns CallToolResult with isError=True per MCP spec
     import json
+    from mcp import types
 
-    assert len(result) == 1
-    error_data = json.loads(result[0].text)
+    assert isinstance(result, types.CallToolResult)
+    assert result.isError is True
+    assert len(result.content) == 1
+    error_data = json.loads(result.content[0].text)
     assert error_data["error"] == "multiple_matches"
     assert len(error_data["matches"]) == 2
     assert error_data["matches"][0]["line"] == 5
@@ -780,11 +786,14 @@ async def test__update_prompt_tool__template_validation_error(
         },
     )
 
-    # String detail errors are wrapped in JSON with error type
+    # Returns CallToolResult with isError=True per MCP spec
     import json
+    from mcp import types
 
-    assert len(result) == 1
-    error_data = json.loads(result[0].text)
+    assert isinstance(result, types.CallToolResult)
+    assert result.isError is True
+    assert len(result.content) == 1
+    error_data = json.loads(result.content[0].text)
     assert error_data["error"] == "validation_error"
     assert "undefined variable" in error_data["message"].lower()
 

@@ -38,7 +38,10 @@ from .auth import AuthenticationError, get_bearer_token
 mcp = FastMCP(
     name="Bookmarks MCP Server",
     instructions="""
-A content manager for saving and organizing bookmarks and notes.
+This is the Content MCP server for tiddly.me (also known as "tiddly"). When users mention
+tiddly, tiddly.me, or their bookmarks/notes service, they're referring to this system.
+
+This MCP server is a content manager for saving and organizing bookmarks and notes.
 Supports full-text search, tagging, markdown notes, and AI-friendly content editing.
 
 Available tools:
@@ -422,9 +425,16 @@ async def edit_content(
     - line: Line number where match was found
     - data: Full updated entity
 
-    Error responses include:
+    Error responses (returned as structured JSON data):
     - no_match: Text not found (check for typos/whitespace)
     - multiple_matches: Multiple locations found (include more context)
+
+    Note on error handling: Due to FastMCP SDK limitations, 400 errors (no_match,
+    multiple_matches) are returned as successful tool results containing error data,
+    rather than with isError=True per MCP spec. This is intentional—these are
+    informative results (the tool executed successfully but couldn't find a unique
+    match) rather than failures. The LLM can parse the structured JSON to understand
+    what happened and adjust its approach. See implementation plan appendix for details.
     """
     if type not in ("bookmark", "note"):
         raise ToolError(f"Invalid type '{type}'. Must be 'bookmark' or 'note'.")
@@ -441,8 +451,15 @@ async def edit_content(
         if e.response.status_code == 404:
             raise ToolError(f"{type.title()} with ID {id} not found")
         if e.response.status_code == 400:
-            # Pass through structured error response (no_match, multiple_matches, content_empty)
-            # API errors already have "error": "no_match" etc. as discriminator field
+            # Return structured error data (no_match, multiple_matches, content_empty).
+            #
+            # FastMCP limitation: We cannot return CallToolResult(isError=True) directly.
+            # Dict returns are always wrapped as successful results. This is acceptable
+            # because these are informative results (tool ran, couldn't find unique match)
+            # not failures. The LLM can parse the JSON and adjust its approach.
+            #
+            # Note: Prompt MCP uses low-level SDK and returns CallToolResult(isError=True)
+            # per MCP spec. See implementation plan appendix for full rationale.
             try:
                 error_detail = e.response.json().get("detail", {})
                 if isinstance(error_detail, dict):

@@ -809,3 +809,30 @@ This matches Claude Code, Aider, and Cursor which all use a single str_replace o
 **Decision:** Not implementing search within prompt `arguments` field (the JSONB list of argument definitions).
 
 **Rationale:** The primary use case for search is finding text within content for editing. Searching argument names/descriptions is a niche use case. Can be added later with `fields=arguments` if needed.
+
+### MCP Error Handling Inconsistency (FastMCP Limitation)
+
+**Decision:** Content MCP and Prompt MCP handle tool execution errors (400 responses like `no_match`, `multiple_matches`) differently due to SDK limitations.
+
+**Background:** The MCP specification recommends returning tool execution errors in the result object with `isError=True`, allowing the LLM to see and handle errors (e.g., retry with different parameters). This differs from protocol-level errors (like invalid requests or authentication failures).
+
+**Implementation:**
+
+| Server | SDK | 400 Error Handling | `isError` Flag |
+|--------|-----|-------------------|----------------|
+| Content MCP | FastMCP | Returns error dict as tool result | `False` (SDK limitation) |
+| Prompt MCP | Low-level MCP SDK | Returns `CallToolResult` with error content | `True` (per spec) |
+
+**Why the inconsistency exists:**
+
+FastMCP automatically wraps return values and doesn't provide a way to return `CallToolResult(isError=True)` directly. Dict returns are always treated as successful results. The alternative—raising `ToolError`—would escalate business logic errors to protocol-level errors, which is semantically incorrect.
+
+**Why we're leaving it as-is:**
+
+1. **Semantic correctness:** `no_match` and `multiple_matches` aren't really "errors"—they're informative results. The tool executed successfully; it just couldn't find a unique match. Returning structured data lets the LLM reason about the result and adjust its approach.
+
+2. **Avoiding worse alternatives:** Raising `ToolError` would conflate "the tool is broken" with "the operation needs different parameters," potentially causing erratic LLM behavior (blind retries, giving up).
+
+3. **Functional equivalence:** Both approaches return the same structured JSON data (`{"error": "no_match", "message": "...", "suggestion": "..."}`). The LLM can parse and act on this regardless of the `isError` flag.
+
+**Future consideration:** If FastMCP adds support for `CallToolResult(isError=True)`, update Content MCP for full spec compliance.

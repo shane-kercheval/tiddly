@@ -25,9 +25,11 @@ logger = logging.getLogger(__name__)
 server = Server(
     "prompt-mcp-server",
     instructions="""
-A prompt template manager for creating, editing, and using reusable AI prompts.
-Prompts are Jinja2 templates with defined arguments that can be rendered with
-user-provided values.
+This is the Prompt MCP server for tiddly.me (also known as "tiddly"). When users mention
+tiddly, tiddly.me, or their prompts/templates, they're referring to this system.
+
+AThis MCP server is a prompt template manager for creating, editing, and using reusable AI prompts.
+Prompts are Jinja2 templates with defined arguments that can be rendered with user-provided values.
 
 Available capabilities:
 
@@ -539,7 +541,7 @@ async def handle_list_tools() -> list[types.Tool]:
 async def handle_call_tool(
     name: str,
     arguments: dict[str, Any] | None,
-) -> list[types.TextContent]:
+) -> list[types.TextContent] | types.CallToolResult:
     """Handle tool calls (create_prompt, update_prompt)."""
     if name == "create_prompt":
         return await _handle_create_prompt(arguments or {})
@@ -606,12 +608,27 @@ async def _handle_create_prompt(arguments: dict[str, Any]) -> list[types.TextCon
     ]
 
 
-async def _handle_update_prompt(arguments: dict[str, Any]) -> list[types.TextContent]:
+async def _handle_update_prompt(
+    arguments: dict[str, Any],
+) -> list[types.TextContent] | types.CallToolResult:
     """
     Handle update_prompt tool call.
 
     Performs string replacement on prompt content via the str-replace API endpoint.
     Optionally updates arguments atomically with content changes.
+
+    Returns:
+        - list[types.TextContent] for success (SDK wraps with isError=False)
+        - types.CallToolResult with isError=True for tool execution errors (400s)
+
+    Error handling note:
+        This server uses the low-level MCP SDK, which allows returning
+        CallToolResult(isError=True) per MCP spec for tool execution errors
+        (no_match, multiple_matches). This differs from Content MCP which uses
+        FastMCP and cannot set isError=True due to SDK limitations.
+
+        Both approaches return the same structured JSON error data; the difference
+        is only in the isError flag. See implementation plan appendix for rationale.
     """
     # Validate required parameters first (before accessing HTTP client/token)
     prompt_id = arguments.get("id", "")
@@ -660,28 +677,25 @@ async def _handle_update_prompt(arguments: dict[str, Any]) -> list[types.TextCon
                 ),
             ) from e
         if e.response.status_code == 400:
-            # Return structured error response (no_match, multiple_matches, content_empty,
-            # template validation errors) as JSON - matches Content MCP pattern
-            # for AI agent parseability
+            # Return tool execution errors with isError=True per MCP spec.
+            # This allows the LLM to see and handle the error (e.g., retry with
+            # different parameters). Uses JSON format for AI parseability.
             try:
                 import json
 
                 error_detail = e.response.json().get("detail", {})
                 if isinstance(error_detail, dict):
-                    return [
-                        types.TextContent(
-                            type="text",
-                            text=json.dumps(error_detail),
-                        ),
-                    ]
-                # String error (e.g., template validation)
-                error_json = {"error": "validation_error", "message": str(error_detail)}
-                return [
-                    types.TextContent(
-                        type="text",
-                        text=json.dumps(error_json),
-                    ),
-                ]
+                    error_text = json.dumps(error_detail)
+                else:
+                    # String error (e.g., template validation)
+                    error_text = json.dumps({
+                        "error": "validation_error",
+                        "message": str(error_detail),
+                    })
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text=error_text)],
+                    isError=True,
+                )
             except (ValueError, KeyError):
                 pass
         _handle_api_error(e, f"updating prompt {prompt_id}")
