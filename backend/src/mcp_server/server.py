@@ -32,30 +32,31 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from .api_client import api_get, api_post, get_api_base_url, get_default_timeout
+from .api_client import api_get, api_patch, api_post, get_api_base_url, get_default_timeout
 from .auth import AuthenticationError, get_bearer_token
 
 mcp = FastMCP(
     name="Bookmarks MCP Server",
     instructions="""
 A content manager for saving and organizing bookmarks and notes.
-Supports full-text search, tagging, and markdown notes.
+Supports full-text search, tagging, markdown notes, and AI-friendly content editing.
 
 Available tools:
 
-**Bookmarks:**
+**Search:**
 - `search_bookmarks`: Search bookmarks by text query and/or filter by tags
-- `get_bookmark`: Get full details of a specific bookmark by ID
-- `create_bookmark`: Save a new URL (metadata auto-fetched if not provided)
-
-**Notes:**
 - `search_notes`: Search notes by text query and/or filter by tags
-- `get_note`: Get full details of a specific note by ID (includes content)
-- `create_note`: Create a new note with markdown content
-
-**Unified:**
 - `search_all_content`: Search across both bookmarks and notes in one query
 - `list_tags`: Get all tags with usage counts (shared across content types)
+
+**Content (unified for bookmarks and notes):**
+- `get_content`: Get a bookmark or note by ID (supports partial reads for large content)
+- `edit_content`: Edit content using string replacement (old_str must be unique)
+- `search_in_content`: Search within an item's text fields for matches with context
+
+**Create:**
+- `create_bookmark`: Save a new URL (metadata auto-fetched if not provided)
+- `create_note`: Create a new note with markdown content
 
 Example workflows:
 
@@ -81,6 +82,16 @@ Example workflows:
 
 6. "Search my content for Python resources"
    - Call `search_all_content(query="python")` to search both bookmarks and notes
+
+7. "Edit my meeting note to fix a typo"
+   - Call `search_all_content(query="meeting")` to find the note
+   - Call `get_content(id="...", type="note")` to read the content
+   - Call `search_in_content(id="...", type="note", query="teh")` to find the typo
+   - Call `edit_content(id="...", type="note", old_str="teh mistake", new_str="the mistake")`
+
+8. "Update the description in my Python bookmark"
+   - Call `search_in_content(id="...", type="bookmark", query="old text")` to verify uniqueness
+   - Call `edit_content(id="...", type="bookmark", old_str="old text", new_str="new text")`
 
 Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
 """.strip(),
@@ -313,44 +324,201 @@ async def search_all_content(
 
 
 @mcp.tool(
-    description="Get the full details of a specific bookmark including stored content",
+    description=(
+        "Get a bookmark or note by ID. Supports partial reads for large content "
+        "via line range params. The 'type' field is available in search results "
+        "from search_all_content."
+    ),
     annotations={"readOnlyHint": True},
 )
-async def get_bookmark(
-    bookmark_id: Annotated[str, Field(description="The UUID of the bookmark to retrieve")],
+async def get_content(
+    id: Annotated[str, Field(description="The content item ID (UUID)")],  # noqa: A002
+    type: Annotated[  # noqa: A002
+        Literal["bookmark", "note"],
+        Field(description="Content type: 'bookmark' or 'note'"),
+    ],
+    start_line: Annotated[
+        int | None,
+        Field(description="Start line for partial read (1-indexed)"),
+    ] = None,
+    end_line: Annotated[
+        int | None,
+        Field(description="End line for partial read (1-indexed, inclusive)"),
+    ] = None,
 ) -> dict[str, Any]:
-    """Get a bookmark by ID. Returns full details including content if stored."""
+    """
+    Get a bookmark or note by ID.
+
+    Supports partial content reads for large documents:
+    - Provide start_line and/or end_line to read a specific range
+    - Response includes content_metadata with total_lines and is_partial flag
+    - Other fields (title, description, tags) are always returned in full
+
+    Examples:
+    - Full read: get_content(id="...", type="note")
+    - First 50 lines: get_content(id="...", type="note", end_line=50)
+    - Lines 100-150: get_content(id="...", type="note", start_line=100, end_line=150)
+    """
+    if type not in ("bookmark", "note"):
+        raise ToolError(f"Invalid type '{type}'. Must be 'bookmark' or 'note'.")
+
     client = await _get_http_client()
     token = _get_token()
 
+    endpoint = f"/{type}s/{id}"
+    params: dict[str, Any] = {}
+    if start_line is not None:
+        params["start_line"] = start_line
+    if end_line is not None:
+        params["end_line"] = end_line
+
     try:
-        return await api_get(client, f"/bookmarks/{bookmark_id}", token)
+        return await api_get(client, endpoint, token, params if params else None)
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
-            raise ToolError(f"Bookmark with ID {bookmark_id} not found")
-        _handle_api_error(e, f"getting bookmark {bookmark_id}")
+            raise ToolError(f"{type.title()} with ID {id} not found")
+        _handle_api_error(e, f"getting {type} {id}")
         raise
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
 
 @mcp.tool(
-    description="Get the full details of a specific note including content",
-    annotations={"readOnlyHint": True},
+    description=(
+        "Edit content using string replacement. The old_str must match exactly "
+        "one location. Use search_in_content first to verify match uniqueness."
+    ),
+    annotations={"readOnlyHint": False, "destructiveHint": True},
 )
-async def get_note(
-    note_id: Annotated[str, Field(description="The UUID of the note to retrieve")],
+async def edit_content(
+    id: Annotated[str, Field(description="The content item ID (UUID)")],  # noqa: A002
+    type: Annotated[  # noqa: A002
+        Literal["bookmark", "note"],
+        Field(description="Content type: 'bookmark' or 'note'"),
+    ],
+    old_str: Annotated[
+        str,
+        Field(description="Exact text to find. Include surrounding context for uniqueness."),
+    ],
+    new_str: Annotated[
+        str,
+        Field(description="Replacement text. Use empty string to delete the matched text."),
+    ],
 ) -> dict[str, Any]:
-    """Get a note by ID. Returns full details including markdown content."""
+    """
+    Replace old_str with new_str in the content.
+
+    The edit will fail if old_str matches 0 or multiple locations. On failure,
+    the response includes match locations with context to help construct a unique match.
+
+    Tips for successful edits:
+    - Use search_in_content first to check how many matches exist
+    - Include enough surrounding context in old_str to ensure uniqueness
+    - For deletion, use empty string as new_str
+    - Whitespace normalization is attempted if exact match fails
+
+    Success response includes:
+    - match_type: "exact" or "whitespace_normalized"
+    - line: Line number where match was found
+    - data: Full updated entity
+
+    Error responses include:
+    - no_match: Text not found (check for typos/whitespace)
+    - multiple_matches: Multiple locations found (include more context)
+    """
+    if type not in ("bookmark", "note"):
+        raise ToolError(f"Invalid type '{type}'. Must be 'bookmark' or 'note'.")
+
     client = await _get_http_client()
     token = _get_token()
 
+    endpoint = f"/{type}s/{id}/str-replace"
+    payload = {"old_str": old_str, "new_str": new_str}
+
     try:
-        return await api_get(client, f"/notes/{note_id}", token)
+        return await api_patch(client, endpoint, token, payload)
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
-            raise ToolError(f"Note with ID {note_id} not found")
-        _handle_api_error(e, f"getting note {note_id}")
+            raise ToolError(f"{type.title()} with ID {id} not found")
+        if e.response.status_code == 400:
+            # Pass through structured error response (no_match, multiple_matches, content_empty)
+            # API errors already have "error": "no_match" etc. as discriminator field
+            try:
+                error_detail = e.response.json().get("detail", {})
+                if isinstance(error_detail, dict):
+                    return error_detail
+                return {"error": "unknown", "message": str(error_detail)}
+            except (ValueError, KeyError):
+                pass
+        _handle_api_error(e, f"editing {type} {id}")
+        raise
+    except httpx.RequestError as e:
+        raise ToolError(f"API unavailable: {e}")
+
+
+@mcp.tool(
+    description=(
+        "Search within a content item's text to find matches with line numbers and context. "
+        "Use before editing to verify match uniqueness and build a unique old_str."
+    ),
+    annotations={"readOnlyHint": True},
+)
+async def search_in_content(
+    id: Annotated[str, Field(description="The content item ID (UUID)")],  # noqa: A002
+    type: Annotated[  # noqa: A002
+        Literal["bookmark", "note"],
+        Field(description="Content type: 'bookmark' or 'note'"),
+    ],
+    query: Annotated[str, Field(description="Text to search for (literal match)")],
+    fields: Annotated[
+        str | None,
+        Field(description="Fields to search (comma-separated): content, title, description"),
+    ] = None,
+    case_sensitive: Annotated[
+        bool | None,
+        Field(description="Case-sensitive search. Default: false"),
+    ] = None,
+    context_lines: Annotated[
+        int | None,
+        Field(description="Lines of context before/after each match (0-10). Default: 2"),
+    ] = None,
+) -> dict[str, Any]:
+    """
+    Find all occurrences of query text within the item.
+
+    Use this tool before editing to:
+    - Check how many matches exist (avoid 'multiple matches' errors)
+    - Get surrounding context to build a unique old_str for edit_content
+    - Locate specific text within large documents
+
+    Response includes:
+    - matches: List of {field, line, context} for each match
+    - total_matches: Total number of matches found
+
+    For content field: Returns line number and surrounding context lines.
+    For title/description: Returns full field value as context (line is null).
+    """
+    if type not in ("bookmark", "note"):
+        raise ToolError(f"Invalid type '{type}'. Must be 'bookmark' or 'note'.")
+
+    client = await _get_http_client()
+    token = _get_token()
+
+    endpoint = f"/{type}s/{id}/search"
+    params: dict[str, Any] = {"q": query}
+    if fields is not None:
+        params["fields"] = fields
+    if case_sensitive is not None:
+        params["case_sensitive"] = case_sensitive
+    if context_lines is not None:
+        params["context_lines"] = context_lines
+
+    try:
+        return await api_get(client, endpoint, token, params)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise ToolError(f"{type.title()} with ID {id} not found")
+        _handle_api_error(e, f"searching in {type} {id}")
         raise
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")

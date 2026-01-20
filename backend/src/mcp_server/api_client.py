@@ -45,3 +45,19 @@ async def api_post(
     )
     response.raise_for_status()
     return response.json()
+
+
+async def api_patch(
+    client: httpx.AsyncClient,
+    path: str,
+    token: str,
+    json: dict[str, Any],
+) -> dict[str, Any]:
+    """Make an authenticated PATCH request to the API."""
+    response = await client.patch(
+        path,
+        json=json,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    response.raise_for_status()
+    return response.json()

@@ -140,3 +140,119 @@ def sample_content_list(
         "limit": 50,
         "has_more": False,
     }
+
+
+@pytest.fixture
+def sample_bookmark_with_metadata(sample_bookmark: dict[str, Any]) -> dict[str, Any]:
+    """Sample bookmark response with content_metadata for partial reads."""
+    return {
+        **sample_bookmark,
+        "content_metadata": {
+            "total_lines": 10,
+            "start_line": 1,
+            "end_line": 10,
+            "is_partial": False,
+        },
+    }
+
+
+@pytest.fixture
+def sample_note_with_metadata(sample_note: dict[str, Any]) -> dict[str, Any]:
+    """Sample note response with content_metadata for partial reads."""
+    return {
+        **sample_note,
+        "content_metadata": {
+            "total_lines": 5,
+            "start_line": 1,
+            "end_line": 5,
+            "is_partial": False,
+        },
+    }
+
+
+@pytest.fixture
+def sample_str_replace_success(sample_note: dict[str, Any]) -> dict[str, Any]:
+    """Sample successful str-replace response."""
+    return {
+        "match_type": "exact",
+        "line": 3,
+        "data": sample_note,
+    }
+
+
+@pytest.fixture
+def sample_str_replace_no_match() -> dict[str, Any]:
+    """Sample str-replace error response for no matches."""
+    return {
+        "error": "no_match",
+        "message": "The specified text was not found in the content",
+        "suggestion": "Verify the text exists and check for whitespace differences",
+    }
+
+
+@pytest.fixture
+def sample_str_replace_multiple_matches() -> dict[str, Any]:
+    """Sample str-replace error response for multiple matches."""
+    return {
+        "error": "multiple_matches",
+        "matches": [
+            {
+                "line": 15,
+                "context": "line 13 content\nline 14 content\nline 15 with match\nline 16 content\nline 17 content",
+            },
+            {
+                "line": 47,
+                "context": "line 45 content\nline 46 content\nline 47 with match\nline 48 content\nline 49 content",
+            },
+        ],
+        "suggestion": "Include more surrounding context to ensure uniqueness",
+    }
+
+
+@pytest.fixture
+def sample_search_in_content() -> dict[str, Any]:
+    """Sample within-content search response."""
+    return {
+        "matches": [
+            {
+                "field": "content",
+                "line": 3,
+                "context": "line 1 content\nline 2 content\nline 3 with match\nline 4 content\nline 5 content",
+            },
+        ],
+        "total_matches": 1,
+    }
+
+
+@pytest.fixture
+def sample_search_in_content_multiple() -> dict[str, Any]:
+    """Sample within-content search response with multiple matches."""
+    return {
+        "matches": [
+            {
+                "field": "content",
+                "line": 3,
+                "context": "line 1\nline 2\nline 3 match\nline 4\nline 5",
+            },
+            {
+                "field": "content",
+                "line": 10,
+                "context": "line 8\nline 9\nline 10 match\nline 11\nline 12",
+            },
+            {
+                "field": "title",
+                "line": None,
+                "context": "Title With Match",
+            },
+        ],
+        "total_matches": 3,
+    }
+
+
+@pytest.fixture
+def sample_search_in_content_empty() -> dict[str, Any]:
+    """Sample within-content search response with no matches."""
+    return {
+        "matches": [],
+        "total_matches": 0,
+    }
