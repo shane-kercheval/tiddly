@@ -138,12 +138,13 @@ make prompt-mcp-server    # Prompt MCP server (port 8002)
 
 | Tool | Description |
 |------|-------------|
-| `search_bookmarks` | Search with text query and tag filtering |
-| `get_bookmark` | Get full details of a bookmark by ID |
+| `get_content` | Get bookmark or note by ID with optional partial read (line range) |
+| `edit_content` | Edit bookmark or note content using string replacement |
+| `search_in_content` | Search within a single item's content for matches with context |
 | `create_bookmark` | Create a new bookmark (auto-fetches metadata) |
-| `search_notes` | Search notes with text query and tag filtering |
-| `get_note` | Get full details of a note by ID |
 | `create_note` | Create a new note |
+| `search_bookmarks` | Search bookmarks with text query and tag filtering |
+| `search_notes` | Search notes with text query and tag filtering |
 | `search_all_content` | Search across bookmarks and notes |
 | `list_tags` | List all tags with usage counts |
 
@@ -156,6 +157,7 @@ The Prompt MCP server exposes your saved prompts via the MCP prompts capability:
 | `list_prompts` | List available prompts with arguments |
 | `get_prompt` | Render a prompt with provided argument values |
 | `create_prompt` (tool) | Create a new prompt template |
+| `update_prompt` (tool) | Edit prompt content/arguments using string replacement |
 
 ### Configuration
 
