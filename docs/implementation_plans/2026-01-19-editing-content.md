@@ -22,6 +22,7 @@ Add AI-friendly editing capabilities to the content management API. The design p
 4. **Progressive fuzzy matching** - Fallback strategy: exact → whitespace-normalized (indentation-relative deferred to future)
 5. **Per-content-type API endpoints** - API stays consistent (`/notes/{id}/...`, `/bookmarks/{id}/...`, `/prompts/{id}/...`)
 6. **Consolidated MCP tools** - MCP tools accept `type` parameter and route to appropriate API endpoint
+7. **Content MCP vs Prompt MCP** - Content MCP handles bookmarks/notes; Prompt MCP handles prompts separately (different capabilities)
 
 ### Line Counting Convention
 
@@ -70,7 +71,7 @@ None - can be implemented independently.
 q: str                          # Required search query (literal match)
 fields: str = "content"         # Comma-separated: "content", "title", "description"
 case_sensitive: bool = False    # Default case-insensitive
-context_lines: int = 2          # Lines before/after match for context
+context_lines: int = 2          # Lines before/after match for context (content field only)
 
 # Response
 {
@@ -83,12 +84,22 @@ context_lines: int = 2          # Lines before/after match for context
         {
             "field": "title",
             "line": null,  # null for non-content fields
-            "context": "...match in title..."
+            "context": "Full Title With Match Here"  # Full value for short fields
+        },
+        {
+            "field": "description",
+            "line": null,
+            "context": "Full description text containing the match"  # Full value for short fields
         }
     ],
-    "total_matches": 2
+    "total_matches": 3
 }
 ```
+
+**Response semantics:**
+- **No matches found:** Returns `{"matches": [], "total_matches": 0}` with HTTP 200 (success, not error)
+- **For `content` field:** Uses `context_lines` parameter to return surrounding lines
+- **For `title`/`description` fields:** Returns full field value as context (these are typically short)
 
 **Implementation notes:**
 - Add to respective routers: `bookmarks.py`, `notes.py`, `prompts.py`
@@ -98,6 +109,7 @@ context_lines: int = 2          # Lines before/after match for context
   - Return line numbers (1-indexed) and surrounding context lines
   - Search specified fields only
   - Handle case sensitivity
+  - For title/description: return full value, line=null
 
 **Files to read first:**
 - `backend/src/api/routers/notes.py` - existing endpoint patterns
@@ -110,10 +122,11 @@ context_lines: int = 2          # Lines before/after match for context
 - Test case sensitivity: `case_sensitive=true` vs default
 - Test `context_lines` parameter with various values
 - Test multiple matches in same content
-- Test no matches found (empty results array, not error)
+- Test no matches found (empty results array with 200, not error)
 - Test match at beginning/end of content (context truncation)
 - Test with special characters in query
 - Test 404 when ID not found
+- Test title/description return full value as context
 
 ### Success Criteria
 
@@ -121,7 +134,8 @@ context_lines: int = 2          # Lines before/after match for context
 - [ ] Endpoint returns matches with line numbers and context
 - [ ] Supports searching multiple fields
 - [ ] Case sensitivity option works correctly
-- [ ] Context lines count is configurable
+- [ ] Context lines count is configurable (for content field)
+- [ ] Title/description return full value as context
 - [ ] Returns empty matches array (not error) when no matches
 - [ ] Use cases documented in OpenAPI/docstrings
 - [ ] Tests cover all content types and edge cases
@@ -152,8 +166,8 @@ None - can be implemented independently (parallel with Milestone 1).
 **Response additions:**
 ```python
 {
-    # Existing fields...
-    "content": "...",  # Only lines X through Y
+    # Existing fields (title, description, tags, etc.) - always returned in full
+    "content": "...",  # Only lines X through Y when partial read requested
     "content_metadata": {
         "total_lines": 150,
         "start_line": 50,
@@ -164,6 +178,7 @@ None - can be implemented independently (parallel with Milestone 1).
 ```
 
 **Behavior:**
+- **Scope:** Partial read only affects the `content` field. All other fields (title, description, tags, etc.) are always returned in full.
 - When `start_line`/`end_line` are NOT provided, `content_metadata` is omitted. Full content returned as before (backwards compatible).
 - `start_line` out of range (> total_lines): Return **400 error** with message indicating total lines
 - `end_line` out of range (> total_lines): **Clamp** to total_lines (no error, return what exists)
@@ -186,6 +201,7 @@ None - can be implemented independently (parallel with Milestone 1).
 - Test content_metadata accuracy (total_lines, is_partial)
 - Test edge cases: single line, last line, first line
 - Test line counting with trailing newlines (e.g., `"hello\n"` = 2 lines)
+- Test that title, description, tags are returned in full regardless of line params
 
 ### Success Criteria
 
@@ -195,6 +211,7 @@ None - can be implemented independently (parallel with Milestone 1).
 - [ ] start_line out of range returns 400
 - [ ] end_line out of range clamps gracefully
 - [ ] Line counting matches editor conventions
+- [ ] Other fields (title, description, tags) unaffected by line params
 - [ ] Tests verify all edge cases
 
 ### Risk Factors
@@ -248,12 +265,28 @@ None - can be implemented independently.
 {
     "error": "multiple_matches",
     "matches": [
-        {"line": 15, "context": "...surrounding text..."},
-        {"line": 47, "context": "...surrounding text..."}
+        {
+            "line": 15,
+            "context": "line 13 content\nline 14 content\nline 15 with match\nline 16 content\nline 17 content"
+        },
+        {
+            "line": 47,
+            "context": "line 45 content\nline 46 content\nline 47 with match\nline 48 content\nline 49 content"
+        }
     ],
     "suggestion": "Include more surrounding context to ensure uniqueness"
 }
 ```
+
+**Error response semantics:**
+- Search endpoint: No matches → `{"matches": [], "total_matches": 0}` with HTTP 200 (valid answer to "what's here?")
+- str-replace endpoint: No matches → HTTP 400 with `error: "no_match"` (failure - you asked to replace something that doesn't exist)
+
+This distinction is intentional. Document clearly in API docs.
+
+**Error context formatting:**
+- Use same `context_lines` default (2 lines before/after) as search endpoint for consistency
+- Matches in error responses use same format as search results
 
 **Progressive matching fallbacks:**
 1. **Exact** - Character-for-character match
@@ -267,24 +300,27 @@ Return `match_type` in response so caller knows which level succeeded.
 
 **Implementation notes:**
 - Create `backend/src/services/content_edit_service.py` for shared edit logic
+- Create shared error response schemas in `backend/src/schemas/errors.py` for `no_match`, `multiple_matches`, etc. This ensures consistency and provides OpenAPI documentation.
 - The service should:
   - Find all occurrences of `old_str` using progressive matching
   - If 0 matches: return error with suggestion
   - If 1 match: perform replacement, return success with match_type
-  - If multiple matches: return error with match locations and contexts
+  - If multiple matches: return error with match locations and contexts (2 context lines)
 - Update the entity via existing service update methods
 - **For prompts:** After content replacement, validate the updated Jinja2 template. Return 400 if template becomes invalid.
+- **Rate limiting:** PATCH endpoints are classified as "write" operations. Verify this is automatic in the existing rate limiter (based on HTTP method).
 
 **Files to read first:**
 - `backend/src/services/note_service.py` - understand update patterns
 - `backend/src/services/base_entity_service.py` - base update method
 - `backend/src/services/prompt_service.py` - template validation logic
+- `backend/src/core/rate_limiter.py` - verify PATCH → write classification
 
 ### Testing Strategy
 
 - Test successful single-match replacement
-- Test no match found error
-- Test multiple matches error (with correct line numbers in response)
+- Test no match found error (returns 400, not empty success)
+- Test multiple matches error (with correct line numbers and 2 context lines)
 - Test each fallback level: exact, whitespace normalized
 - Test multiline old_str
 - Test replacement that changes line count
@@ -298,12 +334,13 @@ Return `match_type` in response so caller knows which level succeeded.
 
 - [ ] Each content type has its own str-replace endpoint
 - [ ] Single unique match triggers successful replacement
-- [ ] Zero matches returns actionable error
-- [ ] Multiple matches returns locations with context
+- [ ] Zero matches returns 400 error (not empty success)
+- [ ] Multiple matches returns locations with 2 context lines each
 - [ ] Both fallback levels (exact, whitespace normalized) implemented and working
 - [ ] Response includes match_type used
 - [ ] Line ending behavior documented and tested
 - [ ] Prompt template validation after edit
+- [ ] Shared error schemas created in `schemas/errors.py`
 - [ ] Tests cover all scenarios
 
 ### Risk Factors
@@ -319,6 +356,8 @@ Return `match_type` in response so caller knows which level succeeded.
 Add consolidated MCP tools (`get_content`, `edit_content`, `search_in_content`) to the Content MCP server. These tools require a `type` parameter and route to the appropriate per-type API endpoint.
 
 **Breaking Change:** This milestone removes the existing `get_bookmark` and `get_note` tools. Document this in release notes.
+
+**Scope:** Content MCP handles bookmarks and notes only. Prompts are handled separately by the Prompt MCP server (see Milestone 5).
 
 ### Dependencies
 
@@ -400,7 +439,7 @@ async def search_in_content(
 
 - Test each new tool with valid inputs
 - Test routing to correct endpoint based on type
-- Test invalid type returns clear error
+- Test invalid type (not 'bookmark' or 'note') returns clear error
 - Test error handling (404, validation errors)
 - Test edit_content with various match scenarios
 - Test search_in_content returns correct line numbers
@@ -411,7 +450,7 @@ async def search_in_content(
 - [ ] `get_content` routes correctly to bookmark/note endpoints
 - [ ] `edit_content` performs str_replace correctly
 - [ ] `search_in_content` returns matches with line numbers
-- [ ] All tools require `type` parameter
+- [ ] All tools require `type` parameter (only 'bookmark' or 'note')
 - [ ] Error responses are clear and actionable
 - [ ] Old `get_bookmark` and `get_note` tools removed
 - [ ] Breaking change documented
@@ -462,16 +501,20 @@ async def update_prompt(
     Both can be provided in a single call. The operation is atomic - if either
     fails, neither change is applied.
     """
-    # If both str_replace and arguments provided, execute atomically:
-    # - If either operation would fail, return error without applying any changes
-    # - Only apply both if both would succeed
-
-    if old_str is not None and new_str is not None:
-        # Call PATCH /prompts/{id}/str-replace
-
-    if arguments is not None:
-        # Call PATCH /prompts/{id} with {"arguments": arguments}
 ```
+
+**Atomic operation validation sequence:**
+
+When both str_replace and arguments are provided, validation must happen in this order before any changes are applied:
+
+1. **Find unique match:** Verify `old_str` matches exactly one location in current content
+2. **Compute new content:** Determine what content would look like after replacement
+3. **Validate Jinja2 syntax:** Verify new content is valid Jinja2 template
+4. **Validate arguments:** Verify new arguments list is valid (no duplicates, valid names)
+5. **Cross-validate template + arguments:** Verify all template variables have corresponding arguments, and all arguments are used in template
+6. **Apply changes:** Only if all validations pass, apply both str_replace and argument update
+
+This sequence matters because the str_replace might change variable references in the template. If any step fails, return error without applying any changes.
 
 **Atomic operation behavior:**
 - If both `old_str`/`new_str` and `arguments` are provided, the operation is atomic
@@ -485,14 +528,17 @@ async def update_prompt(
 **Files to read first:**
 - `backend/src/prompt_mcp_server/server.py` - existing tool/handler patterns
 - `backend/src/prompt_mcp_server/api_client.py` - HTTP helpers
+- `backend/src/services/prompt_service.py` - template validation logic
 
 ### Testing Strategy
 
 - Test content editing via str_replace
 - Test argument replacement
 - Test both operations in single call (atomic success)
-- Test atomic failure: str_replace fails, arguments should not be updated
-- Test atomic failure: arguments fail, str_replace should not be applied
+- Test atomic failure: str_replace fails (no match), arguments should not be updated
+- Test atomic failure: str_replace succeeds but would create invalid template, arguments should not be updated
+- Test atomic failure: arguments invalid, str_replace should not be applied
+- Test atomic failure: template + arguments cross-validation fails (unused argument)
 - Test validation errors (invalid template after edit, duplicate argument names)
 - Test 404 for non-existent prompt
 
@@ -502,12 +548,14 @@ async def update_prompt(
 - [ ] Can replace arguments list
 - [ ] Can do both in one call
 - [ ] Atomic behavior: both succeed or both fail
+- [ ] Validation sequence correctly handles template/argument cross-validation
 - [ ] Validation errors return clear messages
 - [ ] `api_patch()` helper added
 
 ### Risk Factors
 
 - Atomic operation requires validating both changes before applying either - implementation must check str_replace match and argument validity before committing
+- Validation sequence is critical - document and test thoroughly
 
 ---
 
@@ -596,3 +644,9 @@ This matches Claude Code, Aider, and Cursor which all use a single str_replace o
 1. Calculate the indentation difference of the first non-empty line between `old_str` and content
 2. Verify all non-empty lines in `old_str` share the same relative offset
 3. If consistent, apply the offset to match
+
+### Searching Prompt Arguments
+
+**Decision:** Not implementing search within prompt `arguments` field (the JSONB list of argument definitions).
+
+**Rationale:** The primary use case for search is finding text within content for editing. Searching argument names/descriptions is a niche use case. Can be added later with `fields=arguments` if needed.
