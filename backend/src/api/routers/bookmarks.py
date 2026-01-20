@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi import Response as FastAPIResponse
 from pydantic import HttpUrl
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import (
@@ -22,13 +23,24 @@ from schemas.bookmark import (
     BookmarkUpdate,
     MetadataPreviewResponse,
 )
-from schemas.content_search import ContentSearchResponse
+from schemas.content_search import ContentSearchMatch, ContentSearchResponse
+from schemas.errors import (
+    StrReplaceMultipleMatchesError,
+    StrReplaceNoMatchError,
+    StrReplaceRequest,
+    StrReplaceSuccess,
+)
 from services.bookmark_service import (
     ArchivedUrlExistsError,
     BookmarkService,
     DuplicateUrlError,
 )
 from services import content_filter_service
+from services.content_edit_service import (
+    MultipleMatchesError,
+    NoMatchError,
+    str_replace,
+)
 from services.content_lines import apply_partial_read
 from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
@@ -320,6 +332,81 @@ async def update_bookmark(
     if bookmark is None:
         raise HTTPException(status_code=404, detail="Bookmark not found")
     return BookmarkResponse.model_validate(bookmark)
+
+
+@router.patch("/{bookmark_id}/str-replace", response_model=StrReplaceSuccess[BookmarkResponse])
+async def str_replace_bookmark(
+    bookmark_id: UUID,
+    data: StrReplaceRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> StrReplaceSuccess[BookmarkResponse]:
+    r"""
+    Replace text in a bookmark's content using string matching.
+
+    The `old_str` must match exactly one location in the content. If it matches
+    zero or multiple locations, the operation fails with an appropriate error.
+
+    **Matching strategy (progressive fallback):**
+    1. **Exact match** - Character-for-character match
+    2. **Whitespace normalized** - Normalizes line endings (\\r\\n → \\n) and strips
+       trailing whitespace from each line before matching
+
+    **Tips for successful edits:**
+    - Include 3-5 lines of surrounding context in `old_str` to ensure uniqueness
+    - Use the search endpoint (`GET /bookmarks/{id}/search`) first to check matches
+    - For deletion, use empty string as `new_str`
+
+    **Error responses:**
+    - 400 with `error: "no_match"` if text not found
+    - 400 with `error: "multiple_matches"` if text found in multiple locations
+      (includes match locations with context to help construct unique match)
+    """
+    # Fetch the bookmark (include archived, exclude deleted)
+    bookmark = await bookmark_service.get(db, current_user.id, bookmark_id, include_archived=True)
+    if bookmark is None:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    # Check if content exists
+    if bookmark.content is None:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceNoMatchError(
+                message="Bookmark has no content to edit",
+            ).model_dump(),
+        )
+
+    # Perform str_replace
+    try:
+        result = str_replace(bookmark.content, data.old_str, data.new_str)
+    except NoMatchError:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceNoMatchError().model_dump(),
+        )
+    except MultipleMatchesError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceMultipleMatchesError(
+                matches=[
+                    ContentSearchMatch(field="content", line=line, context=ctx)
+                    for line, ctx in e.matches
+                ],
+            ).model_dump(),
+        )
+
+    # Update the bookmark with new content
+    bookmark.content = result.new_content
+    bookmark.updated_at = func.clock_timestamp()
+    await db.flush()
+    await db.refresh(bookmark)
+    await db.refresh(bookmark, attribute_names=["tag_objects"])
+
+    return StrReplaceSuccess(
+        match_type=result.match_type,
+        line=result.line,
+        data=BookmarkResponse.model_validate(bookmark),
+    )
 
 
 @router.delete("/{bookmark_id}", status_code=204)

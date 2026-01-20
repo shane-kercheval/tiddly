@@ -1783,3 +1783,710 @@ async def test_search_in_prompt_jinja_template(client: AsyncClient) -> None:
     assert response.status_code == 200
     assert response.json()["total_matches"] == 1
     assert response.json()["matches"][0]["line"] == 2
+
+
+# =============================================================================
+# Str-Replace Tests
+# =============================================================================
+
+
+async def test_str_replace_prompt_success(client: AsyncClient) -> None:
+    """Test successful str-replace on prompt content."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "str-replace-test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["match_type"] == "exact"
+    assert data["line"] == 1
+    assert data["data"]["content"] == "Hello universe"
+    assert data["data"]["id"] == prompt_id
+
+
+async def test_str_replace_prompt_multiline(client: AsyncClient) -> None:
+    """Test str-replace on multiline prompt content."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "multiline-replace",
+            "content": "line 1\nline 2 target\nline 3",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "target", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["line"] == 2
+    assert data["data"]["content"] == "line 1\nline 2 replaced\nline 3"
+
+
+async def test_str_replace_prompt_multiline_old_str(client: AsyncClient) -> None:
+    """Test str-replace with multiline old_str."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "multiline-old-str",
+            "content": "line 1\nline 2\nline 3\nline 4",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "line 2\nline 3", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["line"] == 2
+    assert data["data"]["content"] == "line 1\nreplaced\nline 4"
+
+
+async def test_str_replace_prompt_no_match(client: AsyncClient) -> None:
+    """Test str-replace returns 400 when old_str not found."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "no-match-prompt",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "nonexistent", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "no_match"
+
+
+async def test_str_replace_prompt_multiple_matches(client: AsyncClient) -> None:
+    """Test str-replace returns 400 when multiple matches found."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "multiple-matches-prompt",
+            "content": "foo bar foo baz foo",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "foo", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "multiple_matches"
+    assert len(response.json()["detail"]["matches"]) == 3
+
+
+async def test_str_replace_prompt_deletion(client: AsyncClient) -> None:
+    """Test str-replace with empty new_str performs deletion."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "deletion-test-prompt",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": " world", "new_str": ""},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello"
+
+
+async def test_str_replace_prompt_whitespace_normalized(client: AsyncClient) -> None:
+    """Test str-replace with whitespace-normalized matching."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "whitespace-norm-prompt",
+            "content": "line 1  \nline 2\nline 3",  # Trailing spaces on line 1
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "line 1\nline 2", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["match_type"] == "whitespace_normalized"
+    assert "replaced" in data["data"]["content"]
+
+
+async def test_str_replace_prompt_not_found(client: AsyncClient) -> None:
+    """Test str-replace on non-existent prompt returns 404."""
+    response = await client.patch(
+        "/prompts/00000000-0000-0000-0000-000000000000/str-replace",
+        json={"old_str": "test", "new_str": "replaced"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Prompt not found"
+
+
+async def test_str_replace_prompt_updates_updated_at(client: AsyncClient) -> None:
+    """Test that str-replace updates the updated_at timestamp."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "timestamp-test-prompt",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+    original_updated_at = response.json()["updated_at"]
+
+    await asyncio.sleep(0.01)
+
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["updated_at"] > original_updated_at
+
+
+async def test_str_replace_prompt_works_on_archived(client: AsyncClient) -> None:
+    """Test that str-replace works on archived prompts."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "archived-replace-prompt",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    await client.post(f"/prompts/{prompt_id}/archive")
+
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello universe"
+
+
+async def test_str_replace_prompt_not_on_deleted(client: AsyncClient) -> None:
+    """Test that str-replace does not work on soft-deleted prompts."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "deleted-replace-prompt",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    await client.delete(f"/prompts/{prompt_id}")
+
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 404
+
+
+async def test_str_replace_prompt_preserves_other_fields(client: AsyncClient) -> None:
+    """Test that str-replace preserves other prompt fields."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "preserve-fields-prompt",
+            "title": "My Title",
+            "description": "My Description",
+            "content": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+            "tags": ["tag1", "tag2"],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "Hello", "new_str": "Hi"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()["data"]
+    assert data["name"] == "preserve-fields-prompt"
+    assert data["title"] == "My Title"
+    assert data["description"] == "My Description"
+    assert data["content"] == "Hi {{ name }}!"
+    assert data["arguments"] == [{"name": "name", "description": None, "required": True}]
+    assert data["tags"] == ["tag1", "tag2"]
+
+
+async def test_str_replace_prompt_jinja_valid_template(client: AsyncClient) -> None:
+    """Test str-replace validates Jinja2 template after replacement."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "jinja-replace-valid",
+            "content": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Replace with valid Jinja2
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "Hello {{ name }}!", "new_str": "Hi {{ name }}, welcome!"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hi {{ name }}, welcome!"
+
+
+async def test_str_replace_prompt_jinja_invalid_syntax(client: AsyncClient) -> None:
+    """Test str-replace returns 400 when resulting template has invalid Jinja2 syntax."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "jinja-replace-invalid-syntax",
+            "content": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Replace with invalid Jinja2 syntax (unclosed bracket)
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "Hello {{ name }}!", "new_str": "Hi {{ unclosed!"},
+    )
+    assert response.status_code == 400
+    assert "Invalid Jinja2 syntax" in response.json()["detail"]
+
+
+async def test_str_replace_prompt_jinja_undefined_variable(client: AsyncClient) -> None:
+    """Test str-replace returns 400 when resulting template has undefined variable."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "jinja-replace-undefined",
+            "content": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Replace with undefined variable
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "{{ name }}", "new_str": "{{ unknown_var }}"},
+    )
+    assert response.status_code == 400
+    assert "undefined variable" in response.json()["detail"].lower()
+
+
+async def test_str_replace_prompt_jinja_unused_argument_after_replace(client: AsyncClient) -> None:
+    """Test that removing variable usage causes unused argument error."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "jinja-replace-remove-var",
+            "content": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Replace to remove variable usage entirely - this should fail because
+    # the 'name' argument would become unused
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "{{ name }}", "new_str": "World"},
+    )
+    assert response.status_code == 400
+    assert "unused argument" in response.json()["detail"].lower()
+
+
+async def test_str_replace_prompt_no_arguments_static_replacement(client: AsyncClient) -> None:
+    """Test that removing variable in a prompt with no arguments succeeds."""
+    # Create a prompt without arguments (static content)
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "static-content-prompt",
+            "content": "Hello World!",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Replace static content - this should succeed
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "World", "new_str": "Universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello Universe!"
+
+
+# =============================================================================
+# Str-Replace with Arguments Field (Atomic Updates)
+# =============================================================================
+
+
+async def test_str_replace_prompt_add_variable_with_argument(client: AsyncClient) -> None:
+    """Test adding a new variable AND its argument atomically."""
+    # Create prompt with one variable
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "add-var-atomic",
+            "content": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Add a new variable AND provide updated arguments list
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={
+            "old_str": "Hello {{ name }}!",
+            "new_str": "Hello {{ greeting }}, {{ name }}!",
+            "arguments": [
+                {"name": "name", "required": True},
+                {"name": "greeting", "required": True},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["content"] == "Hello {{ greeting }}, {{ name }}!"
+    assert len(data["arguments"]) == 2
+    arg_names = {arg["name"] for arg in data["arguments"]}
+    assert arg_names == {"name", "greeting"}
+
+
+async def test_str_replace_prompt_remove_variable_with_argument(client: AsyncClient) -> None:
+    """Test removing a variable AND its argument atomically."""
+    # Create prompt with two variables
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "remove-var-atomic",
+            "content": "Hello {{ greeting }}, {{ name }}!",
+            "arguments": [
+                {"name": "greeting", "required": True},
+                {"name": "name", "required": True},
+            ],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Remove {{ greeting }} from content AND from arguments (keep only name)
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={
+            "old_str": "{{ greeting }}, ",
+            "new_str": "",
+            "arguments": [{"name": "name", "required": True}],  # Only keep 'name'
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["content"] == "Hello {{ name }}!"
+    assert len(data["arguments"]) == 1
+    assert data["arguments"][0]["name"] == "name"
+
+
+async def test_str_replace_prompt_remove_one_keep_others(client: AsyncClient) -> None:
+    """Test removing one argument while keeping others - must provide all to keep."""
+    # Create prompt with three variables
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "remove-one-keep-others",
+            "content": "{{ a }} {{ b }} {{ c }}",
+            "arguments": [
+                {"name": "a", "required": True},
+                {"name": "b", "required": True},
+                {"name": "c", "required": True},
+            ],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Remove {{ b }} from content, keep a and c in arguments
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={
+            "old_str": " {{ b }}",
+            "new_str": "",
+            "arguments": [
+                {"name": "a", "required": True},
+                {"name": "c", "required": True},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["content"] == "{{ a }} {{ c }}"
+    assert len(data["arguments"]) == 2
+    arg_names = {arg["name"] for arg in data["arguments"]}
+    assert arg_names == {"a", "c"}
+
+
+async def test_str_replace_prompt_accidentally_omit_used_argument(client: AsyncClient) -> None:
+    """Test that omitting an argument still used in content fails."""
+    # Create prompt with two variables
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "omit-used-arg",
+            "content": "{{ a }} {{ b }}",
+            "arguments": [
+                {"name": "a", "required": True},
+                {"name": "b", "required": True},
+            ],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Try to remove {{ a }} but accidentally provide empty arguments
+    # This should fail because {{ b }} is still in content but not in new arguments
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={
+            "old_str": "{{ a }} ",
+            "new_str": "",
+            "arguments": [],  # Oops! Forgot to include 'b'
+        },
+    )
+    assert response.status_code == 400
+    assert "undefined variable" in response.json()["detail"].lower()
+
+
+async def test_str_replace_prompt_replace_all_variables(client: AsyncClient) -> None:
+    """Test replacing all variables with completely new ones."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "replace-all-vars",
+            "content": "Hello {{ old_var }}!",
+            "arguments": [{"name": "old_var", "required": True}],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Replace with entirely new content and arguments
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={
+            "old_str": "Hello {{ old_var }}!",
+            "new_str": "{{ greeting }} {{ name }}, welcome to {{ place }}!",
+            "arguments": [
+                {"name": "greeting", "required": True},
+                {"name": "name", "required": True},
+                {"name": "place", "required": False},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["content"] == "{{ greeting }} {{ name }}, welcome to {{ place }}!"
+    assert len(data["arguments"]) == 3
+
+
+async def test_str_replace_prompt_empty_arguments_static_content(client: AsyncClient) -> None:
+    """Test providing empty arguments with static content (no variables)."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "empty-args-static",
+            "content": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Replace with static content and empty arguments
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={
+            "old_str": "{{ name }}",
+            "new_str": "World",
+            "arguments": [],  # No arguments needed for static content
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["content"] == "Hello World!"
+    assert data["arguments"] == []
+
+
+async def test_str_replace_prompt_duplicate_argument_names(client: AsyncClient) -> None:
+    """Test that duplicate argument names in request returns 400."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "duplicate-args",
+            "content": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Try to provide arguments with duplicate names
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={
+            "old_str": "Hello",
+            "new_str": "Hi",
+            "arguments": [
+                {"name": "name", "required": True},
+                {"name": "name", "required": False},  # Duplicate!
+            ],
+        },
+    )
+    assert response.status_code == 422  # Pydantic validation error
+
+
+async def test_str_replace_prompt_no_match_arguments_not_updated(client: AsyncClient) -> None:
+    """Test that if str_replace fails (no match), arguments are NOT updated."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "no-match-no-update",
+            "content": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Try str_replace with non-existent old_str
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={
+            "old_str": "NONEXISTENT",
+            "new_str": "new content",
+            "arguments": [{"name": "new_arg", "required": True}],
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "no_match"
+
+    # Verify arguments were NOT changed
+    response = await client.get(f"/prompts/{prompt_id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["content"] == "Hello {{ name }}!"  # Content unchanged
+    assert len(data["arguments"]) == 1
+    assert data["arguments"][0]["name"] == "name"  # Original argument
+
+
+async def test_str_replace_prompt_validation_fails_content_not_updated(client: AsyncClient) -> None:
+    """Test that if validation fails, neither content nor arguments are updated."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "validation-fail-no-update",
+            "content": "Hello {{ name }}!",
+            "arguments": [{"name": "name", "required": True}],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Try to add new variable but DON'T include it in arguments (validation will fail)
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={
+            "old_str": "Hello {{ name }}!",
+            "new_str": "Hello {{ name }} and {{ friend }}!",  # new variable
+            "arguments": [{"name": "name", "required": True}],  # Missing 'friend'!
+        },
+    )
+    assert response.status_code == 400
+    assert "undefined variable" in response.json()["detail"].lower()
+
+    # Verify NEITHER content NOR arguments were changed
+    response = await client.get(f"/prompts/{prompt_id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["content"] == "Hello {{ name }}!"  # Original content
+    assert len(data["arguments"]) == 1
+    assert data["arguments"][0]["name"] == "name"
+
+
+async def test_str_replace_prompt_arguments_preserved_when_omitted(client: AsyncClient) -> None:
+    """Test that existing arguments are preserved when arguments field is omitted."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "preserve-args",
+            "content": "Hello {{ name }}!",
+            "arguments": [
+                {"name": "name", "required": True, "description": "The name"},
+            ],
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Edit content without providing arguments field
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={
+            "old_str": "Hello",
+            "new_str": "Hi",
+            # No arguments field - should preserve existing
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["content"] == "Hi {{ name }}!"
+    assert len(data["arguments"]) == 1
+    assert data["arguments"][0]["name"] == "name"
+    assert data["arguments"][0]["description"] == "The name"  # Preserved!

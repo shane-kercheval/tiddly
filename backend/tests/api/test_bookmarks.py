@@ -1,4 +1,5 @@
 """Tests for bookmark CRUD endpoints."""
+import asyncio
 from datetime import datetime, UTC
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
@@ -3192,3 +3193,298 @@ async def test_search_in_bookmark_works_on_deleted(client: AsyncClient) -> None:
     )
     assert response.status_code == 200
     assert response.json()["total_matches"] == 1
+
+
+# =============================================================================
+# Str-Replace Tests
+# =============================================================================
+
+
+async def test_str_replace_bookmark_success(client: AsyncClient) -> None:
+    """Test successful str-replace on bookmark content."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://str-replace-test.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["match_type"] == "exact"
+    assert data["line"] == 1
+    assert data["data"]["content"] == "Hello universe"
+    assert data["data"]["id"] == bookmark_id
+
+
+async def test_str_replace_bookmark_multiline(client: AsyncClient) -> None:
+    """Test str-replace on multiline bookmark content."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://multiline-replace.com",
+            "title": "Test",
+            "content": "line 1\nline 2 target\nline 3",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "target", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["line"] == 2
+    assert data["data"]["content"] == "line 1\nline 2 replaced\nline 3"
+
+
+async def test_str_replace_bookmark_multiline_old_str(client: AsyncClient) -> None:
+    """Test str-replace with multiline old_str."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://multiline-old-str.com",
+            "title": "Test",
+            "content": "line 1\nline 2\nline 3\nline 4",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "line 2\nline 3", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["line"] == 2
+    assert data["data"]["content"] == "line 1\nreplaced\nline 4"
+
+
+async def test_str_replace_bookmark_no_match(client: AsyncClient) -> None:
+    """Test str-replace returns 400 when old_str not found."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://no-match.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "nonexistent", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "no_match"
+
+
+async def test_str_replace_bookmark_multiple_matches(client: AsyncClient) -> None:
+    """Test str-replace returns 400 when multiple matches found."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://multiple-matches.com",
+            "title": "Test",
+            "content": "foo bar foo baz foo",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "foo", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "multiple_matches"
+    assert len(response.json()["detail"]["matches"]) == 3
+
+
+async def test_str_replace_bookmark_deletion(client: AsyncClient) -> None:
+    """Test str-replace with empty new_str performs deletion."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://deletion-test.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": " world", "new_str": ""},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello"
+
+
+async def test_str_replace_bookmark_whitespace_normalized(client: AsyncClient) -> None:
+    """Test str-replace with whitespace-normalized matching."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://whitespace-norm.com",
+            "title": "Test",
+            "content": "line 1  \nline 2\nline 3",  # Trailing spaces on line 1
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "line 1\nline 2", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["match_type"] == "whitespace_normalized"
+    assert "replaced" in data["data"]["content"]
+
+
+async def test_str_replace_bookmark_null_content(client: AsyncClient) -> None:
+    """Test str-replace on bookmark with null content returns 400."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://null-content.com",
+            "title": "Test",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "test", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+    assert "no content" in response.json()["detail"]["message"].lower()
+
+
+async def test_str_replace_bookmark_not_found(client: AsyncClient) -> None:
+    """Test str-replace on non-existent bookmark returns 404."""
+    response = await client.patch(
+        "/bookmarks/00000000-0000-0000-0000-000000000000/str-replace",
+        json={"old_str": "test", "new_str": "replaced"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Bookmark not found"
+
+
+async def test_str_replace_bookmark_updates_updated_at(client: AsyncClient) -> None:
+    """Test that str-replace updates the updated_at timestamp."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://timestamp-test.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+    original_updated_at = response.json()["updated_at"]
+
+    await asyncio.sleep(0.01)
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["updated_at"] > original_updated_at
+
+
+async def test_str_replace_bookmark_works_on_archived(client: AsyncClient) -> None:
+    """Test that str-replace works on archived bookmarks."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://archived-replace.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    await client.post(f"/bookmarks/{bookmark_id}/archive")
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello universe"
+
+
+async def test_str_replace_bookmark_not_on_deleted(client: AsyncClient) -> None:
+    """Test that str-replace does not work on soft-deleted bookmarks."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://deleted-replace.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    await client.delete(f"/bookmarks/{bookmark_id}")
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 404
+
+
+async def test_str_replace_bookmark_preserves_other_fields(client: AsyncClient) -> None:
+    """Test that str-replace preserves other bookmark fields."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://preserve-fields.com",
+            "title": "My Title",
+            "description": "My Description",
+            "content": "Hello world",
+            "tags": ["tag1", "tag2"],
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()["data"]
+    assert "preserve-fields.com" in data["url"]
+    assert data["title"] == "My Title"
+    assert data["description"] == "My Description"
+    assert data["content"] == "Hello universe"
+    assert data["tags"] == ["tag1", "tag2"]

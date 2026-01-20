@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi import Response as FastAPIResponse
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import (
@@ -12,7 +13,13 @@ from api.dependencies import (
 )
 from core.http_cache import check_not_modified, format_http_date
 from models.user import User
-from schemas.content_search import ContentSearchResponse
+from schemas.content_search import ContentSearchMatch, ContentSearchResponse
+from schemas.errors import (
+    StrReplaceMultipleMatchesError,
+    StrReplaceNoMatchError,
+    StrReplaceRequest,
+    StrReplaceSuccess,
+)
 from schemas.note import (
     NoteCreate,
     NoteListItem,
@@ -21,6 +28,11 @@ from schemas.note import (
     NoteUpdate,
 )
 from services import content_filter_service
+from services.content_edit_service import (
+    MultipleMatchesError,
+    NoMatchError,
+    str_replace,
+)
 from services.content_lines import apply_partial_read
 from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
@@ -244,6 +256,81 @@ async def update_note(
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
     return NoteResponse.model_validate(note)
+
+
+@router.patch("/{note_id}/str-replace", response_model=StrReplaceSuccess[NoteResponse])
+async def str_replace_note(
+    note_id: UUID,
+    data: StrReplaceRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> StrReplaceSuccess[NoteResponse]:
+    r"""
+    Replace text in a note's content using string matching.
+
+    The `old_str` must match exactly one location in the content. If it matches
+    zero or multiple locations, the operation fails with an appropriate error.
+
+    **Matching strategy (progressive fallback):**
+    1. **Exact match** - Character-for-character match
+    2. **Whitespace normalized** - Normalizes line endings (\\r\\n → \\n) and strips
+       trailing whitespace from each line before matching
+
+    **Tips for successful edits:**
+    - Include 3-5 lines of surrounding context in `old_str` to ensure uniqueness
+    - Use the search endpoint (`GET /notes/{id}/search`) first to check matches
+    - For deletion, use empty string as `new_str`
+
+    **Error responses:**
+    - 400 with `error: "no_match"` if text not found
+    - 400 with `error: "multiple_matches"` if text found in multiple locations
+      (includes match locations with context to help construct unique match)
+    """
+    # Fetch the note (include archived, exclude deleted)
+    note = await note_service.get(db, current_user.id, note_id, include_archived=True)
+    if note is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    # Check if content exists
+    if note.content is None:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceNoMatchError(
+                message="Note has no content to edit",
+            ).model_dump(),
+        )
+
+    # Perform str_replace
+    try:
+        result = str_replace(note.content, data.old_str, data.new_str)
+    except NoMatchError:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceNoMatchError().model_dump(),
+        )
+    except MultipleMatchesError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceMultipleMatchesError(
+                matches=[
+                    ContentSearchMatch(field="content", line=line, context=ctx)
+                    for line, ctx in e.matches
+                ],
+            ).model_dump(),
+        )
+
+    # Update the note with new content
+    note.content = result.new_content
+    note.updated_at = func.clock_timestamp()
+    await db.flush()
+    await db.refresh(note)
+    await db.refresh(note, attribute_names=["tag_objects"])
+
+    return StrReplaceSuccess(
+        match_type=result.match_type,
+        line=result.line,
+        data=NoteResponse.model_validate(note),
+    )
 
 
 @router.delete("/{note_id}", status_code=204)

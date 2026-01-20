@@ -303,23 +303,29 @@ None - can be implemented independently.
 **New endpoints:**
 - `PATCH /notes/{id}/str-replace`
 - `PATCH /bookmarks/{id}/str-replace`
-- `PATCH /prompts/{id}/str-replace`
+- `PATCH /prompts/{id}/str-replace` (with additional `arguments` support - see below)
 
 ```python
-# Request body
+# Request body (notes and bookmarks)
 {
     "old_str": "exact content to find\nincluding multiple lines",
     "new_str": "replacement content"
 }
 
+# Request body (prompts - supports optional arguments for atomic updates)
+{
+    "old_str": "exact content to find\nincluding multiple lines",
+    "new_str": "replacement content",
+    "arguments": [  # Optional - if provided, replaces ALL arguments atomically
+        {"name": "arg_name", "description": "...", "required": true}
+    ]
+}
+
 # Success response (200)
 {
-    "success": true,
     "match_type": "exact",  # or "whitespace_normalized"
     "line": 15,  # Line number where match was found
-    "type": "note",
-    "id": "...",
-    # Full updated entity response (NoteResponse, BookmarkResponse, or PromptResponse)
+    "data": { ... }  # Full updated entity (NoteResponse, BookmarkResponse, or PromptResponse)
 }
 
 # Error response (400) - no matches
@@ -382,6 +388,54 @@ This information helps AI agents understand when their context had whitespace di
 - **Matching:** Uses normalization (so `\r\n` in content matches `\n` in `old_str`)
 - **Replacement:** Literal - `new_str` is inserted exactly as provided
 
+**Prompt-specific: Atomic content + arguments updates:**
+
+The prompts str-replace endpoint accepts an optional `arguments` field for atomic updates. This solves the chicken-and-egg problem where:
+- Can't add a new variable to content first (validation fails: "undefined variable")
+- Can't add the argument first (validation fails: "unused argument")
+
+Similarly for removing variables - neither operation can succeed alone because validation always fails.
+
+**Request schema for prompts:**
+```python
+{
+    "old_str": "Hello {{ name }}!",
+    "new_str": "Hello {{ greeting }}, {{ user }}!",
+    "arguments": [  # Optional - if omitted, uses existing arguments for validation
+        {"name": "greeting", "description": "The greeting", "required": true},
+        {"name": "user", "description": "User name", "required": true}
+    ]
+}
+```
+
+**Arguments field behavior:**
+- **If `arguments` is omitted:** Validation uses the prompt's existing arguments list
+- **If `arguments` is provided:** Validation uses the provided arguments list, and both content and arguments are updated atomically
+- **Full replacement:** The provided arguments list replaces ALL existing arguments (not a merge)
+- **Empty list allowed:** `"arguments": []` removes all arguments (valid only if new content has no template variables)
+
+**Validation sequence (when arguments provided):**
+1. **Find unique match:** Verify `old_str` matches exactly one location in current content
+2. **Compute new content:** Determine what content would look like after replacement
+3. **Validate Jinja2 syntax:** Verify new content is valid Jinja2 template
+4. **Validate arguments:** Verify arguments list is valid (no duplicates, valid names)
+5. **Cross-validate template + arguments:** Verify all template variables have corresponding arguments, and all arguments are used in template
+6. **Apply changes:** Only if all validations pass, update both content and arguments
+
+If any step fails, return error without applying any changes.
+
+**Error responses for prompts:**
+```python
+# Invalid Jinja2 syntax after replacement
+400: {"detail": "Replacement would create invalid template: Invalid Jinja2 syntax: ..."}
+
+# Undefined variable (template uses variable not in arguments)
+400: {"detail": "Replacement would create invalid template: undefined variable(s): new_var. Add them to arguments or remove from template."}
+
+# Unused argument (argument defined but not used in template)
+400: {"detail": "Replacement would create invalid template: Unused argument(s): old_arg. Remove them or use in template."}
+```
+
 **Implementation notes:**
 - Create `backend/src/services/content_edit_service.py` for shared edit logic
 - Create shared error response schemas in `backend/src/schemas/errors.py` for `no_match`, `multiple_matches`, etc. This ensures consistency and provides OpenAPI documentation.
@@ -402,6 +456,7 @@ This information helps AI agents understand when their context had whitespace di
 
 ### Testing Strategy
 
+**General str-replace tests (all content types):**
 - Test successful single-match replacement
 - Test no match found error (returns 400, not empty success)
 - Test multiple matches error (with correct line numbers and 2 context lines)
@@ -412,7 +467,24 @@ This information helps AI agents understand when their context had whitespace di
 - Test preserving other fields (tags, title, etc.)
 - Test with each content type
 - Test line ending normalization (content with `\r\n`, old_str with `\n`)
-- **For prompts:** Test that invalid Jinja2 after edit returns 400
+
+**Prompt-specific tests (without arguments field - uses existing arguments):**
+- Test invalid Jinja2 syntax after edit returns 400
+- Test undefined variable after edit returns 400 (add `{{ new_var }}` when `new_var` not in arguments)
+- Test unused argument after edit returns 400 (remove `{{ name }}` when `name` still in arguments)
+- Test valid edit that doesn't change variable usage succeeds
+
+**Prompt-specific tests (with arguments field - atomic updates):**
+- Test adding new variable AND its argument atomically succeeds
+- Test removing variable AND its argument atomically succeeds
+- Test replacing all variables with new ones atomically succeeds
+- Test empty arguments list with no template variables succeeds
+- Test arguments field with duplicate names returns 400
+- Test arguments field with invalid name returns 400
+- Test partial failure: str_replace match fails, arguments should not be updated
+- Test partial failure: invalid Jinja2 syntax, arguments should not be updated
+- Test partial failure: undefined variable (argument missing), content should not be updated
+- Test partial failure: unused argument, content should not be updated
 
 ### Success Criteria
 
@@ -423,9 +495,11 @@ This information helps AI agents understand when their context had whitespace di
 - [ ] Both fallback levels (exact, whitespace normalized) implemented and working
 - [ ] Response includes match_type used
 - [ ] Line ending behavior documented and tested
-- [ ] Prompt template validation after edit
+- [ ] Prompt template validation after edit (without arguments field)
+- [ ] Prompt atomic content+arguments update (with arguments field)
+- [ ] Prompt validation errors are clear and actionable
 - [ ] Shared error schemas created in `schemas/errors.py`
-- [ ] Tests cover all scenarios
+- [ ] Tests cover all scenarios including prompt-specific atomic updates
 
 ### Risk Factors
 
@@ -550,11 +624,11 @@ async def search_in_content(
 
 ### Goal
 
-Add an `update_prompt` tool to the Prompt MCP server that supports both content editing (str_replace) and argument updates (full replacement).
+Add an `update_prompt` tool to the Prompt MCP server that supports both content editing (str_replace) and argument updates (full replacement) via a single API call.
 
 ### Dependencies
 
-Milestone 3 (str-replace API endpoint for prompts).
+Milestone 3 (str-replace API endpoint for prompts with `arguments` support).
 
 ### Key Changes
 
@@ -572,39 +646,44 @@ async def update_prompt(
     # For argument updates (full replacement):
     arguments: list[dict] | None = None,
 ) -> list[types.TextContent]:
-    """Update a prompt's content or arguments.
+    """Update a prompt's content and/or arguments.
 
     For content editing:
     - Provide old_str and new_str to perform string replacement
     - old_str must match exactly one location in the prompt content
 
     For argument updates:
-    - Provide arguments as a complete list to replace all arguments
+    - Provide arguments as a complete list to replace ALL arguments
     - Each argument: {"name": "arg_name", "description": "...", "required": true/false}
 
-    Both can be provided in a single call. The operation is atomic - if either
-    fails, neither change is applied.
+    Both can be provided in a single call. The operation is atomic - if validation
+    fails for either change, neither is applied.
+
+    Common patterns:
+    - Add new variable: Provide old_str/new_str that adds {{ new_var }} AND include
+      new_var in the arguments list
+    - Remove variable: Provide old_str/new_str that removes {{ old_var }} AND omit
+      old_var from the arguments list
+    - Change variable reference: Update content AND arguments together
     """
 ```
 
-**Atomic operation validation sequence:**
+**Implementation approach:**
 
-When both str_replace and arguments are provided, validation must happen in this order before any changes are applied:
+The MCP tool makes a **single API call** to `PATCH /prompts/{id}/str-replace` with the optional `arguments` field. The API handles all validation and atomic updates:
 
-1. **Find unique match:** Verify `old_str` matches exactly one location in current content
-2. **Compute new content:** Determine what content would look like after replacement
-3. **Validate Jinja2 syntax:** Verify new content is valid Jinja2 template
-4. **Validate arguments:** Verify new arguments list is valid (no duplicates, valid names)
-5. **Cross-validate template + arguments:** Verify all template variables have corresponding arguments, and all arguments are used in template
-6. **Apply changes:** Only if all validations pass, apply both str_replace and argument update
+```python
+# MCP tool implementation
+async def update_prompt(id, old_str, new_str, arguments):
+    request_body = {"old_str": old_str, "new_str": new_str}
+    if arguments is not None:
+        request_body["arguments"] = arguments
 
-This sequence matters because the str_replace might change variable references in the template. If any step fails, return error without applying any changes.
+    response = await api_patch(f"/prompts/{id}/str-replace", request_body)
+    return response
+```
 
-**Atomic operation behavior:**
-- If both `old_str`/`new_str` and `arguments` are provided, the operation is atomic
-- If the str_replace would fail (no match, multiple matches, invalid template), return error without updating arguments
-- If the argument update would fail (validation error), return error without applying str_replace
-- This prevents partial updates that could leave the prompt in an inconsistent state
+The atomic validation sequence is handled entirely by the API (see Milestone 3). The MCP tool simply passes through the parameters.
 
 **API client addition:**
 - Add `api_patch()` helper to `backend/src/prompt_mcp_server/api_client.py`
@@ -612,34 +691,30 @@ This sequence matters because the str_replace might change variable references i
 **Files to read first:**
 - `backend/src/prompt_mcp_server/server.py` - existing tool/handler patterns
 - `backend/src/prompt_mcp_server/api_client.py` - HTTP helpers
-- `backend/src/services/prompt_service.py` - template validation logic
 
 ### Testing Strategy
 
-- Test content editing via str_replace
-- Test argument replacement
-- Test both operations in single call (atomic success)
-- Test atomic failure: str_replace fails (no match), arguments should not be updated
-- Test atomic failure: str_replace succeeds but would create invalid template, arguments should not be updated
-- Test atomic failure: arguments invalid, str_replace should not be applied
-- Test atomic failure: template + arguments cross-validation fails (unused argument)
-- Test validation errors (invalid template after edit, duplicate argument names)
+- Test content editing via str_replace (arguments omitted)
+- Test content + argument update in single call (atomic success)
+- Test adding new variable with its argument
+- Test removing variable and its argument
+- Test replacing all variables with new ones
+- Test error propagation from API (no match, multiple matches, validation errors)
 - Test 404 for non-existent prompt
+- Test MCP tool properly formats request with/without arguments field
 
 ### Success Criteria
 
+- [ ] MCP tool correctly calls `PATCH /prompts/{id}/str-replace` with optional arguments
 - [ ] Can edit prompt content via str_replace
-- [ ] Can replace arguments list
-- [ ] Can do both in one call
-- [ ] Atomic behavior: both succeed or both fail
-- [ ] Validation sequence correctly handles template/argument cross-validation
-- [ ] Validation errors return clear messages
+- [ ] Can update content and arguments atomically in one call
+- [ ] Error responses from API are properly surfaced to MCP client
+- [ ] Tool documentation clearly explains atomic behavior and common patterns
 - [ ] `api_patch()` helper added
 
 ### Risk Factors
 
-- Atomic operation requires validating both changes before applying either - implementation must check str_replace match and argument validity before committing
-- Validation sequence is critical - document and test thoroughly
+- MCP client caching of tool definitions - may need server restart after changes
 
 ---
 

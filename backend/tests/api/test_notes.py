@@ -1651,3 +1651,272 @@ async def test_search_in_note_empty_content(client: AsyncClient) -> None:
     assert response.status_code == 200
     assert response.json()["total_matches"] == 0
     assert response.json()["matches"] == []
+
+
+# =============================================================================
+# String Replace Tests
+# =============================================================================
+
+
+async def test_str_replace_note_success(client: AsyncClient) -> None:
+    """Test successful string replacement in note content."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test Note", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["match_type"] == "exact"
+    assert data["line"] == 1
+    assert data["data"]["content"] == "Hello universe"
+    assert data["data"]["id"] == note_id
+
+
+async def test_str_replace_note_multiline(client: AsyncClient) -> None:
+    """Test string replacement with multiline content."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2 target\nline 3"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "target", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["match_type"] == "exact"
+    assert data["line"] == 2
+    assert data["data"]["content"] == "line 1\nline 2 replaced\nline 3"
+
+
+async def test_str_replace_note_multiline_old_str(client: AsyncClient) -> None:
+    """Test replacement with multiline old_str."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2\nline 3\nline 4"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "line 2\nline 3", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["data"]["content"] == "line 1\nreplaced\nline 4"
+    assert data["line"] == 2
+
+
+async def test_str_replace_note_no_match(client: AsyncClient) -> None:
+    """Test string replacement when old_str is not found."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "nonexistent", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+
+    data = response.json()["detail"]
+    assert data["error"] == "no_match"
+    assert "not found" in data["message"]
+
+
+async def test_str_replace_note_multiple_matches(client: AsyncClient) -> None:
+    """Test string replacement when old_str matches multiple locations."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "foo here\nbar baz\nfoo again"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "foo", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+
+    data = response.json()["detail"]
+    assert data["error"] == "multiple_matches"
+    assert len(data["matches"]) == 2
+    assert data["matches"][0]["line"] == 1
+    assert data["matches"][1]["line"] == 3
+    # Check context is provided
+    assert "foo here" in data["matches"][0]["context"]
+    assert "foo again" in data["matches"][1]["context"]
+
+
+async def test_str_replace_note_deletion(client: AsyncClient) -> None:
+    """Test deletion using empty new_str."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": " world", "new_str": ""},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello"
+
+
+async def test_str_replace_note_whitespace_normalized(client: AsyncClient) -> None:
+    """Test whitespace-normalized matching."""
+    # Content has trailing spaces on line 1
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1  \nline 2"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # old_str without trailing spaces
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "line 1\nline 2", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["match_type"] == "whitespace_normalized"
+
+
+async def test_str_replace_note_null_content(client: AsyncClient) -> None:
+    """Test str-replace on note with null content."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "No Content Note"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "anything", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+
+    data = response.json()["detail"]
+    assert data["error"] == "no_match"
+    assert "no content" in data["message"].lower()
+
+
+async def test_str_replace_note_not_found(client: AsyncClient) -> None:
+    """Test str-replace on non-existent note."""
+    response = await client.patch(
+        "/notes/00000000-0000-0000-0000-000000000000/str-replace",
+        json={"old_str": "anything", "new_str": "replaced"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Note not found"
+
+
+async def test_str_replace_note_updates_updated_at(client: AsyncClient) -> None:
+    """Test that str-replace updates the updated_at timestamp."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    original_updated_at = response.json()["updated_at"]
+    note_id = response.json()["id"]
+
+    await asyncio.sleep(0.01)
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["updated_at"] > original_updated_at
+
+
+async def test_str_replace_note_works_on_archived(client: AsyncClient) -> None:
+    """Test that str-replace works on archived notes."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Archive the note
+    await client.post(f"/notes/{note_id}/archive")
+
+    # str-replace should still work
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello universe"
+
+
+async def test_str_replace_note_not_on_deleted(client: AsyncClient) -> None:
+    """Test that str-replace does not work on soft-deleted notes."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Delete the note
+    await client.delete(f"/notes/{note_id}")
+
+    # str-replace should return 404
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 404
+
+
+async def test_str_replace_note_preserves_other_fields(client: AsyncClient) -> None:
+    """Test that str-replace preserves title, description, tags."""
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "My Title",
+            "description": "My Description",
+            "content": "Hello world",
+            "tags": ["tag1", "tag2"],
+        },
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()["data"]
+    assert data["title"] == "My Title"
+    assert data["description"] == "My Description"
+    assert data["tags"] == ["tag1", "tag2"]
+    assert data["content"] == "Hello universe"
