@@ -97,7 +97,8 @@ async def _run_edit_prompt_template_eval(
             )
 
             # Parse the JSON response from get_prompt_template
-            prompt_data = json.loads(get_template_result[0].text)
+            # call_tool returns CallToolResult with .content attribute
+            prompt_data = json.loads(get_template_result.content[0].text)
 
             # Build minimal prompt - just the raw tool output and instruction
             # No hand-holding about how to use the tool - the LLM should figure
