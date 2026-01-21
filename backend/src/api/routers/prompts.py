@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi import Response as FastAPIResponse
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import (
@@ -12,6 +13,16 @@ from api.dependencies import (
 )
 from core.http_cache import check_not_modified, format_http_date
 from models.user import User
+from schemas.content_search import ContentSearchMatch, ContentSearchResponse
+from schemas.errors import (
+    ContentEmptyError,
+    MinimalEntityData,
+    PromptStrReplaceRequest,
+    StrReplaceMultipleMatchesError,
+    StrReplaceNoMatchError,
+    StrReplaceSuccess,
+    StrReplaceSuccessMinimal,
+)
 from schemas.prompt import (
     PromptCreate,
     PromptListItem,
@@ -22,8 +33,15 @@ from schemas.prompt import (
     PromptUpdate,
 )
 from services import content_filter_service
+from services.content_edit_service import (
+    MultipleMatchesError,
+    NoMatchError,
+    str_replace,
+)
+from services.content_lines import apply_partial_read
+from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
-from services.prompt_service import NameConflictError, PromptService
+from services.prompt_service import NameConflictError, PromptService, validate_template
 from services.template_renderer import TemplateError, render_template
 
 router = APIRouter(prefix="/prompts", tags=["prompts"])
@@ -117,6 +135,17 @@ async def get_prompt_by_name(
     name: str,
     request: Request,
     response: FastAPIResponse,
+    start_line: int | None = Query(
+        default=None,
+        ge=1,
+        description="Start line for partial read (1-indexed). Defaults to 1 if end_line provided.",
+    ),
+    end_line: int | None = Query(
+        default=None,
+        ge=1,
+        description="End line for partial read (1-indexed, inclusive). "
+        "Defaults to total_lines if start_line provided.",
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptResponse:
@@ -125,6 +154,10 @@ async def get_prompt_by_name(
 
     Returns only active prompts (excludes deleted and archived).
     This endpoint is primarily used by the MCP server for prompt lookups.
+
+    Supports partial reads via start_line and end_line parameters.
+    When line params are provided, only the specified line range is returned
+    in the content field, with content_metadata indicating the range and total lines.
     """
     # Quick check: can we return 304?
     updated_at = await prompt_service.get_updated_at_by_name(db, current_user.id, name)
@@ -142,7 +175,10 @@ async def get_prompt_by_name(
 
     # Set Last-Modified header
     response.headers["Last-Modified"] = format_http_date(updated_at)
-    return PromptResponse.model_validate(prompt)
+
+    response_data = PromptResponse.model_validate(prompt)
+    apply_partial_read(response_data, start_line, end_line)
+    return response_data
 
 
 @router.get("/{prompt_id}", response_model=PromptResponse)
@@ -150,10 +186,27 @@ async def get_prompt(
     prompt_id: UUID,
     request: Request,
     response: FastAPIResponse,
+    start_line: int | None = Query(
+        default=None,
+        ge=1,
+        description="Start line for partial read (1-indexed). Defaults to 1 if end_line provided.",
+    ),
+    end_line: int | None = Query(
+        default=None,
+        ge=1,
+        description="End line for partial read (1-indexed, inclusive). "
+        "Defaults to total_lines if start_line provided.",
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptResponse:
-    """Get a single prompt by ID (includes archived and deleted prompts)."""
+    """
+    Get a single prompt by ID (includes archived and deleted prompts).
+
+    Supports partial reads via start_line and end_line parameters.
+    When line params are provided, only the specified line range is returned
+    in the content field, with content_metadata indicating the range and total lines.
+    """
     # Quick check: can we return 304?
     updated_at = await prompt_service.get_updated_at(
         db, current_user.id, prompt_id, include_deleted=True,
@@ -174,7 +227,85 @@ async def get_prompt(
 
     # Set Last-Modified header
     response.headers["Last-Modified"] = format_http_date(updated_at)
-    return PromptResponse.model_validate(prompt)
+
+    response_data = PromptResponse.model_validate(prompt)
+    apply_partial_read(response_data, start_line, end_line)
+    return response_data
+
+
+@router.get("/{prompt_id}/search", response_model=ContentSearchResponse)
+async def search_in_prompt(
+    prompt_id: UUID,
+    q: str = Query(min_length=1, description="Text to search for (literal match)"),
+    fields: str = Query(
+        default="content",
+        description="Comma-separated fields to search: 'content', 'title', 'description'",
+    ),
+    case_sensitive: bool = Query(default=False, description="Case-sensitive search"),
+    context_lines: int = Query(
+        default=2,
+        ge=0,
+        le=10,
+        description="Lines of context before/after match (content field only)",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> ContentSearchResponse:
+    """
+    Search within a prompt's text fields to find matches with line numbers and context.
+
+    This endpoint serves several purposes for AI agents:
+
+    1. **Pre-edit validation** - Confirm how many matches exist before attempting
+       str_replace (avoid "multiple matches" errors)
+    2. **Context building** - Get surrounding lines to construct a unique `old_str`
+       for editing
+    3. **Content discovery** - Find where specific text appears in a document without
+       reading the entire content into context
+    4. **General search** - Non-editing use cases where agents need to locate
+       information within content
+
+    Returns:
+        - `matches`: List of matches found. Empty array if no matches (success, not error).
+        - `total_matches`: Count of matches found.
+
+    For the `content` field (the Jinja2 template), matches include line numbers (1-indexed)
+    and surrounding context lines. For `title` and `description` fields, the full field
+    value is returned as context with `line: null`.
+    """
+    # Fetch the prompt
+    prompt = await prompt_service.get(
+        db, current_user.id, prompt_id, include_archived=True, include_deleted=True,
+    )
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    # Parse and validate fields
+    field_list = [f.strip().lower() for f in fields.split(",")]
+    valid_fields = {"content", "title", "description"}
+    invalid_fields = set(field_list) - valid_fields
+    if invalid_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid fields: {', '.join(invalid_fields)}. "
+            "Valid fields: content, title, description",
+        )
+
+    # Perform search
+    matches = search_in_content(
+        content=prompt.content,
+        title=prompt.title,
+        description=prompt.description,
+        query=q,
+        fields=field_list,
+        case_sensitive=case_sensitive,
+        context_lines=context_lines,
+    )
+
+    return ContentSearchResponse(
+        matches=matches,
+        total_matches=len(matches),
+    )
 
 
 @router.patch("/{prompt_id}", response_model=PromptResponse)
@@ -200,6 +331,146 @@ async def update_prompt(
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
     return PromptResponse.model_validate(prompt)
+
+
+@router.patch(
+    "/{prompt_id}/str-replace",
+    response_model=StrReplaceSuccess[PromptResponse] | StrReplaceSuccessMinimal,
+)
+async def str_replace_prompt(
+    prompt_id: UUID,
+    data: PromptStrReplaceRequest,
+    include_updated_entity: bool = Query(
+        default=False,
+        description="If true, include full updated entity in response. "
+        "Default (false) returns only id and updated_at.",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> StrReplaceSuccess[PromptResponse] | StrReplaceSuccessMinimal:
+    r"""
+    Replace text in a prompt's content (Jinja2 template) using string matching.
+
+    The `old_str` must match exactly one location in the content. If it matches
+    zero or multiple locations, the operation fails with an appropriate error.
+
+    **Response format:**
+    By default, returns minimal data (id and updated_at) to reduce bandwidth.
+    Use `include_updated_entity=true` to get the full updated entity.
+
+    **Important:** After replacement, the new content is validated as a Jinja2 template.
+    If the replacement would create an invalid template (syntax error, undefined variables,
+    unused arguments), the operation fails with a 400 error and no changes are made.
+
+    **Atomic content + arguments updates:**
+
+    The optional `arguments` field enables atomic updates when adding/removing template
+    variables. This solves the chicken-and-egg problem where:
+    - Adding a new variable to content fails ("undefined variable") if argument doesn't exist
+    - Adding an argument fails ("unused argument") if variable doesn't exist in content
+
+    When `arguments` is provided:
+    - Validation uses the NEW arguments list (not the existing one)
+    - Both content and arguments are updated atomically
+    - The provided list FULLY REPLACES all existing arguments (not a merge)
+    - To remove one argument while keeping others, include only the ones to keep
+
+    When `arguments` is omitted:
+    - Validation uses the prompt's existing arguments
+    - Only content is updated
+
+    **Matching strategy (progressive fallback):**
+    1. **Exact match** - Character-for-character match
+    2. **Whitespace normalized** - Normalizes line endings (\\r\\n → \\n) and strips
+       trailing whitespace from each line before matching
+
+    **Tips for successful edits:**
+    - Include 3-5 lines of surrounding context in `old_str` to ensure uniqueness
+    - Use the search endpoint (`GET /prompts/{id}/search`) first to check matches
+    - For deletion, use empty string as `new_str`
+    - When adding/removing template variables, provide the `arguments` field
+
+    **Error responses:**
+    - 400 with `error: "no_match"` if text not found
+    - 400 with `error: "multiple_matches"` if text found in multiple locations
+      (includes match locations with context to help construct unique match)
+    - 400 with template validation error if result is invalid Jinja2
+    """
+    # Fetch the prompt (include archived, exclude deleted)
+    prompt = await prompt_service.get(db, current_user.id, prompt_id, include_archived=True)
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    # Check if content exists
+    if prompt.content is None:
+        raise HTTPException(
+            status_code=400,
+            detail=ContentEmptyError(
+                message="Prompt has no content to edit",
+            ).model_dump(),
+        )
+
+    # Perform str_replace
+    try:
+        result = str_replace(prompt.content, data.old_str, data.new_str)
+    except NoMatchError:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceNoMatchError().model_dump(),
+        )
+    except MultipleMatchesError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceMultipleMatchesError(
+                matches=[
+                    ContentSearchMatch(field="content", line=line, context=ctx)
+                    for line, ctx in e.matches
+                ],
+            ).model_dump(),
+        )
+
+    # Determine which arguments to use for validation:
+    # - If data.arguments is provided, use it (enables atomic content + args update)
+    # - Otherwise, use the prompt's existing arguments
+    if data.arguments is not None:
+        # Convert PromptArgument models to dicts for validate_template
+        validation_arguments = [arg.model_dump() for arg in data.arguments]
+    else:
+        validation_arguments = prompt.arguments or []
+
+    # Validate the new content as a Jinja2 template BEFORE applying changes
+    try:
+        validate_template(result.new_content, validation_arguments)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Replacement would create invalid template: {e}",
+        )
+
+    # Update the prompt with new content
+    prompt.content = result.new_content
+
+    # If arguments were provided, update them atomically
+    if data.arguments is not None:
+        prompt.arguments = [arg.model_dump() for arg in data.arguments]
+
+    prompt.updated_at = func.clock_timestamp()
+    await db.flush()
+    await db.refresh(prompt)
+
+    if include_updated_entity:
+        await db.refresh(prompt, attribute_names=["tag_objects"])
+        return StrReplaceSuccess(
+            match_type=result.match_type,
+            line=result.line,
+            data=PromptResponse.model_validate(prompt),
+        )
+
+    return StrReplaceSuccessMinimal(
+        match_type=result.match_type,
+        line=result.line,
+        data=MinimalEntityData(id=prompt.id, updated_at=prompt.updated_at),
+    )
 
 
 @router.delete("/{prompt_id}", status_code=204)

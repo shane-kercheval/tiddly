@@ -1,4 +1,5 @@
 """Tests for bookmark CRUD endpoints."""
+import asyncio
 from datetime import datetime, UTC
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
@@ -1438,7 +1439,7 @@ async def test_fetch_metadata_requires_auth(client: AsyncClient) -> None:
     assert response.status_code == 200
 
 
-async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
+async def test_fetch_metadata_rate_limited(rate_limit_client: AsyncClient) -> None:
     """Test that fetch-metadata endpoint returns 429 when rate limit exceeded."""
     import time
 
@@ -1472,7 +1473,7 @@ async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
         'core.auth.check_rate_limit',
         side_effect=mock_check,
     ):
-        response = await client.get(
+        response = await rate_limit_client.get(
             "/bookmarks/fetch-metadata",
             params={"url": "https://example.com/page-over-limit"},
         )
@@ -2397,6 +2398,81 @@ async def test_user_cannot_delete_other_users_bookmark(
     assert bookmark.deleted_at is None  # Not soft-deleted either
 
 
+async def test_user_cannot_str_replace_other_users_bookmark(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot str-replace another user's bookmark (returns 404)."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from models.user import User
+    from services.token_service import create_token
+    from schemas.token import TokenCreate
+
+    # Create a bookmark as the dev user with content
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://user1-str-replace-test.com",
+            "title": "Test",
+            "content": "Original content that should not be modified",
+        },
+    )
+    assert response.status_code == 201
+    user1_bookmark_id = response.json()["id"]
+
+    # Create a second user and a PAT for them
+    user2 = User(auth0_id="auth0|user2-str-replace-test", email="user2-str-replace@example.com")
+    db_session.add(user2)
+    await db_session.flush()
+
+    # Add consent for user2 (required when dev_mode=False)
+    await add_consent_for_user(db_session, user2)
+
+    _, user2_token = await create_token(
+        db_session, user2.id, TokenCreate(name="Test Token"),
+    )
+    await db_session.flush()
+
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user2_token}"},
+    ) as user2_client:
+        # Try to str-replace user1's bookmark - should get 404
+        response = await user2_client.patch(
+            f"/bookmarks/{user1_bookmark_id}/str-replace",
+            json={"old_str": "Original", "new_str": "HACKED"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Bookmark not found"
+
+    app.dependency_overrides.clear()
+
+    # Verify the bookmark content was not modified via database query
+    result = await db_session.execute(
+        select(Bookmark).where(Bookmark.id == user1_bookmark_id),
+    )
+    bookmark = result.scalar_one()
+    assert bookmark.content == "Original content that should not be modified"
+
+
 # =============================================================================
 # Track Usage Endpoint Tests
 # =============================================================================
@@ -2905,3 +2981,620 @@ async def test_sort_by_deleted_at_asc(client: AsyncClient) -> None:
     # First deleted should come first (least recent)
     ids = [b["id"] for b in data["items"]]
     assert ids.index(first_id) < ids.index(second_id)
+
+
+# =============================================================================
+# Partial Read Tests
+# =============================================================================
+
+
+async def test__get_bookmark__full_read_includes_content_metadata(client: AsyncClient) -> None:
+    """Test that full read includes content_metadata with is_partial=false."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://partial-test.com", "content": "line 1\nline 2\nline 3"},
+    )
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 1\nline 2\nline 3"
+    assert data["content_metadata"] is not None
+    assert data["content_metadata"]["total_lines"] == 3
+    assert data["content_metadata"]["is_partial"] is False
+
+
+async def test__get_bookmark__partial_read_with_both_params(client: AsyncClient) -> None:
+    """Test partial read with start_line and end_line."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://partial-test2.com", "content": "line 1\nline 2\nline 3\nline 4"},
+    )
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}",
+        params={"start_line": 2, "end_line": 3},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 2\nline 3"
+    assert data["content_metadata"]["total_lines"] == 4
+    assert data["content_metadata"]["start_line"] == 2
+    assert data["content_metadata"]["end_line"] == 3
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_bookmark__null_content_with_line_params_returns_400(
+    client: AsyncClient,
+) -> None:
+    """Test that null content with line params returns 400."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://no-content.com"},  # No content
+    )
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}", params={"start_line": 1})
+    assert response.status_code == 400
+    assert "Content is empty" in response.json()["detail"]
+
+
+async def test__get_bookmark__start_line_exceeds_total_returns_400(client: AsyncClient) -> None:
+    """Test that start_line > total_lines returns 400."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://partial-test3.com", "content": "line 1\nline 2"},
+    )
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}", params={"start_line": 10})
+    assert response.status_code == 400
+    assert "exceeds total lines" in response.json()["detail"]
+
+
+# =============================================================================
+# Within-Content Search Tests
+# =============================================================================
+
+
+async def test_search_in_bookmark_basic(client: AsyncClient) -> None:
+    """Test basic search within a bookmark's content."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://search-test.com",
+            "title": "Test Bookmark",
+            "content": "line 1\nline 2 with target\nline 3",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "target"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert len(data["matches"]) == 1
+    assert data["matches"][0]["field"] == "content"
+    assert data["matches"][0]["line"] == 2
+    assert "target" in data["matches"][0]["context"]
+
+
+async def test_search_in_bookmark_no_matches_returns_empty(client: AsyncClient) -> None:
+    """Test that no matches returns empty array (not error)."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://no-matches.com",
+            "title": "Test",
+            "content": "some content here",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "nonexistent"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 0
+    assert data["matches"] == []
+
+
+async def test_search_in_bookmark_title_field(client: AsyncClient) -> None:
+    """Test searching in title field returns full title as context."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://title-search.com",
+            "title": "Important Documentation Page",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "documentation", "fields": "title"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert data["matches"][0]["field"] == "title"
+    assert data["matches"][0]["line"] is None
+    assert data["matches"][0]["context"] == "Important Documentation Page"
+
+
+async def test_search_in_bookmark_multiple_fields(client: AsyncClient) -> None:
+    """Test searching across multiple fields."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://multi-field.com",
+            "title": "Python Tutorial",
+            "description": "Learn Python basics",
+            "content": "Python is a programming language",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "python", "fields": "content,title,description"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 3
+    fields = {m["field"] for m in data["matches"]}
+    assert fields == {"content", "title", "description"}
+
+
+async def test_search_in_bookmark_case_sensitive(client: AsyncClient) -> None:
+    """Test case-sensitive search."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://case-sensitive.com",
+            "title": "Test",
+            "content": "Hello World",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Case-sensitive search should not match
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "WORLD", "case_sensitive": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 0
+
+    # Exact case should match
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "World", "case_sensitive": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_bookmark_not_found(client: AsyncClient) -> None:
+    """Test 404 when bookmark doesn't exist."""
+    response = await client.get(
+        "/bookmarks/00000000-0000-0000-0000-000000000000/search",
+        params={"q": "test"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Bookmark not found"
+
+
+async def test_search_in_bookmark_invalid_field(client: AsyncClient) -> None:
+    """Test 400 when invalid field is specified."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://invalid-field.com", "title": "Test"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "test", "fields": "content,invalid"},
+    )
+    assert response.status_code == 400
+    assert "Invalid fields" in response.json()["detail"]
+
+
+async def test_search_in_bookmark_works_on_archived(client: AsyncClient) -> None:
+    """Test that search works on archived bookmarks."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://archived-search.com",
+            "title": "Test",
+            "content": "search target here",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Archive the bookmark
+    await client.post(f"/bookmarks/{bookmark_id}/archive")
+
+    # Search should still work
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "target"},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_bookmark_works_on_deleted(client: AsyncClient) -> None:
+    """Test that search works on soft-deleted bookmarks."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://deleted-search.com",
+            "title": "Test",
+            "content": "search target here",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Delete the bookmark
+    await client.delete(f"/bookmarks/{bookmark_id}")
+
+    # Search should still work
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "target"},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+# =============================================================================
+# Str-Replace Tests
+# =============================================================================
+
+
+async def test_str_replace_bookmark_success_minimal(client: AsyncClient) -> None:
+    """Test successful str-replace returns minimal response by default."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://str-replace-test-minimal.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["response_type"] == "minimal"
+    assert data["match_type"] == "exact"
+    assert data["line"] == 1
+    # Default response is minimal - only id and updated_at
+    assert data["data"]["id"] == bookmark_id
+    assert "updated_at" in data["data"]
+    assert "content" not in data["data"]
+    assert "title" not in data["data"]
+
+
+async def test_str_replace_bookmark_success_full_entity(client: AsyncClient) -> None:
+    """Test str-replace with include_updated_entity=true."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://str-replace-test.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["response_type"] == "full"
+    assert data["match_type"] == "exact"
+    assert data["line"] == 1
+    assert data["data"]["content"] == "Hello universe"
+    assert data["data"]["id"] == bookmark_id
+
+
+async def test_str_replace_bookmark_multiline(client: AsyncClient) -> None:
+    """Test str-replace on multiline bookmark content."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://multiline-replace.com",
+            "title": "Test",
+            "content": "line 1\nline 2 target\nline 3",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "target", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["line"] == 2
+    assert data["data"]["content"] == "line 1\nline 2 replaced\nline 3"
+
+
+async def test_str_replace_bookmark_multiline_old_str(client: AsyncClient) -> None:
+    """Test str-replace with multiline old_str."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://multiline-old-str.com",
+            "title": "Test",
+            "content": "line 1\nline 2\nline 3\nline 4",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "line 2\nline 3", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["line"] == 2
+    assert data["data"]["content"] == "line 1\nreplaced\nline 4"
+
+
+async def test_str_replace_bookmark_no_match(client: AsyncClient) -> None:
+    """Test str-replace returns 400 when old_str not found."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://no-match.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "nonexistent", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "no_match"
+
+
+async def test_str_replace_bookmark_multiple_matches(client: AsyncClient) -> None:
+    """Test str-replace returns 400 when multiple matches found."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://multiple-matches.com",
+            "title": "Test",
+            "content": "foo bar foo baz foo",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "foo", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "multiple_matches"
+    assert len(response.json()["detail"]["matches"]) == 3
+
+
+async def test_str_replace_bookmark_deletion(client: AsyncClient) -> None:
+    """Test str-replace with empty new_str performs deletion."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://deletion-test.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": " world", "new_str": ""},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello"
+
+
+async def test_str_replace_bookmark_whitespace_normalized(client: AsyncClient) -> None:
+    """Test str-replace with whitespace-normalized matching."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://whitespace-norm.com",
+            "title": "Test",
+            "content": "line 1  \nline 2\nline 3",  # Trailing spaces on line 1
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "line 1\nline 2", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["match_type"] == "whitespace_normalized"
+    assert "replaced" in data["data"]["content"]
+
+
+async def test_str_replace_bookmark_null_content(client: AsyncClient) -> None:
+    """Test str-replace on bookmark with null content returns content_empty error."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://null-content.com",
+            "title": "Test",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "test", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+
+    data = response.json()["detail"]
+    assert data["error"] == "content_empty"
+    assert "no content" in data["message"].lower()
+    assert "suggestion" in data
+
+
+async def test_str_replace_bookmark_not_found(client: AsyncClient) -> None:
+    """Test str-replace on non-existent bookmark returns 404."""
+    response = await client.patch(
+        "/bookmarks/00000000-0000-0000-0000-000000000000/str-replace",
+        json={"old_str": "test", "new_str": "replaced"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Bookmark not found"
+
+
+async def test_str_replace_bookmark_updates_updated_at(client: AsyncClient) -> None:
+    """Test that str-replace updates the updated_at timestamp."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://timestamp-test.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+    original_updated_at = response.json()["updated_at"]
+
+    await asyncio.sleep(0.01)
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["updated_at"] > original_updated_at
+
+
+async def test_str_replace_bookmark_works_on_archived(client: AsyncClient) -> None:
+    """Test that str-replace works on archived bookmarks."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://archived-replace.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    await client.post(f"/bookmarks/{bookmark_id}/archive")
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello universe"
+
+
+async def test_str_replace_bookmark_not_on_deleted(client: AsyncClient) -> None:
+    """Test that str-replace does not work on soft-deleted bookmarks."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://deleted-replace.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    await client.delete(f"/bookmarks/{bookmark_id}")
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 404
+
+
+async def test_str_replace_bookmark_preserves_other_fields(client: AsyncClient) -> None:
+    """Test that str-replace preserves other bookmark fields."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://preserve-fields.com",
+            "title": "My Title",
+            "description": "My Description",
+            "content": "Hello world",
+            "tags": ["tag1", "tag2"],
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()["data"]
+    assert "preserve-fields.com" in data["url"]
+    assert data["title"] == "My Title"
+    assert data["description"] == "My Description"
+    assert data["content"] == "Hello universe"
+    assert data["tags"] == ["tag1", "tag2"]

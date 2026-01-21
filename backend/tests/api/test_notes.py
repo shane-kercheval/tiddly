@@ -8,6 +8,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.note import Note
+from models.user import User
+from models.user_consent import UserConsent
+
+
+async def add_consent_for_user(db_session: AsyncSession, user: User) -> None:
+    """Add valid consent record for a user (required for non-dev mode tests)."""
+    from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
+
+    consent = UserConsent(
+        user_id=user.id,
+        consented_at=datetime.now(UTC),
+        privacy_policy_version=PRIVACY_POLICY_VERSION,
+        terms_of_service_version=TERMS_OF_SERVICE_VERSION,
+    )
+    db_session.add(consent)
+    await db_session.flush()
 
 
 # =============================================================================
@@ -36,7 +52,6 @@ async def test_create_note(client: AsyncClient, db_session: AsyncSession) -> Non
     assert data["tags"] == ["example", "test"]
     assert data["deleted_at"] is None
     assert data["archived_at"] is None
-    assert data["version"] == 1
     assert isinstance(data["id"], str)
     assert "created_at" in data
     assert "updated_at" in data
@@ -887,7 +902,7 @@ async def test_note_response_includes_all_fields(client: AsyncClient) -> None:
     expected_fields = [
         "id", "title", "description", "content", "tags",
         "created_at", "updated_at", "last_used_at",
-        "deleted_at", "archived_at", "version",
+        "deleted_at", "archived_at",
     ]
     for field in expected_fields:
         assert field in data, f"Missing field: {field}"
@@ -1141,3 +1156,888 @@ async def test_list_notes_filter_id_empty_results(client: AsyncClient) -> None:
     data = response.json()
     assert data["total"] == 0
     assert data["items"] == []
+
+
+# =============================================================================
+# Partial Read Tests
+# =============================================================================
+
+
+async def test__get_note__full_read_includes_content_metadata(client: AsyncClient) -> None:
+    """Test that full read includes content_metadata with is_partial=false."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2\nline 3"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 1\nline 2\nline 3"
+    assert data["content_metadata"] is not None
+    assert data["content_metadata"]["total_lines"] == 3
+    assert data["content_metadata"]["start_line"] == 1
+    assert data["content_metadata"]["end_line"] == 3
+    assert data["content_metadata"]["is_partial"] is False
+
+
+async def test__get_note__partial_read_with_both_params(client: AsyncClient) -> None:
+    """Test partial read with start_line and end_line."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2\nline 3\nline 4\nline 5"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 2, "end_line": 4})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 2\nline 3\nline 4"
+    assert data["content_metadata"]["total_lines"] == 5
+    assert data["content_metadata"]["start_line"] == 2
+    assert data["content_metadata"]["end_line"] == 4
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_note__partial_read_start_line_only(client: AsyncClient) -> None:
+    """Test partial read with only start_line (reads to end)."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2\nline 3"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 2})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 2\nline 3"
+    assert data["content_metadata"]["total_lines"] == 3
+    assert data["content_metadata"]["start_line"] == 2
+    assert data["content_metadata"]["end_line"] == 3
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_note__partial_read_end_line_only(client: AsyncClient) -> None:
+    """Test partial read with only end_line (reads from line 1)."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2\nline 3"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"end_line": 2})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 1\nline 2"
+    assert data["content_metadata"]["total_lines"] == 3
+    assert data["content_metadata"]["start_line"] == 1
+    assert data["content_metadata"]["end_line"] == 2
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_note__start_line_exceeds_total_returns_400(client: AsyncClient) -> None:
+    """Test that start_line > total_lines returns 400."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 10})
+    assert response.status_code == 400
+    assert "exceeds total lines" in response.json()["detail"]
+
+
+async def test__get_note__end_line_clamped_to_total(client: AsyncClient) -> None:
+    """Test that end_line > total_lines is clamped (no error)."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 1, "end_line": 100})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 1\nline 2"
+    assert data["content_metadata"]["end_line"] == 2  # Clamped to total
+
+
+async def test__get_note__start_greater_than_end_returns_400(client: AsyncClient) -> None:
+    """Test that start_line > end_line returns 400."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2\nline 3"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 3, "end_line": 2})
+    assert response.status_code == 400
+    assert "must be <=" in response.json()["detail"]
+
+
+async def test__get_note__null_content_no_params_omits_metadata(client: AsyncClient) -> None:
+    """Test that null content with no line params omits content_metadata."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "No Content Note"},  # No content
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] is None
+    assert data["content_metadata"] is None
+
+
+async def test__get_note__null_content_with_line_params_returns_400(client: AsyncClient) -> None:
+    """Test that null content with line params returns 400."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "No Content Note"},  # No content
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 1})
+    assert response.status_code == 400
+    assert "Content is empty" in response.json()["detail"]
+
+
+async def test__get_note__empty_string_content_is_valid(client: AsyncClient) -> None:
+    """Test that empty string content with no params shows 1 line."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Empty Content", "content": ""},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == ""
+    assert data["content_metadata"]["total_lines"] == 1
+    assert data["content_metadata"]["is_partial"] is False
+
+
+async def test__get_note__empty_string_content_with_start_line(client: AsyncClient) -> None:
+    """Test that empty string content with start_line=1 succeeds."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Empty Content", "content": ""},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 1})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == ""
+    assert data["content_metadata"]["total_lines"] == 1
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_note__trailing_newline_line_count(client: AsyncClient) -> None:
+    r"""Test that trailing newline is counted correctly (hello\\n = 2 lines)."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Trailing Newline", "content": "hello\n"},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_metadata"]["total_lines"] == 2
+
+
+async def test__get_note__other_fields_unaffected_by_line_params(client: AsyncClient) -> None:
+    """Test that title, description, tags are returned in full regardless of line params."""
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "Full Title Here",
+            "description": "Full description text",
+            "content": "line 1\nline 2\nline 3",
+            "tags": ["tag1", "tag2"],
+        },
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}", params={"start_line": 2, "end_line": 2})
+    assert response.status_code == 200
+
+    data = response.json()
+    # Content is partial
+    assert data["content"] == "line 2"
+    assert data["content_metadata"]["is_partial"] is True
+    # Other fields are complete
+    assert data["title"] == "Full Title Here"
+    assert data["description"] == "Full description text"
+    assert data["tags"] == ["tag1", "tag2"]
+
+
+# =============================================================================
+# Within-Content Search Tests
+# =============================================================================
+
+
+async def test_search_in_note_basic(client: AsyncClient) -> None:
+    """Test basic search within a note's content."""
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "Test Note",
+            "content": "line 1\nline 2 with target\nline 3",
+        },
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/search", params={"q": "target"})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert len(data["matches"]) == 1
+    assert data["matches"][0]["field"] == "content"
+    assert data["matches"][0]["line"] == 2
+    assert "target" in data["matches"][0]["context"]
+
+
+async def test_search_in_note_no_matches_returns_empty(client: AsyncClient) -> None:
+    """Test that no matches returns empty array (not error)."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test Note", "content": "some content here"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/search", params={"q": "nonexistent"})
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 0
+    assert data["matches"] == []
+
+
+async def test_search_in_note_title_field(client: AsyncClient) -> None:
+    """Test searching in title field returns full title as context."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Important Meeting Notes", "content": "content here"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "meeting", "fields": "title"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert data["matches"][0]["field"] == "title"
+    assert data["matches"][0]["line"] is None
+    assert data["matches"][0]["context"] == "Important Meeting Notes"
+
+
+async def test_search_in_note_description_field(client: AsyncClient) -> None:
+    """Test searching in description field."""
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "Test Note",
+            "description": "A detailed description for searching",
+            "content": "content",
+        },
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "detailed", "fields": "description"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert data["matches"][0]["field"] == "description"
+    assert data["matches"][0]["line"] is None
+    assert data["matches"][0]["context"] == "A detailed description for searching"
+
+
+async def test_search_in_note_multiple_fields(client: AsyncClient) -> None:
+    """Test searching across multiple fields."""
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "Python Tutorial",
+            "description": "Learn Python basics",
+            "content": "Python is a programming language",
+        },
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "python", "fields": "content,title,description"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 3
+    fields = {m["field"] for m in data["matches"]}
+    assert fields == {"content", "title", "description"}
+
+
+async def test_search_in_note_case_insensitive_default(client: AsyncClient) -> None:
+    """Test that search is case-insensitive by default."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello World"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/search", params={"q": "WORLD"})
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_note_case_sensitive(client: AsyncClient) -> None:
+    """Test case-sensitive search."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello World"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Case-sensitive search should not match
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "WORLD", "case_sensitive": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 0
+
+    # Exact case should match
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "World", "case_sensitive": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_note_context_lines(client: AsyncClient) -> None:
+    """Test context_lines parameter."""
+    content = "line 1\nline 2\nline 3 target\nline 4\nline 5"
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": content},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # With context_lines=1
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "target", "context_lines": 1},
+    )
+    assert response.status_code == 200
+    context = response.json()["matches"][0]["context"]
+    assert "line 2" in context
+    assert "line 3 target" in context
+    assert "line 4" in context
+    # Should not include line 1 or line 5
+    assert "line 1" not in context
+    assert "line 5" not in context
+
+
+async def test_search_in_note_multiple_matches_in_content(client: AsyncClient) -> None:
+    """Test multiple matches in content field."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "foo bar\nbar baz\nqux bar"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "bar", "context_lines": 0},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 3
+    lines = [m["line"] for m in data["matches"]]
+    assert lines == [1, 2, 3]
+
+
+async def test_search_in_note_not_found(client: AsyncClient) -> None:
+    """Test 404 when note doesn't exist."""
+    response = await client.get(
+        "/notes/00000000-0000-0000-0000-000000000000/search",
+        params={"q": "test"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Note not found"
+
+
+async def test_search_in_note_invalid_field(client: AsyncClient) -> None:
+    """Test 400 when invalid field is specified."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "content"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(
+        f"/notes/{note_id}/search",
+        params={"q": "test", "fields": "content,invalid"},
+    )
+    assert response.status_code == 400
+    assert "Invalid fields" in response.json()["detail"]
+
+
+async def test_search_in_note_works_on_archived(client: AsyncClient) -> None:
+    """Test that search works on archived notes."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "search target here"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Archive the note
+    await client.post(f"/notes/{note_id}/archive")
+
+    # Search should still work
+    response = await client.get(f"/notes/{note_id}/search", params={"q": "target"})
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_note_works_on_deleted(client: AsyncClient) -> None:
+    """Test that search works on soft-deleted notes."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "search target here"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Delete the note
+    await client.delete(f"/notes/{note_id}")
+
+    # Search should still work
+    response = await client.get(f"/notes/{note_id}/search", params={"q": "target"})
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_note_empty_content(client: AsyncClient) -> None:
+    """Test searching in note with empty/null content."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "No Content Note"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/search", params={"q": "anything"})
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 0
+    assert response.json()["matches"] == []
+
+
+# =============================================================================
+# String Replace Tests
+# =============================================================================
+
+
+async def test_str_replace_note_success_minimal(client: AsyncClient) -> None:
+    """Test successful string replacement returns minimal response by default."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test Note", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["response_type"] == "minimal"
+    assert data["match_type"] == "exact"
+    assert data["line"] == 1
+    # Default response is minimal - only id and updated_at
+    assert data["data"]["id"] == note_id
+    assert "updated_at" in data["data"]
+    assert "content" not in data["data"]
+    assert "title" not in data["data"]
+
+
+async def test_str_replace_note_success_full_entity(client: AsyncClient) -> None:
+    """Test successful string replacement with include_updated_entity=true."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test Note", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["response_type"] == "full"
+    assert data["match_type"] == "exact"
+    assert data["line"] == 1
+    assert data["data"]["content"] == "Hello universe"
+    assert data["data"]["id"] == note_id
+
+
+async def test_str_replace_note_multiline(client: AsyncClient) -> None:
+    """Test string replacement with multiline content."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2 target\nline 3"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "target", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["match_type"] == "exact"
+    assert data["line"] == 2
+    assert data["data"]["content"] == "line 1\nline 2 replaced\nline 3"
+
+
+async def test_str_replace_note_multiline_old_str(client: AsyncClient) -> None:
+    """Test replacement with multiline old_str."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1\nline 2\nline 3\nline 4"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "line 2\nline 3", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["data"]["content"] == "line 1\nreplaced\nline 4"
+    assert data["line"] == 2
+
+
+async def test_str_replace_note_no_match(client: AsyncClient) -> None:
+    """Test string replacement when old_str is not found."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "nonexistent", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+
+    data = response.json()["detail"]
+    assert data["error"] == "no_match"
+    assert "not found" in data["message"]
+
+
+async def test_str_replace_note_multiple_matches(client: AsyncClient) -> None:
+    """Test string replacement when old_str matches multiple locations."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "foo here\nbar baz\nfoo again"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "foo", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+
+    data = response.json()["detail"]
+    assert data["error"] == "multiple_matches"
+    assert len(data["matches"]) == 2
+    assert data["matches"][0]["line"] == 1
+    assert data["matches"][1]["line"] == 3
+    # Check context is provided
+    assert "foo here" in data["matches"][0]["context"]
+    assert "foo again" in data["matches"][1]["context"]
+
+
+async def test_str_replace_note_deletion(client: AsyncClient) -> None:
+    """Test deletion using empty new_str."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace?include_updated_entity=true",
+        json={"old_str": " world", "new_str": ""},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello"
+
+
+async def test_str_replace_note_whitespace_normalized(client: AsyncClient) -> None:
+    """Test whitespace-normalized matching."""
+    # Content has trailing spaces on line 1
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "line 1  \nline 2"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # old_str without trailing spaces
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "line 1\nline 2", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["match_type"] == "whitespace_normalized"
+
+
+async def test_str_replace_note_null_content(client: AsyncClient) -> None:
+    """Test str-replace on note with null content returns content_empty error."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "No Content Note"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "anything", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+
+    data = response.json()["detail"]
+    assert data["error"] == "content_empty"
+    assert "no content" in data["message"].lower()
+    assert "suggestion" in data
+
+
+async def test_str_replace_note_not_found(client: AsyncClient) -> None:
+    """Test str-replace on non-existent note."""
+    response = await client.patch(
+        "/notes/00000000-0000-0000-0000-000000000000/str-replace",
+        json={"old_str": "anything", "new_str": "replaced"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Note not found"
+
+
+async def test_str_replace_note_updates_updated_at(client: AsyncClient) -> None:
+    """Test that str-replace updates the updated_at timestamp."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    original_updated_at = response.json()["updated_at"]
+    note_id = response.json()["id"]
+
+    await asyncio.sleep(0.01)
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["updated_at"] > original_updated_at
+
+
+async def test_str_replace_note_works_on_archived(client: AsyncClient) -> None:
+    """Test that str-replace works on archived notes."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Archive the note
+    await client.post(f"/notes/{note_id}/archive")
+
+    # str-replace should still work
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello universe"
+
+
+async def test_str_replace_note_not_on_deleted(client: AsyncClient) -> None:
+    """Test that str-replace does not work on soft-deleted notes."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Hello world"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Delete the note
+    await client.delete(f"/notes/{note_id}")
+
+    # str-replace should return 404
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 404
+
+
+async def test_str_replace_note_preserves_other_fields(client: AsyncClient) -> None:
+    """Test that str-replace preserves title, description, tags."""
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "My Title",
+            "description": "My Description",
+            "content": "Hello world",
+            "tags": ["tag1", "tag2"],
+        },
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()["data"]
+    assert data["title"] == "My Title"
+    assert data["description"] == "My Description"
+    assert data["tags"] == ["tag1", "tag2"]
+    assert data["content"] == "Hello universe"
+
+
+# =============================================================================
+# Cross-User Isolation (IDOR) Tests
+# =============================================================================
+
+
+async def test_user_cannot_str_replace_other_users_note(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot str-replace another user's note (returns 404)."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from services.token_service import create_token
+    from schemas.token import TokenCreate
+
+    # Create a note as the dev user with content
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "Test",
+            "content": "Original content that should not be modified",
+        },
+    )
+    assert response.status_code == 201
+    user1_note_id = response.json()["id"]
+
+    # Create a second user and a PAT for them
+    user2 = User(auth0_id="auth0|user2-note-str-replace-test", email="user2-note-str-replace@example.com")
+    db_session.add(user2)
+    await db_session.flush()
+
+    # Add consent for user2 (required when dev_mode=False)
+    await add_consent_for_user(db_session, user2)
+
+    _, user2_token = await create_token(
+        db_session, user2.id, TokenCreate(name="Test Token"),
+    )
+    await db_session.flush()
+
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user2_token}"},
+    ) as user2_client:
+        # Try to str-replace user1's note - should get 404
+        response = await user2_client.patch(
+            f"/notes/{user1_note_id}/str-replace",
+            json={"old_str": "Original", "new_str": "HACKED"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Note not found"
+
+    app.dependency_overrides.clear()
+
+    # Verify the note content was not modified via database query
+    result = await db_session.execute(
+        select(Note).where(Note.id == user1_note_id),
+    )
+    note = result.scalar_one()
+    assert note.content == "Original content that should not be modified"

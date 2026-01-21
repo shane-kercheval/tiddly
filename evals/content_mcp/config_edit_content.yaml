@@ -1,0 +1,252 @@
+# Content MCP Server Evaluation Configuration
+# Tests the edit_content tool's ability to make precise text replacements
+
+model:
+  name: "gpt-4.1-mini"
+  temperature: 0
+
+eval:
+  # These are a little more complex with sporadic failures, so we need more samples to
+  # get reliable pass rates
+  samples: 10
+  success_threshold: 0.8
+
+test_cases:
+  # Test 1: Fix typo that is a prefix of another word
+  # The LLM must fix "docu" without corrupting "documentation"
+  - id: "fix-typo-prefix-word"
+    input:
+      content: |
+        This docu needs to be updated.
+
+        See the documentation for more details.
+      search_query: "docu"
+    expected:
+      tool_name: "edit_content"
+      old_str_contains: "docu"
+      new_str_contains: "document"
+      final_must_contain: "This document needs"
+      final_must_not_contain: "documentmentation"
+    metadata:
+      description: "Fix 'docu' -> 'document' without corrupting 'documentation'"
+
+  # Test 2: Fix typo in a code block
+  # The LLM must understand markdown context and fix the typo in code
+  - id: "fix-typo-in-code"
+    input:
+      content: |
+        ## API Usage
+
+        To authenticate, use the following code:
+
+        ```python
+        client = APIClinet(api_key="your-key")
+        response = client.get("/users")
+        ```
+
+        The client handles retries automatically.
+      search_query: "Clinet"
+    expected:
+      tool_name: "edit_content"
+      old_str_contains: "Clinet"
+      new_str_contains: "Client"
+      final_must_contain: "client = APIClient("
+      final_must_not_contain: "Clinet"
+    metadata:
+      description: "Fix 'APIClinet' -> 'APIClient' in code block"
+
+  # Test 3: Fix broken markdown link
+  # The LLM must fix a malformed link without breaking surrounding text
+  - id: "fix-broken-link"
+    input:
+      content: |
+        ## Resources
+
+        - [Getting Started](htps://example.com/start)
+        - [API Reference](https://example.com/api)
+        - [Support](https://example.com/help)
+      search_query: "htps"
+    expected:
+      tool_name: "edit_content"
+      old_str_contains: "htps"
+      new_str_contains: "https"
+      final_must_contain: "https://example.com/start"
+      final_must_not_contain: "htps"
+    metadata:
+      description: "Fix 'htps' -> 'https' in markdown link"
+
+  # Test 4: Fix typo in markdown table
+  # The LLM must fix the typo without breaking table structure
+  - id: "fix-typo-in-table"
+    input:
+      content: |
+        ## Feature Status
+
+        | Feature        | Stauts    | Priority |
+        |----------------|-----------|----------|
+        | Authentication | Complete  | High     |
+        | Search         | In Progress | Medium |
+        | Export         | Planned   | Low      |
+
+        See the roadmap for details.
+      search_query: "Stauts"
+    expected:
+      tool_name: "edit_content"
+      old_str_contains: "Stauts"
+      new_str_contains: "Status"
+      final_must_contain: "| Status"
+      final_must_not_contain: "Stauts"
+    metadata:
+      description: "Fix 'Stauts' -> 'Status' in table header without breaking table"
+
+  # Test 5: Fix typo in YAML frontmatter
+  # The LLM must fix the typo while preserving YAML structure
+  - id: "fix-typo-in-frontmatter"
+    input:
+      content: |
+        ---
+        title: Project Ntoes
+        tags: [python, api, backend]
+        status: draft
+        ---
+
+        # Project Notes
+
+        This document contains important project notes.
+      search_query: "Ntoes"
+    expected:
+      tool_name: "edit_content"
+      old_str_contains: "Ntoes"
+      new_str_contains: "Notes"
+      final_must_contain: "title: Project Notes"
+      final_must_not_contain: "Ntoes"
+    metadata:
+      description: "Fix 'Ntoes' -> 'Notes' in YAML frontmatter"
+
+  # Test 6: Fix typo in nested list
+  # The LLM must navigate nested structure and fix only the typo
+  - id: "fix-typo-in-nested-list"
+    input:
+      content: |
+        ## Setup Instructions
+
+        1. Install dependencies
+           - Run `npm install`
+           - Verify node version
+        2. Configure environemnt
+           - Copy `.env.example` to `.env`
+           - Set database credentials
+        3. Run migrations
+           - Execute `npm run migrate`
+      search_query: "environemnt"
+    expected:
+      tool_name: "edit_content"
+      old_str_contains: "environemnt"
+      new_str_contains: "environment"
+      final_must_contain: "Configure environment"
+      final_must_not_contain: "environemnt"
+    metadata:
+      description: "Fix 'environemnt' -> 'environment' in nested list"
+
+  # Test 7: Fix typo in embedded JSON
+  # The LLM must fix JSON key without breaking JSON syntax
+  - id: "fix-typo-in-json"
+    input:
+      content: |
+        ## API Configuration
+
+        Use the following configuration:
+
+        ```json
+        {
+          "enpoint": "https://api.example.com/v1",
+          "timeout": 30000,
+          "retries": 3
+        }
+        ```
+
+        The endpoint supports both GET and POST requests.
+      search_query: "enpoint"
+    expected:
+      tool_name: "edit_content"
+      old_str_contains: "enpoint"
+      new_str_contains: "endpoint"
+      final_must_contain: '"endpoint"'
+      final_must_not_contain: "enpoint"
+    metadata:
+      description: "Fix 'enpoint' -> 'endpoint' in JSON code block"
+
+  # Test 8: Fix multiline code typo (tests whitespace handling)
+  # The LLM must make a multiline replacement correctly
+  - id: "fix-multiline-code-typo"
+    input:
+      content: |
+        ## Database Query
+
+        ```python
+        def get_users(db):
+            qeury = db.query(User)
+            qeury = qeury.filter(User.active == True)
+            return qeury.all()
+        ```
+
+        This returns all active users.
+      search_query: "qeury"
+    expected:
+      tool_name: "edit_content"
+      old_str_contains: "qeury"
+      new_str_contains: "query"
+      final_must_contain: "query = db.query"
+      final_must_not_contain: "qeury"
+    metadata:
+      description: "Fix 'qeury' -> 'query' (appears multiple times in code block)"
+
+  # Test 9: Fix typo in indented blockquote
+  # Tests handling of indented/nested markdown structures
+  - id: "fix-typo-in-blockquote"
+    input:
+      content: |
+        ## Important Notes
+
+        From the documentation:
+
+        > The system requries authentication for all API endpoints.
+        > Make sure to include the Authorization header.
+        >
+        > See the auth guide for details.
+
+        Contact support if you have issues.
+      search_query: "requries"
+    expected:
+      tool_name: "edit_content"
+      old_str_contains: "requries"
+      new_str_contains: "requires"
+      final_must_contain: "requires authentication"
+      final_must_not_contain: "requries"
+    metadata:
+      description: "Fix 'requries' -> 'requires' in blockquote"
+
+checks:
+  # Verify correct tool was selected
+  - type: "exact_match"
+    arguments:
+      actual: "$.output.value.tool_prediction.tool_name"
+      expected: "$.test_case.expected.tool_name"
+
+  # Verify old_str contains the typo
+  - type: "contains"
+    arguments:
+      text: "$.output.value.tool_prediction.arguments.old_str"
+      phrases: "$.test_case.expected.old_str_contains"
+
+  # Verify new_str contains the fix
+  - type: "contains"
+    arguments:
+      text: "$.output.value.tool_prediction.arguments.new_str"
+      phrases: "$.test_case.expected.new_str_contains"
+
+  # Verify final content contains the fix
+  - type: "contains"
+    arguments:
+      text: "$.output.value.final_content"
+      phrases: "$.test_case.expected.final_must_contain"

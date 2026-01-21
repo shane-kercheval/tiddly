@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi import Response as FastAPIResponse
 from pydantic import HttpUrl
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import (
@@ -22,12 +23,29 @@ from schemas.bookmark import (
     BookmarkUpdate,
     MetadataPreviewResponse,
 )
+from schemas.content_search import ContentSearchMatch, ContentSearchResponse
+from schemas.errors import (
+    ContentEmptyError,
+    MinimalEntityData,
+    StrReplaceMultipleMatchesError,
+    StrReplaceNoMatchError,
+    StrReplaceRequest,
+    StrReplaceSuccess,
+    StrReplaceSuccessMinimal,
+)
 from services.bookmark_service import (
     ArchivedUrlExistsError,
     BookmarkService,
     DuplicateUrlError,
 )
 from services import content_filter_service
+from services.content_edit_service import (
+    MultipleMatchesError,
+    NoMatchError,
+    str_replace,
+)
+from services.content_lines import apply_partial_read
+from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
 from services.url_scraper import scrape_url
 
@@ -172,10 +190,27 @@ async def get_bookmark(
     bookmark_id: UUID,
     request: Request,
     response: FastAPIResponse,
+    start_line: int | None = Query(
+        default=None,
+        ge=1,
+        description="Start line for partial read (1-indexed). Defaults to 1 if end_line provided.",
+    ),
+    end_line: int | None = Query(
+        default=None,
+        ge=1,
+        description="End line for partial read (1-indexed, inclusive). "
+        "Defaults to total_lines if start_line provided.",
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkResponse:
-    """Get a single bookmark by ID (includes archived and deleted bookmarks)."""
+    """
+    Get a single bookmark by ID (includes archived and deleted bookmarks).
+
+    Supports partial reads via start_line and end_line parameters.
+    When line params are provided, only the specified line range is returned
+    in the content field, with content_metadata indicating the range and total lines.
+    """
     # Quick check: can we return 304?
     updated_at = await bookmark_service.get_updated_at(
         db, current_user.id, bookmark_id, include_deleted=True,
@@ -196,7 +231,85 @@ async def get_bookmark(
 
     # Set Last-Modified header
     response.headers["Last-Modified"] = format_http_date(updated_at)
-    return BookmarkResponse.model_validate(bookmark)
+
+    response_data = BookmarkResponse.model_validate(bookmark)
+    apply_partial_read(response_data, start_line, end_line)
+    return response_data
+
+
+@router.get("/{bookmark_id}/search", response_model=ContentSearchResponse)
+async def search_in_bookmark(
+    bookmark_id: UUID,
+    q: str = Query(min_length=1, description="Text to search for (literal match)"),
+    fields: str = Query(
+        default="content",
+        description="Comma-separated fields to search: 'content', 'title', 'description'",
+    ),
+    case_sensitive: bool = Query(default=False, description="Case-sensitive search"),
+    context_lines: int = Query(
+        default=2,
+        ge=0,
+        le=10,
+        description="Lines of context before/after match (content field only)",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> ContentSearchResponse:
+    """
+    Search within a bookmark's text fields to find matches with line numbers and context.
+
+    This endpoint serves several purposes for AI agents:
+
+    1. **Pre-edit validation** - Confirm how many matches exist before attempting
+       str_replace (avoid "multiple matches" errors)
+    2. **Context building** - Get surrounding lines to construct a unique `old_str`
+       for editing
+    3. **Content discovery** - Find where specific text appears in a document without
+       reading the entire content into context
+    4. **General search** - Non-editing use cases where agents need to locate
+       information within content
+
+    Returns:
+        - `matches`: List of matches found. Empty array if no matches (success, not error).
+        - `total_matches`: Count of matches found.
+
+    For the `content` field, matches include line numbers (1-indexed) and surrounding
+    context lines. For `title` and `description` fields, the full field value is
+    returned as context with `line: null`.
+    """
+    # Fetch the bookmark
+    bookmark = await bookmark_service.get(
+        db, current_user.id, bookmark_id, include_archived=True, include_deleted=True,
+    )
+    if bookmark is None:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    # Parse and validate fields
+    field_list = [f.strip().lower() for f in fields.split(",")]
+    valid_fields = {"content", "title", "description"}
+    invalid_fields = set(field_list) - valid_fields
+    if invalid_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid fields: {', '.join(invalid_fields)}. "
+            "Valid fields: content, title, description",
+        )
+
+    # Perform search
+    matches = search_in_content(
+        content=bookmark.content,
+        title=bookmark.title,
+        description=bookmark.description,
+        query=q,
+        fields=field_list,
+        case_sensitive=case_sensitive,
+        context_lines=context_lines,
+    )
+
+    return ContentSearchResponse(
+        matches=matches,
+        total_matches=len(matches),
+    )
 
 
 @router.patch("/{bookmark_id}", response_model=BookmarkResponse)
@@ -222,6 +335,100 @@ async def update_bookmark(
     if bookmark is None:
         raise HTTPException(status_code=404, detail="Bookmark not found")
     return BookmarkResponse.model_validate(bookmark)
+
+
+@router.patch(
+    "/{bookmark_id}/str-replace",
+    response_model=StrReplaceSuccess[BookmarkResponse] | StrReplaceSuccessMinimal,
+)
+async def str_replace_bookmark(
+    bookmark_id: UUID,
+    data: StrReplaceRequest,
+    include_updated_entity: bool = Query(
+        default=False,
+        description="If true, include full updated entity in response. "
+        "Default (false) returns only id and updated_at.",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> StrReplaceSuccess[BookmarkResponse] | StrReplaceSuccessMinimal:
+    r"""
+    Replace text in a bookmark's content using string matching.
+
+    The `old_str` must match exactly one location in the content. If it matches
+    zero or multiple locations, the operation fails with an appropriate error.
+
+    **Response format:**
+    By default, returns minimal data (id and updated_at) to reduce bandwidth.
+    Use `include_updated_entity=true` to get the full updated entity.
+
+    **Matching strategy (progressive fallback):**
+    1. **Exact match** - Character-for-character match
+    2. **Whitespace normalized** - Normalizes line endings (\\r\\n → \\n) and strips
+       trailing whitespace from each line before matching
+
+    **Tips for successful edits:**
+    - Include 3-5 lines of surrounding context in `old_str` to ensure uniqueness
+    - Use the search endpoint (`GET /bookmarks/{id}/search`) first to check matches
+    - For deletion, use empty string as `new_str`
+
+    **Error responses:**
+    - 400 with `error: "no_match"` if text not found
+    - 400 with `error: "multiple_matches"` if text found in multiple locations
+      (includes match locations with context to help construct unique match)
+    """
+    # Fetch the bookmark (include archived, exclude deleted)
+    bookmark = await bookmark_service.get(db, current_user.id, bookmark_id, include_archived=True)
+    if bookmark is None:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    # Check if content exists
+    if bookmark.content is None:
+        raise HTTPException(
+            status_code=400,
+            detail=ContentEmptyError(
+                message="Bookmark has no content to edit",
+            ).model_dump(),
+        )
+
+    # Perform str_replace
+    try:
+        result = str_replace(bookmark.content, data.old_str, data.new_str)
+    except NoMatchError:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceNoMatchError().model_dump(),
+        )
+    except MultipleMatchesError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceMultipleMatchesError(
+                matches=[
+                    ContentSearchMatch(field="content", line=line, context=ctx)
+                    for line, ctx in e.matches
+                ],
+            ).model_dump(),
+        )
+
+    # Update the bookmark with new content
+    bookmark.content = result.new_content
+    bookmark.updated_at = func.clock_timestamp()
+    await db.flush()
+    await db.refresh(bookmark)
+
+    if include_updated_entity:
+        await db.refresh(bookmark, attribute_names=["tag_objects"])
+        return StrReplaceSuccess(
+            match_type=result.match_type,
+            line=result.line,
+            data=BookmarkResponse.model_validate(bookmark),
+        )
+
+    return StrReplaceSuccessMinimal(
+        match_type=result.match_type,
+        line=result.line,
+        data=MinimalEntityData(id=bookmark.id, updated_at=bookmark.updated_at),
+    )
 
 
 @router.delete("/{bookmark_id}", status_code=204)

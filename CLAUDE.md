@@ -60,11 +60,11 @@ make migration message="description"  # Create new migration
 - **services/**: Business logic (bookmark_service, note_service, prompt_service, token_service, url_scraper)
 - **db/**: Database session management and Alembic migrations
 - **mcp_server/**: Content MCP server for bookmarks/notes (uses FastMCP)
-  - `server.py`: Tools for search_bookmarks, get_bookmark, create_bookmark, search_notes, get_note, create_note, list_tags
+  - `server.py`: Tools for searching, creating, and editing bookmarks/notes (get_content, edit_content, search_in_content, create_bookmark, create_note, search_bookmarks, search_notes, search_all_content, list_tags)
   - `auth.py`: Bearer token extraction from MCP request headers
   - `api_client.py`: HTTP client helpers for API requests
 - **prompt_mcp_server/**: Prompt MCP server (uses low-level MCP SDK for prompts capability)
-  - `server.py`: list_prompts, get_prompt handlers + create_prompt tool
+  - `server.py`: list_prompts, get_prompt handlers + create_prompt, update_prompt tools
   - `template_renderer.py`: Jinja2 template rendering with StrictUndefined
   - `auth.py`: Context-based token management via contextvars
 

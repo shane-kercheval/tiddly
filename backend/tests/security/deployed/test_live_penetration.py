@@ -318,6 +318,115 @@ class TestBookmarkIDOR:
                     params={"permanent": "true"},
                 )
 
+    @pytest.mark.asyncio
+    async def test__cross_user_bookmark_str_replace__returns_404(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B cannot str-replace User A's bookmark content."""
+        async with httpx.AsyncClient() as client:
+            # User A creates a bookmark with content
+            create_response = await client.post(
+                f"{API_URL}/bookmarks/",
+                headers=headers_user_a,
+                json={
+                    "url": "https://idor-str-replace-test-bookmark.example.com/",
+                    "title": "Str-Replace Test Bookmark",
+                    "content": "Original content that should not be modified",
+                },
+            )
+
+            if create_response.status_code == 409:
+                pytest.skip("Bookmark already exists, skipping test")
+
+            assert create_response.status_code == 201
+            bookmark_id = create_response.json()["id"]
+
+            try:
+                # User B tries to str-replace User A's bookmark content
+                str_replace_response = await client.patch(
+                    f"{API_URL}/bookmarks/{bookmark_id}/str-replace",
+                    headers=headers_user_b,
+                    json={"old_str": "Original", "new_str": "HACKED"},
+                )
+
+                assert str_replace_response.status_code == 404, (
+                    f"SECURITY VULNERABILITY: User B str-replaced User A's bookmark! "
+                    f"Status: {str_replace_response.status_code}"
+                )
+
+                # Verify the bookmark content was NOT modified
+                verify_response = await client.get(
+                    f"{API_URL}/bookmarks/{bookmark_id}",
+                    headers=headers_user_a,
+                )
+                assert verify_response.json()["content"] == "Original content that should not be modified"
+
+            finally:
+                await client.delete(
+                    f"{API_URL}/bookmarks/{bookmark_id}",
+                    headers=headers_user_a,
+                    params={"permanent": "true"},
+                )
+
+
+class TestNoteIDOR:
+    """
+    Verify users cannot access other users' notes.
+
+    Tests str-replace endpoint for proper tenant isolation.
+    OWASP Reference: A01:2021 - Broken Access Control
+    """
+
+    @pytest.mark.asyncio
+    async def test__cross_user_note_str_replace__returns_404(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B cannot str-replace User A's note content."""
+        async with httpx.AsyncClient() as client:
+            # User A creates a note with content
+            create_response = await client.post(
+                f"{API_URL}/notes/",
+                headers=headers_user_a,
+                json={
+                    "title": "Str-Replace Test Note",
+                    "content": "Original content that should not be modified",
+                },
+            )
+
+            assert create_response.status_code == 201
+            note_id = create_response.json()["id"]
+
+            try:
+                # User B tries to str-replace User A's note content
+                str_replace_response = await client.patch(
+                    f"{API_URL}/notes/{note_id}/str-replace",
+                    headers=headers_user_b,
+                    json={"old_str": "Original", "new_str": "HACKED"},
+                )
+
+                assert str_replace_response.status_code == 404, (
+                    f"SECURITY VULNERABILITY: User B str-replaced User A's note! "
+                    f"Status: {str_replace_response.status_code}"
+                )
+
+                # Verify the note content was NOT modified
+                verify_response = await client.get(
+                    f"{API_URL}/notes/{note_id}",
+                    headers=headers_user_a,
+                )
+                assert verify_response.json()["content"] == "Original content that should not be modified"
+
+            finally:
+                await client.delete(
+                    f"{API_URL}/notes/{note_id}",
+                    headers=headers_user_a,
+                    params={"permanent": "true"},
+                )
+
 
 class TestPromptIDOR:
     """
@@ -486,6 +595,57 @@ class TestPromptIDOR:
                     headers=headers_user_a,
                 )
                 assert verify_response.json()["content"] == "Original Content"
+
+            finally:
+                await client.delete(
+                    f"{API_URL}/prompts/{prompt_id}",
+                    headers=headers_user_a,
+                    params={"permanent": "true"},
+                )
+
+    @pytest.mark.asyncio
+    async def test__cross_user_prompt_str_replace__returns_404(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B cannot str-replace User A's prompt content."""
+        async with httpx.AsyncClient() as client:
+            # User A creates a prompt with content
+            create_response = await client.post(
+                f"{API_URL}/prompts/",
+                headers=headers_user_a,
+                json={
+                    "name": "idor-str-replace-test-prompt",
+                    "content": "Original content that should not be modified",
+                },
+            )
+
+            if create_response.status_code == 409:
+                pytest.skip("Prompt already exists, skipping test")
+
+            assert create_response.status_code == 201
+            prompt_id = create_response.json()["id"]
+
+            try:
+                # User B tries to str-replace User A's prompt content
+                str_replace_response = await client.patch(
+                    f"{API_URL}/prompts/{prompt_id}/str-replace",
+                    headers=headers_user_b,
+                    json={"old_str": "Original", "new_str": "HACKED"},
+                )
+
+                assert str_replace_response.status_code == 404, (
+                    f"SECURITY VULNERABILITY: User B str-replaced User A's prompt! "
+                    f"Status: {str_replace_response.status_code}"
+                )
+
+                # Verify the prompt content was NOT modified
+                verify_response = await client.get(
+                    f"{API_URL}/prompts/{prompt_id}",
+                    headers=headers_user_a,
+                )
+                assert verify_response.json()["content"] == "Original content that should not be modified"
 
             finally:
                 await client.delete(

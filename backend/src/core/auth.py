@@ -297,6 +297,7 @@ def _check_consent(user: User | CachedUser, settings: Settings) -> None:
 async def _apply_rate_limit(
     user: User | CachedUser,
     request: Request,
+    settings: Settings,
 ) -> None:
     """
     Apply rate limiting for the current request.
@@ -304,7 +305,14 @@ async def _apply_rate_limit(
     Checks both per-minute and daily limits based on auth type and operation type.
     Stores rate limit info in request.state for middleware to add headers.
     Raises RateLimitExceededError if limit exceeded (handled by exception handler).
+
+    In dev mode, rate limiting is disabled to allow running evals and tests
+    without hitting limits.
     """
+    if settings.dev_mode:
+        # Skip rate limiting in dev mode
+        return
+
     auth_type = getattr(request.state, "auth_type", AuthType.AUTH0)
     operation_type = get_operation_type(request.method, request.url.path)
 
@@ -407,7 +415,7 @@ async def get_current_user(
     count against limits, even from users who haven't consented yet.
     """
     user = await _authenticate_user(credentials, db, settings, request)
-    await _apply_rate_limit(user, request)
+    await _apply_rate_limit(user, request, settings)
     _check_consent(user, settings)
     return user
 
@@ -425,7 +433,7 @@ async def get_current_user_without_consent(
     Auth + rate limiting, no consent check (for exempt routes like consent endpoints).
     """
     user = await _authenticate_user(credentials, db, settings, request)
-    await _apply_rate_limit(user, request)
+    await _apply_rate_limit(user, request, settings)
     return user
 
 
@@ -456,7 +464,7 @@ async def get_current_user_auth0_only(
     Use get_current_user_auth0_only_without_consent for consent-exempt routes.
     """
     user = await _authenticate_user(credentials, db, settings, request, allow_pat=False)
-    await _apply_rate_limit(user, request)
+    await _apply_rate_limit(user, request, settings)
     _check_consent(user, settings)
     return user
 
@@ -476,5 +484,5 @@ async def get_current_user_auth0_only_without_consent(
     See get_current_user_auth0_only for details on what this does and doesn't prevent.
     """
     user = await _authenticate_user(credentials, db, settings, request, allow_pat=False)
-    await _apply_rate_limit(user, request)
+    await _apply_rate_limit(user, request, settings)
     return user

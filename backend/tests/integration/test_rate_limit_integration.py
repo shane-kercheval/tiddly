@@ -3,6 +3,8 @@ Integration tests for rate limiting through the HTTP layer.
 
 These tests verify that rate limiting works end-to-end with real Redis,
 not mocked. They test the full flow: HTTP request → auth → rate limit check → response headers.
+
+Note: These tests require dev_mode=False since rate limiting is disabled in dev mode.
 """
 import time
 from unittest.mock import AsyncMock, patch
@@ -35,8 +37,7 @@ class TestRateLimitHeaders:
 
     async def test__rate_limit_headers__present_on_successful_request(
         self,
-        client: AsyncClient,
-        redis_client: RedisClient,  # noqa: ARG002
+        rate_limit_client: AsyncClient,
         mock_scrape_response: ScrapedPage,
     ) -> None:
         """Rate limit headers are included on successful responses."""
@@ -45,7 +46,7 @@ class TestRateLimitHeaders:
             new_callable=AsyncMock,
             return_value=mock_scrape_response,
         ):
-            response = await client.get(
+            response = await rate_limit_client.get(
                 "/bookmarks/fetch-metadata",
                 params={"url": "https://example.com"},
             )
@@ -57,8 +58,7 @@ class TestRateLimitHeaders:
 
     async def test__rate_limit_headers__remaining_decreases_with_requests(
         self,
-        client: AsyncClient,
-        redis_client: RedisClient,  # noqa: ARG002
+        rate_limit_client: AsyncClient,
         mock_scrape_response: ScrapedPage,
     ) -> None:
         """Remaining count decreases with each request."""
@@ -68,14 +68,14 @@ class TestRateLimitHeaders:
             return_value=mock_scrape_response,
         ):
             # First request
-            response1 = await client.get(
+            response1 = await rate_limit_client.get(
                 "/bookmarks/fetch-metadata",
                 params={"url": "https://example.com/page1"},
             )
             remaining1 = int(response1.headers["X-RateLimit-Remaining"])
 
             # Second request
-            response2 = await client.get(
+            response2 = await rate_limit_client.get(
                 "/bookmarks/fetch-metadata",
                 params={"url": "https://example.com/page2"},
             )
@@ -85,8 +85,7 @@ class TestRateLimitHeaders:
 
     async def test__rate_limit_headers__limit_matches_sensitive_operation(
         self,
-        client: AsyncClient,
-        redis_client: RedisClient,  # noqa: ARG002
+        rate_limit_client: AsyncClient,
         mock_scrape_response: ScrapedPage,
     ) -> None:
         """fetch-metadata is a SENSITIVE operation with configured limit for Auth0."""
@@ -95,7 +94,7 @@ class TestRateLimitHeaders:
             new_callable=AsyncMock,
             return_value=mock_scrape_response,
         ):
-            response = await client.get(
+            response = await rate_limit_client.get(
                 "/bookmarks/fetch-metadata",
                 params={"url": "https://example.com"},
             )
@@ -105,8 +104,7 @@ class TestRateLimitHeaders:
 
     async def test__rate_limit_headers__reset_is_future_timestamp(
         self,
-        client: AsyncClient,
-        redis_client: RedisClient,  # noqa: ARG002
+        rate_limit_client: AsyncClient,
         mock_scrape_response: ScrapedPage,
     ) -> None:
         """Reset header contains a future Unix timestamp."""
@@ -117,7 +115,7 @@ class TestRateLimitHeaders:
             new_callable=AsyncMock,
             return_value=mock_scrape_response,
         ):
-            response = await client.get(
+            response = await rate_limit_client.get(
                 "/bookmarks/fetch-metadata",
                 params={"url": "https://example.com"},
             )
@@ -133,7 +131,7 @@ class TestRateLimitEnforcement:
 
     async def _get_user_id_and_prefill_limit(
         self,
-        client: AsyncClient,
+        rate_limit_client: AsyncClient,
         redis_client: RedisClient,
         mock_scrape_response: ScrapedPage,
     ) -> int:
@@ -150,7 +148,7 @@ class TestRateLimitEnforcement:
             new_callable=AsyncMock,
             return_value=mock_scrape_response,
         ):
-            response = await client.get(
+            response = await rate_limit_client.get(
                 "/bookmarks/fetch-metadata",
                 params={"url": "https://example.com/discover"},
             )
@@ -158,7 +156,7 @@ class TestRateLimitEnforcement:
         assert response.status_code == 200
 
         # Get user ID from /users/me
-        user_response = await client.get("/users/me")
+        user_response = await rate_limit_client.get("/users/me")
         user_id = user_response.json()["id"]
 
         # Now pre-fill the remaining slots (we already used 1)
@@ -181,13 +179,13 @@ class TestRateLimitEnforcement:
 
     async def test__rate_limit__returns_429_when_limit_exceeded(
         self,
-        client: AsyncClient,
+        rate_limit_client: AsyncClient,
         redis_client: RedisClient,
         mock_scrape_response: ScrapedPage,
     ) -> None:
         """Request returns 429 when rate limit is exceeded."""
         await self._get_user_id_and_prefill_limit(
-            client, redis_client, mock_scrape_response,
+            rate_limit_client, redis_client, mock_scrape_response,
         )
 
         # Next request should be blocked
@@ -196,7 +194,7 @@ class TestRateLimitEnforcement:
             new_callable=AsyncMock,
             return_value=mock_scrape_response,
         ):
-            response = await client.get(
+            response = await rate_limit_client.get(
                 "/bookmarks/fetch-metadata",
                 params={"url": "https://example.com/blocked"},
             )
@@ -206,13 +204,13 @@ class TestRateLimitEnforcement:
 
     async def test__rate_limit__429_includes_retry_after_header(
         self,
-        client: AsyncClient,
+        rate_limit_client: AsyncClient,
         redis_client: RedisClient,
         mock_scrape_response: ScrapedPage,
     ) -> None:
         """429 response includes Retry-After header."""
         await self._get_user_id_and_prefill_limit(
-            client, redis_client, mock_scrape_response,
+            rate_limit_client, redis_client, mock_scrape_response,
         )
 
         with patch(
@@ -220,7 +218,7 @@ class TestRateLimitEnforcement:
             new_callable=AsyncMock,
             return_value=mock_scrape_response,
         ):
-            response = await client.get(
+            response = await rate_limit_client.get(
                 "/bookmarks/fetch-metadata",
                 params={"url": "https://example.com/retry"},
             )
@@ -233,13 +231,13 @@ class TestRateLimitEnforcement:
 
     async def test__rate_limit__429_includes_all_rate_limit_headers(
         self,
-        client: AsyncClient,
+        rate_limit_client: AsyncClient,
         redis_client: RedisClient,
         mock_scrape_response: ScrapedPage,
     ) -> None:
         """429 response includes all X-RateLimit-* headers."""
         await self._get_user_id_and_prefill_limit(
-            client, redis_client, mock_scrape_response,
+            rate_limit_client, redis_client, mock_scrape_response,
         )
 
         with patch(
@@ -247,7 +245,7 @@ class TestRateLimitEnforcement:
             new_callable=AsyncMock,
             return_value=mock_scrape_response,
         ):
-            response = await client.get(
+            response = await rate_limit_client.get(
                 "/bookmarks/fetch-metadata",
                 params={"url": "https://example.com/headers"},
             )
@@ -260,8 +258,7 @@ class TestRateLimitEnforcement:
 
     async def test__rate_limit__real_requests_eventually_blocked(
         self,
-        client: AsyncClient,
-        redis_client: RedisClient,  # noqa: ARG002
+        rate_limit_client: AsyncClient,
         mock_scrape_response: ScrapedPage,
     ) -> None:
         """
@@ -281,7 +278,7 @@ class TestRateLimitEnforcement:
         ):
             # Make limit+1 requests
             for i in range(limit + 1):
-                response = await client.get(
+                response = await rate_limit_client.get(
                     "/bookmarks/fetch-metadata",
                     params={"url": f"https://example.com/page{i}"},
                 )
@@ -340,3 +337,59 @@ class TestRateLimitUserIsolation:
 
         # result[0] = allowed (1 or 0)
         assert result[0] == 1, "User 200 should be allowed (separate bucket)"
+
+
+class TestRateLimitDevModeBypass:
+    """Tests for rate limiting bypass in dev mode."""
+
+    async def test__rate_limit__skipped_in_dev_mode(
+        self,
+        client: AsyncClient,
+        redis_client: RedisClient,
+        mock_scrape_response: ScrapedPage,
+    ) -> None:
+        """
+        Rate limiting is skipped in dev mode to allow running evals and tests.
+
+        This test verifies that even after pre-filling the rate limit bucket,
+        requests still succeed in dev mode.
+        """
+        limit = AUTH0_SENSITIVE_CONFIG.requests_per_minute
+
+        # Get user ID from dev user
+        user_response = await client.get("/users/me")
+        user_id = user_response.json()["id"]
+
+        # Pre-fill the rate limit bucket to simulate exceeded limit
+        now = int(time.time())
+        key = f"rate:{user_id}:auth0:sensitive:min"
+        for i in range(limit + 10):  # Fill way past the limit
+            await redis_client.evalsha(
+                redis_client.sliding_window_sha,
+                1,
+                key,
+                now,
+                60,
+                limit,
+                f"prefill-{i}",
+            )
+
+        # In dev mode, request should still succeed (rate limiting bypassed)
+        with patch(
+            "api.routers.bookmarks.scrape_url",
+            new_callable=AsyncMock,
+            return_value=mock_scrape_response,
+        ):
+            response = await client.get(
+                "/bookmarks/fetch-metadata",
+                params={"url": "https://example.com/should-succeed"},
+            )
+
+        # Should NOT be rate limited in dev mode
+        assert response.status_code == 200, (
+            "Request should succeed in dev mode even with exceeded rate limit"
+        )
+        # Should NOT have rate limit headers (since rate limiting was skipped)
+        assert "X-RateLimit-Limit" not in response.headers, (
+            "Rate limit headers should not be present when rate limiting is skipped"
+        )

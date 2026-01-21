@@ -15,7 +15,7 @@ from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
 
-from .api_client import api_get, api_post, get_api_base_url, get_default_timeout
+from .api_client import api_get, api_patch, api_post, get_api_base_url, get_default_timeout
 from .auth import AuthenticationError, get_bearer_token
 from services.template_renderer import TemplateError, render_template
 
@@ -25,9 +25,11 @@ logger = logging.getLogger(__name__)
 server = Server(
     "prompt-mcp-server",
     instructions="""
-A prompt template manager for creating and using reusable AI prompts.
-Prompts are Jinja2 templates with defined arguments that can be rendered with
-user-provided values.
+This is the Prompt MCP server for tiddly.me (also known as "tiddly"). When users mention
+tiddly, tiddly.me, or their prompts/templates, they're referring to this system.
+
+This MCP server is a prompt template manager for creating, editing, and using reusable AI prompts.
+Prompts are Jinja2 templates with defined arguments that can be rendered with user-provided values.
 
 Available capabilities:
 
@@ -37,6 +39,7 @@ Available capabilities:
 
 **Tools:**
 - `create_prompt`: Create a new prompt template with Jinja2 content
+- `update_prompt`: Edit prompt content using string replacement (supports atomic argument updates)
 
 Example workflows:
 
@@ -50,8 +53,24 @@ Example workflows:
 3. "Create a prompt for summarizing articles"
    - Call `create_prompt` tool with:
      - name: "summarize-article"
-     - content: "Summarize the following article:\n\n{{ article_text }}\n\nProvide..."
+     - content: "Summarize the following article:\\n\\n{{ article_text }}\\n\\nProvide..."
      - arguments: [{"name": "article_text", "description": "The article to summarize", "required": true}]
+
+4. "Fix a typo in my code-review prompt"
+   - Call `get_prompt(name="code-review", arguments={})` to see current content
+   - Call `update_prompt(id="...", old_str="teh code", new_str="the code")`
+
+5. "Add a new variable to my prompt"
+   - When adding {{ new_var }} to the template, you must also add its argument definition
+   - Call `update_prompt` with BOTH the content change AND the updated arguments list:
+     - old_str: "Review this code:"
+     - new_str: "Review this {{ language }} code:"
+     - arguments: [...existing args..., {"name": "language", "description": "Programming language"}]
+   - The arguments list REPLACES all existing arguments, so include the ones you want to keep
+
+6. "Remove a variable from my prompt"
+   - Similarly, remove from both content and arguments in one call
+   - Omit the removed argument from the arguments list
 
 Prompt naming: lowercase with hyphens (e.g., `code-review`, `meeting-notes`).
 Argument naming: lowercase with underscores (e.g., `code_to_review`, `article_text`).
@@ -373,7 +392,7 @@ async def _track_usage(
 
 @server.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
-    """List available tools (create_prompt)."""
+    """List available tools (create_prompt, update_prompt)."""
     return [
         types.Tool(
             name="create_prompt",
@@ -454,6 +473,68 @@ async def handle_list_tools() -> list[types.Tool]:
                 "required": ["name", "content"],
             },
         ),
+        types.Tool(
+            name="update_prompt",
+            description=(
+                "Update a prompt's content using string replacement. Optionally update "
+                "arguments atomically with content changes. Updating arguments is required when "
+                "editing template text that adds or removes variables, to avoid validation errors."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "The prompt ID (UUID)",
+                    },
+                    "old_str": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": (
+                            "Exact text to find in the prompt content. Must match exactly "
+                            "one location. Include 3-5 lines of surrounding context "
+                            "for uniqueness."
+                        ),
+                    },
+                    "new_str": {
+                        "type": "string",
+                        "description": (
+                            "Replacement text. Use empty string to delete the matched text."
+                        ),
+                    },
+                    "arguments": {
+                        "type": "array",
+                        "description": (
+                            "Optional: Replace ALL prompt arguments atomically with content "
+                            "update. Use this when adding/removing template variables "
+                            "(e.g., {{ new_var }}) to avoid validation errors. If omitted, "
+                            "validation uses existing arguments. If provided, this list "
+                            "FULLY REPLACES current arguments (not a merge). All arguments must "
+                            "be referred to in the prompt template and vice versa."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": "Argument name (lowercase with underscores)",
+                                },
+                                "description": {
+                                    "type": "string",
+                                    "description": "Description of the argument",
+                                },
+                                "required": {
+                                    "type": "boolean",
+                                    "description": "Whether this argument is required",
+                                },
+                            },
+                            "required": ["name"],
+                        },
+                    },
+                },
+                "required": ["id", "old_str", "new_str"],
+            },
+        ),
     ]
 
 
@@ -461,17 +542,22 @@ async def handle_list_tools() -> list[types.Tool]:
 async def handle_call_tool(
     name: str,
     arguments: dict[str, Any] | None,
-) -> list[types.TextContent]:
-    """Handle tool calls (create_prompt)."""
-    if name != "create_prompt":
-        raise McpError(
-            types.ErrorData(
-                code=types.INVALID_PARAMS,
-                message=f"Unknown tool: {name}",
-            ),
-        )
+) -> list[types.TextContent] | types.CallToolResult:
+    """Handle tool calls (create_prompt, update_prompt)."""
+    if name == "create_prompt":
+        return await _handle_create_prompt(arguments or {})
+    if name == "update_prompt":
+        return await _handle_update_prompt(arguments or {})
+    raise McpError(
+        types.ErrorData(
+            code=types.INVALID_PARAMS,
+            message=f"Unknown tool: {name}",
+        ),
+    )
 
-    arguments = arguments or {}
+
+async def _handle_create_prompt(arguments: dict[str, Any]) -> list[types.TextContent]:
+    """Handle create_prompt tool call."""
     client = get_http_client()
     token = _get_token()
 
@@ -521,3 +607,119 @@ async def handle_call_tool(
             text=f"Created prompt '{result['name']}' (ID: {result['id']})",
         ),
     ]
+
+
+async def _handle_update_prompt(
+    arguments: dict[str, Any],
+) -> list[types.TextContent] | types.CallToolResult:
+    """
+    Handle update_prompt tool call.
+
+    Performs string replacement on prompt content via the str-replace API endpoint.
+    Optionally updates arguments atomically with content changes.
+
+    Returns:
+        - list[types.TextContent] for success (SDK wraps with isError=False)
+        - types.CallToolResult with isError=True for tool execution errors (400s)
+
+    Error handling note:
+        This server uses the low-level MCP SDK, which allows returning
+        CallToolResult(isError=True) per MCP spec for tool execution errors
+        (no_match, multiple_matches). This differs from Content MCP which uses
+        FastMCP and cannot set isError=True due to SDK limitations.
+
+        Both approaches return the same structured JSON error data; the difference
+        is only in the isError flag. See implementation plan appendix for rationale.
+    """
+    # Validate required parameters first (before accessing HTTP client/token)
+    prompt_id = arguments.get("id", "")
+    if not prompt_id:
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message="Missing required parameter: id",
+            ),
+        )
+
+    old_str = arguments.get("old_str", "")
+    if not old_str:
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message="Missing required parameter: old_str",
+            ),
+        )
+
+    new_str = arguments.get("new_str")
+    if new_str is None:
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message="Missing required parameter: new_str",
+            ),
+        )
+
+    client = get_http_client()
+    token = _get_token()
+
+    # Build payload
+    payload: dict[str, Any] = {"old_str": old_str, "new_str": new_str}
+    if "arguments" in arguments:
+        payload["arguments"] = arguments["arguments"]
+
+    try:
+        result = await api_patch(client, f"/prompts/{prompt_id}/str-replace", token, payload)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise McpError(
+                types.ErrorData(
+                    code=types.INVALID_PARAMS,
+                    message=f"Prompt with ID {prompt_id} not found",
+                ),
+            ) from e
+        if e.response.status_code == 400:
+            # Return tool execution errors with isError=True per MCP spec.
+            # This allows the LLM to see and handle the error (e.g., retry with
+            # different parameters). Uses JSON format for AI parseability.
+            try:
+                import json
+
+                error_detail = e.response.json().get("detail", {})
+                if isinstance(error_detail, dict):
+                    error_text = json.dumps(error_detail)
+                else:
+                    # String error (e.g., template validation)
+                    error_text = json.dumps({
+                        "error": "validation_error",
+                        "message": str(error_detail),
+                    })
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text=error_text)],
+                    isError=True,
+                )
+            except (ValueError, KeyError):
+                pass
+        _handle_api_error(e, f"updating prompt {prompt_id}")
+        raise
+    except httpx.RequestError as e:
+        raise McpError(
+            types.ErrorData(
+                code=types.INTERNAL_ERROR,
+                message=f"API unavailable: {e}",
+            ),
+        ) from e
+
+    # Success response
+    match_type = result.get("match_type", "exact")
+    line = result.get("line", 0)
+    data = result.get("data", {})
+    prompt_id_result = data.get("id", prompt_id)
+
+    return [
+        types.TextContent(
+            type="text",
+            text=f"Updated prompt {prompt_id_result} (match: {match_type} at line {line})",
+        ),
+    ]
+
+

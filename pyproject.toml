@@ -40,6 +40,8 @@ dev = [
     "pip>=25.3.0",
     "testcontainers>=4.13.3",
     "respx>=0.22.0",
+    "sik-llms>=0.3.28",
+    "flex-evals>=0.3.22",
 ]
 
 [tool.hatch.metadata]

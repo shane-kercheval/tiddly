@@ -96,6 +96,17 @@ make tests          # Run backend linting + tests
 make frontend-tests # Run frontend tests
 ```
 
+## Evaluations
+
+LLM-based evaluations verify that AI agents can correctly use the MCP tools:
+
+```bash
+make evals              # Run all evaluations
+make evals-content-mcp  # Run Content MCP evals only
+```
+
+Evals use the [flex-evals](https://github.com/shane-kercheval/flex-evals) framework with test cases defined in YAML. See [evals/README.md](evals/README.md) for setup and configuration.
+
 ## API Documentation
 
 With the backend running: http://localhost:8000/docs
@@ -138,12 +149,13 @@ make prompt-mcp-server    # Prompt MCP server (port 8002)
 
 | Tool | Description |
 |------|-------------|
-| `search_bookmarks` | Search with text query and tag filtering |
-| `get_bookmark` | Get full details of a bookmark by ID |
+| `get_content` | Get bookmark or note by ID with optional partial read (line range) |
+| `edit_content` | Edit bookmark or note content using string replacement |
+| `search_in_content` | Search within a single item's content for matches with context |
 | `create_bookmark` | Create a new bookmark (auto-fetches metadata) |
-| `search_notes` | Search notes with text query and tag filtering |
-| `get_note` | Get full details of a note by ID |
 | `create_note` | Create a new note |
+| `search_bookmarks` | Search bookmarks with text query and tag filtering |
+| `search_notes` | Search notes with text query and tag filtering |
 | `search_all_content` | Search across bookmarks and notes |
 | `list_tags` | List all tags with usage counts |
 
@@ -156,6 +168,7 @@ The Prompt MCP server exposes your saved prompts via the MCP prompts capability:
 | `list_prompts` | List available prompts with arguments |
 | `get_prompt` | Render a prompt with provided argument values |
 | `create_prompt` (tool) | Create a new prompt template |
+| `update_prompt` (tool) | Edit prompt content/arguments using string replacement |
 
 ### Configuration
 
@@ -172,7 +185,7 @@ npx @modelcontextprotocol/inspector
 
 # Content MCP: http://localhost:8001/mcp
 # Prompt MCP: http://localhost:8002/mcp
-# Add header: Authorization: Bearer bm_your_token_here
+# Add header: Authorization: `Bearer bm_your_token_here`
 ```
 
 ### Claude Desktop Configuration
