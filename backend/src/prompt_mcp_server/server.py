@@ -50,6 +50,7 @@ Note: There is no delete tool. Prompts can only be deleted via the web UI.
 2. "Fix a typo in my code-review prompt"
    - Call `get_prompt_template(name="code-review")` to see raw content
    - Call `edit_prompt_template(name="code-review", old_str="teh code", new_str="the code")`
+   - NOTE: No `arguments` needed for typo fixes - existing arguments preserved automatically
    - Error: 400 with "no_match" if old_str not found
    - Error: 400 with "multiple_matches" (includes locations) if old_str found multiple times
 
@@ -535,12 +536,10 @@ async def handle_list_tools() -> list[types.Tool]:
                     "arguments": {
                         "type": "array",
                         "description": (
-                            "Optional: Replace ALL prompt arguments atomically with content "
-                            "update. Use this when adding/removing template variables "
-                            "(e.g., {{ new_var }}) to avoid validation errors. If omitted, "
-                            "validation uses existing arguments. If provided, this list "
-                            "FULLY REPLACES current arguments (not a merge). All arguments must "
-                            "be referred to in the prompt template and vice versa."
+                            "Only include when adding, removing, or renaming template variables. "
+                            "Do NOT include for simple text edits (typos, wording) - omitting "
+                            "preserves existing arguments automatically. If provided, this list "
+                            "FULLY REPLACES all current arguments (not a merge)."
                         ),
                         "items": {
                             "type": "object",
