@@ -6,8 +6,6 @@ model:
   temperature: 0
 
 eval:
-  # These are a little more complex with sporadic failures, so we need more samples to
-  # get reliable pass rates
   samples: 10
   success_threshold: 0.8
 

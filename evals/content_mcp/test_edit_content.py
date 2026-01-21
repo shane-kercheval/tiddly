@@ -9,11 +9,9 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Any
-
 from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
-
 from evals.utils import (
     create_checks_from_config,
     create_test_cases_from_config,
@@ -23,6 +21,10 @@ from evals.utils import (
     load_yaml_config,
 )
 
+# Limit concurrent MCP connections to avoid overwhelming npx mcp-remote processes.
+# Each connection spawns a subprocess, and too many concurrent connections cause
+# asyncio task/cancel scope issues in the MCP client SDK.
+_MCP_SEMAPHORE = asyncio.Semaphore(20)
 
 async def _call_tool_with_retry(
     mcp_manager: MCPClientManager,
@@ -83,9 +85,10 @@ async def _run_edit_content_eval(
     """
     config = get_content_mcp_config()
 
-    async with MCPClientManager(config) as mcp_manager:
+    # Acquire semaphore to limit concurrent MCP connections
+    async with _MCP_SEMAPHORE, MCPClientManager(config) as mcp_manager:
+        print(".", end="", flush=True)
         tools = mcp_manager.get_tools()
-
         # Create the note (with retry for transient failures)
         create_result = await _call_tool_with_retry(
             mcp_manager,

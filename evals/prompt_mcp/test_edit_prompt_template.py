@@ -10,6 +10,7 @@ This tests whether the tool descriptions and server instructions are sufficient
 for an LLM to use the tools correctly without hand-holding.
 """
 
+import asyncio
 import json
 import uuid
 from pathlib import Path
@@ -29,6 +30,11 @@ from evals.utils import (
     load_yaml_config,
 )
 
+
+# Limit concurrent MCP connections to avoid overwhelming npx mcp-remote processes.
+# Each connection spawns a subprocess, and too many concurrent connections cause
+# asyncio task/cancel scope issues in the MCP client SDK.
+_MCP_SEMAPHORE = asyncio.Semaphore(20)
 
 # Load configuration at module level
 CONFIG_PATH = Path(__file__).parent / "config_edit_prompt_template.yaml"
@@ -87,7 +93,9 @@ async def _run_edit_prompt_template_eval(
     try:
         # Get MCP tools and use get_prompt_template to get the context
         config = get_prompt_mcp_config()
-        async with MCPClientManager(config) as mcp_manager:
+        # Acquire semaphore to limit concurrent MCP connections
+        async with _MCP_SEMAPHORE, MCPClientManager(config) as mcp_manager:
+            print(".", end="", flush=True)
             tools = mcp_manager.get_tools()
 
             # Call get_prompt_template MCP tool to get the prompt data
