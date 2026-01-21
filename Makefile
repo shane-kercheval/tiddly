@@ -1,4 +1,4 @@
-.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp
+.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp
 
 -include .env
 export
@@ -86,6 +86,9 @@ evals:  ## Run all LLM evaluations (requires API + MCP servers running)
 
 evals-content-mcp:  ## Run Content MCP evaluations only
 	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/content_mcp/ -v --timeout=300
+
+evals-prompt-mcp:  ## Run Prompt MCP evaluations only
+	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/prompt_mcp/ -v --timeout=300
 
 ####
 # Testing & Quality

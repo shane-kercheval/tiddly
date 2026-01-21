@@ -148,3 +148,51 @@ async def delete_bookmark_via_api(bookmark_id: str) -> None:
             f"{API_BASE_URL}/bookmarks/{bookmark_id}?permanent=true",
             headers={"Authorization": f"Bearer {PAT_TOKEN}"},
         )
+
+
+async def delete_prompt_via_api(prompt_id: str) -> None:
+    """Delete a prompt via the API (permanent delete)."""
+    async with httpx.AsyncClient() as client:
+        await client.delete(
+            f"{API_BASE_URL}/prompts/{prompt_id}?permanent=true",
+            headers={"Authorization": f"Bearer {PAT_TOKEN}"},
+        )
+
+
+async def create_prompt_via_api(
+    name: str,
+    content: str,
+    arguments: list[dict[str, Any]],
+    title: str | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Create a prompt via the API and return the response."""
+    payload: dict[str, Any] = {
+        "name": name,
+        "content": content,
+        "arguments": arguments,
+    }
+    if title:
+        payload["title"] = title
+    if description:
+        payload["description"] = description
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{API_BASE_URL}/prompts/",
+            headers={"Authorization": f"Bearer {PAT_TOKEN}"},
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def get_prompt_via_api(prompt_id: str) -> dict[str, Any]:
+    """Get a prompt by ID via the API."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{API_BASE_URL}/prompts/{prompt_id}",
+            headers={"Authorization": f"Bearer {PAT_TOKEN}"},
+        )
+        response.raise_for_status()
+        return response.json()

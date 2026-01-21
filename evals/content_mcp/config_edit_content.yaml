@@ -6,7 +6,9 @@ model:
   temperature: 0
 
 eval:
-  samples: 5
+  # These are a little more complex with sporadic failures, so we need more samples to
+  # get reliable pass rates
+  samples: 10
   success_threshold: 0.8
 
 test_cases:
@@ -23,7 +25,7 @@ test_cases:
       tool_name: "edit_content"
       old_str_contains: "docu"
       new_str_contains: "document"
-      final_must_contain: "document"
+      final_must_contain: "This document needs"
       final_must_not_contain: "documentmentation"
     metadata:
       description: "Fix 'docu' -> 'document' without corrupting 'documentation'"
@@ -48,7 +50,7 @@ test_cases:
       tool_name: "edit_content"
       old_str_contains: "Clinet"
       new_str_contains: "Client"
-      final_must_contain: "APIClient"
+      final_must_contain: "client = APIClient("
       final_must_not_contain: "Clinet"
     metadata:
       description: "Fix 'APIClinet' -> 'APIClient' in code block"
@@ -92,7 +94,7 @@ test_cases:
       tool_name: "edit_content"
       old_str_contains: "Stauts"
       new_str_contains: "Status"
-      final_must_contain: "Status"
+      final_must_contain: "| Status"
       final_must_not_contain: "Stauts"
     metadata:
       description: "Fix 'Stauts' -> 'Status' in table header without breaking table"
@@ -116,7 +118,7 @@ test_cases:
       tool_name: "edit_content"
       old_str_contains: "Ntoes"
       new_str_contains: "Notes"
-      final_must_contain: "Project Notes"
+      final_must_contain: "title: Project Notes"
       final_must_not_contain: "Ntoes"
     metadata:
       description: "Fix 'Ntoes' -> 'Notes' in YAML frontmatter"
@@ -194,7 +196,7 @@ test_cases:
       tool_name: "edit_content"
       old_str_contains: "qeury"
       new_str_contains: "query"
-      final_must_contain: "query"
+      final_must_contain: "query = db.query"
       final_must_not_contain: "qeury"
     metadata:
       description: "Fix 'qeury' -> 'query' (appears multiple times in code block)"

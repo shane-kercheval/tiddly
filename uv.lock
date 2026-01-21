@@ -212,7 +212,7 @@ dev = [
     { name = "pytest-timeout", specifier = ">=2.3.1" },
     { name = "respx", specifier = ">=0.22.0" },
     { name = "ruff", specifier = ">=0.11.0" },
-    { name = "sik-llms", specifier = ">=0.3.27" },
+    { name = "sik-llms", specifier = ">=0.3.28" },
     { name = "testcontainers", specifier = ">=4.13.3" },
 ]
 
@@ -1922,7 +1922,7 @@ wheels = [
 
 [[package]]
 name = "sik-llms"
-version = "0.3.27"
+version = "0.3.28"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anthropic" },
@@ -1933,9 +1933,9 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "tiktoken" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/79/7c/e75545bf7e5743ba67286a46b61e607b37ee487722d7c590d22ee252ef05/sik_llms-0.3.27.tar.gz", hash = "sha256:9f5fc855a7612a23a68d7239d60d0766aacb11e9223e69b779b19382c38ed849", size = 162423, upload-time = "2026-01-21T00:00:42.663Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/90/62/1928697389cbb2b1368de32430399df86fb912449860f5678c3b64ff5537/sik_llms-0.3.28.tar.gz", hash = "sha256:cf2861205d143ca55a5e34fe3ef1d1d47897e256133042d758e732340a108de6", size = 166384, upload-time = "2026-01-21T07:15:04.145Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/54/41/ff6cc0bc0ff98e51a12290e85cd33099e7277345b803442839afb5a85d44/sik_llms-0.3.27-py3-none-any.whl", hash = "sha256:80e4a983d7249b47459d9c0b5188fda46b9e26b643a6852753933fe813eeaa14", size = 41739, upload-time = "2026-01-21T00:00:40.859Z" },
+    { url = "https://files.pythonhosted.org/packages/75/de/2f6303909d6897248f3281e8921cde0374ca342350d25d5d5461e64fd27a/sik_llms-0.3.28-py3-none-any.whl", hash = "sha256:5937d811fa3135af80014057c8261bc3c266a543e7e018a1b53dce6408cf8b66", size = 44187, upload-time = "2026-01-21T07:15:03.007Z" },
 ]
 
 [[package]]
