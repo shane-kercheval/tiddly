@@ -325,88 +325,63 @@ types.Tool(
 
 ### Milestone 5: Update Server Instructions and Tool Descriptions
 
-**Goal:** Update the Prompt MCP server instructions and all tool descriptions to reflect the new tools and name-based workflow.
+**Goal:** Update the Prompt MCP server instructions and all tool descriptions to address usability issues identified from an LLM agent perspective.
 
 **Dependencies:** Milestones 2, 3, 4
 
 **Key Changes:**
 
-1. **Update server instructions** in `backend/src/prompt_mcp_server/server.py`:
-   - Update tool list to reflect new names
-   - Update example workflows to use name-based tools
-   - Remove references to UUID `id` parameter
-   - Add workflow example for `get_prompt_template` → `edit_prompt_template`
+Rewrite server instructions and tool descriptions to address the following issues identified during review:
 
-2. **Review and improve all tool descriptions**:
-   - Ensure consistency in terminology
-   - Clear guidance on when to use each tool
-   - Cross-references between related tools
+**Issues with Current Server Instructions:**
 
-**Updated Server Instructions (draft):**
+1. **Remove confusing "Prompts capability" section**: The current instructions list `list_prompts` and `get_prompt` under "Prompts (MCP prompts capability)" but these are MCP protocol-level capabilities, not tools the agent can call. This creates confusion - agents see them listed but can't invoke them. Remove this section entirely or clarify that these are automatic protocol features, not callable tools.
 
-```python
-instructions="""
-This is the Prompt MCP server for tiddly.me (also known as "tiddly"). When users mention
-tiddly, tiddly.me, or their prompts/templates, they're referring to this system.
+2. **Workflow examples reference non-callable capabilities**: Example 2 shows `get_prompt(name="code-review", arguments={})` as if it's a tool call, but agents can't call it directly. Update examples to only reference actual tools.
 
-This MCP server is a prompt template manager for creating, editing, and using reusable AI prompts.
-Prompts are Jinja2 templates with defined arguments that can be rendered with user-provided values.
+3. **Update tool list**: Reflect the new tools (`get_prompt_template`, `edit_prompt_template`, `update_prompt_metadata`) and remove references to old `update_prompt` tool.
 
-Available capabilities:
+4. **Update all examples to use `name` instead of `id`**: Remove any workflow examples that reference UUID lookups.
 
-**Prompts (MCP prompts capability):**
-- `list_prompts`: List all saved prompt templates with their arguments
-- `get_prompt`: Render a prompt template by name with provided arguments
+**Clarifications to Add to Tool Descriptions:**
 
-**Tools:**
-- `get_prompt_template`: Get raw template content and arguments (for viewing/editing)
-- `create_prompt`: Create a new prompt template
-- `edit_prompt_template`: Edit template content using string replacement
-- `update_prompt_metadata`: Update title, description, tags, or rename a prompt
+1. **`create_prompt`**:
+   - What happens if name already exists? (Returns 409 conflict error)
+   - What does the tool return on success? (Created prompt with id, name, etc.)
+   - Are unused arguments (defined but not in template) an error? (Yes, validation fails)
 
-Example workflows:
+2. **`edit_prompt_template`**:
+   - What if `old_str` matches zero times? (Returns error with `no_match`)
+   - What if `old_str` matches multiple times? (Returns error with `multiple_matches` and match locations)
+   - Clarify that this is for template content only, not metadata
 
-1. "What prompts do I have?"
-   - Use `list_prompts` to see all available templates
+3. **`update_prompt_metadata`**:
+   - Clarify this is for metadata only (title, description, tags, name)
+   - What happens on rename conflict? (Returns 409 error)
 
-2. "Use my code-review prompt for this Python file"
-   - Call `get_prompt(name="code-review", arguments={"code": "<file contents>"})`
+4. **`get_prompt_template`**:
+   - Clarify difference from MCP `get_prompt` capability (raw template vs rendered)
+   - When to use: before editing, to inspect template structure
 
-3. "Create a prompt for summarizing articles"
-   - Call `create_prompt` tool with name, content, and arguments
+**General Improvements:**
 
-4. "Show me my code-review prompt template"
-   - Call `get_prompt_template(name="code-review")` to see raw content
+1. **Error response documentation**: Briefly describe what error responses look like so agents know what to expect
 
-5. "Fix a typo in my code-review prompt"
-   - Call `get_prompt_template(name="code-review")` to see current content
-   - Call `edit_prompt_template(name="code-review", old_str="teh code", new_str="the code")`
+2. **Trigger phrases**: Consider whether "my prompts" (without mentioning tiddly) should trigger this server, or only explicit references to tiddly/tiddly.me
 
-6. "Add a new variable to my prompt"
-   - Call `get_prompt_template(name="my-prompt")` to see current content and arguments
-   - Call `edit_prompt_template` with BOTH the content change AND updated arguments list
-
-7. "Rename my prompt from 'old-name' to 'new-name'"
-   - Call `update_prompt_metadata(name="old-name", new_name="new-name")`
-
-8. "Add tags to my prompt"
-   - Call `update_prompt_metadata(name="my-prompt", tags=["tag1", "tag2"])`
-
-Prompt naming: lowercase with hyphens (e.g., `code-review`, `meeting-notes`).
-Argument naming: lowercase with underscores (e.g., `code_to_review`, `article_text`).
-Template syntax: Jinja2 with {{ variable_name }} placeholders.
-""".strip()
-```
+3. **Delete capability**: Note that there is no delete tool (if that's intentional) so agents don't search for one
 
 **Testing Strategy:**
-- Manual review of instructions for clarity and accuracy
-- Verify all referenced tools exist
-- Verify example workflows are correct
+- Manual review of updated instructions for clarity and accuracy
+- Verify all referenced tools actually exist
+- Verify example workflows only use callable tools
+- Have a fresh LLM agent review the instructions and identify any remaining confusion
 
 **Success Criteria:**
-- Instructions accurately reflect available tools
-- Example workflows are correct and helpful
-- No references to old tool names or UUID parameters
+- No references to `list_prompts`/`get_prompt` as callable tools
+- All examples use actual tool names with `name` parameter
+- Tool descriptions include error behavior
+- Instructions are self-contained (agent doesn't need external docs)
 
 **Risk Factors:**
 - None significant
