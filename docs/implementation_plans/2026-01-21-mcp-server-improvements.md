@@ -37,6 +37,10 @@ The current Prompt MCP server has usability issues for LLM agents:
 
 3. **No `/prompts/name/{name}/search` endpoint**: Prompts are typically small (unlike notes), and the new `get_prompt_template` tool provides the raw content for inspection.
 
+4. **Low-level MCP SDK usage**: The Prompt MCP server uses the low-level MCP SDK (not FastMCP) for two reasons:
+   - **Dynamic prompts**: FastMCP requires prompts to be defined at startup. The low-level SDK allows prompts to be fetched dynamically from the API.
+   - **`isError=True` support**: The low-level SDK allows returning `CallToolResult(isError=True)` for 400 errors (no_match, multiple_matches) per MCP spec. FastMCP cannot set this flag. New tools must preserve this pattern.
+
 ---
 
 ## Milestones
@@ -131,7 +135,7 @@ This means an agent cannot inspect a template that has required arguments withou
    - This is a tool we define (`@server.call_tool()`), not a protocol capability
    - Takes `name` parameter (not `id`)
    - Calls `GET /prompts/name/{name}` API endpoint
-   - Returns raw content, arguments, and metadata (id, name, title, description, tags)
+   - Returns raw content, arguments, and metadata as **JSON** (agent needs to extract values for subsequent edits)
    - Does NOT render the template
 
 **Note on Partial Reads:** The API supports `start_line`/`end_line` for partial reads, but this tool intentionally omits them. Prompts have a 100KB size limit (`max_prompt_content_length`) unlike notes which can be much larger. Full content retrieval is acceptable for prompts.
@@ -328,6 +332,7 @@ types.Tool(
 **Implementation Notes:**
 - When calling the API, map `new_name` → `name` in the payload (the API's `PromptUpdate` schema uses `name` for the new name)
 - Only include fields that were provided (don't send nulls for omitted fields)
+- **No-op case**: If called with only `name` and no other fields, return success (valid no-op). The API handles this gracefully.
 
 **Testing Strategy:**
 
@@ -441,21 +446,34 @@ Rewrite server instructions and tool descriptions to address the following issue
 
 3. **Update helper functions in `evals/utils.py`** if needed
 
+**Eval Approach Clarification:**
+
+The eval tests single tool prediction: "given this prompt content, can the LLM produce the correct `edit_prompt_template` call?" We're changing *how* we get the context (MCP tool instead of direct API call), not testing multi-step workflows.
+
+The eval should:
+1. Create prompt via API (for setup)
+2. Call `get_prompt_template` MCP tool to get context
+3. Show context to LLM and get single tool prediction for `edit_prompt_template`
+4. Validate the prediction
+
 **Key Code Changes:**
 
 ```python
-# Before (simulating get_prompt):
+# Before (direct API call):
 prompt_data = await get_prompt_via_api(prompt_id)
 prompt_display = _format_prompt_for_llm(prompt_data)
 
-# After (using actual MCP tool):
-# Call get_prompt_template via MCP
+# After (using MCP tool):
 get_template_result = await mcp_manager.call_tool(
     "get_prompt_template",
     {"name": unique_name}
 )
-prompt_display = _format_template_response(get_template_result)
+prompt_display = _format_prompt_for_llm(get_template_result)
 ```
+
+**Update `_format_prompt_for_llm()`:**
+- Remove the `Prompt ID: ...` line since tools now use `name`
+- Keep the `Name: ...` line as the primary identifier
 
 **Testing Strategy:**
 - Run evals to verify they still work correctly
