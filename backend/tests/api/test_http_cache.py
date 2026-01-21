@@ -328,11 +328,11 @@ class TestETagIntegration:
 
     @pytest.mark.asyncio
     async def test__etag_integration__rate_limit_headers_preserved(
-        self, client: AsyncClient,
+        self, rate_limit_client: AsyncClient,
     ) -> None:
         """Rate limit headers should be preserved alongside ETag headers."""
         # Use an authenticated endpoint that has rate limiting
-        response = await client.get("/bookmarks/")
+        response = await rate_limit_client.get("/bookmarks/")
         assert response.status_code == 200
 
         # Both ETag and rate limit headers should be present

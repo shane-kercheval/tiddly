@@ -5,6 +5,7 @@ These tests verify that an LLM can correctly use the edit_content tool
 to make precise text replacements in notes and bookmarks.
 """
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,32 @@ from evals.utils import (
     get_tool_prediction,
     load_yaml_config,
 )
+
+
+async def _call_tool_with_retry(
+    mcp_manager: MCPClientManager,
+    tool_name: str,
+    args: dict[str, Any],
+    max_retries: int = 3,
+    retry_delay: float = 1.0,
+) -> Any:
+    """Call MCP tool with retry logic for transient failures."""
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            result = await mcp_manager.call_tool(tool_name, args)
+            # Check for valid response (either content or structuredContent)
+            has_content = result.content and len(result.content) > 0
+            has_structured = result.structuredContent is not None
+            if has_content or has_structured:
+                return result
+            # Empty response, retry
+            last_error = ValueError(f"Empty response from {tool_name}")
+        except Exception as e:
+            last_error = e
+        if attempt < max_retries - 1:
+            await asyncio.sleep(retry_delay * (attempt + 1))
+    raise last_error or ValueError(f"Failed to call {tool_name} after {max_retries} retries")
 
 # Load configuration at module level
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
@@ -59,23 +86,31 @@ async def _run_edit_content_eval(
     async with MCPClientManager(config) as mcp_manager:
         tools = mcp_manager.get_tools()
 
-        # Create the note
-        create_result = await mcp_manager.call_tool("create_note", {
-            "title": "Eval Test Note",
-            "content": content,
-            "tags": ["eval-test"],
-        })
+        # Create the note (with retry for transient failures)
+        create_result = await _call_tool_with_retry(
+            mcp_manager,
+            "create_note",
+            {
+                "title": "Eval Test Note",
+                "content": content,
+                "tags": ["eval-test"],
+            },
+        )
 
         content_data = json.loads(create_result.content[0].text)
         content_id = content_data["id"]
 
         try:
-            # Search for the issue
-            search_result = await mcp_manager.call_tool("search_in_content", {
-                "id": content_id,
-                "type": "note",
-                "query": search_query,
-            })
+            # Search for the issue (with retry)
+            search_result = await _call_tool_with_retry(
+                mcp_manager,
+                "search_in_content",
+                {
+                    "id": content_id,
+                    "type": "note",
+                    "query": search_query,
+                },
+            )
             search_response = json.dumps(search_result.structuredContent, indent=2)
 
             # Build prompt
@@ -102,22 +137,33 @@ Fix the issue."""
             # Execute the tool if it's edit_content
             tool_result = None
             final_content = None
+            edit_error = None
 
             if prediction["tool_name"] == "edit_content":
-                edit_result = await mcp_manager.call_tool(
-                    "edit_content",
-                    prediction["arguments"],
-                )
-                if not edit_result.isError:
-                    tool_result = edit_result.structuredContent
-
-                    # Get final content
-                    get_result = await mcp_manager.call_tool(
-                        "get_content",
-                        {"id": content_id, "type": "note"},
+                try:
+                    edit_result = await _call_tool_with_retry(
+                        mcp_manager,
+                        "edit_content",
+                        prediction["arguments"],
                     )
-                    if not get_result.isError:
-                        final_content = get_result.structuredContent.get("content")
+                    if not edit_result.isError:
+                        tool_result = edit_result.structuredContent
+
+                        # Get final content
+                        get_result = await _call_tool_with_retry(
+                            mcp_manager,
+                            "get_content",
+                            {"id": content_id, "type": "note"},
+                        )
+                        if not get_result.isError:
+                            final_content = get_result.structuredContent.get("content")
+                    # Capture error details for debugging
+                    elif edit_result.content:
+                        edit_error = edit_result.content[0].text
+                    else:
+                        edit_error = "Unknown error"
+                except Exception as e:
+                    edit_error = str(e)
 
             return {
                 "content_id": content_id,
@@ -125,6 +171,7 @@ Fix the issue."""
                 "tool_prediction": prediction,
                 "tool_result": tool_result,
                 "final_content": final_content,
+                "edit_error": edit_error,
             }
 
         finally:

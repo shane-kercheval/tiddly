@@ -15,6 +15,7 @@ from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
 from core.auth_cache import AuthCache, set_auth_cache
+from core.config import Settings
 from core.redis import RedisClient, set_redis_client
 from models.base import Base
 
@@ -157,3 +158,43 @@ async def client(
     app.dependency_overrides.clear()
     set_auth_cache(None)
     set_redis_client(None)
+
+
+@pytest.fixture
+async def rate_limit_client(
+    client: AsyncClient,
+) -> AsyncGenerator[AsyncClient]:
+    """
+    Wrap the standard test client to enable rate limiting.
+
+    The standard client uses dev_mode=True which bypasses rate limiting.
+    This fixture patches _apply_rate_limit to NOT skip rate limiting,
+    while keeping auth in dev mode (so dev user still works).
+    """
+    from core import auth
+
+    # Store the original function
+    original_apply_rate_limit = auth._apply_rate_limit
+
+    async def patched_apply_rate_limit(
+        user: object,
+        request: object,
+        settings: Settings,
+    ) -> None:
+        """Apply rate limiting even in dev mode."""
+        # Temporarily pretend we're not in dev mode for rate limiting
+        original_dev_mode = settings.dev_mode
+        try:
+            # Use object.__setattr__ to bypass frozen settings if needed
+            object.__setattr__(settings, "dev_mode", False)
+            await original_apply_rate_limit(user, request, settings)
+        finally:
+            object.__setattr__(settings, "dev_mode", original_dev_mode)
+
+    # Patch the function
+    auth._apply_rate_limit = patched_apply_rate_limit
+    try:
+        yield client
+    finally:
+        # Restore original
+        auth._apply_rate_limit = original_apply_rate_limit

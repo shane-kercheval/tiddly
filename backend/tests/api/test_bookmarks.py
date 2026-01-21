@@ -1439,7 +1439,7 @@ async def test_fetch_metadata_requires_auth(client: AsyncClient) -> None:
     assert response.status_code == 200
 
 
-async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
+async def test_fetch_metadata_rate_limited(rate_limit_client: AsyncClient) -> None:
     """Test that fetch-metadata endpoint returns 429 when rate limit exceeded."""
     import time
 
@@ -1473,7 +1473,7 @@ async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
         'core.auth.check_rate_limit',
         side_effect=mock_check,
     ):
-        response = await client.get(
+        response = await rate_limit_client.get(
             "/bookmarks/fetch-metadata",
             params={"url": "https://example.com/page-over-limit"},
         )
