@@ -495,39 +495,43 @@ prompt_display = _format_prompt_for_llm(get_template_result)
 
 **Dependencies:** None (can be done anytime)
 
-**Key Changes:**
+**Status:** Complete
 
-1. **Review `backend/src/mcp_server/server.py`** for:
-   - Tool naming consistency
-   - Description clarity
-   - Workflow examples accuracy
-   - Any similar UUID vs name issues (Content MCP uses UUIDs which is appropriate for bookmarks/notes)
+**Review Summary:**
 
-2. **Document recommendations** for any improvements found
+The Content MCP server (`mcp_server/server.py`) is well-structured and does not suffer from the same issues as the Prompt MCP server. Key findings:
 
-**Current Observations:**
+**Why UUID Usage is Appropriate Here:**
+- Bookmarks and notes don't have unique user-friendly names like prompts do
+- The workflow is: search → get ID from results → use ID for operations
+- This is the correct pattern for content items
 
-The Content MCP server (`mcp_server/server.py`) is generally well-structured. Key differences from Prompt MCP:
+**Strengths Identified:**
+1. **Clear tool naming**: `search_bookmarks`, `search_notes`, `get_content`, `edit_content`, `search_in_content`, `create_bookmark`, `create_note`, `list_tags` - all self-explanatory
+2. **Comprehensive instructions**: Good workflow examples that only reference actual tools
+3. **No MCP capabilities confusion**: Content MCP doesn't use the prompts capability, so there's no confusion about what agents can/can't call
+4. **Proper tool annotations**: Uses `readOnlyHint`, `destructiveHint` correctly per MCP spec
+5. **Good error handling**: Consistent error messages with context
 
-- Uses UUID `id` for content items - this is appropriate since bookmarks/notes don't have user-friendly unique names like prompts do
-- Tool naming is clear (`get_content`, `edit_content`, `search_in_content`)
-- Instructions and workflows are comprehensive
+**Minor Recommendations (Low Priority):**
 
-**Potential Improvements to Consider:**
+1. **Document 400 error handling in instructions**: The `edit_content` tool returns 400 errors (no_match, multiple_matches) as successful results due to FastMCP limitations. This is documented in code comments but could be briefly mentioned in server instructions for agent clarity. However, the current tool description does explain this:
+   > "Note on error handling: Due to FastMCP SDK limitations, 400 errors (no_match, multiple_matches) are returned as successful tool results..."
 
-1. **Server instructions clarity**: Ensure "tiddly.me" branding is consistent
-2. **Tool descriptions**: Review for any unclear wording
-3. **Error messages**: Ensure consistency with Prompt MCP
+2. **Consider adding delete disclaimer**: Similar to Prompt MCP, could note that there's no delete tool and content can only be deleted/archived via web UI. This would prevent agents from searching for a non-existent tool.
 
-**Deliverable:** A brief document or comments in the implementation PR noting any recommended improvements for Content MCP. These would be tracked as separate follow-up work if non-trivial.
+3. **Race condition documentation**: Same as Prompt MCP - if content is deleted between search and edit, agent gets 404. Standard behavior, but could be documented.
 
-**Success Criteria:**
-- Content MCP reviewed for consistency issues
-- Recommendations documented
-- No blocking changes required for this plan
+**No Changes Required:**
+These recommendations are nice-to-haves. The Content MCP server works well as-is and doesn't have the usability issues that prompted the Prompt MCP improvements.
 
-**Risk Factors:**
-- May uncover larger issues requiring separate work
+**Conclusion:**
+The Content MCP server is in good shape. The Prompt MCP improvements were specifically needed because:
+1. Prompts have unique names that are better identifiers than UUIDs for agents
+2. The MCP prompts capability created confusion about what agents could call
+3. `update_prompt` was ambiguous (content vs metadata)
+
+None of these issues exist in the Content MCP server.
 
 ---
 

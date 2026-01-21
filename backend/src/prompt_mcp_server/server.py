@@ -31,50 +31,53 @@ tiddly, tiddly.me, or their prompts/templates, they're referring to this system.
 This MCP server is a prompt template manager for creating, editing, and using reusable AI prompts.
 Prompts are Jinja2 templates with defined arguments that can be rendered with user-provided values.
 
-Available capabilities:
+**Available Tools:**
+- `get_prompt_template`: Get raw template content and arguments for viewing/editing
+- `create_prompt`: Create a new prompt template
+- `edit_prompt_template`: Edit template content using string replacement
+- `update_prompt_metadata`: Update title, description, tags, or rename a prompt
 
-**Prompts (MCP prompts capability):**
-- `list_prompts`: List all saved prompt templates with their arguments
-- `get_prompt`: Render a prompt template by name with provided arguments
+Note: There is no delete tool. Prompts can only be deleted via the web UI.
 
-**Tools:**
-- `create_prompt`: Create a new prompt template with Jinja2 content
-- `update_prompt`: Edit prompt content using string replacement (supports atomic argument updates)
+**Example Workflows:**
 
-Example workflows:
+1. "Create a prompt for summarizing articles"
+   - Call `create_prompt` with name, content, and arguments
+   - Returns success with the created prompt's name and ID
+   - Error: 409 if name already exists
 
-1. "What prompts do I have?"
-   - Use `list_prompts` to see all available templates
+2. "Fix a typo in my code-review prompt"
+   - Call `get_prompt_template(name="code-review")` to see raw content
+   - Call `edit_prompt_template(name="code-review", old_str="teh code", new_str="the code")`
+   - Error: 400 with "no_match" if old_str not found
+   - Error: 400 with "multiple_matches" (includes locations) if old_str found multiple times
 
-2. "Use my code-review prompt for this Python file"
-   - Call `get_prompt(name="code-review", arguments={"code": "<file contents>"})`
-   - The rendered template is returned as user message content
-
-3. "Create a prompt for summarizing articles"
-   - Call `create_prompt` tool with:
-     - name: "summarize-article"
-     - content: "Summarize the following article:\\n\\n{{ article_text }}\\n\\nProvide..."
-     - arguments: [{"name": "article_text", "description": "The article to summarize", "required": true}]
-
-4. "Fix a typo in my code-review prompt"
-   - Call `get_prompt(name="code-review", arguments={})` to see current content
-   - Call `update_prompt(id="...", old_str="teh code", new_str="the code")`
-
-5. "Add a new variable to my prompt"
-   - When adding {{ new_var }} to the template, you must also add its argument definition
-   - Call `update_prompt` with BOTH the content change AND the updated arguments list:
+3. "Add a new variable to my prompt"
+   - Call `get_prompt_template(name="my-prompt")` to see current content and arguments
+   - Call `edit_prompt_template` with BOTH the content change AND updated arguments list:
+     - name: "my-prompt"
      - old_str: "Review this code:"
      - new_str: "Review this {{ language }} code:"
-     - arguments: [...existing args..., {"name": "language", "description": "Programming language"}]
-   - The arguments list REPLACES all existing arguments, so include the ones you want to keep
+     - arguments: [existing args + {"name": "language", "description": "Programming language"}]
+   - The arguments list REPLACES all existing arguments
 
-6. "Remove a variable from my prompt"
-   - Similarly, remove from both content and arguments in one call
-   - Omit the removed argument from the arguments list
+4. "Rename my prompt"
+   - Call `update_prompt_metadata(name="old-name", new_name="new-name")`
+   - Error: 409 if new name already exists
 
-Prompt naming: lowercase with hyphens (e.g., `code-review`, `meeting-notes`).
-Argument naming: lowercase with underscores (e.g., `code_to_review`, `article_text`).
-Template syntax: Jinja2 with {{ variable_name }} placeholders.
+5. "Update prompt tags"
+   - Call `update_prompt_metadata(name="my-prompt", tags=["new-tag-1", "new-tag-2"])`
+   - Tags list replaces all existing tags
+
+**Naming Conventions:**
+- Prompt names: lowercase with hyphens (e.g., `code-review`, `meeting-notes`)
+- Argument names: lowercase with underscores (e.g., `code_to_review`, `article_text`)
+- Template syntax: Jinja2 with {{ variable_name }} placeholders
+
+**Important Notes:**
+- All tools use prompt `name` (not ID) for identification
+- Archived prompts cannot be edited via MCP. Restore them via the web UI first.
+- Template validation runs after edits - invalid templates are rejected with error details
 """.strip(),  # noqa: E501
 )
 
@@ -392,8 +395,30 @@ async def _track_usage(
 
 @server.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
-    """List available tools (create_prompt, update_prompt)."""
+    """List available tools (get_prompt_template, create_prompt, update_prompt)."""
     return [
+        types.Tool(
+            name="get_prompt_template",
+            description=(
+                "Get a prompt template's raw content and arguments for viewing or editing. "
+                "Unlike the MCP get_prompt capability which renders templates with arguments, "
+                "this returns the raw Jinja2 template content. Use this before edit_prompt_template "
+                "to see the current content and construct the old_str for string replacement."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "The prompt name (e.g., 'code-review'). "
+                            "Get names from list_prompts."
+                        ),
+                    },
+                },
+                "required": ["name"],
+            },
+        ),
         types.Tool(
             name="create_prompt",
             description=(
@@ -474,26 +499,28 @@ async def handle_list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="update_prompt",
+            name="edit_prompt_template",
             description=(
-                "Update a prompt's content using string replacement. Optionally update "
-                "arguments atomically with content changes. Updating arguments is required when "
-                "editing template text that adds or removes variables, to avoid validation errors."
+                "Edit a prompt template's content using string replacement. Use get_prompt_template "
+                "first to see the current content and construct the old_str. Optionally update "
+                "arguments atomically when adding/removing template variables."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "id": {
+                    "name": {
                         "type": "string",
-                        "description": "The prompt ID (UUID)",
+                        "description": (
+                            "The prompt name (e.g., 'code-review'). "
+                            "Get names from list_prompts."
+                        ),
                     },
                     "old_str": {
                         "type": "string",
                         "minLength": 1,
                         "description": (
                             "Exact text to find in the prompt content. Must match exactly "
-                            "one location. Optionally include 3-5 lines of surrounding context "
-                            "for uniqueness."
+                            "one location. Include 3-5 lines of surrounding context for uniqueness."
                         ),
                     },
                     "new_str": {
@@ -532,7 +559,50 @@ async def handle_list_tools() -> list[types.Tool]:
                         },
                     },
                 },
-                "required": ["id", "old_str", "new_str"],
+                "required": ["name", "old_str", "new_str"],
+            },
+        ),
+        types.Tool(
+            name="update_prompt_metadata",
+            description=(
+                "Update a prompt's metadata (title, description, tags, or name). "
+                "To edit template content or arguments, use edit_prompt_template instead."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "Current prompt name (e.g., 'code-review'). "
+                            "Get names from list_prompts."
+                        ),
+                    },
+                    "new_name": {
+                        "type": "string",
+                        "description": (
+                            "New name for the prompt (optional). "
+                            "Must be unique and lowercase-with-hyphens."
+                        ),
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "New human-readable title (optional).",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "New description (optional).",
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "New tags list (optional). Replaces all existing tags. "
+                            "Use lowercase-with-hyphens format."
+                        ),
+                    },
+                },
+                "required": ["name"],
             },
         ),
     ]
@@ -543,17 +613,84 @@ async def handle_call_tool(
     name: str,
     arguments: dict[str, Any] | None,
 ) -> list[types.TextContent] | types.CallToolResult:
-    """Handle tool calls (create_prompt, update_prompt)."""
+    """Handle tool calls (get_prompt_template, create_prompt, edit_prompt_template, update_prompt_metadata)."""
+    if name == "get_prompt_template":
+        return await _handle_get_prompt_template(arguments or {})
     if name == "create_prompt":
         return await _handle_create_prompt(arguments or {})
-    if name == "update_prompt":
-        return await _handle_update_prompt(arguments or {})
+    if name == "edit_prompt_template":
+        return await _handle_edit_prompt_template(arguments or {})
+    if name == "update_prompt_metadata":
+        return await _handle_update_prompt_metadata(arguments or {})
     raise McpError(
         types.ErrorData(
             code=types.INVALID_PARAMS,
             message=f"Unknown tool: {name}",
         ),
     )
+
+
+async def _handle_get_prompt_template(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    """
+    Handle get_prompt_template tool call.
+
+    Fetches a prompt by name and returns the raw template content and metadata as JSON.
+    This allows agents to inspect the template before editing.
+    """
+    import json
+
+    # Validate required parameter
+    prompt_name = arguments.get("name", "")
+    if not prompt_name:
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message="Missing required parameter: name",
+            ),
+        )
+
+    client = get_http_client()
+    token = _get_token()
+
+    try:
+        prompt = await api_get(client, f"/prompts/name/{prompt_name}", token)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise McpError(
+                types.ErrorData(
+                    code=types.INVALID_PARAMS,
+                    message=f"Prompt '{prompt_name}' not found",
+                ),
+            ) from e
+        _handle_api_error(e, f"fetching prompt '{prompt_name}'")
+        raise
+    except httpx.RequestError as e:
+        raise McpError(
+            types.ErrorData(
+                code=types.INTERNAL_ERROR,
+                message=f"API unavailable: {e}",
+            ),
+        ) from e
+
+    # Return raw template data as JSON for agent parsing
+    response_data = {
+        "id": prompt.get("id"),
+        "name": prompt.get("name"),
+        "title": prompt.get("title"),
+        "description": prompt.get("description"),
+        "content": prompt.get("content"),
+        "arguments": prompt.get("arguments", []),
+        "tags": prompt.get("tags", []),
+    }
+
+    return [
+        types.TextContent(
+            type="text",
+            text=json.dumps(response_data, indent=2),
+        ),
+    ]
 
 
 async def _handle_create_prompt(arguments: dict[str, Any]) -> list[types.TextContent]:
@@ -609,13 +746,13 @@ async def _handle_create_prompt(arguments: dict[str, Any]) -> list[types.TextCon
     ]
 
 
-async def _handle_update_prompt(
+async def _handle_edit_prompt_template(
     arguments: dict[str, Any],
 ) -> list[types.TextContent] | types.CallToolResult:
     """
-    Handle update_prompt tool call.
+    Handle edit_prompt_template tool call.
 
-    Performs string replacement on prompt content via the str-replace API endpoint.
+    Performs string replacement on prompt content via the name-based str-replace API endpoint.
     Optionally updates arguments atomically with content changes.
 
     Returns:
@@ -632,12 +769,12 @@ async def _handle_update_prompt(
         is only in the isError flag. See implementation plan appendix for rationale.
     """
     # Validate required parameters first (before accessing HTTP client/token)
-    prompt_id = arguments.get("id", "")
-    if not prompt_id:
+    prompt_name = arguments.get("name", "")
+    if not prompt_name:
         raise McpError(
             types.ErrorData(
                 code=types.INVALID_PARAMS,
-                message="Missing required parameter: id",
+                message="Missing required parameter: name",
             ),
         )
 
@@ -668,13 +805,15 @@ async def _handle_update_prompt(
         payload["arguments"] = arguments["arguments"]
 
     try:
-        result = await api_patch(client, f"/prompts/{prompt_id}/str-replace", token, payload)
+        result = await api_patch(
+            client, f"/prompts/name/{prompt_name}/str-replace", token, payload,
+        )
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             raise McpError(
                 types.ErrorData(
                     code=types.INVALID_PARAMS,
-                    message=f"Prompt with ID {prompt_id} not found",
+                    message=f"Prompt '{prompt_name}' not found",
                 ),
             ) from e
         if e.response.status_code == 400:
@@ -699,7 +838,7 @@ async def _handle_update_prompt(
                 )
             except (ValueError, KeyError):
                 pass
-        _handle_api_error(e, f"updating prompt {prompt_id}")
+        _handle_api_error(e, f"editing prompt '{prompt_name}'")
         raise
     except httpx.RequestError as e:
         raise McpError(
@@ -713,12 +852,106 @@ async def _handle_update_prompt(
     match_type = result.get("match_type", "exact")
     line = result.get("line", 0)
     data = result.get("data", {})
-    prompt_id_result = data.get("id", prompt_id)
+    prompt_id = data.get("id", "")
 
     return [
         types.TextContent(
             type="text",
-            text=f"Updated prompt {prompt_id_result} (match: {match_type} at line {line})",
+            text=f"Updated prompt '{prompt_name}' (ID: {prompt_id}, match: {match_type} at line {line})",
+        ),
+    ]
+
+
+async def _handle_update_prompt_metadata(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    """
+    Handle update_prompt_metadata tool call.
+
+    Updates prompt metadata (title, description, tags, name) via the name-based PATCH endpoint.
+    Does not update content or arguments - use edit_prompt_template for those.
+    """
+    # Validate required parameter
+    prompt_name = arguments.get("name", "")
+    if not prompt_name:
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message="Missing required parameter: name",
+            ),
+        )
+
+    client = get_http_client()
+    token = _get_token()
+
+    # Build payload - only include fields that were provided
+    # Map new_name -> name for the API (PromptUpdate schema uses 'name' for the new name)
+    payload: dict[str, Any] = {}
+    if "new_name" in arguments:
+        payload["name"] = arguments["new_name"]
+    if "title" in arguments:
+        payload["title"] = arguments["title"]
+    if "description" in arguments:
+        payload["description"] = arguments["description"]
+    if "tags" in arguments:
+        payload["tags"] = arguments["tags"]
+
+    try:
+        result = await api_patch(
+            client, f"/prompts/name/{prompt_name}", token, payload,
+        )
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise McpError(
+                types.ErrorData(
+                    code=types.INVALID_PARAMS,
+                    message=f"Prompt '{prompt_name}' not found",
+                ),
+            ) from e
+        if e.response.status_code == 409:
+            # Name conflict
+            try:
+                detail = e.response.json().get("detail", {})
+                message = detail.get("message", "A prompt with this name already exists")
+            except (ValueError, KeyError):
+                message = "A prompt with this name already exists"
+            raise McpError(
+                types.ErrorData(
+                    code=types.INVALID_PARAMS,
+                    message=message,
+                ),
+            ) from e
+        _handle_api_error(e, f"updating metadata for prompt '{prompt_name}'")
+        raise
+    except httpx.RequestError as e:
+        raise McpError(
+            types.ErrorData(
+                code=types.INTERNAL_ERROR,
+                message=f"API unavailable: {e}",
+            ),
+        ) from e
+
+    # Success response
+    updated_name = result.get("name", prompt_name)
+    prompt_id = result.get("id", "")
+
+    # Build a summary of what was updated
+    updates = []
+    if "new_name" in arguments:
+        updates.append(f"renamed to '{updated_name}'")
+    if "title" in arguments:
+        updates.append("title updated")
+    if "description" in arguments:
+        updates.append("description updated")
+    if "tags" in arguments:
+        updates.append("tags updated")
+
+    summary = ", ".join(updates) if updates else "no changes"
+
+    return [
+        types.TextContent(
+            type="text",
+            text=f"Updated prompt '{prompt_name}' (ID: {prompt_id}): {summary}",
         ),
     ]
 

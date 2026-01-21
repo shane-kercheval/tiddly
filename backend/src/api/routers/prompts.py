@@ -181,6 +181,145 @@ async def get_prompt_by_name(
     return response_data
 
 
+@router.patch("/name/{name}", response_model=PromptResponse)
+async def update_prompt_by_name(
+    name: str,
+    data: PromptUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> PromptResponse:
+    """
+    Update a prompt by name.
+
+    Returns only active prompts (excludes deleted and archived).
+    This endpoint is primarily used by the MCP server for prompt updates.
+    To edit archived prompts, restore them first via the API or web UI.
+    """
+    # Look up by name (active prompts only)
+    prompt = await prompt_service.get_by_name(db, current_user.id, name)
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    try:
+        updated_prompt = await prompt_service.update(
+            db, current_user.id, prompt.id, data,
+        )
+    except NameConflictError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(e), "error_code": "NAME_CONFLICT"},
+        )
+    except ValueError as e:
+        # Template validation errors
+        raise HTTPException(status_code=400, detail=str(e))
+    if updated_prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return PromptResponse.model_validate(updated_prompt)
+
+
+@router.patch(
+    "/name/{name}/str-replace",
+    response_model=StrReplaceSuccess[PromptResponse] | StrReplaceSuccessMinimal,
+)
+async def str_replace_prompt_by_name(
+    name: str,
+    data: PromptStrReplaceRequest,
+    include_updated_entity: bool = Query(
+        default=False,
+        description="If true, include full updated entity in response. "
+        "Default (false) returns only id and updated_at.",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> StrReplaceSuccess[PromptResponse] | StrReplaceSuccessMinimal:
+    r"""
+    Replace text in a prompt's content by name using string matching.
+
+    Same as PATCH /prompts/{id}/str-replace but looks up by name instead of ID.
+    Returns only active prompts (excludes deleted and archived).
+    This endpoint is primarily used by the MCP server for prompt edits.
+    To edit archived prompts, restore them first via the API or web UI.
+
+    See PATCH /prompts/{id}/str-replace for full documentation on matching
+    strategy, atomic content + arguments updates, and error responses.
+    """
+    # Look up by name (active prompts only)
+    prompt = await prompt_service.get_by_name(db, current_user.id, name)
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    # Check if content exists
+    if prompt.content is None:
+        raise HTTPException(
+            status_code=400,
+            detail=ContentEmptyError(
+                message="Prompt has no content to edit",
+            ).model_dump(),
+        )
+
+    # Perform str_replace
+    try:
+        result = str_replace(prompt.content, data.old_str, data.new_str)
+    except NoMatchError:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceNoMatchError().model_dump(),
+        )
+    except MultipleMatchesError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceMultipleMatchesError(
+                matches=[
+                    ContentSearchMatch(field="content", line=line, context=ctx)
+                    for line, ctx in e.matches
+                ],
+            ).model_dump(),
+        )
+
+    # Determine which arguments to use for validation:
+    # - If data.arguments is provided, use it (enables atomic content + args update)
+    # - Otherwise, use the prompt's existing arguments
+    if data.arguments is not None:
+        # Convert PromptArgument models to dicts for validate_template
+        validation_arguments = [arg.model_dump() for arg in data.arguments]
+    else:
+        validation_arguments = prompt.arguments or []
+
+    # Validate the new content as a Jinja2 template BEFORE applying changes
+    try:
+        validate_template(result.new_content, validation_arguments)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Replacement would create invalid template: {e}",
+        )
+
+    # Update the prompt with new content
+    prompt.content = result.new_content
+
+    # If arguments were provided, update them atomically
+    if data.arguments is not None:
+        prompt.arguments = [arg.model_dump() for arg in data.arguments]
+
+    prompt.updated_at = func.clock_timestamp()
+    await db.flush()
+    await db.refresh(prompt)
+
+    if include_updated_entity:
+        await db.refresh(prompt, attribute_names=["tag_objects"])
+        return StrReplaceSuccess(
+            match_type=result.match_type,
+            line=result.line,
+            data=PromptResponse.model_validate(prompt),
+        )
+
+    return StrReplaceSuccessMinimal(
+        match_type=result.match_type,
+        line=result.line,
+        data=MinimalEntityData(id=prompt.id, updated_at=prompt.updated_at),
+    )
+
+
 @router.get("/{prompt_id}", response_model=PromptResponse)
 async def get_prompt(
     prompt_id: UUID,
