@@ -492,7 +492,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "minLength": 1,
                         "description": (
                             "Exact text to find in the prompt content. Must match exactly "
-                            "one location. Include 3-5 lines of surrounding context "
+                            "one location. Optionally include 3-5 lines of surrounding context "
                             "for uniqueness."
                         ),
                     },
