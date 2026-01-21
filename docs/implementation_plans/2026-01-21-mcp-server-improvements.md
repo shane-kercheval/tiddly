@@ -14,7 +14,10 @@ The current Prompt MCP server has usability issues for LLM agents:
 
 1. **UUID Dependency**: The `update_prompt` tool requires a UUID `id`, but LLM agents only receive prompt `name` values from the MCP `list_prompts` capability. This creates a chicken-and-egg problem where agents can't update prompts without first obtaining the UUID through an extra lookup.
 
-2. **No Raw Template Access**: The MCP `get_prompt` capability renders templates with arguments but doesn't expose the raw template content. Agents need to see the raw Jinja2 template to make str-replace edits.
+2. **No Raw Template Access**: The MCP `get_prompt` capability is defined by the MCP protocol spec (`@server.get_prompt()`) - we implement it but don't control its interface. It renders templates with provided arguments, which means:
+   - It fails if required arguments are missing (agent can't inspect a template without providing all required args)
+   - It returns rendered content, not the raw Jinja2 template
+   - Agents need to see the raw template to make str-replace edits, but have no way to get it
 
 3. **Tool Naming**: `update_prompt` is ambiguous - it could mean metadata or content. Clearer names would improve agent understanding.
 
@@ -46,6 +49,8 @@ The current Prompt MCP server has usability issues for LLM agents:
 
 **Key Changes:**
 
+Note: `GET /prompts/name/{name}` already exists (see `backend/src/api/routers/prompts.py:133-181`). Only PATCH endpoints need to be added.
+
 1. **Add `PATCH /prompts/name/{name}/str-replace`** in `backend/src/api/routers/prompts.py`:
    - Mirror existing `PATCH /prompts/{prompt_id}/str-replace` logic
    - Look up prompt by name using `prompt_service.get_by_name()`
@@ -55,6 +60,12 @@ The current Prompt MCP server has usability issues for LLM agents:
    - Mirror existing `PATCH /prompts/{prompt_id}` logic
    - Look up prompt by name using `prompt_service.get_by_name()`
    - Same request/response schemas
+
+**Important: Archived Prompt Behavior**
+
+The name-based endpoints use `prompt_service.get_by_name()` which excludes archived prompts. This is intentional - MCP tools are for active content management, not admin recovery operations. Archived prompts should be restored via the web UI before editing.
+
+This differs from the ID-based endpoints which use `include_archived=True`. The behavior difference is acceptable.
 
 **Implementation Pattern:**
 
@@ -105,13 +116,25 @@ async def str_replace_prompt_by_name(
 
 **Dependencies:** None (can run in parallel with Milestone 1)
 
+**Why This Tool is Needed:**
+
+The MCP protocol defines `get_prompt` (`@server.get_prompt()`) which we implement but don't control. It:
+- Renders templates with provided arguments
+- Fails if required arguments are missing
+- Returns rendered content, not the raw Jinja2 template
+
+This means an agent cannot inspect a template that has required arguments without providing values for them. We need a tool we fully control that returns the raw template.
+
 **Key Changes:**
 
 1. **Add `get_prompt_template` tool** in `backend/src/prompt_mcp_server/server.py`:
+   - This is a tool we define (`@server.call_tool()`), not a protocol capability
    - Takes `name` parameter (not `id`)
    - Calls `GET /prompts/name/{name}` API endpoint
    - Returns raw content, arguments, and metadata (id, name, title, description, tags)
-   - Does NOT render the template (unlike MCP `get_prompt` capability)
+   - Does NOT render the template
+
+**Note on Partial Reads:** The API supports `start_line`/`end_line` for partial reads, but this tool intentionally omits them. Prompts have a 100KB size limit (`max_prompt_content_length`) unlike notes which can be much larger. Full content retrieval is acceptable for prompts.
 
 **Tool Schema:**
 
@@ -156,7 +179,7 @@ types.Tool(
 
 **Testing Strategy:**
 
-- Add tests in `backend/tests/prompt_mcp_server/test_server.py`:
+- Add tests in `backend/tests/prompt_mcp_server/test_handlers.py`:
   - `test__get_prompt_template__success` - returns raw content and arguments
   - `test__get_prompt_template__not_found` - proper error for nonexistent name
   - `test__get_prompt_template__includes_metadata` - verify all fields present
@@ -188,6 +211,8 @@ types.Tool(
 3. **Update API call** to use new name-based endpoint:
    - Change from `PATCH /prompts/{prompt_id}/str-replace`
    - To `PATCH /prompts/name/{name}/str-replace`
+   - Keep minimal response format (`include_updated_entity=false`) - returns `{match_type, line, data: {id, updated_at}}`
+   - If agent needs to verify edit, it can call `get_prompt_template` again
 
 4. **Update tool description** for clarity:
    - Emphasize this edits template content, not metadata
@@ -230,7 +255,7 @@ types.Tool(
 
 **Testing Strategy:**
 
-- Update existing tests in `backend/tests/prompt_mcp_server/test_server.py`:
+- Update existing tests in `backend/tests/prompt_mcp_server/test_handlers.py`:
   - Rename test functions from `test__update_prompt__*` to `test__edit_prompt_template__*`
   - Change tool name assertions
   - Change parameter from `id` to `name`
@@ -306,7 +331,7 @@ types.Tool(
 
 **Testing Strategy:**
 
-- Add tests in `backend/tests/prompt_mcp_server/test_server.py`:
+- Add tests in `backend/tests/prompt_mcp_server/test_handlers.py`:
   - `test__update_prompt_metadata__update_title` - update just title
   - `test__update_prompt_metadata__update_tags` - update tags
   - `test__update_prompt_metadata__rename` - change prompt name
@@ -335,7 +360,11 @@ Rewrite server instructions and tool descriptions to address the following issue
 
 **Issues with Current Server Instructions:**
 
-1. **Remove confusing "Prompts capability" section**: The current instructions list `list_prompts` and `get_prompt` under "Prompts (MCP prompts capability)" but these are MCP protocol-level capabilities, not tools the agent can call. This creates confusion - agents see them listed but can't invoke them. Remove this section entirely or clarify that these are automatic protocol features, not callable tools.
+1. **Remove confusing "Prompts capability" section**: The current instructions list `list_prompts` and `get_prompt` under "Prompts (MCP prompts capability)" but these are MCP protocol-level capabilities (`@server.list_prompts()`, `@server.get_prompt()`), not tools the agent can call. This creates confusion - agents see them listed but can't invoke them as tools. Remove this section entirely or clarify that:
+   - These are MCP protocol capabilities, not tools
+   - The agent's MCP client handles them automatically (e.g., prompts appear in system prompt)
+   - They cannot be invoked like tools
+   - `get_prompt` renders templates and requires all required arguments - use `get_prompt_template` tool to view raw templates
 
 2. **Workflow examples reference non-callable capabilities**: Example 2 shows `get_prompt(name="code-review", arguments={})` as if it's a tool call, but agents can't call it directly. Update examples to only reference actual tools.
 
@@ -370,6 +399,10 @@ Rewrite server instructions and tool descriptions to address the following issue
 2. **Trigger phrases**: Consider whether "my prompts" (without mentioning tiddly) should trigger this server, or only explicit references to tiddly/tiddly.me
 
 3. **Delete capability**: Note that there is no delete tool (if that's intentional) so agents don't search for one
+
+4. **Race condition handling**: Document that if a prompt is renamed (e.g., via web UI) between `get_prompt_template` and `edit_prompt_template` calls, the agent will get a 404. This is standard race condition behavior - agents should re-fetch on 404.
+
+5. **Archived prompts**: Document that MCP tools only work with active prompts. Archived prompts must be restored via web UI before editing.
 
 **Testing Strategy:**
 - Manual review of updated instructions for clarity and accuracy
@@ -494,7 +527,7 @@ The Content MCP server (`mcp_server/server.py`) is generally well-structured. Ke
 
 ### Test Changes
 - `backend/tests/api/test_prompts.py` - new endpoint tests
-- `backend/tests/prompt_mcp_server/test_server.py` - new/updated tool tests
+- `backend/tests/prompt_mcp_server/test_handlers.py` - new/updated tool tests
 - `evals/prompt_mcp/test_update_prompt.py` → `test_edit_prompt_template.py`
 
 ### No Changes Needed
