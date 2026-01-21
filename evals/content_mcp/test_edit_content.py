@@ -26,6 +26,7 @@ from evals.utils import (
 # asyncio task/cancel scope issues in the MCP client SDK.
 _MCP_SEMAPHORE = asyncio.Semaphore(20)
 
+
 async def _call_tool_with_retry(
     mcp_manager: MCPClientManager,
     tool_name: str,
