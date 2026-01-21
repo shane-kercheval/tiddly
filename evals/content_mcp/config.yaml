@@ -1,0 +1,99 @@
+# Content MCP Server Evaluation Configuration
+# Tests the edit_content tool's ability to make precise text replacements
+
+model:
+  name: "gpt-4.1-mini"
+  temperature: 0
+
+eval:
+  samples: 5
+  success_threshold: 0.8
+
+test_cases:
+  # Test 1: Fix typo that is a prefix of another word
+  # The LLM must fix "docu" without corrupting "documentation"
+  - id: "fix-typo-prefix-word"
+    input:
+      content: |
+        This docu needs to be updated.
+
+        See the documentation for more details.
+      search_query: "docu"
+    expected:
+      tool_name: "edit_content"
+      old_str_contains: "docu"
+      new_str_contains: "document"
+      final_must_contain: "document"
+      final_must_not_contain: "documentmentation"
+    metadata:
+      description: "Fix 'docu' -> 'document' without corrupting 'documentation'"
+
+  # Test 2: Fix typo in a code block
+  # The LLM must understand markdown context and fix the typo in code
+  - id: "fix-typo-in-code"
+    input:
+      content: |
+        ## API Usage
+
+        To authenticate, use the following code:
+
+        ```python
+        client = APIClinet(api_key="your-key")
+        response = client.get("/users")
+        ```
+
+        The client handles retries automatically.
+      search_query: "Clinet"
+    expected:
+      tool_name: "edit_content"
+      old_str_contains: "Clinet"
+      new_str_contains: "Client"
+      final_must_contain: "APIClient"
+      final_must_not_contain: "Clinet"
+    metadata:
+      description: "Fix 'APIClinet' -> 'APIClient' in code block"
+
+  # Test 3: Fix broken markdown link
+  # The LLM must fix a malformed link without breaking surrounding text
+  - id: "fix-broken-link"
+    input:
+      content: |
+        ## Resources
+
+        - [Getting Started](htps://example.com/start)
+        - [API Reference](https://example.com/api)
+        - [Support](https://example.com/help)
+      search_query: "htps"
+    expected:
+      tool_name: "edit_content"
+      old_str_contains: "htps"
+      new_str_contains: "https"
+      final_must_contain: "https://example.com/start"
+      final_must_not_contain: "htps"
+    metadata:
+      description: "Fix 'htps' -> 'https' in markdown link"
+
+checks:
+  # Verify correct tool was selected
+  - type: "exact_match"
+    arguments:
+      actual: "$.output.value.tool_prediction.tool_name"
+      expected: "$.test_case.expected.tool_name"
+
+  # Verify old_str contains the typo
+  - type: "contains"
+    arguments:
+      text: "$.output.value.tool_prediction.arguments.old_str"
+      phrases: "$.test_case.expected.old_str_contains"
+
+  # Verify new_str contains the fix
+  - type: "contains"
+    arguments:
+      text: "$.output.value.tool_prediction.arguments.new_str"
+      phrases: "$.test_case.expected.new_str_contains"
+
+  # Verify final content contains the fix
+  - type: "contains"
+    arguments:
+      text: "$.output.value.final_content"
+      phrases: "$.test_case.expected.final_must_contain"

@@ -41,6 +41,7 @@ dev = [
     "testcontainers>=4.13.3",
     "respx>=0.22.0",
     "sik-llms>=0.3.27",
+    "flex-evals>=0.3.22",
 ]
 
 [tool.hatch.metadata]

@@ -96,6 +96,17 @@ make tests          # Run backend linting + tests
 make frontend-tests # Run frontend tests
 ```
 
+## Evaluations
+
+LLM-based evaluations verify that AI agents can correctly use the MCP tools:
+
+```bash
+make evals              # Run all evaluations
+make evals-content-mcp  # Run Content MCP evals only
+```
+
+Evals use the [flex-evals](https://github.com/shane-kercheval/flex-evals) framework with test cases defined in YAML. See [evals/README.md](evals/README.md) for setup and configuration.
+
 ## API Documentation
 
 With the backend running: http://localhost:8000/docs
