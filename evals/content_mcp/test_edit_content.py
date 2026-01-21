@@ -50,7 +50,7 @@ async def _call_tool_with_retry(
     raise last_error or ValueError(f"Failed to call {tool_name} after {max_retries} retries")
 
 # Load configuration at module level
-CONFIG_PATH = Path(__file__).parent / "config.yaml"
+CONFIG_PATH = Path(__file__).parent / "config_edit_content.yaml"
 CONFIG = load_yaml_config(CONFIG_PATH)
 
 # Extract configuration values
