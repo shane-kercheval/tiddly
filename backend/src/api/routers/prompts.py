@@ -1,6 +1,9 @@
 """Prompts CRUD endpoints."""
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from models.prompt import Prompt
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi import Response as FastAPIResponse
@@ -45,6 +48,106 @@ from services.prompt_service import NameConflictError, PromptService, validate_t
 from services.template_renderer import TemplateError, render_template
 
 router = APIRouter(prefix="/prompts", tags=["prompts"])
+
+# Type alias for str-replace response union
+StrReplaceResponse = StrReplaceSuccess[PromptResponse] | StrReplaceSuccessMinimal
+
+
+async def _perform_str_replace(
+    db: AsyncSession,
+    prompt: "Prompt",  # Forward reference to avoid circular import
+    data: PromptStrReplaceRequest,
+    include_updated_entity: bool,
+) -> StrReplaceResponse:
+    """
+    Core str-replace logic shared by ID and name-based endpoints.
+
+    Performs string replacement on prompt content, validates the result as a
+    Jinja2 template, and updates the prompt. Optionally updates arguments
+    atomically with content changes.
+
+    Args:
+        db: Database session.
+        prompt: The prompt to edit (must have content).
+        data: The str-replace request with old_str, new_str, and optional arguments.
+        include_updated_entity: If True, return full entity; otherwise minimal data.
+
+    Returns:
+        StrReplaceSuccess with full entity or minimal data.
+
+    Raises:
+        HTTPException: On validation errors, no match, or multiple matches.
+    """
+    # Check if content exists
+    if prompt.content is None:
+        raise HTTPException(
+            status_code=400,
+            detail=ContentEmptyError(
+                message="Prompt has no content to edit",
+            ).model_dump(),
+        )
+
+    # Perform str_replace
+    try:
+        result = str_replace(prompt.content, data.old_str, data.new_str)
+    except NoMatchError:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceNoMatchError().model_dump(),
+        )
+    except MultipleMatchesError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=StrReplaceMultipleMatchesError(
+                matches=[
+                    ContentSearchMatch(field="content", line=line, context=ctx)
+                    for line, ctx in e.matches
+                ],
+            ).model_dump(),
+        )
+
+    # Determine which arguments to use for validation:
+    # - If data.arguments is provided, use it (enables atomic content + args update)
+    # - Otherwise, use the prompt's existing arguments
+    if data.arguments is not None:
+        # Convert PromptArgument models to dicts for validate_template
+        validation_arguments = [arg.model_dump() for arg in data.arguments]
+    else:
+        validation_arguments = prompt.arguments or []
+
+    # Validate the new content as a Jinja2 template BEFORE applying changes
+    try:
+        validate_template(result.new_content, validation_arguments)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Replacement would create invalid template: {e}",
+        )
+
+    # Update the prompt with new content
+    prompt.content = result.new_content
+
+    # If arguments were provided, update them atomically
+    if data.arguments is not None:
+        prompt.arguments = [arg.model_dump() for arg in data.arguments]
+
+    prompt.updated_at = func.clock_timestamp()
+    await db.flush()
+    await db.refresh(prompt)
+
+    if include_updated_entity:
+        await db.refresh(prompt, attribute_names=["tag_objects"])
+        return StrReplaceSuccess(
+            match_type=result.match_type,
+            line=result.line,
+            data=PromptResponse.model_validate(prompt),
+        )
+
+    return StrReplaceSuccessMinimal(
+        match_type=result.match_type,
+        line=result.line,
+        data=MinimalEntityData(id=prompt.id, updated_at=prompt.updated_at),
+    )
 
 prompt_service = PromptService()
 
@@ -240,6 +343,10 @@ async def str_replace_prompt_by_name(
     This endpoint is primarily used by the MCP server for prompt edits.
     To edit archived prompts, restore them first via the API or web UI.
 
+    Note: There is a tiny race window where a prompt could be archived between
+    lookup and edit. This is accepted behavior given the extremely small window
+    and minimal impact (edit succeeds on now-archived prompt).
+
     See PATCH /prompts/{id}/str-replace for full documentation on matching
     strategy, atomic content + arguments updates, and error responses.
     """
@@ -248,76 +355,7 @@ async def str_replace_prompt_by_name(
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
 
-    # Check if content exists
-    if prompt.content is None:
-        raise HTTPException(
-            status_code=400,
-            detail=ContentEmptyError(
-                message="Prompt has no content to edit",
-            ).model_dump(),
-        )
-
-    # Perform str_replace
-    try:
-        result = str_replace(prompt.content, data.old_str, data.new_str)
-    except NoMatchError:
-        raise HTTPException(
-            status_code=400,
-            detail=StrReplaceNoMatchError().model_dump(),
-        )
-    except MultipleMatchesError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=StrReplaceMultipleMatchesError(
-                matches=[
-                    ContentSearchMatch(field="content", line=line, context=ctx)
-                    for line, ctx in e.matches
-                ],
-            ).model_dump(),
-        )
-
-    # Determine which arguments to use for validation:
-    # - If data.arguments is provided, use it (enables atomic content + args update)
-    # - Otherwise, use the prompt's existing arguments
-    if data.arguments is not None:
-        # Convert PromptArgument models to dicts for validate_template
-        validation_arguments = [arg.model_dump() for arg in data.arguments]
-    else:
-        validation_arguments = prompt.arguments or []
-
-    # Validate the new content as a Jinja2 template BEFORE applying changes
-    try:
-        validate_template(result.new_content, validation_arguments)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Replacement would create invalid template: {e}",
-        )
-
-    # Update the prompt with new content
-    prompt.content = result.new_content
-
-    # If arguments were provided, update them atomically
-    if data.arguments is not None:
-        prompt.arguments = [arg.model_dump() for arg in data.arguments]
-
-    prompt.updated_at = func.clock_timestamp()
-    await db.flush()
-    await db.refresh(prompt)
-
-    if include_updated_entity:
-        await db.refresh(prompt, attribute_names=["tag_objects"])
-        return StrReplaceSuccess(
-            match_type=result.match_type,
-            line=result.line,
-            data=PromptResponse.model_validate(prompt),
-        )
-
-    return StrReplaceSuccessMinimal(
-        match_type=result.match_type,
-        line=result.line,
-        data=MinimalEntityData(id=prompt.id, updated_at=prompt.updated_at),
-    )
+    return await _perform_str_replace(db, prompt, data, include_updated_entity)
 
 
 @router.get("/{prompt_id}", response_model=PromptResponse)
@@ -540,76 +578,7 @@ async def str_replace_prompt(
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
 
-    # Check if content exists
-    if prompt.content is None:
-        raise HTTPException(
-            status_code=400,
-            detail=ContentEmptyError(
-                message="Prompt has no content to edit",
-            ).model_dump(),
-        )
-
-    # Perform str_replace
-    try:
-        result = str_replace(prompt.content, data.old_str, data.new_str)
-    except NoMatchError:
-        raise HTTPException(
-            status_code=400,
-            detail=StrReplaceNoMatchError().model_dump(),
-        )
-    except MultipleMatchesError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=StrReplaceMultipleMatchesError(
-                matches=[
-                    ContentSearchMatch(field="content", line=line, context=ctx)
-                    for line, ctx in e.matches
-                ],
-            ).model_dump(),
-        )
-
-    # Determine which arguments to use for validation:
-    # - If data.arguments is provided, use it (enables atomic content + args update)
-    # - Otherwise, use the prompt's existing arguments
-    if data.arguments is not None:
-        # Convert PromptArgument models to dicts for validate_template
-        validation_arguments = [arg.model_dump() for arg in data.arguments]
-    else:
-        validation_arguments = prompt.arguments or []
-
-    # Validate the new content as a Jinja2 template BEFORE applying changes
-    try:
-        validate_template(result.new_content, validation_arguments)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Replacement would create invalid template: {e}",
-        )
-
-    # Update the prompt with new content
-    prompt.content = result.new_content
-
-    # If arguments were provided, update them atomically
-    if data.arguments is not None:
-        prompt.arguments = [arg.model_dump() for arg in data.arguments]
-
-    prompt.updated_at = func.clock_timestamp()
-    await db.flush()
-    await db.refresh(prompt)
-
-    if include_updated_entity:
-        await db.refresh(prompt, attribute_names=["tag_objects"])
-        return StrReplaceSuccess(
-            match_type=result.match_type,
-            line=result.line,
-            data=PromptResponse.model_validate(prompt),
-        )
-
-    return StrReplaceSuccessMinimal(
-        match_type=result.match_type,
-        line=result.line,
-        data=MinimalEntityData(id=prompt.id, updated_at=prompt.updated_at),
-    )
+    return await _perform_str_replace(db, prompt, data, include_updated_entity)
 
 
 @router.delete("/{prompt_id}", status_code=204)

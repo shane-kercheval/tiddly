@@ -241,7 +241,11 @@ class PromptService(BaseEntityService[Prompt]):
         if new_tags is not None:
             await update_prompt_tags(db, prompt, new_tags)
 
-        prompt.updated_at = func.clock_timestamp()
+        # Only bump updated_at if there were actual changes
+        # (prevents cache invalidation on no-op updates)
+        has_changes = bool(update_data) or new_tags is not None
+        if has_changes:
+            prompt.updated_at = func.clock_timestamp()
 
         try:
             await db.flush()

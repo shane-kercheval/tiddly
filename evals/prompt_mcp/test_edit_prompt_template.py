@@ -4,6 +4,10 @@ Evaluation tests for the Prompt MCP server's edit_prompt_template tool.
 These tests verify that an LLM can correctly use the edit_prompt_template tool
 to make changes to prompt templates, including atomic updates to both
 content and arguments when adding/removing/renaming variables.
+
+The eval uses minimal prompting - just the raw tool output and an instruction.
+This tests whether the tool descriptions and server instructions are sufficient
+for an LLM to use the tools correctly without hand-holding.
 """
 
 import json
@@ -35,29 +39,6 @@ MODEL_CONFIG = CONFIG["model"]
 EVAL_CONFIG = CONFIG["eval"]
 TEST_CASES = create_test_cases_from_config(CONFIG["test_cases"])
 CHECKS = create_checks_from_config(CONFIG["checks"])
-
-
-def _format_prompt_for_llm(prompt_data: dict[str, Any]) -> str:
-    """
-    Format prompt data as the LLM would see it from get_prompt_template tool.
-
-    The format matches what the get_prompt_template MCP tool returns,
-    which is JSON that includes name, title, description, content, arguments, and tags.
-    """
-    args_formatted = json.dumps(prompt_data.get("arguments", []), indent=2)
-    return f"""Name: {prompt_data["name"]}
-Title: {prompt_data.get("title") or "(none)"}
-Description: {prompt_data.get("description") or "(none)"}
-
-Arguments:
-```json
-{args_formatted}
-```
-
-Content:
-```
-{prompt_data.get("content", "")}
-```"""
 
 
 def _extract_argument_names(prediction: dict[str, Any]) -> list[str]:
@@ -118,39 +99,17 @@ async def _run_edit_prompt_template_eval(
             # Parse the JSON response from get_prompt_template
             prompt_data = json.loads(get_template_result[0].text)
 
-            # Build prompt for LLM
-            prompt_display = _format_prompt_for_llm(prompt_data)
+            # Build minimal prompt - just the raw tool output and instruction
+            # No hand-holding about how to use the tool - the LLM should figure
+            # that out from the tool descriptions and server instructions
             llm_prompt = f"""I want to edit this prompt template.
 
-{prompt_display}
+`get_prompt_template` tool result:
+```json
+{json.dumps(prompt_data, indent=2)}
+```
 
-**Instruction:** {instruction}
-
-Use the edit_prompt_template tool to make this change.
-
-CRITICAL RULES:
-1. If you ADD, REMOVE, or RENAME a template variable ({{{{ var_name }}}}), you MUST include the `arguments` parameter with the COMPLETE list of arguments that should exist AFTER your edit.
-2. If you're only fixing a typo or changing text without touching variables, do NOT include the `arguments` parameter.
-3. The `arguments` list REPLACES all existing arguments - include every argument that should remain.
-4. Use simple text replacement, NOT Jinja2 conditionals like {{% if %}}.
-
-Example - removing a variable:
-- name: "my-prompt"
-- old_str: "Hello {{{{ name }}}}, welcome to {{{{ place }}}}!"
-- new_str: "Hello, welcome to {{{{ place }}}}!"
-- arguments: [{{"name": "place", "description": "The place name"}}]  # name is removed
-
-Example - adding a variable:
-- name: "my-prompt"
-- old_str: "Generate a summary."
-- new_str: "Generate a {{{{ length }}}} summary."
-- arguments: [{{"name": "length", "description": "Summary length", "required": false}}]
-
-Example - simple typo fix (no variable change):
-- name: "my-prompt"
-- old_str: "Anaylze this"
-- new_str: "Analyze this"
-- (no arguments parameter needed)"""
+**Instruction:** {instruction}"""
 
             # Get tool prediction
             prediction = await get_tool_prediction(

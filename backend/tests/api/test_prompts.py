@@ -676,6 +676,32 @@ async def test__update_prompt__updates_updated_at(client: AsyncClient) -> None:
     assert response.json()["updated_at"] > original_updated_at
 
 
+async def test__update_prompt__no_op_does_not_update_timestamp(client: AsyncClient) -> None:
+    """
+    Test that a no-op update (empty payload) does not change updated_at.
+
+    This is important for HTTP caching - ETag/Last-Modified should remain stable
+    when no actual changes are made to the prompt.
+    """
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "noop-test", "content": "Content"},
+    )
+    original_updated_at = create_response.json()["updated_at"]
+    prompt_id = create_response.json()["id"]
+
+    await asyncio.sleep(0.01)
+
+    # Send an empty update - no fields provided
+    response = await client.patch(
+        f"/prompts/{prompt_id}",
+        json={},
+    )
+    assert response.status_code == 200
+    # updated_at should remain unchanged
+    assert response.json()["updated_at"] == original_updated_at
+
+
 # =============================================================================
 # Delete Prompt Tests
 # =============================================================================

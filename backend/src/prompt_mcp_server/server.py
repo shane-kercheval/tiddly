@@ -7,6 +7,7 @@ for creating new prompts via AI.
 """
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -78,7 +79,7 @@ Note: There is no delete tool. Prompts can only be deleted via the web UI.
 - All tools use prompt `name` (not ID) for identification
 - Archived prompts cannot be edited via MCP. Restore them via the web UI first.
 - Template validation runs after edits - invalid templates are rejected with error details
-""".strip(),  # noqa: E501
+""".strip(),
 )
 
 # Module-level client for connection reuse
@@ -402,7 +403,7 @@ async def handle_list_tools() -> list[types.Tool]:
             description=(
                 "Get a prompt template's raw content and arguments for viewing or editing. "
                 "Unlike the MCP get_prompt capability which renders templates with arguments, "
-                "this returns the raw Jinja2 template content. Use this before edit_prompt_template "
+                "this returns the raw Jinja2 template content. Use this before edit_prompt_template "  # noqa: E501
                 "to see the current content and construct the old_str for string replacement."
             ),
             inputSchema={
@@ -501,9 +502,11 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="edit_prompt_template",
             description=(
-                "Edit a prompt template's content using string replacement. Use get_prompt_template "
-                "first to see the current content and construct the old_str. Optionally update "
-                "arguments atomically when adding/removing template variables."
+                "Edit a prompt template's content using string replacement. Use get_prompt_template "  # noqa: E501
+                "first to see the current content and construct the old_str. Optional parameter to "  # noqa: E501
+                "update arguments atomically when adding/removing template variables. Note that "
+                "updating arguments is required when editing template text that adds or removes "
+                "variables, to avoid validation errors"
             ),
             inputSchema={
                 "type": "object",
@@ -520,7 +523,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "minLength": 1,
                         "description": (
                             "Exact text to find in the prompt content. Must match exactly "
-                            "one location. Include 3-5 lines of surrounding context for uniqueness."
+                            "one location. Include 3-5 lines of surrounding context for uniqueness."  # noqa: E501
                         ),
                     },
                     "new_str": {
@@ -613,7 +616,7 @@ async def handle_call_tool(
     name: str,
     arguments: dict[str, Any] | None,
 ) -> list[types.TextContent] | types.CallToolResult:
-    """Handle tool calls (get_prompt_template, create_prompt, edit_prompt_template, update_prompt_metadata)."""
+    """Handle tool calls (get_prompt_template, create_prompt, edit_prompt_template, update_prompt_metadata)."""  # noqa: E501
     if name == "get_prompt_template":
         return await _handle_get_prompt_template(arguments or {})
     if name == "create_prompt":
@@ -639,8 +642,6 @@ async def _handle_get_prompt_template(
     Fetches a prompt by name and returns the raw template content and metadata as JSON.
     This allows agents to inspect the template before editing.
     """
-    import json
-
     # Validate required parameter
     prompt_name = arguments.get("name", "")
     if not prompt_name:
@@ -821,8 +822,6 @@ async def _handle_edit_prompt_template(
             # This allows the LLM to see and handle the error (e.g., retry with
             # different parameters). Uses JSON format for AI parseability.
             try:
-                import json
-
                 error_detail = e.response.json().get("detail", {})
                 if isinstance(error_detail, dict):
                     error_text = json.dumps(error_detail)
@@ -857,12 +856,12 @@ async def _handle_edit_prompt_template(
     return [
         types.TextContent(
             type="text",
-            text=f"Updated prompt '{prompt_name}' (ID: {prompt_id}, match: {match_type} at line {line})",
+            text=f"Updated prompt '{prompt_name}' (ID: {prompt_id}, match: {match_type} at line {line})",  # noqa: E501
         ),
     ]
 
 
-async def _handle_update_prompt_metadata(
+async def _handle_update_prompt_metadata(  # noqa: PLR0912
     arguments: dict[str, Any],
 ) -> list[types.TextContent]:
     """
