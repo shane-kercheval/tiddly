@@ -423,7 +423,7 @@ async def edit_content(
     Success response includes:
     - match_type: "exact" or "whitespace_normalized"
     - line: Line number where match was found
-    - data: Full updated entity
+    - data: {id, updated_at} - minimal entity data
 
     Error responses (returned as structured JSON data):
     - no_match: Text not found (check for typos/whitespace)

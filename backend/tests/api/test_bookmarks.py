@@ -3275,12 +3275,12 @@ async def test_search_in_bookmark_works_on_deleted(client: AsyncClient) -> None:
 # =============================================================================
 
 
-async def test_str_replace_bookmark_success(client: AsyncClient) -> None:
-    """Test successful str-replace on bookmark content."""
+async def test_str_replace_bookmark_success_minimal(client: AsyncClient) -> None:
+    """Test successful str-replace returns minimal response by default."""
     response = await client.post(
         "/bookmarks/",
         json={
-            "url": "https://str-replace-test.com",
+            "url": "https://str-replace-test-minimal.com",
             "title": "Test",
             "content": "Hello world",
         },
@@ -3295,6 +3295,37 @@ async def test_str_replace_bookmark_success(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     data = response.json()
+    assert data["response_type"] == "minimal"
+    assert data["match_type"] == "exact"
+    assert data["line"] == 1
+    # Default response is minimal - only id and updated_at
+    assert data["data"]["id"] == bookmark_id
+    assert "updated_at" in data["data"]
+    assert "content" not in data["data"]
+    assert "title" not in data["data"]
+
+
+async def test_str_replace_bookmark_success_full_entity(client: AsyncClient) -> None:
+    """Test str-replace with include_updated_entity=true."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://str-replace-test.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["response_type"] == "full"
     assert data["match_type"] == "exact"
     assert data["line"] == 1
     assert data["data"]["content"] == "Hello universe"
@@ -3315,7 +3346,7 @@ async def test_str_replace_bookmark_multiline(client: AsyncClient) -> None:
     bookmark_id = response.json()["id"]
 
     response = await client.patch(
-        f"/bookmarks/{bookmark_id}/str-replace",
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
         json={"old_str": "target", "new_str": "replaced"},
     )
     assert response.status_code == 200
@@ -3339,7 +3370,7 @@ async def test_str_replace_bookmark_multiline_old_str(client: AsyncClient) -> No
     bookmark_id = response.json()["id"]
 
     response = await client.patch(
-        f"/bookmarks/{bookmark_id}/str-replace",
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
         json={"old_str": "line 2\nline 3", "new_str": "replaced"},
     )
     assert response.status_code == 200
@@ -3406,7 +3437,7 @@ async def test_str_replace_bookmark_deletion(client: AsyncClient) -> None:
     bookmark_id = response.json()["id"]
 
     response = await client.patch(
-        f"/bookmarks/{bookmark_id}/str-replace",
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
         json={"old_str": " world", "new_str": ""},
     )
     assert response.status_code == 200
@@ -3427,7 +3458,7 @@ async def test_str_replace_bookmark_whitespace_normalized(client: AsyncClient) -
     bookmark_id = response.json()["id"]
 
     response = await client.patch(
-        f"/bookmarks/{bookmark_id}/str-replace",
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
         json={"old_str": "line 1\nline 2", "new_str": "replaced"},
     )
     assert response.status_code == 200
@@ -3511,7 +3542,7 @@ async def test_str_replace_bookmark_works_on_archived(client: AsyncClient) -> No
     await client.post(f"/bookmarks/{bookmark_id}/archive")
 
     response = await client.patch(
-        f"/bookmarks/{bookmark_id}/str-replace",
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
         json={"old_str": "world", "new_str": "universe"},
     )
     assert response.status_code == 200
@@ -3556,7 +3587,7 @@ async def test_str_replace_bookmark_preserves_other_fields(client: AsyncClient) 
     bookmark_id = response.json()["id"]
 
     response = await client.patch(
-        f"/bookmarks/{bookmark_id}/str-replace",
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
         json={"old_str": "world", "new_str": "universe"},
     )
     assert response.status_code == 200

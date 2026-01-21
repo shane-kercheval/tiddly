@@ -16,10 +16,12 @@ from models.user import User
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
 from schemas.errors import (
     ContentEmptyError,
+    MinimalEntityData,
     PromptStrReplaceRequest,
     StrReplaceMultipleMatchesError,
     StrReplaceNoMatchError,
     StrReplaceSuccess,
+    StrReplaceSuccessMinimal,
 )
 from schemas.prompt import (
     PromptCreate,
@@ -331,18 +333,30 @@ async def update_prompt(
     return PromptResponse.model_validate(prompt)
 
 
-@router.patch("/{prompt_id}/str-replace", response_model=StrReplaceSuccess[PromptResponse])
+@router.patch(
+    "/{prompt_id}/str-replace",
+    response_model=StrReplaceSuccess[PromptResponse] | StrReplaceSuccessMinimal,
+)
 async def str_replace_prompt(
     prompt_id: UUID,
     data: PromptStrReplaceRequest,
+    include_updated_entity: bool = Query(
+        default=False,
+        description="If true, include full updated entity in response. "
+        "Default (false) returns only id and updated_at.",
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
-) -> StrReplaceSuccess[PromptResponse]:
+) -> StrReplaceSuccess[PromptResponse] | StrReplaceSuccessMinimal:
     r"""
     Replace text in a prompt's content (Jinja2 template) using string matching.
 
     The `old_str` must match exactly one location in the content. If it matches
     zero or multiple locations, the operation fails with an appropriate error.
+
+    **Response format:**
+    By default, returns minimal data (id and updated_at) to reduce bandwidth.
+    Use `include_updated_entity=true` to get the full updated entity.
 
     **Important:** After replacement, the new content is validated as a Jinja2 template.
     If the replacement would create an invalid template (syntax error, undefined variables,
@@ -443,12 +457,19 @@ async def str_replace_prompt(
     prompt.updated_at = func.clock_timestamp()
     await db.flush()
     await db.refresh(prompt)
-    await db.refresh(prompt, attribute_names=["tag_objects"])
 
-    return StrReplaceSuccess(
+    if include_updated_entity:
+        await db.refresh(prompt, attribute_names=["tag_objects"])
+        return StrReplaceSuccess(
+            match_type=result.match_type,
+            line=result.line,
+            data=PromptResponse.model_validate(prompt),
+        )
+
+    return StrReplaceSuccessMinimal(
         match_type=result.match_type,
         line=result.line,
-        data=PromptResponse.model_validate(prompt),
+        data=MinimalEntityData(id=prompt.id, updated_at=prompt.updated_at),
     )
 
 

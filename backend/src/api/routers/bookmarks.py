@@ -26,10 +26,12 @@ from schemas.bookmark import (
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
 from schemas.errors import (
     ContentEmptyError,
+    MinimalEntityData,
     StrReplaceMultipleMatchesError,
     StrReplaceNoMatchError,
     StrReplaceRequest,
     StrReplaceSuccess,
+    StrReplaceSuccessMinimal,
 )
 from services.bookmark_service import (
     ArchivedUrlExistsError,
@@ -335,18 +337,30 @@ async def update_bookmark(
     return BookmarkResponse.model_validate(bookmark)
 
 
-@router.patch("/{bookmark_id}/str-replace", response_model=StrReplaceSuccess[BookmarkResponse])
+@router.patch(
+    "/{bookmark_id}/str-replace",
+    response_model=StrReplaceSuccess[BookmarkResponse] | StrReplaceSuccessMinimal,
+)
 async def str_replace_bookmark(
     bookmark_id: UUID,
     data: StrReplaceRequest,
+    include_updated_entity: bool = Query(
+        default=False,
+        description="If true, include full updated entity in response. "
+        "Default (false) returns only id and updated_at.",
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
-) -> StrReplaceSuccess[BookmarkResponse]:
+) -> StrReplaceSuccess[BookmarkResponse] | StrReplaceSuccessMinimal:
     r"""
     Replace text in a bookmark's content using string matching.
 
     The `old_str` must match exactly one location in the content. If it matches
     zero or multiple locations, the operation fails with an appropriate error.
+
+    **Response format:**
+    By default, returns minimal data (id and updated_at) to reduce bandwidth.
+    Use `include_updated_entity=true` to get the full updated entity.
 
     **Matching strategy (progressive fallback):**
     1. **Exact match** - Character-for-character match
@@ -401,12 +415,19 @@ async def str_replace_bookmark(
     bookmark.updated_at = func.clock_timestamp()
     await db.flush()
     await db.refresh(bookmark)
-    await db.refresh(bookmark, attribute_names=["tag_objects"])
 
-    return StrReplaceSuccess(
+    if include_updated_entity:
+        await db.refresh(bookmark, attribute_names=["tag_objects"])
+        return StrReplaceSuccess(
+            match_type=result.match_type,
+            line=result.line,
+            data=BookmarkResponse.model_validate(bookmark),
+        )
+
+    return StrReplaceSuccessMinimal(
         match_type=result.match_type,
         line=result.line,
-        data=BookmarkResponse.model_validate(bookmark),
+        data=MinimalEntityData(id=bookmark.id, updated_at=bookmark.updated_at),
     )
 
 

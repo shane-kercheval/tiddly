@@ -174,7 +174,7 @@ npx @modelcontextprotocol/inspector
 
 # Content MCP: http://localhost:8001/mcp
 # Prompt MCP: http://localhost:8002/mcp
-# Add header: Authorization: Bearer bm_your_token_here
+# Add header: Authorization: `Bearer bm_your_token_here`
 ```
 
 ### Claude Desktop Configuration

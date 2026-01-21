@@ -1806,12 +1806,12 @@ async def test_search_in_prompt_jinja_template(client: AsyncClient) -> None:
 # =============================================================================
 
 
-async def test_str_replace_prompt_success(client: AsyncClient) -> None:
-    """Test successful str-replace on prompt content."""
+async def test_str_replace_prompt_success_minimal(client: AsyncClient) -> None:
+    """Test successful str-replace returns minimal response by default."""
     response = await client.post(
         "/prompts/",
         json={
-            "name": "str-replace-test",
+            "name": "str-replace-test-minimal",
             "content": "Hello world",
         },
     )
@@ -1825,6 +1825,36 @@ async def test_str_replace_prompt_success(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     data = response.json()
+    assert data["response_type"] == "minimal"
+    assert data["match_type"] == "exact"
+    assert data["line"] == 1
+    # Default response is minimal - only id and updated_at
+    assert data["data"]["id"] == prompt_id
+    assert "updated_at" in data["data"]
+    assert "content" not in data["data"]
+    assert "name" not in data["data"]
+
+
+async def test_str_replace_prompt_success_full_entity(client: AsyncClient) -> None:
+    """Test str-replace with include_updated_entity=true."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "str-replace-test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["response_type"] == "full"
     assert data["match_type"] == "exact"
     assert data["line"] == 1
     assert data["data"]["content"] == "Hello universe"
@@ -1844,7 +1874,7 @@ async def test_str_replace_prompt_multiline(client: AsyncClient) -> None:
     prompt_id = response.json()["id"]
 
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={"old_str": "target", "new_str": "replaced"},
     )
     assert response.status_code == 200
@@ -1867,7 +1897,7 @@ async def test_str_replace_prompt_multiline_old_str(client: AsyncClient) -> None
     prompt_id = response.json()["id"]
 
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={"old_str": "line 2\nline 3", "new_str": "replaced"},
     )
     assert response.status_code == 200
@@ -1931,7 +1961,7 @@ async def test_str_replace_prompt_deletion(client: AsyncClient) -> None:
     prompt_id = response.json()["id"]
 
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={"old_str": " world", "new_str": ""},
     )
     assert response.status_code == 200
@@ -1951,7 +1981,7 @@ async def test_str_replace_prompt_whitespace_normalized(client: AsyncClient) -> 
     prompt_id = response.json()["id"]
 
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={"old_str": "line 1\nline 2", "new_str": "replaced"},
     )
     assert response.status_code == 200
@@ -2048,7 +2078,7 @@ async def test_str_replace_prompt_works_on_archived(client: AsyncClient) -> None
     await client.post(f"/prompts/{prompt_id}/archive")
 
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={"old_str": "world", "new_str": "universe"},
     )
     assert response.status_code == 200
@@ -2093,7 +2123,7 @@ async def test_str_replace_prompt_preserves_other_fields(client: AsyncClient) ->
     prompt_id = response.json()["id"]
 
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={"old_str": "Hello", "new_str": "Hi"},
     )
     assert response.status_code == 200
@@ -2122,7 +2152,7 @@ async def test_str_replace_prompt_jinja_valid_template(client: AsyncClient) -> N
 
     # Replace with valid Jinja2
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={"old_str": "Hello {{ name }}!", "new_str": "Hi {{ name }}, welcome!"},
     )
     assert response.status_code == 200
@@ -2211,7 +2241,7 @@ async def test_str_replace_prompt_no_arguments_static_replacement(client: AsyncC
 
     # Replace static content - this should succeed
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={"old_str": "World", "new_str": "Universe"},
     )
     assert response.status_code == 200
@@ -2239,7 +2269,7 @@ async def test_str_replace_prompt_add_variable_with_argument(client: AsyncClient
 
     # Add a new variable AND provide updated arguments list
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={
             "old_str": "Hello {{ name }}!",
             "new_str": "Hello {{ greeting }}, {{ name }}!",
@@ -2276,7 +2306,7 @@ async def test_str_replace_prompt_remove_variable_with_argument(client: AsyncCli
 
     # Remove {{ greeting }} from content AND from arguments (keep only name)
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={
             "old_str": "{{ greeting }}, ",
             "new_str": "",
@@ -2310,7 +2340,7 @@ async def test_str_replace_prompt_remove_one_keep_others(client: AsyncClient) ->
 
     # Remove {{ b }} from content, keep a and c in arguments
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={
             "old_str": " {{ b }}",
             "new_str": "",
@@ -2374,7 +2404,7 @@ async def test_str_replace_prompt_replace_all_variables(client: AsyncClient) -> 
 
     # Replace with entirely new content and arguments
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={
             "old_str": "Hello {{ old_var }}!",
             "new_str": "{{ greeting }} {{ name }}, welcome to {{ place }}!",
@@ -2406,7 +2436,7 @@ async def test_str_replace_prompt_empty_arguments_static_content(client: AsyncCl
 
     # Replace with static content and empty arguments
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={
             "old_str": "{{ name }}",
             "new_str": "World",
@@ -2532,7 +2562,7 @@ async def test_str_replace_prompt_arguments_preserved_when_omitted(client: Async
 
     # Edit content without providing arguments field
     response = await client.patch(
-        f"/prompts/{prompt_id}/str-replace",
+        f"/prompts/{prompt_id}/str-replace?include_updated_entity=true",
         json={
             "old_str": "Hello",
             "new_str": "Hi",

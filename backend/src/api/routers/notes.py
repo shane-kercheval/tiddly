@@ -16,10 +16,12 @@ from models.user import User
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
 from schemas.errors import (
     ContentEmptyError,
+    MinimalEntityData,
     StrReplaceMultipleMatchesError,
     StrReplaceNoMatchError,
     StrReplaceRequest,
     StrReplaceSuccess,
+    StrReplaceSuccessMinimal,
 )
 from schemas.note import (
     NoteCreate,
@@ -259,18 +261,30 @@ async def update_note(
     return NoteResponse.model_validate(note)
 
 
-@router.patch("/{note_id}/str-replace", response_model=StrReplaceSuccess[NoteResponse])
+@router.patch(
+    "/{note_id}/str-replace",
+    response_model=StrReplaceSuccess[NoteResponse] | StrReplaceSuccessMinimal,
+)
 async def str_replace_note(
     note_id: UUID,
     data: StrReplaceRequest,
+    include_updated_entity: bool = Query(
+        default=False,
+        description="If true, include full updated entity in response. "
+        "Default (false) returns only id and updated_at.",
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
-) -> StrReplaceSuccess[NoteResponse]:
+) -> StrReplaceSuccess[NoteResponse] | StrReplaceSuccessMinimal:
     r"""
     Replace text in a note's content using string matching.
 
     The `old_str` must match exactly one location in the content. If it matches
     zero or multiple locations, the operation fails with an appropriate error.
+
+    **Response format:**
+    By default, returns minimal data (id and updated_at) to reduce bandwidth.
+    Use `include_updated_entity=true` to get the full updated entity.
 
     **Matching strategy (progressive fallback):**
     1. **Exact match** - Character-for-character match
@@ -325,12 +339,18 @@ async def str_replace_note(
     note.updated_at = func.clock_timestamp()
     await db.flush()
     await db.refresh(note)
-    await db.refresh(note, attribute_names=["tag_objects"])
 
-    return StrReplaceSuccess(
+    if include_updated_entity:
+        await db.refresh(note, attribute_names=["tag_objects"])
+        return StrReplaceSuccess(
+            match_type=result.match_type,
+            line=result.line,
+            data=NoteResponse.model_validate(note),
+        )
+    return StrReplaceSuccessMinimal(
         match_type=result.match_type,
         line=result.line,
-        data=NoteResponse.model_validate(note),
+        data=MinimalEntityData(id=note.id, updated_at=note.updated_at),
     )
 
 

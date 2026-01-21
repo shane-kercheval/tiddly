@@ -28,7 +28,7 @@ server = Server(
 This is the Prompt MCP server for tiddly.me (also known as "tiddly"). When users mention
 tiddly, tiddly.me, or their prompts/templates, they're referring to this system.
 
-AThis MCP server is a prompt template manager for creating, editing, and using reusable AI prompts.
+This MCP server is a prompt template manager for creating, editing, and using reusable AI prompts.
 Prompts are Jinja2 templates with defined arguments that can be rendered with user-provided values.
 
 Available capabilities:
@@ -477,8 +477,8 @@ async def handle_list_tools() -> list[types.Tool]:
             name="update_prompt",
             description=(
                 "Update a prompt's content using string replacement. Optionally update "
-                "arguments atomically with content changes. Use this when editing template "
-                "text or when adding/removing template variables."
+                "arguments atomically with content changes. Updating arguments is required when "
+                "editing template text that adds or removes variables, to avoid validation errors."
             ),
             inputSchema={
                 "type": "object",
@@ -509,7 +509,8 @@ async def handle_list_tools() -> list[types.Tool]:
                             "update. Use this when adding/removing template variables "
                             "(e.g., {{ new_var }}) to avoid validation errors. If omitted, "
                             "validation uses existing arguments. If provided, this list "
-                            "FULLY REPLACES current arguments (not a merge)."
+                            "FULLY REPLACES current arguments (not a merge). All arguments must "
+                            "be referred to in the prompt template and vice versa."
                         ),
                         "items": {
                             "type": "object",
@@ -712,12 +713,12 @@ async def _handle_update_prompt(
     match_type = result.get("match_type", "exact")
     line = result.get("line", 0)
     data = result.get("data", {})
-    prompt_name = data.get("name", "unknown")
+    prompt_id_result = data.get("id", prompt_id)
 
     return [
         types.TextContent(
             type="text",
-            text=f"Updated prompt '{prompt_name}' (match: {match_type} at line {line})",
+            text=f"Updated prompt {prompt_id_result} (match: {match_type} at line {line})",
         ),
     ]
 

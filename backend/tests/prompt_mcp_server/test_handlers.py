@@ -597,7 +597,7 @@ async def test__update_prompt_tool__updates_content(mock_api, mock_auth) -> None
     )
 
     assert len(result) == 1
-    assert "test-prompt" in result[0].text
+    assert "550e8400-e29b-41d4-a716-446655440010" in result[0].text
     assert "exact" in result[0].text
     assert "line 1" in result[0].text
 
@@ -637,7 +637,7 @@ async def test__update_prompt_tool__with_arguments(mock_api, mock_auth) -> None:
         },
     )
 
-    assert "with-new-var" in result[0].text
+    assert "550e8400-e29b-41d4-a716-446655440011" in result[0].text
 
     # Verify payload included arguments
     payload = json.loads(mock_api.calls[0].request.content)
@@ -894,7 +894,7 @@ async def test__update_prompt_tool__empty_new_str_allowed(
         },
     )
 
-    assert "deleted-text" in result[0].text
+    assert "550e8400-e29b-41d4-a716-446655440016" in result[0].text
 
 
 @pytest.mark.asyncio

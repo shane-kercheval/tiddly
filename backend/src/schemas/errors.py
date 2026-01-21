@@ -4,7 +4,9 @@ Error response schemas for API endpoints.
 Provides structured error responses for OpenAPI documentation and consistent
 error handling across the API. Also includes str-replace request/response schemas.
 """
+from datetime import datetime
 from typing import Generic, Literal, TypeVar
+from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -111,12 +113,17 @@ T = TypeVar("T")
 
 class StrReplaceSuccess(BaseModel, Generic[T]):
     """
-    Success response for str-replace operations.
+    Success response for str-replace operations (full entity).
 
     Contains metadata about the match that was replaced, plus the full
-    updated entity in the `data` field.
+    updated entity in the `data` field. Use `include_updated_entity=true`
+    query param to get this response.
     """
 
+    response_type: Literal["full"] = Field(
+        default="full",
+        description="Discriminator field indicating full entity response",
+    )
     match_type: Literal["exact", "whitespace_normalized"] = Field(
         description="Which matching strategy succeeded: "
         "'exact' for character-for-character match, "
@@ -127,4 +134,37 @@ class StrReplaceSuccess(BaseModel, Generic[T]):
     )
     data: T = Field(
         description="The full updated entity (NoteResponse, BookmarkResponse, or PromptResponse)",
+    )
+
+
+class MinimalEntityData(BaseModel):
+    """Minimal entity data for str-replace responses (default)."""
+
+    id: UUID = Field(description="Entity ID")
+    updated_at: datetime = Field(description="Timestamp of the update")
+
+
+class StrReplaceSuccessMinimal(BaseModel):
+    """
+    Success response for str-replace operations (minimal, default).
+
+    Contains metadata about the match that was replaced, plus minimal
+    entity data (id and updated_at only). This is the default response
+    to reduce bandwidth and token usage for LLMs.
+    """
+
+    response_type: Literal["minimal"] = Field(
+        default="minimal",
+        description="Discriminator field indicating minimal response",
+    )
+    match_type: Literal["exact", "whitespace_normalized"] = Field(
+        description="Which matching strategy succeeded: "
+        "'exact' for character-for-character match, "
+        "'whitespace_normalized' for match after normalizing line endings and trailing whitespace",
+    )
+    line: int = Field(
+        description="Line number (1-indexed) where the match was found",
+    )
+    data: MinimalEntityData = Field(
+        description="Minimal entity data with id and updated_at",
     )

@@ -138,7 +138,6 @@ class NoteListItem(BaseModel):
     last_used_at: datetime
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
-    version: int
 
     @model_validator(mode="before")
     @classmethod
@@ -155,7 +154,7 @@ class NoteListItem(BaseModel):
             for key in [
                 "id", "title", "description",
                 "created_at", "updated_at", "last_used_at",
-                "deleted_at", "archived_at", "version", "content",
+                "deleted_at", "archived_at", "content",
             ]:
                 if hasattr(data, key):
                     data_dict[key] = getattr(data, key)
