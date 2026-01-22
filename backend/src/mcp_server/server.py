@@ -252,8 +252,10 @@ async def search_items(
     elif type == "note":
         endpoint = "/notes/"
     else:
-        # Search both types via unified content endpoint
+        # Search both types via unified content endpoint.
+        # Explicitly filter to bookmarks and notes only - prompts have their own MCP server.
         endpoint = "/content/"
+        params["content_types"] = ["bookmark", "note"]
 
     try:
         return await api_get(client, endpoint, token, params)

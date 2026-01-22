@@ -487,6 +487,32 @@ async def test__get_note_metadata__null_content__returns_null_metrics(
     assert data["content_preview"] is None
 
 
+async def test__get_note_metadata__start_line_returns_400(client: AsyncClient) -> None:
+    """Test that metadata endpoint returns 400 when start_line is provided."""
+    create_response = await client.post(
+        "/notes/",
+        json={"title": "Line Param Test"},
+    )
+    note_id = create_response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/metadata", params={"start_line": 1})
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
+
+
+async def test__get_note_metadata__end_line_returns_400(client: AsyncClient) -> None:
+    """Test that metadata endpoint returns 400 when end_line is provided."""
+    create_response = await client.post(
+        "/notes/",
+        json={"title": "Line Param Test 2"},
+    )
+    note_id = create_response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/metadata", params={"end_line": 10})
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
+
+
 # =============================================================================
 # Update Note Tests
 # =============================================================================
@@ -1434,6 +1460,22 @@ async def test__get_note__empty_string_content_is_valid(client: AsyncClient) -> 
     assert data["content"] == ""
     assert data["content_metadata"]["total_lines"] == 1
     assert data["content_metadata"]["is_partial"] is False
+
+
+async def test__get_note__empty_string_content_length_is_zero(client: AsyncClient) -> None:
+    """Test that empty string content returns content_length=0, not None."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Empty String Test", "content": ""},
+    )
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == ""
+    assert data["content_length"] == 0  # Empty string = length 0, not None
 
 
 async def test__get_note__empty_string_content_with_start_line(client: AsyncClient) -> None:

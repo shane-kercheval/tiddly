@@ -151,6 +151,25 @@ async def test__search_items__all_types(
 
 
 @pytest.mark.asyncio
+async def test__search_items__excludes_prompts_when_no_type(
+    mock_api,
+    mcp_client: Client,
+    sample_content_list: dict[str, Any],
+) -> None:
+    """Test search_items passes content_types to exclude prompts when type is not specified."""
+    mock_api.get("/content/").mock(
+        return_value=Response(200, json=sample_content_list),
+    )
+
+    await mcp_client.call_tool("search_items", {})
+
+    # Verify content_types param is passed to exclude prompts
+    request_url = str(mock_api.calls[0].request.url)
+    assert "content_types=bookmark" in request_url
+    assert "content_types=note" in request_url
+
+
+@pytest.mark.asyncio
 async def test__search_items__all_types_with_query(
     mock_api,
     mcp_client: Client,

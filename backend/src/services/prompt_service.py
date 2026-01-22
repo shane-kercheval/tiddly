@@ -8,7 +8,7 @@ from jinja2 import Environment, TemplateSyntaxError, meta
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
 from models.prompt import Prompt
 from models.tag import prompt_tags
@@ -291,7 +291,15 @@ class PromptService(BaseEntityService[Prompt]):
                 ~Prompt.is_archived,
             ),
         )
-        return result.scalar_one_or_none()
+        prompt = result.scalar_one_or_none()
+
+        if prompt is not None:
+            # Compute content_length in Python since content is already loaded.
+            # Full content endpoints always include content_length per the API contract.
+            content = prompt.content
+            prompt.content_length = len(content) if content is not None else None
+
+        return prompt
 
     async def get_updated_at_by_name(
         self,
@@ -346,13 +354,19 @@ class PromptService(BaseEntityService[Prompt]):
         Returns:
             The prompt with metadata fields populated, or None if not found.
         """
+        # Select prompt with computed content metrics, excluding full content from SELECT.
+        # defer() prevents SQLAlchemy from loading the content column, while
+        # func.length/func.left compute the metrics directly in PostgreSQL.
         result = await db.execute(
             select(
                 Prompt,
                 func.length(Prompt.content).label("content_length"),
                 func.left(Prompt.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
             )
-            .options(selectinload(Prompt.tag_objects))
+            .options(
+                defer(Prompt.content),  # Exclude content from SELECT
+                selectinload(Prompt.tag_objects),
+            )
             .where(
                 Prompt.user_id == user_id,
                 Prompt.name == name,
@@ -368,7 +382,9 @@ class PromptService(BaseEntityService[Prompt]):
         prompt, content_length, content_preview = row
         prompt.content_length = content_length
         prompt.content_preview = content_preview
-        # Clear content to ensure we don't accidentally return it
+        # Set content to None to prevent lazy load if code accidentally accesses it.
+        # The defer() above excludes content from the SELECT, but without this line,
+        # accessing prompt.content would trigger a lazy load query.
         prompt.content = None
 
         return prompt

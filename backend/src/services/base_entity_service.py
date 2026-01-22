@@ -160,10 +160,13 @@ class BaseEntityService(ABC, Generic[T]):
         entity = result.scalar_one_or_none()
 
         if entity is not None:
-            # Compute content_length in Python from loaded content
-            # This ensures consistency with get_metadata which uses SQL
+            # Compute content_length in Python since content is already loaded.
+            # This is more efficient than adding a SQL computed column when we're
+            # already fetching full content. Python len() and PostgreSQL length()
+            # both count characters for UTF-8 text, so results are consistent.
+            # Use `is not None` to correctly handle empty strings (len("") = 0, not None).
             content = getattr(entity, "content", None)
-            entity.content_length = len(content) if content else None
+            entity.content_length = len(content) if content is not None else None
 
         return entity
 
@@ -191,14 +194,19 @@ class BaseEntityService(ABC, Generic[T]):
         Returns:
             The entity with metadata fields populated, or None if not found.
         """
-        # Select entity with computed content metrics (without loading full content)
+        # Select entity with computed content metrics, excluding full content from SELECT.
+        # defer() prevents SQLAlchemy from loading the content column, while
+        # func.length/func.left compute the metrics directly in PostgreSQL.
         query = (
             select(
                 self.model,
                 func.length(self.model.content).label("content_length"),
                 func.left(self.model.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
             )
-            .options(selectinload(self.model.tag_objects))
+            .options(
+                defer(self.model.content),  # Exclude content from SELECT
+                selectinload(self.model.tag_objects),
+            )
             .where(
                 self.model.id == entity_id,
                 self.model.user_id == user_id,
@@ -219,7 +227,9 @@ class BaseEntityService(ABC, Generic[T]):
         entity, content_length, content_preview = row
         entity.content_length = content_length
         entity.content_preview = content_preview
-        # Clear content to ensure we don't accidentally return it
+        # Set content to None to prevent lazy load if code accidentally accesses it.
+        # The defer() above excludes content from the SELECT, but without this line,
+        # accessing entity.content would trigger a lazy load query.
         entity.content = None
 
         return entity
@@ -328,7 +338,9 @@ class BaseEntityService(ABC, Generic[T]):
             entity = row[0]  # First element is the model instance
             entity.content_length = row[1]  # content_length
             entity.content_preview = row[2]  # content_preview
-            # Set content to None to prevent lazy load when schema accesses it
+            # Set content to None to prevent lazy load if code accidentally accesses it.
+            # The defer() above excludes content from the SELECT, but without this line,
+            # accessing entity.content would trigger a lazy load query.
             entity.content = None
             entities.append(entity)
 

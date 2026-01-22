@@ -773,7 +773,7 @@ async def test__search_prompts__results_include_length_and_preview(
     mock_auth,  # noqa: ARG001 - needed for side effect
     sample_prompt_list_item: dict[str, Any],
 ) -> None:
-    """Test search_prompts results include content_length and content_preview."""
+    """Test search_prompts results include prompt_length and prompt_preview (translated from API)."""
     response_data = {
         "items": [sample_prompt_list_item],
         "total": 1,
@@ -789,8 +789,11 @@ async def test__search_prompts__results_include_length_and_preview(
 
     import json
     data = json.loads(result[0].text)
-    assert data["items"][0]["content_length"] == 500
-    assert "content_preview" in data["items"][0]
+    # API returns content_length/content_preview, MCP translates to prompt_length/prompt_preview
+    assert data["items"][0]["prompt_length"] == 500
+    assert "prompt_preview" in data["items"][0]
+    assert "content_length" not in data["items"][0]
+    assert "content_preview" not in data["items"][0]
 
 
 # --- list_tags tests ---
@@ -1479,7 +1482,7 @@ async def test__get_prompt_metadata__returns_length_and_preview(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
-    """Test get_prompt_metadata returns content_length and content_preview."""
+    """Test get_prompt_metadata returns prompt_length and prompt_preview (translated from API)."""
     metadata_response = {
         "id": "550e8400-e29b-41d4-a716-446655440001",
         "name": "code-review",
@@ -1498,8 +1501,11 @@ async def test__get_prompt_metadata__returns_length_and_preview(
 
     import json
     data = json.loads(result[0].text)
-    assert data["content_length"] == 1500
-    assert data["content_preview"] == "You are a code reviewer..."
+    # API returns content_length/content_preview, MCP translates to prompt_length/prompt_preview
+    assert data["prompt_length"] == 1500
+    assert data["prompt_preview"] == "You are a code reviewer..."
+    assert "content_length" not in data
+    assert "content_preview" not in data
     assert "content" not in data  # Full content should NOT be present
 
 

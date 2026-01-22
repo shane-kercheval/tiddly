@@ -175,6 +175,8 @@ async def get_note_metadata(
     note_id: UUID,
     request: Request,
     response: FastAPIResponse,
+    start_line: int | None = Query(default=None, description="Not valid for metadata endpoint"),
+    end_line: int | None = Query(default=None, description="Not valid for metadata endpoint"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteListItem:
@@ -189,6 +191,13 @@ async def get_note_metadata(
     - Getting quick context via the preview without full content transfer
     - Lightweight status checks
     """
+    # start_line/end_line are only valid on full content endpoints
+    if start_line is not None or end_line is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="start_line/end_line parameters are not valid on metadata endpoints. "
+            "Use GET /notes/{id} for partial content reads.",
+        )
     # Quick check: can we return 304?
     updated_at = await note_service.get_updated_at(
         db, current_user.id, note_id, include_deleted=True,

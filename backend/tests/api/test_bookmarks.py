@@ -513,6 +513,32 @@ async def test__get_bookmark_metadata__null_content__returns_null_metrics(
     assert data["content_preview"] is None
 
 
+async def test__get_bookmark_metadata__start_line_returns_400(client: AsyncClient) -> None:
+    """Test that metadata endpoint returns 400 when start_line is provided."""
+    create_response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://line-param-test.com", "title": "Test"},
+    )
+    bookmark_id = create_response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}/metadata", params={"start_line": 1})
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
+
+
+async def test__get_bookmark_metadata__end_line_returns_400(client: AsyncClient) -> None:
+    """Test that metadata endpoint returns 400 when end_line is provided."""
+    create_response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://line-param-test2.com", "title": "Test"},
+    )
+    bookmark_id = create_response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}/metadata", params={"end_line": 10})
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
+
+
 async def test_update_bookmark(client: AsyncClient) -> None:
     """Test updating a bookmark."""
     # Create a bookmark

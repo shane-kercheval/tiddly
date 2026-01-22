@@ -511,6 +511,23 @@ async def test__get_prompt_by_name__success(client: AsyncClient) -> None:
     assert data["content"] == "Hello world"
 
 
+async def test__get_prompt_by_name__returns_content_length(client: AsyncClient) -> None:
+    """Test that GET /prompts/name/{name} returns content_length per API contract."""
+    content = "This is the template content for testing."
+    await client.post(
+        "/prompts/",
+        json={"name": "content-length-by-name", "content": content},
+    )
+
+    response = await client.get("/prompts/name/content-length-by-name")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == content
+    assert data["content_length"] == len(content)
+    assert data.get("content_preview") is None
+
+
 async def test__get_prompt_by_name__not_found(client: AsyncClient) -> None:
     """Test getting a non-existent prompt by name returns 404."""
     response = await client.get("/prompts/name/nonexistent")
@@ -618,6 +635,64 @@ async def test__get_prompt_metadata__content_under_500_chars__preview_equals_ful
     data = response.json()
     assert data["content_length"] == len(content)
     assert data["content_preview"] == content
+
+
+async def test__get_prompt_metadata__start_line_returns_400(client: AsyncClient) -> None:
+    """Test that metadata endpoint returns 400 when start_line is provided."""
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "line-param-test-1", "content": "Test content"},
+    )
+    prompt_id = create_response.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}/metadata", params={"start_line": 1})
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
+
+
+async def test__get_prompt_metadata__end_line_returns_400(client: AsyncClient) -> None:
+    """Test that metadata endpoint returns 400 when end_line is provided."""
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "line-param-test-2", "content": "Test content"},
+    )
+    prompt_id = create_response.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}/metadata", params={"end_line": 10})
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
+
+
+async def test__get_prompt_by_name_metadata__start_line_returns_400(
+    client: AsyncClient,
+) -> None:
+    """Test that /prompts/name/{name}/metadata returns 400 when start_line is provided."""
+    await client.post(
+        "/prompts/",
+        json={"name": "name-line-param-1", "content": "Test content"},
+    )
+
+    response = await client.get(
+        "/prompts/name/name-line-param-1/metadata", params={"start_line": 1},
+    )
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
+
+
+async def test__get_prompt_by_name_metadata__end_line_returns_400(
+    client: AsyncClient,
+) -> None:
+    """Test that /prompts/name/{name}/metadata returns 400 when end_line is provided."""
+    await client.post(
+        "/prompts/",
+        json={"name": "name-line-param-2", "content": "Test content"},
+    )
+
+    response = await client.get(
+        "/prompts/name/name-line-param-2/metadata", params={"end_line": 10},
+    )
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
 
 
 # =============================================================================

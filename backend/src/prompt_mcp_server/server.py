@@ -39,9 +39,10 @@ Available capabilities:
 - `get_prompt`: Render a prompt template by name with provided arguments
 
 **Tools:**
-- `search_prompts`: Search prompts with filters. Returns content_length and content_preview.
+- `search_prompts`: Search prompts with filters. Returns prompt_length and prompt_preview.
 - `list_tags`: Get all tags with usage counts
 - `get_prompt_template`: Get raw template content and arguments for viewing/editing
+- `get_prompt_metadata`: Get metadata without full content (prompt_length, prompt_preview)
 - `create_prompt`: Create a new prompt template with Jinja2 content
 - `edit_prompt_template`: Edit template content using string replacement
 - `update_prompt_metadata`: Update title, description, tags, or rename a prompt
@@ -81,7 +82,7 @@ Example workflows:
 
 7. "Search for prompts about code review"
    - Call `search_prompts(query="code review")` to find matching prompts
-   - Response includes content_length and content_preview for each result
+   - Response includes prompt_length and prompt_preview for each result
 
 8. "What tags do I have?"
    - Call `list_tags()` to see all tags with usage counts
@@ -411,8 +412,8 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="search_prompts",
             description=(
-                "Search prompts with filters. Returns metadata including content_length "
-                "and content_preview (first 500 chars) for size assessment before fetching "
+                "Search prompts with filters. Returns metadata including prompt_length "
+                "and prompt_preview (first 500 chars) for size assessment before fetching "
                 "full content. Use this for discovery before get_prompt_template."
             ),
             inputSchema={
@@ -509,8 +510,8 @@ async def handle_list_tools() -> list[types.Tool]:
             name="get_prompt_metadata",
             description=(
                 "Get a prompt's metadata without the template content. "
-                "Returns name, title, description, arguments, tags, content_length, "
-                "and content_preview. Use to check size or arguments before fetching template."
+                "Returns name, title, description, arguments, tags, prompt_length, "
+                "and prompt_preview. Use to check size or arguments before fetching template."
             ),
             inputSchema={
                 "type": "object",
@@ -786,6 +787,14 @@ async def _handle_search_prompts(
             ),
         ) from e
 
+    # Translate API field names for semantic clarity in Prompt MCP:
+    # content_length → prompt_length, content_preview → prompt_preview
+    for item in result.get("items", []):
+        if "content_length" in item:
+            item["prompt_length"] = item.pop("content_length")
+        if "content_preview" in item:
+            item["prompt_preview"] = item.pop("content_preview")
+
     return [
         types.TextContent(
             type="text",
@@ -945,6 +954,8 @@ async def _handle_get_prompt_metadata(
         ) from e
 
     # Return metadata as JSON
+    # Translate API field names for semantic clarity in Prompt MCP:
+    # content_length → prompt_length, content_preview → prompt_preview
     response_data = {
         "id": prompt.get("id"),
         "name": prompt.get("name"),
@@ -952,8 +963,8 @@ async def _handle_get_prompt_metadata(
         "description": prompt.get("description"),
         "arguments": prompt.get("arguments", []),
         "tags": prompt.get("tags", []),
-        "content_length": prompt.get("content_length"),
-        "content_preview": prompt.get("content_preview"),
+        "prompt_length": prompt.get("content_length"),
+        "prompt_preview": prompt.get("content_preview"),
     }
 
     return [
