@@ -33,11 +33,8 @@ These decisions were made during planning and should be followed throughout impl
 ### Response Shape
 
 `content_length` is **always** returned when content exists. `content_preview` and `content` are **mutually exclusive**:
-
-| `include_content` | Returns |
-|-------------------|---------|
-| `false` | `content_length`, `content_preview`, `content=null`, `content_metadata=null` |
-| `true` | `content_length`, `content`, `content_metadata`, `content_preview=null` |
+- When full content is returned: `content`, `content_metadata`, `content_length` (no `content_preview`)
+- When metadata only: `content_length`, `content_preview` (no `content` or `content_metadata`)
 
 ### API Endpoint Design
 
@@ -65,6 +62,13 @@ MCP tools are designed for LLM agents (fewer tools, more flexibility):
 |------|------------------------|----------|
 | `get_item` | Yes, default `true` | Calls `/{id}` or `/{id}/metadata` based on parameter |
 | `search_items` | **No** | Always returns `content_length` + `content_preview` (list behavior) |
+
+**`get_item` response based on `include_content` parameter:**
+
+| `include_content` | Returns |
+|-------------------|---------|
+| `false` | `content_length`, `content_preview`, `content=null`, `content_metadata=null` |
+| `true` | `content_length`, `content`, `content_metadata`, `content_preview=null` |
 
 **Rationale:**
 - Fewer tools = less cognitive load for LLMs
@@ -372,7 +376,6 @@ async def get_note_metadata(
 - `GET /prompts/` returns items with `prompt_length` and `prompt_preview`
 - `GET /content/` returns items with `content_length` and `content_preview`
 - Lists **never** return full `content` or `content_metadata`
-- No `include_content` parameter on list endpoints
 
 ### Key Changes
 
