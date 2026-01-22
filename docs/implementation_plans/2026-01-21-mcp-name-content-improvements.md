@@ -758,10 +758,13 @@ async def update_item_metadata(
 
     At least one field must be provided.
     Tags are replaced entirely (not merged) - provide the complete tag list.
-    The `url` parameter only applies to bookmarks and is ignored for notes.
+    The `url` parameter only applies to bookmarks - raises an error if provided for notes.
     """
     if title is None and description is None and tags is None and url is None:
         raise ToolError("At least one of title, description, tags, or url must be provided")
+
+    if url is not None and type == "note":
+        raise ToolError("url parameter is only valid for bookmarks")
 
     # Call appropriate API endpoint
     endpoint = f"/{type}s/{id}"
@@ -772,7 +775,7 @@ async def update_item_metadata(
         payload["description"] = description
     if tags is not None:
         payload["tags"] = tags
-    if url is not None and type == "bookmark":
+    if url is not None:
         payload["url"] = url
 
     # PATCH to update
@@ -780,7 +783,7 @@ async def update_item_metadata(
 ```
 
 **Update server instructions** to document the new tool and clarify when to use it vs `edit_content`:
-- `update_item_metadata`: Change title, description, tags, or url
+- `update_item_metadata`: Change title, description, tags, or url (bookmarks only - `url` for notes raises error)
 - `edit_content`: Change the content text field using string replacement
 
 ### Testing Strategy
@@ -789,7 +792,7 @@ async def update_item_metadata(
 - `test__update_item_metadata__updates_description`
 - `test__update_item_metadata__updates_tags`
 - `test__update_item_metadata__updates_url_bookmark`
-- `test__update_item_metadata__url_ignored_for_note`
+- `test__update_item_metadata__url_for_note__raises_error`
 - `test__update_item_metadata__updates_multiple_fields`
 - `test__update_item_metadata__no_fields_provided__returns_error`
 - `test__update_item_metadata__not_found__returns_error`
@@ -853,8 +856,12 @@ Use `include_content=false` to get metadata only:
 
 ## Updating Metadata vs Content
 
-- **`update_item_metadata`**: Change title, description, tags, or url (bookmarks)
+- **`update_item_metadata`**: Change title, description, tags, or url (bookmarks only - providing `url` for notes raises an error)
 - **`edit_content`**: Change the content text field using string replacement
+
+## Discovering Tags
+
+`list_tags()` returns all tags used across bookmarks and notes. Use this to discover available tags for filtering with `search_items`.
 
 ...
 """
@@ -894,8 +901,12 @@ Tools:
 
 ## Updating Metadata vs Template
 
-- **`update_prompt_metadata`**: Change title, description, tags, or rename the prompt
+- **`update_prompt_metadata`**: Change title, description, tags, or rename the prompt (use `new_name` to rename)
 - **`edit_prompt_template`**: Change the template text using string replacement (optionally update arguments atomically)
+
+## Discovering Tags
+
+`list_tags()` returns all tags used across prompts. Use this to discover available tags for filtering with `search_prompts`, or to check existing tags before creating/updating prompts.
 
 ...
 """
