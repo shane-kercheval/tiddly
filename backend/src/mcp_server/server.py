@@ -44,57 +44,85 @@ tiddly, tiddly.me, or their bookmarks/notes service, they're referring to this s
 This MCP server is a content manager for saving and organizing bookmarks and notes.
 Supports full-text search, tagging, markdown notes, and AI-friendly content editing.
 
-Available tools:
+## Content Types
 
-**Search:**
+- **Bookmarks** have: url, title, description, content (scraped page text or user-provided), tags
+- **Notes** have: title, description, content (markdown), tags
+
+The `content` field is the main body text. For bookmarks, it's typically auto-scraped from the
+URL but can be user-provided. For notes, it's user-written markdown.
+
+## Available Tools
+
+**Search** (returns active items only - excludes archived/deleted):
 - `search_bookmarks`: Search bookmarks by text query and/or filter by tags
 - `search_notes`: Search notes by text query and/or filter by tags
 - `search_all_content`: Search across both bookmarks and notes in one query
-- `list_tags`: Get all tags with usage counts (shared across content types)
+- `list_tags`: Get all tags with usage counts
 
-**Content (unified for bookmarks and notes):**
-- `get_content`: Get a bookmark or note by ID (supports partial reads for large content)
-- `edit_content`: Edit content using string replacement (old_str must be unique)
-- `search_in_content`: Search within an item's text fields for matches with context
+**Read & Edit:**
+- `get_content`: Get full item by ID (supports partial reads for large content)
+- `edit_content`: Edit the `content` field using string replacement (NOT title/description)
+- `search_in_content`: Search within item's text fields for matches with context
 
 **Create:**
 - `create_bookmark`: Save a new URL (metadata auto-fetched if not provided)
 - `create_note`: Create a new note with markdown content
 
-Example workflows:
+## Search Response Structure
 
-1. "Show me my reading list" or "What articles do I have saved?"
-   - First call `list_tags()` to discover the user's tag taxonomy
-   - Identify relevant tags (e.g., `reading-list`, `articles`, `to-read`)
-   - Call `search_bookmarks(tags=["reading-list"])` to filter by that tag
+All search tools return:
+```
+{
+  "items": [...],   // List of items (see fields below)
+  "total": 150,     // Total matches (for pagination)
+  "limit": 50,      // Page size
+  "offset": 0,      // Current offset
+  "has_more": true  // More results available
+}
+```
+
+Each item includes: `id`, `title`, `description`, `tags`, `created_at`, `updated_at`
+- Bookmarks also have: `url`
+- Notes also have: (no extra fields in list view)
+- `search_all_content` items have: `type` ("bookmark" or "note")
+
+**Note:** List results do NOT include the full `content` field (too large). Use `get_content(id, type)` to fetch full content, or `search_in_content(id, type, query)` to find specific text with context.
+
+## Limitations
+
+- `edit_content` only edits the `content` field. To change title, description, or tags,
+  use the web UI at tiddly.me
+- Delete/archive operations are only available via web UI
+- Search returns active items only (not archived or deleted)
+
+## Example Workflows
+
+1. "Show me my reading list"
+   - Call `list_tags()` to discover tag taxonomy
+   - Call `search_bookmarks(tags=["reading-list"])` to filter by tag
 
 2. "Find my Python tutorials"
-   - Call `search_bookmarks(query="python tutorial")` for text search, or
-   - Call `list_tags()` first, then `search_bookmarks(tags=["python", "tutorial"])`
+   - Call `search_bookmarks(query="python tutorial")` for text search
 
 3. "Save this article: <url>"
    - Call `create_bookmark(url="<url>", tags=["articles"])`
-   - Title/description are auto-fetched if not provided
 
-4. "What notes do I have about the project?"
-   - Call `search_notes(query="project")` for text search
-   - And/or filter by tag: `search_notes(tags=["project"])`
-
-5. "Create a meeting note"
+4. "Create a meeting note"
    - Call `create_note(title="Meeting Notes", content="## Attendees\\n...", tags=["meeting"])`
 
-6. "Search my content for Python resources"
-   - Call `search_all_content(query="python")` to search both bookmarks and notes
+5. "Search all my content for Python resources"
+   - Call `search_all_content(query="python")` to search bookmarks and notes
 
-7. "Edit my meeting note to fix a typo"
-   - Call `search_all_content(query="meeting")` to find the note
-   - Call `get_content(id="...", type="note")` to read the content
-   - Call `search_in_content(id="...", type="note", query="teh")` to find the typo
-   - Call `edit_content(id="...", type="note", old_str="teh mistake", new_str="the mistake")`
+6. "Edit my meeting note to fix a typo"
+   - Call `search_notes(query="meeting")` to find the note → get `id` from result
+   - Call `get_content(id="<uuid>", type="note")` to read content (includes `content_metadata.total_lines`)
+   - Call `edit_content(id="<uuid>", type="note", old_str="teh mistake", new_str="the mistake")`
 
-8. "Update the description in my Python bookmark"
-   - Call `search_in_content(id="...", type="bookmark", query="old text")` to verify uniqueness
-   - Call `edit_content(id="...", type="bookmark", old_str="old text", new_str="new text")`
+7. "Fix text in a large document" (when content is too large to read fully)
+   - Call `search_in_content(id="<uuid>", type="note", query="old text")` to find matches with context
+   - Use context from results to build a unique `old_str`
+   - Call `edit_content(...)` with enough surrounding context to ensure uniqueness
 
 Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
 """.strip(),
@@ -388,7 +416,8 @@ async def get_content(
 
 @mcp.tool(
     description=(
-        "Edit content using string replacement. The old_str must match exactly "
+        "Edit the 'content' field using string replacement. Does NOT edit title or "
+        "description - only the main content body. The old_str must match exactly "
         "one location. Use search_in_content first to verify match uniqueness."
     ),
     annotations={"readOnlyHint": False, "destructiveHint": True},
@@ -409,7 +438,10 @@ async def edit_content(
     ],
 ) -> dict[str, Any]:
     """
-    Replace old_str with new_str in the content.
+    Replace old_str with new_str in the item's 'content' field.
+
+    **Important:** This tool ONLY edits the `content` field (main body text).
+    It does NOT edit title, description, or tags. Use the web UI for those.
 
     The edit will fail if old_str matches 0 or multiple locations. On failure,
     the response includes match locations with context to help construct a unique match.
@@ -489,7 +521,10 @@ async def search_in_content(
     query: Annotated[str, Field(description="Text to search for (literal match)")],
     fields: Annotated[
         str | None,
-        Field(description="Fields to search (comma-separated): content, title, description"),
+        Field(
+            description="Fields to search (comma-separated): content, title, description. "
+            "Default: 'content' only",
+        ),
     ] = None,
     case_sensitive: Annotated[
         bool | None,
@@ -502,6 +537,9 @@ async def search_in_content(
 ) -> dict[str, Any]:
     """
     Find all occurrences of query text within the item.
+
+    By default, searches ONLY the 'content' field. Use `fields` parameter to also
+    search title and/or description (e.g., fields="content,title,description").
 
     Use this tool before editing to:
     - Check how many matches exist (avoid 'multiple matches' errors)
