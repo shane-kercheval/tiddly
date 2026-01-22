@@ -125,7 +125,7 @@ Each item includes: `id`, `title`, `description`, `tags`, `created_at`, `updated
    - Call `edit_content(...)` with enough surrounding context to ensure uniqueness
 
 Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
-""".strip(),
+""".strip(),  # noqa: E501
 )
 
 
