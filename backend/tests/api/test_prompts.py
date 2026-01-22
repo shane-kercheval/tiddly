@@ -285,6 +285,35 @@ async def test__list_prompts__excludes_content_in_list_items(client: AsyncClient
         assert "content" not in item
 
 
+async def test__list_prompts__returns_length_and_preview(client: AsyncClient) -> None:
+    """Test that list endpoint returns content_length and content_preview."""
+    content = "G" * 1000
+    await client.post(
+        "/prompts/",
+        json={"name": "list-length-test", "content": content},
+    )
+
+    response = await client.get("/prompts/")
+    assert response.status_code == 200
+
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["content_length"] == 1000
+    assert items[0]["content_preview"] == "G" * 500
+    assert "content" not in items[0]
+
+
+async def test__list_prompts__null_content_never_exists(client: AsyncClient) -> None:
+    """Test that prompts always have content (content is required for prompts)."""
+    # Prompts require content, so this test verifies the schema constraint.
+    # Unlike bookmarks/notes, prompts cannot have null content.
+    response = await client.post(
+        "/prompts/",
+        json={"name": "no-content-prompt"},  # Missing content
+    )
+    assert response.status_code == 422  # Content is required
+
+
 async def test__list_prompts__search_query_filters(client: AsyncClient) -> None:
     """Test prompt search by query."""
     await client.post("/prompts/", json={"name": "python-review", "content": "Content 1"})
@@ -459,7 +488,7 @@ async def test__get_prompt__not_found(client: AsyncClient) -> None:
     assert response.json()["detail"] == "Prompt not found"
 
 
-# Note: Cross-user isolation (IDOR) tests are in Milestone 7: test_live_penetration.py
+# Note: Cross-user isolation (IDOR) tests are in test_live_penetration.py
 
 
 # =============================================================================
@@ -480,6 +509,23 @@ async def test__get_prompt_by_name__success(client: AsyncClient) -> None:
     data = response.json()
     assert data["name"] == "my-prompt"
     assert data["content"] == "Hello world"
+
+
+async def test__get_prompt_by_name__returns_content_length(client: AsyncClient) -> None:
+    """Test that GET /prompts/name/{name} returns content_length per API contract."""
+    content = "This is the template content for testing."
+    await client.post(
+        "/prompts/",
+        json={"name": "content-length-by-name", "content": content},
+    )
+
+    response = await client.get("/prompts/name/content-length-by-name")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == content
+    assert data["content_length"] == len(content)
+    assert data.get("content_preview") is None
 
 
 async def test__get_prompt_by_name__not_found(client: AsyncClient) -> None:
@@ -513,6 +559,140 @@ async def test__get_prompt_by_name__archived_prompt(client: AsyncClient) -> None
 
     response = await client.get("/prompts/name/archived-prompt")
     assert response.status_code == 404
+
+
+async def test__get_prompt__returns_full_content_and_length(client: AsyncClient) -> None:
+    """Test that GET /prompts/{id} returns full content and content_length."""
+    content = "This is the full prompt template content."
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "content-length-test", "content": content},
+    )
+    prompt_id = create_response.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == content
+    assert data["content_length"] == len(content)
+    assert data.get("content_preview") is None
+
+
+async def test__get_prompt_metadata__returns_length_and_preview_no_content(
+    client: AsyncClient,
+) -> None:
+    """Test that GET /prompts/{id}/metadata returns length and preview, no full content."""
+    content = "C" * 1000
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "metadata-test", "content": content},
+    )
+    prompt_id = create_response.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] == 1000
+    assert data["content_preview"] == "C" * 500
+    assert data.get("content") is None
+
+
+async def test__get_prompt_by_name_metadata__returns_length_and_preview(
+    client: AsyncClient,
+) -> None:
+    """Test that GET /prompts/name/{name}/metadata returns length and preview."""
+    content = "D" * 800
+    await client.post(
+        "/prompts/",
+        json={"name": "name-metadata-test", "content": content},
+    )
+
+    response = await client.get("/prompts/name/name-metadata-test/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] == 800
+    assert data["content_preview"] == "D" * 500
+    assert data.get("content") is None
+
+
+async def test__get_prompt_metadata__content_under_500_chars__preview_equals_full(
+    client: AsyncClient,
+) -> None:
+    """Test that metadata endpoint preview equals full content when under 500 chars."""
+    content = "Short prompt content"
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "short-content-test", "content": content},
+    )
+    prompt_id = create_response.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] == len(content)
+    assert data["content_preview"] == content
+
+
+async def test__get_prompt_metadata__start_line_returns_400(client: AsyncClient) -> None:
+    """Test that metadata endpoint returns 400 when start_line is provided."""
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "line-param-test-1", "content": "Test content"},
+    )
+    prompt_id = create_response.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}/metadata", params={"start_line": 1})
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
+
+
+async def test__get_prompt_metadata__end_line_returns_400(client: AsyncClient) -> None:
+    """Test that metadata endpoint returns 400 when end_line is provided."""
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "line-param-test-2", "content": "Test content"},
+    )
+    prompt_id = create_response.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}/metadata", params={"end_line": 10})
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
+
+
+async def test__get_prompt_by_name_metadata__start_line_returns_400(
+    client: AsyncClient,
+) -> None:
+    """Test that /prompts/name/{name}/metadata returns 400 when start_line is provided."""
+    await client.post(
+        "/prompts/",
+        json={"name": "name-line-param-1", "content": "Test content"},
+    )
+
+    response = await client.get(
+        "/prompts/name/name-line-param-1/metadata", params={"start_line": 1},
+    )
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
+
+
+async def test__get_prompt_by_name_metadata__end_line_returns_400(
+    client: AsyncClient,
+) -> None:
+    """Test that /prompts/name/{name}/metadata returns 400 when end_line is provided."""
+    await client.post(
+        "/prompts/",
+        json={"name": "name-line-param-2", "content": "Test content"},
+    )
+
+    response = await client.get(
+        "/prompts/name/name-line-param-2/metadata", params={"end_line": 10},
+    )
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
 
 
 # =============================================================================
@@ -674,6 +854,32 @@ async def test__update_prompt__updates_updated_at(client: AsyncClient) -> None:
     )
     assert response.status_code == 200
     assert response.json()["updated_at"] > original_updated_at
+
+
+async def test__update_prompt__no_op_does_not_update_timestamp(client: AsyncClient) -> None:
+    """
+    Test that a no-op update (empty payload) does not change updated_at.
+
+    This is important for HTTP caching - ETag/Last-Modified should remain stable
+    when no actual changes are made to the prompt.
+    """
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "noop-test", "content": "Content"},
+    )
+    original_updated_at = create_response.json()["updated_at"]
+    prompt_id = create_response.json()["id"]
+
+    await asyncio.sleep(0.01)
+
+    # Send an empty update - no fields provided
+    response = await client.patch(
+        f"/prompts/{prompt_id}",
+        json={},
+    )
+    assert response.status_code == 200
+    # updated_at should remain unchanged
+    assert response.json()["updated_at"] == original_updated_at
 
 
 # =============================================================================
@@ -2653,3 +2859,226 @@ async def test_user_cannot_str_replace_other_users_prompt(
     )
     prompt = result.scalar_one()
     assert prompt.content == "Original content that should not be modified"
+
+
+# =============================================================================
+# Name-Based Endpoint Tests
+# =============================================================================
+
+
+async def test__update_by_name__success(client: AsyncClient) -> None:
+    """Test updating a prompt by name."""
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "name-update-test", "content": "Original content"},
+    )
+    assert create_response.status_code == 201
+
+    response = await client.patch(
+        "/prompts/name/name-update-test",
+        json={"title": "Updated Title", "tags": ["updated"]},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["title"] == "Updated Title"
+    assert data["tags"] == ["updated"]
+    # Name and content should remain unchanged
+    assert data["name"] == "name-update-test"
+    assert data["content"] == "Original content"
+
+
+async def test__update_by_name__not_found(client: AsyncClient) -> None:
+    """Test updating a non-existent prompt by name returns 404."""
+    response = await client.patch(
+        "/prompts/name/nonexistent-prompt-name",
+        json={"title": "Won't Work"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Prompt not found"
+
+
+async def test__update_by_name__name_conflict(client: AsyncClient) -> None:
+    """Test that renaming to an existing name returns 409."""
+    # Create two prompts
+    await client.post("/prompts/", json={"name": "existing-target-name", "content": "C1"})
+    await client.post("/prompts/", json={"name": "source-name", "content": "C2"})
+
+    # Try to rename source-name to existing-target-name
+    response = await client.patch(
+        "/prompts/name/source-name",
+        json={"name": "existing-target-name"},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["error_code"] == "NAME_CONFLICT"
+
+
+async def test__update_by_name__archived_returns_404(client: AsyncClient) -> None:
+    """Test that name-based update excludes archived prompts."""
+    # Create and archive a prompt
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "archived-update-test", "content": "Original content"},
+    )
+    prompt_id = create_response.json()["id"]
+    await client.post(f"/prompts/{prompt_id}/archive")
+
+    # Try to update by name - should get 404 since name-based lookup excludes archived
+    response = await client.patch(
+        "/prompts/name/archived-update-test",
+        json={"title": "Won't Work"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Prompt not found"
+
+
+async def test__str_replace_by_name__success(client: AsyncClient) -> None:
+    """Test successful str-replace by name."""
+    await client.post(
+        "/prompts/",
+        json={"name": "str-replace-name-test", "content": "Hello world"},
+    )
+
+    response = await client.patch(
+        "/prompts/name/str-replace-name-test/str-replace?include_updated_entity=true",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["response_type"] == "full"
+    assert data["match_type"] == "exact"
+    assert data["line"] == 1
+    assert data["data"]["content"] == "Hello universe"
+
+
+async def test__str_replace_by_name__minimal_response(client: AsyncClient) -> None:
+    """Test str-replace by name returns minimal response by default."""
+    response = await client.post(
+        "/prompts/",
+        json={"name": "str-replace-name-minimal", "content": "Hello world"},
+    )
+    prompt_id = response.json()["id"]
+
+    response = await client.patch(
+        "/prompts/name/str-replace-name-minimal/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["response_type"] == "minimal"
+    assert data["data"]["id"] == prompt_id
+    assert "updated_at" in data["data"]
+    # Minimal response should not include content
+    assert "content" not in data["data"]
+
+
+async def test__str_replace_by_name__not_found(client: AsyncClient) -> None:
+    """Test str-replace on non-existent prompt name returns 404."""
+    response = await client.patch(
+        "/prompts/name/nonexistent-prompt-for-str-replace/str-replace",
+        json={"old_str": "any", "new_str": "text"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Prompt not found"
+
+
+async def test__str_replace_by_name__no_match(client: AsyncClient) -> None:
+    """Test str-replace by name returns 400 when old_str not found."""
+    await client.post(
+        "/prompts/",
+        json={"name": "str-replace-no-match-test", "content": "Hello world"},
+    )
+
+    response = await client.patch(
+        "/prompts/name/str-replace-no-match-test/str-replace",
+        json={"old_str": "nonexistent text", "new_str": "replacement"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "no_match"
+
+
+async def test__str_replace_by_name__multiple_matches(client: AsyncClient) -> None:
+    """Test str-replace by name returns 400 with match locations when multiple matches."""
+    await client.post(
+        "/prompts/",
+        json={"name": "str-replace-multi-match", "content": "Hello world, hello again"},
+    )
+
+    response = await client.patch(
+        "/prompts/name/str-replace-multi-match/str-replace",
+        json={"old_str": "ello", "new_str": "i"},  # Matches twice
+    )
+    assert response.status_code == 400
+
+    data = response.json()["detail"]
+    assert data["error"] == "multiple_matches"
+    assert len(data["matches"]) == 2
+
+
+async def test__str_replace_by_name__archived_returns_404(client: AsyncClient) -> None:
+    """Test that name-based str-replace excludes archived prompts."""
+    # Create and archive a prompt
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "archived-str-replace-test", "content": "Hello world"},
+    )
+    prompt_id = create_response.json()["id"]
+    await client.post(f"/prompts/{prompt_id}/archive")
+
+    # Try to str-replace by name - should get 404 since name-based lookup excludes archived
+    response = await client.patch(
+        "/prompts/name/archived-str-replace-test/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Prompt not found"
+
+
+async def test__str_replace_by_name__with_arguments_update(client: AsyncClient) -> None:
+    """Test str-replace by name with atomic arguments update."""
+    await client.post(
+        "/prompts/",
+        json={
+            "name": "str-replace-args-test",
+            "content": "Hello world",
+            "arguments": [],
+        },
+    )
+
+    # Add a variable and its argument atomically
+    response = await client.patch(
+        "/prompts/name/str-replace-args-test/str-replace?include_updated_entity=true",
+        json={
+            "old_str": "Hello world",
+            "new_str": "Hello {{ name }}",
+            "arguments": [{"name": "name", "description": "User's name", "required": True}],
+        },
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["data"]["content"] == "Hello {{ name }}"
+    assert data["data"]["arguments"] == [
+        {"name": "name", "description": "User's name", "required": True},
+    ]
+
+
+async def test__str_replace_by_name__template_validation(client: AsyncClient) -> None:
+    """Test that str-replace by name validates resulting template."""
+    await client.post(
+        "/prompts/",
+        json={"name": "str-replace-validate-test", "content": "Hello world"},
+    )
+
+    # Try to add undefined variable
+    response = await client.patch(
+        "/prompts/name/str-replace-validate-test/str-replace",
+        json={
+            "old_str": "Hello world",
+            "new_str": "Hello {{ undefined_var }}",
+        },
+    )
+    assert response.status_code == 400
+    assert "undefined" in response.json()["detail"].lower()

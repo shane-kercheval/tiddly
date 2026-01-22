@@ -1,12 +1,12 @@
 # Prompt MCP Server Evaluation Configuration
-# Tests the update_prompt tool's ability to handle argument changes atomically
+# Tests the edit_prompt_template tool's ability to handle argument changes atomically
 
 model:
   name: "gpt-4.1-mini"
   temperature: 0
 
 eval:
-  samples: 5
+  samples: 10
   success_threshold: 0.8
 
 test_cases:
@@ -30,7 +30,7 @@ test_cases:
           required: true
       instruction: "Remove the language variable from this prompt. The prompt should just say 'Review this code:' without specifying a language."
     expected:
-      tool_name: "update_prompt"
+      tool_name: "edit_prompt_template"
       final_must_contain: "{{ code }}"
       final_must_not_contain: "{{ language }}"
       expected_argument_names: ["code"]
@@ -54,7 +54,7 @@ test_cases:
           required: true
       instruction: "Add an optional 'max_words' variable to control the summary length. REPLACE the line 'Keep the summary concise.' with 'Keep the summary under {{ max_words }} words.'"
     expected:
-      tool_name: "update_prompt"
+      tool_name: "edit_prompt_template"
       final_must_contain: ["{{ article_text }}", "{{ max_words }}"]
       final_must_not_contain: "Keep the summary concise"
       expected_argument_names: ["article_text", "max_words"]
@@ -79,7 +79,7 @@ test_cases:
           required: true
       instruction: "Rename the 'text' variable to 'source_text' for clarity."
     expected:
-      tool_name: "update_prompt"
+      tool_name: "edit_prompt_template"
       final_must_contain: ["{{ target_lang }}", "{{ source_text }}"]
       final_must_not_contain: "{{ text }}"
       expected_argument_names: ["source_text", "target_lang"]
@@ -103,7 +103,7 @@ test_cases:
           required: true
       instruction: "Fix the typo 'Anaylze' - it should be 'Analyze'."
     expected:
-      tool_name: "update_prompt"
+      tool_name: "edit_prompt_template"
       final_must_contain: ["Analyze the following data", "{{ data }}"]
       final_must_not_contain: "Anaylze"
       expected_argument_names: []
@@ -128,7 +128,7 @@ test_cases:
           required: true
       instruction: "Add an optional 'recipient_name' variable. REPLACE 'Write a {{ tone }} email about:' with 'Dear {{ recipient_name }},\n\nWrite a {{ tone }} email about:'"
     expected:
-      tool_name: "update_prompt"
+      tool_name: "edit_prompt_template"
       final_must_contain: ["{{ tone }}", "{{ topic }}", "{{ recipient_name }}"]
       # No exclusion needed - adding a variable doesn't remove existing content
       final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
@@ -157,7 +157,7 @@ test_cases:
           required: true
       instruction: "Remove the 'audience' variable. The prompt should just say 'Create a {{ format }} document about {{ topic }}.' without the audience part."
     expected:
-      tool_name: "update_prompt"
+      tool_name: "edit_prompt_template"
       final_must_contain: ["{{ format }}", "{{ topic }}"]
       final_must_not_contain: "{{ audience }}"
       expected_argument_names: ["format", "topic"]

@@ -248,17 +248,17 @@ describe('SettingsMCP', () => {
     it('should show content server tools when enabled', () => {
       renderWithRouter()
 
-      expect(screen.getByText('search_bookmarks')).toBeInTheDocument()
-      expect(screen.getByText('get_bookmark')).toBeInTheDocument()
+      expect(screen.getByText('search_items')).toBeInTheDocument()
+      expect(screen.getByText('get_item')).toBeInTheDocument()
       expect(screen.getByText('create_bookmark')).toBeInTheDocument()
-      expect(screen.getByText('search_notes')).toBeInTheDocument()
+      expect(screen.getByText('create_note')).toBeInTheDocument()
     })
 
     it('should show prompt server tools when enabled', () => {
       renderWithRouter()
 
-      expect(screen.getByText('list_prompts')).toBeInTheDocument()
-      expect(screen.getByText('get_prompt')).toBeInTheDocument()
+      expect(screen.getByText('search_prompts')).toBeInTheDocument()
+      expect(screen.getByText('get_prompt_template')).toBeInTheDocument()
       expect(screen.getByText('create_prompt')).toBeInTheDocument()
     })
 
@@ -268,8 +268,8 @@ describe('SettingsMCP', () => {
 
       await user.click(screen.getAllByRole('switch')[0]) // Disable content server
 
-      expect(screen.queryByText('search_bookmarks')).not.toBeInTheDocument()
-      expect(screen.queryByText('search_notes')).not.toBeInTheDocument()
+      expect(screen.queryByText('search_items')).not.toBeInTheDocument()
+      expect(screen.queryByText('get_item')).not.toBeInTheDocument()
     })
 
     it('should hide prompt tools when prompt server disabled', async () => {
@@ -278,8 +278,8 @@ describe('SettingsMCP', () => {
 
       await user.click(screen.getAllByRole('switch')[1]) // Disable prompt server
 
-      expect(screen.queryByText('list_prompts')).not.toBeInTheDocument()
-      expect(screen.queryByText('get_prompt')).not.toBeInTheDocument()
+      expect(screen.queryByText('search_prompts')).not.toBeInTheDocument()
+      expect(screen.queryByText('create_prompt')).not.toBeInTheDocument()
     })
   })
 

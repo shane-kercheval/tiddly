@@ -140,3 +140,38 @@ def sample_prompt_list_empty() -> dict[str, Any]:
         "limit": 100,
         "has_more": False,
     }
+
+
+@pytest.fixture
+def sample_prompt_list_item() -> dict[str, Any]:
+    """Sample prompt list item with content_length and content_preview."""
+    return {
+        "id": "550e8400-e29b-41d4-a716-446655440001",
+        "name": "code-review",
+        "title": "Code Review Assistant",
+        "description": "Reviews code and provides feedback",
+        "arguments": [
+            {"name": "language", "required": True},
+            {"name": "code", "required": True},
+        ],
+        "tags": ["development", "code-review"],
+        "content_length": 500,
+        "content_preview": "Please review the following {{ language }} code...",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+        "last_used_at": "2024-01-01T00:00:00Z",
+        "deleted_at": None,
+        "archived_at": None,
+    }
+
+
+@pytest.fixture
+def sample_tags_response() -> dict[str, Any]:
+    """Sample tags list response."""
+    return {
+        "tags": [
+            {"name": "python", "count": 5},
+            {"name": "web", "count": 3},
+            {"name": "testing", "count": 2},
+        ],
+    }

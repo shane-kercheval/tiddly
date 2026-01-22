@@ -31,9 +31,10 @@ def test__server__has_instructions() -> None:
     assert len(server.instructions) > 0
     # Verify key content is present
     assert "prompt template manager" in server.instructions.lower()
-    assert "list_prompts" in server.instructions
-    assert "get_prompt" in server.instructions
+    assert "get_prompt_template" in server.instructions
     assert "create_prompt" in server.instructions
+    assert "edit_prompt_template" in server.instructions
+    assert "update_prompt_metadata" in server.instructions
     assert "Jinja2" in server.instructions
 
 
@@ -361,20 +362,48 @@ async def test__get_prompt__returns_user_role_message(
 
 
 @pytest.mark.asyncio
-async def test__list_tools__returns_create_prompt_and_update_prompt() -> None:
-    """Test list_tools returns create_prompt and update_prompt tools."""
+async def test__list_tools__returns_all_tools() -> None:
+    """Test list_tools returns all available tools."""
     result = await handle_list_tools()
 
-    assert len(result) == 2
+    assert len(result) == 7
     tool_names = {t.name for t in result}
-    assert tool_names == {"create_prompt", "update_prompt"}
+    assert tool_names == {
+        "search_prompts",
+        "list_tags",
+        "get_prompt_metadata",
+        "get_prompt_template",
+        "create_prompt",
+        "edit_prompt_template",
+        "update_prompt_metadata",
+    }
+
+    get_template = next(t for t in result if t.name == "get_prompt_template")
+    assert "raw content" in get_template.description
+    assert "viewing or editing" in get_template.description
 
     create_prompt = next(t for t in result if t.name == "create_prompt")
     assert "Create a new prompt" in create_prompt.description
 
-    update_prompt = next(t for t in result if t.name == "update_prompt")
-    assert "Update a prompt" in update_prompt.description
-    assert "string replacement" in update_prompt.description
+    edit_prompt = next(t for t in result if t.name == "edit_prompt_template")
+    assert "Edit a prompt" in edit_prompt.description
+    assert "string replacement" in edit_prompt.description
+
+    update_metadata = next(t for t in result if t.name == "update_prompt_metadata")
+    assert "metadata" in update_metadata.description
+    assert "title" in update_metadata.description or "tags" in update_metadata.description
+
+
+@pytest.mark.asyncio
+async def test__list_tools__get_prompt_template_has_schema() -> None:
+    """Test get_prompt_template tool has proper input schema."""
+    result = await handle_list_tools()
+
+    get_template = next(t for t in result if t.name == "get_prompt_template")
+    schema = get_template.inputSchema
+    assert schema["type"] == "object"
+    assert "name" in schema["properties"]
+    assert schema["required"] == ["name"]
 
 
 @pytest.mark.asyncio
@@ -382,7 +411,8 @@ async def test__list_tools__create_prompt_has_schema() -> None:
     """Test create_prompt tool has proper input schema."""
     result = await handle_list_tools()
 
-    schema = result[0].inputSchema
+    create_prompt = next(t for t in result if t.name == "create_prompt")
+    schema = create_prompt.inputSchema
     assert schema["type"] == "object"
     assert "name" in schema["properties"]
     assert "title" in schema["properties"]
@@ -391,6 +421,105 @@ async def test__list_tools__create_prompt_has_schema() -> None:
     assert "tags" in schema["properties"]
     # Both name and content are required
     assert set(schema["required"]) == {"name", "content"}
+
+
+# --- call_tool (get_prompt_template) tests ---
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_template_tool__returns_raw_content(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_prompt: dict[str, Any],
+) -> None:
+    """Test get_prompt_template returns raw template content as JSON."""
+    import json
+
+    mock_api.get("/prompts/name/code-review").mock(
+        return_value=Response(200, json=sample_prompt),
+    )
+
+    result = await handle_call_tool("get_prompt_template", {"name": "code-review"})
+
+    assert len(result) == 1
+    # Response should be JSON-formatted
+    response_data = json.loads(result[0].text)
+    assert response_data["id"] == sample_prompt["id"]
+    assert response_data["name"] == "code-review"
+    assert response_data["title"] == "Code Review Assistant"
+    assert response_data["description"] == "Reviews code and provides feedback"
+    # Content should be raw template (not rendered)
+    assert response_data["content"] == "Please review the following {{ language }} code:\n\n{{ code }}"
+    assert len(response_data["arguments"]) == 2
+    assert response_data["tags"] == ["development", "code-review"]
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_template_tool__includes_all_metadata(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_prompt: dict[str, Any],
+) -> None:
+    """Test get_prompt_template includes all metadata fields."""
+    import json
+
+    mock_api.get("/prompts/name/code-review").mock(
+        return_value=Response(200, json=sample_prompt),
+    )
+
+    result = await handle_call_tool("get_prompt_template", {"name": "code-review"})
+    response_data = json.loads(result[0].text)
+
+    # Verify all expected fields are present
+    expected_fields = {"id", "name", "title", "description", "content", "arguments", "tags"}
+    assert set(response_data.keys()) == expected_fields
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_template_tool__not_found_error(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test get_prompt_template returns error for nonexistent prompt."""
+    from mcp.shared.exceptions import McpError
+
+    mock_api.get("/prompts/name/nonexistent").mock(
+        return_value=Response(404, json={"detail": "Prompt not found"}),
+    )
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool("get_prompt_template", {"name": "nonexistent"})
+
+    assert "not found" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_template_tool__missing_name_error() -> None:
+    """Test get_prompt_template returns error when name is missing."""
+    from mcp.shared.exceptions import McpError
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool("get_prompt_template", {})
+
+    assert "Missing required parameter: name" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_template_tool__api_unavailable(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test get_prompt_template handles network errors."""
+    from mcp.shared.exceptions import McpError
+
+    mock_api.get("/prompts/name/test-prompt").mock(
+        side_effect=httpx.ConnectError("Connection refused"),
+    )
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool("get_prompt_template", {"name": "test-prompt"})
+
+    assert "unavailable" in str(exc_info.value).lower()
 
 
 # --- call_tool (create_prompt) tests ---
@@ -561,12 +690,140 @@ async def test__create_prompt_tool__unknown_tool_error() -> None:
     assert "Unknown tool" in str(exc_info.value)
 
 
-# --- call_tool (update_prompt) tests ---
+# --- search_prompts tests ---
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__updates_content(mock_api, mock_auth) -> None:  # noqa: ARG001
-    """Test update_prompt tool performs str-replace successfully."""
+async def test__search_prompts__no_params__returns_all(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_prompt_list_item: dict[str, Any],
+) -> None:
+    """Test search_prompts with no params returns all prompts."""
+    response_data = {
+        "items": [sample_prompt_list_item],
+        "total": 1,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_data),
+    )
+
+    result = await handle_call_tool("search_prompts", {})
+
+    import json
+    data = json.loads(result[0].text)
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__with_query__filters_results(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_prompt_list_item: dict[str, Any],
+) -> None:
+    """Test search_prompts with query parameter."""
+    response_data = {
+        "items": [sample_prompt_list_item],
+        "total": 1,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_data),
+    )
+
+    await handle_call_tool("search_prompts", {"query": "code review"})
+
+    request_url = str(mock_api.calls[0].request.url)
+    assert "q=code" in request_url
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__with_tags__filters_results(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_prompt_list_item: dict[str, Any],
+) -> None:
+    """Test search_prompts with tags parameter."""
+    response_data = {
+        "items": [sample_prompt_list_item],
+        "total": 1,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_data),
+    )
+
+    await handle_call_tool("search_prompts", {"tags": ["development", "code-review"]})
+
+    request_url = str(mock_api.calls[0].request.url)
+    assert "tags" in request_url
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__results_include_length_and_preview(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_prompt_list_item: dict[str, Any],
+) -> None:
+    """Test search_prompts results include prompt_length and prompt_preview (translated from API)."""
+    response_data = {
+        "items": [sample_prompt_list_item],
+        "total": 1,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_data),
+    )
+
+    result = await handle_call_tool("search_prompts", {})
+
+    import json
+    data = json.loads(result[0].text)
+    # API returns content_length/content_preview, MCP translates to prompt_length/prompt_preview
+    assert data["items"][0]["prompt_length"] == 500
+    assert "prompt_preview" in data["items"][0]
+    assert "content_length" not in data["items"][0]
+    assert "content_preview" not in data["items"][0]
+
+
+# --- list_tags tests ---
+
+
+@pytest.mark.asyncio
+async def test__list_tags__returns_all_tags(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_tags_response: dict[str, Any],
+) -> None:
+    """Test list_tags returns all tags."""
+    mock_api.get("/tags/").mock(
+        return_value=Response(200, json=sample_tags_response),
+    )
+
+    result = await handle_call_tool("list_tags", {})
+
+    import json
+    data = json.loads(result[0].text)
+    assert len(data["tags"]) == 3
+    assert data["tags"][0]["name"] == "python"
+
+
+# --- call_tool (edit_prompt_template) tests ---
+
+
+@pytest.mark.asyncio
+async def test__edit_prompt_template_tool__updates_content(mock_api, mock_auth) -> None:  # noqa: ARG001
+    """Test edit_prompt_template tool performs str-replace successfully."""
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440010",
         "name": "test-prompt",
@@ -576,7 +833,7 @@ async def test__update_prompt_tool__updates_content(mock_api, mock_auth) -> None
         "arguments": [],
         "tags": [],
     }
-    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440010/str-replace").mock(
+    mock_api.patch("/prompts/name/test-prompt/str-replace").mock(
         return_value=Response(
             200,
             json={
@@ -588,23 +845,23 @@ async def test__update_prompt_tool__updates_content(mock_api, mock_auth) -> None
     )
 
     result = await handle_call_tool(
-        "update_prompt",
+        "edit_prompt_template",
         {
-            "id": "550e8400-e29b-41d4-a716-446655440010",
+            "name": "test-prompt",
             "old_str": "Hello wrold",
             "new_str": "Hello world!",
         },
     )
 
     assert len(result) == 1
-    assert "550e8400-e29b-41d4-a716-446655440010" in result[0].text
+    assert "test-prompt" in result[0].text
     assert "exact" in result[0].text
     assert "line 1" in result[0].text
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__with_arguments(mock_api, mock_auth) -> None:  # noqa: ARG001
-    """Test update_prompt tool with atomic arguments update."""
+async def test__edit_prompt_template_tool__with_arguments(mock_api, mock_auth) -> None:  # noqa: ARG001
+    """Test edit_prompt_template tool with atomic arguments update."""
     import json
 
     updated_prompt = {
@@ -616,7 +873,7 @@ async def test__update_prompt_tool__with_arguments(mock_api, mock_auth) -> None:
         "arguments": [{"name": "name", "required": True}],
         "tags": [],
     }
-    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440011/str-replace").mock(
+    mock_api.patch("/prompts/name/with-new-var/str-replace").mock(
         return_value=Response(
             200,
             json={
@@ -628,16 +885,16 @@ async def test__update_prompt_tool__with_arguments(mock_api, mock_auth) -> None:
     )
 
     result = await handle_call_tool(
-        "update_prompt",
+        "edit_prompt_template",
         {
-            "id": "550e8400-e29b-41d4-a716-446655440011",
+            "name": "with-new-var",
             "old_str": "Hello world!",
             "new_str": "Hello {{ name }}!",
             "arguments": [{"name": "name", "required": True}],
         },
     )
 
-    assert "550e8400-e29b-41d4-a716-446655440011" in result[0].text
+    assert "with-new-var" in result[0].text
 
     # Verify payload included arguments
     payload = json.loads(mock_api.calls[0].request.content)
@@ -647,10 +904,10 @@ async def test__update_prompt_tool__with_arguments(mock_api, mock_auth) -> None:
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__whitespace_normalized_match(
+async def test__edit_prompt_template_tool__whitespace_normalized_match(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
-    """Test update_prompt tool reports whitespace_normalized match type."""
+    """Test edit_prompt_template tool reports whitespace_normalized match type."""
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440012",
         "name": "normalized",
@@ -658,7 +915,7 @@ async def test__update_prompt_tool__whitespace_normalized_match(
         "arguments": [],
         "tags": [],
     }
-    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440012/str-replace").mock(
+    mock_api.patch("/prompts/name/normalized/str-replace").mock(
         return_value=Response(
             200,
             json={
@@ -670,9 +927,9 @@ async def test__update_prompt_tool__whitespace_normalized_match(
     )
 
     result = await handle_call_tool(
-        "update_prompt",
+        "edit_prompt_template",
         {
-            "id": "550e8400-e29b-41d4-a716-446655440012",
+            "name": "normalized",
             "old_str": "old text",
             "new_str": "Updated content",
         },
@@ -683,9 +940,9 @@ async def test__update_prompt_tool__whitespace_normalized_match(
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__no_match_error(mock_api, mock_auth) -> None:  # noqa: ARG001
-    """Test update_prompt tool returns structured error when no match found."""
-    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440013/str-replace").mock(
+async def test__edit_prompt_template_tool__no_match_error(mock_api, mock_auth) -> None:  # noqa: ARG001
+    """Test edit_prompt_template tool returns structured error when no match found."""
+    mock_api.patch("/prompts/name/no-match-test/str-replace").mock(
         return_value=Response(
             400,
             json={
@@ -699,9 +956,9 @@ async def test__update_prompt_tool__no_match_error(mock_api, mock_auth) -> None:
     )
 
     result = await handle_call_tool(
-        "update_prompt",
+        "edit_prompt_template",
         {
-            "id": "550e8400-e29b-41d4-a716-446655440013",
+            "name": "no-match-test",
             "old_str": "nonexistent text",
             "new_str": "replacement",
         },
@@ -720,11 +977,11 @@ async def test__update_prompt_tool__no_match_error(mock_api, mock_auth) -> None:
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__multiple_matches_error(
+async def test__edit_prompt_template_tool__multiple_matches_error(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
-    """Test update_prompt tool returns structured error with match locations."""
-    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440014/str-replace").mock(
+    """Test edit_prompt_template tool returns structured error with match locations."""
+    mock_api.patch("/prompts/name/multi-match-test/str-replace").mock(
         return_value=Response(
             400,
             json={
@@ -741,9 +998,9 @@ async def test__update_prompt_tool__multiple_matches_error(
     )
 
     result = await handle_call_tool(
-        "update_prompt",
+        "edit_prompt_template",
         {
-            "id": "550e8400-e29b-41d4-a716-446655440014",
+            "name": "multi-match-test",
             "old_str": "foo",
             "new_str": "bar",
         },
@@ -764,11 +1021,11 @@ async def test__update_prompt_tool__multiple_matches_error(
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__template_validation_error(
+async def test__edit_prompt_template_tool__template_validation_error(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
-    """Test update_prompt tool handles template validation error (string detail)."""
-    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440015/str-replace").mock(
+    """Test edit_prompt_template tool handles template validation error (string detail)."""
+    mock_api.patch("/prompts/name/validation-test/str-replace").mock(
         return_value=Response(
             400,
             json={
@@ -778,9 +1035,9 @@ async def test__update_prompt_tool__template_validation_error(
     )
 
     result = await handle_call_tool(
-        "update_prompt",
+        "edit_prompt_template",
         {
-            "id": "550e8400-e29b-41d4-a716-446655440015",
+            "name": "validation-test",
             "old_str": "Hello",
             "new_str": "Hello {{ name }}",
         },
@@ -799,19 +1056,19 @@ async def test__update_prompt_tool__template_validation_error(
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__not_found_error(mock_api, mock_auth) -> None:  # noqa: ARG001
-    """Test update_prompt tool raises McpError when prompt not found."""
+async def test__edit_prompt_template_tool__not_found_error(mock_api, mock_auth) -> None:  # noqa: ARG001
+    """Test edit_prompt_template tool raises McpError when prompt not found."""
     from mcp.shared.exceptions import McpError
 
-    mock_api.patch("/prompts/nonexistent-id/str-replace").mock(
+    mock_api.patch("/prompts/name/nonexistent-prompt/str-replace").mock(
         return_value=Response(404, json={"detail": "Prompt not found"}),
     )
 
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
-            "update_prompt",
+            "edit_prompt_template",
             {
-                "id": "nonexistent-id",
+                "name": "nonexistent-prompt",
                 "old_str": "text",
                 "new_str": "replacement",
             },
@@ -821,52 +1078,52 @@ async def test__update_prompt_tool__not_found_error(mock_api, mock_auth) -> None
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__missing_id_error() -> None:
-    """Test update_prompt tool requires id parameter."""
+async def test__edit_prompt_template_tool__missing_name_error() -> None:
+    """Test edit_prompt_template tool requires name parameter."""
     from mcp.shared.exceptions import McpError
 
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
-            "update_prompt",
+            "edit_prompt_template",
             {"old_str": "text", "new_str": "replacement"},
         )
 
-    assert "id" in str(exc_info.value).lower()
+    assert "name" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__missing_old_str_error() -> None:
-    """Test update_prompt tool requires old_str parameter."""
+async def test__edit_prompt_template_tool__missing_old_str_error() -> None:
+    """Test edit_prompt_template tool requires old_str parameter."""
     from mcp.shared.exceptions import McpError
 
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
-            "update_prompt",
-            {"id": "some-id", "new_str": "replacement"},
+            "edit_prompt_template",
+            {"name": "some-prompt", "new_str": "replacement"},
         )
 
     assert "old_str" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__missing_new_str_error() -> None:
-    """Test update_prompt tool requires new_str parameter."""
+async def test__edit_prompt_template_tool__missing_new_str_error() -> None:
+    """Test edit_prompt_template tool requires new_str parameter."""
     from mcp.shared.exceptions import McpError
 
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
-            "update_prompt",
-            {"id": "some-id", "old_str": "text"},
+            "edit_prompt_template",
+            {"name": "some-prompt", "old_str": "text"},
         )
 
     assert "new_str" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__empty_new_str_allowed(
+async def test__edit_prompt_template_tool__empty_new_str_allowed(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
-    """Test update_prompt tool allows empty new_str for deletion."""
+    """Test edit_prompt_template tool allows empty new_str for deletion."""
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440016",
         "name": "deleted-text",
@@ -874,7 +1131,7 @@ async def test__update_prompt_tool__empty_new_str_allowed(
         "arguments": [],
         "tags": [],
     }
-    mock_api.patch("/prompts/550e8400-e29b-41d4-a716-446655440016/str-replace").mock(
+    mock_api.patch("/prompts/name/deleted-text/str-replace").mock(
         return_value=Response(
             200,
             json={
@@ -886,31 +1143,227 @@ async def test__update_prompt_tool__empty_new_str_allowed(
     )
 
     result = await handle_call_tool(
-        "update_prompt",
+        "edit_prompt_template",
         {
-            "id": "550e8400-e29b-41d4-a716-446655440016",
+            "name": "deleted-text",
             "old_str": "text to delete",
             "new_str": "",  # Empty string = deletion
         },
     )
 
-    assert "550e8400-e29b-41d4-a716-446655440016" in result[0].text
+    assert "deleted-text" in result[0].text
 
 
 @pytest.mark.asyncio
-async def test__list_tools__update_prompt_has_schema() -> None:
-    """Test update_prompt tool has proper input schema."""
+async def test__list_tools__edit_prompt_template_has_schema() -> None:
+    """Test edit_prompt_template tool has proper input schema."""
     result = await handle_list_tools()
 
-    update_prompt = next(t for t in result if t.name == "update_prompt")
-    schema = update_prompt.inputSchema
+    edit_prompt = next(t for t in result if t.name == "edit_prompt_template")
+    schema = edit_prompt.inputSchema
     assert schema["type"] == "object"
-    assert "id" in schema["properties"]
+    assert "name" in schema["properties"]
     assert "old_str" in schema["properties"]
     assert "new_str" in schema["properties"]
     assert "arguments" in schema["properties"]
-    # id, old_str, and new_str are required
-    assert set(schema["required"]) == {"id", "old_str", "new_str"}
+    # name, old_str, and new_str are required
+    assert set(schema["required"]) == {"name", "old_str", "new_str"}
+
+
+# --- call_tool (update_prompt_metadata) tests ---
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_metadata_tool__updates_title(
+    mock_api, mock_auth,  # noqa: ARG001
+) -> None:
+    """Test update_prompt_metadata tool updates title."""
+    updated_prompt = {
+        "id": "550e8400-e29b-41d4-a716-446655440020",
+        "name": "test-prompt",
+        "title": "New Title",
+        "description": None,
+        "content": "Hello world",
+        "arguments": [],
+        "tags": [],
+    }
+    mock_api.patch("/prompts/name/test-prompt").mock(
+        return_value=Response(200, json=updated_prompt),
+    )
+
+    result = await handle_call_tool(
+        "update_prompt_metadata",
+        {"name": "test-prompt", "title": "New Title"},
+    )
+
+    assert len(result) == 1
+    assert "test-prompt" in result[0].text
+    assert "title updated" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_metadata_tool__updates_tags(
+    mock_api, mock_auth,  # noqa: ARG001
+) -> None:
+    """Test update_prompt_metadata tool updates tags."""
+    import json
+
+    updated_prompt = {
+        "id": "550e8400-e29b-41d4-a716-446655440021",
+        "name": "test-prompt",
+        "title": None,
+        "description": None,
+        "content": "Hello world",
+        "arguments": [],
+        "tags": ["new-tag-1", "new-tag-2"],
+    }
+    mock_api.patch("/prompts/name/test-prompt").mock(
+        return_value=Response(200, json=updated_prompt),
+    )
+
+    result = await handle_call_tool(
+        "update_prompt_metadata",
+        {"name": "test-prompt", "tags": ["new-tag-1", "new-tag-2"]},
+    )
+
+    assert "tags updated" in result[0].text
+
+    # Verify payload
+    payload = json.loads(mock_api.calls[0].request.content)
+    assert payload["tags"] == ["new-tag-1", "new-tag-2"]
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_metadata_tool__renames_prompt(
+    mock_api, mock_auth,  # noqa: ARG001
+) -> None:
+    """Test update_prompt_metadata tool renames prompt."""
+    import json
+
+    updated_prompt = {
+        "id": "550e8400-e29b-41d4-a716-446655440022",
+        "name": "new-name",
+        "title": None,
+        "description": None,
+        "content": "Hello world",
+        "arguments": [],
+        "tags": [],
+    }
+    mock_api.patch("/prompts/name/old-name").mock(
+        return_value=Response(200, json=updated_prompt),
+    )
+
+    result = await handle_call_tool(
+        "update_prompt_metadata",
+        {"name": "old-name", "new_name": "new-name"},
+    )
+
+    assert "old-name" in result[0].text
+    assert "renamed to 'new-name'" in result[0].text
+
+    # Verify payload maps new_name -> name
+    payload = json.loads(mock_api.calls[0].request.content)
+    assert payload["name"] == "new-name"
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_metadata_tool__rename_conflict(
+    mock_api, mock_auth,  # noqa: ARG001
+) -> None:
+    """Test update_prompt_metadata tool handles rename conflict."""
+    from mcp.shared.exceptions import McpError
+
+    mock_api.patch("/prompts/name/old-name").mock(
+        return_value=Response(
+            409,
+            json={"detail": {"message": "Prompt 'existing-name' already exists", "error_code": "NAME_CONFLICT"}},
+        ),
+    )
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool(
+            "update_prompt_metadata",
+            {"name": "old-name", "new_name": "existing-name"},
+        )
+
+    assert "already exists" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_metadata_tool__not_found(
+    mock_api, mock_auth,  # noqa: ARG001
+) -> None:
+    """Test update_prompt_metadata tool handles not found error."""
+    from mcp.shared.exceptions import McpError
+
+    mock_api.patch("/prompts/name/nonexistent").mock(
+        return_value=Response(404, json={"detail": "Prompt not found"}),
+    )
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool(
+            "update_prompt_metadata",
+            {"name": "nonexistent", "title": "New Title"},
+        )
+
+    assert "not found" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_metadata_tool__missing_name_error() -> None:
+    """Test update_prompt_metadata tool requires name parameter."""
+    from mcp.shared.exceptions import McpError
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool(
+            "update_prompt_metadata",
+            {"title": "New Title"},
+        )
+
+    assert "name" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_metadata_tool__no_changes(
+    mock_api, mock_auth,  # noqa: ARG001
+) -> None:
+    """Test update_prompt_metadata tool handles no-op case (no updates provided)."""
+    updated_prompt = {
+        "id": "550e8400-e29b-41d4-a716-446655440023",
+        "name": "test-prompt",
+        "title": None,
+        "description": None,
+        "content": "Hello world",
+        "arguments": [],
+        "tags": [],
+    }
+    mock_api.patch("/prompts/name/test-prompt").mock(
+        return_value=Response(200, json=updated_prompt),
+    )
+
+    result = await handle_call_tool(
+        "update_prompt_metadata",
+        {"name": "test-prompt"},  # No other fields
+    )
+
+    assert "no changes" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test__list_tools__update_prompt_metadata_has_schema() -> None:
+    """Test update_prompt_metadata tool has proper input schema."""
+    result = await handle_list_tools()
+
+    update_metadata = next(t for t in result if t.name == "update_prompt_metadata")
+    schema = update_metadata.inputSchema
+    assert schema["type"] == "object"
+    assert "name" in schema["properties"]
+    assert "new_name" in schema["properties"]
+    assert "title" in schema["properties"]
+    assert "description" in schema["properties"]
+    assert "tags" in schema["properties"]
+    # Only name is required
+    assert schema["required"] == ["name"]
 
 
 # --- Authentication error tests ---
@@ -1019,6 +1472,104 @@ async def test__create_prompt_tool__400_string_detail_format(
         await handle_call_tool("create_prompt", {"name": "Invalid Name!"})
 
     assert "Invalid prompt name format" in str(exc_info.value)
+
+
+# --- call_tool (get_prompt_metadata) tests ---
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_metadata__returns_length_and_preview(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test get_prompt_metadata returns prompt_length and prompt_preview (translated from API)."""
+    metadata_response = {
+        "id": "550e8400-e29b-41d4-a716-446655440001",
+        "name": "code-review",
+        "title": "Code Review",
+        "description": "Review code",
+        "arguments": [{"name": "code", "required": True}],
+        "tags": ["dev"],
+        "content_length": 1500,
+        "content_preview": "You are a code reviewer...",
+    }
+    mock_api.get("/prompts/name/code-review/metadata").mock(
+        return_value=Response(200, json=metadata_response),
+    )
+
+    result = await handle_call_tool("get_prompt_metadata", {"name": "code-review"})
+
+    import json
+    data = json.loads(result[0].text)
+    # API returns content_length/content_preview, MCP translates to prompt_length/prompt_preview
+    assert data["prompt_length"] == 1500
+    assert data["prompt_preview"] == "You are a code reviewer..."
+    assert "content_length" not in data
+    assert "content_preview" not in data
+    assert "content" not in data  # Full content should NOT be present
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_metadata__prompt_not_found(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test get_prompt_metadata returns error when prompt not found."""
+    from mcp.shared.exceptions import McpError
+
+    mock_api.get("/prompts/name/nonexistent/metadata").mock(
+        return_value=Response(404, json={"detail": "Prompt not found"}),
+    )
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool("get_prompt_metadata", {"name": "nonexistent"})
+
+    assert "not found" in str(exc_info.value).lower()
+
+
+# --- call_tool (get_prompt_template with start_line/end_line) tests ---
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_template__with_start_end_line__returns_partial(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test get_prompt_template with start_line/end_line parameters."""
+    partial_response = {
+        "id": "550e8400-e29b-41d4-a716-446655440001",
+        "name": "code-review",
+        "title": "Code Review",
+        "description": None,
+        "content": "Line 5\nLine 6\nLine 7",
+        "arguments": [],
+        "tags": [],
+        "content_metadata": {
+            "total_lines": 100,
+            "start_line": 5,
+            "end_line": 7,
+        },
+    }
+    mock_api.get("/prompts/name/code-review").mock(
+        return_value=Response(200, json=partial_response),
+    )
+
+    result = await handle_call_tool(
+        "get_prompt_template",
+        {"name": "code-review", "start_line": 5, "end_line": 7},
+    )
+
+    import json
+    data = json.loads(result[0].text)
+    assert data["content"] == "Line 5\nLine 6\nLine 7"
+    assert data["content_metadata"]["total_lines"] == 100
+    assert data["content_metadata"]["start_line"] == 5
+    assert data["content_metadata"]["end_line"] == 7
+
+    # Verify query params were passed
+    request_url = str(mock_api.calls[0].request.url)
+    assert "start_line=5" in request_url
+    assert "end_line=7" in request_url
 
 
 # --- Cleanup tests ---

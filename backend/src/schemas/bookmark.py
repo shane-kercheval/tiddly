@@ -137,26 +137,32 @@ class BookmarkListItem(BaseModel):
     last_used_at: datetime
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
+    content_length: int | None = Field(
+        default=None,
+        description="Total character count of content field.",
+    )
+    content_preview: str | None = Field(
+        default=None,
+        description="First 500 characters of content.",
+    )
 
     @model_validator(mode="before")
     @classmethod
-    def extract_tag_names(cls, data: Any) -> Any:
+    def extract_from_sqlalchemy(cls, data: Any) -> Any:
         """
-        Extract tag names from tag_objects relationship.
+        Extract fields from SQLAlchemy model and tag names from tag_objects.
+
+        Uses model introspection to automatically extract all schema fields,
+        eliminating the need to maintain a hardcoded field list.
 
         Only accesses tag_objects if it's already loaded (not lazy) to avoid
         triggering database queries outside async context.
         """
         # Handle SQLAlchemy model objects
         if hasattr(data, "__dict__"):
-            data_dict = {}
-            for key in [
-                "id", "url", "title", "description", "summary",
-                "created_at", "updated_at", "last_used_at",
-                "deleted_at", "archived_at", "content",
-            ]:
-                if hasattr(data, key):
-                    data_dict[key] = getattr(data, key)
+            # Get all field names from the Pydantic model, excluding 'tags' which we handle
+            field_names = set(cls.model_fields.keys()) - {"tags"}
+            data_dict = {key: getattr(data, key) for key in field_names if hasattr(data, key)}
 
             # Check if tag_objects is already loaded (not lazy)
             # SQLAlchemy sets __dict__ entry when relationship is loaded

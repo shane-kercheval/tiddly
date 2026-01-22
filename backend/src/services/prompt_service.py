@@ -8,12 +8,12 @@ from jinja2 import Environment, TemplateSyntaxError, meta
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
 from models.prompt import Prompt
 from models.tag import prompt_tags
 from schemas.prompt import PromptCreate, PromptUpdate
-from services.base_entity_service import BaseEntityService
+from services.base_entity_service import CONTENT_PREVIEW_LENGTH, BaseEntityService
 from services.tag_service import get_or_create_tags, update_prompt_tags
 
 logger = logging.getLogger(__name__)
@@ -241,7 +241,11 @@ class PromptService(BaseEntityService[Prompt]):
         if new_tags is not None:
             await update_prompt_tags(db, prompt, new_tags)
 
-        prompt.updated_at = func.clock_timestamp()
+        # Only bump updated_at if there were actual changes
+        # (prevents cache invalidation on no-op updates)
+        has_changes = bool(update_data) or new_tags is not None
+        if has_changes:
+            prompt.updated_at = func.clock_timestamp()
 
         try:
             await db.flush()
@@ -287,7 +291,15 @@ class PromptService(BaseEntityService[Prompt]):
                 ~Prompt.is_archived,
             ),
         )
-        return result.scalar_one_or_none()
+        prompt = result.scalar_one_or_none()
+
+        if prompt is not None:
+            # Compute content_length in Python since content is already loaded.
+            # Full content endpoints always include content_length per the API contract.
+            content = prompt.content
+            prompt.content_length = len(content) if content is not None else None
+
+        return prompt
 
     async def get_updated_at_by_name(
         self,
@@ -318,6 +330,59 @@ class PromptService(BaseEntityService[Prompt]):
             ),
         )
         return result.scalar_one_or_none()
+
+    async def get_metadata_by_name(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        name: str,
+    ) -> Prompt | None:
+        """
+        Get prompt metadata by name without loading full content.
+
+        Returns only active prompts (excludes deleted AND archived).
+        This is used by the MCP server for lightweight prompt lookups.
+
+        Returns content_length and content_preview (computed in SQL).
+        The content field is set to None to prevent accidental loading.
+
+        Args:
+            db: Database session.
+            user_id: User ID to scope the prompt.
+            name: Name of the prompt to find.
+
+        Returns:
+            The prompt with metadata fields populated, or None if not found.
+        """
+        # Select prompt with computed content metrics, excluding full content from SELECT.
+        # defer() prevents SQLAlchemy from loading the content column, while
+        # func.length/func.left compute the metrics directly in PostgreSQL.
+        result = await db.execute(
+            select(
+                Prompt,
+                func.length(Prompt.content).label("content_length"),
+                func.left(Prompt.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
+            )
+            .options(
+                defer(Prompt.content),  # Exclude content from SELECT
+                selectinload(Prompt.tag_objects),
+            )
+            .where(
+                Prompt.user_id == user_id,
+                Prompt.name == name,
+                Prompt.deleted_at.is_(None),
+                ~Prompt.is_archived,
+            ),
+        )
+        row = result.first()
+
+        if row is None:
+            return None
+
+        prompt, content_length, content_preview = row
+        prompt.content_length = content_length
+        prompt.content_preview = content_preview
+        return prompt
 
 
 # Module-level service instance

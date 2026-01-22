@@ -44,60 +44,100 @@ tiddly, tiddly.me, or their bookmarks/notes service, they're referring to this s
 This MCP server is a content manager for saving and organizing bookmarks and notes.
 Supports full-text search, tagging, markdown notes, and AI-friendly content editing.
 
-Available tools:
+## Content Types
 
-**Search:**
-- `search_bookmarks`: Search bookmarks by text query and/or filter by tags
-- `search_notes`: Search notes by text query and/or filter by tags
-- `search_all_content`: Search across both bookmarks and notes in one query
-- `list_tags`: Get all tags with usage counts (shared across content types)
+- **Bookmarks** have: url, title, description, content (scraped page text or user-provided), tags
+- **Notes** have: title, description, content (markdown), tags
 
-**Content (unified for bookmarks and notes):**
-- `get_content`: Get a bookmark or note by ID (supports partial reads for large content)
-- `edit_content`: Edit content using string replacement (old_str must be unique)
-- `search_in_content`: Search within an item's text fields for matches with context
+The `content` field is the main body text. For bookmarks, it's typically auto-scraped from the
+URL but can be user-provided. For notes, it's user-written markdown.
+
+## Tool Naming Convention
+
+- **Item tools** (`search_items`, `get_item`, `update_item_metadata`): Operate on bookmark/note entities
+- **Content tools** (`edit_content`, `search_in_content`): Operate on the content text field
+
+## Available Tools
+
+**Search** (returns active items only - excludes archived/deleted):
+- `search_items`: Search across bookmarks and notes. Use `type` parameter to filter.
+- `list_tags`: Get all tags with usage counts
+
+**Read & Edit:**
+- `get_item`: Get item by ID. Use `include_content=false` to check size before loading large content.
+- `edit_content`: Edit the `content` field using string replacement (NOT title/description)
+- `search_in_content`: Search within item's text fields for matches with context
+
+**Metadata Updates:**
+- `update_item_metadata`: Change title, description, tags, or url (bookmarks only)
 
 **Create:**
 - `create_bookmark`: Save a new URL (metadata auto-fetched if not provided)
 - `create_note`: Create a new note with markdown content
 
-Example workflows:
+## Search Response Structure
 
-1. "Show me my reading list" or "What articles do I have saved?"
-   - First call `list_tags()` to discover the user's tag taxonomy
-   - Identify relevant tags (e.g., `reading-list`, `articles`, `to-read`)
-   - Call `search_bookmarks(tags=["reading-list"])` to filter by that tag
+`search_items` returns:
+```
+{
+  "items": [...],   // List of items with content_length and content_preview
+  "total": 150,     // Total matches (for pagination)
+  "limit": 50,      // Page size
+  "offset": 0,      // Current offset
+  "has_more": true  // More results available
+}
+```
+
+Each item includes: `id`, `title`, `description`, `tags`, `created_at`, `updated_at`,
+`content_length`, `content_preview`
+- Bookmarks also have: `url`
+- Items have: `type` ("bookmark" or "note")
+
+**Note:** Search results include `content_length` and `content_preview` (first 500 chars)
+but NOT the full `content` field. Use `get_item(id, type)` to fetch full content.
+
+## Updating Metadata vs Content
+
+- **`update_item_metadata`**: Change title, description, tags, or url (bookmarks only)
+- **`edit_content`**: Change the content text field using string replacement
+
+## Limitations
+
+- Delete/archive operations are only available via web UI
+- Search returns active items only (not archived or deleted)
+
+## Example Workflows
+
+1. "Show me my reading list"
+   - Call `list_tags()` to discover tag taxonomy
+   - Call `search_items(tags=["reading-list"])` to filter by tag
 
 2. "Find my Python tutorials"
-   - Call `search_bookmarks(query="python tutorial")` for text search, or
-   - Call `list_tags()` first, then `search_bookmarks(tags=["python", "tutorial"])`
+   - Call `search_items(query="python tutorial", type="bookmark")` for text search
 
 3. "Save this article: <url>"
    - Call `create_bookmark(url="<url>", tags=["articles"])`
-   - Title/description are auto-fetched if not provided
 
-4. "What notes do I have about the project?"
-   - Call `search_notes(query="project")` for text search
-   - And/or filter by tag: `search_notes(tags=["project"])`
-
-5. "Create a meeting note"
+4. "Create a meeting note"
    - Call `create_note(title="Meeting Notes", content="## Attendees\\n...", tags=["meeting"])`
 
-6. "Search my content for Python resources"
-   - Call `search_all_content(query="python")` to search both bookmarks and notes
+5. "Search all my content for Python resources"
+   - Call `search_items(query="python")` to search bookmarks and notes
 
-7. "Edit my meeting note to fix a typo"
-   - Call `search_all_content(query="meeting")` to find the note
-   - Call `get_content(id="...", type="note")` to read the content
-   - Call `search_in_content(id="...", type="note", query="teh")` to find the typo
-   - Call `edit_content(id="...", type="note", old_str="teh mistake", new_str="the mistake")`
+6. "Edit my meeting note to fix a typo"
+   - Call `search_items(query="meeting", type="note")` to find the note → get `id` from result
+   - Call `get_item(id="<uuid>", type="note")` to read content
+   - Call `edit_content(id="<uuid>", type="note", old_str="teh mistake", new_str="the mistake")`
 
-8. "Update the description in my Python bookmark"
-   - Call `search_in_content(id="...", type="bookmark", query="old text")` to verify uniqueness
-   - Call `edit_content(id="...", type="bookmark", old_str="old text", new_str="new text")`
+7. "Check size before loading large content"
+   - Call `get_item(id="<uuid>", type="note", include_content=false)` to get content_length
+   - If small enough, call `get_item(id="<uuid>", type="note")` to get full content
+
+8. "Update a bookmark's tags"
+   - Call `update_item_metadata(id="<uuid>", type="bookmark", tags=["new-tag", "another"])`
 
 Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
-""".strip(),
+""".strip(),  # noqa: E501
 )
 
 
@@ -149,15 +189,20 @@ def _handle_api_error(e: httpx.HTTPStatusError, context: str = "") -> NoReturn:
 
 @mcp.tool(
     description=(
-        "Search bookmarks with optional text query and tag filtering. "
-        "Returns active bookmarks only."
+        "Search across bookmarks and notes. By default searches both types. "
+        "Use `type` parameter to filter to a specific content type. "
+        "Returns metadata including content_length and content_preview (not full content)."
     ),
     annotations={"readOnlyHint": True},
 )
-async def search_bookmarks(
+async def search_items(
     query: Annotated[
         str | None,
-        Field(description="Text to search in title, URL, description, and content"),
+        Field(description="Text to search in title, description, URL (bookmarks), and content"),
+    ] = None,
+    type: Annotated[  # noqa: A002
+        Literal["bookmark", "note"] | None,
+        Field(description="Filter by type: 'bookmark' or 'note'. Omit to search both."),
     ] = None,
     tags: Annotated[list[str] | None, Field(description="Filter by tags")] = None,
     tag_match: Annotated[
@@ -175,12 +220,16 @@ async def search_bookmarks(
     ] = 0,
 ) -> dict[str, Any]:
     """
-    Search and filter bookmarks.
+    Search and filter bookmarks and/or notes.
+
+    Results include content_length and content_preview for size assessment.
+    Use get_item to fetch full content.
 
     Examples:
-    - Search for "python": query="python"
+    - Search all: query="python"
+    - Search bookmarks only: query="python", type="bookmark"
     - Filter by tag: tags=["programming"]
-    - Combine: query="tutorial", tags=["python", "beginner"], tag_match="all"
+    - Combine: query="tutorial", tags=["python"], type="bookmark"
     """
     client = await _get_http_client()
     token = _get_token()
@@ -197,10 +246,21 @@ async def search_bookmarks(
     if tags:
         params["tags"] = tags
 
+    # Route to appropriate endpoint based on type filter
+    if type == "bookmark":
+        endpoint = "/bookmarks/"
+    elif type == "note":
+        endpoint = "/notes/"
+    else:
+        # Search both types via unified content endpoint.
+        # Explicitly filter to bookmarks and notes only - prompts have their own MCP server.
+        endpoint = "/content/"
+        params["content_types"] = ["bookmark", "note"]
+
     try:
-        return await api_get(client, "/bookmarks/", token, params)
+        return await api_get(client, endpoint, token, params)
     except httpx.HTTPStatusError as e:
-        _handle_api_error(e, "searching bookmarks")
+        _handle_api_error(e, "searching items")
         raise  # Unreachable but satisfies type checker
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
@@ -208,159 +268,55 @@ async def search_bookmarks(
 
 @mcp.tool(
     description=(
-        "Search notes with optional text query and tag filtering. "
-        "Returns active notes only."
+        "Get a bookmark or note by ID. By default includes full content. "
+        "Use include_content=false to get content_length and content_preview for size assessment "
+        "before loading large content."
     ),
     annotations={"readOnlyHint": True},
 )
-async def search_notes(
-    query: Annotated[
-        str | None,
-        Field(description="Text to search in title, description, and content"),
-    ] = None,
-    tags: Annotated[list[str] | None, Field(description="Filter by tags")] = None,
-    tag_match: Annotated[
-        Literal["all", "any"],
-        Field(description="Tag matching: 'all' requires ALL tags, 'any' requires ANY tag"),
-    ] = "all",
-    sort_by: Annotated[
-        Literal["created_at", "updated_at", "last_used_at", "title"],
-        Field(description="Field to sort by"),
-    ] = "created_at",
-    sort_order: Annotated[Literal["asc", "desc"], Field(description="Sort direction")] = "desc",
-    limit: Annotated[int, Field(ge=1, le=100, description="Maximum results to return")] = 50,
-    offset: Annotated[
-        int, Field(ge=0, description="Number of results to skip for pagination"),
-    ] = 0,
-) -> dict[str, Any]:
-    """
-    Search and filter notes.
-
-    Examples:
-    - Search for "meeting": query="meeting"
-    - Filter by tag: tags=["work"]
-    - Combine: query="project", tags=["work", "important"], tag_match="all"
-    """
-    client = await _get_http_client()
-    token = _get_token()
-
-    params: dict[str, Any] = {
-        "limit": limit,
-        "offset": offset,
-        "tag_match": tag_match,
-        "sort_by": sort_by,
-        "sort_order": sort_order,
-    }
-    if query:
-        params["q"] = query
-    if tags:
-        params["tags"] = tags
-
-    try:
-        return await api_get(client, "/notes/", token, params)
-    except httpx.HTTPStatusError as e:
-        _handle_api_error(e, "searching notes")
-        raise
-    except httpx.RequestError as e:
-        raise ToolError(f"API unavailable: {e}")
-
-
-@mcp.tool(
-    description=(
-        "Search across all content types (bookmarks and notes) with unified results. "
-        "Returns active content only. Each item has a 'type' field."
-    ),
-    annotations={"readOnlyHint": True},
-)
-async def search_all_content(
-    query: Annotated[
-        str | None,
-        Field(description="Text to search in title, description, URL (bookmarks), and content"),
-    ] = None,
-    tags: Annotated[list[str] | None, Field(description="Filter by tags")] = None,
-    tag_match: Annotated[
-        Literal["all", "any"],
-        Field(description="Tag matching: 'all' requires ALL tags, 'any' requires ANY tag"),
-    ] = "all",
-    sort_by: Annotated[
-        Literal["created_at", "updated_at", "last_used_at", "title"],
-        Field(description="Field to sort by"),
-    ] = "created_at",
-    sort_order: Annotated[Literal["asc", "desc"], Field(description="Sort direction")] = "desc",
-    limit: Annotated[int, Field(ge=1, le=100, description="Maximum results to return")] = 50,
-    offset: Annotated[
-        int, Field(ge=0, description="Number of results to skip for pagination"),
-    ] = 0,
-) -> dict[str, Any]:
-    """
-    Unified search across bookmarks and notes.
-
-    Returns items with a 'type' field ("bookmark" or "note").
-    Bookmark items include 'url', note items include 'version'.
-
-    Examples:
-    - Search all content: query="python"
-    - Filter by tags across all types: tags=["work"]
-    """
-    client = await _get_http_client()
-    token = _get_token()
-
-    params: dict[str, Any] = {
-        "limit": limit,
-        "offset": offset,
-        "tag_match": tag_match,
-        "sort_by": sort_by,
-        "sort_order": sort_order,
-    }
-    if query:
-        params["q"] = query
-    if tags:
-        params["tags"] = tags
-
-    try:
-        return await api_get(client, "/content/", token, params)
-    except httpx.HTTPStatusError as e:
-        _handle_api_error(e, "searching content")
-        raise
-    except httpx.RequestError as e:
-        raise ToolError(f"API unavailable: {e}")
-
-
-@mcp.tool(
-    description=(
-        "Get a bookmark or note by ID. Supports partial reads for large content "
-        "via line range params. The 'type' field is available in search results "
-        "from search_all_content."
-    ),
-    annotations={"readOnlyHint": True},
-)
-async def get_content(
-    id: Annotated[str, Field(description="The content item ID (UUID)")],  # noqa: A002
+async def get_item(
+    id: Annotated[str, Field(description="The item ID (UUID)")],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
-        Field(description="Content type: 'bookmark' or 'note'"),
+        Field(description="Item type: 'bookmark' or 'note'"),
     ],
+    include_content: Annotated[
+        bool,
+        Field(
+            description="If true (default), include full content. "
+            "If false, returns content_length and content_preview for size assessment.",
+        ),
+    ] = True,
     start_line: Annotated[
         int | None,
-        Field(description="Start line for partial read (1-indexed)"),
+        Field(
+            description="Start line for partial read (1-indexed). "
+            "Only valid when include_content=true.",
+        ),
     ] = None,
     end_line: Annotated[
         int | None,
-        Field(description="End line for partial read (1-indexed, inclusive)"),
+        Field(
+            description="End line for partial read (1-indexed, inclusive). "
+            "Only valid when include_content=true.",
+        ),
     ] = None,
 ) -> dict[str, Any]:
     """
     Get a bookmark or note by ID.
 
-    Supports partial content reads for large documents:
+    By default returns full content. Use include_content=false to check size first:
+    - content_length: Total characters (assess size before loading)
+    - content_preview: First 500 characters (quick context)
+
+    When include_content=true, supports partial reads for large documents:
     - Provide start_line and/or end_line to read a specific range
     - Response includes content_metadata with total_lines and is_partial flag
-    - Other fields (title, description, tags) are always returned in full
 
     Examples:
-    - Full read: get_content(id="...", type="note")
-    - First 50 lines: get_content(id="...", type="note", end_line=50)
-    - Lines 100-150: get_content(id="...", type="note", start_line=100, end_line=150)
+    - Full read: get_item(id="...", type="note")
+    - Check size first: get_item(id="...", type="note", include_content=false)
+    - First 50 lines: get_item(id="...", type="note", start_line=1, end_line=50)
     """
     if type not in ("bookmark", "note"):
         raise ToolError(f"Invalid type '{type}'. Must be 'bookmark' or 'note'.")
@@ -368,12 +324,18 @@ async def get_content(
     client = await _get_http_client()
     token = _get_token()
 
-    endpoint = f"/{type}s/{id}"
-    params: dict[str, Any] = {}
-    if start_line is not None:
-        params["start_line"] = start_line
-    if end_line is not None:
-        params["end_line"] = end_line
+    # Route to appropriate endpoint based on include_content
+    if include_content:
+        endpoint = f"/{type}s/{id}"
+        params: dict[str, Any] = {}
+        if start_line is not None:
+            params["start_line"] = start_line
+        if end_line is not None:
+            params["end_line"] = end_line
+    else:
+        # Metadata-only endpoint (start_line/end_line not valid)
+        endpoint = f"/{type}s/{id}/metadata"
+        params = {}
 
     try:
         return await api_get(client, endpoint, token, params if params else None)
@@ -388,16 +350,17 @@ async def get_content(
 
 @mcp.tool(
     description=(
-        "Edit content using string replacement. The old_str must match exactly "
+        "Edit the 'content' field using string replacement. Does NOT edit title or "
+        "description - only the main content body. The old_str must match exactly "
         "one location. Use search_in_content first to verify match uniqueness."
     ),
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
 async def edit_content(
-    id: Annotated[str, Field(description="The content item ID (UUID)")],  # noqa: A002
+    id: Annotated[str, Field(description="The item ID (UUID)")],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
-        Field(description="Content type: 'bookmark' or 'note'"),
+        Field(description="Item type: 'bookmark' or 'note'"),
     ],
     old_str: Annotated[
         str,
@@ -409,7 +372,10 @@ async def edit_content(
     ],
 ) -> dict[str, Any]:
     """
-    Replace old_str with new_str in the content.
+    Replace old_str with new_str in the item's 'content' field.
+
+    **Important:** This tool ONLY edits the `content` field (main body text).
+    It does NOT edit title, description, or tags. Use update_item_metadata for those.
 
     The edit will fail if old_str matches 0 or multiple locations. On failure,
     the response includes match locations with context to help construct a unique match.
@@ -428,13 +394,6 @@ async def edit_content(
     Error responses (returned as structured JSON data):
     - no_match: Text not found (check for typos/whitespace)
     - multiple_matches: Multiple locations found (include more context)
-
-    Note on error handling: Due to FastMCP SDK limitations, 400 errors (no_match,
-    multiple_matches) are returned as successful tool results containing error data,
-    rather than with isError=True per MCP spec. This is intentional—these are
-    informative results (the tool executed successfully but couldn't find a unique
-    match) rather than failures. The LLM can parse the structured JSON to understand
-    what happened and adjust its approach. See implementation plan appendix for details.
     """
     if type not in ("bookmark", "note"):
         raise ToolError(f"Invalid type '{type}'. Must be 'bookmark' or 'note'.")
@@ -452,14 +411,6 @@ async def edit_content(
             raise ToolError(f"{type.title()} with ID {id} not found")
         if e.response.status_code == 400:
             # Return structured error data (no_match, multiple_matches, content_empty).
-            #
-            # FastMCP limitation: We cannot return CallToolResult(isError=True) directly.
-            # Dict returns are always wrapped as successful results. This is acceptable
-            # because these are informative results (tool ran, couldn't find unique match)
-            # not failures. The LLM can parse the JSON and adjust its approach.
-            #
-            # Note: Prompt MCP uses low-level SDK and returns CallToolResult(isError=True)
-            # per MCP spec. See implementation plan appendix for full rationale.
             try:
                 error_detail = e.response.json().get("detail", {})
                 if isinstance(error_detail, dict):
@@ -481,15 +432,18 @@ async def edit_content(
     annotations={"readOnlyHint": True},
 )
 async def search_in_content(
-    id: Annotated[str, Field(description="The content item ID (UUID)")],  # noqa: A002
+    id: Annotated[str, Field(description="The item ID (UUID)")],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
-        Field(description="Content type: 'bookmark' or 'note'"),
+        Field(description="Item type: 'bookmark' or 'note'"),
     ],
     query: Annotated[str, Field(description="Text to search for (literal match)")],
     fields: Annotated[
         str | None,
-        Field(description="Fields to search (comma-separated): content, title, description"),
+        Field(
+            description="Fields to search (comma-separated): content, title, description. "
+            "Default: 'content' only",
+        ),
     ] = None,
     case_sensitive: Annotated[
         bool | None,
@@ -502,6 +456,9 @@ async def search_in_content(
 ) -> dict[str, Any]:
     """
     Find all occurrences of query text within the item.
+
+    By default, searches ONLY the 'content' field. Use `fields` parameter to also
+    search title and/or description (e.g., fields="content,title,description").
 
     Use this tool before editing to:
     - Check how many matches exist (avoid 'multiple matches' errors)
@@ -539,6 +496,81 @@ async def search_in_content(
         raise
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
+
+
+@mcp.tool(
+    description=(
+        "Update a bookmark or note's metadata (title, description, tags). "
+        "For bookmarks, can also update url. "
+        "Does NOT edit content - use edit_content for that."
+    ),
+    annotations={"readOnlyHint": False, "destructiveHint": True},
+)
+async def update_item_metadata(
+    id: Annotated[str, Field(description="The item ID (UUID)")],  # noqa: A002
+    type: Annotated[  # noqa: A002
+        Literal["bookmark", "note"],
+        Field(description="Item type: 'bookmark' or 'note'"),
+    ],
+    title: Annotated[
+        str | None,
+        Field(description="New title. Omit to leave unchanged."),
+    ] = None,
+    description: Annotated[
+        str | None,
+        Field(description="New description. Omit to leave unchanged."),
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        Field(description="New tags (replaces all existing tags). Omit to leave unchanged."),
+    ] = None,
+    url: Annotated[
+        str | None,
+        Field(description="New URL (bookmarks only). Omit to leave unchanged."),
+    ] = None,
+) -> str:
+    """
+    Update item metadata.
+
+    At least one field must be provided.
+    Tags are replaced entirely (not merged) - provide the complete tag list.
+    The `url` parameter only applies to bookmarks - raises an error if provided for notes.
+
+    Returns a summary string confirming the update.
+    """
+    if type not in ("bookmark", "note"):
+        raise ToolError(f"Invalid type '{type}'. Must be 'bookmark' or 'note'.")
+
+    if title is None and description is None and tags is None and url is None:
+        raise ToolError("At least one of title, description, tags, or url must be provided")
+
+    if url is not None and type == "note":
+        raise ToolError("url parameter is only valid for bookmarks")
+
+    client = await _get_http_client()
+    token = _get_token()
+
+    # Build payload from provided fields
+    endpoint = f"/{type}s/{id}"
+    fields = {"title": title, "description": description, "tags": tags, "url": url}
+    payload = {k: v for k, v in fields.items() if v is not None}
+
+    try:
+        result = await api_patch(client, endpoint, token, payload)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise ToolError(f"{type.title()} with ID {id} not found")
+        _handle_api_error(e, f"updating {type} {id}")
+        raise
+    except httpx.RequestError as e:
+        raise ToolError(f"API unavailable: {e}")
+
+    # Build summary of what was updated (consistent with Prompt MCP server)
+    item_title = result.get("title") or result.get("url") or id
+    item_id = result.get("id", id)
+    updates = [f"{k} updated" for k in payload]
+    summary = ", ".join(updates) if updates else "no changes"
+    return f"Updated {type} '{item_title}' (ID: {item_id}): {summary}"
 
 
 @mcp.tool(

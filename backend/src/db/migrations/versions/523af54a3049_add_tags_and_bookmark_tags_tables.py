@@ -38,7 +38,6 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('bookmark_id', 'tag_id')
     )
     op.create_index('ix_bookmark_tags_tag_id', 'bookmark_tags', ['tag_id'], unique=False)
-    # Note: Keeping ix_bookmarks_tags_gin and ix_bookmarks_updated_at until Milestone 6
 
 
 def downgrade() -> None:

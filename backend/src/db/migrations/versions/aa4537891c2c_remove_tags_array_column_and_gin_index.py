@@ -1,10 +1,6 @@
 """
 Remove tags array column and GIN index from bookmarks table.
 
-After Milestone 6 of the tags refactor, the normalized tags table and
-bookmark_tags junction table are the source of truth. This migration
-removes the legacy PostgreSQL ARRAY column.
-
 Revision ID: aa4537891c2c
 Revises: 3ce8365d1b3b
 Create Date: 2025-12-17 00:20:18.579129

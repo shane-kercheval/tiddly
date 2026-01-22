@@ -389,49 +389,44 @@ export function SettingsMCP(): ReactNode {
             <p className="text-sm text-gray-500 mb-3">
               Tools for managing your bookmarks and notes.
             </p>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Bookmarks</h4>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Search & Read</h4>
             <ul className="space-y-2 text-sm text-gray-600 mb-4">
               <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_bookmarks</span>
-                <span>Search by text query and/or filter by tags</span>
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_items</span>
+                <span>Search bookmarks and notes by text/tags</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_bookmark</span>
-                <span>Get full details of a bookmark by ID</span>
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_item</span>
+                <span>Get full details by ID</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">create_bookmark</span>
-                <span>Save a new URL (metadata auto-fetched)</span>
-              </li>
-            </ul>
-
-            {/* Notes */}
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Notes</h4>
-            <ul className="space-y-2 text-sm text-gray-600 mb-4">
-              <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_notes</span>
-                <span>Search by text query and/or filter by tags</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_note</span>
-                <span>Get full details of a note by ID</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">create_note</span>
-                <span>Create a new note with markdown content</span>
-              </li>
-            </ul>
-
-            {/* Unified */}
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Unified</h4>
-            <ul className="space-y-2 text-sm text-gray-600 mb-4">
-              <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_all_content</span>
-                <span>Search across bookmarks and notes in one query</span>
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_in_content</span>
+                <span>Search within content for editing</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_tags</span>
                 <span>Get all tags with usage counts</span>
+              </li>
+            </ul>
+
+            {/* Create & Edit */}
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Create & Edit</h4>
+            <ul className="space-y-2 text-sm text-gray-600 mb-4">
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">create_bookmark</span>
+                <span>Save a new URL</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">create_note</span>
+                <span>Create a new note</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">update_item_metadata</span>
+                <span>Update metadata (title, description, tags)</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">edit_content</span>
+                <span>Edit content using string replacement</span>
               </li>
             </ul>
           </>
@@ -444,18 +439,38 @@ export function SettingsMCP(): ReactNode {
             <p className="text-sm text-gray-500 mb-2">
               Agents can use your saved prompts and create new ones.
             </p>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Search & Read</h4>
+            <ul className="space-y-2 text-sm text-gray-600 mb-4">
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_prompts</span>
+                <span>Search prompts by text/tags</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_prompt_template</span>
+                <span>Get raw template for viewing/editing</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_prompt_metadata</span>
+                <span>Get metadata without full content</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_tags</span>
+                <span>Get all tags with usage counts</span>
+              </li>
+            </ul>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Create & Edit</h4>
             <ul className="space-y-2 text-sm text-gray-600">
               <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_prompts</span>
-                <span>List all available prompts with their arguments</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_prompt</span>
-                <span>Get a prompt rendered with provided argument values</span>
-              </li>
-              <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">create_prompt</span>
-                <span>Create a new reusable prompt template</span>
+                <span>Create a new prompt template</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">edit_prompt_template</span>
+                <span>Edit content using string replacement</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">update_prompt_metadata</span>
+                <span>Update title, description, tags</span>
               </li>
             </ul>
           </>

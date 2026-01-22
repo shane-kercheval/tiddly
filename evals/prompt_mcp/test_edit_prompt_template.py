@@ -1,34 +1,40 @@
 """
-Evaluation tests for the Prompt MCP server's update_prompt tool.
+Evaluation tests for the Prompt MCP server's edit_prompt_template tool.
 
-These tests verify that an LLM can correctly use the update_prompt tool
+These tests verify that an LLM can correctly use the edit_prompt_template tool
 to make changes to prompt templates, including atomic updates to both
 content and arguments when adding/removing/renaming variables.
+
+The eval uses minimal prompting - just the raw tool output and an instruction.
+This tests whether the tool descriptions and server instructions are sufficient
+for an LLM to use the tools correctly without hand-holding.
 """
 
+import asyncio
 import json
 import uuid
 from pathlib import Path
 from typing import Any
-
 from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
-
 from evals.utils import (
     create_checks_from_config,
     create_prompt_via_api,
     create_test_cases_from_config,
     delete_prompt_via_api,
     get_prompt_mcp_config,
-    get_prompt_via_api,
     get_tool_prediction,
     load_yaml_config,
 )
 
+# Limit concurrent MCP connections to avoid overwhelming npx mcp-remote processes.
+# Each connection spawns a subprocess, and too many concurrent connections cause
+# asyncio task/cancel scope issues in the MCP client SDK.
+_MCP_SEMAPHORE = asyncio.Semaphore(20)
 
 # Load configuration at module level
-CONFIG_PATH = Path(__file__).parent / "config_update_prompt.yaml"
+CONFIG_PATH = Path(__file__).parent / "config_edit_prompt_template.yaml"
 CONFIG = load_yaml_config(CONFIG_PATH)
 
 # Extract configuration values
@@ -36,30 +42,6 @@ MODEL_CONFIG = CONFIG["model"]
 EVAL_CONFIG = CONFIG["eval"]
 TEST_CASES = create_test_cases_from_config(CONFIG["test_cases"])
 CHECKS = create_checks_from_config(CONFIG["checks"])
-
-
-def _format_prompt_for_llm(prompt_data: dict[str, Any]) -> str:
-    """
-    Format prompt data as the LLM would see it from get_prompt.
-
-    This simulates what the LLM sees when it calls get_prompt to
-    inspect a prompt before editing it.
-    """
-    args_formatted = json.dumps(prompt_data.get("arguments", []), indent=2)
-    return f"""Prompt ID: {prompt_data["id"]}
-Name: {prompt_data["name"]}
-Title: {prompt_data.get("title") or "(none)"}
-Description: {prompt_data.get("description") or "(none)"}
-
-Arguments:
-```json
-{args_formatted}
-```
-
-Content:
-```
-{prompt_data.get("content", "")}
-```"""
 
 
 def _extract_argument_names(prediction: dict[str, Any]) -> list[str]:
@@ -75,7 +57,7 @@ def _extract_argument_names(prediction: dict[str, Any]) -> list[str]:
     return sorted(names)
 
 
-async def _run_update_prompt_eval(
+async def _run_edit_prompt_template_eval(
     prompt_name: str,
     content: str,
     arguments: list[dict[str, Any]],
@@ -84,11 +66,11 @@ async def _run_update_prompt_eval(
     temperature: float,
 ) -> dict[str, Any]:
     """
-    Run a single update_prompt evaluation case end-to-end.
+    Run a single edit_prompt_template evaluation case end-to-end.
 
     Steps:
     1. Create prompt via API (unique name to avoid conflicts)
-    2. Get prompt data to show the LLM
+    2. Get prompt template via MCP tool to show the LLM
     3. Get LLM tool prediction
     4. Compute final_content by applying the predicted edit
     5. Extract argument_names from prediction (sorted for comparison)
@@ -106,44 +88,34 @@ async def _run_update_prompt_eval(
     prompt_id = created_prompt["id"]
 
     try:
-        # Get the prompt to show the LLM
-        prompt_data = await get_prompt_via_api(prompt_id)
-
-        # Get MCP tools for the tool definitions
+        # Get MCP tools and use get_prompt_template to get the context
         config = get_prompt_mcp_config()
-        async with MCPClientManager(config) as mcp_manager:
+        # Acquire semaphore to limit concurrent MCP connections
+        async with _MCP_SEMAPHORE, MCPClientManager(config) as mcp_manager:
+            print(".", end="", flush=True)
             tools = mcp_manager.get_tools()
 
-            # Build prompt for LLM
-            prompt_display = _format_prompt_for_llm(prompt_data)
-            llm_prompt = f"""I want to update this prompt template.
+            # Call get_prompt_template MCP tool to get the prompt data
+            get_template_result = await mcp_manager.call_tool(
+                "get_prompt_template",
+                {"name": unique_name},
+            )
 
-{prompt_display}
+            # Parse the JSON response from get_prompt_template
+            # call_tool returns CallToolResult with .content attribute
+            prompt_data = json.loads(get_template_result.content[0].text)
 
-**Instruction:** {instruction}
+            # Build minimal prompt - just the raw tool output and instruction
+            # No hand-holding about how to use the tool - the LLM should figure
+            # that out from the tool descriptions and server instructions
+            llm_prompt = f"""I want to edit this prompt template.
 
-Use the update_prompt tool to make this change.
+`get_prompt_template` tool result:
+```json
+{json.dumps(prompt_data, indent=2)}
+```
 
-CRITICAL RULES:
-1. If you ADD, REMOVE, or RENAME a template variable ({{{{ var_name }}}}), you MUST include the `arguments` parameter with the COMPLETE list of arguments that should exist AFTER your edit.
-2. If you're only fixing a typo or changing text without touching variables, do NOT include the `arguments` parameter.
-3. The `arguments` list REPLACES all existing arguments - include every argument that should remain.
-4. Use simple text replacement, NOT Jinja2 conditionals like {{% if %}}.
-
-Example - removing a variable:
-- old_str: "Hello {{{{ name }}}}, welcome to {{{{ place }}}}!"
-- new_str: "Hello, welcome to {{{{ place }}}}!"
-- arguments: [{{"name": "place", "description": "The place name"}}]  # name is removed
-
-Example - adding a variable:
-- old_str: "Generate a summary."
-- new_str: "Generate a {{{{ length }}}} summary."
-- arguments: [{{"name": "length", "description": "Summary length", "required": false}}]
-
-Example - simple typo fix (no variable change):
-- old_str: "Anaylze this"
-- new_str: "Analyze this"
-- (no arguments parameter needed)"""
+**Instruction:** {instruction}"""
 
             # Get tool prediction
             prediction = await get_tool_prediction(
@@ -168,6 +140,7 @@ Example - simple typo fix (no variable change):
 
             return {
                 "prompt_id": prompt_id,
+                "prompt_name": unique_name,
                 "prompt_data": prompt_data,
                 "llm_prompt": llm_prompt,
                 "tool_prediction": prediction,
@@ -186,24 +159,24 @@ Example - simple typo fix (no variable change):
     samples=EVAL_CONFIG["samples"],
     success_threshold=EVAL_CONFIG["success_threshold"],
 )
-async def test_update_prompt(test_case: TestCase) -> dict[str, Any]:
+async def test_edit_prompt_template(test_case: TestCase) -> dict[str, Any]:
     """
-    Test that the LLM correctly uses update_prompt to modify prompts.
+    Test that the LLM correctly uses edit_prompt_template to modify prompts.
 
     Each test case:
     1. Creates a prompt with specific content and arguments
-    2. Shows the LLM the prompt data (simulating get_prompt)
+    2. Gets the prompt data via MCP get_prompt_template tool
     3. Asks the LLM to make a specific change
     4. Computes final_content by applying the predicted edit
     5. Extracts argument_names from prediction
 
     The checks verify:
-    - Correct tool was selected (update_prompt)
+    - Correct tool was selected (edit_prompt_template)
     - Final content contains expected text (variables preserved)
     - Final content does not contain forbidden text (variables removed)
     - Argument names exactly match expected (sorted list comparison)
     """
-    return await _run_update_prompt_eval(
+    return await _run_edit_prompt_template_eval(
         prompt_name=test_case.input["prompt_name"],
         content=test_case.input["content"],
         arguments=test_case.input["arguments"],
