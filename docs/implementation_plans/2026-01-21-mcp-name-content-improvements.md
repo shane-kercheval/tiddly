@@ -42,7 +42,7 @@ These decisions were made during planning and should be followed throughout impl
 
 | Endpoint Type | Default | Rationale |
 |---------------|---------|-----------|
-| Individual item API (`GET /items/{id}`) | `true` | You asked for one item, you probably want it |
+| Individual item API (`GET /items/{id}`) | `true` | If requesting a specific item, the assumption is the caller wants the content |
 | List API (`GET /items/`) | `false` | Protect against 50 × 200KB = 10MB responses |
 | MCP tools | `true` | Consistency, let LLM decide based on docs |
 
@@ -56,9 +56,9 @@ When `include_content=false` is combined with `start_line`/`end_line`:
 
 Fixed at 500 characters. Not configurable (YAGNI - can add later if needed).
 
-### Prompts: No `start_line`/`end_line`
+### Prompts: Include `start_line`/`end_line`
 
-Skip partial read support for prompts. Prompts are typically small (<5KB). YAGNI.
+Add partial read support to prompts for API consistency with bookmarks/notes, and to give the LLM the option. While prompts are typically small, consistency makes the API predictable.
 
 ---
 
@@ -123,7 +123,7 @@ class BookmarkResponse(BookmarkListItem):
 - `GET /notes/{id}?include_content=false` same behavior
 - `GET /prompts/{id}?include_content=false` same behavior
 - `GET /prompts/name/{name}?include_content=false` same behavior
-- Default is `include_content=true`
+- Default is `include_content=true` (if requesting a specific item, caller likely wants the content)
 - `include_content=false` with `start_line`/`end_line` returns 400 error
 - `content_length` always populated when content exists
 - `content_preview` populated only when `include_content=false`
@@ -176,7 +176,7 @@ async def get_note(
     return response
 ```
 
-**Note for prompts**: Do NOT add `start_line`/`end_line` parameters. Prompts are small and don't need partial reads.
+**Note for prompts**: Add `start_line`/`end_line` parameters for consistency with bookmarks/notes.
 
 ### Testing Strategy
 
@@ -205,7 +205,7 @@ async def get_note(
 
 **Success Criteria**:
 - `GET /bookmarks/?include_content=false` (default) returns items with `content_length` and `content_preview`
-- `GET /bookmarks/?include_content=true` returns items with full `content` and `content_metadata`
+- `GET /bookmarks/?include_content=true` returns items with full `content` and `content_metadata` (and `content_length`)
 - Same for `/notes/`, `/prompts/`, `/content/`
 - Default is `include_content=false` for lists
 
@@ -368,10 +368,12 @@ async def get_prompt_template(
         bool,
         Field(description="If true (default), include full template content. If false, returns content_length and content_preview."),
     ] = True,
+    start_line: Annotated[int | None, Field(description="Start line for partial read (1-indexed). Only valid when include_content=true.")] = None,
+    end_line: Annotated[int | None, Field(description="End line for partial read (1-indexed, inclusive). Only valid when include_content=true.")] = None,
 ) -> dict[str, Any]:
 ```
 
-**Note**: No `start_line`/`end_line` for prompts (YAGNI - prompts are small).
+**Note**: `start_line`/`end_line` included for consistency with bookmarks/notes, even though prompts are typically small.
 
 ### Testing Strategy
 
