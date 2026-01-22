@@ -114,7 +114,7 @@ Fixed at 500 characters. Not configurable (YAGNI - can add later if needed).
 
 Unlike bookmarks/notes where `get_item` has an `include_content` parameter, prompts use separate tools:
 - **`get_prompt_template`**: Always returns full template content (no `include_content` param). If calling this tool, you want the template.
-- **`get_prompt_metadata`**: Returns metadata only (name, title, description, arguments, tags, `prompt_length`). Use to check size before fetching.
+- **`get_prompt_metadata`**: Returns metadata only (name, title, description, arguments, tags, `prompt_length`, `prompt_preview`). Use to check size before fetching.
 
 This is cleaner for prompts because the template IS the content - there's no use case for "get prompt without template."
 
@@ -373,7 +373,7 @@ async def get_note_metadata(
 **Success Criteria**:
 - `GET /bookmarks/` returns items with `content_length` and `content_preview`
 - `GET /notes/` returns items with `content_length` and `content_preview`
-- `GET /prompts/` returns items with `prompt_length` and `prompt_preview`
+- `GET /prompts/` returns items with `content_length` and `content_preview` (MCP translates to `prompt_*`)
 - `GET /content/` returns items with `content_length` and `content_preview`
 - Lists **never** return full `content` or `content_metadata`
 
@@ -582,7 +582,7 @@ types.Tool(
     name="get_prompt_metadata",
     description=(
         "Get a prompt's metadata without the template content. "
-        "Returns name, title, description, arguments, tags, and prompt_length. "
+        "Returns name, title, description, arguments, tags, prompt_length, and prompt_preview. "
         "Use this to check prompt size or arguments before fetching full template."
     ),
     inputSchema={
@@ -713,8 +713,8 @@ types.Tool(
 ### Risk Factors
 
 - Need to ensure API defaults (true for individual items) align with MCP defaults (true)
-- `get_prompt_metadata` requires API endpoint with `include_content=false`
-- `search_prompts` needs API to return `prompt_length` and `prompt_preview` (covered by Milestone 3)
+- `get_prompt_metadata` requires API `/metadata` endpoint (Milestone 2)
+- `search_prompts` needs API list endpoint to return `content_length` and `content_preview` (covered by Milestone 3)
 
 ---
 
