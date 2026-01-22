@@ -32,43 +32,34 @@ tiddly, tiddly.me, or their prompts/templates, they're referring to this system.
 This MCP server is a prompt template manager for creating, editing, and using reusable AI prompts.
 Prompts are Jinja2 templates with defined arguments that can be rendered with user-provided values.
 
-Available capabilities:
-
-**Prompts (MCP prompts capability):**
-- `list_prompts`: List all saved prompt templates with their arguments
-- `get_prompt`: Render a prompt template by name with provided arguments
-
 **Tools:**
 - `search_prompts`: Search prompts with filters. Returns prompt_length and prompt_preview.
-- `list_tags`: Get all tags with usage counts
-- `get_prompt_template`: Get raw template content and arguments for viewing/editing
-- `get_prompt_metadata`: Get metadata without full content (prompt_length, prompt_preview)
+- `get_prompt_template`: Get full template content and arguments for viewing/editing
+- `get_prompt_metadata`: Get metadata only (prompt_length, prompt_preview) - use for size check
 - `create_prompt`: Create a new prompt template with Jinja2 content
 - `edit_prompt_template`: Edit template content using string replacement
 - `update_prompt_metadata`: Update title, description, tags, or rename a prompt
+- `list_tags`: Get all tags with usage counts
 
 Note: There is no delete tool. Prompts can only be deleted via the web UI.
 
+**When to use get_prompt_metadata vs get_prompt_template:**
+- Use `get_prompt_metadata` first to check prompt_length before loading large templates
+- Use `get_prompt_template` when you need the full content for viewing or editing
+
 Example workflows:
 
-1. "What prompts do I have?"
-   - Use `list_prompts` to see all available templates
-
-2. "Use my code-review prompt for this Python file"
-   - Call `get_prompt(name="code-review", arguments={"code": "<file contents>"})`
-   - The rendered template is returned as user message content
-
-3. "Create a prompt for summarizing articles"
+1. "Create a prompt for summarizing articles"
    - Call `create_prompt` tool with:
      - name: "summarize-article"
      - content: "Summarize the following article:\\n\\n{{ article_text }}\\n\\nProvide..."
      - arguments: [{"name": "article_text", "description": "To summarize", "required": true}]
 
-4. "Fix a typo in my code-review prompt"
+2. "Fix a typo in my code-review prompt"
    - Call `get_prompt_template(name="code-review")` to see current content
    - Call `edit_prompt_template(name="code-review", old_str="teh code", new_str="the code")`
 
-5. "Add a new variable to my prompt"
+3. "Add a new variable to my prompt"
    - When adding {{ new_var }} to the template, you must also add its argument definition
    - Call `edit_prompt_template` with BOTH the content change AND the updated arguments list:
      - old_str: "Review this code:"
@@ -76,15 +67,15 @@ Example workflows:
      - arguments: [...existing args..., {"name": "language", "description": "Lang"}]
    - The arguments list REPLACES all existing arguments, so include the ones you want to keep
 
-6. "Remove a variable from my prompt"
+4. "Remove a variable from my prompt"
    - Similarly, remove from both content and arguments in one call
    - Omit the removed argument from the arguments list
 
-7. "Search for prompts about code review"
+5. "Search for prompts about code review"
    - Call `search_prompts(query="code review")` to find matching prompts
    - Response includes prompt_length and prompt_preview for each result
 
-8. "What tags do I have?"
+6. "What tags do I have?"
    - Call `list_tags()` to see all tags with usage counts
 
 Prompt naming: lowercase with hyphens (e.g., `code-review`, `meeting-notes`).
