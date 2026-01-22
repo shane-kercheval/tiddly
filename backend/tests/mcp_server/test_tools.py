@@ -378,7 +378,7 @@ async def test__update_item_metadata__note_success(
     mcp_client: Client,
     sample_note: dict[str, Any],
 ) -> None:
-    """Test updating note metadata."""
+    """Test updating note metadata returns summary string."""
     note_id = "550e8400-e29b-41d4-a716-446655440002"
     updated_note = {**sample_note, "title": "Updated Title", "tags": ["new-tag"]}
     mock_api.patch(f"/notes/{note_id}").mock(
@@ -390,7 +390,12 @@ async def test__update_item_metadata__note_success(
         {"id": note_id, "type": "note", "title": "Updated Title", "tags": ["new-tag"]},
     )
 
-    assert result.data["title"] == "Updated Title"
+    # Returns summary string, not full response
+    response_text = result.content[0].text
+    assert "Updated note" in response_text
+    assert note_id in response_text
+    assert "title updated" in response_text
+    assert "tags updated" in response_text
 
 
 @pytest.mark.asyncio
@@ -399,7 +404,7 @@ async def test__update_item_metadata__bookmark_with_url(
     mcp_client: Client,
     sample_bookmark: dict[str, Any],
 ) -> None:
-    """Test updating bookmark metadata including URL."""
+    """Test updating bookmark metadata including URL returns summary string."""
     bookmark_id = "550e8400-e29b-41d4-a716-446655440001"
     updated_bookmark = {**sample_bookmark, "url": "https://new-url.com"}
     mock_api.patch(f"/bookmarks/{bookmark_id}").mock(
@@ -411,7 +416,11 @@ async def test__update_item_metadata__bookmark_with_url(
         {"id": bookmark_id, "type": "bookmark", "url": "https://new-url.com"},
     )
 
-    assert result.data["url"] == "https://new-url.com"
+    # Returns summary string, not full response
+    response_text = result.content[0].text
+    assert "Updated bookmark" in response_text
+    assert bookmark_id in response_text
+    assert "url updated" in response_text
 
 
 @pytest.mark.asyncio
@@ -420,7 +429,7 @@ async def test__update_item_metadata__updates_description(
     mcp_client: Client,
     sample_note: dict[str, Any],
 ) -> None:
-    """Test updating item description."""
+    """Test updating item description returns summary string."""
     note_id = "550e8400-e29b-41d4-a716-446655440002"
     updated_note = {**sample_note, "description": "Updated description"}
     mock_api.patch(f"/notes/{note_id}").mock(
@@ -432,7 +441,11 @@ async def test__update_item_metadata__updates_description(
         {"id": note_id, "type": "note", "description": "Updated description"},
     )
 
-    assert result.data["description"] == "Updated description"
+    # Returns summary string, not full response
+    response_text = result.content[0].text
+    assert "Updated note" in response_text
+    assert note_id in response_text
+    assert "description updated" in response_text
 
 
 @pytest.mark.asyncio

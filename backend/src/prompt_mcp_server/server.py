@@ -1142,7 +1142,7 @@ async def _handle_edit_prompt_template(
     ]
 
 
-async def _handle_update_prompt_metadata(  # noqa: PLR0912
+async def _handle_update_prompt_metadata(
     arguments: dict[str, Any],
 ) -> list[types.TextContent]:
     """
@@ -1166,15 +1166,10 @@ async def _handle_update_prompt_metadata(  # noqa: PLR0912
 
     # Build payload - only include fields that were provided
     # Map new_name -> name for the API (PromptUpdate schema uses 'name' for the new name)
-    payload: dict[str, Any] = {}
-    if "new_name" in arguments:
-        payload["name"] = arguments["new_name"]
-    if "title" in arguments:
-        payload["title"] = arguments["title"]
-    if "description" in arguments:
-        payload["description"] = arguments["description"]
-    if "tags" in arguments:
-        payload["tags"] = arguments["tags"]
+    field_mapping = {
+        "new_name": "name", "title": "title", "description": "description", "tags": "tags",
+    }
+    payload = {field_mapping[k]: arguments[k] for k in field_mapping if k in arguments}
 
     try:
         result = await api_patch(
@@ -1216,15 +1211,8 @@ async def _handle_update_prompt_metadata(  # noqa: PLR0912
     prompt_id = result.get("id", "")
 
     # Build a summary of what was updated
-    updates = []
-    if "new_name" in arguments:
-        updates.append(f"renamed to '{updated_name}'")
-    if "title" in arguments:
-        updates.append("title updated")
-    if "description" in arguments:
-        updates.append("description updated")
-    if "tags" in arguments:
-        updates.append("tags updated")
+    updates = [f"renamed to '{updated_name}'"] if "new_name" in arguments else []
+    updates.extend(f"{k} updated" for k in ("title", "description", "tags") if k in arguments)
 
     summary = ", ".join(updates) if updates else "no changes"
 

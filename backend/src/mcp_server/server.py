@@ -528,13 +528,15 @@ async def update_item_metadata(
         str | None,
         Field(description="New URL (bookmarks only). Omit to leave unchanged."),
     ] = None,
-) -> dict[str, Any]:
+) -> str:
     """
     Update item metadata.
 
     At least one field must be provided.
     Tags are replaced entirely (not merged) - provide the complete tag list.
     The `url` parameter only applies to bookmarks - raises an error if provided for notes.
+
+    Returns a summary string confirming the update.
     """
     if type not in ("bookmark", "note"):
         raise ToolError(f"Invalid type '{type}'. Must be 'bookmark' or 'note'.")
@@ -548,19 +550,13 @@ async def update_item_metadata(
     client = await _get_http_client()
     token = _get_token()
 
+    # Build payload from provided fields
     endpoint = f"/{type}s/{id}"
-    payload: dict[str, Any] = {}
-    if title is not None:
-        payload["title"] = title
-    if description is not None:
-        payload["description"] = description
-    if tags is not None:
-        payload["tags"] = tags
-    if url is not None:
-        payload["url"] = url
+    fields = {"title": title, "description": description, "tags": tags, "url": url}
+    payload = {k: v for k, v in fields.items() if v is not None}
 
     try:
-        return await api_patch(client, endpoint, token, payload)
+        result = await api_patch(client, endpoint, token, payload)
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             raise ToolError(f"{type.title()} with ID {id} not found")
@@ -568,6 +564,13 @@ async def update_item_metadata(
         raise
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
+
+    # Build summary of what was updated (consistent with Prompt MCP server)
+    item_title = result.get("title") or result.get("url") or id
+    item_id = result.get("id", id)
+    updates = [f"{k} updated" for k in payload]
+    summary = ", ".join(updates) if updates else "no changes"
+    return f"Updated {type} '{item_title}' (ID: {item_id}): {summary}"
 
 
 @mcp.tool(
