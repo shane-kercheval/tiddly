@@ -153,7 +153,7 @@ make prompt-mcp-server    # Prompt MCP server (port 8002)
 | `get_item` | Get bookmark or note by ID with optional partial read (line range) |
 | `edit_content` | Edit bookmark or note content using string replacement |
 | `search_in_content` | Search within a single item's content for matches with context |
-| `update_item` | Update metadata (title, description, tags) |
+| `update_item_metadata` | Update metadata (title, description, tags) |
 | `create_bookmark` | Create a new bookmark |
 | `create_note` | Create a new note |
 | `list_tags` | List all tags with usage counts |
