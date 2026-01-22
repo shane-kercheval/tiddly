@@ -9,7 +9,7 @@ html, body, #root {
 /* Prevent horizontal scroll on mobile */
 html, body {
   overflow-x: hidden;
-  max-width: 100vw;
+  max-width: 100%;
 }
 
 /* Safe area support for notched devices (iPhone X+, etc.) */
