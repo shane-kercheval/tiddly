@@ -39,19 +39,68 @@ These decisions were made during planning and should be followed throughout impl
 | `false` | `content_length`, `content_preview`, `content=null`, `content_metadata=null` |
 | `true` | `content_length`, `content`, `content_metadata`, `content_preview=null` |
 
-### Defaults for `include_content`
+### API Endpoint Design
 
-| Endpoint Type | Default | Rationale |
-|---------------|---------|-----------|
-| Individual item API (`GET /items/{id}`) | `true` | If requesting a specific item, the assumption is the caller wants the content |
-| List API (`GET /items/`) | `false` | Protect against 50 × 200KB = 10MB responses |
-| MCP tools | `true` | Consistency, let LLM decide based on docs |
+Each endpoint has a **fixed contract** (no conditional response shapes):
+
+| Endpoint | Returns | Contract |
+|----------|---------|----------|
+| `GET /bookmarks/{id}` | Full content + `content_metadata` + `content_length` | Always full content |
+| `GET /bookmarks/{id}/metadata` | `content_length` + `content_preview` | Always metadata only |
+| `GET /bookmarks/` | `content_length` + `content_preview` per item | Always metadata only (list) |
+
+Same pattern for `/notes/` and `/prompts/`.
+
+**Rationale:**
+- Fixed contracts per URL - no conditional logic
+- Type-safe for programmatic clients
+- Each URL = one predictable response shape
+- Cleaner documentation ("Returns X" vs "Returns X or Y depending on parameter")
+
+### MCP Tool Design
+
+MCP tools are designed for LLM agents (fewer tools, more flexibility):
+
+| Tool | Has `include_content`? | Behavior |
+|------|------------------------|----------|
+| `get_item` | Yes, default `true` | Calls `/{id}` or `/{id}/metadata` based on parameter |
+| `search_items` | **No** | Always returns `content_length` + `content_preview` (list behavior) |
+
+**Rationale:**
+- Fewer tools = less cognitive load for LLMs
+- LLMs handle varying outputs well
+- MCP tool is a facade over the two API endpoints
+
+**Rationale for metadata-only lists:**
+- Prevents 50 × 200KB = 10MB responses
+- Lists are for discovery; use `get_item` for full content
+- Follows common API patterns (GitHub, Stripe, etc.)
+
+### Computation Location
+
+`content_length` and `content_preview` are **always computed in PostgreSQL**, not Python:
+
+```sql
+-- GET /bookmarks/{id} (full content endpoint)
+SELECT *, length(content) FROM bookmarks WHERE id = ?
+
+-- GET /bookmarks/{id}/metadata (metadata endpoint)
+SELECT (columns except content), length(content), left(content, 500) FROM bookmarks WHERE id = ?
+
+-- GET /bookmarks/ (list endpoint - always metadata-only)
+SELECT (columns except content), length(content), left(content, 500) FROM bookmarks WHERE ...
+```
+
+**Rationale:**
+- Efficient: only transfers needed data over the wire
+- Consistent: one pattern for all queries
+- No Python computation overhead
 
 ### Error Handling
 
-When `include_content=false` is combined with `start_line`/`end_line`:
-- Return **400 Bad Request**
-- Message: `"start_line/end_line parameters are only valid when include_content=true"`
+`start_line`/`end_line` parameters are only valid on full content endpoints:
+- `GET /bookmarks/{id}?start_line=1&end_line=10` → OK (partial read of full content)
+- `GET /bookmarks/{id}/metadata?start_line=1` → **400 Bad Request** ("start_line/end_line not valid on metadata endpoint")
 
 ### Preview Length
 
@@ -77,17 +126,20 @@ After all milestones are complete, here are the final tools for each MCP server:
 
 | Tool | Parameters |
 |------|------------|
-| `search_items` | `query`, `type`, `tags`, `tag_match`, `sort_by`, `sort_order`, `limit`, `offset` |
-| `get_item` | `id`, `type`, `include_content`*, `start_line`, `end_line` |
+| `search_items` | `query`, `type`*, `tags`, `tag_match`, `sort_by`, `sort_order`, `limit`, `offset` |
+| `get_item` | `id`, `type`, `include_content`**, `start_line`, `end_line` |
 | `edit_content` | `id`, `type`, `old_str`, `new_str` |
 | `search_in_content` | `id`, `type`, `query`, `fields`, `case_sensitive`, `context_lines` |
-| `update_item_metadata` | `id`, `type`, `title`, `description`, `tags`, `url`** |
+| `update_item_metadata` | `id`, `type`, `title`, `description`, `tags`, `url`*** |
 | `create_bookmark` | `url`, `title`, `description`, `content`, `tags` |
 | `create_note` | `title`, `description`, `content`, `tags` |
 | `list_tags` | (none) |
 
-\* `include_content` defaults to `true`; when `false`, returns `content_length` and `content_preview` instead of `content`
-\*\* `url` only applicable when `type="bookmark"`
+\* `type` is optional: `"bookmark"`, `"note"`, or omit to search both. Results include `content_length` and `content_preview`.
+\*\* `include_content` defaults to `true`; when `false`, returns `content_length` and `content_preview` instead of `content`
+\*\*\* `url` only applicable when `type="bookmark"`
+
+**Note:** `search_bookmarks` and `search_notes` tools are removed. Use `search_items` with `type` parameter instead.
 
 ### Prompt MCP Server
 
@@ -105,6 +157,14 @@ After all milestones are complete, here are the final tools for each MCP server:
 - `search_prompts` results include `prompt_length` and `prompt_preview` (no full content)
 - `get_prompt_metadata` returns `prompt_length` and `prompt_preview`
 - `get_prompt_template` returns full content (no preview)
+
+**`search_prompts` vs `list_prompts` (MCP capability):**
+- `list_prompts` is the **MCP protocol capability** for discovering prompts. Returns `types.Prompt` objects per MCP spec.
+- `search_prompts` is a **tool** for searching with filters (tags, query) and getting size info (`prompt_length`, `prompt_preview`).
+- Use `search_prompts` when you need filtering or want to assess prompt sizes before fetching.
+
+**Field naming (API → MCP translation):**
+The API uses `content_length`/`content_preview` (matching the `content` field name). The Prompt MCP translates these to `prompt_length`/`prompt_preview` for semantic clarity when working with prompts. This translation happens in the MCP tool handlers.
 
 ### Tool Naming Conventions
 
@@ -171,100 +231,148 @@ class BookmarkResponse(BookmarkListItem):
 
 ## Milestone 2: API Endpoint Changes - Individual Items
 
-**Goal**: Add `include_content` parameter to individual item GET endpoints
+**Goal**: Add metadata endpoints and update existing endpoints to always include `content_length`
 
 **Dependencies**: Milestone 1
 
 **Success Criteria**:
-- `GET /bookmarks/{id}?include_content=false` returns item with `content_length` and `content_preview`, but `content=null`
-- `GET /notes/{id}?include_content=false` same behavior
-- `GET /prompts/{id}?include_content=false` same behavior
-- `GET /prompts/name/{name}?include_content=false` same behavior
-- Default is `include_content=true` (if requesting a specific item, caller likely wants the content)
-- `include_content=false` with `start_line`/`end_line` returns 400 error
-- `content_length` always populated when content exists
-- `content_preview` populated only when `include_content=false`
+- `GET /bookmarks/{id}` always returns full `content` + `content_metadata` + `content_length`
+- `GET /bookmarks/{id}/metadata` always returns `content_length` + `content_preview` (no full content)
+- Same pattern for `/notes/{id}`, `/prompts/{id}`, `/prompts/name/{name}`
+- `start_line`/`end_line` only valid on full content endpoints (not `/metadata`)
+- Each endpoint has a fixed response contract (no conditional shapes)
 
 ### Key Changes
 
 **Files to modify**:
-- `backend/src/api/routers/bookmarks.py` - `get_bookmark` endpoint
-- `backend/src/api/routers/notes.py` - `get_note` endpoint
-- `backend/src/api/routers/prompts.py` - `get_prompt` and `get_prompt_by_name` endpoints
+- `backend/src/api/routers/bookmarks.py` - update `get_bookmark`, add `get_bookmark_metadata`
+- `backend/src/api/routers/notes.py` - update `get_note`, add `get_note_metadata`
+- `backend/src/api/routers/prompts.py` - update endpoints, add metadata endpoints
+- `backend/src/services/bookmark_service.py` - add `get_metadata` method
+- `backend/src/services/note_service.py` - same
+- `backend/src/services/prompt_service.py` - same
 
-**Router pattern**:
+**Service pattern** (database-level computation):
+
+```python
+# services/note_service.py
+
+async def get(
+    self,
+    db: AsyncSession,
+    user_id: UUID,
+    note_id: UUID,
+) -> Note | None:
+    """Get note with full content. Always includes content_length."""
+    stmt = select(
+        Note,
+        func.length(Note.content).label("content_length"),
+    ).where(Note.id == note_id, Note.user_id == user_id)
+
+    result = await db.execute(stmt)
+    row = result.first()
+    if row is None:
+        return None
+    note, length = row
+    note.content_length = length
+    return note
+
+async def get_metadata(
+    self,
+    db: AsyncSession,
+    user_id: UUID,
+    note_id: UUID,
+) -> Note | None:
+    """Get note metadata only (no full content). Returns content_length + content_preview."""
+    stmt = select(
+        Note,
+        func.length(Note.content).label("content_length"),
+        func.left(Note.content, 500).label("content_preview"),
+    ).where(Note.id == note_id, Note.user_id == user_id)
+
+    result = await db.execute(stmt)
+    row = result.first()
+    if row is None:
+        return None
+    note, length, preview = row
+    note.content_length = length
+    note.content_preview = preview
+    note.content = None  # Ensure no full content
+    return note
+```
+
+**Router pattern** (two separate endpoints with fixed contracts):
 
 ```python
 @router.get("/{note_id}", response_model=NoteResponse)
 async def get_note(
     note_id: UUID,
-    include_content: bool = Query(
-        default=True,
-        description="If true, include full content. If false, include content_length and content_preview instead.",
-    ),
     start_line: int | None = Query(default=None, ...),
     end_line: int | None = Query(default=None, ...),
     # ... other params ...
 ) -> NoteResponse:
-    # Validate: start_line/end_line only valid with include_content=True
-    if not include_content and (start_line is not None or end_line is not None):
-        raise HTTPException(
-            status_code=400,
-            detail="start_line/end_line parameters are only valid when include_content=true",
-        )
+    """Get note with full content. Always includes content + content_metadata + content_length."""
+    note = await note_service.get(db, user_id, note_id)
+    if note is None:
+        raise HTTPException(status_code=404, detail="Note not found")
 
-    note = await note_service.get(...)
     response = NoteResponse.model_validate(note)
 
-    if response.content is not None:
-        # Always compute content_length
-        response.content_length = len(response.content)
-
-        if include_content:
-            # Apply partial read if requested
-            apply_partial_read(response, start_line, end_line)
-            # content_preview stays null
-        else:
-            # Provide preview, clear full content
-            response.content_preview = response.content[:500]
-            response.content = None
-            response.content_metadata = None
+    if start_line or end_line:
+        apply_partial_read(response, start_line, end_line)
 
     return response
+
+
+@router.get("/{note_id}/metadata", response_model=NoteResponse)
+async def get_note_metadata(
+    note_id: UUID,
+    # No start_line/end_line - not applicable for metadata
+    # ... other params ...
+) -> NoteResponse:
+    """Get note metadata only. Returns content_length + content_preview, no full content."""
+    note = await note_service.get_metadata(db, user_id, note_id)
+    if note is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    return NoteResponse.model_validate(note)
 ```
 
-**Note for prompts**: Add `start_line`/`end_line` parameters for consistency with bookmarks/notes.
+**Note for prompts**: Add `start_line`/`end_line` parameters to full content endpoints for consistency with bookmarks/notes.
 
 ### Testing Strategy
 
 **New tests**:
-- `test__get_bookmark__include_content_false__returns_length_and_preview`
-- `test__get_bookmark__include_content_true__returns_full_content_no_preview`
-- `test__get_note__include_content_false__returns_length_and_preview`
-- `test__get_note__include_content_true__returns_full_content_no_preview`
-- `test__get_prompt__include_content_false__returns_length_and_preview`
-- `test__get_prompt_by_name__include_content_false__returns_length_and_preview`
-- `test__include_content_false__content_under_500_chars__preview_equals_content`
-- `test__include_content_false__null_content__returns_null_metrics`
-- `test__include_content_false__with_line_params__returns_400`
+- `test__get_bookmark__returns_full_content_and_length`
+- `test__get_bookmark_metadata__returns_length_and_preview_no_content`
+- `test__get_note__returns_full_content_and_length`
+- `test__get_note_metadata__returns_length_and_preview_no_content`
+- `test__get_prompt__returns_full_content_and_length`
+- `test__get_prompt_metadata__returns_length_and_preview_no_content`
+- `test__get_prompt_by_name_metadata__returns_length_and_preview`
+- `test__metadata_endpoint__content_under_500_chars__preview_equals_full`
+- `test__metadata_endpoint__null_content__returns_null_metrics`
 
 ### Risk Factors
 
-- Frontend may need updates if it relies on content always being present (but default is true, so should be fine)
+- New endpoints need to be documented
+- Frontend continues to use `/{id}` endpoint (no changes needed)
 
 ---
 
 ## Milestone 3: API Endpoint Changes - List Endpoints
 
-**Goal**: Add `include_content` parameter to list endpoints with content metrics
+**Goal**: Make list endpoints return `content_length` and `content_preview` (always metadata-only, no full content)
 
 **Dependencies**: Milestone 1
 
 **Success Criteria**:
-- `GET /bookmarks/?include_content=false` (default) returns items with `content_length` and `content_preview`
-- `GET /bookmarks/?include_content=true` returns items with full `content` and `content_metadata` (and `content_length`)
-- Same for `/notes/`, `/prompts/`, `/content/`
-- Default is `include_content=false` for lists
+- `GET /bookmarks/` returns items with `content_length` and `content_preview`
+- `GET /notes/` returns items with `content_length` and `content_preview`
+- `GET /prompts/` returns items with `prompt_length` and `prompt_preview`
+- `GET /content/` returns items with `content_length` and `content_preview`
+- Lists **never** return full `content` or `content_metadata`
+- No `include_content` parameter on list endpoints
 
 ### Key Changes
 
@@ -278,58 +386,58 @@ async def get_note(
 - `backend/src/services/prompt_service.py`
 - `backend/src/services/content_service.py`
 
-**SQL approach** (use SQL functions to avoid loading full content):
+**SQL approach** (compute in database, don't load full content):
 
 ```python
 from sqlalchemy import func
 
-# When include_content=False (default for lists)
-query = select(
+# List query - always metadata-only
+stmt = select(
     Bookmark,
     func.length(Bookmark.content).label("content_length"),
     func.left(Bookmark.content, 500).label("content_preview"),
 ).where(...)
 
-# When include_content=True
-query = select(Bookmark).where(...)  # Full content loaded
+# Results are tuples: (Bookmark, int, str)
+results = await db.execute(stmt)
+items = []
+for bookmark, length, preview in results:
+    bookmark.content_length = length
+    bookmark.content_preview = preview
+    bookmark.content = None  # Ensure content not included
+    items.append(bookmark)
 ```
 
 **Schema adjustment**:
-The `model_validator` in list item schemas will need to handle the computed columns from query results.
+Add `content_length` and `content_preview` fields to list item schemas (from Milestone 1). The service attaches computed values to ORM objects before returning.
 
-**Router pattern**:
+**Router pattern** (no `include_content` parameter):
 
 ```python
 @router.get("/", response_model=BookmarkListResponse)
 async def list_bookmarks(
-    include_content: bool = Query(
-        default=False,
-        description="If true, include full content for each item. Default false returns content_length and content_preview.",
-    ),
-    # ... other params ...
+    # ... existing params (q, tags, sort_by, etc.) ...
 ) -> BookmarkListResponse:
-    bookmarks, total = await bookmark_service.search(
-        ...,
-        include_content=include_content,
-    )
-    # Service returns data with appropriate fields based on include_content
+    bookmarks, total = await bookmark_service.search(...)
+    # Service returns items with content_length/content_preview attached
+    items = [BookmarkListItem.model_validate(b) for b in bookmarks]
+    return BookmarkListResponse(items=items, total=total, ...)
 ```
 
 ### Testing Strategy
 
 **New tests**:
-- `test__list_bookmarks__include_content_false__returns_length_and_preview`
-- `test__list_bookmarks__include_content_true__returns_full_content`
-- `test__list_notes__include_content_false__returns_length_and_preview`
-- `test__list_prompts__include_content_false__returns_length_and_preview`
-- `test__search_all_content__include_content_false__returns_length_and_preview`
-- `test__list_items__null_content__null_metrics`
+- `test__list_bookmarks__returns_length_and_preview`
+- `test__list_bookmarks__does_not_return_full_content`
+- `test__list_notes__returns_length_and_preview`
+- `test__list_prompts__returns_length_and_preview`
+- `test__list_content__returns_length_and_preview`
+- `test__list_items__null_content__returns_null_metrics`
 
 ### Risk Factors
 
-- Need to update service layer to return computed columns
-- May need to adjust how services return data (ORM objects vs tuples/dicts)
-- SQL `LEFT()` function is PostgreSQL standard, should be fine
+- Service layer needs to handle tuple results from SQLAlchemy and attach computed values to ORM objects
+- SQL `LEFT()` function is PostgreSQL standard, should work correctly with UTF-8
 
 ---
 
@@ -351,23 +459,34 @@ async def list_bookmarks(
 |---------|-----|-----------|
 | `search_all_content` | `search_items` | Searches bookmark/note items, not the content field |
 | `get_content` | `get_item` | Gets a bookmark or note item |
+| `search_bookmarks` | (remove) | Consolidated into `search_items` with `type` parameter |
+| `search_notes` | (remove) | Consolidated into `search_items` with `type` parameter |
 | `edit_content` | (keep) | Actually edits the content field - accurate |
 | `search_in_content` | (keep) | Searches within item's text - accurate |
 
 ### Key Changes
 
 **Files to modify**:
-- `backend/src/mcp_server/server.py` - rename functions and update descriptions
+- `backend/src/mcp_server/server.py` - rename functions, remove redundant tools, update descriptions
 - `evals/content_mcp/*.yaml` - update tool names in eval configs
 
-**Pattern**:
+**`search_items` tool** (consolidates `search_all_content`, `search_bookmarks`, `search_notes`):
 ```python
 @mcp.tool(
-    description="Search across all bookmarks and notes. Returns item metadata without content.",
+    description=(
+        "Search across bookmarks and notes. By default searches both types. "
+        "Use `type` parameter to filter to a specific content type. "
+        "Returns metadata including content_length and content_preview (not full content)."
+    ),
     annotations={"readOnlyHint": True},
 )
-async def search_items(  # Renamed from search_all_content
-    # ... params unchanged ...
+async def search_items(
+    query: Annotated[str | None, Field(description="Search text")] = None,
+    type: Annotated[
+        Literal["bookmark", "note"] | None,
+        Field(description="Filter by type: 'bookmark' or 'note'. Omit to search both."),
+    ] = None,
+    # ... other params (tags, tag_match, sort_by, sort_order, limit, offset) ...
 ) -> dict[str, Any]:
 ```
 
@@ -412,7 +531,12 @@ async def search_items(  # Renamed from search_all_content
 - `backend/src/mcp_server/server.py` - update `get_item`
 - `backend/src/prompt_mcp_server/server.py` - update `get_prompt_template`, add `get_prompt_metadata`
 
-**Content MCP - `get_item` signature**:
+**Content MCP - `get_item` implementation**:
+
+The MCP tool has `include_content` parameter but calls different API endpoints:
+- `include_content=true` → calls `GET /{type}s/{id}` (full content endpoint)
+- `include_content=false` → calls `GET /{type}s/{id}/metadata` (metadata endpoint)
+
 ```python
 async def get_item(
     id: Annotated[str, Field(description="The item ID (UUID)")],
@@ -424,6 +548,19 @@ async def get_item(
     start_line: Annotated[int | None, Field(description="Start line for partial read (1-indexed). Only valid when include_content=true.")] = None,
     end_line: Annotated[int | None, Field(description="End line for partial read (1-indexed, inclusive). Only valid when include_content=true.")] = None,
 ) -> dict[str, Any]:
+    # Route to appropriate API endpoint based on include_content
+    if include_content:
+        endpoint = f"/{type}s/{id}"
+        params = {}
+        if start_line:
+            params["start_line"] = start_line
+        if end_line:
+            params["end_line"] = end_line
+    else:
+        endpoint = f"/{type}s/{id}/metadata"
+        params = {}  # start_line/end_line not valid for metadata endpoint
+
+    return await api_get(client, endpoint, token, params=params)
 ```
 
 **Prompt MCP - `get_prompt_template` signature** (NO `include_content` - always returns full template):
@@ -673,7 +810,9 @@ async def update_item_metadata(
 - Workflow examples show optimal patterns
 - Tool naming conventions explained
 - `update_item_metadata` vs `edit_content` distinction clear
+- `search_items` with `type` parameter documented (replaces `search_bookmarks`/`search_notes`)
 - Prompt MCP instructions explain `get_prompt_template` vs `get_prompt_metadata`
+- Prompt MCP instructions clarify `search_prompts` (tool) vs `list_prompts` (MCP capability)
 - CLAUDE.md updated if needed
 
 ### Key Changes
@@ -688,6 +827,12 @@ instructions="""
 
 - **Item tools** (`search_items`, `get_item`, `update_item_metadata`): Operate on bookmark/note entities
 - **Content tools** (`edit_content`, `search_in_content`): Operate on the content text field
+
+## Searching Items
+
+`search_items` searches across bookmarks and notes. By default searches both types.
+- Use `type="bookmark"` or `type="note"` to filter to a specific type
+- Results include `content_length` and `content_preview` (not full content)
 
 ## Getting Item Details
 
@@ -726,6 +871,16 @@ instructions="""
 
 ## Finding Prompts
 
+**`search_prompts` vs `list_prompts`:**
+- `list_prompts` is the MCP protocol capability for discovering prompts (returns MCP Prompt objects)
+- `search_prompts` is a tool for searching with filters and getting size info
+
+Use `search_prompts` when you need:
+- Tag or text filtering
+- Size assessment (`prompt_length`, `prompt_preview`)
+- Custom sorting
+
+Tools:
 - `search_prompts(query, tags, ...)`: Search and filter prompts. Returns metadata with `prompt_length` and `prompt_preview` (not full content).
 - `list_tags()`: Discover available tags for filtering or to check before creating/updating prompts.
 
