@@ -20,8 +20,9 @@ Current issues identified:
 1. Let agents get item info without loading full content
 2. Provide content size metrics (`content_length`, `content_preview`) so agents can make informed decisions
 3. Rename tools for clarity: entity operations vs content-field operations
-4. Add `update_item` tool to allow metadata updates via MCP
-5. Update instructions/descriptions to guide optimal tool usage
+4. Add `update_item_metadata` tool to Content MCP for metadata updates
+5. Add `get_prompt_metadata` tool to Prompt MCP for metadata-only fetches
+6. Update instructions/descriptions to guide optimal tool usage
 
 ---
 
@@ -56,9 +57,56 @@ When `include_content=false` is combined with `start_line`/`end_line`:
 
 Fixed at 500 characters. Not configurable (YAGNI - can add later if needed).
 
-### Prompts: Include `start_line`/`end_line`
+### Prompts: `get_prompt_template` vs `get_prompt_metadata`
 
-Add partial read support to prompts for API consistency with bookmarks/notes, and to give the LLM the option. While prompts are typically small, consistency makes the API predictable.
+Unlike bookmarks/notes where `get_item` has an `include_content` parameter, prompts use separate tools:
+- **`get_prompt_template`**: Always returns full template content (no `include_content` param). If calling this tool, you want the template.
+- **`get_prompt_metadata`**: Returns metadata only (name, title, description, arguments, tags, `prompt_length`). Use to check size before fetching.
+
+This is cleaner for prompts because the template IS the content - there's no use case for "get prompt without template."
+
+Add `start_line`/`end_line` to `get_prompt_template` for partial reads, consistent with bookmarks/notes.
+
+---
+
+## Final Tools Summary
+
+After all milestones are complete, here are the final tools for each MCP server:
+
+### Content MCP Server (bookmarks/notes)
+
+| Tool | Parameters |
+|------|------------|
+| `search_items` | `query`, `type`, `tags`, `tag_match`, `sort_by`, `sort_order`, `limit`, `offset` |
+| `get_item` | `id`, `type`, `include_content`*, `start_line`, `end_line` |
+| `edit_content` | `id`, `type`, `old_str`, `new_str` |
+| `search_in_content` | `id`, `type`, `query`, `fields`, `case_sensitive`, `context_lines` |
+| `update_item_metadata` | `id`, `type`, `title`, `description`, `tags`, `url`** |
+| `create_bookmark` | `url`, `title`, `description`, `content`, `tags` |
+| `create_note` | `title`, `description`, `content`, `tags` |
+| `list_tags` | (none) |
+
+\* `include_content` defaults to `true`; when `false`, returns `content_length` and `content_preview` instead of `content`
+\*\* `url` only applicable when `type="bookmark"`
+
+### Prompt MCP Server
+
+| Tool | Parameters |
+|------|------------|
+| `get_prompt_template` | `name`, `start_line`, `end_line` |
+| `edit_prompt_template` | `name`, `old_str`, `new_str`, `arguments` |
+| `get_prompt_metadata` | `name` |
+| `update_prompt_metadata` | `name`, `new_name`, `title`, `description`, `tags` |
+| `create_prompt` | `name`, `title`, `description`, `content`, `arguments`, `tags` |
+
+### Tool Naming Conventions
+
+| Suffix | Meaning | Examples |
+|--------|---------|----------|
+| `*_item` / `*_items` | Operates on bookmark/note entities | `get_item`, `search_items`, `update_item_metadata` |
+| `*_content` | Operates on the content text field | `edit_content`, `search_in_content` |
+| `*_template` | Operates on prompt template text | `get_prompt_template`, `edit_prompt_template` |
+| `*_metadata` | Operates on metadata fields only | `get_prompt_metadata`, `update_item_metadata`, `update_prompt_metadata` |
 
 ---
 
@@ -329,22 +377,29 @@ async def search_items(  # Renamed from search_all_content
 
 ## Milestone 5: MCP Tool Parameter Updates
 
-**Goal**: Add `include_content` parameter to MCP tools
+**Goal**: Add `include_content` parameter to Content MCP `get_item`, add `get_prompt_metadata` to Prompt MCP
 
 **Dependencies**: Milestones 2, 4
 
 **Success Criteria**:
+
+**Content MCP:**
 - `get_item` tool has `include_content` parameter (default: `true`)
-- `get_prompt_template` tool has `include_content` parameter (default: `true`)
 - Response includes `content_length` always (when content exists)
 - Response includes `content_preview` when `include_content=false`
 - Response includes `content` + `content_metadata` when `include_content=true`
+- Tool description guides LLM: "Use `include_content=false` to check content size before fetching large content."
+
+**Prompt MCP:**
+- `get_prompt_template` always returns full content (NO `include_content` param)
+- `get_prompt_template` supports `start_line`/`end_line` for partial reads
+- New `get_prompt_metadata` tool returns metadata only with `prompt_length`
 
 ### Key Changes
 
 **Files to modify**:
 - `backend/src/mcp_server/server.py` - update `get_item`
-- `backend/src/prompt_mcp_server/server.py` - update `get_prompt_template`
+- `backend/src/prompt_mcp_server/server.py` - update `get_prompt_template`, add `get_prompt_metadata`
 
 **Content MCP - `get_item` signature**:
 ```python
@@ -353,51 +408,84 @@ async def get_item(
     type: Annotated[Literal["bookmark", "note"], Field(description="Item type: 'bookmark' or 'note'")],
     include_content: Annotated[
         bool,
-        Field(description="If true (default), include full content. If false, returns content_length and content_preview for size assessment."),
+        Field(description="If true (default), include full content. If false, returns content_length and content_preview for size assessment before loading large content."),
     ] = True,
     start_line: Annotated[int | None, Field(description="Start line for partial read (1-indexed). Only valid when include_content=true.")] = None,
     end_line: Annotated[int | None, Field(description="End line for partial read (1-indexed, inclusive). Only valid when include_content=true.")] = None,
 ) -> dict[str, Any]:
 ```
 
-**Prompt MCP - `get_prompt_template` signature**:
+**Prompt MCP - `get_prompt_template` signature** (NO `include_content` - always returns full template):
 ```python
 async def get_prompt_template(
     name: Annotated[str, Field(description="The prompt name (lowercase with hyphens)")],
-    include_content: Annotated[
-        bool,
-        Field(description="If true (default), include full template content. If false, returns content_length and content_preview."),
-    ] = True,
-    start_line: Annotated[int | None, Field(description="Start line for partial read (1-indexed). Only valid when include_content=true.")] = None,
-    end_line: Annotated[int | None, Field(description="End line for partial read (1-indexed, inclusive). Only valid when include_content=true.")] = None,
+    start_line: Annotated[int | None, Field(description="Start line for partial read (1-indexed).")] = None,
+    end_line: Annotated[int | None, Field(description="End line for partial read (1-indexed, inclusive).")] = None,
 ) -> dict[str, Any]:
+    """Returns full template content. Use get_prompt_metadata if you only need metadata."""
 ```
 
-**Note**: `start_line`/`end_line` included for consistency with bookmarks/notes, even though prompts are typically small.
+**Prompt MCP - NEW `get_prompt_metadata` tool**:
+```python
+types.Tool(
+    name="get_prompt_metadata",
+    description=(
+        "Get a prompt's metadata without the template content. "
+        "Returns name, title, description, arguments, tags, and prompt_length. "
+        "Use this to check prompt size or arguments before fetching full template."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "The prompt name (e.g., 'code-review'). Get names from list_prompts.",
+            },
+        },
+        "required": ["name"],
+    },
+)
+```
+
+**`get_prompt_metadata` response shape**:
+```json
+{
+  "id": "uuid",
+  "name": "code-review",
+  "title": "Code Review Assistant",
+  "description": "Reviews code for issues",
+  "arguments": [{"name": "code", "description": "Code to review", "required": true}],
+  "tags": ["dev", "review"],
+  "prompt_length": 1523
+}
+```
 
 ### Testing Strategy
 
-- Add eval test cases for `include_content=false` behavior
+- Add eval test cases for Content MCP `include_content=false` behavior
 - Test that `content_length` and `content_preview` are returned correctly
 - Test mutual exclusivity: preview XOR content
+- Add tests for `get_prompt_metadata` returning correct fields
+- Add tests for `get_prompt_template` with `start_line`/`end_line`
 
 ### Risk Factors
 
 - Need to ensure API defaults (true for individual items) align with MCP defaults (true)
+- `get_prompt_metadata` requires new API endpoint or using existing endpoint with `include_content=false`
 
 ---
 
-## Milestone 6: Add `update_item` Tool to Content MCP
+## Milestone 6: Add `update_item_metadata` Tool to Content MCP
 
-**Goal**: Allow agents to update item metadata (title, description, tags) via MCP
+**Goal**: Allow agents to update item metadata (title, description, tags, url) via MCP
 
 **Dependencies**: None (can be done in parallel)
 
 **Success Criteria**:
-- `update_item` tool added to content MCP server
-- Can update title, description, and/or tags
+- `update_item_metadata` tool added to content MCP server
+- Can update title, description, tags, and/or url (bookmarks only)
 - All parameters optional (only update what's provided)
-- Returns updated item
+- Returns updated item metadata
 
 ### Key Changes
 
@@ -407,24 +495,30 @@ async def get_prompt_template(
 **Tool signature**:
 ```python
 @mcp.tool(
-    description="Update a bookmark or note's metadata (title, description, tags). Does NOT edit content - use edit_content for that.",
+    description=(
+        "Update a bookmark or note's metadata (title, description, tags). "
+        "For bookmarks, can also update url. "
+        "Does NOT edit content - use edit_content for that."
+    ),
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
-async def update_item(
+async def update_item_metadata(
     id: Annotated[str, Field(description="The item ID (UUID)")],
     type: Annotated[Literal["bookmark", "note"], Field(description="Item type: 'bookmark' or 'note'")],
     title: Annotated[str | None, Field(description="New title. Omit to leave unchanged.")] = None,
     description: Annotated[str | None, Field(description="New description. Omit to leave unchanged.")] = None,
     tags: Annotated[list[str] | None, Field(description="New tags (replaces all existing tags). Omit to leave unchanged.")] = None,
+    url: Annotated[str | None, Field(description="New URL (bookmarks only). Omit to leave unchanged.")] = None,
 ) -> dict[str, Any]:
     """
     Update item metadata.
 
-    At least one of title, description, or tags must be provided.
+    At least one field must be provided.
     Tags are replaced entirely (not merged) - provide the complete tag list.
+    The `url` parameter only applies to bookmarks and is ignored for notes.
     """
-    if title is None and description is None and tags is None:
-        raise ToolError("At least one of title, description, or tags must be provided")
+    if title is None and description is None and tags is None and url is None:
+        raise ToolError("At least one of title, description, tags, or url must be provided")
 
     # Call appropriate API endpoint
     endpoint = f"/{type}s/{id}"
@@ -435,26 +529,33 @@ async def update_item(
         payload["description"] = description
     if tags is not None:
         payload["tags"] = tags
+    if url is not None and type == "bookmark":
+        payload["url"] = url
 
     # PATCH to update
     return await api_patch(client, endpoint, token, payload)
 ```
 
-**Update server instructions** to document the new tool and when to use it vs `edit_content`.
+**Update server instructions** to document the new tool and clarify when to use it vs `edit_content`:
+- `update_item_metadata`: Change title, description, tags, or url
+- `edit_content`: Change the content text field using string replacement
 
 ### Testing Strategy
 
-- `test__update_item__updates_title`
-- `test__update_item__updates_description`
-- `test__update_item__updates_tags`
-- `test__update_item__updates_multiple_fields`
-- `test__update_item__no_fields_provided__returns_error`
-- `test__update_item__not_found__returns_error`
+- `test__update_item_metadata__updates_title`
+- `test__update_item_metadata__updates_description`
+- `test__update_item_metadata__updates_tags`
+- `test__update_item_metadata__updates_url_bookmark`
+- `test__update_item_metadata__url_ignored_for_note`
+- `test__update_item_metadata__updates_multiple_fields`
+- `test__update_item_metadata__no_fields_provided__returns_error`
+- `test__update_item_metadata__not_found__returns_error`
 
 ### Risk Factors
 
 - Need to handle validation errors from API (e.g., empty title for notes)
 - Tags replacement vs merge semantic needs to be clearly documented
+- URL validation for bookmarks
 
 ---
 
@@ -467,13 +568,14 @@ async def update_item(
 **Success Criteria**:
 - Server instructions explain `include_content` parameter and when to use it
 - Workflow examples show optimal patterns
-- Tool naming explained
-- `update_item` vs `edit_content` distinction clear
+- Tool naming conventions explained
+- `update_item_metadata` vs `edit_content` distinction clear
+- Prompt MCP instructions explain `get_prompt_template` vs `get_prompt_metadata`
 - CLAUDE.md updated if needed
 
 ### Key Changes
 
-**Update server instructions in `mcp_server/server.py`**:
+**Update Content MCP server instructions in `mcp_server/server.py`**:
 
 ```python
 instructions="""
@@ -481,7 +583,7 @@ instructions="""
 
 ## Tool Naming Convention
 
-- **Item tools** (`search_items`, `get_item`, `update_item`): Operate on bookmark/note entities
+- **Item tools** (`search_items`, `get_item`, `update_item_metadata`): Operate on bookmark/note entities
 - **Content tools** (`edit_content`, `search_in_content`): Operate on the content text field
 
 ## Getting Item Details
@@ -500,8 +602,33 @@ Use `include_content=false` to get metadata only:
 
 ## Updating Metadata vs Content
 
-- **`update_item`**: Change title, description, or tags
+- **`update_item_metadata`**: Change title, description, tags, or url (bookmarks)
 - **`edit_content`**: Change the content text field using string replacement
+
+...
+"""
+```
+
+**Update Prompt MCP server instructions in `prompt_mcp_server/server.py`**:
+
+```python
+instructions="""
+...
+
+## Tool Naming Convention
+
+- **Template tools** (`get_prompt_template`, `edit_prompt_template`): Operate on prompt template content
+- **Metadata tools** (`get_prompt_metadata`, `update_prompt_metadata`): Operate on metadata fields
+
+## Getting Prompt Details
+
+- `get_prompt_template(name)`: Returns full template content. Use when you need to view or edit the template.
+- `get_prompt_metadata(name)`: Returns metadata only (name, title, description, arguments, tags, prompt_length). Use to check size or arguments before fetching template.
+
+## Updating Metadata vs Template
+
+- **`update_prompt_metadata`**: Change title, description, tags, or rename the prompt
+- **`edit_prompt_template`**: Change the template text using string replacement (optionally update arguments atomically)
 
 ...
 """
@@ -530,9 +657,9 @@ Milestone 3 (API Lists) ──────────────────�
                                                                    │  │
 Milestone 4 (MCP Renaming) ────────────────────────────────────────┤  │
                                                                    │  │
-Milestone 5 (MCP Params) ──────────────────────────────────────────┘  │
+Milestone 5 (MCP Params + get_prompt_metadata) ────────────────────┘  │
                                                                       │
-Milestone 6 (update_item Tool) ───────────────────────────────────────┘
+Milestone 6 (update_item_metadata Tool) ──────────────────────────────┘
 ```
 
 **Suggested order**:
@@ -540,6 +667,6 @@ Milestone 6 (update_item Tool) ────────────────�
 2. Milestone 4 (MCP Renaming) - can be done early, no API deps
 3. Milestone 2 (API Individual) - depends on M1
 4. Milestone 3 (API Lists) - depends on M1
-5. Milestone 6 (update_item Tool) - independent, can be done anytime
-6. Milestone 5 (MCP Params) - depends on M2 and M4
+5. Milestone 6 (update_item_metadata Tool) - independent, can be done anytime
+6. Milestone 5 (MCP Params + get_prompt_metadata) - depends on M2 and M4
 7. Milestone 7 (Docs) - final, after all other changes
