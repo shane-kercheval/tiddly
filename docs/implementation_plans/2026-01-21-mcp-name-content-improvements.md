@@ -93,11 +93,18 @@ After all milestones are complete, here are the final tools for each MCP server:
 
 | Tool | Parameters |
 |------|------------|
+| `search_prompts` | `query`, `tags`, `tag_match`, `sort_by`, `sort_order`, `limit`, `offset` |
 | `get_prompt_template` | `name`, `start_line`, `end_line` |
 | `edit_prompt_template` | `name`, `old_str`, `new_str`, `arguments` |
 | `get_prompt_metadata` | `name` |
 | `update_prompt_metadata` | `name`, `new_name`, `title`, `description`, `tags` |
 | `create_prompt` | `name`, `title`, `description`, `content`, `arguments`, `tags` |
+| `list_tags` | (none) |
+
+**Notes:**
+- `search_prompts` results include `prompt_length` and `prompt_preview` (no full content)
+- `get_prompt_metadata` returns `prompt_length` and `prompt_preview`
+- `get_prompt_template` returns full content (no preview)
 
 ### Tool Naming Conventions
 
@@ -105,8 +112,10 @@ After all milestones are complete, here are the final tools for each MCP server:
 |--------|---------|----------|
 | `*_item` / `*_items` | Operates on bookmark/note entities | `get_item`, `search_items`, `update_item_metadata` |
 | `*_content` | Operates on the content text field | `edit_content`, `search_in_content` |
+| `*_prompt` / `*_prompts` | Operates on prompt entities | `search_prompts`, `create_prompt` |
 | `*_template` | Operates on prompt template text | `get_prompt_template`, `edit_prompt_template` |
 | `*_metadata` | Operates on metadata fields only | `get_prompt_metadata`, `update_item_metadata`, `update_prompt_metadata` |
+| `list_tags` | Lists all tags (both servers) | `list_tags` |
 
 ---
 
@@ -393,7 +402,9 @@ async def search_items(  # Renamed from search_all_content
 **Prompt MCP:**
 - `get_prompt_template` always returns full content (NO `include_content` param)
 - `get_prompt_template` supports `start_line`/`end_line` for partial reads
-- New `get_prompt_metadata` tool returns metadata only with `prompt_length`
+- New `get_prompt_metadata` tool returns metadata with `prompt_length` and `prompt_preview`
+- New `search_prompts` tool for searching/listing prompts with filtering and sorting
+- New `list_tags` tool for discovering available tags
 
 ### Key Changes
 
@@ -456,22 +467,114 @@ types.Tool(
   "description": "Reviews code for issues",
   "arguments": [{"name": "code", "description": "Code to review", "required": true}],
   "tags": ["dev", "review"],
-  "prompt_length": 1523
+  "prompt_length": 1523,
+  "prompt_preview": "You are a code reviewer. Please review the following {{ language }} code..."
 }
+```
+
+**Prompt MCP - NEW `search_prompts` tool**:
+```python
+types.Tool(
+    name="search_prompts",
+    description=(
+        "Search and list prompts with optional filtering by tags and text query. "
+        "Returns prompt metadata including prompt_length and prompt_preview (not full content). "
+        "Use get_prompt_template to fetch the full template content."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search text (matches name, title, description). Optional.",
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Filter by tags. Optional.",
+            },
+            "tag_match": {
+                "type": "string",
+                "enum": ["all", "any"],
+                "description": "Tag matching: 'all' (AND) or 'any' (OR). Default: 'all'.",
+            },
+            "sort_by": {
+                "type": "string",
+                "enum": ["created_at", "updated_at", "last_used_at", "name"],
+                "description": "Sort field. Default: 'created_at'.",
+            },
+            "sort_order": {
+                "type": "string",
+                "enum": ["asc", "desc"],
+                "description": "Sort order. Default: 'desc'.",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max results (1-100). Default: 50.",
+            },
+            "offset": {
+                "type": "integer",
+                "description": "Pagination offset. Default: 0.",
+            },
+        },
+        "required": [],
+    },
+)
+```
+
+**`search_prompts` response shape** (each item):
+```json
+{
+  "id": "uuid",
+  "name": "code-review",
+  "title": "Code Review Assistant",
+  "description": "Reviews code for issues",
+  "arguments": [...],
+  "tags": ["dev", "review"],
+  "prompt_length": 1523,
+  "prompt_preview": "You are a code reviewer..."
+}
+```
+
+**Prompt MCP - NEW `list_tags` tool**:
+```python
+types.Tool(
+    name="list_tags",
+    description=(
+        "List all tags used across prompts. "
+        "Use this to discover available tags for filtering with search_prompts, "
+        "or to check existing tags before creating/updating prompts."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+)
 ```
 
 ### Testing Strategy
 
-- Add eval test cases for Content MCP `include_content=false` behavior
+**Content MCP:**
+- Add eval test cases for `include_content=false` behavior
 - Test that `content_length` and `content_preview` are returned correctly
 - Test mutual exclusivity: preview XOR content
-- Add tests for `get_prompt_metadata` returning correct fields
-- Add tests for `get_prompt_template` with `start_line`/`end_line`
+
+**Prompt MCP:**
+- `test__get_prompt_metadata__returns_length_and_preview`
+- `test__get_prompt_metadata__prompt_not_found__returns_error`
+- `test__get_prompt_template__with_start_end_line__returns_partial`
+- `test__search_prompts__no_params__returns_all`
+- `test__search_prompts__with_query__filters_results`
+- `test__search_prompts__with_tags__filters_results`
+- `test__search_prompts__results_include_length_and_preview`
+- `test__list_tags__returns_all_tags`
 
 ### Risk Factors
 
 - Need to ensure API defaults (true for individual items) align with MCP defaults (true)
-- `get_prompt_metadata` requires new API endpoint or using existing endpoint with `include_content=false`
+- `get_prompt_metadata` requires API endpoint with `include_content=false`
+- `search_prompts` needs API to return `prompt_length` and `prompt_preview` (covered by Milestone 3)
 
 ---
 
@@ -617,13 +720,19 @@ instructions="""
 
 ## Tool Naming Convention
 
+- **Prompt tools** (`search_prompts`, `create_prompt`): Operate on prompt entities
 - **Template tools** (`get_prompt_template`, `edit_prompt_template`): Operate on prompt template content
 - **Metadata tools** (`get_prompt_metadata`, `update_prompt_metadata`): Operate on metadata fields
+
+## Finding Prompts
+
+- `search_prompts(query, tags, ...)`: Search and filter prompts. Returns metadata with `prompt_length` and `prompt_preview` (not full content).
+- `list_tags()`: Discover available tags for filtering or to check before creating/updating prompts.
 
 ## Getting Prompt Details
 
 - `get_prompt_template(name)`: Returns full template content. Use when you need to view or edit the template.
-- `get_prompt_metadata(name)`: Returns metadata only (name, title, description, arguments, tags, prompt_length). Use to check size or arguments before fetching template.
+- `get_prompt_metadata(name)`: Returns metadata only (name, title, description, arguments, tags, prompt_length, prompt_preview). Use to check size or arguments before fetching template.
 
 ## Updating Metadata vs Template
 
@@ -657,7 +766,7 @@ Milestone 3 (API Lists) ──────────────────�
                                                                    │  │
 Milestone 4 (MCP Renaming) ────────────────────────────────────────┤  │
                                                                    │  │
-Milestone 5 (MCP Params + get_prompt_metadata) ────────────────────┘  │
+Milestone 5 (MCP Params + Prompt MCP Tools) ───────────────────────┘  │
                                                                       │
 Milestone 6 (update_item_metadata Tool) ──────────────────────────────┘
 ```
@@ -668,5 +777,7 @@ Milestone 6 (update_item_metadata Tool) ─────────────�
 3. Milestone 2 (API Individual) - depends on M1
 4. Milestone 3 (API Lists) - depends on M1
 5. Milestone 6 (update_item_metadata Tool) - independent, can be done anytime
-6. Milestone 5 (MCP Params + get_prompt_metadata) - depends on M2 and M4
+6. Milestone 5 (MCP Params + Prompt MCP Tools) - depends on M2, M3, and M4
 7. Milestone 7 (Docs) - final, after all other changes
+
+**Note**: Milestone 5 now includes Content MCP `get_item` updates AND Prompt MCP additions (`get_prompt_metadata`, `search_prompts`, `list_tags`). It depends on M3 because `search_prompts` needs the API to return `prompt_length`/`prompt_preview`.
