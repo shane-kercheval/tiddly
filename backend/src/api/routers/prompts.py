@@ -289,8 +289,6 @@ async def get_prompt_metadata_by_name(
     name: str,
     request: Request,
     response: FastAPIResponse,
-    start_line: int | None = Query(default=None, description="Not valid for metadata endpoint"),
-    end_line: int | None = Query(default=None, description="Not valid for metadata endpoint"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptListItem:
@@ -303,8 +301,7 @@ async def get_prompt_metadata_by_name(
     Returns only active prompts (excludes deleted and archived).
     This endpoint is primarily used by the MCP server for prompt metadata lookups.
     """
-    # start_line/end_line are only valid on full content endpoints
-    if start_line is not None or end_line is not None:
+    if "start_line" in request.query_params or "end_line" in request.query_params:
         raise HTTPException(
             status_code=400,
             detail="start_line/end_line parameters are not valid on metadata endpoints. "
@@ -461,8 +458,6 @@ async def get_prompt_metadata(
     prompt_id: UUID,
     request: Request,
     response: FastAPIResponse,
-    start_line: int | None = Query(default=None, description="Not valid for metadata endpoint"),
-    end_line: int | None = Query(default=None, description="Not valid for metadata endpoint"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptListItem:
@@ -477,8 +472,7 @@ async def get_prompt_metadata(
     - Getting quick context via the preview without full content transfer
     - Lightweight status checks
     """
-    # start_line/end_line are only valid on full content endpoints
-    if start_line is not None or end_line is not None:
+    if "start_line" in request.query_params or "end_line" in request.query_params:
         raise HTTPException(
             status_code=400,
             detail="start_line/end_line parameters are not valid on metadata endpoints. "

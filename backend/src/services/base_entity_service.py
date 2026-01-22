@@ -227,11 +227,6 @@ class BaseEntityService(ABC, Generic[T]):
         entity, content_length, content_preview = row
         entity.content_length = content_length
         entity.content_preview = content_preview
-        # Set content to None to prevent lazy load if code accidentally accesses it.
-        # The defer() above excludes content from the SELECT, but without this line,
-        # accessing entity.content would trigger a lazy load query.
-        entity.content = None
-
         return entity
 
     async def search(
@@ -332,16 +327,11 @@ class BaseEntityService(ABC, Generic[T]):
         result = await db.execute(base_query)
         rows = result.all()
 
-        # Attach computed values to each entity
         entities = []
         for row in rows:
             entity = row[0]  # First element is the model instance
             entity.content_length = row[1]  # content_length
             entity.content_preview = row[2]  # content_preview
-            # Set content to None to prevent lazy load if code accidentally accesses it.
-            # The defer() above excludes content from the SELECT, but without this line,
-            # accessing entity.content would trigger a lazy load query.
-            entity.content = None
             entities.append(entity)
 
         return entities, total

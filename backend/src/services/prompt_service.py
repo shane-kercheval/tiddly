@@ -382,11 +382,6 @@ class PromptService(BaseEntityService[Prompt]):
         prompt, content_length, content_preview = row
         prompt.content_length = content_length
         prompt.content_preview = content_preview
-        # Set content to None to prevent lazy load if code accidentally accesses it.
-        # The defer() above excludes content from the SELECT, but without this line,
-        # accessing prompt.content would trigger a lazy load query.
-        prompt.content = None
-
         return prompt
 
 
