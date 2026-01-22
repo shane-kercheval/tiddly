@@ -32,54 +32,63 @@ tiddly, tiddly.me, or their prompts/templates, they're referring to this system.
 This MCP server is a prompt template manager for creating, editing, and using reusable AI prompts.
 Prompts are Jinja2 templates with defined arguments that can be rendered with user-provided values.
 
-**Available Tools:**
+Available capabilities:
+
+**Prompts (MCP prompts capability):**
+- `list_prompts`: List all saved prompt templates with their arguments
+- `get_prompt`: Render a prompt template by name with provided arguments
+
+**Tools:**
+- `search_prompts`: Search prompts with filters. Returns content_length and content_preview.
+- `list_tags`: Get all tags with usage counts
 - `get_prompt_template`: Get raw template content and arguments for viewing/editing
-- `create_prompt`: Create a new prompt template
+- `create_prompt`: Create a new prompt template with Jinja2 content
 - `edit_prompt_template`: Edit template content using string replacement
 - `update_prompt_metadata`: Update title, description, tags, or rename a prompt
 
 Note: There is no delete tool. Prompts can only be deleted via the web UI.
 
-**Example Workflows:**
+Example workflows:
 
-1. "Create a prompt for summarizing articles"
-   - Call `create_prompt` with name, content, and arguments
-   - Returns success with the created prompt's name and ID
-   - Error: 409 if name already exists
+1. "What prompts do I have?"
+   - Use `list_prompts` to see all available templates
 
-2. "Fix a typo in my code-review prompt"
-   - Call `get_prompt_template(name="code-review")` to see raw content
+2. "Use my code-review prompt for this Python file"
+   - Call `get_prompt(name="code-review", arguments={"code": "<file contents>"})`
+   - The rendered template is returned as user message content
+
+3. "Create a prompt for summarizing articles"
+   - Call `create_prompt` tool with:
+     - name: "summarize-article"
+     - content: "Summarize the following article:\\n\\n{{ article_text }}\\n\\nProvide..."
+     - arguments: [{"name": "article_text", "description": "To summarize", "required": true}]
+
+4. "Fix a typo in my code-review prompt"
+   - Call `get_prompt_template(name="code-review")` to see current content
    - Call `edit_prompt_template(name="code-review", old_str="teh code", new_str="the code")`
-   - NOTE: No `arguments` needed for typo fixes - existing arguments preserved automatically
-   - Error: 400 with "no_match" if old_str not found
-   - Error: 400 with "multiple_matches" (includes locations) if old_str found multiple times
 
-3. "Add a new variable to my prompt"
-   - Call `get_prompt_template(name="my-prompt")` to see current content and arguments
-   - Call `edit_prompt_template` with BOTH the content change AND updated arguments list:
-     - name: "my-prompt"
+5. "Add a new variable to my prompt"
+   - When adding {{ new_var }} to the template, you must also add its argument definition
+   - Call `edit_prompt_template` with BOTH the content change AND the updated arguments list:
      - old_str: "Review this code:"
      - new_str: "Review this {{ language }} code:"
-     - arguments: [existing args + {"name": "language", "description": "Programming language"}]
-   - The arguments list REPLACES all existing arguments
+     - arguments: [...existing args..., {"name": "language", "description": "Lang"}]
+   - The arguments list REPLACES all existing arguments, so include the ones you want to keep
 
-4. "Rename my prompt"
-   - Call `update_prompt_metadata(name="old-name", new_name="new-name")`
-   - Error: 409 if new name already exists
+6. "Remove a variable from my prompt"
+   - Similarly, remove from both content and arguments in one call
+   - Omit the removed argument from the arguments list
 
-5. "Update prompt tags"
-   - Call `update_prompt_metadata(name="my-prompt", tags=["new-tag-1", "new-tag-2"])`
-   - Tags list replaces all existing tags
+7. "Search for prompts about code review"
+   - Call `search_prompts(query="code review")` to find matching prompts
+   - Response includes content_length and content_preview for each result
 
-**Naming Conventions:**
-- Prompt names: lowercase with hyphens (e.g., `code-review`, `meeting-notes`)
-- Argument names: lowercase with underscores (e.g., `code_to_review`, `article_text`)
-- Template syntax: Jinja2 with {{ variable_name }} placeholders
+8. "What tags do I have?"
+   - Call `list_tags()` to see all tags with usage counts
 
-**Important Notes:**
-- All tools use prompt `name` (not ID) for identification
-- Archived prompts cannot be edited via MCP. Restore them via the web UI first.
-- Template validation runs after edits - invalid templates are rejected with error details
+Prompt naming: lowercase with hyphens (e.g., `code-review`, `meeting-notes`).
+Argument naming: lowercase with underscores (e.g., `code_to_review`, `article_text`).
+Template syntax: Jinja2 with {{ variable_name }} placeholders.
 """.strip(),
 )
 
@@ -397,8 +406,71 @@ async def _track_usage(
 
 @server.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
-    """List available tools (get_prompt_template, create_prompt, update_prompt)."""
+    """List available tools."""
     return [
+        types.Tool(
+            name="search_prompts",
+            description=(
+                "Search prompts with filters. Returns metadata including content_length "
+                "and content_preview (first 500 chars) for size assessment before fetching "
+                "full content. Use this for discovery before get_prompt_template."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Text to search in name, title, description, and content. "
+                            "Omit to list all prompts."
+                        ),
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by tags (lowercase with hyphens)",
+                    },
+                    "tag_match": {
+                        "type": "string",
+                        "enum": ["all", "any"],
+                        "description": (
+                            "'all' requires ALL tags (default), 'any' requires ANY tag"
+                        ),
+                    },
+                    "sort_by": {
+                        "type": "string",
+                        "enum": ["created_at", "updated_at", "last_used_at", "title"],
+                        "description": "Field to sort by (default: created_at)",
+                    },
+                    "sort_order": {
+                        "type": "string",
+                        "enum": ["asc", "desc"],
+                        "description": "Sort direction (default: desc)",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "description": "Maximum results to return (default: 50)",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Number of results to skip for pagination",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="list_tags",
+            description="List all tags with their usage counts across prompts.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
         types.Tool(
             name="get_prompt_template",
             description=(
@@ -415,6 +487,39 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": (
                             "The prompt name (e.g., 'code-review'). "
                             "Get names from list_prompts."
+                        ),
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Start line for partial read (1-indexed). Optional.",
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": (
+                            "End line for partial read (1-indexed, inclusive). Optional."
+                        ),
+                    },
+                },
+                "required": ["name"],
+            },
+        ),
+        types.Tool(
+            name="get_prompt_metadata",
+            description=(
+                "Get a prompt's metadata without the template content. "
+                "Returns name, title, description, arguments, tags, content_length, "
+                "and content_preview. Use to check size or arguments before fetching template."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "The prompt name (e.g., 'code-review'). "
+                            "Get names from list_prompts or search_prompts."
                         ),
                     },
                 },
@@ -615,21 +720,108 @@ async def handle_call_tool(
     name: str,
     arguments: dict[str, Any] | None,
 ) -> list[types.TextContent] | types.CallToolResult:
-    """Handle tool calls (get_prompt_template, create_prompt, edit_prompt_template, update_prompt_metadata)."""  # noqa: E501
-    if name == "get_prompt_template":
-        return await _handle_get_prompt_template(arguments or {})
-    if name == "create_prompt":
-        return await _handle_create_prompt(arguments or {})
-    if name == "edit_prompt_template":
-        return await _handle_edit_prompt_template(arguments or {})
-    if name == "update_prompt_metadata":
-        return await _handle_update_prompt_metadata(arguments or {})
-    raise McpError(
-        types.ErrorData(
-            code=types.INVALID_PARAMS,
-            message=f"Unknown tool: {name}",
+    """Handle tool calls."""
+    # Dispatch table for tool handlers
+    handlers = {
+        "search_prompts": lambda args: _handle_search_prompts(args),
+        "list_tags": lambda _: _handle_list_tags(),
+        "get_prompt_template": lambda args: _handle_get_prompt_template(args),
+        "get_prompt_metadata": lambda args: _handle_get_prompt_metadata(args),
+        "create_prompt": lambda args: _handle_create_prompt(args),
+        "edit_prompt_template": lambda args: _handle_edit_prompt_template(args),
+        "update_prompt_metadata": lambda args: _handle_update_prompt_metadata(args),
+    }
+
+    handler = handlers.get(name)
+    if handler is None:
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message=f"Unknown tool: {name}",
+            ),
+        )
+
+    return await handler(arguments or {})
+
+
+async def _handle_search_prompts(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    """
+    Handle search_prompts tool call.
+
+    Searches prompts with filters and returns metadata including
+    content_length and content_preview for size assessment.
+    """
+    client = get_http_client()
+    token = _get_token()
+
+    # Build query params
+    params: dict[str, Any] = {}
+    if "query" in arguments:
+        params["q"] = arguments["query"]
+    if "tags" in arguments:
+        params["tags"] = arguments["tags"]
+    if "tag_match" in arguments:
+        params["tag_match"] = arguments["tag_match"]
+    if "sort_by" in arguments:
+        params["sort_by"] = arguments["sort_by"]
+    if "sort_order" in arguments:
+        params["sort_order"] = arguments["sort_order"]
+    if "limit" in arguments:
+        params["limit"] = arguments["limit"]
+    if "offset" in arguments:
+        params["offset"] = arguments["offset"]
+
+    try:
+        result = await api_get(client, "/prompts/", token, params if params else None)
+    except httpx.HTTPStatusError as e:
+        _handle_api_error(e, "searching prompts")
+        raise
+    except httpx.RequestError as e:
+        raise McpError(
+            types.ErrorData(
+                code=types.INTERNAL_ERROR,
+                message=f"API unavailable: {e}",
+            ),
+        ) from e
+
+    return [
+        types.TextContent(
+            type="text",
+            text=json.dumps(result, indent=2, default=str),
         ),
-    )
+    ]
+
+
+async def _handle_list_tags() -> list[types.TextContent]:
+    """
+    Handle list_tags tool call.
+
+    Returns all tags with usage counts for prompts.
+    """
+    client = get_http_client()
+    token = _get_token()
+
+    try:
+        result = await api_get(client, "/tags/", token)
+    except httpx.HTTPStatusError as e:
+        _handle_api_error(e, "listing tags")
+        raise
+    except httpx.RequestError as e:
+        raise McpError(
+            types.ErrorData(
+                code=types.INTERNAL_ERROR,
+                message=f"API unavailable: {e}",
+            ),
+        ) from e
+
+    return [
+        types.TextContent(
+            type="text",
+            text=json.dumps(result, indent=2),
+        ),
+    ]
 
 
 async def _handle_get_prompt_template(
@@ -640,6 +832,7 @@ async def _handle_get_prompt_template(
 
     Fetches a prompt by name and returns the raw template content and metadata as JSON.
     This allows agents to inspect the template before editing.
+    Supports optional start_line/end_line for partial reads.
     """
     # Validate required parameter
     prompt_name = arguments.get("name", "")
@@ -654,8 +847,20 @@ async def _handle_get_prompt_template(
     client = get_http_client()
     token = _get_token()
 
+    # Build query params for partial read
+    params: dict[str, Any] = {}
+    if "start_line" in arguments:
+        params["start_line"] = arguments["start_line"]
+    if "end_line" in arguments:
+        params["end_line"] = arguments["end_line"]
+
     try:
-        prompt = await api_get(client, f"/prompts/name/{prompt_name}", token)
+        prompt = await api_get(
+            client,
+            f"/prompts/name/{prompt_name}",
+            token,
+            params if params else None,
+        )
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             raise McpError(
@@ -683,6 +888,72 @@ async def _handle_get_prompt_template(
         "content": prompt.get("content"),
         "arguments": prompt.get("arguments", []),
         "tags": prompt.get("tags", []),
+    }
+
+    # Include content_metadata if present (for partial reads)
+    if prompt.get("content_metadata"):
+        response_data["content_metadata"] = prompt["content_metadata"]
+
+    return [
+        types.TextContent(
+            type="text",
+            text=json.dumps(response_data, indent=2),
+        ),
+    ]
+
+
+async def _handle_get_prompt_metadata(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    """
+    Handle get_prompt_metadata tool call.
+
+    Fetches a prompt's metadata by name without the full content.
+    Returns content_length and content_preview for size assessment.
+    """
+    # Validate required parameter
+    prompt_name = arguments.get("name", "")
+    if not prompt_name:
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message="Missing required parameter: name",
+            ),
+        )
+
+    client = get_http_client()
+    token = _get_token()
+
+    try:
+        prompt = await api_get(client, f"/prompts/name/{prompt_name}/metadata", token)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise McpError(
+                types.ErrorData(
+                    code=types.INVALID_PARAMS,
+                    message=f"Prompt '{prompt_name}' not found",
+                ),
+            ) from e
+        _handle_api_error(e, f"fetching metadata for prompt '{prompt_name}'")
+        raise
+    except httpx.RequestError as e:
+        raise McpError(
+            types.ErrorData(
+                code=types.INTERNAL_ERROR,
+                message=f"API unavailable: {e}",
+            ),
+        ) from e
+
+    # Return metadata as JSON
+    response_data = {
+        "id": prompt.get("id"),
+        "name": prompt.get("name"),
+        "title": prompt.get("title"),
+        "description": prompt.get("description"),
+        "arguments": prompt.get("arguments", []),
+        "tags": prompt.get("tags", []),
+        "content_length": prompt.get("content_length"),
+        "content_preview": prompt.get("content_preview"),
     }
 
     return [

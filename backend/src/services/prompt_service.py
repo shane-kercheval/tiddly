@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 from models.prompt import Prompt
 from models.tag import prompt_tags
 from schemas.prompt import PromptCreate, PromptUpdate
-from services.base_entity_service import BaseEntityService
+from services.base_entity_service import CONTENT_PREVIEW_LENGTH, BaseEntityService
 from services.tag_service import get_or_create_tags, update_prompt_tags
 
 logger = logging.getLogger(__name__)
@@ -322,6 +322,56 @@ class PromptService(BaseEntityService[Prompt]):
             ),
         )
         return result.scalar_one_or_none()
+
+    async def get_metadata_by_name(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        name: str,
+    ) -> Prompt | None:
+        """
+        Get prompt metadata by name without loading full content.
+
+        Returns only active prompts (excludes deleted AND archived).
+        This is used by the MCP server for lightweight prompt lookups.
+
+        Returns content_length and content_preview (computed in SQL).
+        The content field is set to None to prevent accidental loading.
+
+        Args:
+            db: Database session.
+            user_id: User ID to scope the prompt.
+            name: Name of the prompt to find.
+
+        Returns:
+            The prompt with metadata fields populated, or None if not found.
+        """
+        result = await db.execute(
+            select(
+                Prompt,
+                func.length(Prompt.content).label("content_length"),
+                func.left(Prompt.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
+            )
+            .options(selectinload(Prompt.tag_objects))
+            .where(
+                Prompt.user_id == user_id,
+                Prompt.name == name,
+                Prompt.deleted_at.is_(None),
+                ~Prompt.is_archived,
+            ),
+        )
+        row = result.first()
+
+        if row is None:
+            return None
+
+        prompt, content_length, content_preview = row
+        prompt.content_length = content_length
+        prompt.content_preview = content_preview
+        # Clear content to ensure we don't accidentally return it
+        prompt.content = None
+
+        return prompt
 
 
 # Module-level service instance

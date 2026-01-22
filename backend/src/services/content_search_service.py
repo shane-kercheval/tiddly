@@ -143,7 +143,7 @@ def get_match_context(
     Get context lines around a specific line in content.
 
     Note: This function is not yet used but is intended for the str_replace
-    endpoint (Milestone 3) to provide context in multiple_matches error responses,
+    endpoint to provide context in multiple_matches error responses,
     helping users identify which match to target.
 
     Used for error responses (e.g., multiple_matches error) to provide

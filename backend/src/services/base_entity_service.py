@@ -12,12 +12,16 @@ from uuid import UUID
 from sqlalchemy import Column, ColumnElement, Table, exists, func, select
 from sqlalchemy.sql import Select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
 from models.tag import Tag
 from schemas.validators import validate_and_normalize_tags
 from services.exceptions import InvalidStateError
 from services.utils import build_tag_filter_from_expression, escape_ilike
+
+
+# Preview length for content_preview field (characters)
+CONTENT_PREVIEW_LENGTH = 500
 
 
 class TaggableEntity(Protocol):
@@ -153,7 +157,72 @@ class BaseEntityService(ABC, Generic[T]):
             query = query.where(~self.model.is_archived)
 
         result = await db.execute(query)
-        return result.scalar_one_or_none()
+        entity = result.scalar_one_or_none()
+
+        if entity is not None:
+            # Compute content_length in Python from loaded content
+            # This ensures consistency with get_metadata which uses SQL
+            content = getattr(entity, "content", None)
+            entity.content_length = len(content) if content else None
+
+        return entity
+
+    async def get_metadata(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        entity_id: UUID,
+        include_deleted: bool = False,
+        include_archived: bool = False,
+    ) -> T | None:
+        """
+        Get entity metadata without loading full content.
+
+        Returns content_length and content_preview (computed in SQL).
+        The content field is set to None to prevent accidental loading.
+
+        Args:
+            db: Database session.
+            user_id: User ID to scope the entity.
+            entity_id: ID of the entity to retrieve.
+            include_deleted: If True, include soft-deleted entities. Default False.
+            include_archived: If True, include archived entities. Default False.
+
+        Returns:
+            The entity with metadata fields populated, or None if not found.
+        """
+        # Select entity with computed content metrics (without loading full content)
+        query = (
+            select(
+                self.model,
+                func.length(self.model.content).label("content_length"),
+                func.left(self.model.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
+            )
+            .options(selectinload(self.model.tag_objects))
+            .where(
+                self.model.id == entity_id,
+                self.model.user_id == user_id,
+            )
+        )
+
+        if not include_deleted:
+            query = query.where(self.model.deleted_at.is_(None))
+        if not include_archived:
+            query = query.where(~self.model.is_archived)
+
+        result = await db.execute(query)
+        row = result.first()
+
+        if row is None:
+            return None
+
+        entity, content_length, content_preview = row
+        entity.content_length = content_length
+        entity.content_preview = content_preview
+        # Clear content to ensure we don't accidentally return it
+        entity.content = None
+
+        return entity
 
     async def search(
         self,
@@ -174,6 +243,9 @@ class BaseEntityService(ABC, Generic[T]):
         """
         Search and filter entities for a user with pagination.
 
+        Returns entities with content_length and content_preview (computed in SQL).
+        The full content is NOT loaded to reduce bandwidth.
+
         Args:
             db: Database session.
             user_id: User ID to scope entities.
@@ -188,12 +260,21 @@ class BaseEntityService(ABC, Generic[T]):
             filter_expression: Optional ContentList filter expression.
 
         Returns:
-            Tuple of (list of entities, total count).
+            Tuple of (list of entities with content metrics, total count).
         """
-        # Base query scoped to user with eager loading of tags
+        # Base query scoped to user with content metrics computed in SQL.
+        # Use defer() to exclude full content from SELECT (saves bandwidth).
+        # Tags are eagerly loaded via selectinload.
         base_query = (
-            select(self.model)
-            .options(selectinload(self.model.tag_objects))
+            select(
+                self.model,
+                func.length(self.model.content).label("content_length"),
+                func.left(self.model.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
+            )
+            .options(
+                defer(self.model.content),  # Exclude content from SELECT
+                selectinload(self.model.tag_objects),
+            )
             .where(self.model.user_id == user_id)
         )
 
@@ -223,8 +304,11 @@ class BaseEntityService(ABC, Generic[T]):
         if tags:
             base_query = self._apply_tag_filter(base_query, user_id, tags, tag_match)
 
-        # Get total count before pagination
-        count_query = select(func.count()).select_from(base_query.subquery())
+        # Get total count before pagination.
+        # We need a separate count query without the computed columns to avoid
+        # complexity. Build a simpler query with just the model and filters.
+        count_subquery = base_query.with_only_columns(self.model.id).subquery()
+        count_query = select(func.count()).select_from(count_subquery)
         total_result = await db.execute(count_query)
         total = total_result.scalar() or 0
 
@@ -234,9 +318,19 @@ class BaseEntityService(ABC, Generic[T]):
         # Apply pagination
         base_query = base_query.offset(offset).limit(limit)
 
-        # Execute query
+        # Execute query and unpack results
         result = await db.execute(base_query)
-        entities = list(result.scalars().all())
+        rows = result.all()
+
+        # Attach computed values to each entity
+        entities = []
+        for row in rows:
+            entity = row[0]  # First element is the model instance
+            entity.content_length = row[1]  # content_length
+            entity.content_preview = row[2]  # content_preview
+            # Set content to None to prevent lazy load when schema accesses it
+            entity.content = None
+            entities.append(entity)
 
         return entities, total
 

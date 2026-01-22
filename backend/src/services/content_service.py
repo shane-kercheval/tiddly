@@ -13,6 +13,7 @@ from models.prompt import Prompt
 from models.tag import Tag, bookmark_tags, note_tags, prompt_tags
 from schemas.validators import validate_and_normalize_tags
 from schemas.content import ContentListItem
+from services.base_entity_service import CONTENT_PREVIEW_LENGTH
 from services.utils import build_tag_filter_from_expression, escape_ilike
 
 
@@ -153,6 +154,8 @@ def _row_to_content_item(row: Row, tags: list[str]) -> ContentListItem:
         last_used_at=row.last_used_at,
         deleted_at=row.deleted_at,
         archived_at=row.archived_at,
+        content_length=row.content_length,
+        content_preview=row.content_preview,
         url=row.url if row.type == "bookmark" else None,
         version=row.version if row.type == "note" else None,
         name=row.name if row.type == "prompt" else None,
@@ -243,6 +246,8 @@ async def search_all_content(
                 Bookmark.last_used_at.label("last_used_at"),
                 Bookmark.deleted_at.label("deleted_at"),
                 Bookmark.archived_at.label("archived_at"),
+                func.length(Bookmark.content).label("content_length"),
+                func.left(Bookmark.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
                 Bookmark.url.label("url"),
                 literal(None).label("version"),
                 literal(None).label("name"),
@@ -280,6 +285,8 @@ async def search_all_content(
                 Note.last_used_at.label("last_used_at"),
                 Note.deleted_at.label("deleted_at"),
                 Note.archived_at.label("archived_at"),
+                func.length(Note.content).label("content_length"),
+                func.left(Note.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
                 literal(None).label("url"),
                 Note.version.label("version"),
                 literal(None).label("name"),
@@ -316,6 +323,8 @@ async def search_all_content(
                 Prompt.last_used_at.label("last_used_at"),
                 Prompt.deleted_at.label("deleted_at"),
                 Prompt.archived_at.label("archived_at"),
+                func.length(Prompt.content).label("content_length"),
+                func.left(Prompt.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
                 literal(None).label("url"),
                 literal(None).label("version"),
                 Prompt.name.label("name"),

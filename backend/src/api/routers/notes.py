@@ -170,6 +170,49 @@ async def get_note(
     return response_data
 
 
+@router.get("/{note_id}/metadata", response_model=NoteListItem)
+async def get_note_metadata(
+    note_id: UUID,
+    request: Request,
+    response: FastAPIResponse,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> NoteListItem:
+    """
+    Get note metadata without loading full content.
+
+    Returns content_length (character count) and content_preview (first 500 chars)
+    for size assessment before fetching full content via GET /notes/{id}.
+
+    This endpoint is useful for:
+    - Checking content size before deciding to load full content
+    - Getting quick context via the preview without full content transfer
+    - Lightweight status checks
+    """
+    # Quick check: can we return 304?
+    updated_at = await note_service.get_updated_at(
+        db, current_user.id, note_id, include_deleted=True,
+    )
+    if updated_at is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    not_modified = check_not_modified(request, updated_at)
+    if not_modified:
+        return not_modified  # type: ignore[return-value]
+
+    # Fetch metadata only (no full content)
+    note = await note_service.get_metadata(
+        db, current_user.id, note_id, include_archived=True, include_deleted=True,
+    )
+    if note is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    # Set Last-Modified header
+    response.headers["Last-Modified"] = format_http_date(updated_at)
+
+    return NoteListItem.model_validate(note)
+
+
 @router.get("/{note_id}/search", response_model=ContentSearchResponse)
 async def search_in_note(
     note_id: UUID,

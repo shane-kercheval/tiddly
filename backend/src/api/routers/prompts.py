@@ -284,6 +284,43 @@ async def get_prompt_by_name(
     return response_data
 
 
+@router.get("/name/{name}/metadata", response_model=PromptListItem)
+async def get_prompt_metadata_by_name(
+    name: str,
+    request: Request,
+    response: FastAPIResponse,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> PromptListItem:
+    """
+    Get prompt metadata by name without loading full content.
+
+    Returns content_length (character count) and content_preview (first 500 chars)
+    for size assessment before fetching full content via GET /prompts/name/{name}.
+
+    Returns only active prompts (excludes deleted and archived).
+    This endpoint is primarily used by the MCP server for prompt metadata lookups.
+    """
+    # Quick check: can we return 304?
+    updated_at = await prompt_service.get_updated_at_by_name(db, current_user.id, name)
+    if updated_at is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    not_modified = check_not_modified(request, updated_at)
+    if not_modified:
+        return not_modified  # type: ignore[return-value]
+
+    # Fetch metadata only (no full content)
+    prompt = await prompt_service.get_metadata_by_name(db, current_user.id, name)
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    # Set Last-Modified header
+    response.headers["Last-Modified"] = format_http_date(updated_at)
+
+    return PromptListItem.model_validate(prompt)
+
+
 @router.patch("/name/{name}", response_model=PromptResponse)
 async def update_prompt_by_name(
     name: str,
@@ -408,6 +445,49 @@ async def get_prompt(
     response_data = PromptResponse.model_validate(prompt)
     apply_partial_read(response_data, start_line, end_line)
     return response_data
+
+
+@router.get("/{prompt_id}/metadata", response_model=PromptListItem)
+async def get_prompt_metadata(
+    prompt_id: UUID,
+    request: Request,
+    response: FastAPIResponse,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> PromptListItem:
+    """
+    Get prompt metadata without loading full content.
+
+    Returns content_length (character count) and content_preview (first 500 chars)
+    for size assessment before fetching full content via GET /prompts/{id}.
+
+    This endpoint is useful for:
+    - Checking content size before deciding to load full content
+    - Getting quick context via the preview without full content transfer
+    - Lightweight status checks
+    """
+    # Quick check: can we return 304?
+    updated_at = await prompt_service.get_updated_at(
+        db, current_user.id, prompt_id, include_deleted=True,
+    )
+    if updated_at is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    not_modified = check_not_modified(request, updated_at)
+    if not_modified:
+        return not_modified  # type: ignore[return-value]
+
+    # Fetch metadata only (no full content)
+    prompt = await prompt_service.get_metadata(
+        db, current_user.id, prompt_id, include_archived=True, include_deleted=True,
+    )
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+
+    # Set Last-Modified header
+    response.headers["Last-Modified"] = format_http_date(updated_at)
+
+    return PromptListItem.model_validate(prompt)
 
 
 @router.get("/{prompt_id}/search", response_model=ContentSearchResponse)

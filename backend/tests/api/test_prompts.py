@@ -285,6 +285,35 @@ async def test__list_prompts__excludes_content_in_list_items(client: AsyncClient
         assert "content" not in item
 
 
+async def test__list_prompts__returns_length_and_preview(client: AsyncClient) -> None:
+    """Test that list endpoint returns content_length and content_preview."""
+    content = "G" * 1000
+    await client.post(
+        "/prompts/",
+        json={"name": "list-length-test", "content": content},
+    )
+
+    response = await client.get("/prompts/")
+    assert response.status_code == 200
+
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["content_length"] == 1000
+    assert items[0]["content_preview"] == "G" * 500
+    assert "content" not in items[0]
+
+
+async def test__list_prompts__null_content_never_exists(client: AsyncClient) -> None:
+    """Test that prompts always have content (content is required for prompts)."""
+    # Prompts require content, so this test verifies the schema constraint.
+    # Unlike bookmarks/notes, prompts cannot have null content.
+    response = await client.post(
+        "/prompts/",
+        json={"name": "no-content-prompt"},  # Missing content
+    )
+    assert response.status_code == 422  # Content is required
+
+
 async def test__list_prompts__search_query_filters(client: AsyncClient) -> None:
     """Test prompt search by query."""
     await client.post("/prompts/", json={"name": "python-review", "content": "Content 1"})
@@ -459,7 +488,7 @@ async def test__get_prompt__not_found(client: AsyncClient) -> None:
     assert response.json()["detail"] == "Prompt not found"
 
 
-# Note: Cross-user isolation (IDOR) tests are in Milestone 7: test_live_penetration.py
+# Note: Cross-user isolation (IDOR) tests are in test_live_penetration.py
 
 
 # =============================================================================
@@ -513,6 +542,82 @@ async def test__get_prompt_by_name__archived_prompt(client: AsyncClient) -> None
 
     response = await client.get("/prompts/name/archived-prompt")
     assert response.status_code == 404
+
+
+async def test__get_prompt__returns_full_content_and_length(client: AsyncClient) -> None:
+    """Test that GET /prompts/{id} returns full content and content_length."""
+    content = "This is the full prompt template content."
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "content-length-test", "content": content},
+    )
+    prompt_id = create_response.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == content
+    assert data["content_length"] == len(content)
+    assert data.get("content_preview") is None
+
+
+async def test__get_prompt_metadata__returns_length_and_preview_no_content(
+    client: AsyncClient,
+) -> None:
+    """Test that GET /prompts/{id}/metadata returns length and preview, no full content."""
+    content = "C" * 1000
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "metadata-test", "content": content},
+    )
+    prompt_id = create_response.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] == 1000
+    assert data["content_preview"] == "C" * 500
+    assert data.get("content") is None
+
+
+async def test__get_prompt_by_name_metadata__returns_length_and_preview(
+    client: AsyncClient,
+) -> None:
+    """Test that GET /prompts/name/{name}/metadata returns length and preview."""
+    content = "D" * 800
+    await client.post(
+        "/prompts/",
+        json={"name": "name-metadata-test", "content": content},
+    )
+
+    response = await client.get("/prompts/name/name-metadata-test/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] == 800
+    assert data["content_preview"] == "D" * 500
+    assert data.get("content") is None
+
+
+async def test__get_prompt_metadata__content_under_500_chars__preview_equals_full(
+    client: AsyncClient,
+) -> None:
+    """Test that metadata endpoint preview equals full content when under 500 chars."""
+    content = "Short prompt content"
+    create_response = await client.post(
+        "/prompts/",
+        json={"name": "short-content-test", "content": content},
+    )
+    prompt_id = create_response.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] == len(content)
+    assert data["content_preview"] == content
 
 
 # =============================================================================

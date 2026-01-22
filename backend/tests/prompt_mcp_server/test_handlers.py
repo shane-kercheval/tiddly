@@ -366,9 +366,12 @@ async def test__list_tools__returns_all_tools() -> None:
     """Test list_tools returns all available tools."""
     result = await handle_list_tools()
 
-    assert len(result) == 4
+    assert len(result) == 7
     tool_names = {t.name for t in result}
     assert tool_names == {
+        "search_prompts",
+        "list_tags",
+        "get_prompt_metadata",
         "get_prompt_template",
         "create_prompt",
         "edit_prompt_template",
@@ -685,6 +688,131 @@ async def test__create_prompt_tool__unknown_tool_error() -> None:
         await handle_call_tool("unknown_tool", {})
 
     assert "Unknown tool" in str(exc_info.value)
+
+
+# --- search_prompts tests ---
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__no_params__returns_all(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_prompt_list_item: dict[str, Any],
+) -> None:
+    """Test search_prompts with no params returns all prompts."""
+    response_data = {
+        "items": [sample_prompt_list_item],
+        "total": 1,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_data),
+    )
+
+    result = await handle_call_tool("search_prompts", {})
+
+    import json
+    data = json.loads(result[0].text)
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__with_query__filters_results(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_prompt_list_item: dict[str, Any],
+) -> None:
+    """Test search_prompts with query parameter."""
+    response_data = {
+        "items": [sample_prompt_list_item],
+        "total": 1,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_data),
+    )
+
+    await handle_call_tool("search_prompts", {"query": "code review"})
+
+    request_url = str(mock_api.calls[0].request.url)
+    assert "q=code" in request_url
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__with_tags__filters_results(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_prompt_list_item: dict[str, Any],
+) -> None:
+    """Test search_prompts with tags parameter."""
+    response_data = {
+        "items": [sample_prompt_list_item],
+        "total": 1,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_data),
+    )
+
+    await handle_call_tool("search_prompts", {"tags": ["development", "code-review"]})
+
+    request_url = str(mock_api.calls[0].request.url)
+    assert "tags" in request_url
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__results_include_length_and_preview(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_prompt_list_item: dict[str, Any],
+) -> None:
+    """Test search_prompts results include content_length and content_preview."""
+    response_data = {
+        "items": [sample_prompt_list_item],
+        "total": 1,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_data),
+    )
+
+    result = await handle_call_tool("search_prompts", {})
+
+    import json
+    data = json.loads(result[0].text)
+    assert data["items"][0]["content_length"] == 500
+    assert "content_preview" in data["items"][0]
+
+
+# --- list_tags tests ---
+
+
+@pytest.mark.asyncio
+async def test__list_tags__returns_all_tags(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_tags_response: dict[str, Any],
+) -> None:
+    """Test list_tags returns all tags."""
+    mock_api.get("/tags/").mock(
+        return_value=Response(200, json=sample_tags_response),
+    )
+
+    result = await handle_call_tool("list_tags", {})
+
+    import json
+    data = json.loads(result[0].text)
+    assert len(data["tags"]) == 3
+    assert data["tags"][0]["name"] == "python"
 
 
 # --- call_tool (edit_prompt_template) tests ---
@@ -1341,6 +1469,101 @@ async def test__create_prompt_tool__400_string_detail_format(
         await handle_call_tool("create_prompt", {"name": "Invalid Name!"})
 
     assert "Invalid prompt name format" in str(exc_info.value)
+
+
+# --- call_tool (get_prompt_metadata) tests ---
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_metadata__returns_length_and_preview(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test get_prompt_metadata returns content_length and content_preview."""
+    metadata_response = {
+        "id": "550e8400-e29b-41d4-a716-446655440001",
+        "name": "code-review",
+        "title": "Code Review",
+        "description": "Review code",
+        "arguments": [{"name": "code", "required": True}],
+        "tags": ["dev"],
+        "content_length": 1500,
+        "content_preview": "You are a code reviewer...",
+    }
+    mock_api.get("/prompts/name/code-review/metadata").mock(
+        return_value=Response(200, json=metadata_response),
+    )
+
+    result = await handle_call_tool("get_prompt_metadata", {"name": "code-review"})
+
+    import json
+    data = json.loads(result[0].text)
+    assert data["content_length"] == 1500
+    assert data["content_preview"] == "You are a code reviewer..."
+    assert "content" not in data  # Full content should NOT be present
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_metadata__prompt_not_found(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test get_prompt_metadata returns error when prompt not found."""
+    from mcp.shared.exceptions import McpError
+
+    mock_api.get("/prompts/name/nonexistent/metadata").mock(
+        return_value=Response(404, json={"detail": "Prompt not found"}),
+    )
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool("get_prompt_metadata", {"name": "nonexistent"})
+
+    assert "not found" in str(exc_info.value).lower()
+
+
+# --- call_tool (get_prompt_template with start_line/end_line) tests ---
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_template__with_start_end_line__returns_partial(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test get_prompt_template with start_line/end_line parameters."""
+    partial_response = {
+        "id": "550e8400-e29b-41d4-a716-446655440001",
+        "name": "code-review",
+        "title": "Code Review",
+        "description": None,
+        "content": "Line 5\nLine 6\nLine 7",
+        "arguments": [],
+        "tags": [],
+        "content_metadata": {
+            "total_lines": 100,
+            "start_line": 5,
+            "end_line": 7,
+        },
+    }
+    mock_api.get("/prompts/name/code-review").mock(
+        return_value=Response(200, json=partial_response),
+    )
+
+    result = await handle_call_tool(
+        "get_prompt_template",
+        {"name": "code-review", "start_line": 5, "end_line": 7},
+    )
+
+    import json
+    data = json.loads(result[0].text)
+    assert data["content"] == "Line 5\nLine 6\nLine 7"
+    assert data["content_metadata"]["total_lines"] == 100
+    assert data["content_metadata"]["start_line"] == 5
+    assert data["content_metadata"]["end_line"] == 7
+
+    # Verify query params were passed
+    request_url = str(mock_api.calls[0].request.url)
+    assert "start_line=5" in request_url
+    assert "end_line=7" in request_url
 
 
 # --- Cleanup tests ---

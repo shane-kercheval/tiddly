@@ -356,6 +356,56 @@ async def test__list_all_content__response_schema_is_correct(
     assert 'version' in item
 
 
+async def test__list_content__returns_length_and_preview(client: AsyncClient) -> None:
+    """Test that unified content list returns content_length and content_preview."""
+    bookmark_content = "H" * 1000
+    note_content = "I" * 800
+
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://content-test.com', 'title': 'Bookmark', 'content': bookmark_content},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'Note', 'content': note_content},
+    )
+
+    response = await client.get('/content/')
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data['total'] == 2
+
+    bookmark_item = next(item for item in data['items'] if item['type'] == 'bookmark')
+    note_item = next(item for item in data['items'] if item['type'] == 'note')
+
+    assert bookmark_item['content_length'] == 1000
+    assert bookmark_item['content_preview'] == "H" * 500
+    assert note_item['content_length'] == 800
+    assert note_item['content_preview'] == "I" * 500
+
+
+async def test__list_content__null_content__returns_null_metrics(
+    client: AsyncClient,
+) -> None:
+    """Test that content list returns null metrics when content is null."""
+    await client.post(
+        '/bookmarks/',
+        json={'url': 'https://no-content.com', 'title': 'No Content Bookmark'},
+    )
+    await client.post(
+        '/notes/',
+        json={'title': 'No Content Note'},
+    )
+
+    response = await client.get('/content/')
+    assert response.status_code == 200
+
+    for item in response.json()['items']:
+        assert item['content_length'] is None
+        assert item['content_preview'] is None
+
+
 async def test__list_all_content__invalid_view_returns_422(
     client: AsyncClient,
 ) -> None:

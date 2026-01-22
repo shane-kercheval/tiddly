@@ -138,6 +138,14 @@ class NoteListItem(BaseModel):
     last_used_at: datetime
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
+    content_length: int | None = Field(
+        default=None,
+        description="Total character count of content field.",
+    )
+    content_preview: str | None = Field(
+        default=None,
+        description="First 500 characters of content.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -155,6 +163,7 @@ class NoteListItem(BaseModel):
                 "id", "title", "description",
                 "created_at", "updated_at", "last_used_at",
                 "deleted_at", "archived_at", "content",
+                "content_length", "content_preview",
             ]:
                 if hasattr(data, key):
                     data_dict[key] = getattr(data, key)

@@ -356,6 +356,45 @@ async def test_list_bookmarks_pagination(client: AsyncClient) -> None:
     assert data["total"] == 5
 
 
+async def test__list_bookmarks__returns_length_and_preview(client: AsyncClient) -> None:
+    """Test that list endpoint returns content_length and content_preview."""
+    content = "E" * 1000
+    await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://list-length-test.com",
+            "title": "List Length Test",
+            "content": content,
+        },
+    )
+
+    response = await client.get("/bookmarks/")
+    assert response.status_code == 200
+
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["content_length"] == 1000
+    assert items[0]["content_preview"] == "E" * 500
+    assert "content" not in items[0]
+
+
+async def test__list_bookmarks__null_content__returns_null_metrics(
+    client: AsyncClient,
+) -> None:
+    """Test that list endpoint returns null metrics when content is null."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://no-content-list.com", "title": "No Content"},
+    )
+
+    response = await client.get("/bookmarks/")
+    assert response.status_code == 200
+
+    items = response.json()["items"]
+    assert items[0]["content_length"] is None
+    assert items[0]["content_preview"] is None
+
+
 async def test_get_bookmark(client: AsyncClient) -> None:
     """Test getting a single bookmark."""
     # Create a bookmark
@@ -380,6 +419,98 @@ async def test_get_bookmark_not_found(client: AsyncClient) -> None:
     response = await client.get("/bookmarks/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
     assert response.json()["detail"] == "Bookmark not found"
+
+
+async def test__get_bookmark__returns_full_content_and_length(client: AsyncClient) -> None:
+    """Test that GET /bookmarks/{id} returns full content and content_length."""
+    content = "This is the full content of the bookmark for testing."
+    create_response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://content-length-test.com",
+            "title": "Content Length Test",
+            "content": content,
+        },
+    )
+    bookmark_id = create_response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == content
+    assert data["content_length"] == len(content)
+    # content_preview should not be returned for full content endpoint
+    assert data.get("content_preview") is None
+
+
+async def test__get_bookmark_metadata__returns_length_and_preview_no_content(
+    client: AsyncClient,
+) -> None:
+    """Test that GET /bookmarks/{id}/metadata returns length and preview, no full content."""
+    content = "A" * 1000  # 1000 characters, longer than preview
+    create_response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://metadata-test.com",
+            "title": "Metadata Test",
+            "content": content,
+        },
+    )
+    bookmark_id = create_response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] == 1000
+    assert data["content_preview"] == "A" * 500  # First 500 chars
+    # Full content should NOT be returned
+    assert data.get("content") is None
+
+
+async def test__get_bookmark_metadata__content_under_500_chars__preview_equals_full(
+    client: AsyncClient,
+) -> None:
+    """Test that metadata endpoint preview equals full content when under 500 chars."""
+    content = "Short content for testing"
+    create_response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://short-content.com",
+            "title": "Short Content Test",
+            "content": content,
+        },
+    )
+    bookmark_id = create_response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] == len(content)
+    assert data["content_preview"] == content  # Preview equals full content
+
+
+async def test__get_bookmark_metadata__null_content__returns_null_metrics(
+    client: AsyncClient,
+) -> None:
+    """Test that metadata endpoint returns null metrics when content is null."""
+    create_response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://no-content.com",
+            "title": "No Content Test",
+        },
+    )
+    bookmark_id = create_response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] is None
+    assert data["content_preview"] is None
 
 
 async def test_update_bookmark(client: AsyncClient) -> None:
@@ -646,7 +777,7 @@ async def test_create_bookmark_fields_at_max_length_succeeds(client: AsyncClient
 
 
 # =============================================================================
-# Search and Filtering Tests (Milestone 5)
+# Search and Filtering Tests
 # =============================================================================
 
 
@@ -1251,7 +1382,7 @@ async def test_search_by_summary(
 
 
 # =============================================================================
-# Metadata Preview Endpoint Tests (Milestone 7)
+# Metadata Endpoint Tests
 # =============================================================================
 
 

@@ -156,7 +156,7 @@ Fix the issue."""
                         # Get final content
                         get_result = await _call_tool_with_retry(
                             mcp_manager,
-                            "get_content",
+                            "get_item",
                             {"id": content_id, "type": "note"},
                         )
                         if not get_result.isError:

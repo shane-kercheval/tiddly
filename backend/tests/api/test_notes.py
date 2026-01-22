@@ -234,6 +234,39 @@ async def test_list_notes_excludes_content(client: AsyncClient) -> None:
         assert "content" not in item
 
 
+async def test__list_notes__returns_length_and_preview(client: AsyncClient) -> None:
+    """Test that list endpoint returns content_length and content_preview."""
+    content = "F" * 1000
+    await client.post(
+        "/notes/",
+        json={"title": "List Length Test", "content": content},
+    )
+
+    response = await client.get("/notes/")
+    assert response.status_code == 200
+
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["content_length"] == 1000
+    assert items[0]["content_preview"] == "F" * 500
+    assert "content" not in items[0]
+
+
+async def test__list_notes__null_content__returns_null_metrics(client: AsyncClient) -> None:
+    """Test that list endpoint returns null metrics when content is null."""
+    await client.post(
+        "/notes/",
+        json={"title": "No Content"},
+    )
+
+    response = await client.get("/notes/")
+    assert response.status_code == 200
+
+    items = response.json()["items"]
+    assert items[0]["content_length"] is None
+    assert items[0]["content_preview"] is None
+
+
 async def test_list_notes_search(client: AsyncClient) -> None:
     """Test note search by query."""
     await client.post("/notes/", json={"title": "Python Tutorial"})
@@ -377,6 +410,81 @@ async def test_get_archived_note_by_id(client: AsyncClient) -> None:
     assert get_response.status_code == 200
     assert get_response.json()["id"] == note_id
     assert get_response.json()["archived_at"] is not None
+
+
+async def test__get_note__returns_full_content_and_length(client: AsyncClient) -> None:
+    """Test that GET /notes/{id} returns full content and content_length."""
+    content = "This is the full content of the note for testing."
+    create_response = await client.post(
+        "/notes/",
+        json={"title": "Content Length Test", "content": content},
+    )
+    note_id = create_response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == content
+    assert data["content_length"] == len(content)
+    assert data.get("content_preview") is None
+
+
+async def test__get_note_metadata__returns_length_and_preview_no_content(
+    client: AsyncClient,
+) -> None:
+    """Test that GET /notes/{id}/metadata returns length and preview, no full content."""
+    content = "B" * 1000
+    create_response = await client.post(
+        "/notes/",
+        json={"title": "Metadata Test", "content": content},
+    )
+    note_id = create_response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] == 1000
+    assert data["content_preview"] == "B" * 500
+    assert data.get("content") is None
+
+
+async def test__get_note_metadata__content_under_500_chars__preview_equals_full(
+    client: AsyncClient,
+) -> None:
+    """Test that metadata endpoint preview equals full content when under 500 chars."""
+    content = "Short note content"
+    create_response = await client.post(
+        "/notes/",
+        json={"title": "Short Content Test", "content": content},
+    )
+    note_id = create_response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] == len(content)
+    assert data["content_preview"] == content
+
+
+async def test__get_note_metadata__null_content__returns_null_metrics(
+    client: AsyncClient,
+) -> None:
+    """Test that metadata endpoint returns null metrics when content is null."""
+    create_response = await client.post(
+        "/notes/",
+        json={"title": "No Content Test"},
+    )
+    note_id = create_response.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] is None
+    assert data["content_preview"] is None
 
 
 # =============================================================================
