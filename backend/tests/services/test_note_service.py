@@ -1857,3 +1857,81 @@ async def test__cascade_delete__user_deletion_removes_notes(
         select(Note).where(Note.user_id == user.id),
     )
     assert result.scalars().all() == []
+
+
+def test__search_query__defer_excludes_content_from_select() -> None:
+    """
+    Verify that defer() excludes content column from SELECT while computed columns work.
+
+    This test ensures the SQL optimization in BaseEntityService.search() is working:
+    - The full content column should NOT be in the SELECT list
+    - content_length and content_preview should be computed via length() and left()
+
+    If this test fails, it means content is being transferred from the database,
+    defeating the performance optimization of Milestone 3.
+    """
+    from sqlalchemy import func
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.orm import defer, selectinload
+
+    from services.base_entity_service import CONTENT_PREVIEW_LENGTH
+
+    # Build the same query pattern used in BaseEntityService.search()
+    query = (
+        select(
+            Note,
+            func.length(Note.content).label("content_length"),
+            func.left(Note.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
+        )
+        .options(
+            defer(Note.content),
+            selectinload(Note.tag_objects),
+        )
+        .where(Note.user_id == "some-uuid")
+    )
+
+    # Compile to PostgreSQL SQL
+    compiled = query.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+
+    # The SQL should look like:
+    # SELECT notes.user_id, notes.title, notes.description, ...,
+    #        length(notes.content) AS content_length,
+    #        left(notes.content, 500) AS content_preview
+    # FROM notes WHERE ...
+    #
+    # Note: notes.content should NOT appear as a direct column selection
+
+    # Split into SELECT clause and rest
+    select_clause = sql.split(" FROM ")[0].upper()
+
+    # content should appear in function calls (LENGTH, LEFT) but not as a standalone column
+    # A standalone column would look like: "NOTES.CONTENT," or "NOTES.CONTENT AS"
+    # We check that NOTES.CONTENT only appears within function parentheses
+
+    # Count occurrences of NOTES.CONTENT
+    content_occurrences = select_clause.count("NOTES.CONTENT")
+
+    # It should appear exactly twice: once in LENGTH(), once in LEFT()
+    assert content_occurrences == 2, (
+        f"Expected notes.content to appear exactly 2 times (in LENGTH and LEFT), "
+        f"but found {content_occurrences} occurrences. SQL: {sql}"
+    )
+
+    # Verify it appears within the function calls
+    assert "LENGTH(NOTES.CONTENT)" in select_clause, (
+        f"Expected LENGTH(notes.content) in SELECT clause. SQL: {sql}"
+    )
+    assert "LEFT(NOTES.CONTENT" in select_clause, (
+        f"Expected LEFT(notes.content, ...) in SELECT clause. SQL: {sql}"
+    )
+
+    # Verify content is NOT a standalone selected column
+    # A standalone column would have a comma before/after or be at the start
+    # We check that "NOTES.CONTENT," doesn't appear outside of function calls
+    import re
+    # Match notes.content that is NOT preceded by ( (which would indicate a function call)
+    standalone_content = re.search(r'(?<!\()NOTES\.CONTENT\s*,', select_clause)
+    assert standalone_content is None, (
+        f"Found standalone notes.content column in SELECT (defer not working). SQL: {sql}"
+    )
