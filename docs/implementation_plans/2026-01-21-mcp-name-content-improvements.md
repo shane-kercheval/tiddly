@@ -108,7 +108,7 @@ SELECT (columns except content), length(content), left(content, 500) FROM bookma
 
 ### Preview Length
 
-Fixed at 500 characters. Not configurable (YAGNI - can add later if needed).
+Fixed at 500 characters. Define as constant `CONTENT_PREVIEW_LENGTH = 500` for maintainability. Not configurable (YAGNI - can add later if needed).
 
 ### Prompts: `get_prompt_template` vs `get_prompt_metadata`
 
@@ -380,39 +380,62 @@ async def get_note_metadata(
 ### Key Changes
 
 **Files to modify**:
-- `backend/src/api/routers/bookmarks.py` - `list_bookmarks` endpoint
-- `backend/src/api/routers/notes.py` - `list_notes` endpoint
-- `backend/src/api/routers/prompts.py` - `list_prompts` endpoint
-- `backend/src/api/routers/content.py` - unified content endpoint
-- `backend/src/services/bookmark_service.py`
-- `backend/src/services/note_service.py`
-- `backend/src/services/prompt_service.py`
-- `backend/src/services/content_service.py`
+- `backend/src/services/base_entity_service.py` - modify `search()` method to use `defer()` and add computed columns
+- `backend/src/services/content_service.py` - modify `search_all_content()` UNION queries to add computed columns
 
-**SQL approach** (compute in database, don't load full content):
+**Current problem**:
+`BaseEntityService.search()` currently uses `select(self.model)` which loads ALL columns from the database, including the full `content` field (up to 200KB per item). The content is then discarded during Pydantic serialization since `*ListItem` schemas don't have a `content` field. This is wasteful.
+
+**Solution** - Use `defer()` to exclude content column + add computed columns:
 
 ```python
 from sqlalchemy import func
+from sqlalchemy.orm import defer, selectinload
 
-# List query - always metadata-only
+CONTENT_PREVIEW_LENGTH = 500
+
+# List query - defer content, add computed columns
 stmt = select(
-    Bookmark,
-    func.length(Bookmark.content).label("content_length"),
-    func.left(Bookmark.content, 500).label("content_preview"),
+    self.model,
+    func.length(self.model.content).label("content_length"),
+    func.left(self.model.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
+).options(
+    defer(self.model.content),  # Exclude content from SELECT
+    selectinload(self.model.tag_objects),  # Keep tag loading working
 ).where(...)
 
-# Results are tuples: (Bookmark, int, str)
+# Results are tuples: (Model, int, str)
 results = await db.execute(stmt)
 items = []
-for bookmark, length, preview in results:
-    bookmark.content_length = length
-    bookmark.content_preview = preview
-    bookmark.content = None  # Ensure content not included
-    items.append(bookmark)
+for model_obj, content_length, content_preview in results:
+    model_obj.content_length = content_length
+    model_obj.content_preview = content_preview
+    items.append(model_obj)
 ```
 
+**Generated SQL** (verified via test):
+```sql
+SELECT notes.user_id, notes.title, notes.description, notes.version,
+       notes.last_used_at, notes.id, notes.created_at, notes.updated_at,
+       notes.deleted_at, notes.archived_at,
+       length(notes.content) AS content_length,
+       left(notes.content, 500) AS content_preview
+FROM notes WHERE ...
+```
+
+Note: `notes.content` is NOT in the SELECT - `defer()` works. PostgreSQL computes `length()` and `left()` without transferring full content.
+
+This approach:
+1. **Adds** `content_length` and `content_preview` to responses
+2. **Optimizes** by never loading full content from database
+3. **Minimal code change** - no need for subclass-specific column lists
+4. **Keeps tag loading working** - `selectinload()` still works
+
+**For `content_service.search_all_content()`**:
+Add `func.length()` and `func.left()` to each UNION subquery's column list. This function already uses explicit column selection, so just add the two new computed columns.
+
 **Schema adjustment**:
-Add `content_length` and `content_preview` fields to list item schemas (from Milestone 1). The service attaches computed values to ORM objects before returning.
+Add `content_length` and `content_preview` fields to list item schemas (from Milestone 1).
 
 **Router pattern** (no `include_content` parameter):
 
@@ -439,7 +462,7 @@ async def list_bookmarks(
 
 ### Risk Factors
 
-- Service layer needs to handle tuple results from SQLAlchemy and attach computed values to ORM objects
+- Results change from `list[Model]` to `list[tuple[Model, int, str]]` - need to unpack and attach computed values
 - SQL `LEFT()` function is PostgreSQL standard, should work correctly with UTF-8
 
 ---
