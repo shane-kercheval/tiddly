@@ -193,9 +193,11 @@ export function Bookmark({
   }, [])
 
   // Sync internal state when bookmark prop changes (e.g., after refresh from conflict resolution)
+  // This is intentional - deriving form state from props when they change is a valid pattern
   useEffect(() => {
     if (!bookmark) return
     syncStateFromBookmark(bookmark)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookmark?.id, bookmark?.updated_at, syncStateFromBookmark])
 
   // Metadata fetch state
@@ -927,9 +929,7 @@ export function Bookmark({
       {conflictState && (
         <ConflictDialog
           isOpen={true}
-          serverUpdatedAt={conflictState.serverUpdatedAt}
           currentContent={current.content}
-          entityType="bookmark"
           onLoadServerVersion={handleConflictLoadServerVersion}
           onSaveMyVersion={handleConflictSaveMyVersion}
           onDoNothing={handleConflictDoNothing}

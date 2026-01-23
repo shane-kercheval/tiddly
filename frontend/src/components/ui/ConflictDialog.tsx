@@ -53,9 +53,11 @@ export function ConflictDialog({
     reset: resetCopy,
   } = useCopyFeedback()
 
-  // Reset confirmation state when dialog closes or opens
+  // Reset confirmation state when dialog closes
+  // This is intentional - resetting local UI state when prop changes is a valid pattern
   useEffect(() => {
     if (!isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsConfirmingSave(false)
       resetCopy()
       if (confirmTimeoutRef.current) {

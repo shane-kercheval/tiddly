@@ -10,7 +10,7 @@ import type { ReactNode } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import toast from 'react-hot-toast'
-import { Note } from '../components/Note'
+import { Note as NoteComponent } from '../components/Note'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { useNotes } from '../hooks/useNotes'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
@@ -206,7 +206,7 @@ export function NoteDetail(): ReactNode {
   }, [noteId, restoreMutation, navigateBack])
 
   // Refresh handler for stale check - returns true on success, false on failure
-  const handleRefresh = useCallback(async (): Promise<Note | null> => {
+  const handleRefresh = useCallback(async (): Promise<NoteType | null> => {
     if (!noteId) return null
     try {
       const refreshedNote = await fetchNote(noteId)
@@ -231,7 +231,7 @@ export function NoteDetail(): ReactNode {
   // Render create mode
   if (isCreate) {
     return (
-      <Note
+      <NoteComponent
         key="new"
         tagSuggestions={tagSuggestions}
         onSave={handleSave}
@@ -251,7 +251,7 @@ export function NoteDetail(): ReactNode {
   }
 
   return (
-    <Note
+    <NoteComponent
       key={effectiveNote.id}
       note={effectiveNote}
       tagSuggestions={tagSuggestions}

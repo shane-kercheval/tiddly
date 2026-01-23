@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Bookmark } from '../components/Bookmark'
+import { Bookmark as BookmarkComponent } from '../components/Bookmark'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
@@ -226,7 +226,7 @@ export function BookmarkDetail(): ReactNode {
   }, [bookmarkId, deleteMutation, navigateBack])
 
   // Refresh handler for stale check - returns true on success, false on failure
-  const handleRefresh = useCallback(async (): Promise<Bookmark | null> => {
+  const handleRefresh = useCallback(async (): Promise<BookmarkType | null> => {
     if (!bookmarkId) return null
     try {
       const refreshedBookmark = await fetchBookmark(bookmarkId)
@@ -247,7 +247,7 @@ export function BookmarkDetail(): ReactNode {
   }
 
   return (
-    <Bookmark
+    <BookmarkComponent
       key={bookmark?.id ?? 'new'}
       bookmark={bookmark ?? undefined}
       tagSuggestions={tagSuggestions}

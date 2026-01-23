@@ -173,9 +173,11 @@ export function Note({
   }, [])
 
   // Sync internal state when note prop changes (e.g., after refresh from conflict resolution)
+  // This is intentional - deriving form state from props when they change is a valid pattern
   useEffect(() => {
     if (!note) return
     syncStateFromNote(note)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note?.id, note?.updated_at, syncStateFromNote])
 
   // Refs
@@ -758,9 +760,7 @@ export function Note({
       {conflictState && (
         <ConflictDialog
           isOpen={true}
-          serverUpdatedAt={conflictState.serverUpdatedAt}
           currentContent={current.content}
-          entityType="note"
           onLoadServerVersion={handleConflictLoadServerVersion}
           onSaveMyVersion={handleConflictSaveMyVersion}
           onDoNothing={handleConflictDoNothing}

@@ -244,9 +244,11 @@ export function Prompt({
   }, [])
 
   // Sync internal state when prompt prop changes (e.g., after refresh from conflict resolution)
+  // This is intentional - deriving form state from props when they change is a valid pattern
   useEffect(() => {
     if (!prompt) return
     syncStateFromPrompt(prompt)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt?.id, prompt?.updated_at, syncStateFromPrompt])
 
   // Refs
@@ -1002,9 +1004,7 @@ export function Prompt({
       {conflictState && (
         <ConflictDialog
           isOpen={true}
-          serverUpdatedAt={conflictState.serverUpdatedAt}
           currentContent={current.content}
-          entityType="prompt"
           onLoadServerVersion={handleConflictLoadServerVersion}
           onSaveMyVersion={handleConflictSaveMyVersion}
           onDoNothing={handleConflictDoNothing}

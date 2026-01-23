@@ -39,7 +39,6 @@ interface StaleDialogProps {
  */
 export function StaleDialog({
   isOpen,
-  serverUpdatedAt: _serverUpdatedAt,
   isDirty,
   entityType,
   currentContent,

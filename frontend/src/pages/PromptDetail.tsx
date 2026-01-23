@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Prompt, SaveError } from '../components/Prompt'
+import { Prompt as PromptComponent, SaveError } from '../components/Prompt'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { usePrompts } from '../hooks/usePrompts'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
@@ -237,7 +237,7 @@ export function PromptDetail(): ReactNode {
   }, [promptId, restoreMutation, navigateBack])
 
   // Refresh handler for stale check - returns true on success, false on failure
-  const handleRefresh = useCallback(async (): Promise<Prompt | null> => {
+  const handleRefresh = useCallback(async (): Promise<PromptType | null> => {
     if (!promptId) return null
     try {
       const refreshedPrompt = await fetchPrompt(promptId)
@@ -262,7 +262,7 @@ export function PromptDetail(): ReactNode {
   // Render create mode
   if (isCreate) {
     return (
-      <Prompt
+      <PromptComponent
         key="new"
         tagSuggestions={tagSuggestions}
         onSave={handleSave}
@@ -282,7 +282,7 @@ export function PromptDetail(): ReactNode {
   }
 
   return (
-    <Prompt
+    <PromptComponent
       key={effectivePrompt.id}
       prompt={effectivePrompt}
       tagSuggestions={tagSuggestions}
