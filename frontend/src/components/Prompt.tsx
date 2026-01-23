@@ -574,8 +574,8 @@ export function Prompt({
     >
       <SaveOverlay isVisible={isSaving} />
 
-      {/* Fixed header with action buttons */}
-      <div className="shrink-0 bg-white flex items-center justify-between pb-4 mb-4 border-b border-gray-200">
+      {/* Sticky header with action buttons */}
+      <div className="sticky top-0 z-10 shrink-0 bg-white flex items-center justify-between pt-4 pb-4 mb-4 border-b border-gray-200">
         <div className="flex items-center gap-2">
           {/* Close button */}
           <button

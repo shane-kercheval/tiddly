@@ -40,7 +40,7 @@ function FAQSection({ title, children }: FAQSectionProps): ReactNode {
  */
 export function SettingsFAQ(): ReactNode {
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-3xl pt-4">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">FAQ</h1>
         <p className="mt-1 text-sm text-gray-500">

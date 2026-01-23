@@ -55,7 +55,7 @@ export function SettingsTokens(): ReactNode {
   }
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-3xl pt-4">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Personal Access Tokens</h1>
         <p className="mt-1 text-gray-500">

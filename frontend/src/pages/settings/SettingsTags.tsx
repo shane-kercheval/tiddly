@@ -292,7 +292,7 @@ export function SettingsTags(): ReactNode {
   }, [unusedTags, unusedTagsPage])
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-3xl pt-4">
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tags</h1>

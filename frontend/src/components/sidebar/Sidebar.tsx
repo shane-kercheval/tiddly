@@ -46,7 +46,7 @@ import { CollectionModal } from '../CollectionModal'
 import {
   SettingsIcon,
   MenuIcon,
-  CloseIcon,
+  CollapseIcon,
   PlusIcon,
   BookmarkIcon,
   NoteIcon,
@@ -688,14 +688,16 @@ export function Sidebar(): ReactNode {
 
   return (
     <>
-      {/* Mobile menu button */}
-      <button
-        onClick={toggleMobile}
-        className="fixed left-4 top-4 z-50 rounded-lg bg-white p-2 shadow-md md:hidden"
-        aria-label={isMobileOpen ? 'Close menu' : 'Open menu'}
-      >
-        {isMobileOpen ? <CloseIcon /> : <MenuIcon />}
-      </button>
+      {/* Mobile menu button - bottom left, hidden when sidebar is open */}
+      {!isMobileOpen && (
+        <button
+          onClick={toggleMobile}
+          className="fixed left-4 bottom-4 z-50 rounded-lg bg-white p-2 shadow-md md:hidden"
+          aria-label="Open menu"
+        >
+          <MenuIcon />
+        </button>
+      )}
 
       {/* Mobile backdrop */}
       {isMobileOpen && (
@@ -711,8 +713,21 @@ export function Sidebar(): ReactNode {
           isMobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="h-full pt-4">
-          <SidebarContent isCollapsed={false} onNavClick={closeMobile} />
+        <div className="h-full flex flex-col">
+          <div className="flex-1 overflow-hidden">
+            <SidebarContent isCollapsed={false} onNavClick={closeMobile} />
+          </div>
+          {/* Mobile close button - chevron at bottom matching desktop style */}
+          <div className="border-t border-gray-200 px-2 py-2 shrink-0">
+            <button
+              onClick={closeMobile}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+              title="Close menu"
+            >
+              <CollapseIcon className="h-4 w-4" />
+              <span>Close menu</span>
+            </button>
+          </div>
         </div>
       </aside>
 
