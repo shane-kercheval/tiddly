@@ -79,7 +79,7 @@ from schemas.bookmark import BookmarkCreate
 from schemas.prompt import PromptCreate
 
 @pytest.fixture
-async def note_entity_setup(db_session, test_user, note_service):
+async def note_entity(db_session, test_user, note_service):
     """Create a note and return test context."""
     note = await note_service.create(
         db_session, test_user.id, NoteCreate(title="Test Note", content="Test content")
@@ -94,7 +94,7 @@ async def note_entity_setup(db_session, test_user, note_service):
     }
 
 @pytest.fixture
-async def bookmark_entity_setup(db_session, test_user, bookmark_service):
+async def bookmark_entity(db_session, test_user, bookmark_service):
     """Create a bookmark and return test context."""
     bookmark = await bookmark_service.create(
         db_session, test_user.id, BookmarkCreate(url="https://example.com", title="Test")
@@ -109,7 +109,7 @@ async def bookmark_entity_setup(db_session, test_user, bookmark_service):
     }
 
 @pytest.fixture
-async def prompt_entity_setup(db_session, test_user, prompt_service):
+async def prompt_entity(db_session, test_user, prompt_service):
     """Create a prompt and return test context."""
     prompt = await prompt_service.create(
         db_session, test_user.id, PromptCreate(name="test-prompt", content="Hello {{ name }}")
@@ -129,7 +129,7 @@ async def prompt_entity_setup(db_session, test_user, prompt_service):
 ```python
 import pytest
 
-ENTITY_FIXTURES = ["note_entity_setup", "bookmark_entity_setup", "prompt_entity_setup"]
+ENTITY_FIXTURES = ["note_entity", "bookmark_entity", "prompt_entity"]
 
 
 @pytest.mark.parametrize("entity_fixture", ENTITY_FIXTURES)
@@ -398,6 +398,13 @@ async def check_optimistic_lock(
     """
     Check for conflicts before update. Raises HTTPException 409 if stale.
     Call this at the start of update endpoints when expected_updated_at is provided.
+
+    409 response structure (nested under "detail"):
+    {
+        "error": "conflict",
+        "message": "This item was modified since you loaded it",
+        "server_state": { ... full entity ... }
+    }
     """
     if expected_updated_at is None:
         return  # No optimistic locking requested
@@ -407,7 +414,8 @@ async def check_optimistic_lock(
         raise HTTPException(status_code=404, detail="Entity not found")
 
     if current_updated_at > expected_updated_at:
-        current_entity = await service.get(db, user_id, entity_id)
+        # Note: include_archived=True to match update endpoint behavior
+        current_entity = await service.get(db, user_id, entity_id, include_archived=True)
         raise HTTPException(
             status_code=409,
             detail={
@@ -423,22 +431,45 @@ async def check_optimistic_lock(
 ```python
 # In notes.py, bookmarks.py, prompts.py
 @router.patch("/{entity_id}", response_model=EntityResponse)
-async def update_entity(...) -> EntityResponse:
+async def update_entity(entity_id: UUID, data: EntityUpdate, ...) -> EntityResponse:
+    # Check for conflicts BEFORE applying update
     await check_optimistic_lock(
         db, entity_service, current_user.id, entity_id,
         data.expected_updated_at, EntityResponse,
     )
-    # Proceed with update...
+    # IMPORTANT: Exclude expected_updated_at before passing to service
+    # It's not a model field and would pollute the ORM object
+    update_data = data.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
+    entity = await entity_service.update(db, current_user.id, entity_id, update_data)
+    # ...
 ```
 
-**4. Create conflict error schema (`backend/src/schemas/errors.py`):**
+**4. Add to str-replace endpoints:**
+
+For consistency, str-replace endpoints should also support optimistic locking:
 
 ```python
-class ConflictError(BaseModel):
-    error: Literal["conflict"] = "conflict"
-    message: str
-    server_state: dict  # The current entity state from server
+# Add to StrReplaceRequest schema
+class StrReplaceRequest(BaseModel):
+    old_str: str
+    new_str: str
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description="For optimistic locking. If provided and entity was modified after "
+                    "this timestamp, returns 409 Conflict.",
+    )
+
+# In str-replace endpoint
+@router.patch("/{entity_id}/str-replace")
+async def str_replace_entity(entity_id: UUID, data: StrReplaceRequest, ...):
+    await check_optimistic_lock(
+        db, entity_service, current_user.id, entity_id,
+        data.expected_updated_at, EntityResponse,
+    )
+    # Proceed with str-replace...
 ```
+
+This maintains backwards compatibility (field is optional) while allowing MCP clients to opt-in to conflict detection.
 
 ### Testing Strategy
 
@@ -845,6 +876,9 @@ const handleDoNothing = () => {
 4. `test__NoteDetail__do_nothing_preserves_local_edits_in_editor` - User can continue editing after Do Nothing
 5. `test__NoteDetail__local_edits_not_lost_during_conflict_resolution` - Editor content intact while dialog open
 
+*StaleDialog → ConflictDialog flow:*
+6. `test__NoteDetail__stale_continue_then_save_shows_conflict_dialog` - User dismisses StaleDialog with "Continue Editing", makes edits, saves → gets ConflictDialog (expected behavior)
+
 ### Dependencies
 - Milestone 1 (backend 409 support)
 - Milestone 2 (useful but not required)
@@ -884,6 +918,39 @@ When showing conflict:
 - Stale check on tab focus: Uses lightweight `/metadata` endpoint (~100ms)
 - Conflict check on save: Single `get_updated_at` query (~10ms) before update
 - Both are acceptable overhead for the safety they provide
+
+### Race Condition (TOCTOU) Acceptance
+
+The conflict check uses a "check-then-update" pattern:
+1. `SELECT updated_at` to check for conflicts
+2. `UPDATE` to apply changes
+
+There's a theoretical race window (milliseconds) where another update could occur between steps 1 and 2. This is acceptable because:
+- For a personal note app, two saves within milliseconds is essentially impossible
+- An atomic `UPDATE ... WHERE updated_at = ?` approach would require extra logic to distinguish "not found" (404) from "conflict" (409)
+- The simplicity of check-then-update outweighs the theoretical race condition
+
+### Tag Edits from List View
+
+Tag-only edits from the list view (AllContent) use **last-write-wins** and do not include `expected_updated_at`. This is acceptable because:
+- Tag edits are quick, low-stakes operations
+- Less prone to conflicts than content edits
+- Passing timestamps through the list view adds complexity for minimal benefit
+
+### StaleDialog → Continue Editing → ConflictDialog Flow
+
+When a user:
+1. Sees StaleDialog (tab focus detected stale content)
+2. Clicks "Continue Editing" (dismisses dialog)
+3. Makes edits
+4. Clicks Save
+
+They will see ConflictDialog (409 from backend) because `expected_updated_at` still has the original timestamp. This is **intentional and correct behavior**:
+- The user was warned and chose to continue
+- The backend provides a safety net
+- The user gets another chance to resolve the conflict
+
+This flow should be explicitly tested.
 
 ---
 
