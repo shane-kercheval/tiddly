@@ -184,17 +184,25 @@ describe('ConflictDialog', () => {
 
     it('should reset confirmation when clicking outside save button', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const writeTextMock = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: writeTextMock },
+        writable: true,
+        configurable: true,
+      })
       render(<ConflictDialog {...defaultProps} />)
 
       // First click - show confirmation
       await user.click(screen.getByRole('button', { name: 'Save My Version' }))
       expect(screen.getByRole('button', { name: 'Confirm Overwrite?' })).toBeInTheDocument()
 
-      // Click on a different button
-      await user.click(screen.getByRole('button', { name: 'Do Nothing' }))
+      // Click on "Copy My Content" which doesn't close the dialog
+      await user.click(screen.getByRole('button', { name: 'Copy My Content' }))
 
-      // Note: Do Nothing closes the dialog, so we need to check before that
-      // Let's test clicking on another button instead
+      // Should reset to original state (not confirming anymore)
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Save My Version' })).toBeInTheDocument()
+      })
     })
 
     it('should have warning styling when in confirmation state', async () => {

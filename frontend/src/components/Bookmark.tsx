@@ -16,6 +16,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import axios from 'axios'
+import toast from 'react-hot-toast'
 import { InlineEditableUrl } from './InlineEditableUrl'
 import { InlineEditableTitle } from './InlineEditableTitle'
 import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEditableTags'
@@ -38,7 +39,12 @@ import type { ArchivePreset } from '../utils'
 /** Conflict state for 409 responses */
 interface ConflictState {
   serverUpdatedAt: string
-  serverState: BookmarkType
+}
+
+/** Result of building update payload */
+interface BuildUpdatesResult {
+  updates: BookmarkUpdate
+  tagsToSubmit: string[]
 }
 
 /** Form state for the bookmark */
@@ -224,6 +230,44 @@ export function Bookmark({
     confirmLeave,
     onClose,
   })
+
+  // Build update payload for existing bookmarks (shared between handleSubmit and handleConflictSaveMyVersion)
+  const buildUpdates = useCallback((): BuildUpdatesResult | null => {
+    if (!bookmark) return null
+
+    // Get any pending tag text and include it
+    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+    const tagsToSubmit = [...current.tags]
+    if (pendingTag) {
+      const normalized = pendingTag.toLowerCase().trim()
+      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+        tagsToSubmit.push(normalized)
+        tagInputRef.current?.clearPending()
+      }
+    }
+
+    // Only send changed fields
+    const updates: BookmarkUpdate = {}
+    const normalizedUrl = normalizeUrl(current.url)
+    if (normalizedUrl !== bookmark.url) updates.url = normalizedUrl
+    if (current.title !== (bookmark.title ?? '')) updates.title = current.title || null
+    if (current.description !== (bookmark.description ?? '')) {
+      updates.description = current.description || null
+    }
+    if (current.content !== (bookmark.content ?? '')) {
+      updates.content = current.content || null
+    }
+    if (JSON.stringify(tagsToSubmit) !== JSON.stringify(bookmark.tags ?? [])) {
+      updates.tags = tagsToSubmit
+    }
+    const newArchivedAt = current.archivedAt || null
+    const oldArchivedAt = bookmark.archived_at || null
+    if (newArchivedAt !== oldArchivedAt) {
+      updates.archived_at = newArchivedAt
+    }
+
+    return { updates, tagsToSubmit }
+  }, [bookmark, current])
 
   // Auto-focus URL for new bookmarks only (if no initialUrl)
   useEffect(() => {
@@ -456,19 +500,21 @@ export function Bookmark({
 
     if (isReadOnly || !validate()) return
 
-    // Get any pending tag text and include it
-    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
-    const tagsToSubmit = [...current.tags]
-    if (pendingTag) {
-      const normalized = pendingTag.toLowerCase().trim()
-      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
-        tagsToSubmit.push(normalized)
-        tagInputRef.current?.clearPending()
-      }
-    }
+    let tagsToSubmit: string[]
 
     try {
       if (isCreate) {
+        // Get any pending tag text for create
+        const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+        tagsToSubmit = [...current.tags]
+        if (pendingTag) {
+          const normalized = pendingTag.toLowerCase().trim()
+          if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+            tagsToSubmit.push(normalized)
+            tagInputRef.current?.clearPending()
+          }
+        }
+
         const createData: BookmarkCreate = {
           url: normalizeUrl(current.url),
           title: current.title || undefined,
@@ -481,26 +527,10 @@ export function Bookmark({
         confirmLeave()
         await onSave(createData)
       } else {
-        // For updates, only send changed fields
-        const updates: BookmarkUpdate = {}
-        const normalizedUrl = normalizeUrl(current.url)
-        if (normalizedUrl !== bookmark?.url) updates.url = normalizedUrl
-        if (current.title !== (bookmark?.title ?? '')) updates.title = current.title || null
-        if (current.description !== (bookmark?.description ?? '')) {
-          updates.description = current.description || null
-        }
-        if (current.content !== (bookmark?.content ?? '')) {
-          updates.content = current.content || null
-        }
-        if (JSON.stringify(tagsToSubmit) !== JSON.stringify(bookmark?.tags ?? [])) {
-          updates.tags = tagsToSubmit
-        }
-        // Include archived_at if changed
-        const newArchivedAt = current.archivedAt || null
-        const oldArchivedAt = bookmark?.archived_at || null
-        if (newArchivedAt !== oldArchivedAt) {
-          updates.archived_at = newArchivedAt
-        }
+        const result = buildUpdates()
+        if (!result) return
+        const { updates, tagsToSubmit: tags } = result
+        tagsToSubmit = tags
 
         // Early return if nothing changed (safety net for edge cases)
         if (Object.keys(updates).length === 0) {
@@ -536,7 +566,6 @@ export function Bookmark({
         if (detail?.error === 'conflict' && detail?.server_state) {
           setConflictState({
             serverUpdatedAt: detail.server_state.updated_at,
-            serverState: detail.server_state as BookmarkType,
           })
           refocusAfterSaveRef.current = null
           clearSaveAndClose()
@@ -592,36 +621,15 @@ export function Bookmark({
   }, [onRefresh])
 
   const handleConflictSaveMyVersion = useCallback(async (): Promise<void> => {
-    if (!bookmark) return
+    const result = buildUpdates()
+    if (!result) return
 
-    // Build updates without expected_updated_at to force save
-    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
-    const tagsToSubmit = [...current.tags]
-    if (pendingTag) {
-      const normalized = pendingTag.toLowerCase().trim()
-      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
-        tagsToSubmit.push(normalized)
-        tagInputRef.current?.clearPending()
-      }
-    }
+    const { updates, tagsToSubmit } = result
 
-    const updates: BookmarkUpdate = {}
-    const normalizedUrl = normalizeUrl(current.url)
-    if (normalizedUrl !== bookmark.url) updates.url = normalizedUrl
-    if (current.title !== (bookmark.title ?? '')) updates.title = current.title || null
-    if (current.description !== (bookmark.description ?? '')) {
-      updates.description = current.description || null
-    }
-    if (current.content !== (bookmark.content ?? '')) {
-      updates.content = current.content || null
-    }
-    if (JSON.stringify(tagsToSubmit) !== JSON.stringify(bookmark.tags ?? [])) {
-      updates.tags = tagsToSubmit
-    }
-    const newArchivedAt = current.archivedAt || null
-    const oldArchivedAt = bookmark.archived_at || null
-    if (newArchivedAt !== oldArchivedAt) {
-      updates.archived_at = newArchivedAt
+    // Guard against no-op updates (user may have reverted changes while dialog was open)
+    if (Object.keys(updates).length === 0) {
+      setConflictState(null)
+      return
     }
 
     // Note: NOT including expected_updated_at - this forces the save to overwrite server version
@@ -631,9 +639,10 @@ export function Bookmark({
       setOriginal({ ...current, tags: tagsToSubmit })
       setConflictState(null)
     } catch {
-      // If save fails again, keep dialog open
+      // Show feedback so user knows save failed
+      toast.error('Failed to save - please try again')
     }
-  }, [bookmark, current, onSave])
+  }, [buildUpdates, current, onSave])
 
   const handleConflictDoNothing = useCallback((): void => {
     setConflictState(null)

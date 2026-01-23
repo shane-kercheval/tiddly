@@ -7,9 +7,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import axios from 'axios'
 import { Note } from './Note'
 import { createContentComponentTests } from './__tests__/createContentComponentTests'
 import type { Note as NoteType, TagCount } from '../types'
+
+// Mock axios.isAxiosError
+vi.mock('axios', async () => {
+  const actual = await vi.importActual('axios')
+  return {
+    ...actual,
+    default: {
+      ...(actual as { default: typeof axios }).default,
+      isAxiosError: vi.fn(),
+    },
+  }
+})
 
 // Mock CodeMirrorEditor - now the default editor
 vi.mock('./CodeMirrorEditor', () => ({
@@ -387,6 +400,159 @@ describe('Note component - specific behaviors', () => {
       )
 
       expect(container.querySelector('form')).not.toHaveClass('max-w-4xl')
+    })
+  })
+
+  describe('409 Conflict handling', () => {
+    const create409Error = (): Error & { response?: { status: number; data: { detail: { error: string; server_state: NoteType } } } } => {
+      const error = new Error('Conflict') as Error & { response?: { status: number; data: { detail: { error: string; server_state: NoteType } } } }
+      error.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: {
+              ...mockNote,
+              title: 'Server Updated Title',
+              updated_at: '2024-01-03T00:00:00Z',
+            },
+          },
+        },
+      }
+      return error
+    }
+
+    beforeEach(() => {
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+    })
+
+    it('should show ConflictDialog when save returns 409', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockRejectedValue(create409Error())
+
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make a change and save
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'My New Title')
+      await user.click(screen.getByText('Save'))
+
+      // ConflictDialog should appear
+      await waitFor(() => {
+        expect(screen.getByText('This note was modified while you were editing')).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Save My Version' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Do Nothing' })).toBeInTheDocument()
+    })
+
+    it('should call onRefresh when Load Server Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockRejectedValue(create409Error())
+      const mockOnRefresh = vi.fn().mockResolvedValue(true)
+
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onRefresh={mockOnRefresh}
+        />
+      )
+
+      // Make a change and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'My New Title')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Load Server Version' }))
+
+      expect(mockOnRefresh).toHaveBeenCalledTimes(1)
+    })
+
+    it('should force save without expected_updated_at when Save My Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      // First call rejects with 409, second call succeeds
+      mockOnSave.mockRejectedValueOnce(create409Error()).mockResolvedValueOnce(undefined)
+
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make a change and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'My New Title')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Save My Version' })).toBeInTheDocument()
+      })
+
+      // First click shows confirmation
+      await user.click(screen.getByRole('button', { name: 'Save My Version' }))
+      expect(screen.getByRole('button', { name: 'Confirm Overwrite?' })).toBeInTheDocument()
+
+      // Second click confirms and saves
+      await user.click(screen.getByRole('button', { name: 'Confirm Overwrite?' }))
+
+      await waitFor(() => {
+        expect(mockOnSave).toHaveBeenCalledTimes(2)
+      })
+
+      // Second call should NOT include expected_updated_at (force save)
+      const secondCall = mockOnSave.mock.calls[1][0]
+      expect(secondCall).not.toHaveProperty('expected_updated_at')
+      expect(secondCall).toHaveProperty('title', 'My New Title')
+    })
+
+    it('should close ConflictDialog without action when Do Nothing is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockRejectedValue(create409Error())
+
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make a change and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'My New Title')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Do Nothing' })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Do Nothing' }))
+
+      // Dialog should close but changes should remain
+      await waitFor(() => {
+        expect(screen.queryByText('This note was modified while you were editing')).not.toBeInTheDocument()
+      })
+
+      // User's changes should still be in the form
+      expect(screen.getByDisplayValue('My New Title')).toBeInTheDocument()
     })
   })
 })

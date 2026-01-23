@@ -16,6 +16,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import axios from 'axios'
+import toast from 'react-hot-toast'
 import { InlineEditableTitle } from './InlineEditableTitle'
 import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEditableTags'
 import { InlineEditableText } from './InlineEditableText'
@@ -40,7 +41,13 @@ import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, 
 /** Conflict state for 409 responses */
 interface ConflictState {
   serverUpdatedAt: string
-  serverState: PromptType
+}
+
+/** Result of building update payload */
+interface BuildUpdatesResult {
+  updates: PromptUpdate
+  tagsToSubmit: string[]
+  cleanedArgs: PromptArgument[]
 }
 
 /** Default template content for new prompts */
@@ -274,6 +281,55 @@ export function Prompt({
     onClose,
   })
 
+  // Build update payload for existing prompts (shared between handleSubmit and handleConflictSaveMyVersion)
+  const buildUpdates = useCallback((): BuildUpdatesResult | null => {
+    if (!prompt) return null
+
+    // Get any pending tag text and include it
+    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+    const tagsToSubmit = [...current.tags]
+    if (pendingTag) {
+      const normalized = pendingTag.toLowerCase().trim()
+      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+        tagsToSubmit.push(normalized)
+        tagInputRef.current?.clearPending()
+      }
+    }
+
+    // Clean up arguments (remove empty descriptions)
+    const cleanedArgs = current.arguments.map((arg) => ({
+      ...arg,
+      description: arg.description?.trim() || null,
+      required: arg.required ?? false,
+    }))
+
+    // Only send changed fields
+    const updates: PromptUpdate = {}
+    if (current.name !== prompt.name) updates.name = current.name
+    if (current.title !== (prompt.title ?? '')) {
+      updates.title = current.title || null
+    }
+    if (current.description !== (prompt.description ?? '')) {
+      updates.description = current.description || null
+    }
+    if (current.content !== (prompt.content ?? '')) {
+      updates.content = current.content || null
+    }
+    if (JSON.stringify(cleanedArgs) !== JSON.stringify(prompt.arguments ?? [])) {
+      updates.arguments = cleanedArgs
+    }
+    if (JSON.stringify(tagsToSubmit) !== JSON.stringify(prompt.tags ?? [])) {
+      updates.tags = tagsToSubmit
+    }
+    const newArchivedAt = current.archivedAt || null
+    const oldArchivedAt = prompt.archived_at || null
+    if (newArchivedAt !== oldArchivedAt) {
+      updates.archived_at = newArchivedAt
+    }
+
+    return { updates, tagsToSubmit, cleanedArgs }
+  }, [prompt, current])
+
   // Auto-focus name for new prompts only
   useEffect(() => {
     if (isCreate && nameInputRef.current) {
@@ -444,26 +500,29 @@ export function Prompt({
 
     if (isReadOnly || !validate()) return
 
-    // Get any pending tag text and include it
-    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
-    const tagsToSubmit = [...current.tags]
-    if (pendingTag) {
-      const normalized = pendingTag.toLowerCase().trim()
-      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
-        tagsToSubmit.push(normalized)
-        tagInputRef.current?.clearPending()
-      }
-    }
-
-    // Clean up arguments (remove empty descriptions)
-    const cleanedArgs = current.arguments.map((arg) => ({
-      ...arg,
-      description: arg.description?.trim() || null,
-      required: arg.required ?? false,
-    }))
+    let tagsToSubmit: string[]
+    let cleanedArgs: PromptArgument[]
 
     try {
       if (isCreate) {
+        // Get any pending tag text for create
+        const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+        tagsToSubmit = [...current.tags]
+        if (pendingTag) {
+          const normalized = pendingTag.toLowerCase().trim()
+          if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+            tagsToSubmit.push(normalized)
+            tagInputRef.current?.clearPending()
+          }
+        }
+
+        // Clean up arguments
+        cleanedArgs = current.arguments.map((arg) => ({
+          ...arg,
+          description: arg.description?.trim() || null,
+          required: arg.required ?? false,
+        }))
+
         const createData: PromptCreate = {
           name: current.name,
           title: current.title || undefined,
@@ -477,30 +536,11 @@ export function Prompt({
         confirmLeave()
         await onSave(createData)
       } else {
-        // For updates, only send changed fields
-        const updates: PromptUpdate = {}
-        if (current.name !== prompt?.name) updates.name = current.name
-        if (current.title !== (prompt?.title ?? '')) {
-          updates.title = current.title || null
-        }
-        if (current.description !== (prompt?.description ?? '')) {
-          updates.description = current.description || null
-        }
-        if (current.content !== (prompt?.content ?? '')) {
-          updates.content = current.content || null
-        }
-        if (JSON.stringify(cleanedArgs) !== JSON.stringify(prompt?.arguments ?? [])) {
-          updates.arguments = cleanedArgs
-        }
-        if (JSON.stringify(tagsToSubmit) !== JSON.stringify(prompt?.tags ?? [])) {
-          updates.tags = tagsToSubmit
-        }
-        // Include archived_at if changed
-        const newArchivedAt = current.archivedAt || null
-        const oldArchivedAt = prompt?.archived_at || null
-        if (newArchivedAt !== oldArchivedAt) {
-          updates.archived_at = newArchivedAt
-        }
+        const result = buildUpdates()
+        if (!result) return
+        const { updates, tagsToSubmit: tags, cleanedArgs: args } = result
+        tagsToSubmit = tags
+        cleanedArgs = args
 
         // Early return if nothing changed (safety net for edge cases)
         if (Object.keys(updates).length === 0) {
@@ -545,7 +585,6 @@ export function Prompt({
         if (detail?.error === 'conflict' && detail?.server_state) {
           setConflictState({
             serverUpdatedAt: detail.server_state.updated_at,
-            serverState: detail.server_state as PromptType,
           })
           refocusAfterSaveRef.current = null
           clearSaveAndClose()
@@ -614,46 +653,14 @@ export function Prompt({
   }, [onRefresh])
 
   const handleConflictSaveMyVersion = useCallback(async (): Promise<void> => {
-    if (!prompt) return
+    const result = buildUpdates()
+    if (!result) return
+    const { updates, tagsToSubmit, cleanedArgs } = result
 
-    // Build updates without expected_updated_at to force save
-    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
-    const tagsToSubmit = [...current.tags]
-    if (pendingTag) {
-      const normalized = pendingTag.toLowerCase().trim()
-      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
-        tagsToSubmit.push(normalized)
-        tagInputRef.current?.clearPending()
-      }
-    }
-
-    const cleanedArgs = current.arguments.map((arg) => ({
-      ...arg,
-      description: arg.description?.trim() || null,
-      required: arg.required ?? false,
-    }))
-
-    const updates: PromptUpdate = {}
-    if (current.name !== prompt.name) updates.name = current.name
-    if (current.title !== (prompt.title ?? '')) {
-      updates.title = current.title || null
-    }
-    if (current.description !== (prompt.description ?? '')) {
-      updates.description = current.description || null
-    }
-    if (current.content !== (prompt.content ?? '')) {
-      updates.content = current.content || null
-    }
-    if (JSON.stringify(cleanedArgs) !== JSON.stringify(prompt.arguments ?? [])) {
-      updates.arguments = cleanedArgs
-    }
-    if (JSON.stringify(tagsToSubmit) !== JSON.stringify(prompt.tags ?? [])) {
-      updates.tags = tagsToSubmit
-    }
-    const newArchivedAt = current.archivedAt || null
-    const oldArchivedAt = prompt.archived_at || null
-    if (newArchivedAt !== oldArchivedAt) {
-      updates.archived_at = newArchivedAt
+    // Guard against no-op updates (user may have reverted changes while dialog was open)
+    if (Object.keys(updates).length === 0) {
+      setConflictState(null)
+      return
     }
 
     // Note: NOT including expected_updated_at - this forces the save to overwrite server version
@@ -671,10 +678,16 @@ export function Prompt({
         archivePreset: current.archivePreset,
       })
       setConflictState(null)
-    } catch {
-      // If save fails again, keep dialog open
+    } catch (err) {
+      // Handle field-specific errors (e.g., NAME_CONFLICT)
+      if (err instanceof SaveError) {
+        setErrors((prev) => ({ ...prev, ...err.fieldErrors }))
+        setConflictState(null)
+        return
+      }
+      toast.error('Failed to save - please try again')
     }
-  }, [prompt, current, onSave])
+  }, [buildUpdates, current, onSave])
 
   const handleConflictDoNothing = useCallback((): void => {
     setConflictState(null)

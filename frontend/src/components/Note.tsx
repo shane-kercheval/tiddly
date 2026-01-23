@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode, FormEvent } from 'react'
 import axios from 'axios'
+import toast from 'react-hot-toast'
 import { InlineEditableTitle } from './InlineEditableTitle'
 import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEditableTags'
 import { InlineEditableText } from './InlineEditableText'
@@ -36,7 +37,12 @@ import type { Note as NoteType, NoteCreate, NoteUpdate, TagCount } from '../type
 /** Conflict state for 409 responses */
 interface ConflictState {
   serverUpdatedAt: string
-  serverState: NoteType
+}
+
+/** Result of building update payload */
+interface BuildUpdatesResult {
+  updates: NoteUpdate
+  tagsToSubmit: string[]
 }
 
 /** Form state for the note */
@@ -198,6 +204,42 @@ export function Note({
     onClose,
   })
 
+  // Build update payload for existing notes (shared between handleSubmit and handleConflictSaveMyVersion)
+  const buildUpdates = useCallback((): BuildUpdatesResult | null => {
+    if (!note) return null
+
+    // Get any pending tag text and include it
+    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+    const tagsToSubmit = [...current.tags]
+    if (pendingTag) {
+      const normalized = pendingTag.toLowerCase().trim()
+      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+        tagsToSubmit.push(normalized)
+        tagInputRef.current?.clearPending()
+      }
+    }
+
+    // Only send changed fields
+    const updates: NoteUpdate = {}
+    if (current.title !== note.title) updates.title = current.title
+    if (current.description !== (note.description ?? '')) {
+      updates.description = current.description || null
+    }
+    if (current.content !== (note.content ?? '')) {
+      updates.content = current.content || null
+    }
+    if (JSON.stringify(tagsToSubmit) !== JSON.stringify(note.tags ?? [])) {
+      updates.tags = tagsToSubmit
+    }
+    const newArchivedAt = current.archivedAt || null
+    const oldArchivedAt = note.archived_at || null
+    if (newArchivedAt !== oldArchivedAt) {
+      updates.archived_at = newArchivedAt
+    }
+
+    return { updates, tagsToSubmit }
+  }, [note, current])
+
   // Auto-focus title for new notes only
   useEffect(() => {
     if (isCreate && titleInputRef.current) {
@@ -312,19 +354,21 @@ export function Note({
 
     if (isReadOnly || !validate()) return
 
-    // Get any pending tag text and include it
-    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
-    const tagsToSubmit = [...current.tags]
-    if (pendingTag) {
-      const normalized = pendingTag.toLowerCase().trim()
-      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
-        tagsToSubmit.push(normalized)
-        tagInputRef.current?.clearPending()
-      }
-    }
+    let tagsToSubmit: string[]
 
     try {
       if (isCreate) {
+        // Get any pending tag text for create
+        const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+        tagsToSubmit = [...current.tags]
+        if (pendingTag) {
+          const normalized = pendingTag.toLowerCase().trim()
+          if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+            tagsToSubmit.push(normalized)
+            tagInputRef.current?.clearPending()
+          }
+        }
+
         const createData: NoteCreate = {
           title: current.title,
           description: current.description || undefined,
@@ -336,24 +380,10 @@ export function Note({
         confirmLeave()
         await onSave(createData)
       } else {
-        // For updates, only send changed fields
-        const updates: NoteUpdate = {}
-        if (current.title !== note?.title) updates.title = current.title
-        if (current.description !== (note?.description ?? '')) {
-          updates.description = current.description || null
-        }
-        if (current.content !== (note?.content ?? '')) {
-          updates.content = current.content || null
-        }
-        if (JSON.stringify(tagsToSubmit) !== JSON.stringify(note?.tags ?? [])) {
-          updates.tags = tagsToSubmit
-        }
-        // Include archived_at if changed
-        const newArchivedAt = current.archivedAt || null
-        const oldArchivedAt = note?.archived_at || null
-        if (newArchivedAt !== oldArchivedAt) {
-          updates.archived_at = newArchivedAt
-        }
+        const result = buildUpdates()
+        if (!result) return
+        const { updates, tagsToSubmit: tags } = result
+        tagsToSubmit = tags
 
         // Early return if nothing changed (safety net for edge cases)
         if (Object.keys(updates).length === 0) {
@@ -361,7 +391,6 @@ export function Note({
         }
 
         // Include expected_updated_at for optimistic locking (prevents overwriting concurrent edits)
-        // If note.updated_at is provided, server will return 409 if the note was modified since we loaded it
         if (note?.updated_at) {
           updates.expected_updated_at = note.updated_at
         }
@@ -390,7 +419,6 @@ export function Note({
         if (detail?.error === 'conflict' && detail?.server_state) {
           setConflictState({
             serverUpdatedAt: detail.server_state.updated_at,
-            serverState: detail.server_state as NoteType,
           })
           // Clear refs but don't propagate error - we're handling it with the dialog
           refocusAfterSaveRef.current = null
@@ -444,34 +472,15 @@ export function Note({
   }, [onRefresh])
 
   const handleConflictSaveMyVersion = useCallback(async (): Promise<void> => {
-    if (!note) return
+    const result = buildUpdates()
+    if (!result) return
 
-    // Build updates without expected_updated_at to force save
-    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
-    const tagsToSubmit = [...current.tags]
-    if (pendingTag) {
-      const normalized = pendingTag.toLowerCase().trim()
-      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
-        tagsToSubmit.push(normalized)
-        tagInputRef.current?.clearPending()
-      }
-    }
+    const { updates, tagsToSubmit } = result
 
-    const updates: NoteUpdate = {}
-    if (current.title !== note.title) updates.title = current.title
-    if (current.description !== (note.description ?? '')) {
-      updates.description = current.description || null
-    }
-    if (current.content !== (note.content ?? '')) {
-      updates.content = current.content || null
-    }
-    if (JSON.stringify(tagsToSubmit) !== JSON.stringify(note.tags ?? [])) {
-      updates.tags = tagsToSubmit
-    }
-    const newArchivedAt = current.archivedAt || null
-    const oldArchivedAt = note.archived_at || null
-    if (newArchivedAt !== oldArchivedAt) {
-      updates.archived_at = newArchivedAt
+    // Guard against no-op updates (user may have reverted changes while dialog was open)
+    if (Object.keys(updates).length === 0) {
+      setConflictState(null)
+      return
     }
 
     // Note: NOT including expected_updated_at - this forces the save to overwrite server version
@@ -481,9 +490,10 @@ export function Note({
       setOriginal({ ...current, tags: tagsToSubmit })
       setConflictState(null)
     } catch {
-      // If save fails again, keep dialog open and let user try again or choose another option
+      // Show feedback so user knows save failed
+      toast.error('Failed to save - please try again')
     }
-  }, [note, current, onSave])
+  }, [buildUpdates, current, onSave])
 
   const handleConflictDoNothing = useCallback((): void => {
     setConflictState(null)
