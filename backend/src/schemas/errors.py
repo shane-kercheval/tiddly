@@ -25,6 +25,11 @@ class StrReplaceRequest(BaseModel):
     new_str: str = Field(
         description="Replacement text (use empty string to delete)",
     )
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description="For optimistic locking. If provided and the entity was modified after "
+                    "this timestamp, returns 409 Conflict with current server state.",
+    )
 
 
 class PromptStrReplaceRequest(BaseModel):
@@ -49,6 +54,11 @@ class PromptStrReplaceRequest(BaseModel):
         "If omitted, validation uses existing arguments. "
         "If provided, this list fully replaces current arguments (not a merge). "
         "Use this when adding/removing template variables to avoid validation errors.",
+    )
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description="For optimistic locking. If provided and the prompt was modified after "
+                    "this timestamp, returns 409 Conflict with current server state.",
     )
 
     @model_validator(mode="after")

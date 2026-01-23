@@ -108,7 +108,7 @@ class NoteService(BaseEntityService[Note]):
         if note is None:
             return None
 
-        update_data = data.model_dump(exclude_unset=True)
+        update_data = data.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
         new_tags = update_data.pop("tags", None)
 
         for field, value in update_data.items():

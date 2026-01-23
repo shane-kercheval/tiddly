@@ -811,7 +811,6 @@ async def test_search_by_content(
 ) -> None:
     """Test text search finds bookmarks by content field."""
     from models.bookmark import Bookmark
-    from models.user import User
     from sqlalchemy import select
 
     # First make an API call to ensure dev user exists
@@ -1296,7 +1295,6 @@ async def test_search_by_summary(
 ) -> None:
     """Test text search finds bookmarks by summary field (Phase 2 preparation)."""
     from models.bookmark import Bookmark
-    from models.user import User
     from sqlalchemy import select
 
     # First make an API call to ensure dev user exists
@@ -1744,7 +1742,6 @@ async def test_different_users_can_have_same_url(
 ) -> None:
     """Test that different users can bookmark the same URL."""
     from models.bookmark import Bookmark
-    from models.user import User
 
     # Create bookmark via API (dev user)
     response = await client.post(
@@ -1912,7 +1909,6 @@ async def test_user_cannot_see_other_users_bookmarks_in_list(
     from api.main import app
     from core.config import Settings, get_settings
     from db.session import get_async_session
-    from models.user import User
     from services.token_service import create_token
     from schemas.token import TokenCreate
 
@@ -1976,7 +1972,6 @@ async def test_user_cannot_get_other_users_bookmark_by_id(
     from api.main import app
     from core.config import Settings, get_settings
     from db.session import get_async_session
-    from models.user import User
     from services.token_service import create_token
     from schemas.token import TokenCreate
 
@@ -2037,7 +2032,6 @@ async def test_user_cannot_update_other_users_bookmark(
     from api.main import app
     from core.config import Settings, get_settings
     from db.session import get_async_session
-    from models.user import User
     from services.token_service import create_token
     from schemas.token import TokenCreate
 
@@ -2108,7 +2102,6 @@ async def test_user_cannot_delete_other_users_bookmark(
     from api.main import app
     from core.config import Settings, get_settings
     from db.session import get_async_session
-    from models.user import User
     from services.token_service import create_token
     from schemas.token import TokenCreate
 
@@ -2177,7 +2170,6 @@ async def test_user_cannot_str_replace_other_users_bookmark(
     from api.main import app
     from core.config import Settings, get_settings
     from db.session import get_async_session
-    from models.user import User
     from services.token_service import create_token
     from schemas.token import TokenCreate
 

@@ -268,3 +268,67 @@ async def test__get_prompt__tracks_usage_in_db(
 
     # last_used_at should be set (it was null initially or updated)
     assert data.get("last_used_at") is not None
+
+
+@pytest.mark.asyncio
+async def test__list_prompts__excludes_archived_prompts(
+    mcp_integration_client: AsyncClient,
+) -> None:
+    """Test that archived prompts are not returned by list_prompts."""
+    # Create a prompt
+    response = await mcp_integration_client.post(
+        "/prompts/",
+        json={"name": "archived-test-prompt", "content": "Test content"},
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Verify it appears in list_prompts
+    result = await handle_list_prompts(make_list_prompts_request())
+    prompt_names = [p.name for p in result.prompts]
+    assert "archived-test-prompt" in prompt_names
+
+    # Archive the prompt
+    response = await mcp_integration_client.post(f"/prompts/{prompt_id}/archive")
+    assert response.status_code == 200
+
+    # Verify it no longer appears in list_prompts
+    result = await handle_list_prompts(make_list_prompts_request())
+    prompt_names = [p.name for p in result.prompts]
+    assert "archived-test-prompt" not in prompt_names
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__excludes_archived_prompts(
+    mcp_integration_client: AsyncClient,
+) -> None:
+    """Test that archived prompts are not returned by search_prompts tool."""
+    import json
+
+    # Create a prompt with a unique name for searching
+    response = await mcp_integration_client.post(
+        "/prompts/",
+        json={
+            "name": "searchable-archived-prompt",
+            "content": "Unique searchable content xyz123",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Verify it appears in search_prompts
+    result = await handle_call_tool("search_prompts", {"query": "searchable-archived"})
+    assert len(result) == 1
+    search_result = json.loads(result[0].text)
+    prompt_names = [p["name"] for p in search_result["items"]]
+    assert "searchable-archived-prompt" in prompt_names
+
+    # Archive the prompt
+    response = await mcp_integration_client.post(f"/prompts/{prompt_id}/archive")
+    assert response.status_code == 200
+
+    # Verify it no longer appears in search_prompts
+    result = await handle_call_tool("search_prompts", {"query": "searchable-archived"})
+    search_result = json.loads(result[0].text)
+    prompt_names = [p["name"] for p in search_result["items"]]
+    assert "searchable-archived-prompt" not in prompt_names

@@ -85,6 +85,11 @@ class BookmarkUpdate(BaseModel):
                     "Accepts ISO 8601 format (e.g., '2025-02-01T16:00:00Z'). "
                     "Future dates schedule auto-archive; past dates archive immediately.",
     )
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description="For optimistic locking. If provided and the bookmark was modified after "
+                    "this timestamp, returns 409 Conflict with current server state.",
+    )
 
     @field_validator("tags", mode="before")
     @classmethod
