@@ -1,8 +1,8 @@
 /**
  * Tests for StaleDialog and DeletedDialog components.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StaleDialog, DeletedDialog } from './StaleDialog'
 
@@ -18,6 +18,11 @@ describe('StaleDialog', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   describe('rendering', () => {
@@ -25,7 +30,7 @@ describe('StaleDialog', () => {
       render(<StaleDialog {...defaultProps} />)
 
       expect(screen.getByRole('dialog')).toBeInTheDocument()
-      expect(screen.getByText('This note was modified elsewhere')).toBeInTheDocument()
+      expect(screen.getByText('This note was modified')).toBeInTheDocument()
     })
 
     it('should not render dialog when isOpen is false', () => {
@@ -41,29 +46,28 @@ describe('StaleDialog', () => {
       expect(screen.getByRole('button', { name: 'Continue Editing' })).toBeInTheDocument()
     })
 
-    it('should show server modified time', () => {
+    it('should show newer version message', () => {
       render(<StaleDialog {...defaultProps} />)
 
-      // Should show relative time
-      expect(screen.getByText(/Server version from/)).toBeInTheDocument()
+      expect(screen.getByText('A newer version was detected on the server.')).toBeInTheDocument()
     })
 
     it('should show entity type in header for note', () => {
       render(<StaleDialog {...defaultProps} entityType="note" />)
 
-      expect(screen.getByText('This note was modified elsewhere')).toBeInTheDocument()
+      expect(screen.getByText('This note was modified')).toBeInTheDocument()
     })
 
     it('should show entity type in header for bookmark', () => {
       render(<StaleDialog {...defaultProps} entityType="bookmark" />)
 
-      expect(screen.getByText('This bookmark was modified elsewhere')).toBeInTheDocument()
+      expect(screen.getByText('This bookmark was modified')).toBeInTheDocument()
     })
 
     it('should show entity type in header for prompt', () => {
       render(<StaleDialog {...defaultProps} entityType="prompt" />)
 
-      expect(screen.getByText('This prompt was modified elsewhere')).toBeInTheDocument()
+      expect(screen.getByText('This prompt was modified')).toBeInTheDocument()
     })
   })
 
@@ -78,6 +82,63 @@ describe('StaleDialog', () => {
       render(<StaleDialog {...defaultProps} isDirty={false} />)
 
       expect(screen.queryByText(/You have unsaved changes/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Copy My Content button', () => {
+    it('should show Copy My Content button when isDirty and currentContent provided', () => {
+      render(<StaleDialog {...defaultProps} isDirty={true} currentContent="My local content" />)
+
+      expect(screen.getByRole('button', { name: 'Copy My Content' })).toBeInTheDocument()
+    })
+
+    it('should not show Copy My Content button when isDirty is false', () => {
+      render(<StaleDialog {...defaultProps} isDirty={false} currentContent="My local content" />)
+
+      expect(screen.queryByRole('button', { name: 'Copy My Content' })).not.toBeInTheDocument()
+    })
+
+    it('should not show Copy My Content button when currentContent is not provided', () => {
+      render(<StaleDialog {...defaultProps} isDirty={true} />)
+
+      expect(screen.queryByRole('button', { name: 'Copy My Content' })).not.toBeInTheDocument()
+    })
+
+    it('should copy content to clipboard and show checkmark when clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const writeTextMock = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: writeTextMock },
+        writable: true,
+        configurable: true,
+      })
+
+      render(<StaleDialog {...defaultProps} isDirty={true} currentContent="My local content" />)
+
+      await user.click(screen.getByRole('button', { name: 'Copy My Content' }))
+
+      await waitFor(() => {
+        expect(writeTextMock).toHaveBeenCalledWith('My local content')
+      })
+      expect(screen.getByText('Copied!')).toBeInTheDocument()
+    })
+
+    it('should show Failed text when clipboard fails', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const writeTextMock = vi.fn().mockRejectedValue(new Error('Clipboard error'))
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: writeTextMock },
+        writable: true,
+        configurable: true,
+      })
+
+      render(<StaleDialog {...defaultProps} isDirty={true} currentContent="My local content" />)
+
+      await user.click(screen.getByRole('button', { name: 'Copy My Content' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Failed')).toBeInTheDocument()
+      })
     })
   })
 

@@ -981,6 +981,7 @@ export function Prompt({
           serverUpdatedAt={serverUpdatedAt}
           isDirty={isDirty}
           entityType="prompt"
+          currentContent={current.content}
           onLoadServerVersion={async () => {
             const refreshed = await onRefresh?.()
             if (refreshed) {

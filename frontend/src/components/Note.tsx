@@ -737,6 +737,7 @@ export function Note({
           serverUpdatedAt={serverUpdatedAt}
           isDirty={isDirty}
           entityType="note"
+          currentContent={current.content}
           onLoadServerVersion={async () => {
             const refreshed = await onRefresh?.()
             if (refreshed) {

@@ -5,7 +5,7 @@
  * plus Bookmark-specific tests for unique functionality.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { useRef } from 'react'
 import userEvent from '@testing-library/user-event'
 import axios from 'axios'
@@ -582,6 +582,37 @@ createContentComponentTests({
       const refreshedEditor = screen.getByTestId('content-editor-text')
       const refreshedInstance = refreshedEditor.getAttribute('data-editor-instance')
       expect(refreshedInstance).not.toBe(initialInstance)
+    })
+  })
+
+  describe('editor focus on save', () => {
+    it('should keep focus on editor after Cmd+S save', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockResolvedValue(undefined)
+
+      render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      const editor = screen.getByTestId('content-editor-text')
+      editor.focus()
+      expect(document.activeElement).toBe(editor)
+
+      await user.type(editor, 'x')
+
+      fireEvent.keyDown(document, { key: 's', metaKey: true })
+
+      await waitFor(() => {
+        expect(mockOnSave).toHaveBeenCalled()
+      })
+
+      const editorAfterSave = screen.getByTestId('content-editor-text')
+      expect(document.activeElement).toBe(editorAfterSave)
     })
   })
 

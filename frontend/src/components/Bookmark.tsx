@@ -906,6 +906,7 @@ export function Bookmark({
           serverUpdatedAt={serverUpdatedAt}
           isDirty={isDirty}
           entityType="bookmark"
+          currentContent={current.content}
           onLoadServerVersion={async () => {
             const refreshed = await onRefresh?.()
             if (refreshed) {
