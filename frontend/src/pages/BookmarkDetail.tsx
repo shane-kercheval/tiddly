@@ -218,6 +218,17 @@ export function BookmarkDetail(): ReactNode {
     }
   }, [bookmarkId, deleteMutation, navigateBack])
 
+  // Refresh handler for stale check
+  const handleRefresh = useCallback(async (): Promise<void> => {
+    if (!bookmarkId) return
+    try {
+      const refreshedBookmark = await fetchBookmark(bookmarkId)
+      setBookmark(refreshedBookmark)
+    } catch {
+      toast.error('Failed to refresh bookmark')
+    }
+  }, [bookmarkId, fetchBookmark])
+
   if (isLoading) {
     return <LoadingSpinnerCentered label="Loading bookmark..." />
   }
@@ -242,6 +253,7 @@ export function BookmarkDetail(): ReactNode {
       onDelete={handleDelete}
       viewState={viewState}
       fullWidth={fullWidthLayout}
+      onRefresh={handleRefresh}
     />
   )
 }

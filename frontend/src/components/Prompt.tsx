@@ -21,7 +21,7 @@ import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { ArgumentsBuilder } from './ArgumentsBuilder'
-import { UnsavedChangesDialog } from './ui'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { PreviewPromptModal } from './PreviewPromptModal'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
@@ -31,7 +31,9 @@ import { config } from '../config'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
+import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { usePrompts } from '../hooks/usePrompts'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, TagCount } from '../types'
 
 /** Default template content for new prompts */
@@ -138,6 +140,8 @@ interface PromptProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
+  /** Called to refresh the prompt from server (for stale check) */
+  onRefresh?: () => Promise<void>
 }
 
 /**
@@ -156,8 +160,20 @@ export function Prompt({
   onRestore,
   viewState = 'active',
   fullWidth = false,
+  onRefresh,
 }: PromptProps): ReactNode {
   const isCreate = !prompt
+
+  // Stale check hook
+  const { fetchPromptMetadata } = usePrompts()
+  const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
+    entityId: prompt?.id,
+    loadedUpdatedAt: prompt?.updated_at,
+    fetchUpdatedAt: async (id) => {
+      const metadata = await fetchPromptMetadata(id)
+      return metadata.updated_at
+    },
+  })
 
   // Get initial archive state from prompt
   const getInitialArchiveState = (): { archivedAt: string; archivePreset: ArchivePreset } => {
@@ -808,6 +824,26 @@ export function Prompt({
           prompt={prompt}
         />
       )}
+
+      {/* Stale check dialogs */}
+      {serverUpdatedAt && (
+        <StaleDialog
+          isOpen={isStale}
+          serverUpdatedAt={serverUpdatedAt}
+          isDirty={isDirty}
+          entityType="prompt"
+          onLoadServerVersion={async () => {
+            await onRefresh?.()
+            dismissStale()
+          }}
+          onContinueEditing={dismissStale}
+        />
+      )}
+      <DeletedDialog
+        isOpen={isDeleted}
+        entityType="prompt"
+        onGoBack={onClose}
+      />
     </form>
   )
 }

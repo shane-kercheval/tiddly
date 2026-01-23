@@ -21,14 +21,16 @@ import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEdita
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
-import { UnsavedChangesDialog } from './ui'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
 import { config } from '../config'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
+import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { useBookmarks } from '../hooks/useBookmarks'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
 import type { ArchivePreset } from '../utils'
 
@@ -86,6 +88,8 @@ interface BookmarkProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
+  /** Called to refresh the bookmark from server (for stale check) */
+  onRefresh?: () => Promise<void>
 }
 
 /**
@@ -117,8 +121,20 @@ export function Bookmark({
   onRestore,
   viewState = 'active',
   fullWidth = false,
+  onRefresh,
 }: BookmarkProps): ReactNode {
   const isCreate = !bookmark
+
+  // Stale check hook
+  const { fetchBookmarkMetadata } = useBookmarks()
+  const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
+    entityId: bookmark?.id,
+    loadedUpdatedAt: bookmark?.updated_at,
+    fetchUpdatedAt: async (id) => {
+      const metadata = await fetchBookmarkMetadata(id)
+      return metadata.updated_at
+    },
+  })
 
   // Initialize state from bookmark or defaults
   const getInitialState = (): BookmarkState => {
@@ -761,6 +777,26 @@ export function Bookmark({
         isOpen={showDialog}
         onStay={handleStay}
         onLeave={handleLeave}
+      />
+
+      {/* Stale check dialogs */}
+      {serverUpdatedAt && (
+        <StaleDialog
+          isOpen={isStale}
+          serverUpdatedAt={serverUpdatedAt}
+          isDirty={isDirty}
+          entityType="bookmark"
+          onLoadServerVersion={async () => {
+            await onRefresh?.()
+            dismissStale()
+          }}
+          onContinueEditing={dismissStale}
+        />
+      )}
+      <DeletedDialog
+        isOpen={isDeleted}
+        entityType="bookmark"
+        onGoBack={onClose}
       />
     </form>
   )

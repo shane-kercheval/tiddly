@@ -19,7 +19,7 @@ import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEdita
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
-import { UnsavedChangesDialog } from './ui'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
@@ -27,7 +27,9 @@ import type { ArchivePreset } from '../utils'
 import { config } from '../config'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
+import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { useNotes } from '../hooks/useNotes'
 import type { Note as NoteType, NoteCreate, NoteUpdate, TagCount } from '../types'
 
 /** Form state for the note */
@@ -72,6 +74,8 @@ interface NoteProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
+  /** Called to refresh the note from server (for stale check) */
+  onRefresh?: () => Promise<void>
 }
 
 /**
@@ -90,8 +94,20 @@ export function Note({
   onRestore,
   viewState = 'active',
   fullWidth = false,
+  onRefresh,
 }: NoteProps): ReactNode {
   const isCreate = !note
+
+  // Stale check hook
+  const { fetchNoteMetadata } = useNotes()
+  const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
+    entityId: note?.id,
+    loadedUpdatedAt: note?.updated_at,
+    fetchUpdatedAt: async (id) => {
+      const metadata = await fetchNoteMetadata(id)
+      return metadata.updated_at
+    },
+  })
 
   // Get initial archive state from note
   const getInitialArchiveState = (): { archivedAt: string; archivePreset: ArchivePreset } => {
@@ -589,6 +605,26 @@ export function Note({
         isOpen={showDialog}
         onStay={handleStay}
         onLeave={handleLeave}
+      />
+
+      {/* Stale check dialogs */}
+      {serverUpdatedAt && (
+        <StaleDialog
+          isOpen={isStale}
+          serverUpdatedAt={serverUpdatedAt}
+          isDirty={isDirty}
+          entityType="note"
+          onLoadServerVersion={async () => {
+            await onRefresh?.()
+            dismissStale()
+          }}
+          onContinueEditing={dismissStale}
+        />
+      )}
+      <DeletedDialog
+        isOpen={isDeleted}
+        entityType="note"
+        onGoBack={onClose}
       />
     </form>
   )

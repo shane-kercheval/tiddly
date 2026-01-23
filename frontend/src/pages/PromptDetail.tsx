@@ -226,6 +226,17 @@ export function PromptDetail(): ReactNode {
     }
   }, [promptId, restoreMutation, navigateBack])
 
+  // Refresh handler for stale check
+  const handleRefresh = useCallback(async (): Promise<void> => {
+    if (!promptId) return
+    try {
+      const refreshedPrompt = await fetchPrompt(promptId)
+      setPrompt(refreshedPrompt)
+    } catch {
+      toast.error('Failed to refresh prompt')
+    }
+  }, [promptId, fetchPrompt])
+
   // Render loading state
   if (isLoading) {
     return <LoadingSpinnerCentered label="Loading prompt..." />
@@ -272,6 +283,7 @@ export function PromptDetail(): ReactNode {
       onRestore={viewState === 'deleted' ? handleRestore : undefined}
       viewState={viewState}
       fullWidth={fullWidthLayout}
+      onRefresh={handleRefresh}
     />
   )
 }

@@ -10,11 +10,13 @@
  */
 import { useCallback } from 'react'
 import { api } from '../services/api'
-import type { Note } from '../types'
+import type { Note, NoteListItem } from '../types'
 
 interface UseNotesReturn {
   /** Fetch a single note by ID (with full content for viewing/editing) */
   fetchNote: (id: string) => Promise<Note>
+  /** Fetch note metadata only (lightweight, for stale checking) */
+  fetchNoteMetadata: (id: string) => Promise<NoteListItem>
   /** Track note usage (fire-and-forget) */
   trackNoteUsage: (id: string) => void
 }
@@ -24,10 +26,13 @@ interface UseNotesReturn {
  *
  * @example
  * ```tsx
- * const { fetchNote, trackNoteUsage } = useNotes()
+ * const { fetchNote, fetchNoteMetadata, trackNoteUsage } = useNotes()
  *
  * // Fetch full note for viewing/editing
  * const note = await fetchNote(id)
+ *
+ * // Fetch lightweight metadata (for stale checking)
+ * const metadata = await fetchNoteMetadata(id)
  *
  * // Track when user views a note
  * trackNoteUsage(id)
@@ -36,6 +41,11 @@ interface UseNotesReturn {
 export function useNotes(): UseNotesReturn {
   const fetchNote = useCallback(async (id: string): Promise<Note> => {
     const response = await api.get<Note>(`/notes/${id}`)
+    return response.data
+  }, [])
+
+  const fetchNoteMetadata = useCallback(async (id: string): Promise<NoteListItem> => {
+    const response = await api.get<NoteListItem>(`/notes/${id}/metadata`)
     return response.data
   }, [])
 
@@ -49,6 +59,7 @@ export function useNotes(): UseNotesReturn {
 
   return {
     fetchNote,
+    fetchNoteMetadata,
     trackNoteUsage,
   }
 }

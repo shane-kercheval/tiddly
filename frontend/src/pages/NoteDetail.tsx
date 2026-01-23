@@ -200,6 +200,17 @@ export function NoteDetail(): ReactNode {
     }
   }, [noteId, restoreMutation, navigateBack])
 
+  // Refresh handler for stale check
+  const handleRefresh = useCallback(async (): Promise<void> => {
+    if (!noteId) return
+    try {
+      const refreshedNote = await fetchNote(noteId)
+      setNote(refreshedNote)
+    } catch {
+      toast.error('Failed to refresh note')
+    }
+  }, [noteId, fetchNote])
+
   // Render loading state
   if (isLoading) {
     return <LoadingSpinnerCentered label="Loading note..." />
@@ -246,6 +257,7 @@ export function NoteDetail(): ReactNode {
       onRestore={viewState === 'deleted' ? handleRestore : undefined}
       viewState={viewState}
       fullWidth={fullWidthLayout}
+      onRefresh={handleRefresh}
     />
   )
 }
