@@ -600,6 +600,37 @@ describe('Note component - specific behaviors', () => {
     })
   })
 
+  describe('editor focus on save', () => {
+    it('should keep focus on editor after Cmd+S save', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockResolvedValue(undefined)
+
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      const editor = screen.getByTestId('content-editor')
+      editor.focus()
+      expect(document.activeElement).toBe(editor)
+
+      await user.type(editor, 'x')
+
+      fireEvent.keyDown(document, { key: 's', metaKey: true })
+
+      await waitFor(() => {
+        expect(mockOnSave).toHaveBeenCalled()
+      })
+
+      const editorAfterSave = screen.getByTestId('content-editor')
+      expect(document.activeElement).toBe(editorAfterSave)
+    })
+  })
+
   describe('409 Conflict handling', () => {
     const create409Error = (): Error & { response?: { status: number; data: { detail: { error: string; server_state: NoteType } } } } => {
       const error = new Error('Conflict') as Error & { response?: { status: number; data: { detail: { error: string; server_state: NoteType } } } }
