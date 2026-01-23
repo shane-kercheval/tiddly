@@ -193,12 +193,11 @@ describe('ConflictDialog', () => {
       expect(onDoNothing).toHaveBeenCalledTimes(1)
     })
 
-    it('should have disabled close button (canClose=false)', () => {
+    it('should not show close button (canClose=false)', () => {
       render(<ConflictDialog {...defaultProps} />)
 
-      // Modal's close button should be disabled
-      const closeButton = screen.getByRole('button', { name: 'Close' })
-      expect(closeButton).toBeDisabled()
+      // Modal's close button should be hidden
+      expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument()
     })
 
     it('should not call onDoNothing when Escape key is pressed (canClose=false)', async () => {

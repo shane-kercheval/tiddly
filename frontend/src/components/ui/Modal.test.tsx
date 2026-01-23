@@ -78,14 +78,14 @@ describe('Modal', () => {
       expect(onClose).not.toHaveBeenCalled()
     })
 
-    it('should disable close button when canClose is false', () => {
+    it('should hide close button when canClose is false', () => {
       render(
         <Modal isOpen={true} onClose={vi.fn()} title="Test Modal" canClose={false}>
           <p>Modal content</p>
         </Modal>
       )
 
-      expect(screen.getByLabelText('Close')).toBeDisabled()
+      expect(screen.queryByLabelText('Close')).not.toBeInTheDocument()
     })
   })
 
