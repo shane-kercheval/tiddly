@@ -980,7 +980,6 @@ export function Prompt({
       {serverUpdatedAt && (
         <StaleDialog
           isOpen={isStale}
-          serverUpdatedAt={serverUpdatedAt}
           isDirty={isDirty}
           entityType="prompt"
           currentContent={current.content}

@@ -736,7 +736,6 @@ export function Note({
       {serverUpdatedAt && (
         <StaleDialog
           isOpen={isStale}
-          serverUpdatedAt={serverUpdatedAt}
           isDirty={isDirty}
           entityType="note"
           currentContent={current.content}

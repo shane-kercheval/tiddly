@@ -14,8 +14,6 @@ type EntityType = 'note' | 'bookmark' | 'prompt'
 interface StaleDialogProps {
   /** Whether the dialog is open */
   isOpen: boolean
-  /** The server's updated_at timestamp for display */
-  serverUpdatedAt: string
   /** Whether the user has unsaved local changes */
   isDirty: boolean
   /** The type of entity (for message) */
@@ -88,6 +86,7 @@ export function StaleDialog({
       onClose={onContinueEditing}
       title={`This ${entityType} was modified`}
       maxWidth="max-w-md"
+      canClose={false}
     >
       <div className="space-y-4">
         <div className="text-sm text-gray-600">

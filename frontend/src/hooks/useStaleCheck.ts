@@ -112,7 +112,10 @@ export function useStaleCheck({
         }
 
         // Compare timestamps - stale if server is newer
-        if (currentUpdatedAt !== loadedUpdatedAt) {
+        // Parse as dates to handle formatting differences (e.g., with/without milliseconds)
+        const serverTime = new Date(currentUpdatedAt).getTime()
+        const loadedTime = new Date(loadedUpdatedAt).getTime()
+        if (serverTime > loadedTime) {
           setIsStale(true)
           setServerUpdatedAt(currentUpdatedAt)
         }

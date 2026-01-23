@@ -9,7 +9,6 @@ import { StaleDialog, DeletedDialog } from './StaleDialog'
 describe('StaleDialog', () => {
   const defaultProps = {
     isOpen: true,
-    serverUpdatedAt: '2024-01-15T12:00:00Z',
     isDirty: false,
     entityType: 'note' as const,
     onLoadServerVersion: vi.fn(),
@@ -161,23 +160,20 @@ describe('StaleDialog', () => {
       expect(onContinueEditing).toHaveBeenCalledTimes(1)
     })
 
-    it('should call onContinueEditing when close button is clicked', async () => {
-      const onContinueEditing = vi.fn()
-      render(<StaleDialog {...defaultProps} onContinueEditing={onContinueEditing} />)
+    it('should not show close button (user must choose an action)', () => {
+      render(<StaleDialog {...defaultProps} />)
 
-      // Modal's close button
-      await userEvent.click(screen.getByRole('button', { name: 'Close' }))
-
-      expect(onContinueEditing).toHaveBeenCalledTimes(1)
+      // Modal's close button should not be rendered
+      expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument()
     })
 
-    it('should call onContinueEditing when Escape key is pressed', async () => {
+    it('should not call onContinueEditing when Escape key is pressed', async () => {
       const onContinueEditing = vi.fn()
       render(<StaleDialog {...defaultProps} onContinueEditing={onContinueEditing} />)
 
       await userEvent.keyboard('{Escape}')
 
-      expect(onContinueEditing).toHaveBeenCalledTimes(1)
+      expect(onContinueEditing).not.toHaveBeenCalled()
     })
   })
 

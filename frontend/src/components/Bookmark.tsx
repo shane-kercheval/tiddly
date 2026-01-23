@@ -905,7 +905,6 @@ export function Bookmark({
       {serverUpdatedAt && (
         <StaleDialog
           isOpen={isStale}
-          serverUpdatedAt={serverUpdatedAt}
           isDirty={isDirty}
           entityType="bookmark"
           currentContent={current.content}
