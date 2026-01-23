@@ -36,6 +36,324 @@ This approach:
 
 ---
 
+## Milestone 0: Test Infrastructure Refactor
+
+### Goal
+Refactor duplicated tests across entity types (notes, bookmarks, prompts) into shared parametrized test suites. This establishes the pattern we'll use for optimistic locking tests and reduces maintenance burden.
+
+### Background
+
+Current test state:
+- 404 tests across 3 entity types (~9,000 lines)
+- ~50% duplication - identical test logic repeated for each entity type
+- Adding new cross-entity features (like optimistic locking) requires writing 3x the tests
+
+### Success Criteria
+- Tier 1 patterns refactored into parametrized tests
+- Tests still pass with same coverage
+- Clear pattern established for future cross-entity tests
+- Tier 2 feasibility assessment documented
+
+### Tier 1 Refactoring (100% Identical Logic)
+
+These patterns have identical logic across all three entity types and can be directly parametrized:
+
+| Pattern | Current Tests | After Refactor | Lines Saved |
+|---------|---------------|----------------|-------------|
+| Archive/Unarchive | 18 | 6 | ~120 |
+| Soft Delete & Restore | 21 | 7 | ~140 |
+| Track Usage | 12 | 4 | ~80 |
+| List Views (active/archived/deleted) | 9 | 3 | ~60 |
+| Get Operations (404, archived access) | 6 | 2 | ~40 |
+| IDOR Tests (cross-user isolation) | 7 | 2 | ~50 |
+| **Total** | **73** | **24** | **~490** |
+
+### Implementation Approach
+
+**1. Create shared test infrastructure (`backend/tests/api/conftest.py` additions):**
+
+```python
+import pytest
+from schemas.note import NoteCreate
+from schemas.bookmark import BookmarkCreate
+from schemas.prompt import PromptCreate
+
+@pytest.fixture
+async def note_entity_setup(db_session, test_user, note_service):
+    """Create a note and return test context."""
+    note = await note_service.create(
+        db_session, test_user.id, NoteCreate(title="Test Note", content="Test content")
+    )
+    return {
+        "entity": note,
+        "service": note_service,
+        "base_endpoint": "/notes",
+        "endpoint": f"/notes/{note.id}",
+        "entity_type": "note",
+        "entity_name": "Note",
+    }
+
+@pytest.fixture
+async def bookmark_entity_setup(db_session, test_user, bookmark_service):
+    """Create a bookmark and return test context."""
+    bookmark = await bookmark_service.create(
+        db_session, test_user.id, BookmarkCreate(url="https://example.com", title="Test")
+    )
+    return {
+        "entity": bookmark,
+        "service": bookmark_service,
+        "base_endpoint": "/bookmarks",
+        "endpoint": f"/bookmarks/{bookmark.id}",
+        "entity_type": "bookmark",
+        "entity_name": "Bookmark",
+    }
+
+@pytest.fixture
+async def prompt_entity_setup(db_session, test_user, prompt_service):
+    """Create a prompt and return test context."""
+    prompt = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="test-prompt", content="Hello {{ name }}")
+    )
+    return {
+        "entity": prompt,
+        "service": prompt_service,
+        "base_endpoint": "/prompts",
+        "endpoint": f"/prompts/{prompt.id}",
+        "entity_type": "prompt",
+        "entity_name": "Prompt",
+    }
+```
+
+**2. Create new shared test file (`backend/tests/api/test_entity_common.py`):**
+
+```python
+import pytest
+
+ENTITY_FIXTURES = ["note_entity_setup", "bookmark_entity_setup", "prompt_entity_setup"]
+
+
+@pytest.mark.parametrize("entity_fixture", ENTITY_FIXTURES)
+class TestArchiveUnarchive:
+    """Archive/unarchive tests for all entity types."""
+
+    async def test__archive__success(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        response = await client.post(f"{setup['endpoint']}/archive")
+        assert response.status_code == 200
+        assert response.json()["archived_at"] is not None
+
+    async def test__archive__already_archived_is_idempotent(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        await client.post(f"{setup['endpoint']}/archive")
+        response = await client.post(f"{setup['endpoint']}/archive")
+        assert response.status_code == 200
+
+    async def test__archive__not_found_returns_404(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        response = await client.post(f"{setup['base_endpoint']}/{fake_id}/archive")
+        assert response.status_code == 404
+
+    async def test__unarchive__success(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        await client.post(f"{setup['endpoint']}/archive")
+        response = await client.post(f"{setup['endpoint']}/unarchive")
+        assert response.status_code == 200
+        assert response.json()["archived_at"] is None
+
+    async def test__unarchive__not_archived_returns_400(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        response = await client.post(f"{setup['endpoint']}/unarchive")
+        assert response.status_code == 400
+
+    async def test__unarchive__not_found_returns_404(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        response = await client.post(f"{setup['base_endpoint']}/{fake_id}/unarchive")
+        assert response.status_code == 404
+
+
+@pytest.mark.parametrize("entity_fixture", ENTITY_FIXTURES)
+class TestSoftDeleteRestore:
+    """Soft delete and restore tests for all entity types."""
+
+    async def test__delete__soft_delete_success(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        response = await client.delete(setup['endpoint'])
+        assert response.status_code == 204
+
+    async def test__delete__soft_deleted_not_in_active_list(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        await client.delete(setup['endpoint'])
+        response = await client.get(setup['base_endpoint'])
+        ids = [item["id"] for item in response.json()["items"]]
+        assert str(setup['entity'].id) not in ids
+
+    async def test__delete__soft_deleted_in_deleted_view(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        await client.delete(setup['endpoint'])
+        response = await client.get(f"{setup['base_endpoint']}?view=deleted")
+        ids = [item["id"] for item in response.json()["items"]]
+        assert str(setup['entity'].id) in ids
+
+    async def test__restore__success(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        await client.delete(setup['endpoint'])
+        response = await client.post(f"{setup['endpoint']}/restore")
+        assert response.status_code == 200
+        assert response.json()["deleted_at"] is None
+
+    async def test__restore__not_deleted_returns_400(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        response = await client.post(f"{setup['endpoint']}/restore")
+        assert response.status_code == 400
+
+    async def test__delete__permanent_removes_from_db(self, request, client, db_session, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        await client.delete(setup['endpoint'])  # Soft delete first
+        response = await client.delete(f"{setup['endpoint']}?permanent=true")
+        assert response.status_code == 204
+        # Verify gone from deleted view too
+        response = await client.get(f"{setup['base_endpoint']}?view=deleted")
+        ids = [item["id"] for item in response.json()["items"]]
+        assert str(setup['entity'].id) not in ids
+
+
+@pytest.mark.parametrize("entity_fixture", ENTITY_FIXTURES)
+class TestTrackUsage:
+    """Track usage tests for all entity types."""
+
+    async def test__track_usage__updates_last_used_at(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        original_last_used = setup['entity'].last_used_at
+        response = await client.post(f"{setup['endpoint']}/track-usage")
+        assert response.status_code == 204
+        # Verify timestamp updated
+        get_response = await client.get(setup['endpoint'])
+        assert get_response.json()["last_used_at"] > original_last_used.isoformat()
+
+    async def test__track_usage__works_on_archived(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        await client.post(f"{setup['endpoint']}/archive")
+        response = await client.post(f"{setup['endpoint']}/track-usage")
+        assert response.status_code == 204
+
+    async def test__track_usage__works_on_deleted(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        await client.delete(setup['endpoint'])
+        response = await client.post(f"{setup['endpoint']}/track-usage")
+        assert response.status_code == 204
+
+    async def test__track_usage__not_found_returns_404(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        response = await client.post(f"{setup['base_endpoint']}/{fake_id}/track-usage")
+        assert response.status_code == 404
+
+
+@pytest.mark.parametrize("entity_fixture", ENTITY_FIXTURES)
+class TestListViews:
+    """List view filtering tests for all entity types."""
+
+    async def test__list__active_view_excludes_archived(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        await client.post(f"{setup['endpoint']}/archive")
+        response = await client.get(setup['base_endpoint'])  # default view=active
+        ids = [item["id"] for item in response.json()["items"]]
+        assert str(setup['entity'].id) not in ids
+
+    async def test__list__archived_view_shows_only_archived(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        await client.post(f"{setup['endpoint']}/archive")
+        response = await client.get(f"{setup['base_endpoint']}?view=archived")
+        ids = [item["id"] for item in response.json()["items"]]
+        assert str(setup['entity'].id) in ids
+
+    async def test__list__deleted_view_shows_only_deleted(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        await client.delete(setup['endpoint'])
+        response = await client.get(f"{setup['base_endpoint']}?view=deleted")
+        ids = [item["id"] for item in response.json()["items"]]
+        assert str(setup['entity'].id) in ids
+
+
+@pytest.mark.parametrize("entity_fixture", ENTITY_FIXTURES)
+class TestGetOperations:
+    """Get single entity tests for all entity types."""
+
+    async def test__get__not_found_returns_404(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        response = await client.get(f"{setup['base_endpoint']}/{fake_id}")
+        assert response.status_code == 404
+
+    async def test__get__can_access_archived(self, request, client, entity_fixture):
+        setup = request.getfixturevalue(entity_fixture)
+        await client.post(f"{setup['endpoint']}/archive")
+        response = await client.get(setup['endpoint'])
+        assert response.status_code == 200
+
+
+@pytest.mark.parametrize("entity_fixture", ENTITY_FIXTURES)
+class TestIDOR:
+    """Cross-user isolation (IDOR) tests for all entity types."""
+
+    async def test__get__other_users_entity_returns_404(
+        self, request, client_other_user, entity_fixture
+    ):
+        setup = request.getfixturevalue(entity_fixture)
+        response = await client_other_user.get(setup['endpoint'])
+        assert response.status_code == 404
+
+    async def test__update__other_users_entity_returns_404(
+        self, request, client_other_user, entity_fixture
+    ):
+        setup = request.getfixturevalue(entity_fixture)
+        response = await client_other_user.patch(setup['endpoint'], json={"title": "Hacked"})
+        assert response.status_code == 404
+```
+
+**3. Remove duplicated tests from individual test files:**
+
+After creating the shared tests, remove the equivalent tests from:
+- `backend/tests/api/test_notes.py`
+- `backend/tests/api/test_bookmarks.py`
+- `backend/tests/api/test_prompts.py`
+
+Keep entity-specific tests (e.g., bookmark URL validation, prompt template validation, note title requirements).
+
+### Tier 2 Feasibility Assessment
+
+After completing Tier 1, review these patterns and document recommendations:
+
+| Pattern | Current Tests | Complexity | Notes |
+|---------|---------------|------------|-------|
+| Within-Content Search | 39 | Medium | Similar but prompts search different fields |
+| Partial Read (line-based) | 34 | Medium | Identical logic, needs content setup |
+| String Replace | 57 | High | Prompts have extra template validation |
+| Tag Filtering | 12 | Low | Should be straightforward |
+
+**Deliverable:** Add a section to this plan or create a follow-up document with:
+1. Which Tier 2 patterns are worth refactoring
+2. Estimated effort for each
+3. Any blockers or entity-specific variations that complicate parametrization
+
+### Testing the Refactor
+
+1. Run full test suite before refactoring to establish baseline
+2. After each class migration, run tests to verify no regressions
+3. Compare coverage reports before/after to ensure no coverage loss
+
+### Dependencies
+None - this is the foundation milestone.
+
+### Risk Factors
+- Some tests may have subtle entity-specific assertions that need preservation
+- Need to ensure `client_other_user` fixture exists for IDOR tests
+- Prompt fixtures need valid Jinja2 content
+
+---
+
 ## Milestone 1: Backend - Optimistic Locking
 
 ### Goal
@@ -223,12 +541,12 @@ None - this is the foundation milestone.
 Detect when an entity (note, bookmark, or prompt) was modified elsewhere and warn the user before they edit stale data. Implement as a reusable hook that works with any entity type.
 
 ### Success Criteria
-- When tab gains focus, fetch note's `updated_at` from server
+- When tab gains focus, fetch entity's `updated_at` from server
 - **Check is silent and non-blocking**: no loading spinners, no page refresh, no visible delay
-- **User sees nothing unless note is stale**: only if `updated_at` differs do we show the warning banner
+- **User sees nothing unless entity is stale**: only if `updated_at` differs do we show the dialog
 - **Errors are silently ignored**: network failures don't interrupt the user or show error messages
-- Warning offers: "Reload" (fetch fresh) or "Continue Editing" (dismiss)
-- If user has unsaved changes AND note is stale, show enhanced warning
+- Dialog offers clear options with consistent terminology (shared with Milestone 3)
+- If user has unsaved changes AND entity is stale, show enhanced warning
 
 ### Key Changes
 
@@ -282,21 +600,42 @@ const { isStale, serverUpdatedAt, dismiss, refresh } = useStaleCheck({
   fetchUpdatedAt: (id) => fetchNoteMetadata(id).then(m => m.updated_at),
 })
 
-// Show StaleWarningBanner when isStale is true
+// Show StaleDialog when isStale is true
 ```
 
-**4. Create `StaleWarningBanner` component (`frontend/src/components/ui/StaleWarningBanner.tsx`):**
+**4. Create `StaleDialog` component (`frontend/src/components/ui/StaleDialog.tsx`):**
 
-A dismissable warning that appears **centered on screen** (fixed position, visible regardless of scroll):
-- Fixed position, centered horizontally and vertically (or near top-center with some margin)
-- Works on mobile (responsive, not too wide)
-- Yellow/amber background with shadow for visibility
-- Text: "This item was modified elsewhere" (generic, or pass entity type for "This note was...")
-- Shows server modified time: "Server version from 5 minutes ago"
-- **"Load Latest"** button - Fetches server version, replaces local content
-- **"Continue Editing"** button - Dismisses warning, keeps local content
-- If `isDirty`: Additional warning text "You have unsaved changes. Loading latest will discard them."
-- Semi-transparent backdrop optional (to draw attention without being as intrusive as a modal)
+Modal dialog that appears when entity is stale (shares base structure with ConflictDialog):
+
+```typescript
+interface StaleDialogProps {
+  isOpen: boolean
+  serverUpdatedAt: string  // For display: "Server version from 5 minutes ago"
+  isDirty: boolean         // Whether user has unsaved local changes
+  entityType: 'note' | 'bookmark' | 'prompt'
+  onLoadServerVersion: () => void  // Fetch and load server version
+  onContinueEditing: () => void    // Dismiss dialog, keep local content
+}
+```
+
+Dialog contents:
+- Header: "This {entityType} was modified elsewhere"
+- Server modified time: "Server version from 5 minutes ago"
+- **"Load Server Version"** button - Calls `onLoadServerVersion`
+  - Helper text: "Discard your changes and load the latest version"
+- **"Continue Editing"** button - Calls `onContinueEditing`
+  - Helper text: "Keep your current content and continue editing"
+- If `isDirty`: Warning text "You have unsaved changes that will be lost if you load the server version."
+
+**5. Shared Dialog Infrastructure:**
+
+Both `StaleDialog` (Milestone 2) and `ConflictDialog` (Milestone 3) should share:
+- Base modal styling and structure
+- Server timestamp display formatting ("5 minutes ago")
+- Button styling and helper text pattern
+- Future: diff view component when added
+
+Consider creating a base `ChangeDetectionDialog` component or shared utilities.
 
 ### Testing Strategy
 
@@ -305,48 +644,50 @@ A dismissable warning that appears **centered on screen** (fixed position, visib
 *Core functionality:*
 1. `test__useStaleCheck__detects_stale_on_visibility_change` - Mock `visibilitychange` event, verify `isStale` becomes true when `updated_at` differs
 2. `test__useStaleCheck__not_stale_when_timestamps_match` - `isStale` remains false when server `updated_at` matches loaded value
-3. `test__useStaleCheck__provides_server_updated_at_when_stale` - `serverUpdatedAt` is populated for display in warning
+3. `test__useStaleCheck__provides_server_updated_at_when_stale` - `serverUpdatedAt` is populated for display in dialog
 
 *Skip conditions:*
-4. `test__useStaleCheck__no_check_when_no_noteId` - Skip API call for new/unsaved notes
+4. `test__useStaleCheck__no_check_when_no_entityId` - Skip API call for new/unsaved entities
 5. `test__useStaleCheck__no_check_when_tab_hidden` - Only check when gaining focus, not losing it
-6. `test__useStaleCheck__no_check_when_no_loaded_updated_at` - Skip if note hasn't loaded yet
+6. `test__useStaleCheck__no_check_when_no_loaded_updated_at` - Skip if entity hasn't loaded yet
 
 *User actions:*
-7. `test__useStaleCheck__dismiss_clears_stale_state` - `dismissStaleWarning()` sets `isStale` to false
-8. `test__useStaleCheck__refresh_fetches_new_note` - `refreshNote()` fetches fresh data and clears stale state
+7. `test__useStaleCheck__dismiss_clears_stale_state` - `dismiss()` sets `isStale` to false
+8. `test__useStaleCheck__refresh_fetches_new_entity` - `refresh()` fetches fresh data and clears stale state
 
 *Error handling:*
 9. `test__useStaleCheck__handles_network_error_silently` - Network failure doesn't set error state or interrupt user
-10. `test__useStaleCheck__handles_404_when_note_deleted` - Note deleted in other tab shows appropriate state (stale or special handling)
+10. `test__useStaleCheck__handles_404_when_entity_deleted` - Entity deleted in other tab shows appropriate state
 
 *Edge cases:*
 11. `test__useStaleCheck__debounces_rapid_tab_switches` - Multiple rapid focus events don't trigger multiple API calls
 
-**Component tests (`frontend/src/components/ui/StaleWarningBanner.test.tsx`):**
+**Component tests (`frontend/src/components/ui/StaleDialog.test.tsx`):**
 
 *Rendering:*
-1. `test__StaleWarningBanner__renders_centered_fixed_position` - Verify CSS positioning
-2. `test__StaleWarningBanner__shows_reload_and_continue_buttons` - Both action buttons present
-3. `test__StaleWarningBanner__shows_modified_time` - Displays when note was modified ("Modified 5 minutes ago")
+1. `test__StaleDialog__renders_as_modal` - Verify modal structure and overlay
+2. `test__StaleDialog__shows_load_and_continue_buttons` - Both action buttons present
+3. `test__StaleDialog__shows_server_modified_time` - Displays formatted timestamp ("5 minutes ago")
+4. `test__StaleDialog__shows_entity_type_in_header` - "This note was modified elsewhere"
 
 *Conditional content:*
-4. `test__StaleWarningBanner__shows_dirty_warning_when_has_unsaved_changes` - Extra warning text when `isDirty`
-5. `test__StaleWarningBanner__no_dirty_warning_when_clean` - No extra warning when no local changes
+5. `test__StaleDialog__shows_dirty_warning_when_has_unsaved_changes` - Warning text when `isDirty`
+6. `test__StaleDialog__no_dirty_warning_when_clean` - No warning when no local changes
 
 *User interactions:*
-6. `test__StaleWarningBanner__reload_button_calls_onReload` - Verify callback
-7. `test__StaleWarningBanner__continue_button_calls_onDismiss` - Verify callback
+7. `test__StaleDialog__load_server_version_calls_callback` - Verify callback
+8. `test__StaleDialog__continue_editing_calls_callback` - Verify callback
 
-*Responsive:*
-8. `test__StaleWarningBanner__responsive_on_mobile` - Works at narrow viewport widths
+*Accessibility:*
+9. `test__StaleDialog__traps_focus` - Focus stays within dialog
+10. `test__StaleDialog__escape_key_continues_editing` - Escape dismisses (same as Continue Editing)
 
 ### Dependencies
 - Milestone 1 (backend changes) - Not strictly required, but should be done together
 
 ### Risk Factors
 - Frequent tab switching could cause many API calls; consider debouncing
-- Need to handle case where note was deleted in other tab (404 response)
+- Need to handle case where entity was deleted in other tab (404 response)
 
 ---
 
@@ -553,17 +894,20 @@ All three entity types (notes, bookmarks, prompts) will support change detection
 
 ### Dialog Wording and Behavior
 
-There are **two distinct UI components** with different purposes:
+There are **two dialog components** with consistent terminology but different purposes:
 
-**1. StaleWarningBanner (on tab focus)** - Informational, appears when tab gains focus and note was modified elsewhere:
-- "This note was modified elsewhere"
-- Shows server's modified time
-- **"Load Latest"** - Fetch server version, replace local content
-- **"Continue Editing"** - Dismiss warning, keep local content (user can still save later)
+**1. StaleDialog (on tab focus)** - Proactive warning, appears when tab gains focus and entity was modified elsewhere:
+- Header: "This {entityType} was modified elsewhere"
+- Shows server's modified time: "Server version from 5 minutes ago"
+- **"Load Server Version"** - Fetch server version, replace local content
+  - Helper text: "Discard your changes and load the latest version"
+- **"Continue Editing"** - Dismiss dialog, keep local content (user can still save later)
+  - Helper text: "Keep your current content and continue editing"
+- If `isDirty`: Warning "You have unsaved changes that will be lost if you load the server version."
 
-**2. ConflictDialog (on 409 save attempt)** - Action required, appears when user tries to save but server was modified:
-- "This note was modified while you were editing"
-- Shows server's modified time
+**2. ConflictDialog (on 409 save attempt)** - Reactive dialog, appears when user tries to save but server was modified:
+- Header: "This {entityType} was modified while you were editing"
+- Shows server's modified time: "Server version from 5 minutes ago"
 - **"Copy My Content"** button - Copies current editor content to clipboard (always available, allows user to preserve their work before choosing)
 - **"Load Server Version"** - Discard local changes, load server version, close dialog
   - Helper text: "Discard your changes and load the latest version"
@@ -571,6 +915,17 @@ There are **two distinct UI components** with different purposes:
   - Helper text: "Overwrite server changes with your version"
 - **"Do Nothing"** - Close dialog, keep local changes in editor (unsaved), user can continue editing
   - Helper text: "Close this dialog and continue editing (changes remain unsaved)"
+
+### Shared Dialog Infrastructure
+
+Both dialogs share:
+- Modal structure and overlay styling
+- Server timestamp display formatting ("5 minutes ago")
+- "Load Server Version" button with identical behavior and helper text
+- Button styling patterns
+- Future: diff view component when added
+
+Consider creating shared utilities or a base component to ensure consistency.
 
 ### What "Save My Version" Does
 When user confirms "Save My Version":
