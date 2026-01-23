@@ -12,11 +12,12 @@ export const api = axios.create({
 })
 
 let isLoggingOut = false
+let refreshPromise: Promise<string> | null = null
 
 /**
  * Token getter function type - provided by Auth0 context.
  */
-type GetAccessTokenFn = () => Promise<string>
+type GetAccessTokenFn = (options?: { cacheMode?: 'on' | 'off' | 'cache-only' }) => Promise<string>
 
 /**
  * Auth error handler function type - called when 401 is received.
@@ -57,7 +58,21 @@ export interface PolicyVersions {
  * Sets up auth interceptors on the API instance.
  * Should be called once when the Auth0 context is available.
  *
- * @param getAccessToken - Function to get the current access token
+ * 401 Retry Strategy:
+ * When a request fails with 401, we retry once with `cacheMode: 'off'` to force
+ * a fresh token fetch (using the refresh token) instead of returning a cached
+ * expired access token. This handles the case where the access token expired
+ * but the refresh token is still valid. Only if the retry also fails do we
+ * trigger logout.
+ *
+ * The shared `refreshPromise` prevents multiple concurrent requests from each
+ * triggering their own token refresh - they all await the same refresh operation.
+ * This avoids race conditions with refresh token rotation.
+ *
+ * Logging prefixed with [Auth] helps debug token expiration issues in production.
+ * Enable "Preserve log" in browser DevTools to capture logs across redirects.
+ *
+ * @param getAccessToken - Function to get the current access token (must accept options)
  * @param onAuthError - Function to call when authentication fails (e.g., logout)
  */
 export function setupAuthInterceptor(
@@ -65,6 +80,7 @@ export function setupAuthInterceptor(
   onAuthError: OnAuthErrorFn
 ): void {
   isLoggingOut = false
+  refreshPromise = null
 
   // Request interceptor - add auth token (production only)
   api.interceptors.request.use(
@@ -73,9 +89,15 @@ export function setupAuthInterceptor(
         try {
           const token = await getAccessToken()
           requestConfig.headers.Authorization = `Bearer ${token}`
-        } catch {
-          // Token fetch failed - let the request proceed without auth
-          // The 401 response interceptor will handle it
+        } catch (error) {
+          // Token fetch failed - log for debugging, then let request proceed
+          // The 401 response interceptor will handle retry with cache bypass
+          console.error('[Auth] Initial token fetch failed:', {
+            error: error instanceof Error ? error.message : String(error),
+            errorName: error instanceof Error ? error.name : 'unknown',
+            url: requestConfig.url,
+            timestamp: new Date().toISOString(),
+          })
         }
       }
       return requestConfig
@@ -86,8 +108,34 @@ export function setupAuthInterceptor(
   // Response interceptor - handle auth, consent, and rate limit errors
   api.interceptors.response.use(
     (response) => response,
-    (error: AxiosError) => {
+    async (error: AxiosError) => {
       if (error.response?.status === 401 && !isDevMode) {
+        const requestConfig = error.config as (InternalAxiosRequestConfig & { _retryAuth?: boolean }) | undefined
+
+        if (requestConfig && !requestConfig._retryAuth) {
+          requestConfig._retryAuth = true
+          try {
+            if (!refreshPromise) {
+              refreshPromise = getAccessToken({ cacheMode: 'off' }).finally(() => {
+                refreshPromise = null
+              })
+            }
+            const token = await refreshPromise
+            requestConfig.headers = requestConfig.headers ?? {}
+            requestConfig.headers.Authorization = `Bearer ${token}`
+            return api.request(requestConfig)
+          } catch (error) {
+            // Token refresh failed - log for debugging before triggering logout
+            console.error('[Auth] Token refresh failed, logging out:', {
+              error: error instanceof Error ? error.message : String(error),
+              errorName: error instanceof Error ? error.name : 'unknown',
+              url: requestConfig.url,
+              timestamp: new Date().toISOString(),
+            })
+            // Fall through to logout handling below
+          }
+        }
+
         // Token expired or invalid - trigger logout/re-login
         if (!isLoggingOut) {
           isLoggingOut = true

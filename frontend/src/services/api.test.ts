@@ -209,5 +209,30 @@ describe('setupAuthInterceptor', () => {
 
       expect(mockOnAuthError).toHaveBeenCalledTimes(1)
     })
+
+    it('retries once with a refreshed token before logging out', async () => {
+      const mockGetToken = vi.fn().mockResolvedValue('fresh-token')
+      const mockOnAuthError = vi.fn()
+      setupAuthInterceptor(mockGetToken, mockOnAuthError)
+
+      const handlers = (api.interceptors.response as unknown as { handlers: AxiosInterceptorHandler[] }).handlers
+      const errorHandler = handlers[handlers.length - 1]?.rejected
+
+      const requestSpy = vi.spyOn(api, 'request').mockResolvedValue({ data: 'ok' })
+      const mock401Error = {
+        response: { status: 401 },
+        config: { headers: {} },
+        isAxiosError: true,
+      }
+
+      if (errorHandler) {
+        await expect(errorHandler(mock401Error)).resolves.toEqual({ data: 'ok' })
+      }
+
+      expect(requestSpy).toHaveBeenCalledTimes(1)
+      expect(mockGetToken).toHaveBeenCalledWith({ cacheMode: 'off' })
+      expect(mockOnAuthError).not.toHaveBeenCalled()
+      requestSpy.mockRestore()
+    })
   })
 })

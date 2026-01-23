@@ -192,9 +192,11 @@ VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
 
 **Note:** Railway may warn about egress fees for `VITE_API_URL` and `VITE_MCP_URL` referencing public endpoints. You can ignore this - the frontend is a static SPA, so all API calls happen from the user's browser, not between Railway services.
 
-### Step 6: Configure Auth0 for Deployed URLs
+### Step 6: Configure Auth0
 
-After generating your frontend domain (Step 4), add it to Auth0:
+After generating your frontend domain (Step 4), configure Auth0 for authentication and refresh tokens.
+
+#### 6a. Application URL Settings
 
 1. Go to [Auth0 Dashboard](https://manage.auth0.com/) → **Applications** → Your SPA Application → **Settings**
 
@@ -218,6 +220,33 @@ After generating your frontend domain (Step 4), add it to Auth0:
 3. Click **Save Changes**
 
 **Note:** Keep `http://localhost:5173` for local development. Separate multiple URLs with commas.
+
+#### 6b. Application Grant Types and Refresh Tokens
+
+1. In the same Application → **Settings** → scroll to **Advanced Settings** → **Grant Types** tab
+
+2. Ensure these are **checked**:
+   - ✅ Authorization Code
+   - ✅ Refresh Token
+   - ✅ Implicit (optional, but typically enabled for SPAs)
+
+3. (Recommended) Under **Refresh Token Rotation** (same Settings page, scroll down):
+   - ✅ **Allow Refresh Token Rotation** - Enhances security by invalidating old tokens after use
+
+4. Click **Save Changes**
+
+#### 6c. API Settings (Critical)
+
+Without this setting, users will be logged out every ~24 hours when their access token expires.
+
+1. Go to **APIs** → Your API (e.g., `bookmarks-api`) → **Settings**
+
+2. Under **Access Settings**, enable:
+   - ✅ **Allow Offline Access** - **Required** for refresh tokens to be issued
+
+3. Click **Save**
+
+**Why this matters:** The frontend requests the `offline_access` scope to get refresh tokens. Without "Allow Offline Access" enabled on the API, Auth0 silently ignores this scope and users get logged out when their access token expires (~24 hours). With refresh tokens, users stay logged in based on the Application's refresh token expiration settings.
 
 ### Step 7: Configure Pre-Deploy Command (Migrations)
 
