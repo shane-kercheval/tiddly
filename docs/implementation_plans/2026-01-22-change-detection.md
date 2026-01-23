@@ -65,8 +65,20 @@ These patterns have identical logic across all three entity types and can be dir
 | Track Usage | 12 | 4 | ~80 |
 | List Views (active/archived/deleted) | 9 | 3 | ~60 |
 | Get Operations (404, archived access) | 6 | 2 | ~40 |
-| IDOR Tests (cross-user isolation) | 7 | 2 | ~50 |
-| **Total** | **73** | **24** | **~490** |
+| **Total** | **66** | **22** | **~440** |
+
+#### IDOR Tests Decision
+
+**IDOR tests (cross-user isolation) are intentionally NOT parametrized.** These tests remain inline in each entity's test file.
+
+**Rationale:** IDOR tests require creating a second user with PAT authentication and switching from dev-mode to non-dev mode. This involves modifying global `app.dependency_overrides` which creates fixture ordering conflicts:
+
+1. `entity_setup` fixture creates entity using dev-mode `client`
+2. `client_other_user` fixture modifies app to non-dev mode for PAT auth
+3. Pytest doesn't guarantee ordering between independent fixtures at the same level
+4. When `client_other_user` runs first, entity creation fails with 401
+
+The existing inline approach (create entity → create user2 inline → test isolation) avoids this issue. Parametrizing would add complexity without improving maintainability.
 
 ### Implementation Approach
 
@@ -130,15 +142,6 @@ async def prompt_entity(client):
         "entity_name": "Prompt",
     }
 
-@pytest.fixture
-async def client_other_user(app, db_session):
-    """
-    Create a test client authenticated as a different user.
-    Used for IDOR (Insecure Direct Object Reference) tests.
-    """
-    # Implementation depends on existing test auth patterns
-    # See existing IDOR tests in test_bookmarks.py for reference
-    ...
 ```
 
 **2. Create new shared test file (`backend/tests/api/test_entity_common.py`):**
@@ -311,23 +314,6 @@ class TestGetOperations:
         assert response.status_code == 200
 
 
-@pytest.mark.parametrize("entity_fixture", ENTITY_FIXTURES)
-class TestIDOR:
-    """Cross-user isolation (IDOR) tests for all entity types."""
-
-    async def test__get__other_users_entity_returns_404(
-        self, request, client_other_user, entity_fixture
-    ):
-        setup = request.getfixturevalue(entity_fixture)
-        response = await client_other_user.get(setup['endpoint'])
-        assert response.status_code == 404
-
-    async def test__update__other_users_entity_returns_404(
-        self, request, client_other_user, entity_fixture
-    ):
-        setup = request.getfixturevalue(entity_fixture)
-        response = await client_other_user.patch(setup['endpoint'], json={"title": "Hacked"})
-        assert response.status_code == 404
 ```
 
 **3. Remove duplicated tests from individual test files:**
@@ -339,21 +325,65 @@ After creating the shared tests, remove the equivalent tests from:
 
 Keep entity-specific tests (e.g., bookmark URL validation, prompt template validation, note title requirements).
 
-### Tier 2 Feasibility Assessment
+### Tier 2 Feasibility Assessment (Completed)
 
-After completing Tier 1, review these patterns and document recommendations:
+After analyzing the Tier 2 patterns, here are the findings and recommendations:
 
-| Pattern | Current Tests | Complexity | Notes |
-|---------|---------------|------------|-------|
-| Within-Content Search | 39 | Medium | Similar but prompts search different fields |
-| Partial Read (line-based) | 34 | Medium | Identical logic, needs content setup |
-| String Replace | 57 | High | Prompts have extra template validation |
-| Tag Filtering | 12 | Low | Should be straightforward |
+| Pattern | Current Tests | Recommendation | Rationale |
+|---------|---------------|----------------|-----------|
+| Within-Content Search | 33 | **Do Not Parametrize** | Significant entity differences (see below) |
+| Partial Read (line-based) | ~18 | **Consider Later** | Similar but entity setup is complex |
+| String Replace | 57 | **Do Not Parametrize** | Prompts have Jinja2 validation, too different |
+| Tag Filtering | ~12 | **Already in list tests** | Embedded in list endpoint tests |
 
-**Deliverable:** Add a section to this plan or create a follow-up document with:
-1. Which Tier 2 patterns are worth refactoring
-2. Estimated effort for each
-3. Any blockers or entity-specific variations that complicate parametrization
+#### Within-Content Search Analysis (33 tests)
+- **Notes:** 13 tests - has `description` field, tests case sensitivity options, context lines
+- **Bookmarks:** 10 tests - has `url` field, different searchable fields
+- **Prompts:** 10 tests - has Jinja template testing, different field set
+
+**Blockers:**
+1. Different searchable fields per entity type (`description` vs `url` vs `name`)
+2. Notes test context lines feature that may not exist for others
+3. Each entity has ~3-4 entity-specific test scenarios
+4. Overlap is only ~5-6 generic tests (basic, no_matches, not_found, invalid_field, works_on_archived, works_on_deleted)
+
+**Verdict:** Only 5-6 tests could be parametrized. The effort-to-benefit ratio is poor for such a small reduction.
+
+#### String Replace Analysis (57 tests)
+- **Notes:** 14 tests - basic str-replace tests
+- **Bookmarks:** 14 tests - basic str-replace tests
+- **Prompts:** 29 tests - all notes/bookmark tests PLUS 15 Jinja2 template validation tests
+
+**Blockers:**
+1. Prompts have 15 additional tests for template validation (`jinja_valid_template`, `jinja_invalid_syntax`, `jinja_undefined_variable`, argument updates, etc.)
+2. Prompts require different fixture setup (needs valid template with arguments)
+3. Even the "identical" tests have subtle differences in response validation
+
+**Verdict:** Parametrizing would require complex conditional logic. Keep separate.
+
+#### Partial Read Analysis (~18 tests)
+- All three entity types support line-based partial reads
+- Tests are structurally similar: `start_line`, `end_line`, `start_line_exceeds_total`, etc.
+- Content setup varies: notes/bookmarks just need content, prompts need valid templates
+
+**Verdict:** Could be parametrized in a future pass, but low priority. The tests are not heavily duplicated and each entity type has 4-6 partial read tests.
+
+#### Tag Filtering Analysis (~12 tests)
+Most tag filtering tests are embedded in the list endpoint tests rather than standalone. The existing `test__list_prompts__tag_filter`, `test_tag_filter_single_tag`, etc. are testing list behavior with filters applied. These are entity-specific list tests, not generic tag operations.
+
+**Verdict:** Already appropriately organized. No action needed.
+
+### Summary
+
+**Tier 1 delivered:** 66 tests → 22 parametrized = 440 lines saved, clear pattern established.
+
+**Tier 2 recommendation:** Do not proceed with parametrization. The entity-specific variations make the effort-to-benefit ratio poor:
+- Within-content search: Only 5-6 generic tests overlap
+- String replace: Prompts are fundamentally different due to Jinja2 validation
+- Partial read: Could be done but low priority (small test count)
+- Tag filtering: Already appropriately organized
+
+The test infrastructure from Tier 1 (`test_entity_common.py`) is ready for future cross-entity tests like optimistic locking (Milestone 1).
 
 ### Testing the Refactor
 
@@ -366,8 +396,7 @@ None - this is the foundation milestone.
 
 ### Risk Factors
 - Some tests may have subtle entity-specific assertions that need preservation
-- Need to ensure `client_other_user` fixture exists for IDOR tests
-- Prompt fixtures need valid Jinja2 content
+- Prompt fixtures need valid Jinja2 content (must include `arguments` for template variables)
 
 ---
 
