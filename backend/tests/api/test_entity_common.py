@@ -15,6 +15,38 @@ from tests.api.conftest import FAKE_UUID
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+async def _create_entity(client: AsyncClient, entity_type: str) -> dict[str, Any]:
+    """Create an entity of the specified type and return its data."""
+    if entity_type == "note":
+        response = await client.post(
+            "/notes/",
+            json={"title": f"Extra Note {uuid.uuid4().hex[:8]}", "content": "Extra content"},
+        )
+    elif entity_type == "bookmark":
+        response = await client.post(
+            "/bookmarks/",
+            json={"url": f"https://extra-{uuid.uuid4().hex[:8]}.example.com", "title": "Extra Bookmark"},
+        )
+    elif entity_type == "prompt":
+        response = await client.post(
+            "/prompts/",
+            json={
+                "name": f"extra-prompt-{uuid.uuid4().hex[:8]}",
+                "content": "Extra content",
+            },
+        )
+    else:
+        raise ValueError(f"Unknown entity type: {entity_type}")
+
+    assert response.status_code == 201
+    return response.json()
+
+
+# =============================================================================
 # Entity Setup Fixture with Indirect Parametrization
 # =============================================================================
 
@@ -139,6 +171,7 @@ async def test__archive__not_found_returns_404(
     """Test that archiving a non-existent entity returns 404."""
     response = await client.post(f"{entity_setup['base_endpoint']}/{FAKE_UUID}/archive")
     assert response.status_code == 404
+    assert response.json()["detail"] == f"{entity_setup['entity_name']} not found"
 
 
 @pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
@@ -182,6 +215,7 @@ async def test__unarchive__not_found_returns_404(
     """Test that unarchiving a non-existent entity returns 404."""
     response = await client.post(f"{entity_setup['base_endpoint']}/{FAKE_UUID}/unarchive")
     assert response.status_code == 404
+    assert response.json()["detail"] == f"{entity_setup['entity_name']} not found"
 
 
 # =============================================================================
@@ -233,6 +267,7 @@ async def test__delete__not_found_returns_404(
     """Test that deleting a non-existent entity returns 404."""
     response = await client.delete(f"{entity_setup['base_endpoint']}/{FAKE_UUID}")
     assert response.status_code == 404
+    assert response.json()["detail"] == f"{entity_setup['entity_name']} not found"
 
 
 @pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
@@ -266,6 +301,7 @@ async def test__restore__not_found_returns_404(
     """Test that restoring a non-existent entity returns 404."""
     response = await client.post(f"{entity_setup['base_endpoint']}/{FAKE_UUID}/restore")
     assert response.status_code == 404
+    assert response.json()["detail"] == f"{entity_setup['entity_name']} not found"
 
 
 @pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
@@ -319,6 +355,7 @@ async def test__track_usage__not_found_returns_404(
     """Test that track-usage returns 404 for non-existent entity."""
     response = await client.post(f"{entity_setup['base_endpoint']}/{FAKE_UUID}/track-usage")
     assert response.status_code == 404
+    assert response.json()["detail"] == f"{entity_setup['entity_name']} not found"
 
 
 @pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
@@ -393,11 +430,18 @@ async def test__list__archived_view_shows_only_archived(
     entity_setup: dict[str, Any],
 ) -> None:
     """Test that archived view shows only archived entities."""
+    # Create a second entity that stays active
+    second_entity = await _create_entity(client, entity_setup["entity_type"])
+
+    # Archive the first entity
     await client.post(f"{entity_setup['endpoint']}/archive")
 
     response = await client.get(f"{entity_setup['base_endpoint']}/?view=archived")
     ids = [item["id"] for item in response.json()["items"]]
+    # Archived entity should be included
     assert entity_setup["id"] in ids
+    # Active entity should be excluded
+    assert second_entity["id"] not in ids
 
 
 @pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
@@ -406,11 +450,18 @@ async def test__list__deleted_view_shows_only_deleted(
     entity_setup: dict[str, Any],
 ) -> None:
     """Test that deleted view shows only soft-deleted entities."""
+    # Create a second entity that stays active
+    second_entity = await _create_entity(client, entity_setup["entity_type"])
+
+    # Delete the first entity
     await client.delete(entity_setup["endpoint"])
 
     response = await client.get(f"{entity_setup['base_endpoint']}/?view=deleted")
     ids = [item["id"] for item in response.json()["items"]]
+    # Deleted entity should be included
     assert entity_setup["id"] in ids
+    # Active entity should be excluded
+    assert second_entity["id"] not in ids
 
 
 # =============================================================================
@@ -426,6 +477,7 @@ async def test__get__not_found_returns_404(
     """Test that getting a non-existent entity returns 404."""
     response = await client.get(f"{entity_setup['base_endpoint']}/{FAKE_UUID}")
     assert response.status_code == 404
+    assert response.json()["detail"] == f"{entity_setup['entity_name']} not found"
 
 
 @pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
