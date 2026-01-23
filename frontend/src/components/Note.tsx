@@ -150,8 +150,9 @@ export function Note({
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
+  const [contentKey, setContentKey] = useState(0)
 
-  const syncStateFromNote = useCallback((nextNote: NoteType): void => {
+  const syncStateFromNote = useCallback((nextNote: NoteType, resetEditor = false): void => {
     const archiveState = nextNote.archived_at
       ? { archivedAt: nextNote.archived_at, archivePreset: 'custom' as ArchivePreset }
       : { archivedAt: '', archivePreset: 'none' as ArchivePreset }
@@ -166,6 +167,9 @@ export function Note({
     setOriginal(newState)
     setCurrent(newState)
     setConflictState(null)
+    if (resetEditor) {
+      setContentKey((prev) => prev + 1)
+    }
   }, [])
 
   // Sync internal state when note prop changes (e.g., after refresh from conflict resolution)
@@ -490,7 +494,7 @@ export function Note({
     // This updates the parent's state, which will flow down as new props
     const refreshed = await onRefresh?.()
     if (refreshed) {
-      syncStateFromNote(refreshed)
+      syncStateFromNote(refreshed, true)
     }
   }, [onRefresh, syncStateFromNote])
 
@@ -703,7 +707,7 @@ export function Note({
 
         {/* Content editor */}
         <ContentEditor
-          key={note?.updated_at ?? 'new'}
+          key={`${note?.id ?? 'new'}-${contentKey}`}
           value={current.content}
           onChange={handleContentChange}
           disabled={isSaving || isReadOnly}
@@ -736,7 +740,7 @@ export function Note({
           onLoadServerVersion={async () => {
             const refreshed = await onRefresh?.()
             if (refreshed) {
-              syncStateFromNote(refreshed)
+              syncStateFromNote(refreshed, true)
               dismissStale()
             }
           }}

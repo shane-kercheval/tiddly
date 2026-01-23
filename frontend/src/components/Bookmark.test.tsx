@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import { useRef } from 'react'
 import userEvent from '@testing-library/user-event'
 import axios from 'axios'
 import { Bookmark } from './Bookmark'
@@ -24,6 +25,8 @@ vi.mock('axios', async () => {
   }
 })
 
+let editorInstanceCounter = 0
+
 // Mock MilkdownEditor - simulates the editor with a simple textarea
 vi.mock('./MilkdownEditor', () => ({
   MilkdownEditor: ({ value, onChange, placeholder, disabled }: {
@@ -31,15 +34,23 @@ vi.mock('./MilkdownEditor', () => ({
     onChange: (value: string) => void
     placeholder?: string
     disabled?: boolean
-  }) => (
-    <textarea
-      data-testid="content-editor"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-    />
-  ),
+  }) => {
+    const instanceRef = useRef<number | null>(null)
+    if (instanceRef.current === null) {
+      editorInstanceCounter += 1
+      instanceRef.current = editorInstanceCounter
+    }
+    return (
+      <textarea
+        data-testid="content-editor"
+        data-editor-instance={instanceRef.current}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
+    )
+  },
 }))
 
 // Mock CodeMirrorEditor
@@ -49,15 +60,23 @@ vi.mock('./CodeMirrorEditor', () => ({
     onChange: (value: string) => void
     placeholder?: string
     disabled?: boolean
-  }) => (
-    <textarea
-      data-testid="content-editor-text"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-    />
-  ),
+  }) => {
+    const instanceRef = useRef<number | null>(null)
+    if (instanceRef.current === null) {
+      editorInstanceCounter += 1
+      instanceRef.current = editorInstanceCounter
+    }
+    return (
+      <textarea
+        data-testid="content-editor-text"
+        data-editor-instance={instanceRef.current}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
+    )
+  },
 }))
 
 // Mock localStorage
@@ -145,6 +164,7 @@ createContentComponentTests({
     vi.clearAllMocks()
     localStorageMock.clear()
     vi.useFakeTimers({ shouldAdvanceTime: true })
+    editorInstanceCounter = 0
   })
 
   afterEach(() => {
@@ -504,6 +524,64 @@ createContentComponentTests({
 
       expect(screen.queryByText('Save Conflict')).not.toBeInTheDocument()
       expect(screen.getByDisplayValue('Server Title')).toBeInTheDocument()
+    })
+  })
+
+  describe('load server version', () => {
+    it('should remount editor when Load Server Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+      const error409 = new Error('Conflict') as Error & {
+        response?: { status: number; data: { detail: { error: string; server_state: BookmarkType } } }
+      }
+      error409.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: { ...mockBookmark, updated_at: '2024-01-03T00:00:00Z' },
+          },
+        },
+      }
+      mockOnSave.mockRejectedValue(error409)
+
+      const refreshedBookmark: BookmarkType = {
+        ...mockBookmark,
+        content: 'Server content',
+        updated_at: mockBookmark.updated_at,
+      }
+      const mockOnRefresh = vi.fn().mockResolvedValue(refreshedBookmark)
+
+      render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onRefresh={mockOnRefresh}
+        />
+      )
+
+      const initialEditor = screen.getByTestId('content-editor-text')
+      const initialInstance = initialEditor.getAttribute('data-editor-instance')
+
+      await user.clear(screen.getByDisplayValue('Test Bookmark'))
+      await user.type(screen.getByPlaceholderText('Page title'), 'My Edit')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Load Server Version' }))
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Server content')).toBeInTheDocument()
+      })
+
+      const refreshedEditor = screen.getByTestId('content-editor-text')
+      const refreshedInstance = refreshedEditor.getAttribute('data-editor-instance')
+      expect(refreshedInstance).not.toBe(initialInstance)
     })
   })
 

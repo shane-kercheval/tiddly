@@ -170,7 +170,8 @@ export function Bookmark({
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
 
-  const syncStateFromBookmark = useCallback((nextBookmark: BookmarkType): void => {
+  const syncStateFromBookmark = useCallback(
+    (nextBookmark: BookmarkType, resetEditor = false): void => {
     const archiveState = nextBookmark.archived_at
       ? { archivedAt: nextBookmark.archived_at, archivePreset: 'custom' as ArchivePreset }
       : { archivedAt: '', archivePreset: 'none' as ArchivePreset }
@@ -186,6 +187,9 @@ export function Bookmark({
     setOriginal(newState)
     setCurrent(newState)
     setConflictState(null)
+    if (resetEditor) {
+      setContentKey((prev) => prev + 1)
+    }
   }, [])
 
   // Sync internal state when bookmark prop changes (e.g., after refresh from conflict resolution)
@@ -640,7 +644,7 @@ export function Bookmark({
   const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
     const refreshed = await onRefresh?.()
     if (refreshed) {
-      syncStateFromBookmark(refreshed)
+      syncStateFromBookmark(refreshed, true)
     }
   }, [onRefresh, syncStateFromBookmark])
 
@@ -872,7 +876,7 @@ export function Bookmark({
 
         {/* Content editor */}
         <ContentEditor
-          key={`${bookmark?.updated_at ?? 'new'}-${contentKey}`}
+          key={`${bookmark?.id ?? 'new'}-${contentKey}`}
           value={current.content}
           onChange={handleContentChange}
           disabled={isSaving || isReadOnly}
@@ -905,7 +909,7 @@ export function Bookmark({
           onLoadServerVersion={async () => {
             const refreshed = await onRefresh?.()
             if (refreshed) {
-              syncStateFromBookmark(refreshed)
+              syncStateFromBookmark(refreshed, true)
               dismissStale()
             }
           }}

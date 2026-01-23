@@ -219,8 +219,9 @@ export function Prompt({
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
+  const [contentKey, setContentKey] = useState(0)
 
-  const syncStateFromPrompt = useCallback((nextPrompt: PromptType): void => {
+  const syncStateFromPrompt = useCallback((nextPrompt: PromptType, resetEditor = false): void => {
     const archiveState = nextPrompt.archived_at
       ? { archivedAt: nextPrompt.archived_at, archivePreset: 'custom' as ArchivePreset }
       : { archivedAt: '', archivePreset: 'none' as ArchivePreset }
@@ -237,6 +238,9 @@ export function Prompt({
     setOriginal(newState)
     setCurrent(newState)
     setConflictState(null)
+    if (resetEditor) {
+      setContentKey((prev) => prev + 1)
+    }
   }, [])
 
   // Sync internal state when prompt prop changes (e.g., after refresh from conflict resolution)
@@ -673,7 +677,7 @@ export function Prompt({
   const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
     const refreshed = await onRefresh?.()
     if (refreshed) {
-      syncStateFromPrompt(refreshed)
+      syncStateFromPrompt(refreshed, true)
     }
   }, [onRefresh, syncStateFromPrompt])
 
@@ -936,7 +940,7 @@ export function Prompt({
         {/* Content editor */}
         <div className="mt-3">
           <ContentEditor
-            key={prompt?.updated_at ?? 'new'}
+            key={`${prompt?.id ?? 'new'}-${contentKey}`}
             value={current.content}
             onChange={handleContentChange}
             disabled={isSaving || isReadOnly}
@@ -980,7 +984,7 @@ export function Prompt({
           onLoadServerVersion={async () => {
             const refreshed = await onRefresh?.()
             if (refreshed) {
-              syncStateFromPrompt(refreshed)
+              syncStateFromPrompt(refreshed, true)
               dismissStale()
             }
           }}

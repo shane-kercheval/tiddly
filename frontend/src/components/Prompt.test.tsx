@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import { useRef } from 'react'
 import userEvent from '@testing-library/user-event'
 import axios from 'axios'
 import { Prompt } from './Prompt'
@@ -24,6 +25,8 @@ vi.mock('axios', async () => {
   }
 })
 
+let editorInstanceCounter = 0
+
 // Mock CodeMirrorEditor - now the default editor
 vi.mock('./CodeMirrorEditor', () => ({
   CodeMirrorEditor: ({ value, onChange, placeholder, disabled }: {
@@ -31,15 +34,23 @@ vi.mock('./CodeMirrorEditor', () => ({
     onChange: (value: string) => void
     placeholder?: string
     disabled?: boolean
-  }) => (
-    <textarea
-      data-testid="content-editor"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-    />
-  ),
+  }) => {
+    const instanceRef = useRef<number | null>(null)
+    if (instanceRef.current === null) {
+      editorInstanceCounter += 1
+      instanceRef.current = editorInstanceCounter
+    }
+    return (
+      <textarea
+        data-testid="content-editor"
+        data-editor-instance={instanceRef.current}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
+    )
+  },
 }))
 
 // Mock localStorage
@@ -130,6 +141,7 @@ createContentComponentTests({
     vi.clearAllMocks()
     localStorageMock.clear()
     vi.useFakeTimers({ shouldAdvanceTime: true })
+    editorInstanceCounter = 0
   })
 
   afterEach(() => {
@@ -502,6 +514,64 @@ createContentComponentTests({
 
       expect(screen.queryByText('Save Conflict')).not.toBeInTheDocument()
       expect(screen.getByDisplayValue('server-prompt')).toBeInTheDocument()
+    })
+  })
+
+  describe('load server version', () => {
+    it('should remount editor when Load Server Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+      const error409 = new Error('Conflict') as Error & {
+        response?: { status: number; data: { detail: { error: string; server_state: PromptType } } }
+      }
+      error409.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: { ...mockPrompt, updated_at: '2024-01-03T00:00:00Z' },
+          },
+        },
+      }
+      mockOnSave.mockRejectedValue(error409)
+
+      const refreshedPrompt: PromptType = {
+        ...mockPrompt,
+        content: 'Server content',
+        updated_at: mockPrompt.updated_at,
+      }
+      const mockOnRefresh = vi.fn().mockResolvedValue(refreshedPrompt)
+
+      render(
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onRefresh={mockOnRefresh}
+        />
+      )
+
+      const initialEditor = screen.getByTestId('content-editor')
+      const initialInstance = initialEditor.getAttribute('data-editor-instance')
+
+      await user.clear(screen.getByDisplayValue('test-prompt'))
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'my-edit')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Load Server Version' }))
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Server content')).toBeInTheDocument()
+      })
+
+      const refreshedEditor = screen.getByTestId('content-editor')
+      const refreshedInstance = refreshedEditor.getAttribute('data-editor-instance')
+      expect(refreshedInstance).not.toBe(initialInstance)
     })
   })
 
