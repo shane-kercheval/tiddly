@@ -74,54 +74,71 @@ These patterns have identical logic across all three entity types and can be dir
 
 ```python
 import pytest
-from schemas.note import NoteCreate
-from schemas.bookmark import BookmarkCreate
-from schemas.prompt import PromptCreate
 
 @pytest.fixture
-async def note_entity(db_session, test_user, note_service):
-    """Create a note and return test context."""
-    note = await note_service.create(
-        db_session, test_user.id, NoteCreate(title="Test Note", content="Test content")
-    )
+async def note_entity(client):
+    """Create a note via API and return test context."""
+    response = await client.post("/notes/", json={
+        "title": "Test Note",
+        "content": "Test content",
+    })
+    assert response.status_code == 201
+    data = response.json()
     return {
-        "entity": note,
-        "service": note_service,
+        "id": data["id"],
+        "entity": data,
         "base_endpoint": "/notes",
-        "endpoint": f"/notes/{note.id}",
+        "endpoint": f"/notes/{data['id']}",
         "entity_type": "note",
         "entity_name": "Note",
     }
 
 @pytest.fixture
-async def bookmark_entity(db_session, test_user, bookmark_service):
-    """Create a bookmark and return test context."""
-    bookmark = await bookmark_service.create(
-        db_session, test_user.id, BookmarkCreate(url="https://example.com", title="Test")
-    )
+async def bookmark_entity(client):
+    """Create a bookmark via API and return test context."""
+    response = await client.post("/bookmarks/", json={
+        "url": "https://example.com",
+        "title": "Test Bookmark",
+    })
+    assert response.status_code == 201
+    data = response.json()
     return {
-        "entity": bookmark,
-        "service": bookmark_service,
+        "id": data["id"],
+        "entity": data,
         "base_endpoint": "/bookmarks",
-        "endpoint": f"/bookmarks/{bookmark.id}",
+        "endpoint": f"/bookmarks/{data['id']}",
         "entity_type": "bookmark",
         "entity_name": "Bookmark",
     }
 
 @pytest.fixture
-async def prompt_entity(db_session, test_user, prompt_service):
-    """Create a prompt and return test context."""
-    prompt = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="test-prompt", content="Hello {{ name }}")
-    )
+async def prompt_entity(client):
+    """Create a prompt via API and return test context."""
+    response = await client.post("/prompts/", json={
+        "name": "test-prompt",
+        "content": "Hello {{ name }}",
+        "arguments": [{"name": "name", "description": "Name to greet", "required": True}],
+    })
+    assert response.status_code == 201
+    data = response.json()
     return {
-        "entity": prompt,
-        "service": prompt_service,
+        "id": data["id"],
+        "entity": data,
         "base_endpoint": "/prompts",
-        "endpoint": f"/prompts/{prompt.id}",
+        "endpoint": f"/prompts/{data['id']}",
         "entity_type": "prompt",
         "entity_name": "Prompt",
     }
+
+@pytest.fixture
+async def client_other_user(app, db_session):
+    """
+    Create a test client authenticated as a different user.
+    Used for IDOR (Insecure Direct Object Reference) tests.
+    """
+    # Implementation depends on existing test auth patterns
+    # See existing IDOR tests in test_bookmarks.py for reference
+    ...
 ```
 
 **2. Create new shared test file (`backend/tests/api/test_entity_common.py`):**
@@ -187,14 +204,14 @@ class TestSoftDeleteRestore:
         await client.delete(setup['endpoint'])
         response = await client.get(setup['base_endpoint'])
         ids = [item["id"] for item in response.json()["items"]]
-        assert str(setup['entity'].id) not in ids
+        assert setup['id'] not in ids
 
     async def test__delete__soft_deleted_in_deleted_view(self, request, client, entity_fixture):
         setup = request.getfixturevalue(entity_fixture)
         await client.delete(setup['endpoint'])
         response = await client.get(f"{setup['base_endpoint']}?view=deleted")
         ids = [item["id"] for item in response.json()["items"]]
-        assert str(setup['entity'].id) in ids
+        assert setup['id'] in ids
 
     async def test__restore__success(self, request, client, entity_fixture):
         setup = request.getfixturevalue(entity_fixture)
@@ -208,7 +225,7 @@ class TestSoftDeleteRestore:
         response = await client.post(f"{setup['endpoint']}/restore")
         assert response.status_code == 400
 
-    async def test__delete__permanent_removes_from_db(self, request, client, db_session, entity_fixture):
+    async def test__delete__permanent_removes_from_db(self, request, client, entity_fixture):
         setup = request.getfixturevalue(entity_fixture)
         await client.delete(setup['endpoint'])  # Soft delete first
         response = await client.delete(f"{setup['endpoint']}?permanent=true")
@@ -216,7 +233,7 @@ class TestSoftDeleteRestore:
         # Verify gone from deleted view too
         response = await client.get(f"{setup['base_endpoint']}?view=deleted")
         ids = [item["id"] for item in response.json()["items"]]
-        assert str(setup['entity'].id) not in ids
+        assert setup['id'] not in ids
 
 
 @pytest.mark.parametrize("entity_fixture", ENTITY_FIXTURES)
@@ -225,12 +242,12 @@ class TestTrackUsage:
 
     async def test__track_usage__updates_last_used_at(self, request, client, entity_fixture):
         setup = request.getfixturevalue(entity_fixture)
-        original_last_used = setup['entity'].last_used_at
+        original_last_used = setup['entity']['last_used_at']
         response = await client.post(f"{setup['endpoint']}/track-usage")
         assert response.status_code == 204
         # Verify timestamp updated
         get_response = await client.get(setup['endpoint'])
-        assert get_response.json()["last_used_at"] > original_last_used.isoformat()
+        assert get_response.json()["last_used_at"] > original_last_used
 
     async def test__track_usage__works_on_archived(self, request, client, entity_fixture):
         setup = request.getfixturevalue(entity_fixture)
@@ -260,21 +277,21 @@ class TestListViews:
         await client.post(f"{setup['endpoint']}/archive")
         response = await client.get(setup['base_endpoint'])  # default view=active
         ids = [item["id"] for item in response.json()["items"]]
-        assert str(setup['entity'].id) not in ids
+        assert setup['id'] not in ids
 
     async def test__list__archived_view_shows_only_archived(self, request, client, entity_fixture):
         setup = request.getfixturevalue(entity_fixture)
         await client.post(f"{setup['endpoint']}/archive")
         response = await client.get(f"{setup['base_endpoint']}?view=archived")
         ids = [item["id"] for item in response.json()["items"]]
-        assert str(setup['entity'].id) in ids
+        assert setup['id'] in ids
 
     async def test__list__deleted_view_shows_only_deleted(self, request, client, entity_fixture):
         setup = request.getfixturevalue(entity_fixture)
         await client.delete(setup['endpoint'])
         response = await client.get(f"{setup['base_endpoint']}?view=deleted")
         ids = [item["id"] for item in response.json()["items"]]
-        assert str(setup['entity'].id) in ids
+        assert setup['id'] in ids
 
 
 @pytest.mark.parametrize("entity_fixture", ENTITY_FIXTURES)
@@ -477,58 +494,49 @@ This maintains backwards compatibility (field is optional) while allowing MCP cl
 
 **Test file: `backend/tests/api/test_optimistic_locking.py`**
 
+Reuses the `note_entity`, `bookmark_entity`, `prompt_entity` fixtures from `conftest.py` (created in Milestone 0).
+
 ```python
 import pytest
-from datetime import datetime, timedelta, timezone
 
-@pytest.fixture
-async def note_entity(db_session, test_user, note_service):
-    note = await note_service.create(db_session, test_user.id, NoteCreate(title="Test"))
-    return {
-        "entity": note,
-        "endpoint": f"/notes/{note.id}",
-        "update_data": {"title": "Updated"},
-        "entity_type": "note",
-    }
-
-@pytest.fixture
-async def bookmark_entity(db_session, test_user, bookmark_service):
-    bookmark = await bookmark_service.create(
-        db_session, test_user.id, BookmarkCreate(url="https://example.com")
-    )
-    return {
-        "entity": bookmark,
-        "endpoint": f"/bookmarks/{bookmark.id}",
-        "update_data": {"title": "Updated"},
-        "entity_type": "bookmark",
-    }
-
-@pytest.fixture
-async def prompt_entity(db_session, test_user, prompt_service):
-    prompt = await prompt_service.create(
-        db_session, test_user.id, PromptCreate(name="test", content="Hello")
-    )
-    return {
-        "entity": prompt,
-        "endpoint": f"/prompts/{prompt.id}",
-        "update_data": {"title": "Updated"},
-        "entity_type": "prompt",
-    }
+ENTITY_FIXTURES = ["note_entity", "bookmark_entity", "prompt_entity"]
 
 
-@pytest.mark.parametrize("entity_fixture", ["note_entity", "bookmark_entity", "prompt_entity"])
+@pytest.mark.parametrize("entity_fixture", ENTITY_FIXTURES)
 class TestOptimisticLocking:
     """Optimistic locking tests run against all entity types."""
 
     async def test__update__with_expected_updated_at__success(self, request, client, entity_fixture):
         """Update succeeds when timestamps match exactly."""
         setup = request.getfixturevalue(entity_fixture)
-        # ...
+        response = await client.patch(
+            setup['endpoint'],
+            json={
+                "title": "Updated Title",
+                "expected_updated_at": setup['entity']['updated_at'],
+            },
+        )
+        assert response.status_code == 200
 
     async def test__update__with_expected_updated_at__conflict_returns_409(self, request, client, entity_fixture):
         """Returns 409 when entity was modified after expected time."""
         setup = request.getfixturevalue(entity_fixture)
-        # ...
+        stale_timestamp = setup['entity']['updated_at']
+
+        # Modify the entity to change its updated_at
+        await client.patch(setup['endpoint'], json={"title": "First Update"})
+
+        # Try to update with stale timestamp
+        response = await client.patch(
+            setup['endpoint'],
+            json={
+                "title": "Second Update",
+                "expected_updated_at": stale_timestamp,
+            },
+        )
+        assert response.status_code == 409
+        assert response.json()["detail"]["error"] == "conflict"
+        assert "server_state" in response.json()["detail"]
 ```
 
 **Parametrized tests (each runs 3x, once per entity type):**
