@@ -47,7 +47,7 @@ interface UseStaleCheckResult {
 /**
  * Hook to detect when an entity was modified elsewhere.
  *
- * Checks for staleness when the tab gains focus (visibilitychange event).
+ * Checks for staleness when the tab gains focus (visibilitychange or window focus).
  * Errors are silently ignored to avoid interrupting the user.
  */
 export function useStaleCheck({
@@ -140,11 +140,13 @@ export function useStaleCheck({
       }
     }
 
-    // Listen for visibility changes
+    // Listen for visibility changes and window focus (cross-browser reliability)
     document.addEventListener('visibilitychange', checkStale)
+    window.addEventListener('focus', checkStale)
 
     return () => {
       document.removeEventListener('visibilitychange', checkStale)
+      window.removeEventListener('focus', checkStale)
     }
   }, [entityId, loadedUpdatedAt, fetchUpdatedAt, isStale, isDeleted])
 

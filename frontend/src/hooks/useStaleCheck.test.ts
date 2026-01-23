@@ -279,6 +279,7 @@ describe('useStaleCheck', () => {
   it('should clean up event listener on unmount', async () => {
     const fetchUpdatedAt = vi.fn().mockResolvedValue('2024-01-15T12:00:00Z')
     const removeEventListenerSpy = vi.spyOn(document, 'removeEventListener')
+    const removeWindowEventListenerSpy = vi.spyOn(window, 'removeEventListener')
 
     const { unmount } = renderHook(() =>
       useStaleCheck({
@@ -294,8 +295,75 @@ describe('useStaleCheck', () => {
       'visibilitychange',
       expect.any(Function)
     )
+    expect(removeWindowEventListenerSpy).toHaveBeenCalledWith(
+      'focus',
+      expect.any(Function)
+    )
 
     removeEventListenerSpy.mockRestore()
+    removeWindowEventListenerSpy.mockRestore()
+  })
+
+  it('should detect stale on window focus', async () => {
+    const fetchUpdatedAt = vi.fn().mockResolvedValue('2024-01-15T12:00:00Z')
+
+    const { result } = renderHook(() =>
+      useStaleCheck({
+        entityId: 'test-id',
+        loadedUpdatedAt: '2024-01-15T10:00:00Z',
+        fetchUpdatedAt,
+      })
+    )
+
+    expect(result.current.isStale).toBe(false)
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    await waitFor(() => {
+      expect(result.current.isStale).toBe(true)
+    })
+
+    expect(fetchUpdatedAt).toHaveBeenCalledWith('test-id')
+  })
+
+  it('should not double-fire on visibilitychange + focus (in-flight guard)', async () => {
+    let resolvePromise: (value: string) => void
+    const slowFetchUpdatedAt = vi.fn().mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolvePromise = resolve
+        })
+    )
+
+    renderHook(() =>
+      useStaleCheck({
+        entityId: 'test-id',
+        loadedUpdatedAt: '2024-01-15T10:00:00Z',
+        fetchUpdatedAt: slowFetchUpdatedAt,
+      })
+    )
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    expect(slowFetchUpdatedAt).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolvePromise!('2024-01-15T10:00:00Z')
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    expect(slowFetchUpdatedAt).toHaveBeenCalledTimes(2)
   })
 
   it('should not update state if entity changes during fetch (race condition guard)', async () => {
