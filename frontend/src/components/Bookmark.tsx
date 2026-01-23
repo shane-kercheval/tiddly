@@ -15,13 +15,14 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode, FormEvent } from 'react'
+import axios from 'axios'
 import { InlineEditableUrl } from './InlineEditableUrl'
 import { InlineEditableTitle } from './InlineEditableTitle'
 import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEditableTags'
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
-import { UnsavedChangesDialog, StaleDialog, DeletedDialog } from './ui'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
@@ -33,6 +34,12 @@ import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useBookmarks } from '../hooks/useBookmarks'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
 import type { ArchivePreset } from '../utils'
+
+/** Conflict state for 409 responses */
+interface ConflictState {
+  serverUpdatedAt: string
+  serverState: BookmarkType
+}
 
 /** Form state for the bookmark */
 interface BookmarkState {
@@ -155,6 +162,7 @@ export function Bookmark({
   const [current, setCurrent] = useState<BookmarkState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [conflictState, setConflictState] = useState<ConflictState | null>(null)
 
   // Metadata fetch state
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
@@ -499,6 +507,11 @@ export function Bookmark({
           return
         }
 
+        // Include expected_updated_at for optimistic locking (prevents overwriting concurrent edits)
+        if (bookmark?.updated_at) {
+          updates.expected_updated_at = bookmark.updated_at
+        }
+
         await onSave(updates)
       }
 
@@ -516,11 +529,24 @@ export function Bookmark({
           refocusAfterSaveRef.current = null
         }, 0)
       }
-    } catch {
-      // Error handling is done in the parent component
-      // Clear refs on error
+    } catch (err) {
+      // Check for 409 Conflict (version mismatch)
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        const detail = err.response.data?.detail
+        if (detail?.error === 'conflict' && detail?.server_state) {
+          setConflictState({
+            serverUpdatedAt: detail.server_state.updated_at,
+            serverState: detail.server_state as BookmarkType,
+          })
+          refocusAfterSaveRef.current = null
+          clearSaveAndClose()
+          return
+        }
+      }
+      // Other errors: clear refs and let parent handle
       refocusAfterSaveRef.current = null
       clearSaveAndClose()
+      throw err
     }
   }
 
@@ -555,6 +581,62 @@ export function Bookmark({
 
   const handleArchivePresetChange = useCallback((archivePreset: ArchivePreset): void => {
     setCurrent((prev) => ({ ...prev, archivePreset }))
+  }, [])
+
+  // Conflict resolution handlers
+  const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
+    const success = await onRefresh?.()
+    if (success) {
+      setConflictState(null)
+    }
+  }, [onRefresh])
+
+  const handleConflictSaveMyVersion = useCallback(async (): Promise<void> => {
+    if (!bookmark) return
+
+    // Build updates without expected_updated_at to force save
+    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+    const tagsToSubmit = [...current.tags]
+    if (pendingTag) {
+      const normalized = pendingTag.toLowerCase().trim()
+      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+        tagsToSubmit.push(normalized)
+        tagInputRef.current?.clearPending()
+      }
+    }
+
+    const updates: BookmarkUpdate = {}
+    const normalizedUrl = normalizeUrl(current.url)
+    if (normalizedUrl !== bookmark.url) updates.url = normalizedUrl
+    if (current.title !== (bookmark.title ?? '')) updates.title = current.title || null
+    if (current.description !== (bookmark.description ?? '')) {
+      updates.description = current.description || null
+    }
+    if (current.content !== (bookmark.content ?? '')) {
+      updates.content = current.content || null
+    }
+    if (JSON.stringify(tagsToSubmit) !== JSON.stringify(bookmark.tags ?? [])) {
+      updates.tags = tagsToSubmit
+    }
+    const newArchivedAt = current.archivedAt || null
+    const oldArchivedAt = bookmark.archived_at || null
+    if (newArchivedAt !== oldArchivedAt) {
+      updates.archived_at = newArchivedAt
+    }
+
+    // Note: NOT including expected_updated_at - this forces the save to overwrite server version
+
+    try {
+      await onSave(updates)
+      setOriginal({ ...current, tags: tagsToSubmit })
+      setConflictState(null)
+    } catch {
+      // If save fails again, keep dialog open
+    }
+  }, [bookmark, current, onSave])
+
+  const handleConflictDoNothing = useCallback((): void => {
+    setConflictState(null)
   }, [])
 
   // Prevent form submission on Enter in inputs
@@ -801,6 +883,19 @@ export function Bookmark({
         entityType="bookmark"
         onGoBack={onClose}
       />
+
+      {/* Conflict dialog (shown when save returns 409) */}
+      {conflictState && (
+        <ConflictDialog
+          isOpen={true}
+          serverUpdatedAt={conflictState.serverUpdatedAt}
+          currentContent={current.content}
+          entityType="bookmark"
+          onLoadServerVersion={handleConflictLoadServerVersion}
+          onSaveMyVersion={handleConflictSaveMyVersion}
+          onDoNothing={handleConflictDoNothing}
+        />
+      )}
     </form>
   )
 }

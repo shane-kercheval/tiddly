@@ -15,13 +15,14 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode, FormEvent } from 'react'
+import axios from 'axios'
 import { InlineEditableTitle } from './InlineEditableTitle'
 import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEditableTags'
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { ArgumentsBuilder } from './ArgumentsBuilder'
-import { UnsavedChangesDialog, StaleDialog, DeletedDialog } from './ui'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { PreviewPromptModal } from './PreviewPromptModal'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
@@ -35,6 +36,12 @@ import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { usePrompts } from '../hooks/usePrompts'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, TagCount } from '../types'
+
+/** Conflict state for 409 responses */
+interface ConflictState {
+  serverUpdatedAt: string
+  serverState: PromptType
+}
 
 /** Default template content for new prompts */
 const DEFAULT_PROMPT_CONTENT = `# Replace this content with your prompt
@@ -204,6 +211,7 @@ export function Prompt({
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
+  const [conflictState, setConflictState] = useState<ConflictState | null>(null)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -499,6 +507,11 @@ export function Prompt({
           return
         }
 
+        // Include expected_updated_at for optimistic locking (prevents overwriting concurrent edits)
+        if (prompt?.updated_at) {
+          updates.expected_updated_at = prompt.updated_at
+        }
+
         await onSave(updates)
       }
 
@@ -526,13 +539,30 @@ export function Prompt({
         }, 0)
       }
     } catch (err) {
-      // Handle field-specific errors from parent
+      // Check for 409 Conflict (version mismatch)
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        const detail = err.response.data?.detail
+        if (detail?.error === 'conflict' && detail?.server_state) {
+          setConflictState({
+            serverUpdatedAt: detail.server_state.updated_at,
+            serverState: detail.server_state as PromptType,
+          })
+          refocusAfterSaveRef.current = null
+          clearSaveAndClose()
+          return
+        }
+      }
+      // Handle field-specific errors from parent (e.g., NAME_CONFLICT)
       if (err instanceof SaveError) {
         setErrors((prev) => ({ ...prev, ...err.fieldErrors }))
+        refocusAfterSaveRef.current = null
+        clearSaveAndClose()
+        return  // SaveError is handled - don't propagate
       }
-      // Clear refs on error
+      // Other errors: clear refs and let parent handle
       refocusAfterSaveRef.current = null
       clearSaveAndClose()
+      throw err
     }
   }
 
@@ -573,6 +603,81 @@ export function Prompt({
   const handleArgumentsChange = useCallback((args: PromptArgument[]): void => {
     setCurrent((prev) => ({ ...prev, arguments: args }))
     setErrors((prev) => (prev.arguments ? { ...prev, arguments: undefined } : prev))
+  }, [])
+
+  // Conflict resolution handlers
+  const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
+    const success = await onRefresh?.()
+    if (success) {
+      setConflictState(null)
+    }
+  }, [onRefresh])
+
+  const handleConflictSaveMyVersion = useCallback(async (): Promise<void> => {
+    if (!prompt) return
+
+    // Build updates without expected_updated_at to force save
+    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+    const tagsToSubmit = [...current.tags]
+    if (pendingTag) {
+      const normalized = pendingTag.toLowerCase().trim()
+      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+        tagsToSubmit.push(normalized)
+        tagInputRef.current?.clearPending()
+      }
+    }
+
+    const cleanedArgs = current.arguments.map((arg) => ({
+      ...arg,
+      description: arg.description?.trim() || null,
+      required: arg.required ?? false,
+    }))
+
+    const updates: PromptUpdate = {}
+    if (current.name !== prompt.name) updates.name = current.name
+    if (current.title !== (prompt.title ?? '')) {
+      updates.title = current.title || null
+    }
+    if (current.description !== (prompt.description ?? '')) {
+      updates.description = current.description || null
+    }
+    if (current.content !== (prompt.content ?? '')) {
+      updates.content = current.content || null
+    }
+    if (JSON.stringify(cleanedArgs) !== JSON.stringify(prompt.arguments ?? [])) {
+      updates.arguments = cleanedArgs
+    }
+    if (JSON.stringify(tagsToSubmit) !== JSON.stringify(prompt.tags ?? [])) {
+      updates.tags = tagsToSubmit
+    }
+    const newArchivedAt = current.archivedAt || null
+    const oldArchivedAt = prompt.archived_at || null
+    if (newArchivedAt !== oldArchivedAt) {
+      updates.archived_at = newArchivedAt
+    }
+
+    // Note: NOT including expected_updated_at - this forces the save to overwrite server version
+
+    try {
+      await onSave(updates)
+      setOriginal({
+        name: current.name,
+        title: current.title,
+        description: current.description,
+        content: current.content,
+        arguments: cleanedArgs,
+        tags: tagsToSubmit,
+        archivedAt: current.archivedAt,
+        archivePreset: current.archivePreset,
+      })
+      setConflictState(null)
+    } catch {
+      // If save fails again, keep dialog open
+    }
+  }, [prompt, current, onSave])
+
+  const handleConflictDoNothing = useCallback((): void => {
+    setConflictState(null)
   }, [])
 
   // Prevent form submission on Enter in inputs
@@ -847,6 +952,19 @@ export function Prompt({
         entityType="prompt"
         onGoBack={onClose}
       />
+
+      {/* Conflict dialog (shown when save returns 409) */}
+      {conflictState && (
+        <ConflictDialog
+          isOpen={true}
+          serverUpdatedAt={conflictState.serverUpdatedAt}
+          currentContent={current.content}
+          entityType="prompt"
+          onLoadServerVersion={handleConflictLoadServerVersion}
+          onSaveMyVersion={handleConflictSaveMyVersion}
+          onDoNothing={handleConflictDoNothing}
+        />
+      )}
     </form>
   )
 }

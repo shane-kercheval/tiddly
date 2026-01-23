@@ -14,12 +14,13 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode, FormEvent } from 'react'
+import axios from 'axios'
 import { InlineEditableTitle } from './InlineEditableTitle'
 import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEditableTags'
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
-import { UnsavedChangesDialog, StaleDialog, DeletedDialog } from './ui'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
@@ -31,6 +32,12 @@ import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useNotes } from '../hooks/useNotes'
 import type { Note as NoteType, NoteCreate, NoteUpdate, TagCount } from '../types'
+
+/** Conflict state for 409 responses */
+interface ConflictState {
+  serverUpdatedAt: string
+  serverState: NoteType
+}
 
 /** Form state for the note */
 interface NoteState {
@@ -136,6 +143,7 @@ export function Note({
   const [current, setCurrent] = useState<NoteState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [conflictState, setConflictState] = useState<ConflictState | null>(null)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -352,6 +360,12 @@ export function Note({
           return
         }
 
+        // Include expected_updated_at for optimistic locking (prevents overwriting concurrent edits)
+        // If note.updated_at is provided, server will return 409 if the note was modified since we loaded it
+        if (note?.updated_at) {
+          updates.expected_updated_at = note.updated_at
+        }
+
         await onSave(updates)
       }
 
@@ -369,11 +383,25 @@ export function Note({
           refocusAfterSaveRef.current = null
         }, 0)
       }
-    } catch {
-      // Error handling is done in the parent component
-      // Clear refs on error
+    } catch (err) {
+      // Check for 409 Conflict (version mismatch)
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        const detail = err.response.data?.detail
+        if (detail?.error === 'conflict' && detail?.server_state) {
+          setConflictState({
+            serverUpdatedAt: detail.server_state.updated_at,
+            serverState: detail.server_state as NoteType,
+          })
+          // Clear refs but don't propagate error - we're handling it with the dialog
+          refocusAfterSaveRef.current = null
+          clearSaveAndClose()
+          return
+        }
+      }
+      // Other errors: clear refs and let parent handle
       refocusAfterSaveRef.current = null
       clearSaveAndClose()
+      throw err
     }
   }
 
@@ -403,6 +431,62 @@ export function Note({
 
   const handleArchivePresetChange = useCallback((archivePreset: ArchivePreset): void => {
     setCurrent((prev) => ({ ...prev, archivePreset }))
+  }, [])
+
+  // Conflict resolution handlers
+  const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
+    // Use onRefresh to fetch latest version from server
+    // This updates the parent's state, which will flow down as new props
+    const success = await onRefresh?.()
+    if (success) {
+      setConflictState(null)
+    }
+  }, [onRefresh])
+
+  const handleConflictSaveMyVersion = useCallback(async (): Promise<void> => {
+    if (!note) return
+
+    // Build updates without expected_updated_at to force save
+    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+    const tagsToSubmit = [...current.tags]
+    if (pendingTag) {
+      const normalized = pendingTag.toLowerCase().trim()
+      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+        tagsToSubmit.push(normalized)
+        tagInputRef.current?.clearPending()
+      }
+    }
+
+    const updates: NoteUpdate = {}
+    if (current.title !== note.title) updates.title = current.title
+    if (current.description !== (note.description ?? '')) {
+      updates.description = current.description || null
+    }
+    if (current.content !== (note.content ?? '')) {
+      updates.content = current.content || null
+    }
+    if (JSON.stringify(tagsToSubmit) !== JSON.stringify(note.tags ?? [])) {
+      updates.tags = tagsToSubmit
+    }
+    const newArchivedAt = current.archivedAt || null
+    const oldArchivedAt = note.archived_at || null
+    if (newArchivedAt !== oldArchivedAt) {
+      updates.archived_at = newArchivedAt
+    }
+
+    // Note: NOT including expected_updated_at - this forces the save to overwrite server version
+
+    try {
+      await onSave(updates)
+      setOriginal({ ...current, tags: tagsToSubmit })
+      setConflictState(null)
+    } catch {
+      // If save fails again, keep dialog open and let user try again or choose another option
+    }
+  }, [note, current, onSave])
+
+  const handleConflictDoNothing = useCallback((): void => {
+    setConflictState(null)
   }, [])
 
   // Prevent form submission on Enter in inputs
@@ -629,6 +713,19 @@ export function Note({
         entityType="note"
         onGoBack={onClose}
       />
+
+      {/* Conflict dialog (shown when save returns 409) */}
+      {conflictState && (
+        <ConflictDialog
+          isOpen={true}
+          serverUpdatedAt={conflictState.serverUpdatedAt}
+          currentContent={current.content}
+          entityType="note"
+          onLoadServerVersion={handleConflictLoadServerVersion}
+          onSaveMyVersion={handleConflictSaveMyVersion}
+          onDoNothing={handleConflictDoNothing}
+        />
+      )}
     </form>
   )
 }

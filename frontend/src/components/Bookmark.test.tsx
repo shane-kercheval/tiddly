@@ -311,6 +311,7 @@ describe('Bookmark component - specific behaviors', () => {
       await waitFor(() => {
         expect(mockOnSave).toHaveBeenCalledWith({
           title: 'Updated Title',
+          expected_updated_at: '2024-01-02T00:00:00Z',
         })
       })
     })

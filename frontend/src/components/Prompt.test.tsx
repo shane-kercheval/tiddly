@@ -341,6 +341,7 @@ describe('Prompt component - specific behaviors', () => {
       await waitFor(() => {
         expect(mockOnSave).toHaveBeenCalledWith({
           name: 'updated-prompt',
+          expected_updated_at: '2024-01-02T00:00:00Z',
         })
       })
     })

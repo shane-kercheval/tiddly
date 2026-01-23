@@ -59,9 +59,13 @@ export function useStaleCheck({
   const [isDeleted, setIsDeleted] = useState(false)
   const [serverUpdatedAt, setServerUpdatedAt] = useState<string | null>(null)
 
-  // Track current entity ID to guard against race conditions
-  // (prevents setting state for old entity after navigation)
+  // Track current values to guard against race conditions
+  // (prevents setting state for old entity after navigation or refresh)
   const currentEntityIdRef = useRef<string | undefined>(entityId)
+  const loadedUpdatedAtRef = useRef<string | undefined>(loadedUpdatedAt)
+
+  // Track in-flight check to prevent concurrent requests
+  const isCheckingRef = useRef(false)
 
   // Reset state when entity changes (e.g., navigating to different note)
   useEffect(() => {
@@ -70,6 +74,11 @@ export function useStaleCheck({
     setIsDeleted(false)
     setServerUpdatedAt(null)
   }, [entityId])
+
+  // Keep loadedUpdatedAt ref in sync (for race condition guard after refresh)
+  useEffect(() => {
+    loadedUpdatedAtRef.current = loadedUpdatedAt
+  }, [loadedUpdatedAt])
 
   // Check for staleness on visibility change
   useEffect(() => {
@@ -82,14 +91,25 @@ export function useStaleCheck({
       // Skip if already showing stale dialog for this entity
       if (isStale || isDeleted) return
 
-      // Capture entityId at fetch start for race condition guard
+      // Skip if a check is already in flight (prevents concurrent requests)
+      if (isCheckingRef.current) return
+
+      // Capture values at fetch start for race condition guard
       const fetchEntityId = entityId
+      const fetchLoadedUpdatedAt = loadedUpdatedAt
+
+      isCheckingRef.current = true
 
       try {
         const currentUpdatedAt = await fetchUpdatedAt(fetchEntityId)
 
-        // Guard against race condition: entity may have changed during fetch
-        if (currentEntityIdRef.current !== fetchEntityId) return
+        // Guard against race condition: entity or its timestamp may have changed during fetch
+        if (
+          currentEntityIdRef.current !== fetchEntityId ||
+          loadedUpdatedAtRef.current !== fetchLoadedUpdatedAt
+        ) {
+          return
+        }
 
         // Compare timestamps - stale if server is newer
         if (currentUpdatedAt !== loadedUpdatedAt) {
@@ -97,8 +117,13 @@ export function useStaleCheck({
           setServerUpdatedAt(currentUpdatedAt)
         }
       } catch (error) {
-        // Guard against race condition: entity may have changed during fetch
-        if (currentEntityIdRef.current !== fetchEntityId) return
+        // Guard against race condition: entity or its timestamp may have changed during fetch
+        if (
+          currentEntityIdRef.current !== fetchEntityId ||
+          loadedUpdatedAtRef.current !== fetchLoadedUpdatedAt
+        ) {
+          return
+        }
 
         // Check for 404 (entity deleted)
         if (
@@ -110,6 +135,8 @@ export function useStaleCheck({
           setIsDeleted(true)
         }
         // Silently ignore other errors (network failures, etc.)
+      } finally {
+        isCheckingRef.current = false
       }
     }
 

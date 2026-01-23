@@ -49,6 +49,7 @@ export interface BookmarkUpdate {
   content?: string | null
   tags?: string[]
   archived_at?: string | null  // ISO 8601 datetime string, or null to cancel schedule
+  expected_updated_at?: string  // ISO 8601 timestamp for optimistic locking. If provided and entity was modified after this time, returns 409 Conflict.
 }
 
 /** Paginated list response from GET /bookmarks/ */
@@ -118,6 +119,7 @@ export interface NoteUpdate {
   content?: string | null
   tags?: string[]
   archived_at?: string | null  // ISO 8601 datetime string, or null to cancel schedule
+  expected_updated_at?: string  // ISO 8601 timestamp for optimistic locking. If provided and entity was modified after this time, returns 409 Conflict.
 }
 
 /** Paginated list response from GET /notes/ */
@@ -435,6 +437,7 @@ export interface PromptUpdate {
   arguments?: PromptArgument[]
   tags?: string[]
   archived_at?: string | null
+  expected_updated_at?: string  // ISO 8601 timestamp for optimistic locking. If provided and entity was modified after this time, returns 409 Conflict.
 }
 
 /** Paginated list response from GET /prompts/ */
