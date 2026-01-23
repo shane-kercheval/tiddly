@@ -218,14 +218,16 @@ export function BookmarkDetail(): ReactNode {
     }
   }, [bookmarkId, deleteMutation, navigateBack])
 
-  // Refresh handler for stale check
-  const handleRefresh = useCallback(async (): Promise<void> => {
-    if (!bookmarkId) return
+  // Refresh handler for stale check - returns true on success, false on failure
+  const handleRefresh = useCallback(async (): Promise<boolean> => {
+    if (!bookmarkId) return false
     try {
       const refreshedBookmark = await fetchBookmark(bookmarkId)
       setBookmark(refreshedBookmark)
+      return true
     } catch {
       toast.error('Failed to refresh bookmark')
+      return false
     }
   }, [bookmarkId, fetchBookmark])
 

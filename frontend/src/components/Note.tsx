@@ -74,8 +74,8 @@ interface NoteProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
-  /** Called to refresh the note from server (for stale check) */
-  onRefresh?: () => Promise<void>
+  /** Called to refresh the note from server (for stale check). Returns true on success. */
+  onRefresh?: () => Promise<boolean>
 }
 
 /**
@@ -100,13 +100,14 @@ export function Note({
 
   // Stale check hook
   const { fetchNoteMetadata } = useNotes()
+  const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
+    const metadata = await fetchNoteMetadata(id)
+    return metadata.updated_at
+  }, [fetchNoteMetadata])
   const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
     entityId: note?.id,
     loadedUpdatedAt: note?.updated_at,
-    fetchUpdatedAt: async (id) => {
-      const metadata = await fetchNoteMetadata(id)
-      return metadata.updated_at
-    },
+    fetchUpdatedAt,
   })
 
   // Get initial archive state from note
@@ -615,8 +616,10 @@ export function Note({
           isDirty={isDirty}
           entityType="note"
           onLoadServerVersion={async () => {
-            await onRefresh?.()
-            dismissStale()
+            const success = await onRefresh?.()
+            if (success) {
+              dismissStale()
+            }
           }}
           onContinueEditing={dismissStale}
         />

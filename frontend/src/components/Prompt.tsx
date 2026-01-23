@@ -140,8 +140,8 @@ interface PromptProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
-  /** Called to refresh the prompt from server (for stale check) */
-  onRefresh?: () => Promise<void>
+  /** Called to refresh the prompt from server (for stale check). Returns true on success. */
+  onRefresh?: () => Promise<boolean>
 }
 
 /**
@@ -166,13 +166,14 @@ export function Prompt({
 
   // Stale check hook
   const { fetchPromptMetadata } = usePrompts()
+  const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
+    const metadata = await fetchPromptMetadata(id)
+    return metadata.updated_at
+  }, [fetchPromptMetadata])
   const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
     entityId: prompt?.id,
     loadedUpdatedAt: prompt?.updated_at,
-    fetchUpdatedAt: async (id) => {
-      const metadata = await fetchPromptMetadata(id)
-      return metadata.updated_at
-    },
+    fetchUpdatedAt,
   })
 
   // Get initial archive state from prompt
@@ -833,8 +834,10 @@ export function Prompt({
           isDirty={isDirty}
           entityType="prompt"
           onLoadServerVersion={async () => {
-            await onRefresh?.()
-            dismissStale()
+            const success = await onRefresh?.()
+            if (success) {
+              dismissStale()
+            }
           }}
           onContinueEditing={dismissStale}
         />

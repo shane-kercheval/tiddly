@@ -88,8 +88,8 @@ interface BookmarkProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
-  /** Called to refresh the bookmark from server (for stale check) */
-  onRefresh?: () => Promise<void>
+  /** Called to refresh the bookmark from server (for stale check). Returns true on success. */
+  onRefresh?: () => Promise<boolean>
 }
 
 /**
@@ -127,13 +127,14 @@ export function Bookmark({
 
   // Stale check hook
   const { fetchBookmarkMetadata } = useBookmarks()
+  const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
+    const metadata = await fetchBookmarkMetadata(id)
+    return metadata.updated_at
+  }, [fetchBookmarkMetadata])
   const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
     entityId: bookmark?.id,
     loadedUpdatedAt: bookmark?.updated_at,
-    fetchUpdatedAt: async (id) => {
-      const metadata = await fetchBookmarkMetadata(id)
-      return metadata.updated_at
-    },
+    fetchUpdatedAt,
   })
 
   // Initialize state from bookmark or defaults
@@ -787,8 +788,10 @@ export function Bookmark({
           isDirty={isDirty}
           entityType="bookmark"
           onLoadServerVersion={async () => {
-            await onRefresh?.()
-            dismissStale()
+            const success = await onRefresh?.()
+            if (success) {
+              dismissStale()
+            }
           }}
           onContinueEditing={dismissStale}
         />

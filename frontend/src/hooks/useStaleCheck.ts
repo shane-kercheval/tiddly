@@ -59,15 +59,16 @@ export function useStaleCheck({
   const [isDeleted, setIsDeleted] = useState(false)
   const [serverUpdatedAt, setServerUpdatedAt] = useState<string | null>(null)
 
-  // Track which entity/timestamp we've checked to avoid false positives after refresh
-  const checkedRef = useRef<{ entityId: string; loadedUpdatedAt: string } | null>(null)
+  // Track current entity ID to guard against race conditions
+  // (prevents setting state for old entity after navigation)
+  const currentEntityIdRef = useRef<string | undefined>(entityId)
 
   // Reset state when entity changes (e.g., navigating to different note)
   useEffect(() => {
+    currentEntityIdRef.current = entityId
     setIsStale(false)
     setIsDeleted(false)
     setServerUpdatedAt(null)
-    checkedRef.current = null
   }, [entityId])
 
   // Check for staleness on visibility change
@@ -81,8 +82,14 @@ export function useStaleCheck({
       // Skip if already showing stale dialog for this entity
       if (isStale || isDeleted) return
 
+      // Capture entityId at fetch start for race condition guard
+      const fetchEntityId = entityId
+
       try {
-        const currentUpdatedAt = await fetchUpdatedAt(entityId)
+        const currentUpdatedAt = await fetchUpdatedAt(fetchEntityId)
+
+        // Guard against race condition: entity may have changed during fetch
+        if (currentEntityIdRef.current !== fetchEntityId) return
 
         // Compare timestamps - stale if server is newer
         if (currentUpdatedAt !== loadedUpdatedAt) {
@@ -90,6 +97,9 @@ export function useStaleCheck({
           setServerUpdatedAt(currentUpdatedAt)
         }
       } catch (error) {
+        // Guard against race condition: entity may have changed during fetch
+        if (currentEntityIdRef.current !== fetchEntityId) return
+
         // Check for 404 (entity deleted)
         if (
           error &&
@@ -103,17 +113,8 @@ export function useStaleCheck({
       }
     }
 
-    // Check immediately if tab is already visible (handles initial load edge case)
-    // Skip if we haven't had a chance to load yet
-    if (document.visibilityState === 'visible' && checkedRef.current?.entityId === entityId) {
-      // Don't check on initial visibility - only on subsequent tab switches
-    }
-
     // Listen for visibility changes
     document.addEventListener('visibilitychange', checkStale)
-
-    // Track that we've set up the listener for this entity
-    checkedRef.current = { entityId, loadedUpdatedAt }
 
     return () => {
       document.removeEventListener('visibilitychange', checkStale)

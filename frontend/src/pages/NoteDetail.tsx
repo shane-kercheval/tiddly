@@ -200,14 +200,16 @@ export function NoteDetail(): ReactNode {
     }
   }, [noteId, restoreMutation, navigateBack])
 
-  // Refresh handler for stale check
-  const handleRefresh = useCallback(async (): Promise<void> => {
-    if (!noteId) return
+  // Refresh handler for stale check - returns true on success, false on failure
+  const handleRefresh = useCallback(async (): Promise<boolean> => {
+    if (!noteId) return false
     try {
       const refreshedNote = await fetchNote(noteId)
       setNote(refreshedNote)
+      return true
     } catch {
       toast.error('Failed to refresh note')
+      return false
     }
   }, [noteId, fetchNote])
 

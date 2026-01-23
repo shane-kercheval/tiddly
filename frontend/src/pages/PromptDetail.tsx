@@ -226,14 +226,16 @@ export function PromptDetail(): ReactNode {
     }
   }, [promptId, restoreMutation, navigateBack])
 
-  // Refresh handler for stale check
-  const handleRefresh = useCallback(async (): Promise<void> => {
-    if (!promptId) return
+  // Refresh handler for stale check - returns true on success, false on failure
+  const handleRefresh = useCallback(async (): Promise<boolean> => {
+    if (!promptId) return false
     try {
       const refreshedPrompt = await fetchPrompt(promptId)
       setPrompt(refreshedPrompt)
+      return true
     } catch {
       toast.error('Failed to refresh prompt')
+      return false
     }
   }, [promptId, fetchPrompt])
 

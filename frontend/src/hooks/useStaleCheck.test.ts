@@ -297,4 +297,106 @@ describe('useStaleCheck', () => {
 
     removeEventListenerSpy.mockRestore()
   })
+
+  it('should not update state if entity changes during fetch (race condition guard)', async () => {
+    // Create a deferred promise that we can resolve manually
+    let resolvePromise: (value: string) => void
+    const slowFetchUpdatedAt = vi.fn().mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolvePromise = resolve
+        })
+    )
+
+    const { result, rerender } = renderHook(
+      ({ entityId, loadedUpdatedAt }) =>
+        useStaleCheck({
+          entityId,
+          loadedUpdatedAt,
+          fetchUpdatedAt: slowFetchUpdatedAt,
+        }),
+      {
+        initialProps: {
+          entityId: 'entity-1',
+          loadedUpdatedAt: '2024-01-15T10:00:00Z',
+        },
+      }
+    )
+
+    // Trigger visibility change - starts fetch for entity-1
+    await act(async () => {
+      triggerVisibilityChange()
+    })
+
+    expect(slowFetchUpdatedAt).toHaveBeenCalledWith('entity-1')
+
+    // User navigates to different entity BEFORE fetch completes
+    rerender({
+      entityId: 'entity-2',
+      loadedUpdatedAt: '2024-01-15T11:00:00Z',
+    })
+
+    // State should be reset for the new entity
+    expect(result.current.isStale).toBe(false)
+
+    // Now the old fetch completes with a stale timestamp
+    await act(async () => {
+      resolvePromise!('2024-01-15T12:00:00Z') // Would be stale for entity-1
+    })
+
+    // Give time for any state updates
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    // Should NOT set stale state because entity changed
+    expect(result.current.isStale).toBe(false)
+    expect(result.current.serverUpdatedAt).toBeNull()
+  })
+
+  it('should not set deleted state if entity changes during failed fetch', async () => {
+    // Create a deferred promise that we can reject manually
+    let rejectPromise: (error: unknown) => void
+    const slowFetchUpdatedAt = vi.fn().mockImplementation(
+      () =>
+        new Promise<string>((_, reject) => {
+          rejectPromise = reject
+        })
+    )
+
+    const { result, rerender } = renderHook(
+      ({ entityId, loadedUpdatedAt }) =>
+        useStaleCheck({
+          entityId,
+          loadedUpdatedAt,
+          fetchUpdatedAt: slowFetchUpdatedAt,
+        }),
+      {
+        initialProps: {
+          entityId: 'entity-1',
+          loadedUpdatedAt: '2024-01-15T10:00:00Z',
+        },
+      }
+    )
+
+    // Trigger visibility change - starts fetch for entity-1
+    await act(async () => {
+      triggerVisibilityChange()
+    })
+
+    // User navigates to different entity BEFORE fetch completes
+    rerender({
+      entityId: 'entity-2',
+      loadedUpdatedAt: '2024-01-15T11:00:00Z',
+    })
+
+    // Now the old fetch fails with 404
+    await act(async () => {
+      rejectPromise!({ response: { status: 404 } })
+    })
+
+    // Give time for any state updates
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    // Should NOT set deleted state because entity changed
+    expect(result.current.isDeleted).toBe(false)
+  })
 })
