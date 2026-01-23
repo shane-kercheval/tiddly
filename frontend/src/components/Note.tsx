@@ -87,8 +87,8 @@ interface NoteProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
-  /** Called to refresh the note from server (for stale check). Returns true on success. */
-  onRefresh?: () => Promise<boolean>
+  /** Called to refresh the note from server (for stale check). Returns the refreshed note on success. */
+  onRefresh?: () => Promise<NoteType | null>
 }
 
 /**
@@ -150,6 +150,29 @@ export function Note({
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
+
+  const syncStateFromNote = useCallback((nextNote: NoteType): void => {
+    const archiveState = nextNote.archived_at
+      ? { archivedAt: nextNote.archived_at, archivePreset: 'custom' as ArchivePreset }
+      : { archivedAt: '', archivePreset: 'none' as ArchivePreset }
+    const newState: NoteState = {
+      title: nextNote.title ?? '',
+      description: nextNote.description ?? '',
+      content: nextNote.content ?? '',
+      tags: nextNote.tags ?? [],
+      archivedAt: archiveState.archivedAt,
+      archivePreset: archiveState.archivePreset,
+    }
+    setOriginal(newState)
+    setCurrent(newState)
+    setConflictState(null)
+  }, [])
+
+  // Sync internal state when note prop changes (e.g., after refresh from conflict resolution)
+  useEffect(() => {
+    if (!note) return
+    syncStateFromNote(note)
+  }, [note?.id, note?.updated_at, syncStateFromNote])
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -465,11 +488,11 @@ export function Note({
   const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
     // Use onRefresh to fetch latest version from server
     // This updates the parent's state, which will flow down as new props
-    const success = await onRefresh?.()
-    if (success) {
-      setConflictState(null)
+    const refreshed = await onRefresh?.()
+    if (refreshed) {
+      syncStateFromNote(refreshed)
     }
-  }, [onRefresh])
+  }, [onRefresh, syncStateFromNote])
 
   const handleConflictSaveMyVersion = useCallback(async (): Promise<void> => {
     const result = buildUpdates()
@@ -680,6 +703,7 @@ export function Note({
 
         {/* Content editor */}
         <ContentEditor
+          key={note?.updated_at ?? 'new'}
           value={current.content}
           onChange={handleContentChange}
           disabled={isSaving || isReadOnly}
@@ -710,8 +734,9 @@ export function Note({
           isDirty={isDirty}
           entityType="note"
           onLoadServerVersion={async () => {
-            const success = await onRefresh?.()
-            if (success) {
+            const refreshed = await onRefresh?.()
+            if (refreshed) {
+              syncStateFromNote(refreshed)
               dismissStale()
             }
           }}

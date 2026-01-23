@@ -136,7 +136,7 @@ createContentComponentTests({
 })
 
 // Bookmark-specific tests
-describe('Bookmark component - specific behaviors', () => {
+  describe('Bookmark component - specific behaviors', () => {
   const mockOnSave = vi.fn()
   const mockOnClose = vi.fn()
   const mockOnFetchMetadata = vi.fn()
@@ -392,6 +392,121 @@ describe('Bookmark component - specific behaviors', () => {
     })
   })
 
+  describe('prop sync on refresh', () => {
+    it('should update internal state when bookmark prop updated_at changes', () => {
+      const { rerender } = render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.getByDisplayValue('Test Bookmark')).toBeInTheDocument()
+
+      const updatedBookmark: BookmarkType = {
+        ...mockBookmark,
+        title: 'Refreshed Title',
+        updated_at: '2024-01-05T00:00:00Z',
+      }
+
+      rerender(
+        <Bookmark
+          bookmark={updatedBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.getByDisplayValue('Refreshed Title')).toBeInTheDocument()
+    })
+
+    it('should not update internal state when bookmark prop changes without updated_at change', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const { rerender } = render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      await user.clear(screen.getByDisplayValue('Test Bookmark'))
+      await user.type(screen.getByPlaceholderText('Page title'), 'My Local Edit')
+
+      const sameBookmark: BookmarkType = {
+        ...mockBookmark,
+      }
+
+      rerender(
+        <Bookmark
+          bookmark={sameBookmark}
+          tagSuggestions={[]}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.getByDisplayValue('My Local Edit')).toBeInTheDocument()
+    })
+
+    it('should clear conflict state when bookmark prop updated_at changes', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+      const error409 = new Error('Conflict') as Error & {
+        response?: { status: number; data: { detail: { error: string; server_state: BookmarkType } } }
+      }
+      error409.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: { ...mockBookmark, updated_at: '2024-01-03T00:00:00Z' },
+          },
+        },
+      }
+      mockOnSave.mockRejectedValue(error409)
+
+      const { rerender } = render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      await user.clear(screen.getByDisplayValue('Test Bookmark'))
+      await user.type(screen.getByPlaceholderText('Page title'), 'My Edit')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
+      })
+
+      const refreshedBookmark: BookmarkType = {
+        ...mockBookmark,
+        title: 'Server Title',
+        updated_at: '2024-01-05T00:00:00Z',
+      }
+
+      rerender(
+        <Bookmark
+          bookmark={refreshedBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.queryByText('Save Conflict')).not.toBeInTheDocument()
+      expect(screen.getByDisplayValue('Server Title')).toBeInTheDocument()
+    })
+  })
+
   describe('409 Conflict handling', () => {
     const create409Error = (): Error & { response?: { status: number; data: { detail: { error: string; server_state: BookmarkType } } } } => {
       const error = new Error('Conflict') as Error & { response?: { status: number; data: { detail: { error: string; server_state: BookmarkType } } } }
@@ -435,7 +550,7 @@ describe('Bookmark component - specific behaviors', () => {
 
       // ConflictDialog should appear
       await waitFor(() => {
-        expect(screen.getByText('This bookmark was modified while you were editing')).toBeInTheDocument()
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
       })
       expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Save My Version' })).toBeInTheDocument()
@@ -445,7 +560,7 @@ describe('Bookmark component - specific behaviors', () => {
     it('should call onRefresh when Load Server Version is clicked', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockRejectedValue(create409Error())
-      const mockOnRefresh = vi.fn().mockResolvedValue(true)
+      const mockOnRefresh = vi.fn().mockResolvedValue(mockBookmark)
 
       render(
         <Bookmark
@@ -537,7 +652,7 @@ describe('Bookmark component - specific behaviors', () => {
 
       // Dialog should close but changes should remain
       await waitFor(() => {
-        expect(screen.queryByText('This bookmark was modified while you were editing')).not.toBeInTheDocument()
+        expect(screen.queryByText('Save Conflict')).not.toBeInTheDocument()
       })
 
       // User's changes should still be in the form

@@ -154,8 +154,8 @@ interface PromptProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
-  /** Called to refresh the prompt from server (for stale check). Returns true on success. */
-  onRefresh?: () => Promise<boolean>
+  /** Called to refresh the prompt from server (for stale check). Returns the refreshed prompt on success. */
+  onRefresh?: () => Promise<PromptType | null>
 }
 
 /**
@@ -219,6 +219,31 @@ export function Prompt({
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
+
+  const syncStateFromPrompt = useCallback((nextPrompt: PromptType): void => {
+    const archiveState = nextPrompt.archived_at
+      ? { archivedAt: nextPrompt.archived_at, archivePreset: 'custom' as ArchivePreset }
+      : { archivedAt: '', archivePreset: 'none' as ArchivePreset }
+    const newState: PromptState = {
+      name: nextPrompt.name ?? '',
+      title: nextPrompt.title ?? '',
+      description: nextPrompt.description ?? '',
+      content: nextPrompt.content ?? '',
+      arguments: nextPrompt.arguments ?? [],
+      tags: nextPrompt.tags ?? [],
+      archivedAt: archiveState.archivedAt,
+      archivePreset: archiveState.archivePreset,
+    }
+    setOriginal(newState)
+    setCurrent(newState)
+    setConflictState(null)
+  }, [])
+
+  // Sync internal state when prompt prop changes (e.g., after refresh from conflict resolution)
+  useEffect(() => {
+    if (!prompt) return
+    syncStateFromPrompt(prompt)
+  }, [prompt?.id, prompt?.updated_at, syncStateFromPrompt])
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -646,11 +671,11 @@ export function Prompt({
 
   // Conflict resolution handlers
   const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
-    const success = await onRefresh?.()
-    if (success) {
-      setConflictState(null)
+    const refreshed = await onRefresh?.()
+    if (refreshed) {
+      syncStateFromPrompt(refreshed)
     }
-  }, [onRefresh])
+  }, [onRefresh, syncStateFromPrompt])
 
   const handleConflictSaveMyVersion = useCallback(async (): Promise<void> => {
     const result = buildUpdates()
@@ -911,6 +936,7 @@ export function Prompt({
         {/* Content editor */}
         <div className="mt-3">
           <ContentEditor
+            key={prompt?.updated_at ?? 'new'}
             value={current.content}
             onChange={handleContentChange}
             disabled={isSaving || isReadOnly}
@@ -952,8 +978,9 @@ export function Prompt({
           isDirty={isDirty}
           entityType="prompt"
           onLoadServerVersion={async () => {
-            const success = await onRefresh?.()
-            if (success) {
+            const refreshed = await onRefresh?.()
+            if (refreshed) {
+              syncStateFromPrompt(refreshed)
               dismissStale()
             }
           }}

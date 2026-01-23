@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
+import axios from 'axios'
 import toast from 'react-hot-toast'
 import { Note } from '../components/Note'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
@@ -147,6 +148,10 @@ export function NoteDetail(): ReactNode {
           })
           setNote(updatedNote)
         } catch (err) {
+          // Don't show toast for 409 Conflict - the component handles it with ConflictDialog
+          if (axios.isAxiosError(err) && err.response?.status === 409) {
+            throw err
+          }
           const message = err instanceof Error ? err.message : 'Failed to save note'
           toast.error(message)
           throw err
@@ -201,15 +206,15 @@ export function NoteDetail(): ReactNode {
   }, [noteId, restoreMutation, navigateBack])
 
   // Refresh handler for stale check - returns true on success, false on failure
-  const handleRefresh = useCallback(async (): Promise<boolean> => {
-    if (!noteId) return false
+  const handleRefresh = useCallback(async (): Promise<Note | null> => {
+    if (!noteId) return null
     try {
       const refreshedNote = await fetchNote(noteId)
       setNote(refreshedNote)
-      return true
+      return refreshedNote
     } catch {
       toast.error('Failed to refresh note')
-      return false
+      return null
     }
   }, [noteId, fetchNote])
 

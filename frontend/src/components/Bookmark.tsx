@@ -101,8 +101,8 @@ interface BookmarkProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
-  /** Called to refresh the bookmark from server (for stale check). Returns true on success. */
-  onRefresh?: () => Promise<boolean>
+  /** Called to refresh the bookmark from server (for stale check). Returns the refreshed bookmark on success. */
+  onRefresh?: () => Promise<BookmarkType | null>
 }
 
 /**
@@ -169,6 +169,30 @@ export function Bookmark({
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
+
+  const syncStateFromBookmark = useCallback((nextBookmark: BookmarkType): void => {
+    const archiveState = nextBookmark.archived_at
+      ? { archivedAt: nextBookmark.archived_at, archivePreset: 'custom' as ArchivePreset }
+      : { archivedAt: '', archivePreset: 'none' as ArchivePreset }
+    const newState: BookmarkState = {
+      url: nextBookmark.url,
+      title: nextBookmark.title ?? '',
+      description: nextBookmark.description ?? '',
+      content: nextBookmark.content ?? '',
+      tags: nextBookmark.tags ?? [],
+      archivedAt: archiveState.archivedAt,
+      archivePreset: archiveState.archivePreset,
+    }
+    setOriginal(newState)
+    setCurrent(newState)
+    setConflictState(null)
+  }, [])
+
+  // Sync internal state when bookmark prop changes (e.g., after refresh from conflict resolution)
+  useEffect(() => {
+    if (!bookmark) return
+    syncStateFromBookmark(bookmark)
+  }, [bookmark?.id, bookmark?.updated_at, syncStateFromBookmark])
 
   // Metadata fetch state
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
@@ -614,11 +638,11 @@ export function Bookmark({
 
   // Conflict resolution handlers
   const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
-    const success = await onRefresh?.()
-    if (success) {
-      setConflictState(null)
+    const refreshed = await onRefresh?.()
+    if (refreshed) {
+      syncStateFromBookmark(refreshed)
     }
-  }, [onRefresh])
+  }, [onRefresh, syncStateFromBookmark])
 
   const handleConflictSaveMyVersion = useCallback(async (): Promise<void> => {
     const result = buildUpdates()
@@ -848,7 +872,7 @@ export function Bookmark({
 
         {/* Content editor */}
         <ContentEditor
-          key={contentKey}
+          key={`${bookmark?.updated_at ?? 'new'}-${contentKey}`}
           value={current.content}
           onChange={handleContentChange}
           disabled={isSaving || isReadOnly}
@@ -879,8 +903,9 @@ export function Bookmark({
           isDirty={isDirty}
           entityType="bookmark"
           onLoadServerVersion={async () => {
-            const success = await onRefresh?.()
-            if (success) {
+            const refreshed = await onRefresh?.()
+            if (refreshed) {
+              syncStateFromBookmark(refreshed)
               dismissStale()
             }
           }}

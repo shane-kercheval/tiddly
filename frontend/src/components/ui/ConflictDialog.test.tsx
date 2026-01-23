@@ -6,20 +6,10 @@ import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ConflictDialog } from './ConflictDialog'
 
-// Mock react-hot-toast
-vi.mock('react-hot-toast', () => ({
-  default: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
-}))
-
 describe('ConflictDialog', () => {
   const defaultProps = {
     isOpen: true,
-    serverUpdatedAt: '2024-01-15T12:00:00Z',
     currentContent: 'My local content that should not be lost',
-    entityType: 'note' as const,
     onLoadServerVersion: vi.fn(),
     onSaveMyVersion: vi.fn(),
     onDoNothing: vi.fn(),
@@ -39,7 +29,7 @@ describe('ConflictDialog', () => {
       render(<ConflictDialog {...defaultProps} />)
 
       expect(screen.getByRole('dialog')).toBeInTheDocument()
-      expect(screen.getByText('This note was modified while you were editing')).toBeInTheDocument()
+      expect(screen.getByText('Save Conflict')).toBeInTheDocument()
     })
 
     it('should not render dialog when isOpen is false', () => {
@@ -57,41 +47,16 @@ describe('ConflictDialog', () => {
       expect(screen.getByRole('button', { name: 'Do Nothing' })).toBeInTheDocument()
     })
 
-    it('should show server modified time', () => {
-      render(<ConflictDialog {...defaultProps} />)
-
-      expect(screen.getByText(/Server version from/)).toBeInTheDocument()
-    })
-
     it('should show conflict warning message', () => {
       render(<ConflictDialog {...defaultProps} />)
 
       expect(screen.getByText(/Your changes could not be saved/)).toBeInTheDocument()
     })
-
-    it('should show entity type in header for note', () => {
-      render(<ConflictDialog {...defaultProps} entityType="note" />)
-
-      expect(screen.getByText('This note was modified while you were editing')).toBeInTheDocument()
-    })
-
-    it('should show entity type in header for bookmark', () => {
-      render(<ConflictDialog {...defaultProps} entityType="bookmark" />)
-
-      expect(screen.getByText('This bookmark was modified while you were editing')).toBeInTheDocument()
-    })
-
-    it('should show entity type in header for prompt', () => {
-      render(<ConflictDialog {...defaultProps} entityType="prompt" />)
-
-      expect(screen.getByText('This prompt was modified while you were editing')).toBeInTheDocument()
-    })
   })
 
   describe('Copy My Content button', () => {
-    it('should copy content to clipboard when clicked', async () => {
+    it('should copy content to clipboard and show checkmark when clicked', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const toast = await import('react-hot-toast')
       const writeTextMock = vi.fn().mockResolvedValue(undefined)
       Object.defineProperty(navigator, 'clipboard', {
         value: { writeText: writeTextMock },
@@ -106,12 +71,12 @@ describe('ConflictDialog', () => {
       await waitFor(() => {
         expect(writeTextMock).toHaveBeenCalledWith('My local content that should not be lost')
       })
-      expect(toast.default.success).toHaveBeenCalledWith('Content copied to clipboard')
+      // Should show "Copied!" text (checkmark animation)
+      expect(screen.getByText('Copied!')).toBeInTheDocument()
     })
 
-    it('should show error toast when clipboard fails', async () => {
+    it('should show Failed text when clipboard fails', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const toast = await import('react-hot-toast')
       const writeTextMock = vi.fn().mockRejectedValue(new Error('Clipboard error'))
       Object.defineProperty(navigator, 'clipboard', {
         value: { writeText: writeTextMock },
@@ -124,7 +89,7 @@ describe('ConflictDialog', () => {
       await user.click(screen.getByRole('button', { name: 'Copy My Content' }))
 
       await waitFor(() => {
-        expect(toast.default.error).toHaveBeenCalledWith('Failed to copy content')
+        expect(screen.getByText('Failed')).toBeInTheDocument()
       })
     })
   })
@@ -228,25 +193,23 @@ describe('ConflictDialog', () => {
       expect(onDoNothing).toHaveBeenCalledTimes(1)
     })
 
-    it('should call onDoNothing when close button is clicked', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const onDoNothing = vi.fn()
-      render(<ConflictDialog {...defaultProps} onDoNothing={onDoNothing} />)
+    it('should have disabled close button (canClose=false)', () => {
+      render(<ConflictDialog {...defaultProps} />)
 
-      // Modal's close button
-      await user.click(screen.getByRole('button', { name: 'Close' }))
-
-      expect(onDoNothing).toHaveBeenCalledTimes(1)
+      // Modal's close button should be disabled
+      const closeButton = screen.getByRole('button', { name: 'Close' })
+      expect(closeButton).toBeDisabled()
     })
 
-    it('should call onDoNothing when Escape key is pressed', async () => {
+    it('should not call onDoNothing when Escape key is pressed (canClose=false)', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       const onDoNothing = vi.fn()
       render(<ConflictDialog {...defaultProps} onDoNothing={onDoNothing} />)
 
       await user.keyboard('{Escape}')
 
-      expect(onDoNothing).toHaveBeenCalledTimes(1)
+      // Escape should NOT close the dialog
+      expect(onDoNothing).not.toHaveBeenCalled()
     })
   })
 

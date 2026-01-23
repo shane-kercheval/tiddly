@@ -124,18 +124,24 @@ export function PromptDetail(): ReactNode {
   }, [navigateBack])
 
   // Helper to check if error is a 409 NAME_CONFLICT and throw SaveError
-  const handleNameConflict = (err: unknown): void => {
+  // Returns true if it's a version conflict (component handles with ConflictDialog)
+  const handleNameConflict = (err: unknown): boolean => {
     if (err && typeof err === 'object' && 'response' in err) {
       const axiosError = err as {
         response?: {
           status?: number
           data?: {
-            detail?: string | { message?: string; error_code?: string }
+            detail?: string | { message?: string; error_code?: string; error?: string }
           }
         }
       }
       if (axiosError.response?.status === 409) {
         const detail = axiosError.response.data?.detail
+        // Version conflict (optimistic locking) - let component handle with ConflictDialog
+        if (typeof detail === 'object' && detail?.error === 'conflict') {
+          return true
+        }
+        // Name conflict - throw SaveError for field-specific error display
         let message = 'A prompt with this name already exists'
         if (typeof detail === 'string') {
           message = detail
@@ -145,6 +151,7 @@ export function PromptDetail(): ReactNode {
         throw new SaveError(message, { name: message })
       }
     }
+    return false
   }
 
   // Action handlers
@@ -172,7 +179,10 @@ export function PromptDetail(): ReactNode {
           })
           setPrompt(updatedPrompt)
         } catch (err) {
-          handleNameConflict(err)
+          // Returns true for version conflict - component handles with ConflictDialog
+          if (handleNameConflict(err)) {
+            throw err
+          }
           const message = err instanceof Error ? err.message : 'Failed to save prompt'
           toast.error(message)
           throw err
@@ -227,15 +237,15 @@ export function PromptDetail(): ReactNode {
   }, [promptId, restoreMutation, navigateBack])
 
   // Refresh handler for stale check - returns true on success, false on failure
-  const handleRefresh = useCallback(async (): Promise<boolean> => {
-    if (!promptId) return false
+  const handleRefresh = useCallback(async (): Promise<Prompt | null> => {
+    if (!promptId) return null
     try {
       const refreshedPrompt = await fetchPrompt(promptId)
       setPrompt(refreshedPrompt)
-      return true
+      return refreshedPrompt
     } catch {
       toast.error('Failed to refresh prompt')
-      return false
+      return null
     }
   }, [promptId, fetchPrompt])
 

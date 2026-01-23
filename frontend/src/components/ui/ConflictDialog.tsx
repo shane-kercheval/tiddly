@@ -6,21 +6,15 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
-import toast from 'react-hot-toast'
 import { Modal } from './Modal'
-import { formatRelativeDate } from '../../utils'
-
-type EntityType = 'note' | 'bookmark' | 'prompt'
+import { useCopyFeedback } from '../../hooks/useCopyFeedback'
+import { CopyIcon, CheckIcon } from '../icons'
 
 interface ConflictDialogProps {
   /** Whether the dialog is open */
   isOpen: boolean
-  /** The server's updated_at timestamp for display */
-  serverUpdatedAt: string
   /** The user's current editor content (for copy) */
   currentContent: string
-  /** The type of entity (for message) */
-  entityType: EntityType
   /** Called when user chooses to load the server version */
   onLoadServerVersion: () => void
   /** Called when user chooses to force save their version (overwrites server) */
@@ -40,9 +34,7 @@ interface ConflictDialogProps {
  */
 export function ConflictDialog({
   isOpen,
-  serverUpdatedAt,
   currentContent,
-  entityType,
   onLoadServerVersion,
   onSaveMyVersion,
   onDoNothing,
@@ -52,16 +44,26 @@ export function ConflictDialog({
   const confirmTimeoutRef = useRef<number | null>(null)
   const saveButtonRef = useRef<HTMLButtonElement>(null)
 
+  // Copy feedback state
+  const {
+    state: copyState,
+    setLoading: setCopyLoading,
+    setSuccess: setCopySuccess,
+    setError: setCopyError,
+    reset: resetCopy,
+  } = useCopyFeedback()
+
   // Reset confirmation state when dialog closes or opens
   useEffect(() => {
     if (!isOpen) {
       setIsConfirmingSave(false)
+      resetCopy()
       if (confirmTimeoutRef.current) {
         window.clearTimeout(confirmTimeoutRef.current)
         confirmTimeoutRef.current = null
       }
     }
-  }, [isOpen])
+  }, [isOpen, resetCopy])
 
   // Clean up timeout on unmount
   useEffect(() => {
@@ -92,10 +94,11 @@ export function ConflictDialog({
 
   const handleCopyContent = async (): Promise<void> => {
     try {
+      setCopyLoading()
       await navigator.clipboard.writeText(currentContent)
-      toast.success('Content copied to clipboard')
+      setCopySuccess()
     } catch {
-      toast.error('Failed to copy content')
+      setCopyError()
     }
   }
 
@@ -117,17 +120,42 @@ export function ConflictDialog({
     }
   }
 
+  const getCopyButtonContent = (): ReactNode => {
+    if (copyState === 'success') {
+      return (
+        <>
+          <CheckIcon className="h-4 w-4 text-green-600" />
+          <span>Copied!</span>
+        </>
+      )
+    }
+    if (copyState === 'error') {
+      return (
+        <>
+          <CopyIcon className="h-4 w-4 text-red-500" />
+          <span>Failed</span>
+        </>
+      )
+    }
+    return (
+      <>
+        <CopyIcon className="h-4 w-4" />
+        <span>Copy My Content</span>
+      </>
+    )
+  }
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={onDoNothing}
-      title={`This ${entityType} was modified while you were editing`}
+      title="Save Conflict"
       maxWidth="max-w-md"
+      canClose={false}
     >
       <div className="space-y-4">
-        <div className="text-sm text-gray-600">
-          <p>Server version from {formatRelativeDate(serverUpdatedAt)}.</p>
-          <p className="mt-2 text-amber-600 font-medium">
+        <div className="text-sm">
+          <p className="text-amber-600 font-medium">
             Your changes could not be saved because the server has a newer version.
           </p>
         </div>
@@ -137,9 +165,10 @@ export function ConflictDialog({
           <button
             type="button"
             onClick={handleCopyContent}
-            className="btn-secondary w-full"
+            className="btn-secondary w-full flex items-center justify-center gap-2"
+            disabled={copyState === 'loading'}
           >
-            Copy My Content
+            {getCopyButtonContent()}
           </button>
           <p className="text-xs text-gray-500 text-center">
             Copy your current content to clipboard before choosing an action
