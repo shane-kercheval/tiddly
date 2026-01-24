@@ -198,6 +198,7 @@ body {
 /* The actual editable area */
 .milkdown-wrapper .milkdown .editor {
   @apply p-4 outline-none text-gray-900 text-sm leading-relaxed relative;
+  font-size: 15px;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
