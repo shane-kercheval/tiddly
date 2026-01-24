@@ -14,7 +14,11 @@ from api.dependencies import (
     get_async_session,
     get_current_user,
 )
-from api.helpers.conflict_check import check_optimistic_lock, check_optimistic_lock_by_name
+from api.helpers import (
+    check_optimistic_lock,
+    check_optimistic_lock_by_name,
+    resolve_filter_and_sorting,
+)
 from core.http_cache import check_not_modified, format_http_date
 from models.user import User
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
@@ -36,7 +40,6 @@ from schemas.prompt import (
     PromptResponse,
     PromptUpdate,
 )
-from services import content_filter_service
 from services.content_edit_service import (
     MultipleMatchesError,
     NoMatchError,
@@ -175,14 +178,30 @@ async def create_prompt(
 
 @router.get("/", response_model=PromptListResponse)
 async def list_prompts(
-    q: str | None = Query(default=None, description="Search query (matches name, title, description, content)"),  # noqa: E501
+    q: str | None = Query(
+        default=None,
+        description="Search query (matches name, title, description, content)",
+    ),
     tags: list[str] = Query(default=[], description="Filter by tags"),
-    tag_match: Literal["all", "any"] = Query(default="all", description="Tag matching mode: 'all' (AND) or 'any' (OR)"),  # noqa: E501
-    sort_by: Literal["created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at"] = Query(default="created_at", description="Sort field"),  # noqa: E501
-    sort_order: Literal["asc", "desc"] = Query(default="desc", description="Sort order"),
+    tag_match: Literal["all", "any"] = Query(
+        default="all",
+        description="Tag matching mode: 'all' (AND) or 'any' (OR)",
+    ),
+    sort_by: Literal["created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at"] | None = \
+        Query(  # noqa: E501
+            default=None,
+            description="Sort field. Takes precedence over filter_id's default.",
+        ),
+    sort_order: Literal["asc", "desc"] | None = Query(
+        default=None,
+        description="Sort direction. Takes precedence over filter_id's default.",
+    ),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
-    view: Literal["active", "archived", "deleted"] = Query(default="active", description="Which prompts to show: active (default), archived, or deleted"),  # noqa: E501
+    view: Literal["active", "archived", "deleted"] = Query(
+        default="active",
+        description="Which prompts to show: active (default), archived, or deleted",
+    ),
     filter_id: UUID | None = Query(default=None, description="Filter by content filter ID"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -193,18 +212,14 @@ async def list_prompts(
     - **q**: Text search across name, title, description, and content (case-insensitive)
     - **tags**: Filter by one or more tags (normalized to lowercase)
     - **tag_match**: 'all' requires prompt to have ALL specified tags, 'any' requires ANY tag
-    - **sort_by**: Sort by created_at (default), updated_at, last_used_at, title, etc.
-    - **sort_order**: Sort ascending or descending (default: desc)
+    - **sort_by**: Sort field. Takes precedence over filter_id's default.
+    - **sort_order**: Sort direction. Takes precedence over filter_id's default.
     - **view**: Which prompts to show - 'active' (not deleted/archived), 'archived', or 'deleted'
     - **filter_id**: Filter by content filter (can be combined with tags for additional filtering)
     """
-    # If filter_id provided, fetch the filter and use its filter expression
-    filter_expression = None
-    if filter_id is not None:
-        content_filter = await content_filter_service.get_filter(db, current_user.id, filter_id)
-        if content_filter is None:
-            raise HTTPException(status_code=404, detail="Filter not found")
-        filter_expression = content_filter.filter_expression
+    resolved = await resolve_filter_and_sorting(
+        db, current_user.id, filter_id, sort_by, sort_order,
+    )
 
     try:
         prompts, total = await prompt_service.search(
@@ -213,12 +228,12 @@ async def list_prompts(
             query=q,
             tags=tags if tags else None,
             tag_match=tag_match,
-            sort_by=sort_by,
-            sort_order=sort_order,
+            sort_by=resolved.sort_by,
+            sort_order=resolved.sort_order,
             offset=offset,
             limit=limit,
             view=view,
-            filter_expression=filter_expression,
+            filter_expression=resolved.filter_expression,
         )
     except ValueError as e:
         # Tag validation errors from validate_and_normalize_tags
