@@ -41,6 +41,23 @@ import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/ji
 import { wasEditorFocused } from '../utils/editorUtils'
 import { getToggleMarkerAction } from '../utils/markdownToggle'
 
+/** Markdown formatting markers for wrap-style formatting. */
+const MARKERS = {
+  bold: { before: '**', after: '**' },
+  italic: { before: '*', after: '*' },
+  strikethrough: { before: '~~', after: '~~' },
+  highlight: { before: '==', after: '==' },
+  inlineCode: { before: '`', after: '`' },
+} as const
+
+/** Line prefixes for block-style formatting. */
+const LINE_PREFIXES = {
+  blockquote: '> ',
+  bulletList: '- ',
+  numberedList: '1. ',
+  taskList: '- [ ] ',
+} as const
+
 interface CodeMirrorEditorProps {
   /** Current content value */
   value: string
@@ -282,18 +299,18 @@ function dispatchGlobalShortcut(key: string, metaKey: boolean): void {
 function createMarkdownKeyBindings(): KeyBinding[] {
   return [
     // Text formatting
-    { key: 'Mod-b', run: (view) => toggleWrapMarkers(view, '**', '**') },
-    { key: 'Mod-i', run: (view) => toggleWrapMarkers(view, '*', '*') },
-    { key: 'Mod-Shift-x', run: (view) => toggleWrapMarkers(view, '~~', '~~') },
-    { key: 'Mod-Shift-h', run: (view) => toggleWrapMarkers(view, '==', '==') },
-    { key: 'Mod-Shift-.', run: (view) => toggleLinePrefix(view, '> ') },
+    { key: 'Mod-b', run: (view) => toggleWrapMarkers(view, MARKERS.bold.before, MARKERS.bold.after) },
+    { key: 'Mod-i', run: (view) => toggleWrapMarkers(view, MARKERS.italic.before, MARKERS.italic.after) },
+    { key: 'Mod-Shift-x', run: (view) => toggleWrapMarkers(view, MARKERS.strikethrough.before, MARKERS.strikethrough.after) },
+    { key: 'Mod-Shift-h', run: (view) => toggleWrapMarkers(view, MARKERS.highlight.before, MARKERS.highlight.after) },
+    { key: 'Mod-Shift-.', run: (view) => toggleLinePrefix(view, LINE_PREFIXES.blockquote) },
     // Code
-    { key: 'Mod-e', run: (view) => toggleWrapMarkers(view, '`', '`') },
+    { key: 'Mod-e', run: (view) => toggleWrapMarkers(view, MARKERS.inlineCode.before, MARKERS.inlineCode.after) },
     { key: 'Mod-Shift-e', run: (view) => insertCodeBlock(view) },
     // Lists (Notion convention: 7=numbered, 8=bullet, 9=task)
-    { key: 'Mod-Shift-7', run: (view) => toggleLinePrefix(view, '1. ') },
-    { key: 'Mod-Shift-8', run: (view) => toggleLinePrefix(view, '- ') },
-    { key: 'Mod-Shift-9', run: (view) => toggleLinePrefix(view, '- [ ] ') },
+    { key: 'Mod-Shift-7', run: (view) => toggleLinePrefix(view, LINE_PREFIXES.numberedList) },
+    { key: 'Mod-Shift-8', run: (view) => toggleLinePrefix(view, LINE_PREFIXES.bulletList) },
+    { key: 'Mod-Shift-9', run: (view) => toggleLinePrefix(view, LINE_PREFIXES.taskList) },
     // Links and other
     { key: 'Mod-k', run: (view) => insertLink(view) },
     { key: 'Mod-Shift--', run: (view) => insertHorizontalRule(view) },
@@ -513,26 +530,26 @@ export function CodeMirrorEditor({
         {/* On mobile: 'contents' flattens structure so all buttons wrap together as siblings */}
         <div className={`contents md:flex md:flex-nowrap md:items-center md:gap-0.5 md:opacity-0 md:group-focus-within/editor:opacity-100 transition-opacity ${disabled ? 'pointer-events-none' : ''}`}>
           {/* Text formatting */}
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, '**', '**'))} title="Bold (⌘B)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.bold.before, MARKERS.bold.after))} title="Bold (⌘B)">
             <BoldIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, '*', '*'))} title="Italic (⌘I)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.italic.before, MARKERS.italic.after))} title="Italic (⌘I)">
             <ItalicIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, '~~', '~~'))} title="Strikethrough (⌘⇧X)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.strikethrough.before, MARKERS.strikethrough.after))} title="Strikethrough (⌘⇧X)">
             <StrikethroughIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, '==', '=='))} title="Highlight (⌘⇧H)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.highlight.before, MARKERS.highlight.after))} title="Highlight (⌘⇧H)">
             <HighlightIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '> '))} title="Blockquote (⌘⇧.)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.blockquote))} title="Blockquote (⌘⇧.)">
             <BlockquoteIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Code */}
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, '`', '`'))} title="Inline Code (⌘E)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.inlineCode.before, MARKERS.inlineCode.after))} title="Inline Code (⌘E)">
             <InlineCodeIcon />
           </ToolbarButton>
           <ToolbarButton onClick={() => runAction(insertCodeBlock)} title="Code Block (⌘⇧E)">
@@ -542,13 +559,13 @@ export function CodeMirrorEditor({
           <ToolbarSeparator />
 
           {/* Lists */}
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- '))} title="Bullet List (⌘⇧8)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.bulletList))} title="Bullet List (⌘⇧8)">
             <BulletListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '1. '))} title="Numbered List (⌘⇧7)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.numberedList))} title="Numbered List (⌘⇧7)">
             <OrderedListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- [ ] '))} title="Task List (⌘⇧9)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.taskList))} title="Task List (⌘⇧9)">
             <TaskListIcon />
           </ToolbarButton>
 

@@ -68,9 +68,9 @@ export function PromptCard({
       case 'last_used_at':
         return `Used: ${formatDate(prompt.last_used_at)}`
       case 'archived_at':
-        return `Archived: ${formatDate(prompt.archived_at)}`
+        return `Archived: ${formatDate(prompt.archived_at!)}`
       case 'deleted_at':
-        return `Deleted: ${formatDate(prompt.deleted_at)}`
+        return `Deleted: ${formatDate(prompt.deleted_at!)}`
       case 'created_at':
       case 'title':
       default:
