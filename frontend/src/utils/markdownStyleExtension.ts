@@ -820,8 +820,10 @@ const markdownBaseTheme = EditorView.baseTheme({
   },
 
   // Code blocks - light gray background, monospace font
+  // Use mix-blend-mode so text selection shows through the background
   '.cm-md-code-start, .cm-md-code-end, .cm-md-code-content': {
     backgroundColor: '#f5f7f8',
+    mixBlendMode: 'multiply',
     fontFamily: '"Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: '0.9em',
     marginRight: '4px',
@@ -859,8 +861,10 @@ const markdownBaseTheme = EditorView.baseTheme({
   },
 
   // Inline code content - light pink background with pink text
+  // Use mix-blend-mode so text selection shows through the background
   '.cm-md-inline-code-content': {
     backgroundColor: '#fdf2f8',
+    mixBlendMode: 'multiply',
     color: '#db2777',
     fontFamily: '"Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: '0.9em',
@@ -879,8 +883,10 @@ const markdownBaseTheme = EditorView.baseTheme({
   },
 
   // Highlight content - yellow/amber background
+  // Use mix-blend-mode so text selection shows through the background
   '.cm-md-highlight-content': {
     backgroundColor: '#fef3c7',
+    mixBlendMode: 'multiply',
     color: '#92400e',
     padding: '0.1em 0.2em',
     borderRadius: '3px',
