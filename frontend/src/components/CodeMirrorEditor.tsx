@@ -584,21 +584,20 @@ export function CodeMirrorEditor({
         <div className="contents md:flex md:items-center md:gap-0.5 md:ml-auto">
           {/* Separator only on mobile (other separators are hidden on mobile) */}
           <div className="w-px h-5 bg-gray-200 mx-1 md:hidden" />
-          {/* Wrap toggle - visible on mobile, fades in on focus on desktop, only shown when not in reading mode */}
+          {/* Wrap toggle - always visible, only shown when not in reading mode */}
           {onWrapTextChange && !effectiveReadingMode && (
             <button
               type="button"
               tabIndex={-1}
               disabled={disabled}
               onMouseDown={(e) => {
-                const isMobileView = window.innerWidth < 768
-                if (!disabled && (isMobileView || wasEditorFocused(e.currentTarget))) {
-                  e.preventDefault()
+                e.preventDefault()
+                if (!disabled) {
                   onWrapTextChange(!wrapText)
                 }
               }}
               title="Toggle word wrap (⌥Z)"
-              className={`p-1.5 rounded transition-colors flex-shrink-0 md:opacity-0 md:group-focus-within/editor:opacity-100 ${
+              className={`p-1.5 rounded transition-colors flex-shrink-0 ${
                 wrapText
                   ? 'text-gray-700 bg-gray-200'
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
@@ -608,21 +607,20 @@ export function CodeMirrorEditor({
             </button>
           )}
 
-          {/* Line numbers toggle - visible on mobile, fades in on focus on desktop, only shown when not in reading mode */}
+          {/* Line numbers toggle - always visible, only shown when not in reading mode */}
           {onLineNumbersChange && !effectiveReadingMode && (
             <button
               type="button"
               tabIndex={-1}
               disabled={disabled}
               onMouseDown={(e) => {
-                const isMobileView = window.innerWidth < 768
-                if (!disabled && (isMobileView || wasEditorFocused(e.currentTarget))) {
-                  e.preventDefault()
+                e.preventDefault()
+                if (!disabled) {
                   onLineNumbersChange(!showLineNumbers)
                 }
               }}
               title="Toggle line numbers (⌥L)"
-              className={`p-1.5 rounded transition-colors flex-shrink-0 md:opacity-0 md:group-focus-within/editor:opacity-100 ${
+              className={`p-1.5 rounded transition-colors flex-shrink-0 ${
                 showLineNumbers
                   ? 'text-gray-700 bg-gray-200'
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
