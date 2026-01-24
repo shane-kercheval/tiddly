@@ -9,6 +9,7 @@ import { useMemo, useRef, useCallback, useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
+import { languages } from '@codemirror/language-data'
 import { keymap, EditorView } from '@codemirror/view'
 import { markdownStyleExtension } from '../utils/markdownStyleExtension'
 import type { KeyBinding } from '@codemirror/view'
@@ -421,7 +422,7 @@ export function CodeMirrorEditor({
   const extensions = useMemo(() => {
     const bindings = createMarkdownKeyBindings()
     const exts = [
-      markdown(),
+      markdown({ codeLanguages: languages }),
       Prec.highest(keymap.of(bindings)),
       markdownStyleExtension,
     ]

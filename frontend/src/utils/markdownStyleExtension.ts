@@ -819,17 +819,12 @@ const markdownBaseTheme = EditorView.baseTheme({
     paddingLeft: '1em',
   },
 
-  // Code blocks - light gray background with dark text
+  // Code blocks - light gray background, monospace font
   '.cm-md-code-start, .cm-md-code-end, .cm-md-code-content': {
-    backgroundColor: '#f3f4f6',
-    color: '#1f2937 !important',
+    backgroundColor: '#f5f7f8',
     fontFamily: '"Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: '0.9em',
     marginRight: '4px',
-  },
-  // Ensure code content text is dark
-  '.cm-md-code-content, .cm-md-code-content *': {
-    color: '#1f2937 !important',
   },
   // Code fence lines (``` and ```language) - dimmer gray
   '.cm-md-code-start, .cm-md-code-start *, .cm-md-code-end, .cm-md-code-end *': {
