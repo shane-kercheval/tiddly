@@ -19,12 +19,15 @@ Rename `update_item_metadata` → `update_item` and add `content` parameter for 
 
 1. **Rename the tool function:** `update_item_metadata` → `update_item`
 
-2. **Update tool description:**
+2. **Update tool description** (must be clear for LLMs):
    ```python
    @mcp.tool(
        description=(
-           "Update a bookmark or note. Can update metadata (title, description, tags, url) "
-           "and/or fully replace content. For targeted content edits, use edit_content instead."
+           "Update a bookmark or note. All parameters are optional - only provide the fields "
+           "you want to change. Can update metadata (title, description, tags, url) and/or "
+           "fully replace content. "
+           "NOTE: To make partial/targeted edits to content using string replacement, "
+           "use edit_content instead. This tool replaces the entire content field."
        ),
        annotations={"readOnlyHint": False, "destructiveHint": True},
    )
@@ -34,7 +37,7 @@ Rename `update_item_metadata` → `update_item` and add `content` parameter for 
    ```python
    content: Annotated[
        str | None,
-       Field(description="New content (full replacement). Omit to leave unchanged."),
+       Field(description="New content (FULL REPLACEMENT of entire content field). Omit to leave unchanged."),
    ] = None,
    ```
 
@@ -42,7 +45,10 @@ Rename `update_item_metadata` → `update_item` and add `content` parameter for 
 
 5. **Update payload building:** Include `content` in the payload if provided
 
-6. **Update MCP server instructions:** Update the tool descriptions in the `instructions` string at the top of the file
+6. **Update MCP server instructions:** Update the `instructions` string to include:
+   - Updated tool list with `update_item` (not `update_item_metadata`)
+   - Clear guidance: "Use `update_item` for full content replacement, `edit_content` for targeted string-based edits"
+   - Note that all `update_item` parameters are optional
 
 **File: `frontend/src/pages/settings/SettingsMCP.tsx`**
 
@@ -85,14 +91,16 @@ Rename `update_prompt_metadata` → `update_prompt` and add `content` and `argum
 
 1. **Rename in tool list:** Change tool name from `update_prompt_metadata` to `update_prompt`
 
-2. **Update tool description:**
+2. **Update tool description** (must be clear for LLMs):
    ```python
    types.Tool(
        name="update_prompt",
        description=(
-           "Update a prompt. Can update metadata (title, description, tags, name) "
-           "and/or fully replace template content and arguments. "
-           "For targeted template edits, use edit_prompt_template instead."
+           "Update a prompt. All parameters are optional - only provide the fields you want "
+           "to change. Can update metadata (title, description, tags, name) and/or fully "
+           "replace template content and arguments. "
+           "NOTE: To make partial/targeted edits to the template using string replacement, "
+           "use edit_prompt_template instead. This tool replaces the entire content field."
        ),
        ...
    )
@@ -103,15 +111,17 @@ Rename `update_prompt_metadata` → `update_prompt` and add `content` and `argum
    "content": {
        "type": "string",
        "description": (
-           "New template content (full replacement). Omit to leave unchanged. "
-           "When replacing content, you may also need to update arguments."
+           "New template content (FULL REPLACEMENT of entire template). Omit to leave unchanged. "
+           "IMPORTANT: If your new content changes template variables ({{ var }}), you MUST also "
+           "provide the arguments parameter with ALL arguments defined."
        ),
    },
    "arguments": {
        "type": "array",
        "description": (
-           "New arguments list (full replacement). Omit to leave unchanged. "
-           "If provided, FULLY REPLACES all existing arguments."
+           "New arguments list (FULL REPLACEMENT - not a merge). Omit to leave unchanged. "
+           "IMPORTANT: If provided, you must include ALL arguments, not just changed ones. "
+           "This completely replaces the existing arguments list."
        ),
        "items": { ... same schema as edit_prompt_template ... }
    },
@@ -123,7 +133,12 @@ Rename `update_prompt_metadata` → `update_prompt` and add `content` and `argum
 
 5. **Update dispatch table:** Change key from `"update_prompt_metadata"` to `"update_prompt"`
 
-6. **Update MCP server instructions:** Update the tool list and example workflows
+6. **Update MCP server instructions:** Update the `instructions` string to include:
+   - Updated tool list with `update_prompt` (not `update_prompt_metadata`)
+   - Clear guidance: "Use `update_prompt` for full template replacement, `edit_prompt_template` for targeted string-based edits"
+   - Note that all `update_prompt` parameters are optional
+   - **Critical warning:** When using `update_prompt` with `content` that changes template variables, you MUST also provide `arguments` with ALL arguments (full replacement, not merge)
+   - Update example workflows to show both patterns
 
 **File: `frontend/src/pages/settings/SettingsMCP.tsx`**
 
@@ -156,8 +171,11 @@ Rename `update_prompt_metadata` → `update_prompt` and add `content` and `argum
 
 ### Risk Factors
 - Prompts have Jinja2 template validation - ensure content updates trigger validation
-- Arguments must be consistent with template variables - document this clearly in tool description
-- The prompt service already validates content+arguments consistency, so this should work
+- Arguments must be consistent with template variables - the backend validates this
+- **Critical for LLM clarity:** When `content` changes template variables, the LLM must:
+  1. Also provide `arguments` parameter
+  2. Include ALL arguments in the list (full replacement, not merge)
+- The tool description MUST make this explicit or LLMs will forget to update arguments
 
 ---
 
@@ -177,8 +195,9 @@ Update all MCP server instructions, CLAUDE.md, and any other documentation to re
 
 **Verify tool descriptions are clear about:**
 - `update_item` / `update_prompt` - for metadata OR full content replacement
-- `edit_content` / `edit_prompt_template` - for targeted string replacement
-- When to use which tool
+- `edit_content` / `edit_prompt_template` - for targeted string replacement (partial edits)
+- All params are optional on `update_*` tools - only provide what you want to change
+- Include the "Tool Selection Guide" (see below) in the MCP server instructions
 
 ### Success Criteria
 - MCP server instructions clearly document both update patterns
@@ -212,6 +231,41 @@ Update all MCP server instructions, CLAUDE.md, and any other documentation to re
 | `backend/tests/mcp_server/test_*.py` | Add tests for content replacement |
 | `backend/tests/prompt_mcp_server/test_*.py` | Add tests for content/arguments replacement |
 
+## Tool Selection Guide (for MCP Server Instructions)
+
+The MCP server instructions should include clear guidance for LLMs on when to use each tool:
+
+### Content MCP Server
+
+| Task | Tool | Why |
+|------|------|-----|
+| Update title, description, tags, or url | `update_item` | Any field update |
+| Replace entire content (rewrite) | `update_item` with `content` param | Full replacement |
+| Fix a typo in content | `edit_content` | String replacement for targeted edits |
+| Insert/delete a paragraph | `edit_content` | String replacement for partial changes |
+| Update metadata AND replace content | `update_item` | Single call for both |
+
+### Prompt MCP Server
+
+| Task | Tool | Why |
+|------|------|-----|
+| Update title, description, tags, or name | `update_prompt` | Any field update |
+| Replace entire template (rewrite) | `update_prompt` with `content` + `arguments` | Full replacement (must provide ALL args) |
+| Fix a typo in template | `edit_prompt_template` | String replacement for targeted edits |
+| Add/remove a variable | `edit_prompt_template` with `arguments` | Atomic content + args update |
+| Update metadata AND replace template | `update_prompt` | Single call for both |
+
+**IMPORTANT for `update_prompt`:** When replacing template content that changes variables:
+1. You MUST also provide the `arguments` parameter
+2. The `arguments` list must include ALL arguments (not just changed ones) - it's a full replacement, not a merge
+
+### Key Distinction
+
+- **`update_*` tools**: Full replacement of any field. All params optional - only provide what you want to change.
+- **`edit_*` tools**: String replacement (`old_str` → `new_str`) for making targeted changes to content/template without rewriting everything.
+
+---
+
 ## Notes for Implementation
 
 1. **No backend API changes needed** - `BookmarkUpdate`, `NoteUpdate`, and `PromptUpdate` schemas already support `content` (and `arguments` for prompts). The MCP tools just need to expose these parameters.
@@ -219,3 +273,9 @@ Update all MCP server instructions, CLAUDE.md, and any other documentation to re
 2. **Breaking changes are OK** - Per requirements, no backwards compatibility needed. Just rename the tools directly.
 
 3. **Keep edit tools** - `edit_content` and `edit_prompt_template` remain valuable for targeted edits. The new `update_*` tools complement them for full replacement scenarios.
+
+4. **LLM clarity is critical** - Tool descriptions must clearly state:
+   - All parameters are optional (only provide what you want to change)
+   - `update_*` does FULL REPLACEMENT of content
+   - `edit_*` does STRING REPLACEMENT for partial/targeted edits
+   - For `update_prompt`: If content changes template variables, MUST also provide `arguments` with ALL args (full replacement, not merge)
