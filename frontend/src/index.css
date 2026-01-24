@@ -198,6 +198,7 @@ body {
 /* The actual editable area */
 .milkdown-wrapper .milkdown .editor {
   @apply p-4 outline-none text-gray-900 text-sm leading-relaxed relative;
+  font-size: 15px;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
@@ -313,7 +314,7 @@ body {
 
 /* Blockquotes */
 .milkdown-wrapper .milkdown blockquote {
-  @apply border-l-4 border-gray-300 pl-4 my-4 text-gray-600 italic;
+  @apply border-l-4 border-indigo-500 pl-4 my-4;
 }
 
 /* Unordered lists */

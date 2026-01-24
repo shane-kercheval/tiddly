@@ -87,6 +87,10 @@ export function BookmarkCard({
         return `Modified: ${formatDate(bookmark.updated_at)}`
       case 'last_used_at':
         return `Used: ${formatDate(bookmark.last_used_at)}`
+      case 'archived_at':
+        return `Archived: ${formatDate(bookmark.archived_at!)}`
+      case 'deleted_at':
+        return `Deleted: ${formatDate(bookmark.deleted_at!)}`
       case 'created_at':
       case 'title':
       default:

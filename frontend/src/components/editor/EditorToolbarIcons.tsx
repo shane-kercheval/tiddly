@@ -6,9 +6,10 @@ import type { ReactNode } from 'react'
 
 /**
  * Toolbar separator for visual grouping between button groups.
+ * Hidden on mobile (< md) where toolbar wraps and separators add clutter.
  */
 export function ToolbarSeparator(): ReactNode {
-  return <div className="w-px h-5 bg-gray-200 mx-1" />
+  return <div className="hidden md:block w-px h-5 bg-gray-200 mx-1" />
 }
 
 // Toolbar icon components with consistent sizing (w-4 h-4)
@@ -48,9 +49,10 @@ export function InlineCodeIcon(): ReactNode {
 }
 
 export function CodeBlockIcon(): ReactNode {
+  // Curly braces representing a code block - more intuitive than text lines
   return (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h6" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 4c-2 0-3 1-3 3v3c0 1.5-1 2-2 2 1 0 2 .5 2 2v3c0 2 1 3 3 3M16 4c2 0 3 1 3 3v3c0 1.5 1 2 2 2-1 0-2 .5-2 2v3c0 2-1 3-3 3" />
     </svg>
   )
 }
@@ -120,4 +122,35 @@ export function JinjaIfIcon(): ReactNode {
 
 export function JinjaIfTrimIcon(): ReactNode {
   return <span className="w-4 h-4 flex items-center justify-center text-[10px] font-mono font-bold">if-</span>
+}
+
+// Toggle icons for editor settings
+
+export function WrapIcon(): ReactNode {
+  // Line that wraps around with arrow
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h12a4 4 0 014 4 4 4 0 01-4 4H9" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 12l-3 3 3 3" />
+    </svg>
+  )
+}
+
+export function LineNumbersIcon(): ReactNode {
+  // Hash/number symbol representing line numbers
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+    </svg>
+  )
+}
+
+export function ReadingIcon(): ReactNode {
+  // Eye icon for reading/preview mode
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+    </svg>
+  )
 }

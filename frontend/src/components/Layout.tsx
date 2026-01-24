@@ -53,7 +53,7 @@ export function Layout(): ReactNode {
   })
 
   return (
-    <div className="flex h-screen bg-white overflow-hidden">
+    <div className="flex h-dvh bg-white overflow-hidden">
       <Sidebar />
       {/* Note: id="main-content" is used by SaveOverlay.tsx for portal rendering */}
       <main id="main-content" className="flex-1 flex flex-col min-w-0 relative overflow-x-hidden">
