@@ -72,29 +72,111 @@ interface CodeMirrorEditorProps {
 }
 
 /**
- * Wrap selected text with markdown markers.
+ * Result of determining what toggle action to take.
+ */
+type ToggleMarkerAction =
+  | { type: 'insert' }                // No selection - insert markers
+  | { type: 'wrap' }                  // Wrap selection with markers
+  | { type: 'unwrap-selection' }      // Markers are inside selection - remove them
+  | { type: 'unwrap-surrounding' }    // Markers are outside selection - remove them
+
+/**
+ * Determine what action to take when toggling markers.
+ * Pure function for testability.
+ *
+ * @param selectedText - The currently selected text (empty if no selection)
+ * @param surroundingBefore - Text immediately before selection (up to marker length)
+ * @param surroundingAfter - Text immediately after selection (up to marker length)
+ * @param before - The opening marker (e.g., '**' for bold)
+ * @param after - The closing marker (e.g., '**' for bold)
+ */
+function getToggleMarkerAction(
+  selectedText: string,
+  surroundingBefore: string,
+  surroundingAfter: string,
+  before: string,
+  after: string
+): ToggleMarkerAction {
+  // No selection - insert markers
+  if (!selectedText) {
+    return { type: 'insert' }
+  }
+
+  // Check if selection already includes the markers
+  if (
+    selectedText.startsWith(before) &&
+    selectedText.endsWith(after) &&
+    selectedText.length >= before.length + after.length
+  ) {
+    return { type: 'unwrap-selection' }
+  }
+
+  // Check if markers are just outside the selection
+  if (surroundingBefore === before && surroundingAfter === after) {
+    return { type: 'unwrap-surrounding' }
+  }
+
+  // Not wrapped - wrap it
+  return { type: 'wrap' }
+}
+
+/**
+ * Toggle markdown markers around selected text (smart toggle).
+ * - If selection includes markers: unwrap
+ * - If markers are just outside selection: unwrap
+ * - Otherwise: wrap
  * If no selection, insert markers and place cursor between them.
  */
-function wrapWithMarkers(view: EditorView, before: string, after: string): boolean {
+function toggleWrapMarkers(view: EditorView, before: string, after: string): boolean {
   const { state } = view
   const { from, to } = state.selection.main
   const selectedText = state.sliceDoc(from, to)
 
-  if (selectedText) {
-    // Wrap selected text
-    view.dispatch({
-      changes: { from, to, insert: `${before}${selectedText}${after}` },
-      selection: { anchor: from + before.length, head: to + before.length },
-    })
-  } else {
-    // No selection - insert markers and place cursor between them
-    view.dispatch({
-      changes: { from, insert: `${before}${after}` },
-      selection: { anchor: from + before.length },
-    })
+  // Get surrounding text for smart detection
+  const expandedFrom = Math.max(0, from - before.length)
+  const expandedTo = Math.min(state.doc.length, to + after.length)
+  const surroundingBefore = state.sliceDoc(expandedFrom, from)
+  const surroundingAfter = state.sliceDoc(to, expandedTo)
+
+  const action = getToggleMarkerAction(selectedText, surroundingBefore, surroundingAfter, before, after)
+
+  switch (action.type) {
+    case 'insert':
+      view.dispatch({
+        changes: { from, insert: `${before}${after}` },
+        selection: { anchor: from + before.length },
+      })
+      break
+
+    case 'unwrap-selection': {
+      const inner = selectedText.slice(before.length, -after.length || undefined)
+      view.dispatch({
+        changes: { from, to, insert: inner },
+        selection: { anchor: from, head: from + inner.length },
+      })
+      break
+    }
+
+    case 'unwrap-surrounding':
+      view.dispatch({
+        changes: { from: expandedFrom, to: expandedTo, insert: selectedText },
+        selection: { anchor: expandedFrom, head: expandedFrom + selectedText.length },
+      })
+      break
+
+    case 'wrap':
+      view.dispatch({
+        changes: { from, to, insert: `${before}${selectedText}${after}` },
+        selection: { anchor: from + before.length, head: to + before.length },
+      })
+      break
   }
+
   return true
 }
+
+// Export for testing
+export const _testExports = { getToggleMarkerAction }
 
 /**
  * Insert a markdown link. If text is selected, use it as the link text.
@@ -238,13 +320,13 @@ function dispatchGlobalShortcut(key: string, metaKey: boolean): void {
 function createMarkdownKeyBindings(): KeyBinding[] {
   return [
     // Text formatting
-    { key: 'Mod-b', run: (view) => wrapWithMarkers(view, '**', '**') },
-    { key: 'Mod-i', run: (view) => wrapWithMarkers(view, '*', '*') },
-    { key: 'Mod-Shift-x', run: (view) => wrapWithMarkers(view, '~~', '~~') },
-    { key: 'Mod-Shift-h', run: (view) => wrapWithMarkers(view, '==', '==') },
+    { key: 'Mod-b', run: (view) => toggleWrapMarkers(view, '**', '**') },
+    { key: 'Mod-i', run: (view) => toggleWrapMarkers(view, '*', '*') },
+    { key: 'Mod-Shift-x', run: (view) => toggleWrapMarkers(view, '~~', '~~') },
+    { key: 'Mod-Shift-h', run: (view) => toggleWrapMarkers(view, '==', '==') },
     { key: 'Mod-Shift-.', run: (view) => toggleLinePrefix(view, '> ') },
     // Code
-    { key: 'Mod-e', run: (view) => wrapWithMarkers(view, '`', '`') },
+    { key: 'Mod-e', run: (view) => toggleWrapMarkers(view, '`', '`') },
     { key: 'Mod-Shift-e', run: (view) => insertCodeBlock(view) },
     // Lists (Notion convention: 7=numbered, 8=bullet, 9=task)
     { key: 'Mod-Shift-7', run: (view) => toggleLinePrefix(view, '1. ') },
@@ -469,16 +551,16 @@ export function CodeMirrorEditor({
         {/* On mobile: 'contents' flattens structure so all buttons wrap together as siblings */}
         <div className={`contents md:flex md:flex-nowrap md:items-center md:gap-0.5 md:opacity-0 md:group-focus-within/editor:opacity-100 transition-opacity ${disabled ? 'pointer-events-none' : ''}`}>
           {/* Text formatting */}
-          <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '**', '**'))} title="Bold (⌘B)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, '**', '**'))} title="Bold (⌘B)">
             <BoldIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '*', '*'))} title="Italic (⌘I)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, '*', '*'))} title="Italic (⌘I)">
             <ItalicIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '~~', '~~'))} title="Strikethrough (⌘⇧X)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, '~~', '~~'))} title="Strikethrough (⌘⇧X)">
             <StrikethroughIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '==', '=='))} title="Highlight (⌘⇧H)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, '==', '=='))} title="Highlight (⌘⇧H)">
             <HighlightIcon />
           </ToolbarButton>
           <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '> '))} title="Blockquote (⌘⇧.)">
@@ -488,7 +570,7 @@ export function CodeMirrorEditor({
           <ToolbarSeparator />
 
           {/* Code */}
-          <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '`', '`'))} title="Inline Code (⌘E)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, '`', '`'))} title="Inline Code (⌘E)">
             <InlineCodeIcon />
           </ToolbarButton>
           <ToolbarButton onClick={() => runAction(insertCodeBlock)} title="Code Block (⌘⇧E)">

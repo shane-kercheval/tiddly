@@ -80,6 +80,8 @@ const rightColumnGroups: ShortcutGroup[] = [
       { keys: ['\u2318', 'K'], description: 'Insert link' },
       { keys: ['\u2318', '\u21E7', '-'], description: 'Horizontal rule' },
       { keys: ['\u2318', 'Click'], description: 'Open link in new tab' },
+      // Selection
+      { keys: ['\u2318', 'D'], description: 'Select next occurrence' },
     ],
   },
 ]
