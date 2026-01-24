@@ -91,6 +91,20 @@ describe('PromptCard', () => {
 
       expect(screen.getByText(/Created:/)).toBeInTheDocument()
     })
+
+    it('should show archived date when sortBy is archived_at', () => {
+      const archivedPrompt = { ...mockPrompt, archived_at: '2024-02-01T00:00:00Z' }
+      render(<PromptCard prompt={archivedPrompt} sortBy="archived_at" onDelete={vi.fn()} />)
+
+      expect(screen.getByText(/Archived:/)).toBeInTheDocument()
+    })
+
+    it('should show deleted date when sortBy is deleted_at', () => {
+      const deletedPrompt = { ...mockPrompt, deleted_at: '2024-03-01T00:00:00Z' }
+      render(<PromptCard prompt={deletedPrompt} sortBy="deleted_at" onDelete={vi.fn()} />)
+
+      expect(screen.getByText(/Deleted:/)).toBeInTheDocument()
+    })
   })
 
   describe('title click', () => {

@@ -65,6 +65,10 @@ export function NoteCard({
         return `Modified: ${formatDate(note.updated_at)}`
       case 'last_used_at':
         return `Used: ${formatDate(note.last_used_at)}`
+      case 'archived_at':
+        return `Archived: ${formatDate(note.archived_at)}`
+      case 'deleted_at':
+        return `Deleted: ${formatDate(note.deleted_at)}`
       case 'created_at':
       case 'title':
       default:
