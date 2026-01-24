@@ -280,14 +280,17 @@ async def test__update__expected_updated_at__timezone_handling(
     entity_setup: dict[str, Any],
 ) -> None:
     """UTC timestamps compared correctly regardless of input timezone format."""
-    # The server returns ISO format with Z suffix, update with same timestamp
+    # The server returns ISO format with Z suffix (e.g., 2024-01-15T12:00:00.123456Z)
+    # Convert to +00:00 format to verify backend handles both representations
     server_timestamp = entity_setup["entity"]["updated_at"]
+    assert server_timestamp.endswith("Z"), "Expected server to return Z suffix"
+    equivalent_timestamp = server_timestamp[:-1] + "+00:00"
 
     response = await client.patch(
         entity_setup["endpoint"],
         json={
             "title": "Timezone Test",
-            "expected_updated_at": server_timestamp,
+            "expected_updated_at": equivalent_timestamp,
         },
     )
     assert response.status_code == 200
@@ -337,7 +340,12 @@ async def test__str_replace__with_expected_updated_at__conflict_returns_409(
         },
     )
     assert response.status_code == 409
-    assert response.json()["detail"]["error"] == "conflict"
+    detail = response.json()["detail"]
+    assert detail["error"] == "conflict"
+    assert detail["message"] == "This item was modified since you loaded it"
+    assert "server_state" in detail
+    assert detail["server_state"]["title"] == "Modified"
+    assert detail["server_state"]["id"] == entity_setup["id"]
 
 
 @pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
@@ -420,7 +428,12 @@ async def test__update_prompt_by_name__with_expected_updated_at__conflict_return
         },
     )
     assert response.status_code == 409
-    assert response.json()["detail"]["error"] == "conflict"
+    detail = response.json()["detail"]
+    assert detail["error"] == "conflict"
+    assert detail["message"] == "This item was modified since you loaded it"
+    assert "server_state" in detail
+    assert detail["server_state"]["title"] == "First Update"
+    assert detail["server_state"]["name"] == setup["entity"]["name"]
 
 
 async def test__str_replace_prompt_by_name__with_expected_updated_at__success(
@@ -462,7 +475,12 @@ async def test__str_replace_prompt_by_name__with_expected_updated_at__conflict_r
         },
     )
     assert response.status_code == 409
-    assert response.json()["detail"]["error"] == "conflict"
+    detail = response.json()["detail"]
+    assert detail["error"] == "conflict"
+    assert detail["message"] == "This item was modified since you loaded it"
+    assert "server_state" in detail
+    assert detail["server_state"]["title"] == "Modified"
+    assert detail["server_state"]["name"] == setup["entity"]["name"]
 
 
 async def test__update_prompt_by_name__not_found_returns_404(
