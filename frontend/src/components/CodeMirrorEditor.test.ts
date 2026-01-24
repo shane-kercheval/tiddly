@@ -8,14 +8,51 @@ const { getToggleMarkerAction } = _testExports
 
 describe('getToggleMarkerAction', () => {
   describe('insert (no selection)', () => {
-    it('should return insert when no text is selected', () => {
+    it('should return insert when no text is selected and no surrounding markers', () => {
       const result = getToggleMarkerAction('', '', '', '**', '**')
       expect(result.type).toBe('insert')
     })
 
-    it('should return insert regardless of surrounding text when no selection', () => {
-      const result = getToggleMarkerAction('', '**', '**', '**', '**')
+    it('should return insert when no selection and only partial surrounding markers', () => {
+      const result = getToggleMarkerAction('', '*', '*', '**', '**')
       expect(result.type).toBe('insert')
+    })
+
+    it('should return insert when no selection and only before marker matches', () => {
+      const result = getToggleMarkerAction('', '**', '', '**', '**')
+      expect(result.type).toBe('insert')
+    })
+
+    it('should return insert when no selection and only after marker matches', () => {
+      const result = getToggleMarkerAction('', '', '**', '**', '**')
+      expect(result.type).toBe('insert')
+    })
+  })
+
+  describe('unwrap-surrounding with no selection (cursor between markers)', () => {
+    it('should unwrap when cursor is between bold markers **|**', () => {
+      const result = getToggleMarkerAction('', '**', '**', '**', '**')
+      expect(result.type).toBe('unwrap-surrounding')
+    })
+
+    it('should unwrap when cursor is between italic markers *|*', () => {
+      const result = getToggleMarkerAction('', '*', '*', '*', '*')
+      expect(result.type).toBe('unwrap-surrounding')
+    })
+
+    it('should unwrap when cursor is between strikethrough markers ~~|~~', () => {
+      const result = getToggleMarkerAction('', '~~', '~~', '~~', '~~')
+      expect(result.type).toBe('unwrap-surrounding')
+    })
+
+    it('should unwrap when cursor is between highlight markers ==|==', () => {
+      const result = getToggleMarkerAction('', '==', '==', '==', '==')
+      expect(result.type).toBe('unwrap-surrounding')
+    })
+
+    it('should unwrap when cursor is between inline code markers `|`', () => {
+      const result = getToggleMarkerAction('', '`', '`', '`', '`')
+      expect(result.type).toBe('unwrap-surrounding')
     })
   })
 

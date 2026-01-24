@@ -97,8 +97,13 @@ function getToggleMarkerAction(
   before: string,
   after: string
 ): ToggleMarkerAction {
-  // No selection - insert markers
+  // No selection
   if (!selectedText) {
+    // Check if cursor is between markers (e.g., **|**) - should toggle off
+    if (surroundingBefore === before && surroundingAfter === after) {
+      return { type: 'unwrap-surrounding' }
+    }
+    // Otherwise insert markers
     return { type: 'insert' }
   }
 
