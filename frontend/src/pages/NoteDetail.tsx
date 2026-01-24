@@ -8,8 +8,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
+import axios from 'axios'
 import toast from 'react-hot-toast'
-import { Note } from '../components/Note'
+import { Note as NoteComponent } from '../components/Note'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { useNotes } from '../hooks/useNotes'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
@@ -147,6 +148,10 @@ export function NoteDetail(): ReactNode {
           })
           setNote(updatedNote)
         } catch (err) {
+          // Don't show toast for 409 Conflict - the component handles it with ConflictDialog
+          if (axios.isAxiosError(err) && err.response?.status === 409) {
+            throw err
+          }
           const message = err instanceof Error ? err.message : 'Failed to save note'
           toast.error(message)
           throw err
@@ -200,6 +205,19 @@ export function NoteDetail(): ReactNode {
     }
   }, [noteId, restoreMutation, navigateBack])
 
+  // Refresh handler for stale check - returns true on success, false on failure
+  const handleRefresh = useCallback(async (): Promise<NoteType | null> => {
+    if (!noteId) return null
+    try {
+      const refreshedNote = await fetchNote(noteId)
+      setNote(refreshedNote)
+      return refreshedNote
+    } catch {
+      toast.error('Failed to refresh note')
+      return null
+    }
+  }, [noteId, fetchNote])
+
   // Render loading state
   if (isLoading) {
     return <LoadingSpinnerCentered label="Loading note..." />
@@ -213,7 +231,7 @@ export function NoteDetail(): ReactNode {
   // Render create mode
   if (isCreate) {
     return (
-      <Note
+      <NoteComponent
         key="new"
         tagSuggestions={tagSuggestions}
         onSave={handleSave}
@@ -233,7 +251,7 @@ export function NoteDetail(): ReactNode {
   }
 
   return (
-    <Note
+    <NoteComponent
       key={effectiveNote.id}
       note={effectiveNote}
       tagSuggestions={tagSuggestions}
@@ -246,6 +264,7 @@ export function NoteDetail(): ReactNode {
       onRestore={viewState === 'deleted' ? handleRestore : undefined}
       viewState={viewState}
       fullWidth={fullWidthLayout}
+      onRefresh={handleRefresh}
     />
   )
 }

@@ -68,12 +68,14 @@ export function Modal({
       firstInput?.focus()
     })
 
-    // Handle escape key - stop immediate propagation to prevent other document-level
-    // listeners (like note/bookmark close handlers) from also firing
+    // Handle escape key - always stop propagation when modal is open to prevent
+    // other document-level listeners (like note/bookmark close handlers) from firing
     function handleKeyDown(e: KeyboardEvent): void {
-      if (e.key === 'Escape' && canClose) {
+      if (e.key === 'Escape') {
         e.stopImmediatePropagation()
-        onClose()
+        if (canClose) {
+          onClose()
+        }
       }
     }
 
@@ -111,14 +113,15 @@ export function Modal({
           <h2 id="modal-title" className="text-lg font-semibold text-gray-900">
             {title}
           </h2>
-          <button
-            onClick={onClose}
-            disabled={!canClose}
-            className="btn-icon"
-            aria-label="Close"
-          >
-            <CloseIcon />
-          </button>
+          {canClose && (
+            <button
+              onClick={onClose}
+              className="btn-icon"
+              aria-label="Close"
+            >
+              <CloseIcon />
+            </button>
+          )}
         </div>
 
         {/* Content - scrollable */}

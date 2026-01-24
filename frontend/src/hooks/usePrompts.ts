@@ -10,11 +10,13 @@
  */
 import { useCallback } from 'react'
 import { api } from '../services/api'
-import type { Prompt, PromptRenderResponse } from '../types'
+import type { Prompt, PromptListItem, PromptRenderResponse } from '../types'
 
 interface UsePromptsReturn {
   /** Fetch a single prompt by ID (with full content for viewing/editing) */
   fetchPrompt: (id: string) => Promise<Prompt>
+  /** Fetch prompt metadata only (lightweight, for stale checking) */
+  fetchPromptMetadataNoCache: (id: string) => Promise<PromptListItem>
   /** Track prompt usage (fire-and-forget) */
   trackPromptUsage: (id: string) => void
   /** Render a prompt with the given arguments */
@@ -26,10 +28,13 @@ interface UsePromptsReturn {
  *
  * @example
  * ```tsx
- * const { fetchPrompt, trackPromptUsage, renderPrompt } = usePrompts()
+ * const { fetchPrompt, fetchPromptMetadataNoCache, trackPromptUsage, renderPrompt } = usePrompts()
  *
  * // Fetch full prompt for viewing/editing
  * const prompt = await fetchPrompt(id)
+ *
+ * // Fetch lightweight metadata (for stale checking)
+ * const metadata = await fetchPromptMetadataNoCache(id)
  *
  * // Track when user views a prompt
  * trackPromptUsage(id)
@@ -41,6 +46,14 @@ interface UsePromptsReturn {
 export function usePrompts(): UsePromptsReturn {
   const fetchPrompt = useCallback(async (id: string): Promise<Prompt> => {
     const response = await api.get<Prompt>(`/prompts/${id}`)
+    return response.data
+  }, [])
+
+  const fetchPromptMetadataNoCache = useCallback(async (id: string): Promise<PromptListItem> => {
+    // Cache-bust to prevent Safari from returning stale cached responses
+    const response = await api.get<PromptListItem>(`/prompts/${id}/metadata`, {
+      params: { _t: Date.now() },
+    })
     return response.data
   }, [])
 
@@ -62,6 +75,7 @@ export function usePrompts(): UsePromptsReturn {
 
   return {
     fetchPrompt,
+    fetchPromptMetadataNoCache,
     trackPromptUsage,
     renderPrompt,
   }

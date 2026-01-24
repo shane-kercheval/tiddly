@@ -5,11 +5,27 @@
  * plus Bookmark-specific tests for unique functionality.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { useRef } from 'react'
 import userEvent from '@testing-library/user-event'
+import axios from 'axios'
 import { Bookmark } from './Bookmark'
 import { createContentComponentTests } from './__tests__/createContentComponentTests'
 import type { Bookmark as BookmarkType, TagCount } from '../types'
+
+// Mock axios.isAxiosError
+vi.mock('axios', async () => {
+  const actual = await vi.importActual('axios')
+  return {
+    ...actual,
+    default: {
+      ...(actual as { default: typeof axios }).default,
+      isAxiosError: vi.fn(),
+    },
+  }
+})
+
+let editorInstanceCounter = 0
 
 // Mock MilkdownEditor - simulates the editor with a simple textarea
 vi.mock('./MilkdownEditor', () => ({
@@ -18,15 +34,23 @@ vi.mock('./MilkdownEditor', () => ({
     onChange: (value: string) => void
     placeholder?: string
     disabled?: boolean
-  }) => (
-    <textarea
-      data-testid="content-editor"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-    />
-  ),
+  }) => {
+    const instanceRef = useRef<number | null>(null)
+    if (instanceRef.current === null) {
+      editorInstanceCounter += 1
+      instanceRef.current = editorInstanceCounter
+    }
+    return (
+      <textarea
+        data-testid="content-editor"
+        data-editor-instance={instanceRef.current}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
+    )
+  },
 }))
 
 // Mock CodeMirrorEditor
@@ -36,15 +60,23 @@ vi.mock('./CodeMirrorEditor', () => ({
     onChange: (value: string) => void
     placeholder?: string
     disabled?: boolean
-  }) => (
-    <textarea
-      data-testid="content-editor-text"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-    />
-  ),
+  }) => {
+    const instanceRef = useRef<number | null>(null)
+    if (instanceRef.current === null) {
+      editorInstanceCounter += 1
+      instanceRef.current = editorInstanceCounter
+    }
+    return (
+      <textarea
+        data-testid="content-editor-text"
+        data-editor-instance={instanceRef.current}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
+    )
+  },
 }))
 
 // Mock localStorage
@@ -123,7 +155,7 @@ createContentComponentTests({
 })
 
 // Bookmark-specific tests
-describe('Bookmark component - specific behaviors', () => {
+  describe('Bookmark component - specific behaviors', () => {
   const mockOnSave = vi.fn()
   const mockOnClose = vi.fn()
   const mockOnFetchMetadata = vi.fn()
@@ -132,6 +164,7 @@ describe('Bookmark component - specific behaviors', () => {
     vi.clearAllMocks()
     localStorageMock.clear()
     vi.useFakeTimers({ shouldAdvanceTime: true })
+    editorInstanceCounter = 0
   })
 
   afterEach(() => {
@@ -311,6 +344,7 @@ describe('Bookmark component - specific behaviors', () => {
       await waitFor(() => {
         expect(mockOnSave).toHaveBeenCalledWith({
           title: 'Updated Title',
+          expected_updated_at: '2024-01-02T00:00:00Z',
         })
       })
     })
@@ -375,6 +409,363 @@ describe('Bookmark component - specific behaviors', () => {
       )
 
       expect(container.querySelector('form')).not.toHaveClass('max-w-4xl')
+    })
+  })
+
+  describe('prop sync on refresh', () => {
+    it('should update internal state when bookmark prop updated_at changes', () => {
+      const { rerender } = render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.getByDisplayValue('Test Bookmark')).toBeInTheDocument()
+
+      const updatedBookmark: BookmarkType = {
+        ...mockBookmark,
+        title: 'Refreshed Title',
+        updated_at: '2024-01-05T00:00:00Z',
+      }
+
+      rerender(
+        <Bookmark
+          bookmark={updatedBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.getByDisplayValue('Refreshed Title')).toBeInTheDocument()
+    })
+
+    it('should not update internal state when bookmark prop changes without updated_at change', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const { rerender } = render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      await user.clear(screen.getByDisplayValue('Test Bookmark'))
+      await user.type(screen.getByPlaceholderText('Page title'), 'My Local Edit')
+
+      const sameBookmark: BookmarkType = {
+        ...mockBookmark,
+      }
+
+      rerender(
+        <Bookmark
+          bookmark={sameBookmark}
+          tagSuggestions={[]}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.getByDisplayValue('My Local Edit')).toBeInTheDocument()
+    })
+
+    it('should clear conflict state when bookmark prop updated_at changes', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+      const error409 = new Error('Conflict') as Error & {
+        response?: { status: number; data: { detail: { error: string; server_state: BookmarkType } } }
+      }
+      error409.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: { ...mockBookmark, updated_at: '2024-01-03T00:00:00Z' },
+          },
+        },
+      }
+      mockOnSave.mockRejectedValue(error409)
+
+      const { rerender } = render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      await user.clear(screen.getByDisplayValue('Test Bookmark'))
+      await user.type(screen.getByPlaceholderText('Page title'), 'My Edit')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
+      })
+
+      const refreshedBookmark: BookmarkType = {
+        ...mockBookmark,
+        title: 'Server Title',
+        updated_at: '2024-01-05T00:00:00Z',
+      }
+
+      rerender(
+        <Bookmark
+          bookmark={refreshedBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.queryByText('Save Conflict')).not.toBeInTheDocument()
+      expect(screen.getByDisplayValue('Server Title')).toBeInTheDocument()
+    })
+  })
+
+  describe('load server version', () => {
+    it('should remount editor when Load Server Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+      const error409 = new Error('Conflict') as Error & {
+        response?: { status: number; data: { detail: { error: string; server_state: BookmarkType } } }
+      }
+      error409.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: { ...mockBookmark, updated_at: '2024-01-03T00:00:00Z' },
+          },
+        },
+      }
+      mockOnSave.mockRejectedValue(error409)
+
+      const refreshedBookmark: BookmarkType = {
+        ...mockBookmark,
+        content: 'Server content',
+        updated_at: mockBookmark.updated_at,
+      }
+      const mockOnRefresh = vi.fn().mockResolvedValue(refreshedBookmark)
+
+      render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onRefresh={mockOnRefresh}
+        />
+      )
+
+      const initialEditor = screen.getByTestId('content-editor-text')
+      const initialInstance = initialEditor.getAttribute('data-editor-instance')
+
+      await user.clear(screen.getByDisplayValue('Test Bookmark'))
+      await user.type(screen.getByPlaceholderText('Page title'), 'My Edit')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Load Server Version' }))
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Server content')).toBeInTheDocument()
+      })
+
+      const refreshedEditor = screen.getByTestId('content-editor-text')
+      const refreshedInstance = refreshedEditor.getAttribute('data-editor-instance')
+      expect(refreshedInstance).not.toBe(initialInstance)
+    })
+  })
+
+  describe('editor focus on save', () => {
+    it('should keep focus on editor after Cmd+S save', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockResolvedValue(undefined)
+
+      render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      const editor = screen.getByTestId('content-editor-text')
+      editor.focus()
+      expect(document.activeElement).toBe(editor)
+
+      await user.type(editor, 'x')
+
+      fireEvent.keyDown(document, { key: 's', metaKey: true })
+
+      await waitFor(() => {
+        expect(mockOnSave).toHaveBeenCalled()
+      })
+
+      const editorAfterSave = screen.getByTestId('content-editor-text')
+      expect(document.activeElement).toBe(editorAfterSave)
+    })
+  })
+
+  describe('409 Conflict handling', () => {
+    const create409Error = (): Error & { response?: { status: number; data: { detail: { error: string; server_state: BookmarkType } } } } => {
+      const error = new Error('Conflict') as Error & { response?: { status: number; data: { detail: { error: string; server_state: BookmarkType } } } }
+      error.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: {
+              ...mockBookmark,
+              title: 'Server Updated Title',
+              updated_at: '2024-01-03T00:00:00Z',
+            },
+          },
+        },
+      }
+      return error
+    }
+
+    beforeEach(() => {
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+    })
+
+    it('should show ConflictDialog when save returns 409', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockRejectedValue(create409Error())
+
+      render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make a change and save
+      await user.clear(screen.getByDisplayValue('Test Bookmark'))
+      await user.type(screen.getByPlaceholderText('Page title'), 'My New Title')
+      await user.click(screen.getByText('Save'))
+
+      // ConflictDialog should appear
+      await waitFor(() => {
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Save My Version' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Do Nothing' })).toBeInTheDocument()
+    })
+
+    it('should call onRefresh when Load Server Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockRejectedValue(create409Error())
+      const mockOnRefresh = vi.fn().mockResolvedValue(mockBookmark)
+
+      render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onRefresh={mockOnRefresh}
+        />
+      )
+
+      // Make a change and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('Test Bookmark'))
+      await user.type(screen.getByPlaceholderText('Page title'), 'My New Title')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Load Server Version' }))
+
+      expect(mockOnRefresh).toHaveBeenCalledTimes(1)
+    })
+
+    it('should force save without expected_updated_at when Save My Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      // First call rejects with 409, second call succeeds
+      mockOnSave.mockRejectedValueOnce(create409Error()).mockResolvedValueOnce(undefined)
+
+      render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make a change and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('Test Bookmark'))
+      await user.type(screen.getByPlaceholderText('Page title'), 'My New Title')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Save My Version' })).toBeInTheDocument()
+      })
+
+      // First click shows confirmation
+      await user.click(screen.getByRole('button', { name: 'Save My Version' }))
+      expect(screen.getByRole('button', { name: 'Confirm Overwrite?' })).toBeInTheDocument()
+
+      // Second click confirms and saves
+      await user.click(screen.getByRole('button', { name: 'Confirm Overwrite?' }))
+
+      await waitFor(() => {
+        expect(mockOnSave).toHaveBeenCalledTimes(2)
+      })
+
+      // Second call should NOT include expected_updated_at (force save)
+      const secondCall = mockOnSave.mock.calls[1][0]
+      expect(secondCall).not.toHaveProperty('expected_updated_at')
+      expect(secondCall).toHaveProperty('title', 'My New Title')
+    })
+
+    it('should close ConflictDialog without action when Do Nothing is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockRejectedValue(create409Error())
+
+      render(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make a change and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('Test Bookmark'))
+      await user.type(screen.getByPlaceholderText('Page title'), 'My New Title')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Do Nothing' })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Do Nothing' }))
+
+      // Dialog should close but changes should remain
+      await waitFor(() => {
+        expect(screen.queryByText('Save Conflict')).not.toBeInTheDocument()
+      })
+
+      // User's changes should still be in the form
+      expect(screen.getByDisplayValue('My New Title')).toBeInTheDocument()
     })
   })
 })

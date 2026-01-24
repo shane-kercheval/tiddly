@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Bookmark } from '../components/Bookmark'
+import { Bookmark as BookmarkComponent } from '../components/Bookmark'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
@@ -168,9 +168,16 @@ export function BookmarkDetail(): ReactNode {
           setBookmark(updatedBookmark)
         } catch (err) {
           if (err && typeof err === 'object' && 'response' in err) {
-            const axiosError = err as { response?: { status?: number; data?: { detail?: string } } }
+            const axiosError = err as { response?: { status?: number; data?: { detail?: string | { error?: string } } } }
             if (axiosError.response?.status === 409) {
-              toast.error(axiosError.response.data?.detail || 'A bookmark with this URL already exists')
+              const detail = axiosError.response.data?.detail
+              // Version conflict (optimistic locking) - let component handle with ConflictDialog
+              if (typeof detail === 'object' && detail?.error === 'conflict') {
+                throw err
+              }
+              // URL conflict - show toast
+              const message = typeof detail === 'string' ? detail : 'A bookmark with this URL already exists'
+              toast.error(message)
               throw err
             }
           }
@@ -218,6 +225,19 @@ export function BookmarkDetail(): ReactNode {
     }
   }, [bookmarkId, deleteMutation, navigateBack])
 
+  // Refresh handler for stale check - returns true on success, false on failure
+  const handleRefresh = useCallback(async (): Promise<BookmarkType | null> => {
+    if (!bookmarkId) return null
+    try {
+      const refreshedBookmark = await fetchBookmark(bookmarkId)
+      setBookmark(refreshedBookmark)
+      return refreshedBookmark
+    } catch {
+      toast.error('Failed to refresh bookmark')
+      return null
+    }
+  }, [bookmarkId, fetchBookmark])
+
   if (isLoading) {
     return <LoadingSpinnerCentered label="Loading bookmark..." />
   }
@@ -227,7 +247,7 @@ export function BookmarkDetail(): ReactNode {
   }
 
   return (
-    <Bookmark
+    <BookmarkComponent
       key={bookmark?.id ?? 'new'}
       bookmark={bookmark ?? undefined}
       tagSuggestions={tagSuggestions}
@@ -242,6 +262,7 @@ export function BookmarkDetail(): ReactNode {
       onDelete={handleDelete}
       viewState={viewState}
       fullWidth={fullWidthLayout}
+      onRefresh={handleRefresh}
     />
   )
 }

@@ -14,12 +14,14 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode, FormEvent } from 'react'
+import axios from 'axios'
+import toast from 'react-hot-toast'
 import { InlineEditableTitle } from './InlineEditableTitle'
 import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEditableTags'
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
-import { UnsavedChangesDialog } from './ui'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
@@ -27,8 +29,21 @@ import type { ArchivePreset } from '../utils'
 import { config } from '../config'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
+import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { useNotes } from '../hooks/useNotes'
 import type { Note as NoteType, NoteCreate, NoteUpdate, TagCount } from '../types'
+
+/** Conflict state for 409 responses */
+interface ConflictState {
+  serverUpdatedAt: string
+}
+
+/** Result of building update payload */
+interface BuildUpdatesResult {
+  updates: NoteUpdate
+  tagsToSubmit: string[]
+}
 
 /** Form state for the note */
 interface NoteState {
@@ -72,6 +87,8 @@ interface NoteProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
+  /** Called to refresh the note from server (for stale check). Returns the refreshed note on success. */
+  onRefresh?: () => Promise<NoteType | null>
 }
 
 /**
@@ -90,8 +107,21 @@ export function Note({
   onRestore,
   viewState = 'active',
   fullWidth = false,
+  onRefresh,
 }: NoteProps): ReactNode {
   const isCreate = !note
+
+  // Stale check hook
+  const { fetchNoteMetadataNoCache } = useNotes()
+  const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
+    const metadata = await fetchNoteMetadataNoCache(id)
+    return metadata.updated_at
+  }, [fetchNoteMetadataNoCache])
+  const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
+    entityId: note?.id,
+    loadedUpdatedAt: note?.updated_at,
+    fetchUpdatedAt,
+  })
 
   // Get initial archive state from note
   const getInitialArchiveState = (): { archivedAt: string; archivePreset: ArchivePreset } => {
@@ -119,6 +149,36 @@ export function Note({
   const [current, setCurrent] = useState<NoteState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [conflictState, setConflictState] = useState<ConflictState | null>(null)
+  const [contentKey, setContentKey] = useState(0)
+
+  const syncStateFromNote = useCallback((nextNote: NoteType, resetEditor = false): void => {
+    const archiveState = nextNote.archived_at
+      ? { archivedAt: nextNote.archived_at, archivePreset: 'custom' as ArchivePreset }
+      : { archivedAt: '', archivePreset: 'none' as ArchivePreset }
+    const newState: NoteState = {
+      title: nextNote.title ?? '',
+      description: nextNote.description ?? '',
+      content: nextNote.content ?? '',
+      tags: nextNote.tags ?? [],
+      archivedAt: archiveState.archivedAt,
+      archivePreset: archiveState.archivePreset,
+    }
+    setOriginal(newState)
+    setCurrent(newState)
+    setConflictState(null)
+    if (resetEditor) {
+      setContentKey((prev) => prev + 1)
+    }
+  }, [])
+
+  // Sync internal state when note prop changes (e.g., after refresh from conflict resolution)
+  // This is intentional - deriving form state from props when they change is a valid pattern
+  useEffect(() => {
+    if (!note) return
+    syncStateFromNote(note)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note?.id, note?.updated_at, syncStateFromNote])
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -172,6 +232,42 @@ export function Note({
     confirmLeave,
     onClose,
   })
+
+  // Build update payload for existing notes (shared between handleSubmit and handleConflictSaveMyVersion)
+  const buildUpdates = useCallback((): BuildUpdatesResult | null => {
+    if (!note) return null
+
+    // Get any pending tag text and include it
+    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+    const tagsToSubmit = [...current.tags]
+    if (pendingTag) {
+      const normalized = pendingTag.toLowerCase().trim()
+      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+        tagsToSubmit.push(normalized)
+        tagInputRef.current?.clearPending()
+      }
+    }
+
+    // Only send changed fields
+    const updates: NoteUpdate = {}
+    if (current.title !== note.title) updates.title = current.title
+    if (current.description !== (note.description ?? '')) {
+      updates.description = current.description || null
+    }
+    if (current.content !== (note.content ?? '')) {
+      updates.content = current.content || null
+    }
+    if (JSON.stringify(tagsToSubmit) !== JSON.stringify(note.tags ?? [])) {
+      updates.tags = tagsToSubmit
+    }
+    const newArchivedAt = current.archivedAt || null
+    const oldArchivedAt = note.archived_at || null
+    if (newArchivedAt !== oldArchivedAt) {
+      updates.archived_at = newArchivedAt
+    }
+
+    return { updates, tagsToSubmit }
+  }, [note, current])
 
   // Auto-focus title for new notes only
   useEffect(() => {
@@ -287,19 +383,21 @@ export function Note({
 
     if (isReadOnly || !validate()) return
 
-    // Get any pending tag text and include it
-    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
-    const tagsToSubmit = [...current.tags]
-    if (pendingTag) {
-      const normalized = pendingTag.toLowerCase().trim()
-      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
-        tagsToSubmit.push(normalized)
-        tagInputRef.current?.clearPending()
-      }
-    }
+    let tagsToSubmit: string[]
 
     try {
       if (isCreate) {
+        // Get any pending tag text for create
+        const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+        tagsToSubmit = [...current.tags]
+        if (pendingTag) {
+          const normalized = pendingTag.toLowerCase().trim()
+          if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+            tagsToSubmit.push(normalized)
+            tagInputRef.current?.clearPending()
+          }
+        }
+
         const createData: NoteCreate = {
           title: current.title,
           description: current.description || undefined,
@@ -311,28 +409,19 @@ export function Note({
         confirmLeave()
         await onSave(createData)
       } else {
-        // For updates, only send changed fields
-        const updates: NoteUpdate = {}
-        if (current.title !== note?.title) updates.title = current.title
-        if (current.description !== (note?.description ?? '')) {
-          updates.description = current.description || null
-        }
-        if (current.content !== (note?.content ?? '')) {
-          updates.content = current.content || null
-        }
-        if (JSON.stringify(tagsToSubmit) !== JSON.stringify(note?.tags ?? [])) {
-          updates.tags = tagsToSubmit
-        }
-        // Include archived_at if changed
-        const newArchivedAt = current.archivedAt || null
-        const oldArchivedAt = note?.archived_at || null
-        if (newArchivedAt !== oldArchivedAt) {
-          updates.archived_at = newArchivedAt
-        }
+        const result = buildUpdates()
+        if (!result) return
+        const { updates, tagsToSubmit: tags } = result
+        tagsToSubmit = tags
 
         // Early return if nothing changed (safety net for edge cases)
         if (Object.keys(updates).length === 0) {
           return
+        }
+
+        // Include expected_updated_at for optimistic locking (prevents overwriting concurrent edits)
+        if (note?.updated_at) {
+          updates.expected_updated_at = note.updated_at
         }
 
         await onSave(updates)
@@ -352,11 +441,24 @@ export function Note({
           refocusAfterSaveRef.current = null
         }, 0)
       }
-    } catch {
-      // Error handling is done in the parent component
-      // Clear refs on error
+    } catch (err) {
+      // Check for 409 Conflict (version mismatch)
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        const detail = err.response.data?.detail
+        if (detail?.error === 'conflict' && detail?.server_state) {
+          setConflictState({
+            serverUpdatedAt: detail.server_state.updated_at,
+          })
+          // Clear refs but don't propagate error - we're handling it with the dialog
+          refocusAfterSaveRef.current = null
+          clearSaveAndClose()
+          return
+        }
+      }
+      // Other errors: clear refs and let parent handle
       refocusAfterSaveRef.current = null
       clearSaveAndClose()
+      throw err
     }
   }
 
@@ -386,6 +488,44 @@ export function Note({
 
   const handleArchivePresetChange = useCallback((archivePreset: ArchivePreset): void => {
     setCurrent((prev) => ({ ...prev, archivePreset }))
+  }, [])
+
+  // Conflict resolution handlers
+  const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
+    // Use onRefresh to fetch latest version from server
+    // This updates the parent's state, which will flow down as new props
+    const refreshed = await onRefresh?.()
+    if (refreshed) {
+      syncStateFromNote(refreshed, true)
+    }
+  }, [onRefresh, syncStateFromNote])
+
+  const handleConflictSaveMyVersion = useCallback(async (): Promise<void> => {
+    const result = buildUpdates()
+    if (!result) return
+
+    const { updates, tagsToSubmit } = result
+
+    // Guard against no-op updates (user may have reverted changes while dialog was open)
+    if (Object.keys(updates).length === 0) {
+      setConflictState(null)
+      return
+    }
+
+    // Note: NOT including expected_updated_at - this forces the save to overwrite server version
+
+    try {
+      await onSave(updates)
+      setOriginal({ ...current, tags: tagsToSubmit })
+      setConflictState(null)
+    } catch {
+      // Show feedback so user knows save failed
+      toast.error('Failed to save - please try again')
+    }
+  }, [buildUpdates, current, onSave])
+
+  const handleConflictDoNothing = useCallback((): void => {
+    setConflictState(null)
   }, [])
 
   // Prevent form submission on Enter in inputs
@@ -569,6 +709,7 @@ export function Note({
 
         {/* Content editor */}
         <ContentEditor
+          key={`${note?.id ?? 'new'}-${contentKey}`}
           value={current.content}
           onChange={handleContentChange}
           disabled={isSaving || isReadOnly}
@@ -590,6 +731,40 @@ export function Note({
         onStay={handleStay}
         onLeave={handleLeave}
       />
+
+      {/* Stale check dialogs */}
+      {serverUpdatedAt && (
+        <StaleDialog
+          isOpen={isStale}
+          isDirty={isDirty}
+          entityType="note"
+          currentContent={current.content}
+          onLoadServerVersion={async () => {
+            const refreshed = await onRefresh?.()
+            if (refreshed) {
+              syncStateFromNote(refreshed, true)
+              dismissStale()
+            }
+          }}
+          onContinueEditing={dismissStale}
+        />
+      )}
+      <DeletedDialog
+        isOpen={isDeleted}
+        entityType="note"
+        onGoBack={onClose}
+      />
+
+      {/* Conflict dialog (shown when save returns 409) */}
+      {conflictState && (
+        <ConflictDialog
+          isOpen={true}
+          currentContent={current.content}
+          onLoadServerVersion={handleConflictLoadServerVersion}
+          onSaveMyVersion={handleConflictSaveMyVersion}
+          onDoNothing={handleConflictDoNothing}
+        />
+      )}
     </form>
   )
 }

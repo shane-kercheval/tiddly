@@ -14,6 +14,7 @@ from api.dependencies import (
     get_async_session,
     get_current_user,
 )
+from api.helpers.conflict_check import check_optimistic_lock, check_optimistic_lock_by_name
 from core.http_cache import check_not_modified, format_http_date
 from models.user import User
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
@@ -341,6 +342,12 @@ async def update_prompt_by_name(
     This endpoint is primarily used by the MCP server for prompt updates.
     To edit archived prompts, restore them first via the API or web UI.
     """
+    # Check for conflicts before updating
+    await check_optimistic_lock_by_name(
+        db, prompt_service, current_user.id, name,
+        data.expected_updated_at, PromptResponse,
+    )
+
     # Look up by name (active prompts only)
     prompt = await prompt_service.get_by_name(db, current_user.id, name)
     if prompt is None:
@@ -393,6 +400,12 @@ async def str_replace_prompt_by_name(
     See PATCH /prompts/{id}/str-replace for full documentation on matching
     strategy, atomic content + arguments updates, and error responses.
     """
+    # Check for conflicts before modifying
+    await check_optimistic_lock_by_name(
+        db, prompt_service, current_user.id, name,
+        data.expected_updated_at, PromptResponse,
+    )
+
     # Look up by name (active prompts only)
     prompt = await prompt_service.get_by_name(db, current_user.id, name)
     if prompt is None:
@@ -585,6 +598,12 @@ async def update_prompt(
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptResponse:
     """Update a prompt."""
+    # Check for conflicts before updating
+    await check_optimistic_lock(
+        db, prompt_service, current_user.id, prompt_id,
+        data.expected_updated_at, PromptResponse,
+    )
+
     try:
         prompt = await prompt_service.update(
             db, current_user.id, prompt_id, data,
@@ -665,6 +684,12 @@ async def str_replace_prompt(
       (includes match locations with context to help construct unique match)
     - 400 with template validation error if result is invalid Jinja2
     """
+    # Check for conflicts before modifying
+    await check_optimistic_lock(
+        db, prompt_service, current_user.id, prompt_id,
+        data.expected_updated_at, PromptResponse,
+    )
+
     # Fetch the prompt (include archived, exclude deleted)
     prompt = await prompt_service.get(db, current_user.id, prompt_id, include_archived=True)
     if prompt is None:

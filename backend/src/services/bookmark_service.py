@@ -170,7 +170,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
         if bookmark is None:
             return None
 
-        update_data = data.model_dump(exclude_unset=True)
+        update_data = data.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
 
         # Convert HttpUrl to string if URL is being updated
         if "url" in update_data and update_data["url"] is not None:

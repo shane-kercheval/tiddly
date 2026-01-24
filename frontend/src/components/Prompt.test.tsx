@@ -5,11 +5,27 @@
  * plus Prompt-specific tests for unique functionality.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { useRef } from 'react'
 import userEvent from '@testing-library/user-event'
+import axios from 'axios'
 import { Prompt } from './Prompt'
 import { createContentComponentTests } from './__tests__/createContentComponentTests'
 import type { Prompt as PromptType, TagCount } from '../types'
+
+// Mock axios.isAxiosError
+vi.mock('axios', async () => {
+  const actual = await vi.importActual('axios')
+  return {
+    ...actual,
+    default: {
+      ...(actual as { default: typeof axios }).default,
+      isAxiosError: vi.fn(),
+    },
+  }
+})
+
+let editorInstanceCounter = 0
 
 // Mock CodeMirrorEditor - now the default editor
 vi.mock('./CodeMirrorEditor', () => ({
@@ -18,15 +34,23 @@ vi.mock('./CodeMirrorEditor', () => ({
     onChange: (value: string) => void
     placeholder?: string
     disabled?: boolean
-  }) => (
-    <textarea
-      data-testid="content-editor"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-    />
-  ),
+  }) => {
+    const instanceRef = useRef<number | null>(null)
+    if (instanceRef.current === null) {
+      editorInstanceCounter += 1
+      instanceRef.current = editorInstanceCounter
+    }
+    return (
+      <textarea
+        data-testid="content-editor"
+        data-editor-instance={instanceRef.current}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
+    )
+  },
 }))
 
 // Mock localStorage
@@ -109,7 +133,7 @@ createContentComponentTests({
 })
 
 // Prompt-specific tests
-describe('Prompt component - specific behaviors', () => {
+  describe('Prompt component - specific behaviors', () => {
   const mockOnSave = vi.fn()
   const mockOnClose = vi.fn()
 
@@ -117,6 +141,7 @@ describe('Prompt component - specific behaviors', () => {
     vi.clearAllMocks()
     localStorageMock.clear()
     vi.useFakeTimers({ shouldAdvanceTime: true })
+    editorInstanceCounter = 0
   })
 
   afterEach(() => {
@@ -341,6 +366,7 @@ describe('Prompt component - specific behaviors', () => {
       await waitFor(() => {
         expect(mockOnSave).toHaveBeenCalledWith({
           name: 'updated-prompt',
+          expected_updated_at: '2024-01-02T00:00:00Z',
         })
       })
     })
@@ -373,6 +399,363 @@ describe('Prompt component - specific behaviors', () => {
       )
 
       expect(container.querySelector('form')).not.toHaveClass('max-w-4xl')
+    })
+  })
+
+  describe('prop sync on refresh', () => {
+    it('should update internal state when prompt prop updated_at changes', () => {
+      const { rerender } = render(
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.getByDisplayValue('test-prompt')).toBeInTheDocument()
+
+      const updatedPrompt: PromptType = {
+        ...mockPrompt,
+        name: 'refreshed-prompt',
+        updated_at: '2024-01-05T00:00:00Z',
+      }
+
+      rerender(
+        <Prompt
+          prompt={updatedPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.getByDisplayValue('refreshed-prompt')).toBeInTheDocument()
+    })
+
+    it('should not update internal state when prompt prop changes without updated_at change', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const { rerender } = render(
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      await user.clear(screen.getByDisplayValue('test-prompt'))
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'my-local-edit')
+
+      const samePrompt: PromptType = {
+        ...mockPrompt,
+      }
+
+      rerender(
+        <Prompt
+          prompt={samePrompt}
+          tagSuggestions={[]}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.getByDisplayValue('my-local-edit')).toBeInTheDocument()
+    })
+
+    it('should clear conflict state when prompt prop updated_at changes', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+      const error409 = new Error('Conflict') as Error & {
+        response?: { status: number; data: { detail: { error: string; server_state: PromptType } } }
+      }
+      error409.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: { ...mockPrompt, updated_at: '2024-01-03T00:00:00Z' },
+          },
+        },
+      }
+      mockOnSave.mockRejectedValue(error409)
+
+      const { rerender } = render(
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      await user.clear(screen.getByDisplayValue('test-prompt'))
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'my-edit')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
+      })
+
+      const refreshedPrompt: PromptType = {
+        ...mockPrompt,
+        name: 'server-prompt',
+        updated_at: '2024-01-05T00:00:00Z',
+      }
+
+      rerender(
+        <Prompt
+          prompt={refreshedPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      expect(screen.queryByText('Save Conflict')).not.toBeInTheDocument()
+      expect(screen.getByDisplayValue('server-prompt')).toBeInTheDocument()
+    })
+  })
+
+  describe('load server version', () => {
+    it('should remount editor when Load Server Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+      const error409 = new Error('Conflict') as Error & {
+        response?: { status: number; data: { detail: { error: string; server_state: PromptType } } }
+      }
+      error409.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: { ...mockPrompt, updated_at: '2024-01-03T00:00:00Z' },
+          },
+        },
+      }
+      mockOnSave.mockRejectedValue(error409)
+
+      const refreshedPrompt: PromptType = {
+        ...mockPrompt,
+        content: 'Server content',
+        updated_at: mockPrompt.updated_at,
+      }
+      const mockOnRefresh = vi.fn().mockResolvedValue(refreshedPrompt)
+
+      render(
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onRefresh={mockOnRefresh}
+        />
+      )
+
+      const initialEditor = screen.getByTestId('content-editor')
+      const initialInstance = initialEditor.getAttribute('data-editor-instance')
+
+      await user.clear(screen.getByDisplayValue('test-prompt'))
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'my-edit')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Load Server Version' }))
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Server content')).toBeInTheDocument()
+      })
+
+      const refreshedEditor = screen.getByTestId('content-editor')
+      const refreshedInstance = refreshedEditor.getAttribute('data-editor-instance')
+      expect(refreshedInstance).not.toBe(initialInstance)
+    })
+  })
+
+  describe('editor focus on save', () => {
+    it('should keep focus on editor after Cmd+S save', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockResolvedValue(undefined)
+
+      render(
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      const editor = screen.getByTestId('content-editor')
+      editor.focus()
+      expect(document.activeElement).toBe(editor)
+
+      await user.type(editor, 'x')
+
+      fireEvent.keyDown(document, { key: 's', metaKey: true })
+
+      await waitFor(() => {
+        expect(mockOnSave).toHaveBeenCalled()
+      })
+
+      const editorAfterSave = screen.getByTestId('content-editor')
+      expect(document.activeElement).toBe(editorAfterSave)
+    })
+  })
+
+  describe('409 Conflict handling', () => {
+    const create409Error = (): Error & { response?: { status: number; data: { detail: { error: string; server_state: PromptType } } } } => {
+      const error = new Error('Conflict') as Error & { response?: { status: number; data: { detail: { error: string; server_state: PromptType } } } }
+      error.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: {
+              ...mockPrompt,
+              name: 'server-updated-prompt',
+              updated_at: '2024-01-03T00:00:00Z',
+            },
+          },
+        },
+      }
+      return error
+    }
+
+    beforeEach(() => {
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+    })
+
+    it('should show ConflictDialog when save returns 409', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockRejectedValue(create409Error())
+
+      render(
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make a change and save (prompts use name as primary field, must be lowercase-hyphen)
+      await user.clear(screen.getByDisplayValue('test-prompt'))
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'my-new-prompt')
+      await user.click(screen.getByText('Save'))
+
+      // ConflictDialog should appear
+      await waitFor(() => {
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Save My Version' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Do Nothing' })).toBeInTheDocument()
+    })
+
+    it('should call onRefresh when Load Server Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockRejectedValue(create409Error())
+      const mockOnRefresh = vi.fn().mockResolvedValue(mockPrompt)
+
+      render(
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onRefresh={mockOnRefresh}
+        />
+      )
+
+      // Make a change and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('test-prompt'))
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'my-new-prompt')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Load Server Version' }))
+
+      expect(mockOnRefresh).toHaveBeenCalledTimes(1)
+    })
+
+    it('should force save without expected_updated_at when Save My Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      // First call rejects with 409, second call succeeds
+      mockOnSave.mockRejectedValueOnce(create409Error()).mockResolvedValueOnce(undefined)
+
+      render(
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make a change and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('test-prompt'))
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'my-new-prompt')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Save My Version' })).toBeInTheDocument()
+      })
+
+      // First click shows confirmation
+      await user.click(screen.getByRole('button', { name: 'Save My Version' }))
+      expect(screen.getByRole('button', { name: 'Confirm Overwrite?' })).toBeInTheDocument()
+
+      // Second click confirms and saves
+      await user.click(screen.getByRole('button', { name: 'Confirm Overwrite?' }))
+
+      await waitFor(() => {
+        expect(mockOnSave).toHaveBeenCalledTimes(2)
+      })
+
+      // Second call should NOT include expected_updated_at (force save)
+      const secondCall = mockOnSave.mock.calls[1][0]
+      expect(secondCall).not.toHaveProperty('expected_updated_at')
+      expect(secondCall).toHaveProperty('name', 'my-new-prompt')
+    })
+
+    it('should close ConflictDialog without action when Do Nothing is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockRejectedValue(create409Error())
+
+      render(
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make a change and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('test-prompt'))
+      await user.type(screen.getByPlaceholderText('prompt-name'), 'my-new-prompt')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Do Nothing' })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Do Nothing' }))
+
+      // Dialog should close but changes should remain
+      await waitFor(() => {
+        expect(screen.queryByText('Save Conflict')).not.toBeInTheDocument()
+      })
+
+      // User's changes should still be in the form
+      expect(screen.getByDisplayValue('my-new-prompt')).toBeInTheDocument()
     })
   })
 })

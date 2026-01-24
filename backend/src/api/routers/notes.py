@@ -11,6 +11,7 @@ from api.dependencies import (
     get_async_session,
     get_current_user,
 )
+from api.helpers.conflict_check import check_optimistic_lock
 from core.http_cache import check_not_modified, format_http_date
 from models.user import User
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
@@ -302,6 +303,12 @@ async def update_note(
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
     """Update a note."""
+    # Check for conflicts before updating
+    await check_optimistic_lock(
+        db, note_service, current_user.id, note_id,
+        data.expected_updated_at, NoteResponse,
+    )
+
     note = await note_service.update(
         db, current_user.id, note_id, data,
     )
@@ -350,6 +357,12 @@ async def str_replace_note(
     - 400 with `error: "multiple_matches"` if text found in multiple locations
       (includes match locations with context to help construct unique match)
     """
+    # Check for conflicts before modifying
+    await check_optimistic_lock(
+        db, note_service, current_user.id, note_id,
+        data.expected_updated_at, NoteResponse,
+    )
+
     # Fetch the note (include archived, exclude deleted)
     note = await note_service.get(db, current_user.id, note_id, include_archived=True)
     if note is None:

@@ -6,10 +6,26 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { useRef } from 'react'
 import userEvent from '@testing-library/user-event'
+import axios from 'axios'
 import { Note } from './Note'
 import { createContentComponentTests } from './__tests__/createContentComponentTests'
 import type { Note as NoteType, TagCount } from '../types'
+
+// Mock axios.isAxiosError
+vi.mock('axios', async () => {
+  const actual = await vi.importActual('axios')
+  return {
+    ...actual,
+    default: {
+      ...(actual as { default: typeof axios }).default,
+      isAxiosError: vi.fn(),
+    },
+  }
+})
+
+let editorInstanceCounter = 0
 
 // Mock CodeMirrorEditor - now the default editor
 vi.mock('./CodeMirrorEditor', () => ({
@@ -18,15 +34,23 @@ vi.mock('./CodeMirrorEditor', () => ({
     onChange: (value: string) => void
     placeholder?: string
     disabled?: boolean
-  }) => (
-    <textarea
-      data-testid="content-editor"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-    />
-  ),
+  }) => {
+    const instanceRef = useRef<number | null>(null)
+    if (instanceRef.current === null) {
+      editorInstanceCounter += 1
+      instanceRef.current = editorInstanceCounter
+    }
+    return (
+      <textarea
+        data-testid="content-editor"
+        data-editor-instance={instanceRef.current}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
+    )
+  },
 }))
 
 // Mock localStorage
@@ -113,6 +137,7 @@ describe('Note component - specific behaviors', () => {
     vi.clearAllMocks()
     localStorageMock.clear()
     vi.useFakeTimers({ shouldAdvanceTime: true })
+    editorInstanceCounter = 0
   })
 
   afterEach(() => {
@@ -320,6 +345,7 @@ describe('Note component - specific behaviors', () => {
       await waitFor(() => {
         expect(mockOnSave).toHaveBeenCalledWith({
           title: 'Updated Title',
+          expected_updated_at: '2024-01-02T00:00:00Z',
         })
       })
     })
@@ -386,6 +412,375 @@ describe('Note component - specific behaviors', () => {
       )
 
       expect(container.querySelector('form')).not.toHaveClass('max-w-4xl')
+    })
+  })
+
+  describe('prop sync on refresh', () => {
+    it('should update internal state when note prop updated_at changes', () => {
+      const { rerender } = render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Initial state shows mock note values
+      expect(screen.getByDisplayValue('Test Note')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('Test description')).toBeInTheDocument()
+
+      // Simulate refresh by passing new note with updated values and different updated_at
+      const updatedNote: NoteType = {
+        ...mockNote,
+        title: 'Refreshed Title',
+        description: 'Refreshed description',
+        updated_at: '2024-01-05T00:00:00Z', // Different from mockNote
+      }
+
+      rerender(
+        <Note
+          note={updatedNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // State should be updated to reflect new note values
+      expect(screen.getByDisplayValue('Refreshed Title')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('Refreshed description')).toBeInTheDocument()
+    })
+
+    it('should not update internal state when note prop changes without updated_at change', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const { rerender } = render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // User makes local edits
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'My Local Edit')
+
+      // Parent re-renders with same updated_at (e.g., tag suggestions changed)
+      const sameNote: NoteType = {
+        ...mockNote, // Same updated_at
+      }
+
+      rerender(
+        <Note
+          note={sameNote}
+          tagSuggestions={[]} // Different tag suggestions
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Local edits should be preserved (state not reset)
+      expect(screen.getByDisplayValue('My Local Edit')).toBeInTheDocument()
+    })
+
+    it('should clear conflict state when note prop updated_at changes', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+      const error409 = new Error('Conflict') as Error & { response?: { status: number; data: { detail: { error: string; server_state: NoteType } } } }
+      error409.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: { ...mockNote, updated_at: '2024-01-03T00:00:00Z' },
+          },
+        },
+      }
+      mockOnSave.mockRejectedValue(error409)
+
+      const { rerender } = render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make edit and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'My Edit')
+      await user.click(screen.getByText('Save'))
+
+      // ConflictDialog should appear
+      await waitFor(() => {
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
+      })
+
+      // Simulate refresh with new note (updated_at changes)
+      const refreshedNote: NoteType = {
+        ...mockNote,
+        title: 'Server Title',
+        updated_at: '2024-01-05T00:00:00Z',
+      }
+
+      rerender(
+        <Note
+          note={refreshedNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // ConflictDialog should be cleared
+      expect(screen.queryByText('Save Conflict')).not.toBeInTheDocument()
+      // State should reflect refreshed note
+      expect(screen.getByDisplayValue('Server Title')).toBeInTheDocument()
+    })
+  })
+
+  describe('load server version', () => {
+    it('should remount editor when Load Server Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+      const error409 = new Error('Conflict') as Error & {
+        response?: { status: number; data: { detail: { error: string; server_state: NoteType } } }
+      }
+      error409.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: { ...mockNote, updated_at: '2024-01-03T00:00:00Z' },
+          },
+        },
+      }
+      mockOnSave.mockRejectedValue(error409)
+
+      const refreshedNote: NoteType = {
+        ...mockNote,
+        content: 'Server content',
+        updated_at: mockNote.updated_at,
+      }
+      const mockOnRefresh = vi.fn().mockResolvedValue(refreshedNote)
+
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onRefresh={mockOnRefresh}
+        />
+      )
+
+      const initialEditor = screen.getByTestId('content-editor')
+      const initialInstance = initialEditor.getAttribute('data-editor-instance')
+
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'My Edit')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Load Server Version' }))
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Server content')).toBeInTheDocument()
+      })
+
+      const refreshedEditor = screen.getByTestId('content-editor')
+      const refreshedInstance = refreshedEditor.getAttribute('data-editor-instance')
+      expect(refreshedInstance).not.toBe(initialInstance)
+    })
+  })
+
+  describe('editor focus on save', () => {
+    it('should keep focus on editor after Cmd+S save', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockResolvedValue(undefined)
+
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      const editor = screen.getByTestId('content-editor')
+      editor.focus()
+      expect(document.activeElement).toBe(editor)
+
+      await user.type(editor, 'x')
+
+      fireEvent.keyDown(document, { key: 's', metaKey: true })
+
+      await waitFor(() => {
+        expect(mockOnSave).toHaveBeenCalled()
+      })
+
+      const editorAfterSave = screen.getByTestId('content-editor')
+      expect(document.activeElement).toBe(editorAfterSave)
+    })
+  })
+
+  describe('409 Conflict handling', () => {
+    const create409Error = (): Error & { response?: { status: number; data: { detail: { error: string; server_state: NoteType } } } } => {
+      const error = new Error('Conflict') as Error & { response?: { status: number; data: { detail: { error: string; server_state: NoteType } } } }
+      error.response = {
+        status: 409,
+        data: {
+          detail: {
+            error: 'conflict',
+            server_state: {
+              ...mockNote,
+              title: 'Server Updated Title',
+              updated_at: '2024-01-03T00:00:00Z',
+            },
+          },
+        },
+      }
+      return error
+    }
+
+    beforeEach(() => {
+      vi.mocked(axios.isAxiosError).mockReturnValue(true)
+    })
+
+    it('should show ConflictDialog when save returns 409', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockRejectedValue(create409Error())
+
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make a change and save
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'My New Title')
+      await user.click(screen.getByText('Save'))
+
+      // ConflictDialog should appear
+      await waitFor(() => {
+        expect(screen.getByText('Save Conflict')).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Save My Version' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Do Nothing' })).toBeInTheDocument()
+    })
+
+    it('should call onRefresh when Load Server Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockRejectedValue(create409Error())
+      const mockOnRefresh = vi.fn().mockResolvedValue(mockNote)
+
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onRefresh={mockOnRefresh}
+        />
+      )
+
+      // Make a change and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'My New Title')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Load Server Version' }))
+
+      expect(mockOnRefresh).toHaveBeenCalledTimes(1)
+    })
+
+    it('should force save without expected_updated_at when Save My Version is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      // First call rejects with 409, second call succeeds
+      mockOnSave.mockRejectedValueOnce(create409Error()).mockResolvedValueOnce(undefined)
+
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make a change and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'My New Title')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Save My Version' })).toBeInTheDocument()
+      })
+
+      // First click shows confirmation
+      await user.click(screen.getByRole('button', { name: 'Save My Version' }))
+      expect(screen.getByRole('button', { name: 'Confirm Overwrite?' })).toBeInTheDocument()
+
+      // Second click confirms and saves
+      await user.click(screen.getByRole('button', { name: 'Confirm Overwrite?' }))
+
+      await waitFor(() => {
+        expect(mockOnSave).toHaveBeenCalledTimes(2)
+      })
+
+      // Second call should NOT include expected_updated_at (force save)
+      const secondCall = mockOnSave.mock.calls[1][0]
+      expect(secondCall).not.toHaveProperty('expected_updated_at')
+      expect(secondCall).toHaveProperty('title', 'My New Title')
+    })
+
+    it('should close ConflictDialog without action when Do Nothing is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnSave.mockRejectedValue(create409Error())
+
+      render(
+        <Note
+          note={mockNote}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Make a change and save to trigger conflict
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'My New Title')
+      await user.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Do Nothing' })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: 'Do Nothing' }))
+
+      // Dialog should close but changes should remain
+      await waitFor(() => {
+        expect(screen.queryByText('Save Conflict')).not.toBeInTheDocument()
+      })
+
+      // User's changes should still be in the form
+      expect(screen.getByDisplayValue('My New Title')).toBeInTheDocument()
     })
   })
 })

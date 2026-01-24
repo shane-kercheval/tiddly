@@ -15,13 +15,15 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode, FormEvent } from 'react'
+import axios from 'axios'
+import toast from 'react-hot-toast'
 import { InlineEditableTitle } from './InlineEditableTitle'
 import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEditableTags'
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { ArgumentsBuilder } from './ArgumentsBuilder'
-import { UnsavedChangesDialog } from './ui'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { PreviewPromptModal } from './PreviewPromptModal'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
@@ -31,8 +33,22 @@ import { config } from '../config'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
+import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { usePrompts } from '../hooks/usePrompts'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, TagCount } from '../types'
+
+/** Conflict state for 409 responses */
+interface ConflictState {
+  serverUpdatedAt: string
+}
+
+/** Result of building update payload */
+interface BuildUpdatesResult {
+  updates: PromptUpdate
+  tagsToSubmit: string[]
+  cleanedArgs: PromptArgument[]
+}
 
 /** Default template content for new prompts */
 const DEFAULT_PROMPT_CONTENT = `# Replace this content with your prompt
@@ -138,6 +154,8 @@ interface PromptProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
+  /** Called to refresh the prompt from server (for stale check). Returns the refreshed prompt on success. */
+  onRefresh?: () => Promise<PromptType | null>
 }
 
 /**
@@ -156,8 +174,21 @@ export function Prompt({
   onRestore,
   viewState = 'active',
   fullWidth = false,
+  onRefresh,
 }: PromptProps): ReactNode {
   const isCreate = !prompt
+
+  // Stale check hook
+  const { fetchPromptMetadataNoCache } = usePrompts()
+  const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
+    const metadata = await fetchPromptMetadataNoCache(id)
+    return metadata.updated_at
+  }, [fetchPromptMetadataNoCache])
+  const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
+    entityId: prompt?.id,
+    loadedUpdatedAt: prompt?.updated_at,
+    fetchUpdatedAt,
+  })
 
   // Get initial archive state from prompt
   const getInitialArchiveState = (): { archivedAt: string; archivePreset: ArchivePreset } => {
@@ -187,6 +218,38 @@ export function Prompt({
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
+  const [conflictState, setConflictState] = useState<ConflictState | null>(null)
+  const [contentKey, setContentKey] = useState(0)
+
+  const syncStateFromPrompt = useCallback((nextPrompt: PromptType, resetEditor = false): void => {
+    const archiveState = nextPrompt.archived_at
+      ? { archivedAt: nextPrompt.archived_at, archivePreset: 'custom' as ArchivePreset }
+      : { archivedAt: '', archivePreset: 'none' as ArchivePreset }
+    const newState: PromptState = {
+      name: nextPrompt.name ?? '',
+      title: nextPrompt.title ?? '',
+      description: nextPrompt.description ?? '',
+      content: nextPrompt.content ?? '',
+      arguments: nextPrompt.arguments ?? [],
+      tags: nextPrompt.tags ?? [],
+      archivedAt: archiveState.archivedAt,
+      archivePreset: archiveState.archivePreset,
+    }
+    setOriginal(newState)
+    setCurrent(newState)
+    setConflictState(null)
+    if (resetEditor) {
+      setContentKey((prev) => prev + 1)
+    }
+  }, [])
+
+  // Sync internal state when prompt prop changes (e.g., after refresh from conflict resolution)
+  // This is intentional - deriving form state from props when they change is a valid pattern
+  useEffect(() => {
+    if (!prompt) return
+    syncStateFromPrompt(prompt)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt?.id, prompt?.updated_at, syncStateFromPrompt])
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -248,6 +311,55 @@ export function Prompt({
     confirmLeave,
     onClose,
   })
+
+  // Build update payload for existing prompts (shared between handleSubmit and handleConflictSaveMyVersion)
+  const buildUpdates = useCallback((): BuildUpdatesResult | null => {
+    if (!prompt) return null
+
+    // Get any pending tag text and include it
+    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+    const tagsToSubmit = [...current.tags]
+    if (pendingTag) {
+      const normalized = pendingTag.toLowerCase().trim()
+      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+        tagsToSubmit.push(normalized)
+        tagInputRef.current?.clearPending()
+      }
+    }
+
+    // Clean up arguments (remove empty descriptions)
+    const cleanedArgs = current.arguments.map((arg) => ({
+      ...arg,
+      description: arg.description?.trim() || null,
+      required: arg.required ?? false,
+    }))
+
+    // Only send changed fields
+    const updates: PromptUpdate = {}
+    if (current.name !== prompt.name) updates.name = current.name
+    if (current.title !== (prompt.title ?? '')) {
+      updates.title = current.title || null
+    }
+    if (current.description !== (prompt.description ?? '')) {
+      updates.description = current.description || null
+    }
+    if (current.content !== (prompt.content ?? '')) {
+      updates.content = current.content || null
+    }
+    if (JSON.stringify(cleanedArgs) !== JSON.stringify(prompt.arguments ?? [])) {
+      updates.arguments = cleanedArgs
+    }
+    if (JSON.stringify(tagsToSubmit) !== JSON.stringify(prompt.tags ?? [])) {
+      updates.tags = tagsToSubmit
+    }
+    const newArchivedAt = current.archivedAt || null
+    const oldArchivedAt = prompt.archived_at || null
+    if (newArchivedAt !== oldArchivedAt) {
+      updates.archived_at = newArchivedAt
+    }
+
+    return { updates, tagsToSubmit, cleanedArgs }
+  }, [prompt, current])
 
   // Auto-focus name for new prompts only
   useEffect(() => {
@@ -419,26 +531,29 @@ export function Prompt({
 
     if (isReadOnly || !validate()) return
 
-    // Get any pending tag text and include it
-    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
-    const tagsToSubmit = [...current.tags]
-    if (pendingTag) {
-      const normalized = pendingTag.toLowerCase().trim()
-      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
-        tagsToSubmit.push(normalized)
-        tagInputRef.current?.clearPending()
-      }
-    }
-
-    // Clean up arguments (remove empty descriptions)
-    const cleanedArgs = current.arguments.map((arg) => ({
-      ...arg,
-      description: arg.description?.trim() || null,
-      required: arg.required ?? false,
-    }))
+    let tagsToSubmit: string[]
+    let cleanedArgs: PromptArgument[]
 
     try {
       if (isCreate) {
+        // Get any pending tag text for create
+        const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+        tagsToSubmit = [...current.tags]
+        if (pendingTag) {
+          const normalized = pendingTag.toLowerCase().trim()
+          if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+            tagsToSubmit.push(normalized)
+            tagInputRef.current?.clearPending()
+          }
+        }
+
+        // Clean up arguments
+        cleanedArgs = current.arguments.map((arg) => ({
+          ...arg,
+          description: arg.description?.trim() || null,
+          required: arg.required ?? false,
+        }))
+
         const createData: PromptCreate = {
           name: current.name,
           title: current.title || undefined,
@@ -452,34 +567,20 @@ export function Prompt({
         confirmLeave()
         await onSave(createData)
       } else {
-        // For updates, only send changed fields
-        const updates: PromptUpdate = {}
-        if (current.name !== prompt?.name) updates.name = current.name
-        if (current.title !== (prompt?.title ?? '')) {
-          updates.title = current.title || null
-        }
-        if (current.description !== (prompt?.description ?? '')) {
-          updates.description = current.description || null
-        }
-        if (current.content !== (prompt?.content ?? '')) {
-          updates.content = current.content || null
-        }
-        if (JSON.stringify(cleanedArgs) !== JSON.stringify(prompt?.arguments ?? [])) {
-          updates.arguments = cleanedArgs
-        }
-        if (JSON.stringify(tagsToSubmit) !== JSON.stringify(prompt?.tags ?? [])) {
-          updates.tags = tagsToSubmit
-        }
-        // Include archived_at if changed
-        const newArchivedAt = current.archivedAt || null
-        const oldArchivedAt = prompt?.archived_at || null
-        if (newArchivedAt !== oldArchivedAt) {
-          updates.archived_at = newArchivedAt
-        }
+        const result = buildUpdates()
+        if (!result) return
+        const { updates, tagsToSubmit: tags, cleanedArgs: args } = result
+        tagsToSubmit = tags
+        cleanedArgs = args
 
         // Early return if nothing changed (safety net for edge cases)
         if (Object.keys(updates).length === 0) {
           return
+        }
+
+        // Include expected_updated_at for optimistic locking (prevents overwriting concurrent edits)
+        if (prompt?.updated_at) {
+          updates.expected_updated_at = prompt.updated_at
         }
 
         await onSave(updates)
@@ -509,13 +610,29 @@ export function Prompt({
         }, 0)
       }
     } catch (err) {
-      // Handle field-specific errors from parent
+      // Check for 409 Conflict (version mismatch)
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        const detail = err.response.data?.detail
+        if (detail?.error === 'conflict' && detail?.server_state) {
+          setConflictState({
+            serverUpdatedAt: detail.server_state.updated_at,
+          })
+          refocusAfterSaveRef.current = null
+          clearSaveAndClose()
+          return
+        }
+      }
+      // Handle field-specific errors from parent (e.g., NAME_CONFLICT)
       if (err instanceof SaveError) {
         setErrors((prev) => ({ ...prev, ...err.fieldErrors }))
+        refocusAfterSaveRef.current = null
+        clearSaveAndClose()
+        return  // SaveError is handled - don't propagate
       }
-      // Clear refs on error
+      // Other errors: clear refs and let parent handle
       refocusAfterSaveRef.current = null
       clearSaveAndClose()
+      throw err
     }
   }
 
@@ -556,6 +673,55 @@ export function Prompt({
   const handleArgumentsChange = useCallback((args: PromptArgument[]): void => {
     setCurrent((prev) => ({ ...prev, arguments: args }))
     setErrors((prev) => (prev.arguments ? { ...prev, arguments: undefined } : prev))
+  }, [])
+
+  // Conflict resolution handlers
+  const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
+    const refreshed = await onRefresh?.()
+    if (refreshed) {
+      syncStateFromPrompt(refreshed, true)
+    }
+  }, [onRefresh, syncStateFromPrompt])
+
+  const handleConflictSaveMyVersion = useCallback(async (): Promise<void> => {
+    const result = buildUpdates()
+    if (!result) return
+    const { updates, tagsToSubmit, cleanedArgs } = result
+
+    // Guard against no-op updates (user may have reverted changes while dialog was open)
+    if (Object.keys(updates).length === 0) {
+      setConflictState(null)
+      return
+    }
+
+    // Note: NOT including expected_updated_at - this forces the save to overwrite server version
+
+    try {
+      await onSave(updates)
+      setOriginal({
+        name: current.name,
+        title: current.title,
+        description: current.description,
+        content: current.content,
+        arguments: cleanedArgs,
+        tags: tagsToSubmit,
+        archivedAt: current.archivedAt,
+        archivePreset: current.archivePreset,
+      })
+      setConflictState(null)
+    } catch (err) {
+      // Handle field-specific errors (e.g., NAME_CONFLICT)
+      if (err instanceof SaveError) {
+        setErrors((prev) => ({ ...prev, ...err.fieldErrors }))
+        setConflictState(null)
+        return
+      }
+      toast.error('Failed to save - please try again')
+    }
+  }, [buildUpdates, current, onSave])
+
+  const handleConflictDoNothing = useCallback((): void => {
+    setConflictState(null)
   }, [])
 
   // Prevent form submission on Enter in inputs
@@ -776,6 +942,7 @@ export function Prompt({
         {/* Content editor */}
         <div className="mt-3">
           <ContentEditor
+            key={`${prompt?.id ?? 'new'}-${contentKey}`}
             value={current.content}
             onChange={handleContentChange}
             disabled={isSaving || isReadOnly}
@@ -806,6 +973,40 @@ export function Prompt({
           isOpen={isPreviewModalOpen}
           onClose={() => setIsPreviewModalOpen(false)}
           prompt={prompt}
+        />
+      )}
+
+      {/* Stale check dialogs */}
+      {serverUpdatedAt && (
+        <StaleDialog
+          isOpen={isStale}
+          isDirty={isDirty}
+          entityType="prompt"
+          currentContent={current.content}
+          onLoadServerVersion={async () => {
+            const refreshed = await onRefresh?.()
+            if (refreshed) {
+              syncStateFromPrompt(refreshed, true)
+              dismissStale()
+            }
+          }}
+          onContinueEditing={dismissStale}
+        />
+      )}
+      <DeletedDialog
+        isOpen={isDeleted}
+        entityType="prompt"
+        onGoBack={onClose}
+      />
+
+      {/* Conflict dialog (shown when save returns 409) */}
+      {conflictState && (
+        <ConflictDialog
+          isOpen={true}
+          currentContent={current.content}
+          onLoadServerVersion={handleConflictLoadServerVersion}
+          onSaveMyVersion={handleConflictSaveMyVersion}
+          onDoNothing={handleConflictDoNothing}
         />
       )}
     </form>

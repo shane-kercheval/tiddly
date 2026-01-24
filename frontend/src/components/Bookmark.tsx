@@ -15,22 +15,37 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ReactNode, FormEvent } from 'react'
+import axios from 'axios'
+import toast from 'react-hot-toast'
 import { InlineEditableUrl } from './InlineEditableUrl'
 import { InlineEditableTitle } from './InlineEditableTitle'
 import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEditableTags'
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
-import { UnsavedChangesDialog } from './ui'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
 import { config } from '../config'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
+import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { useBookmarks } from '../hooks/useBookmarks'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
 import type { ArchivePreset } from '../utils'
+
+/** Conflict state for 409 responses */
+interface ConflictState {
+  serverUpdatedAt: string
+}
+
+/** Result of building update payload */
+interface BuildUpdatesResult {
+  updates: BookmarkUpdate
+  tagsToSubmit: string[]
+}
 
 /** Form state for the bookmark */
 interface BookmarkState {
@@ -86,6 +101,8 @@ interface BookmarkProps {
   viewState?: 'active' | 'archived' | 'deleted'
   /** Whether to use full width layout */
   fullWidth?: boolean
+  /** Called to refresh the bookmark from server (for stale check). Returns the refreshed bookmark on success. */
+  onRefresh?: () => Promise<BookmarkType | null>
 }
 
 /**
@@ -117,8 +134,21 @@ export function Bookmark({
   onRestore,
   viewState = 'active',
   fullWidth = false,
+  onRefresh,
 }: BookmarkProps): ReactNode {
   const isCreate = !bookmark
+
+  // Stale check hook
+  const { fetchBookmarkMetadataNoCache } = useBookmarks()
+  const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
+    const metadata = await fetchBookmarkMetadataNoCache(id)
+    return metadata.updated_at
+  }, [fetchBookmarkMetadataNoCache])
+  const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
+    entityId: bookmark?.id,
+    loadedUpdatedAt: bookmark?.updated_at,
+    fetchUpdatedAt,
+  })
 
   // Initialize state from bookmark or defaults
   const getInitialState = (): BookmarkState => {
@@ -138,6 +168,37 @@ export function Bookmark({
   const [current, setCurrent] = useState<BookmarkState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [conflictState, setConflictState] = useState<ConflictState | null>(null)
+
+  const syncStateFromBookmark = useCallback(
+    (nextBookmark: BookmarkType, resetEditor = false): void => {
+    const archiveState = nextBookmark.archived_at
+      ? { archivedAt: nextBookmark.archived_at, archivePreset: 'custom' as ArchivePreset }
+      : { archivedAt: '', archivePreset: 'none' as ArchivePreset }
+    const newState: BookmarkState = {
+      url: nextBookmark.url,
+      title: nextBookmark.title ?? '',
+      description: nextBookmark.description ?? '',
+      content: nextBookmark.content ?? '',
+      tags: nextBookmark.tags ?? [],
+      archivedAt: archiveState.archivedAt,
+      archivePreset: archiveState.archivePreset,
+    }
+    setOriginal(newState)
+    setCurrent(newState)
+    setConflictState(null)
+    if (resetEditor) {
+      setContentKey((prev) => prev + 1)
+    }
+  }, [])
+
+  // Sync internal state when bookmark prop changes (e.g., after refresh from conflict resolution)
+  // This is intentional - deriving form state from props when they change is a valid pattern
+  useEffect(() => {
+    if (!bookmark) return
+    syncStateFromBookmark(bookmark)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookmark?.id, bookmark?.updated_at, syncStateFromBookmark])
 
   // Metadata fetch state
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
@@ -199,6 +260,44 @@ export function Bookmark({
     confirmLeave,
     onClose,
   })
+
+  // Build update payload for existing bookmarks (shared between handleSubmit and handleConflictSaveMyVersion)
+  const buildUpdates = useCallback((): BuildUpdatesResult | null => {
+    if (!bookmark) return null
+
+    // Get any pending tag text and include it
+    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+    const tagsToSubmit = [...current.tags]
+    if (pendingTag) {
+      const normalized = pendingTag.toLowerCase().trim()
+      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+        tagsToSubmit.push(normalized)
+        tagInputRef.current?.clearPending()
+      }
+    }
+
+    // Only send changed fields
+    const updates: BookmarkUpdate = {}
+    const normalizedUrl = normalizeUrl(current.url)
+    if (normalizedUrl !== bookmark.url) updates.url = normalizedUrl
+    if (current.title !== (bookmark.title ?? '')) updates.title = current.title || null
+    if (current.description !== (bookmark.description ?? '')) {
+      updates.description = current.description || null
+    }
+    if (current.content !== (bookmark.content ?? '')) {
+      updates.content = current.content || null
+    }
+    if (JSON.stringify(tagsToSubmit) !== JSON.stringify(bookmark.tags ?? [])) {
+      updates.tags = tagsToSubmit
+    }
+    const newArchivedAt = current.archivedAt || null
+    const oldArchivedAt = bookmark.archived_at || null
+    if (newArchivedAt !== oldArchivedAt) {
+      updates.archived_at = newArchivedAt
+    }
+
+    return { updates, tagsToSubmit }
+  }, [bookmark, current])
 
   // Auto-focus URL for new bookmarks only (if no initialUrl)
   useEffect(() => {
@@ -431,19 +530,21 @@ export function Bookmark({
 
     if (isReadOnly || !validate()) return
 
-    // Get any pending tag text and include it
-    const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
-    const tagsToSubmit = [...current.tags]
-    if (pendingTag) {
-      const normalized = pendingTag.toLowerCase().trim()
-      if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
-        tagsToSubmit.push(normalized)
-        tagInputRef.current?.clearPending()
-      }
-    }
+    let tagsToSubmit: string[]
 
     try {
       if (isCreate) {
+        // Get any pending tag text for create
+        const pendingTag = tagInputRef.current?.getPendingValue() ?? ''
+        tagsToSubmit = [...current.tags]
+        if (pendingTag) {
+          const normalized = pendingTag.toLowerCase().trim()
+          if (TAG_PATTERN.test(normalized) && !tagsToSubmit.includes(normalized)) {
+            tagsToSubmit.push(normalized)
+            tagInputRef.current?.clearPending()
+          }
+        }
+
         const createData: BookmarkCreate = {
           url: normalizeUrl(current.url),
           title: current.title || undefined,
@@ -456,30 +557,19 @@ export function Bookmark({
         confirmLeave()
         await onSave(createData)
       } else {
-        // For updates, only send changed fields
-        const updates: BookmarkUpdate = {}
-        const normalizedUrl = normalizeUrl(current.url)
-        if (normalizedUrl !== bookmark?.url) updates.url = normalizedUrl
-        if (current.title !== (bookmark?.title ?? '')) updates.title = current.title || null
-        if (current.description !== (bookmark?.description ?? '')) {
-          updates.description = current.description || null
-        }
-        if (current.content !== (bookmark?.content ?? '')) {
-          updates.content = current.content || null
-        }
-        if (JSON.stringify(tagsToSubmit) !== JSON.stringify(bookmark?.tags ?? [])) {
-          updates.tags = tagsToSubmit
-        }
-        // Include archived_at if changed
-        const newArchivedAt = current.archivedAt || null
-        const oldArchivedAt = bookmark?.archived_at || null
-        if (newArchivedAt !== oldArchivedAt) {
-          updates.archived_at = newArchivedAt
-        }
+        const result = buildUpdates()
+        if (!result) return
+        const { updates, tagsToSubmit: tags } = result
+        tagsToSubmit = tags
 
         // Early return if nothing changed (safety net for edge cases)
         if (Object.keys(updates).length === 0) {
           return
+        }
+
+        // Include expected_updated_at for optimistic locking (prevents overwriting concurrent edits)
+        if (bookmark?.updated_at) {
+          updates.expected_updated_at = bookmark.updated_at
         }
 
         await onSave(updates)
@@ -499,11 +589,23 @@ export function Bookmark({
           refocusAfterSaveRef.current = null
         }, 0)
       }
-    } catch {
-      // Error handling is done in the parent component
-      // Clear refs on error
+    } catch (err) {
+      // Check for 409 Conflict (version mismatch)
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        const detail = err.response.data?.detail
+        if (detail?.error === 'conflict' && detail?.server_state) {
+          setConflictState({
+            serverUpdatedAt: detail.server_state.updated_at,
+          })
+          refocusAfterSaveRef.current = null
+          clearSaveAndClose()
+          return
+        }
+      }
+      // Other errors: clear refs and let parent handle
       refocusAfterSaveRef.current = null
       clearSaveAndClose()
+      throw err
     }
   }
 
@@ -538,6 +640,42 @@ export function Bookmark({
 
   const handleArchivePresetChange = useCallback((archivePreset: ArchivePreset): void => {
     setCurrent((prev) => ({ ...prev, archivePreset }))
+  }, [])
+
+  // Conflict resolution handlers
+  const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
+    const refreshed = await onRefresh?.()
+    if (refreshed) {
+      syncStateFromBookmark(refreshed, true)
+    }
+  }, [onRefresh, syncStateFromBookmark])
+
+  const handleConflictSaveMyVersion = useCallback(async (): Promise<void> => {
+    const result = buildUpdates()
+    if (!result) return
+
+    const { updates, tagsToSubmit } = result
+
+    // Guard against no-op updates (user may have reverted changes while dialog was open)
+    if (Object.keys(updates).length === 0) {
+      setConflictState(null)
+      return
+    }
+
+    // Note: NOT including expected_updated_at - this forces the save to overwrite server version
+
+    try {
+      await onSave(updates)
+      setOriginal({ ...current, tags: tagsToSubmit })
+      setConflictState(null)
+    } catch {
+      // Show feedback so user knows save failed
+      toast.error('Failed to save - please try again')
+    }
+  }, [buildUpdates, current, onSave])
+
+  const handleConflictDoNothing = useCallback((): void => {
+    setConflictState(null)
   }, [])
 
   // Prevent form submission on Enter in inputs
@@ -740,7 +878,7 @@ export function Bookmark({
 
         {/* Content editor */}
         <ContentEditor
-          key={contentKey}
+          key={`${bookmark?.id ?? 'new'}-${contentKey}`}
           value={current.content}
           onChange={handleContentChange}
           disabled={isSaving || isReadOnly}
@@ -762,6 +900,40 @@ export function Bookmark({
         onStay={handleStay}
         onLeave={handleLeave}
       />
+
+      {/* Stale check dialogs */}
+      {serverUpdatedAt && (
+        <StaleDialog
+          isOpen={isStale}
+          isDirty={isDirty}
+          entityType="bookmark"
+          currentContent={current.content}
+          onLoadServerVersion={async () => {
+            const refreshed = await onRefresh?.()
+            if (refreshed) {
+              syncStateFromBookmark(refreshed, true)
+              dismissStale()
+            }
+          }}
+          onContinueEditing={dismissStale}
+        />
+      )}
+      <DeletedDialog
+        isOpen={isDeleted}
+        entityType="bookmark"
+        onGoBack={onClose}
+      />
+
+      {/* Conflict dialog (shown when save returns 409) */}
+      {conflictState && (
+        <ConflictDialog
+          isOpen={true}
+          currentContent={current.content}
+          onLoadServerVersion={handleConflictLoadServerVersion}
+          onSaveMyVersion={handleConflictSaveMyVersion}
+          onDoNothing={handleConflictDoNothing}
+        />
+      )}
     </form>
   )
 }

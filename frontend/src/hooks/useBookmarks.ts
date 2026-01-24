@@ -11,11 +11,13 @@
  */
 import { useCallback } from 'react'
 import { api } from '../services/api'
-import type { Bookmark, MetadataPreviewResponse } from '../types'
+import type { Bookmark, BookmarkListItem, MetadataPreviewResponse } from '../types'
 
 interface UseBookmarksReturn {
   /** Fetch a single bookmark by ID (with full content for editing) */
   fetchBookmark: (id: string) => Promise<Bookmark>
+  /** Fetch bookmark metadata only (lightweight, for stale checking) */
+  fetchBookmarkMetadataNoCache: (id: string) => Promise<BookmarkListItem>
   /** Fetch metadata preview for a URL */
   fetchMetadata: (url: string) => Promise<MetadataPreviewResponse>
   /** Track bookmark usage (fire-and-forget) */
@@ -27,13 +29,16 @@ interface UseBookmarksReturn {
  *
  * @example
  * ```tsx
- * const { fetchBookmark, fetchMetadata, trackBookmarkUsage } = useBookmarks()
+ * const { fetchBookmark, fetchBookmarkMetadataNoCache, fetchMetadata, trackBookmarkUsage } = useBookmarks()
  *
  * // Fetch full bookmark for editing
  * const bookmark = await fetchBookmark(id)
  *
+ * // Fetch lightweight metadata (for stale checking)
+ * const metadata = await fetchBookmarkMetadataNoCache(id)
+ *
  * // Preview URL metadata in form
- * const metadata = await fetchMetadata(url)
+ * const preview = await fetchMetadata(url)
  *
  * // Track when user clicks a bookmark link
  * trackBookmarkUsage(id)
@@ -42,6 +47,14 @@ interface UseBookmarksReturn {
 export function useBookmarks(): UseBookmarksReturn {
   const fetchBookmark = useCallback(async (id: string): Promise<Bookmark> => {
     const response = await api.get<Bookmark>(`/bookmarks/${id}`)
+    return response.data
+  }, [])
+
+  const fetchBookmarkMetadataNoCache = useCallback(async (id: string): Promise<BookmarkListItem> => {
+    // Cache-bust to prevent Safari from returning stale cached responses
+    const response = await api.get<BookmarkListItem>(`/bookmarks/${id}/metadata`, {
+      params: { _t: Date.now() },
+    })
     return response.data
   }, [])
 
@@ -62,6 +75,7 @@ export function useBookmarks(): UseBookmarksReturn {
 
   return {
     fetchBookmark,
+    fetchBookmarkMetadataNoCache,
     fetchMetadata,
     trackBookmarkUsage,
   }

@@ -9,21 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.prompt import Prompt
 from models.user import User
-from models.user_consent import UserConsent
 
-
-async def add_consent_for_user(db_session: AsyncSession, user: User) -> None:
-    """Add valid consent record for a user (required for non-dev mode tests)."""
-    from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
-
-    consent = UserConsent(
-        user_id=user.id,
-        consented_at=datetime.now(UTC),
-        privacy_policy_version=PRIVACY_POLICY_VERSION,
-        terms_of_service_version=TERMS_OF_SERVICE_VERSION,
-    )
-    db_session.add(consent)
-    await db_session.flush()
+from tests.api.conftest import add_consent_for_user
 
 
 # =============================================================================
@@ -386,40 +373,6 @@ async def test__list_prompts__sort_by_title_uses_name_fallback(client: AsyncClie
     assert names == ["alpha", "beta", "gamma"]
 
 
-async def test__list_prompts__view_archived(client: AsyncClient) -> None:
-    """Test that archived view returns only archived prompts."""
-    # Create and archive some prompts
-    for i in range(2):
-        response = await client.post("/prompts/", json={"name": f"archive-{i}", "content": f"C{i}"})
-        await client.post(f"/prompts/{response.json()['id']}/archive")
-
-    # Create an active prompt
-    await client.post("/prompts/", json={"name": "active", "content": "Active content"})
-
-    response = await client.get("/prompts/", params={"view": "archived"})
-    assert response.status_code == 200
-    assert response.json()["total"] == 2
-    for item in response.json()["items"]:
-        assert item["archived_at"] is not None
-
-
-async def test__list_prompts__view_deleted(client: AsyncClient) -> None:
-    """Test that deleted view returns only soft-deleted prompts."""
-    # Create and delete some prompts
-    for i in range(2):
-        response = await client.post("/prompts/", json={"name": f"delete-{i}", "content": f"C{i}"})
-        await client.delete(f"/prompts/{response.json()['id']}")
-
-    # Create an active prompt
-    await client.post("/prompts/", json={"name": "active", "content": "Active content"})
-
-    response = await client.get("/prompts/", params={"view": "deleted"})
-    assert response.status_code == 200
-    assert response.json()["total"] == 2
-    for item in response.json()["items"]:
-        assert item["deleted_at"] is not None
-
-
 async def test__list_prompts__pagination(client: AsyncClient) -> None:
     """Test prompt listing with pagination."""
     # Create 5 prompts
@@ -481,14 +434,9 @@ async def test__get_prompt__includes_content(client: AsyncClient) -> None:
     assert response.json()["content"] == "Template content here"
 
 
-async def test__get_prompt__not_found(client: AsyncClient) -> None:
-    """Test getting a non-existent prompt returns 404."""
-    response = await client.get("/prompts/00000000-0000-0000-0000-000000000000")
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Prompt not found"
-
-
 # Note: Cross-user isolation (IDOR) tests are in test_live_penetration.py
+# Note: Common tests (get not found, archive, unarchive, delete, restore, track-usage)
+# are in test_entity_common.py
 
 
 # =============================================================================
@@ -883,180 +831,8 @@ async def test__update_prompt__no_op_does_not_update_timestamp(client: AsyncClie
 
 
 # =============================================================================
-# Delete Prompt Tests
+# Restore Prompt Tests (prompt-specific behavior only)
 # =============================================================================
-
-
-async def test__delete_prompt__soft_delete_default(client: AsyncClient) -> None:
-    """Test soft deleting a prompt."""
-    create_response = await client.post(
-        "/prompts/",
-        json={"name": "to-delete", "content": "Content"},
-    )
-    prompt_id = create_response.json()["id"]
-
-    response = await client.delete(f"/prompts/{prompt_id}")
-    assert response.status_code == 204
-
-    # Verify it's in deleted view
-    response = await client.get("/prompts/", params={"view": "deleted"})
-    assert any(p["id"] == prompt_id for p in response.json()["items"])
-
-
-async def test__delete_prompt__permanent_delete(
-    client: AsyncClient, db_session: AsyncSession,
-) -> None:
-    """Test permanently deleting a prompt."""
-    create_response = await client.post(
-        "/prompts/",
-        json={"name": "permanent-delete", "content": "Content"},
-    )
-    prompt_id = create_response.json()["id"]
-
-    # Soft delete first, then permanent
-    await client.delete(f"/prompts/{prompt_id}")
-    response = await client.delete(f"/prompts/{prompt_id}", params={"permanent": True})
-    assert response.status_code == 204
-
-    # Verify it's gone from database
-    result = await db_session.execute(select(Prompt).where(Prompt.id == prompt_id))
-    assert result.scalar_one_or_none() is None
-
-
-async def test__delete_prompt__not_found(client: AsyncClient) -> None:
-    """Test deleting a non-existent prompt returns 404."""
-    response = await client.delete("/prompts/00000000-0000-0000-0000-000000000000")
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Prompt not found"
-
-
-# =============================================================================
-# Archive Prompt Tests
-# =============================================================================
-
-
-async def test__archive_prompt__success(client: AsyncClient) -> None:
-    """Test archiving a prompt."""
-    create_response = await client.post(
-        "/prompts/",
-        json={"name": "to-archive", "content": "Content"},
-    )
-    prompt_id = create_response.json()["id"]
-
-    response = await client.post(f"/prompts/{prompt_id}/archive")
-    assert response.status_code == 200
-    assert response.json()["archived_at"] is not None
-
-    # Should not appear in active list
-    response = await client.get("/prompts/")
-    assert not any(p["id"] == prompt_id for p in response.json()["items"])
-
-
-async def test__archive_prompt__already_archived(client: AsyncClient) -> None:
-    """Test that archiving an already-archived prompt is idempotent."""
-    create_response = await client.post(
-        "/prompts/",
-        json={"name": "already-archived", "content": "Content"},
-    )
-    prompt_id = create_response.json()["id"]
-
-    await client.post(f"/prompts/{prompt_id}/archive")
-
-    # Archive again - should succeed (idempotent)
-    response = await client.post(f"/prompts/{prompt_id}/archive")
-    assert response.status_code == 200
-
-
-async def test__archive_prompt__not_found(client: AsyncClient) -> None:
-    """Test archiving a non-existent prompt returns 404."""
-    response = await client.post("/prompts/00000000-0000-0000-0000-000000000000/archive")
-    assert response.status_code == 404
-
-
-# =============================================================================
-# Unarchive Prompt Tests
-# =============================================================================
-
-
-async def test__unarchive_prompt__success(client: AsyncClient) -> None:
-    """Test unarchiving a prompt."""
-    create_response = await client.post(
-        "/prompts/",
-        json={"name": "to-unarchive", "content": "Content"},
-    )
-    prompt_id = create_response.json()["id"]
-
-    await client.post(f"/prompts/{prompt_id}/archive")
-
-    response = await client.post(f"/prompts/{prompt_id}/unarchive")
-    assert response.status_code == 200
-    assert response.json()["archived_at"] is None
-
-    # Should appear in active list again
-    response = await client.get("/prompts/")
-    assert any(p["id"] == prompt_id for p in response.json()["items"])
-
-
-async def test__unarchive_prompt__not_archived(client: AsyncClient) -> None:
-    """Test that unarchiving a non-archived prompt returns 400."""
-    create_response = await client.post(
-        "/prompts/",
-        json={"name": "not-archived", "content": "Content"},
-    )
-    prompt_id = create_response.json()["id"]
-
-    response = await client.post(f"/prompts/{prompt_id}/unarchive")
-    assert response.status_code == 400
-    assert "not archived" in response.json()["detail"]
-
-
-async def test__unarchive_prompt__not_found(client: AsyncClient) -> None:
-    """Test unarchiving a non-existent prompt returns 404."""
-    response = await client.post("/prompts/00000000-0000-0000-0000-000000000000/unarchive")
-    assert response.status_code == 404
-
-
-# =============================================================================
-# Restore Prompt Tests
-# =============================================================================
-
-
-async def test__restore_prompt__success(client: AsyncClient) -> None:
-    """Test restoring a deleted prompt."""
-    create_response = await client.post(
-        "/prompts/",
-        json={"name": "to-restore", "content": "Content"},
-    )
-    prompt_id = create_response.json()["id"]
-
-    await client.delete(f"/prompts/{prompt_id}")
-
-    response = await client.post(f"/prompts/{prompt_id}/restore")
-    assert response.status_code == 200
-    assert response.json()["deleted_at"] is None
-
-    # Should appear in active list again
-    response = await client.get("/prompts/")
-    assert any(p["id"] == prompt_id for p in response.json()["items"])
-
-
-async def test__restore_prompt__not_deleted(client: AsyncClient) -> None:
-    """Test that restoring a non-deleted prompt returns 400."""
-    create_response = await client.post(
-        "/prompts/",
-        json={"name": "not-deleted", "content": "Content"},
-    )
-    prompt_id = create_response.json()["id"]
-
-    response = await client.post(f"/prompts/{prompt_id}/restore")
-    assert response.status_code == 400
-    assert "not deleted" in response.json()["detail"]
-
-
-async def test__restore_prompt__not_found(client: AsyncClient) -> None:
-    """Test restoring a non-existent prompt returns 404."""
-    response = await client.post("/prompts/00000000-0000-0000-0000-000000000000/restore")
-    assert response.status_code == 404
 
 
 async def test__restore_prompt__clears_both_timestamps(client: AsyncClient) -> None:
@@ -1074,90 +850,6 @@ async def test__restore_prompt__clears_both_timestamps(client: AsyncClient) -> N
     assert response.status_code == 200
     assert response.json()["deleted_at"] is None
     assert response.json()["archived_at"] is None
-
-
-# =============================================================================
-# Track Usage Tests
-# =============================================================================
-
-
-async def test__track_usage__success(client: AsyncClient) -> None:
-    """Test tracking prompt usage."""
-    create_response = await client.post(
-        "/prompts/",
-        json={"name": "track-me", "content": "Content"},
-    )
-    prompt_id = create_response.json()["id"]
-    original_last_used = create_response.json()["last_used_at"]
-
-    await asyncio.sleep(0.01)
-
-    response = await client.post(f"/prompts/{prompt_id}/track-usage")
-    assert response.status_code == 204
-
-    # Verify timestamp was updated
-    response = await client.get(f"/prompts/{prompt_id}")
-    assert response.json()["last_used_at"] > original_last_used
-
-
-async def test__track_usage__not_found(client: AsyncClient) -> None:
-    """Test tracking usage on non-existent prompt returns 404."""
-    response = await client.post("/prompts/00000000-0000-0000-0000-000000000000/track-usage")
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Prompt not found"
-
-
-async def test__track_usage__works_on_archived(client: AsyncClient) -> None:
-    """Test that track-usage works on archived prompts."""
-    create_response = await client.post(
-        "/prompts/",
-        json={"name": "archived-track", "content": "Content"},
-    )
-    prompt_id = create_response.json()["id"]
-
-    response = await client.post(f"/prompts/{prompt_id}/archive")
-    original_last_used = response.json()["last_used_at"]
-
-    await asyncio.sleep(0.01)
-
-    response = await client.post(f"/prompts/{prompt_id}/track-usage")
-    assert response.status_code == 204
-
-    # Verify via archived view
-    response = await client.get("/prompts/", params={"view": "archived"})
-    prompt = next(p for p in response.json()["items"] if p["id"] == prompt_id)
-    assert prompt["last_used_at"] > original_last_used
-
-
-# =============================================================================
-# View Filtering Tests
-# =============================================================================
-
-
-async def test__list_prompts__view_active_excludes_deleted_and_archived(
-    client: AsyncClient,
-) -> None:
-    """Test that active view excludes deleted and archived prompts."""
-    # Create prompts in different states
-    active_resp = await client.post("/prompts/", json={"name": "active-prompt", "content": "C1"})
-    active_id = active_resp.json()["id"]
-
-    archived_resp = await client.post("/prompts/", json={"name": "to-archive", "content": "C2"})
-    archived_id = archived_resp.json()["id"]
-    await client.post(f"/prompts/{archived_id}/archive")
-
-    deleted_resp = await client.post("/prompts/", json={"name": "to-delete", "content": "C3"})
-    deleted_id = deleted_resp.json()["id"]
-    await client.delete(f"/prompts/{deleted_id}")
-
-    # Active view should only show active prompt
-    response = await client.get("/prompts/", params={"view": "active"})
-    assert response.status_code == 200
-    items = response.json()["items"]
-    ids = [item["id"] for item in items]
-    assert active_id in ids
-    assert archived_id not in ids
-    assert deleted_id not in ids
 
 
 # =============================================================================
