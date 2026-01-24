@@ -6,9 +6,10 @@ import type { ReactNode } from 'react'
 
 /**
  * Toolbar separator for visual grouping between button groups.
+ * Hidden on mobile (< md) where toolbar wraps and separators add clutter.
  */
 export function ToolbarSeparator(): ReactNode {
-  return <div className="w-px h-5 bg-gray-200 mx-1" />
+  return <div className="hidden md:block w-px h-5 bg-gray-200 mx-1" />
 }
 
 // Toolbar icon components with consistent sizing (w-4 h-4)
@@ -48,9 +49,10 @@ export function InlineCodeIcon(): ReactNode {
 }
 
 export function CodeBlockIcon(): ReactNode {
+  // Curly braces representing a code block - more intuitive than text lines
   return (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h6" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 4c-2 0-3 1-3 3v3c0 1.5-1 2-2 2 1 0 2 .5 2 2v3c0 2 1 3 3 3M16 4c2 0 3 1 3 3v3c0 1.5 1 2 2 2-1 0-2 .5-2 2v3c0 2-1 3-3 3" />
     </svg>
   )
 }

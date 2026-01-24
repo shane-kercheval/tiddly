@@ -273,16 +273,18 @@ function ToolbarButton({ onClick, title, children }: ToolbarButtonProps): ReactN
       type="button"
       tabIndex={-1}
       onMouseDown={(e) => {
-        if (wasEditorFocused(e.currentTarget)) {
-          // Editor was focused (toolbar visible) - execute action
+        // On mobile (< md), buttons are always visible so always execute
+        // On desktop, only execute if editor was already focused (toolbar visible)
+        const isMobileView = window.innerWidth < 768
+        if (isMobileView || wasEditorFocused(e.currentTarget)) {
           e.preventDefault()
           onClick()
         }
-        // If editor wasn't focused, let the click naturally focus the editor
+        // If editor wasn't focused (desktop), let the click naturally focus the editor
         // which will reveal the toolbar (but won't execute the action)
       }}
       title={title}
-      className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+      className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
     >
       {children}
     </button>
@@ -430,13 +432,15 @@ export function CodeMirrorEditor({
   }, [wrapText])
 
   return (
-    <div ref={containerRef} className={noPadding ? 'codemirror-no-padding' : ''}>
+    <div ref={containerRef} className={`w-full ${noPadding ? 'codemirror-no-padding' : ''}`}>
       {/* Toolbar - formatting buttons fade in on focus, copy button stays visible (doesn't fade) */}
       {/* Always render toolbar to prevent layout shift; buttons are disabled when editor is disabled */}
       {/* min-h and transform-gpu prevent Safari reflow issues during focus/blur transitions */}
-      <div className="flex items-center justify-between px-2 py-1.5 min-h-[38px] transform-gpu border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50 transition-colors">
-        {/* Left: formatting buttons that fade in on focus */}
-        <div className={`flex items-center gap-0.5 opacity-0 group-focus-within/editor:opacity-100 transition-opacity ${disabled ? 'pointer-events-none' : ''}`}>
+      {/* Mobile: flex-wrap, all buttons visible. Desktop: no-wrap, buttons fade in on focus */}
+      <div className="flex items-center flex-wrap md:flex-nowrap gap-0.5 md:gap-0 md:justify-between px-2 py-1.5 min-h-[38px] transform-gpu border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50 transition-colors">
+        {/* Left: formatting buttons - visible on mobile, fade in on focus on desktop */}
+        {/* On mobile: 'contents' flattens structure so all buttons wrap together as siblings */}
+        <div className={`contents md:flex md:flex-nowrap md:items-center md:gap-0.5 md:opacity-0 md:group-focus-within/editor:opacity-100 transition-opacity ${disabled ? 'pointer-events-none' : ''}`}>
           {/* Text formatting */}
           <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '**', '**'))} title="Bold (⌘B)">
             <BoldIcon />
@@ -450,18 +454,18 @@ export function CodeMirrorEditor({
           <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '==', '=='))} title="Highlight (⌘⇧H)">
             <HighlightIcon />
           </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '> '))} title="Blockquote">
+            <BlockquoteIcon />
+          </ToolbarButton>
+
+          <ToolbarSeparator />
+
+          {/* Code */}
           <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '`', '`'))} title="Inline Code">
             <InlineCodeIcon />
           </ToolbarButton>
           <ToolbarButton onClick={() => runAction(insertCodeBlock)} title="Code Block">
             <CodeBlockIcon />
-          </ToolbarButton>
-
-          <ToolbarSeparator />
-
-          {/* Link */}
-          <ToolbarButton onClick={() => runAction(insertLink)} title="Insert Link (⌘K)">
-            <LinkIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
@@ -479,9 +483,9 @@ export function CodeMirrorEditor({
 
           <ToolbarSeparator />
 
-          {/* Block elements */}
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '> '))} title="Blockquote">
-            <BlockquoteIcon />
+          {/* Links and dividers */}
+          <ToolbarButton onClick={() => runAction(insertLink)} title="Insert Link (⌘K)">
+            <LinkIcon />
           </ToolbarButton>
           <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title="Horizontal Rule">
             <HorizontalRuleIcon />
@@ -505,21 +509,25 @@ export function CodeMirrorEditor({
         </div>
 
         {/* Right: Wrap (fades in), Reading and Copy (always visible) */}
-        <div className="flex items-center gap-2">
-          {/* Wrap toggle - fades in on focus, only shown when not in reading mode */}
+        {/* On mobile: 'contents' flattens structure so buttons flow with others. On desktop: stays at right */}
+        <div className="contents md:flex md:items-center md:gap-2 md:ml-auto">
+          {/* Separator only on mobile (other separators are hidden on mobile) */}
+          <div className="w-px h-5 bg-gray-200 mx-1 md:hidden" />
+          {/* Wrap toggle - visible on mobile, fades in on focus on desktop, only shown when not in reading mode */}
           {onWrapTextChange && !effectiveReadingMode && (
             <button
               type="button"
               tabIndex={-1}
               disabled={disabled}
               onMouseDown={(e) => {
-                if (!disabled && wasEditorFocused(e.currentTarget)) {
+                const isMobileView = window.innerWidth < 768
+                if (!disabled && (isMobileView || wasEditorFocused(e.currentTarget))) {
                   e.preventDefault()
                   onWrapTextChange(!wrapText)
                 }
               }}
               title="Toggle word wrap (⌥Z)"
-              className={`text-xs px-2 py-0.5 rounded transition-all opacity-0 group-focus-within/editor:opacity-100 ${
+              className={`text-xs px-2 py-0.5 rounded transition-all flex-shrink-0 md:opacity-0 md:group-focus-within/editor:opacity-100 ${
                 wrapText
                   ? 'bg-gray-200 text-gray-700'
                   : 'border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-100'
@@ -541,7 +549,7 @@ export function CodeMirrorEditor({
               }
             }}
             title="Toggle reading mode (⌘⇧M)"
-            className={`text-xs px-2 py-0.5 rounded transition-all ${
+            className={`text-xs px-2 py-0.5 rounded transition-all flex-shrink-0 ${
               effectiveReadingMode
                 ? 'bg-gray-200 text-gray-700'
                 : 'border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-100'
@@ -556,35 +564,38 @@ export function CodeMirrorEditor({
           )}
         </div>
       </div>
-      {/* Show CodeMirror for editing, Milkdown for reading */}
-      {effectiveReadingMode ? (
-        <MilkdownEditor
-          value={value}
-          onChange={() => {}} // Read-only: ignore changes
-          disabled={false}
-          readOnly={true}
-          minHeight={minHeight}
-          placeholder={placeholder}
-          noPadding={noPadding}
-        />
-      ) : (
-        <CodeMirror
-          ref={editorRef}
-          value={initialValue}
-          onChange={onChange}
-          extensions={extensions}
-          minHeight={minHeight}
-          placeholder={placeholder}
-          editable={!disabled}
-          autoFocus={autoFocus}
-          basicSetup={{
-            lineNumbers: false,
-            foldGutter: false,
-            highlightActiveLine: false,
-          }}
-          className="text-sm"
-        />
-      )}
+      {/* Editor area - overflow-hidden for content clipping (rounded corners handled by parent) */}
+      <div className="overflow-hidden">
+        {/* Show CodeMirror for editing, Milkdown for reading */}
+        {effectiveReadingMode ? (
+          <MilkdownEditor
+            value={value}
+            onChange={() => {}} // Read-only: ignore changes
+            disabled={false}
+            readOnly={true}
+            minHeight={minHeight}
+            placeholder={placeholder}
+            noPadding={noPadding}
+          />
+        ) : (
+          <CodeMirror
+            ref={editorRef}
+            value={initialValue}
+            onChange={onChange}
+            extensions={extensions}
+            minHeight={minHeight}
+            placeholder={placeholder}
+            editable={!disabled}
+            autoFocus={autoFocus}
+            basicSetup={{
+              lineNumbers: false,
+              foldGutter: false,
+              highlightActiveLine: false,
+            }}
+            className="text-sm"
+          />
+        )}
+      </div>
     </div>
   )
 }
