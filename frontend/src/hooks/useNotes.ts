@@ -45,7 +45,10 @@ export function useNotes(): UseNotesReturn {
   }, [])
 
   const fetchNoteMetadata = useCallback(async (id: string): Promise<NoteListItem> => {
-    const response = await api.get<NoteListItem>(`/notes/${id}/metadata`)
+    // Cache-bust to prevent Safari from returning stale cached responses
+    const response = await api.get<NoteListItem>(`/notes/${id}/metadata`, {
+      params: { _t: Date.now() },
+    })
     return response.data
   }, [])
 

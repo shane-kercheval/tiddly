@@ -50,7 +50,10 @@ export function usePrompts(): UsePromptsReturn {
   }, [])
 
   const fetchPromptMetadata = useCallback(async (id: string): Promise<PromptListItem> => {
-    const response = await api.get<PromptListItem>(`/prompts/${id}/metadata`)
+    // Cache-bust to prevent Safari from returning stale cached responses
+    const response = await api.get<PromptListItem>(`/prompts/${id}/metadata`, {
+      params: { _t: Date.now() },
+    })
     return response.data
   }, [])
 
