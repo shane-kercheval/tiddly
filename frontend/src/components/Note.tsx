@@ -544,9 +544,10 @@ export function Note({
     >
       <SaveOverlay isVisible={isSaving} />
 
-      {/* Sticky header with action buttons */}
-      <div className="sticky top-0 z-10 shrink-0 bg-white flex items-center justify-between pt-4 pb-4 mb-4 border-b border-gray-200">
-        <div className="flex items-center gap-2">
+      {/* Sticky header - outer div extends wider to hide scrolling content borders */}
+      <div className="sticky top-0 z-10 shrink-0 bg-white -ml-2 pl-2 -mr-2 pr-2">
+        <div className="flex items-center justify-between pt-4 pb-4 border-b border-gray-200">
+          <div className="flex items-center gap-2">
           {/* Close button */}
           <button
             type="button"
@@ -637,11 +638,12 @@ export function Note({
               </span>
             </button>
           )}
+          </div>
         </div>
       </div>
 
       {/* Scrollable content - padding with negative margin gives room for focus rings to show */}
-      <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 pt-1 -mt-1">
+      <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 -mr-2 pt-5 -mt-1">
         {/* Header section: banners, title, description, metadata */}
         <div className="space-y-4">
           {/* Read-only banner for deleted notes */}
