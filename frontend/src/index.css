@@ -313,7 +313,7 @@ body {
 
 /* Blockquotes */
 .milkdown-wrapper .milkdown blockquote {
-  @apply border-l-4 border-gray-300 pl-4 my-4 text-gray-600 italic;
+  @apply border-l-4 border-indigo-500 pl-4 my-4;
 }
 
 /* Unordered lists */

@@ -23,6 +23,10 @@ import {
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { RangeSetBuilder } from '@codemirror/state'
 
+// Shared styles for dimmed markdown syntax (brackets, #, >, etc.)
+const SYNTAX_COLOR = '#c0c5cc'
+const SYNTAX_FONT_SIZE = '0.9em'
+
 /**
  * Widget for rendering a clickable checkbox.
  * When clicked, toggles between [ ] and [x] in the source.
@@ -811,23 +815,25 @@ const markdownBaseTheme = EditorView.baseTheme({
 
   // Blockquotes
   '.cm-md-blockquote': {
-    borderLeft: '3px solid #d1d5db',
+    borderLeft: '3px solid #6366f1',
     paddingLeft: '1em',
-    color: '#6b7280',
-    fontStyle: 'italic',
   },
 
-  // Code blocks - dark theme with Source Code Pro (same as Obsidian)
+  // Code blocks - light gray background with dark text
   '.cm-md-code-start, .cm-md-code-end, .cm-md-code-content': {
-    backgroundColor: '#1f2937',
-    color: '#f9fafb !important',
+    backgroundColor: '#f3f4f6',
+    color: '#1f2937 !important',
     fontFamily: '"Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: '0.9em',
-    caretColor: '#ffffff',
+    marginRight: '4px',
   },
-  // Ensure all text inside code blocks is white (override syntax highlighting)
-  '.cm-md-code-start *, .cm-md-code-end *, .cm-md-code-content *': {
-    color: '#f9fafb !important',
+  // Ensure code content text is dark
+  '.cm-md-code-content, .cm-md-code-content *': {
+    color: '#1f2937 !important',
+  },
+  // Code fence lines (``` and ```language) - dimmer gray
+  '.cm-md-code-start, .cm-md-code-start *, .cm-md-code-end, .cm-md-code-end *': {
+    color: '#6b7280 !important',
   },
   '.cm-md-code-start': {
     borderTopLeftRadius: '6px',
@@ -837,21 +843,24 @@ const markdownBaseTheme = EditorView.baseTheme({
   '.cm-md-code-end': {
     borderBottomLeftRadius: '6px',
     borderBottomRightRadius: '6px',
-    paddingBottom: '0.5em',
+    paddingBottom: '0.0em',
   },
-  // Cursor inside code blocks needs to be white
-  // Uses class added by cursorInCodeBlockPlugin
-  '&.cm-cursor-in-code .cm-cursor': {
-    borderLeftColor: '#ffffff !important',
+  // Custom cursor - thicker and red like Bear notes
+  '.cm-cursor, .cm-cursor-primary': {
+    borderLeftColor: '#f87171 !important',
+    borderLeftWidth: '2px !important',
+    transform: 'scaleY(1.2)',
+    transformOrigin: 'center',
   },
 
   // Shared syntax marker style for all inline formatting (**, *, ~~, ==, `)
   // Using a slightly lighter gray for better readability
   '.cm-md-syntax-marker, .cm-md-syntax-marker *': {
-    color: '#b0b5bd !important',
+    color: `${SYNTAX_COLOR} !important`,
     fontWeight: 'normal !important',
     fontStyle: 'normal !important',
     textDecoration: 'none !important',
+    fontSize: SYNTAX_FONT_SIZE,
   },
 
   // Inline code content - light pink background with pink text
@@ -908,20 +917,21 @@ const markdownBaseTheme = EditorView.baseTheme({
 
   // Header syntax (# marks) - dimmed gray (using shared lighter gray)
   '.cm-md-header-syntax': {
-    color: '#b0b5bd !important',
+    color: `${SYNTAX_COLOR} !important`,
     fontWeight: 'normal !important',
-    fontSize: '0.75em !important',
+    fontSize: `${SYNTAX_FONT_SIZE} !important`,
   },
   '.cm-md-header-syntax *': {
-    color: '#b0b5bd !important',
+    color: `${SYNTAX_COLOR} !important`,
     fontWeight: 'normal !important',
     fontSize: 'inherit !important',
   },
 
-  // Blockquote syntax (> ) - dimmed gray (using shared lighter gray)
+  // Blockquote syntax (> ) - light gray, subtle
   '.cm-md-blockquote-syntax, .cm-md-blockquote-syntax *': {
-    color: '#b0b5bd !important',
+    color: `${SYNTAX_COLOR} !important`,
     fontStyle: 'normal !important',
+    fontSize: SYNTAX_FONT_SIZE,
   },
 
   // Strikethrough content
@@ -940,8 +950,9 @@ const markdownBaseTheme = EditorView.baseTheme({
 
   // Links - text looks like a link, brackets/URL are dimmed gray (using shared lighter gray)
   '.cm-md-link-bracket': {
-    color: '#b0b5bd !important',
+    color: `${SYNTAX_COLOR} !important`,
     textDecoration: 'none !important',
+    fontSize: SYNTAX_FONT_SIZE,
   },
   '.cm-md-link-text': {
     color: '#2563eb !important',
@@ -949,31 +960,34 @@ const markdownBaseTheme = EditorView.baseTheme({
     textDecorationColor: '#93c5fd',
   },
   '.cm-md-link-url': {
-    color: '#b0b5bd !important',
+    color: `${SYNTAX_COLOR} !important`,
     textDecoration: 'none !important',
+    fontSize: SYNTAX_FONT_SIZE,
   },
   // Override any nested syntax highlighting in links
   '.cm-md-link-bracket *, .cm-md-link-url *': {
-    color: '#b0b5bd !important',
+    color: `${SYNTAX_COLOR} !important`,
     textDecoration: 'none !important',
   },
 
   // Images - similar to links but with green alt text to distinguish
   '.cm-md-image-syntax': {
-    color: '#b0b5bd !important',
+    color: `${SYNTAX_COLOR} !important`,
     textDecoration: 'none !important',
+    fontSize: SYNTAX_FONT_SIZE,
   },
   '.cm-md-image-alt': {
     color: '#059669 !important',
     textDecoration: 'none !important',
   },
   '.cm-md-image-url': {
-    color: '#b0b5bd !important',
+    color: `${SYNTAX_COLOR} !important`,
     textDecoration: 'none !important',
+    fontSize: SYNTAX_FONT_SIZE,
   },
   // Override any nested syntax highlighting in images
   '.cm-md-image-syntax *, .cm-md-image-url *': {
-    color: '#b0b5bd !important',
+    color: `${SYNTAX_COLOR} !important`,
     textDecoration: 'none !important',
   },
 })
