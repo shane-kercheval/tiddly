@@ -1,7 +1,6 @@
 # Implementation Plan: Markdown Editor Link Improvements
 
 **Date**: 2026-01-13
-**Status**: Ready for Implementation
 **Complexity**: Milestone 1 (LOW) + Milestone 2 (MEDIUM-HIGH) + Milestone 3 (LOW)
 
 ## Overview

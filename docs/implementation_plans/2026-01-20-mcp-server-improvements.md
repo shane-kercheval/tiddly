@@ -1,7 +1,6 @@
 # MCP Server Improvements - Implementation Plan
 
 **Date:** 2026-01-21
-**Status:** Draft
 **Goal:** Improve Prompt MCP server usability for LLM agents by using prompt names instead of UUIDs, adding a `get_prompt_template` tool, and improving tool naming/descriptions.
 
 ---
