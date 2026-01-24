@@ -194,4 +194,52 @@ describe('getToggleMarkerAction', () => {
       expect(result.type).toBe('wrap')
     })
   })
+
+  describe('nested markers (avoiding false positives)', () => {
+    it('should insert italic inside bold markers, not unwrap', () => {
+      // Cursor is at **|** (position 2 in "****"), trying to add italic
+      // surroundingBefore='*', surroundingAfter='*' (looks like italic)
+      // But charBeforeSurrounding='*', charAfterSurrounding='*' (it's actually bold)
+      const result = getToggleMarkerAction('', '*', '*', '*', '*', '*', '*')
+      expect(result.type).toBe('insert')
+    })
+
+    it('should insert bold inside italic markers, not unwrap', () => {
+      // Cursor is at *|* (position 1 in "**"), trying to add bold
+      // surroundingBefore='*', surroundingAfter='*' but we need '**'
+      // This should wrap anyway since surroundingBefore !== before
+      const result = getToggleMarkerAction('', '*', '*', '**', '**')
+      expect(result.type).toBe('insert')
+    })
+
+    it('should still unwrap italic when not inside bold', () => {
+      // Cursor is at *|* with nothing around it
+      const result = getToggleMarkerAction('', '*', '*', '*', '*', '', '')
+      expect(result.type).toBe('unwrap-surrounding')
+    })
+
+    it('should still unwrap bold when not inside larger sequence', () => {
+      // Cursor is at **|** with nothing around it
+      const result = getToggleMarkerAction('', '**', '**', '**', '**', '', '')
+      expect(result.type).toBe('unwrap-surrounding')
+    })
+
+    it('should insert when char before indicates longer marker', () => {
+      // Looking for `*` but there's a `*` before the surrounding text
+      const result = getToggleMarkerAction('', '*', '*', '*', '*', '*', '')
+      expect(result.type).toBe('insert')
+    })
+
+    it('should insert when char after indicates longer marker', () => {
+      // Looking for `*` but there's a `*` after the surrounding text
+      const result = getToggleMarkerAction('', '*', '*', '*', '*', '', '*')
+      expect(result.type).toBe('insert')
+    })
+
+    it('should unwrap selection even with extended context', () => {
+      // Selection includes markers - extended context doesn't affect unwrap-selection
+      const result = getToggleMarkerAction('*hello*', '', '', '*', '*', '*', '*')
+      expect(result.type).toBe('unwrap-selection')
+    })
+  })
 })

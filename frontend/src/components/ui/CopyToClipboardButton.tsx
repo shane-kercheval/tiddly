@@ -79,7 +79,7 @@ export function CopyToClipboardButton({
       type="button"
       onClick={handleCopy}
       disabled={disabled}
-      className={`p-1.5 rounded text-gray-400 transition-colors ${
+      className={`p-1.5 rounded text-gray-500 transition-colors ${
         disabled ? 'cursor-not-allowed opacity-50' : 'hover:text-gray-600 hover:bg-gray-100'
       } ${className}`}
       title={getTitle()}

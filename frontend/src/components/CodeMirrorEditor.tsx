@@ -90,7 +90,20 @@ function toggleWrapMarkers(view: EditorView, before: string, after: string): boo
   const surroundingBefore = state.sliceDoc(expandedFrom, from)
   const surroundingAfter = state.sliceDoc(to, expandedTo)
 
-  const action = getToggleMarkerAction(selectedText, surroundingBefore, surroundingAfter, before, after)
+  // Get one more char on each side to detect if markers are part of longer sequences
+  // E.g., to distinguish `*` (italic) from `**` (bold)
+  const charBeforeSurrounding = expandedFrom > 0 ? state.sliceDoc(expandedFrom - 1, expandedFrom) : ''
+  const charAfterSurrounding = expandedTo < state.doc.length ? state.sliceDoc(expandedTo, expandedTo + 1) : ''
+
+  const action = getToggleMarkerAction(
+    selectedText,
+    surroundingBefore,
+    surroundingAfter,
+    before,
+    after,
+    charBeforeSurrounding,
+    charAfterSurrounding
+  )
 
   switch (action.type) {
     case 'insert':
