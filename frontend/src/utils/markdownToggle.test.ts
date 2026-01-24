@@ -1,10 +1,8 @@
 /**
- * Tests for CodeMirrorEditor helper functions.
+ * Tests for markdown toggle helper functions.
  */
 import { describe, it, expect } from 'vitest'
-import { _testExports } from './CodeMirrorEditor'
-
-const { getToggleMarkerAction } = _testExports
+import { getToggleMarkerAction } from './markdownToggle'
 
 describe('getToggleMarkerAction', () => {
   describe('insert (no selection)', () => {
