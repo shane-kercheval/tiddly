@@ -48,7 +48,7 @@ Create a helper function to resolve filter sorting and apply it to all 4 list en
 
 ### Key Changes
 
-**1. Create helper function (`backend/src/api/filter_utils.py`):**
+**1. Create helper function (`backend/src/api/helpers/filter_utils.py`):**
 
 ```python
 from dataclasses import dataclass
@@ -156,7 +156,7 @@ if filter_id is not None:
     filter_expression = content_filter.filter_expression
 
 # After (bookmarks, notes, prompts routers):
-from api.filter_utils import resolve_filter_and_sorting
+from api.helpers.filter_utils import resolve_filter_and_sorting
 
 resolved = await resolve_filter_and_sorting(db, current_user.id, filter_id, sort_by, sort_order)
 # Use resolved.filter_expression, resolved.sort_by, resolved.sort_order
@@ -212,6 +212,7 @@ Tests should cover all 4 endpoints. Use parametrization where the test logic is 
 |------|----------|
 | `test__resolve_filter_and_sorting__no_filter_no_params__returns_global_defaults` | Returns ResolvedFilter with `None`, `"created_at"`, `"desc"`, `None` |
 | `test__resolve_filter_and_sorting__no_filter__content_types_is_none` | When no filter_id, content_types is None |
+| `test__resolve_filter_and_sorting__no_filter_with_explicit_params__uses_explicit` | No filter_id but explicit sort_by/sort_order provided, uses explicit values |
 | `test__resolve_filter_and_sorting__filter_with_sort_defaults__uses_filter_values` | Returns filter's sort settings and content_types |
 | `test__resolve_filter_and_sorting__explicit_params_override_filter` | Explicit params take priority over filter defaults |
 | `test__resolve_filter_and_sorting__partial_override_sort_by` | Only `sort_by` overridden, `sort_order` from filter |
