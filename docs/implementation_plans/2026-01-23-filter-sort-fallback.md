@@ -51,14 +51,24 @@ Create a helper function to resolve filter sorting and apply it to all 4 list en
 **1. Create helper function (`backend/src/api/filter_utils.py`):**
 
 ```python
-from datetime import datetime
+from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.services import content_filter_service
+from services import content_filter_service
+
+
+@dataclass
+class ResolvedFilter:
+    """Result of resolving a filter_id with sort parameters."""
+
+    filter_expression: dict | None
+    sort_by: str
+    sort_order: Literal["asc", "desc"]
+    content_types: list[str] | None  # Only used by content router
 
 
 async def resolve_filter_and_sorting(
@@ -67,33 +77,33 @@ async def resolve_filter_and_sorting(
     filter_id: UUID | None,
     sort_by: str | None,
     sort_order: Literal["asc", "desc"] | None,
-) -> tuple[dict | None, str, Literal["asc", "desc"]]:
+) -> ResolvedFilter:
     """
     Resolve filter expression and sorting.
 
-    When filter_id is provided, use the filter's sort settings as the source of truth.
-    Explicit sort_by/sort_order params can override the filter's settings, allowing
-    callers to use a filter's tag expression with custom sorting.
+    When filter_id is provided:
+      - Uses filter's default_sort_by if sort_by param not provided
+      - Uses filter's default_sort_ascending if sort_order param not provided
+      - Explicit sort_by/sort_order params override filter settings
 
-    For each sort field (sort_by, sort_order), resolution priority is:
-    1. Explicit param (if provided) - allows caller to override filter settings
-    2. Filter's setting (if filter_id provided and filter has that setting)
-    3. Global default (created_at / desc)
+    When filter_id is not provided:
+      - Uses explicit params if given, otherwise global defaults (created_at desc)
 
     Args:
         db: Database session
         user_id: Current user's ID
         filter_id: Optional filter UUID
-        sort_by: Optional explicit sort field
-        sort_order: Optional explicit sort direction
+        sort_by: Optional explicit sort field (overrides filter default)
+        sort_order: Optional explicit sort direction (overrides filter default)
 
     Returns:
-        Tuple of (filter_expression, resolved_sort_by, resolved_sort_order)
+        ResolvedFilter with filter_expression, sort_by, sort_order, content_types
 
     Raises:
         HTTPException 404 if filter_id provided but not found
     """
     filter_expression = None
+    content_types = None
 
     if filter_id is not None:
         content_filter = await content_filter_service.get_filter(db, user_id, filter_id)
@@ -101,18 +111,20 @@ async def resolve_filter_and_sorting(
             raise HTTPException(status_code=404, detail="Filter not found")
 
         filter_expression = content_filter.filter_expression
+        content_types = content_filter.content_types
 
-        # Fall back to filter's sort defaults if not explicitly provided
+        # Use filter's sort defaults if not explicitly provided
         if sort_by is None and content_filter.default_sort_by:
             sort_by = content_filter.default_sort_by
         if sort_order is None and content_filter.default_sort_ascending is not None:
             sort_order = "asc" if content_filter.default_sort_ascending else "desc"
 
     # Global fallbacks
-    return (
-        filter_expression,
-        sort_by or "created_at",
-        sort_order or "desc",
+    return ResolvedFilter(
+        filter_expression=filter_expression,
+        sort_by=sort_by or "created_at",
+        sort_order=sort_order or "desc",
+        content_types=content_types,
     )
 ```
 
@@ -143,38 +155,32 @@ if filter_id is not None:
         raise HTTPException(status_code=404, detail="Filter not found")
     filter_expression = content_filter.filter_expression
 
-# After:
-from src.api.filter_utils import resolve_filter_and_sorting
+# After (bookmarks, notes, prompts routers):
+from api.filter_utils import resolve_filter_and_sorting
 
-filter_expression, sort_by, sort_order = await resolve_filter_and_sorting(
-    db, current_user.id, filter_id, sort_by, sort_order
-)
+resolved = await resolve_filter_and_sorting(db, current_user.id, filter_id, sort_by, sort_order)
+# Use resolved.filter_expression, resolved.sort_by, resolved.sort_order
+# Ignore resolved.content_types (only used by content router)
 ```
 
-**4. Special case for content router:**
+**4. Content router uses the same helper:**
 
-The content router also extracts `content_types` from the filter. Either:
-- Extend the helper to optionally return `content_types`
-- Or keep a separate call for content_types extraction
-
-Recommend extending the helper with an optional return:
+The content router also needs `content_types`, which is included in the `ResolvedFilter` dataclass:
 
 ```python
-async def resolve_filter_and_sorting(
-    ...,
-    include_content_types: bool = False,
-) -> tuple[dict | None, str, Literal["asc", "desc"]] | tuple[dict | None, str, Literal["asc", "desc"], list[str] | None]:
-    """..."""
-    # ... existing logic ...
+# content router - uses all fields including content_types
+resolved = await resolve_filter_and_sorting(db, current_user.id, filter_id, sort_by, sort_order)
 
-    if include_content_types:
-        content_types = content_filter.content_types if content_filter else None
-        return filter_expression, sort_by or "created_at", sort_order or "desc", content_types
-
-    return filter_expression, sort_by or "created_at", sort_order or "desc"
+# Handle content_types intersection with query param (existing logic)
+# Note: `content_types` below refers to the query parameter from the endpoint signature
+if content_types is None:
+    effective_content_types = resolved.content_types
+else:
+    effective_content_types = [
+        ct for ct in content_types  # content_types = query param
+        if resolved.content_types is None or ct in resolved.content_types
+    ]
 ```
-
-Or simpler: return a dataclass/NamedTuple with all fields, where `content_types` is `None` for non-content endpoints.
 
 ### Testing Strategy
 
@@ -204,20 +210,20 @@ Tests should cover all 4 endpoints. Use parametrization where the test logic is 
 
 | Test | Behavior |
 |------|----------|
-| `test__resolve_filter_and_sorting__no_filter_no_params__returns_global_defaults` | Returns `(None, "created_at", "desc")` |
-| `test__resolve_filter_and_sorting__filter_with_sort_defaults__uses_filter_values` | Returns filter's sort settings |
-| `test__resolve_filter_and_sorting__explicit_params_override_filter` | Explicit params take priority |
+| `test__resolve_filter_and_sorting__no_filter_no_params__returns_global_defaults` | Returns ResolvedFilter with `None`, `"created_at"`, `"desc"`, `None` |
+| `test__resolve_filter_and_sorting__no_filter__content_types_is_none` | When no filter_id, content_types is None |
+| `test__resolve_filter_and_sorting__filter_with_sort_defaults__uses_filter_values` | Returns filter's sort settings and content_types |
+| `test__resolve_filter_and_sorting__explicit_params_override_filter` | Explicit params take priority over filter defaults |
 | `test__resolve_filter_and_sorting__partial_override_sort_by` | Only `sort_by` overridden, `sort_order` from filter |
 | `test__resolve_filter_and_sorting__partial_override_sort_order` | Only `sort_order` overridden, `sort_by` from filter |
 | `test__resolve_filter_and_sorting__filter_not_found__raises_404` | HTTPException with 404 status |
-| `test__resolve_filter_and_sorting__filter_no_sort_defaults__uses_global` | Filter exists but has null sort fields |
+| `test__resolve_filter_and_sorting__filter_no_sort_defaults__uses_global` | Filter exists but has null sort fields, uses global defaults |
 
 ### Dependencies
 None.
 
 ### Risk Factors
 - Need to verify OpenAPI schema still documents the sort options correctly (since they're now optional with None default)
-- Content router has additional `content_types` handling that needs careful integration
 
 ---
 
@@ -251,3 +257,7 @@ sort_order: Literal["asc", "desc"] | None = Query(
     description="Sort direction. If not provided, uses filter's default_sort_ascending (when filter_id given) or 'desc'.",
 )
 ```
+
+### Filter Sort Field Validation
+
+No additional validation needed. Filters can only store `default_sort_by` values from `FilterSortByOption = Literal["created_at", "updated_at", "last_used_at", "title"]` (defined in `schemas/content_filter.py`). All 4 list endpoints accept these fields, so a filter's sort defaults are always valid across all endpoints. The schema explicitly excludes `archived_at` and `deleted_at` from filter defaults.
