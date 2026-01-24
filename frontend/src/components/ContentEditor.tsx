@@ -39,6 +39,9 @@ export type EditorMode = 'markdown' | 'text'
 /** localStorage key for wrap text preference */
 const WRAP_TEXT_KEY = 'editor_wrap_text'
 
+/** localStorage key for line numbers preference */
+const LINE_NUMBERS_KEY = 'editor_line_numbers'
+
 /**
  * Load wrap text preference from localStorage.
  * Defaults to true (wrap on) if not set.
@@ -58,6 +61,30 @@ function loadWrapTextPreference(): boolean {
 function saveWrapTextPreference(wrap: boolean): void {
   try {
     localStorage.setItem(WRAP_TEXT_KEY, String(wrap))
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+/**
+ * Load line numbers preference from localStorage.
+ * Defaults to false (line numbers off) if not set.
+ */
+function loadLineNumbersPreference(): boolean {
+  try {
+    const stored = localStorage.getItem(LINE_NUMBERS_KEY)
+    return stored === 'true'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Save line numbers preference to localStorage.
+ */
+function saveLineNumbersPreference(show: boolean): void {
+  try {
+    localStorage.setItem(LINE_NUMBERS_KEY, String(show))
   } catch {
     // Ignore storage errors
   }
@@ -149,6 +176,15 @@ export function ContentEditor({
   const handleWrapTextChange = useCallback((wrap: boolean): void => {
     setWrapText(wrap)
     saveWrapTextPreference(wrap)
+  }, [])
+
+  // Line numbers preference
+  const [showLineNumbers, setShowLineNumbers] = useState(loadLineNumbersPreference)
+
+  // Handle line numbers change
+  const handleLineNumbersChange = useCallback((show: boolean): void => {
+    setShowLineNumbers(show)
+    saveLineNumbersPreference(show)
   }, [])
 
   // Note: Option+Z (wrap toggle) handler moved to CodeMirrorEditor
@@ -259,6 +295,8 @@ export function ContentEditor({
           placeholder={placeholder}
           wrapText={wrapText}
           onWrapTextChange={handleWrapTextChange}
+          showLineNumbers={showLineNumbers}
+          onLineNumbersChange={handleLineNumbersChange}
           noPadding={subtleBorder || !showBorder}
           copyContent={value}
           showJinjaTools={showJinjaTools}

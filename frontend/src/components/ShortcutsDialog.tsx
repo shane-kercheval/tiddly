@@ -52,27 +52,34 @@ const leftColumnGroups: ShortcutGroup[] = [
       { keys: ['\u2318', '/'], description: 'Show shortcuts' },
       { keys: ['\u2318', '\u21E7', 'M'], description: 'Toggle reading mode' },
       { keys: ['\u2325', 'Z'], description: 'Toggle word wrap' },
+      { keys: ['\u2325', 'L'], description: 'Toggle line numbers' },
     ],
   },
 ]
 
 // Right column: Markdown Editor formatting shortcuts
+// Order matches toolbar layout in CodeMirrorEditor
 const rightColumnGroups: ShortcutGroup[] = [
   {
     title: 'Markdown Editor',
     shortcuts: [
+      // Text formatting (matches toolbar order)
       { keys: ['\u2318', 'B'], description: 'Bold' },
       { keys: ['\u2318', 'I'], description: 'Italic' },
       { keys: ['\u2318', '\u21E7', 'X'], description: 'Strikethrough' },
-      { keys: ['\u2318', 'E'], description: 'Inline code' },
-      { keys: ['\u2318', '\u21E7', 'C'], description: 'Code block' },
-      { keys: ['\u2318', 'K'], description: 'Insert/edit link' },
-      { keys: ['\u2318', 'Click'], description: 'Open link in new tab' },
+      { keys: ['\u2318', '\u21E7', 'H'], description: 'Highlight' },
       { keys: ['\u2318', '\u21E7', '.'], description: 'Blockquote' },
-      { keys: ['\u2318', '\u21E7', '-'], description: 'Horizontal rule' },
-      { keys: ['\u2318', '\u21E7', '7'], description: 'Bullet list' },
-      { keys: ['\u2318', '\u21E7', '8'], description: 'Numbered list' },
+      // Code
+      { keys: ['\u2318', 'E'], description: 'Inline code' },
+      { keys: ['\u2318', '\u21E7', 'E'], description: 'Code block' },
+      // Lists (Notion convention: 7=numbered, 8=bullet, 9=task)
+      { keys: ['\u2318', '\u21E7', '8'], description: 'Bullet list' },
+      { keys: ['\u2318', '\u21E7', '7'], description: 'Numbered list' },
       { keys: ['\u2318', '\u21E7', '9'], description: 'Task list' },
+      // Links and other
+      { keys: ['\u2318', 'K'], description: 'Insert link' },
+      { keys: ['\u2318', '\u21E7', '-'], description: 'Horizontal rule' },
+      { keys: ['\u2318', 'Click'], description: 'Open link in new tab' },
     ],
   },
 ]

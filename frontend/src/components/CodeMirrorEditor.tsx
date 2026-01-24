@@ -33,6 +33,9 @@ import {
   JinjaVariableIcon,
   JinjaIfIcon,
   JinjaIfTrimIcon,
+  WrapIcon,
+  LineNumbersIcon,
+  ReadingIcon,
 } from './editor/EditorToolbarIcons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
 import { wasEditorFocused } from '../utils/editorUtils'
@@ -52,6 +55,10 @@ interface CodeMirrorEditorProps {
   wrapText?: boolean
   /** Called when wrap text preference changes */
   onWrapTextChange?: (wrap: boolean) => void
+  /** Whether to show line numbers */
+  showLineNumbers?: boolean
+  /** Called when line numbers preference changes */
+  onLineNumbersChange?: (show: boolean) => void
   /** Remove padding to align text with other elements */
   noPadding?: boolean
   /** Whether to auto-focus on mount */
@@ -230,13 +237,22 @@ function dispatchGlobalShortcut(key: string, metaKey: boolean): void {
  */
 function createMarkdownKeyBindings(): KeyBinding[] {
   return [
-    // Formatting shortcuts
+    // Text formatting
     { key: 'Mod-b', run: (view) => wrapWithMarkers(view, '**', '**') },
     { key: 'Mod-i', run: (view) => wrapWithMarkers(view, '*', '*') },
-    { key: 'Mod-k', run: (view) => insertLink(view) },
     { key: 'Mod-Shift-x', run: (view) => wrapWithMarkers(view, '~~', '~~') },
     { key: 'Mod-Shift-h', run: (view) => wrapWithMarkers(view, '==', '==') },
-    { key: 'Mod-Shift-7', run: (view) => toggleLinePrefix(view, '- [ ] ') },
+    { key: 'Mod-Shift-.', run: (view) => toggleLinePrefix(view, '> ') },
+    // Code
+    { key: 'Mod-e', run: (view) => wrapWithMarkers(view, '`', '`') },
+    { key: 'Mod-Shift-e', run: (view) => insertCodeBlock(view) },
+    // Lists (Notion convention: 7=numbered, 8=bullet, 9=task)
+    { key: 'Mod-Shift-7', run: (view) => toggleLinePrefix(view, '1. ') },
+    { key: 'Mod-Shift-8', run: (view) => toggleLinePrefix(view, '- ') },
+    { key: 'Mod-Shift-9', run: (view) => toggleLinePrefix(view, '- [ ] ') },
+    // Links and other
+    { key: 'Mod-k', run: (view) => insertLink(view) },
+    { key: 'Mod-Shift--', run: (view) => insertHorizontalRule(view) },
     // Pass through to global handlers (consume event, then dispatch globally)
     {
       key: 'Mod-/',
@@ -309,6 +325,8 @@ export function CodeMirrorEditor({
   placeholder = 'Write your content in markdown...',
   wrapText = false,
   onWrapTextChange,
+  showLineNumbers = false,
+  onLineNumbersChange,
   noPadding = false,
   autoFocus = false,
   copyContent,
@@ -374,12 +392,20 @@ export function CodeMirrorEditor({
         e.preventDefault()
         e.stopPropagation()
         onWrapTextChange(!wrapText)
+        return
+      }
+
+      // Option+L (Alt+L) - toggle line numbers (only when not in reading mode)
+      if (e.altKey && e.code === 'KeyL' && !effectiveReadingMode && onLineNumbersChange) {
+        e.preventDefault()
+        e.stopPropagation()
+        onLineNumbersChange(!showLineNumbers)
       }
     }
 
     document.addEventListener('keydown', handleKeyDown, true)
     return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange])
+  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange, showLineNumbers, onLineNumbersChange])
 
   // Get the EditorView from ref
   const getView = useCallback((): EditorView | undefined => {
@@ -455,30 +481,30 @@ export function CodeMirrorEditor({
           <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '==', '=='))} title="Highlight (⌘⇧H)">
             <HighlightIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '> '))} title="Blockquote">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '> '))} title="Blockquote (⌘⇧.)">
             <BlockquoteIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Code */}
-          <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '`', '`'))} title="Inline Code">
+          <ToolbarButton onClick={() => runAction((v) => wrapWithMarkers(v, '`', '`'))} title="Inline Code (⌘E)">
             <InlineCodeIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title="Code Block">
+          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title="Code Block (⌘⇧E)">
             <CodeBlockIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Lists */}
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- '))} title="Bullet List">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- '))} title="Bullet List (⌘⇧8)">
             <BulletListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '1. '))} title="Numbered List">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '1. '))} title="Numbered List (⌘⇧7)">
             <OrderedListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- [ ] '))} title="Task List (⌘⇧7)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, '- [ ] '))} title="Task List (⌘⇧9)">
             <TaskListIcon />
           </ToolbarButton>
 
@@ -488,7 +514,7 @@ export function CodeMirrorEditor({
           <ToolbarButton onClick={() => runAction(insertLink)} title="Insert Link (⌘K)">
             <LinkIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title="Horizontal Rule">
+          <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title="Horizontal Rule (⌘⇧-)">
             <HorizontalRuleIcon />
           </ToolbarButton>
 
@@ -509,9 +535,9 @@ export function CodeMirrorEditor({
           )}
         </div>
 
-        {/* Right: Wrap (fades in), Reading and Copy (always visible) */}
+        {/* Right: Toggle icons (Wrap, Lines, Reading) and Copy */}
         {/* On mobile: 'contents' flattens structure so buttons flow with others. On desktop: stays at right */}
-        <div className="contents md:flex md:items-center md:gap-2 md:ml-auto">
+        <div className="contents md:flex md:items-center md:gap-0.5 md:ml-auto">
           {/* Separator only on mobile (other separators are hidden on mobile) */}
           <div className="w-px h-5 bg-gray-200 mx-1 md:hidden" />
           {/* Wrap toggle - visible on mobile, fades in on focus on desktop, only shown when not in reading mode */}
@@ -528,13 +554,37 @@ export function CodeMirrorEditor({
                 }
               }}
               title="Toggle word wrap (⌥Z)"
-              className={`text-xs px-2 py-0.5 rounded transition-all flex-shrink-0 md:opacity-0 md:group-focus-within/editor:opacity-100 ${
+              className={`p-1.5 rounded transition-colors flex-shrink-0 md:opacity-0 md:group-focus-within/editor:opacity-100 ${
                 wrapText
-                  ? 'bg-gray-200 text-gray-700'
-                  : 'border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-              } ${disabled ? 'cursor-not-allowed' : ''}`}
+                  ? 'text-gray-700 bg-gray-200'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+              } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
             >
-              Wrap
+              <WrapIcon />
+            </button>
+          )}
+
+          {/* Line numbers toggle - visible on mobile, fades in on focus on desktop, only shown when not in reading mode */}
+          {onLineNumbersChange && !effectiveReadingMode && (
+            <button
+              type="button"
+              tabIndex={-1}
+              disabled={disabled}
+              onMouseDown={(e) => {
+                const isMobileView = window.innerWidth < 768
+                if (!disabled && (isMobileView || wasEditorFocused(e.currentTarget))) {
+                  e.preventDefault()
+                  onLineNumbersChange(!showLineNumbers)
+                }
+              }}
+              title="Toggle line numbers (⌥L)"
+              className={`p-1.5 rounded transition-colors flex-shrink-0 md:opacity-0 md:group-focus-within/editor:opacity-100 ${
+                showLineNumbers
+                  ? 'text-gray-700 bg-gray-200'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+              } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+            >
+              <LineNumbersIcon />
             </button>
           )}
 
@@ -550,13 +600,13 @@ export function CodeMirrorEditor({
               }
             }}
             title="Toggle reading mode (⌘⇧M)"
-            className={`text-xs px-2 py-0.5 rounded transition-all flex-shrink-0 ${
+            className={`p-1.5 rounded transition-colors flex-shrink-0 ${
               effectiveReadingMode
-                ? 'bg-gray-200 text-gray-700'
-                : 'border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-            } ${disabled ? 'cursor-not-allowed' : ''}`}
+                ? 'text-gray-700 bg-gray-200'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+            } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
           >
-            Reading
+            <ReadingIcon />
           </button>
 
           {/* Copy button - always visible but disabled when editor is disabled */}
@@ -589,7 +639,7 @@ export function CodeMirrorEditor({
             editable={!disabled}
             autoFocus={autoFocus}
             basicSetup={{
-              lineNumbers: false,
+              lineNumbers: showLineNumbers,
               foldGutter: false,
               highlightActiveLine: false,
             }}
