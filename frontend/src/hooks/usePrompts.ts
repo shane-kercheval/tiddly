@@ -16,7 +16,7 @@ interface UsePromptsReturn {
   /** Fetch a single prompt by ID (with full content for viewing/editing) */
   fetchPrompt: (id: string) => Promise<Prompt>
   /** Fetch prompt metadata only (lightweight, for stale checking) */
-  fetchPromptMetadata: (id: string) => Promise<PromptListItem>
+  fetchPromptMetadataNoCache: (id: string) => Promise<PromptListItem>
   /** Track prompt usage (fire-and-forget) */
   trackPromptUsage: (id: string) => void
   /** Render a prompt with the given arguments */
@@ -28,13 +28,13 @@ interface UsePromptsReturn {
  *
  * @example
  * ```tsx
- * const { fetchPrompt, fetchPromptMetadata, trackPromptUsage, renderPrompt } = usePrompts()
+ * const { fetchPrompt, fetchPromptMetadataNoCache, trackPromptUsage, renderPrompt } = usePrompts()
  *
  * // Fetch full prompt for viewing/editing
  * const prompt = await fetchPrompt(id)
  *
  * // Fetch lightweight metadata (for stale checking)
- * const metadata = await fetchPromptMetadata(id)
+ * const metadata = await fetchPromptMetadataNoCache(id)
  *
  * // Track when user views a prompt
  * trackPromptUsage(id)
@@ -49,7 +49,7 @@ export function usePrompts(): UsePromptsReturn {
     return response.data
   }, [])
 
-  const fetchPromptMetadata = useCallback(async (id: string): Promise<PromptListItem> => {
+  const fetchPromptMetadataNoCache = useCallback(async (id: string): Promise<PromptListItem> => {
     // Cache-bust to prevent Safari from returning stale cached responses
     const response = await api.get<PromptListItem>(`/prompts/${id}/metadata`, {
       params: { _t: Date.now() },
@@ -75,7 +75,7 @@ export function usePrompts(): UsePromptsReturn {
 
   return {
     fetchPrompt,
-    fetchPromptMetadata,
+    fetchPromptMetadataNoCache,
     trackPromptUsage,
     renderPrompt,
   }

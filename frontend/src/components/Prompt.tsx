@@ -179,11 +179,11 @@ export function Prompt({
   const isCreate = !prompt
 
   // Stale check hook
-  const { fetchPromptMetadata } = usePrompts()
+  const { fetchPromptMetadataNoCache } = usePrompts()
   const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
-    const metadata = await fetchPromptMetadata(id)
+    const metadata = await fetchPromptMetadataNoCache(id)
     return metadata.updated_at
-  }, [fetchPromptMetadata])
+  }, [fetchPromptMetadataNoCache])
   const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
     entityId: prompt?.id,
     loadedUpdatedAt: prompt?.updated_at,

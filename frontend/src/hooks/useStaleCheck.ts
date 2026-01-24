@@ -10,7 +10,7 @@
  * const { isStale, isDeleted, serverUpdatedAt, dismiss } = useStaleCheck({
  *   entityId: note?.id,
  *   loadedUpdatedAt: note?.updated_at,
- *   fetchUpdatedAt: (id) => fetchNoteMetadata(id).then(m => m.updated_at),
+ *   fetchUpdatedAt: (id) => fetchNoteMetadataNoCache(id).then(m => m.updated_at),
  * })
  *
  * // Show StaleDialog when isStale is true

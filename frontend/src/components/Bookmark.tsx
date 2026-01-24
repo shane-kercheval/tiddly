@@ -139,11 +139,11 @@ export function Bookmark({
   const isCreate = !bookmark
 
   // Stale check hook
-  const { fetchBookmarkMetadata } = useBookmarks()
+  const { fetchBookmarkMetadataNoCache } = useBookmarks()
   const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
-    const metadata = await fetchBookmarkMetadata(id)
+    const metadata = await fetchBookmarkMetadataNoCache(id)
     return metadata.updated_at
-  }, [fetchBookmarkMetadata])
+  }, [fetchBookmarkMetadataNoCache])
   const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
     entityId: bookmark?.id,
     loadedUpdatedAt: bookmark?.updated_at,

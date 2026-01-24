@@ -112,11 +112,11 @@ export function Note({
   const isCreate = !note
 
   // Stale check hook
-  const { fetchNoteMetadata } = useNotes()
+  const { fetchNoteMetadataNoCache } = useNotes()
   const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
-    const metadata = await fetchNoteMetadata(id)
+    const metadata = await fetchNoteMetadataNoCache(id)
     return metadata.updated_at
-  }, [fetchNoteMetadata])
+  }, [fetchNoteMetadataNoCache])
   const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
     entityId: note?.id,
     loadedUpdatedAt: note?.updated_at,
