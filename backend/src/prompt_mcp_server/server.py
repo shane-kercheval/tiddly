@@ -950,7 +950,7 @@ async def _handle_get_prompt_metadata(
     ]
 
 
-async def _handle_create_prompt(arguments: dict[str, Any]) -> list[types.TextContent]:
+async def _handle_create_prompt(arguments: dict[str, Any]) -> types.CallToolResult:
     """Handle create_prompt tool call."""
     client = get_http_client()
     token = _get_token()
@@ -981,12 +981,19 @@ async def _handle_create_prompt(arguments: dict[str, Any]) -> list[types.TextCon
             ),
         ) from e
 
-    return [
-        types.TextContent(
+    response_data = {
+        "id": result.get("id"),
+        "name": result.get("name"),
+        "updated_at": result.get("updated_at"),
+        "summary": f"Created prompt '{result['name']}'",
+    }
+    return types.CallToolResult(
+        content=[types.TextContent(
             type="text",
-            text=f"Created prompt '{result['name']}' (ID: {result['id']})",
-        ),
-    ]
+            text=json.dumps(response_data, indent=2),
+        )],
+        structuredContent=response_data,
+    )
 
 
 async def _handle_edit_prompt_template(
@@ -1059,15 +1066,17 @@ async def _handle_edit_prompt_template(
             try:
                 error_detail = e.response.json().get("detail", {})
                 if isinstance(error_detail, dict):
-                    error_text = json.dumps(error_detail)
+                    error_data = error_detail
                 else:
                     # String error (e.g., template validation)
-                    error_text = json.dumps({
+                    error_data = {
                         "error": "validation_error",
                         "message": str(error_detail),
-                    })
+                    }
+                error_text = json.dumps(error_data, indent=2)
                 return types.CallToolResult(
                     content=[types.TextContent(type="text", text=error_text)],
+                    structuredContent=error_data,
                     isError=True,
                 )
             except (ValueError, KeyError):
@@ -1085,14 +1094,22 @@ async def _handle_edit_prompt_template(
     match_type = result.get("match_type", "exact")
     line = result.get("line", 0)
     data = result.get("data", {})
-    prompt_id = data.get("id", "")
 
-    return [
-        types.TextContent(
+    response_data = {
+        "id": data.get("id"),
+        "name": data.get("name", prompt_name),
+        "updated_at": data.get("updated_at"),
+        "match_type": match_type,
+        "line": line,
+        "summary": f"Updated prompt '{prompt_name}' (match: {match_type} at line {line})",
+    }
+    return types.CallToolResult(
+        content=[types.TextContent(
             type="text",
-            text=f"Updated prompt '{prompt_name}' (ID: {prompt_id}, match: {match_type} at line {line})",  # noqa: E501
-        ),
-    ]
+            text=json.dumps(response_data, indent=2),
+        )],
+        structuredContent=response_data,
+    )
 
 
 async def _handle_update_prompt(

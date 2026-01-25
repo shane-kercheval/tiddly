@@ -173,6 +173,8 @@ async def test__create_prompt_tool__creates_in_db(
     mcp_integration_client: AsyncClient,
 ) -> None:
     """Test create_prompt tool creates prompt in real database."""
+    from mcp import types
+
     result = await handle_call_tool(
         "create_prompt",
         {
@@ -183,8 +185,9 @@ async def test__create_prompt_tool__creates_in_db(
         },
     )
 
-    assert len(result) == 1
-    assert "integration-test-prompt" in result[0].text
+    # Returns CallToolResult with structuredContent
+    assert isinstance(result, types.CallToolResult)
+    assert result.structuredContent["name"] == "integration-test-prompt"
 
     # Verify it exists in database via API
     response = await mcp_integration_client.get("/prompts/name/integration-test-prompt")

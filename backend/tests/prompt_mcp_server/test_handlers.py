@@ -528,7 +528,10 @@ async def test__get_prompt_template_tool__api_unavailable(
 
 @pytest.mark.asyncio
 async def test__create_prompt_tool__creates_prompt(mock_api, mock_auth) -> None:  # noqa: ARG001
-    """Test create_prompt tool creates a prompt."""
+    """Test create_prompt tool creates a prompt and returns structured response."""
+    import json
+    from mcp import types
+
     created_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440010",
         "name": "new-prompt",
@@ -537,6 +540,7 @@ async def test__create_prompt_tool__creates_prompt(mock_api, mock_auth) -> None:
         "content": None,
         "arguments": [],
         "tags": [],
+        "updated_at": "2024-01-01T00:00:00Z",
     }
     mock_api.post("/prompts/").mock(
         return_value=Response(201, json=created_prompt),
@@ -544,14 +548,24 @@ async def test__create_prompt_tool__creates_prompt(mock_api, mock_auth) -> None:
 
     result = await handle_call_tool("create_prompt", {"name": "new-prompt"})
 
-    assert len(result) == 1
-    assert "new-prompt" in result[0].text
-    assert "ID: 550e8400-e29b-41d4-a716-446655440010" in result[0].text
+    # Returns CallToolResult with structuredContent
+    assert isinstance(result, types.CallToolResult)
+    assert result.structuredContent["id"] == "550e8400-e29b-41d4-a716-446655440010"
+    assert result.structuredContent["name"] == "new-prompt"
+    assert result.structuredContent["updated_at"] == "2024-01-01T00:00:00Z"
+    assert "Created prompt 'new-prompt'" in result.structuredContent["summary"]
+
+    # Text content also has the response as JSON
+    response_data = json.loads(result.content[0].text)
+    assert response_data["id"] == "550e8400-e29b-41d4-a716-446655440010"
 
 
 @pytest.mark.asyncio
 async def test__create_prompt_tool__creates_with_arguments(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test create_prompt tool with arguments."""
+    import json
+    from mcp import types
+
     created_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440011",
         "name": "with-args",
@@ -560,6 +574,7 @@ async def test__create_prompt_tool__creates_with_arguments(mock_api, mock_auth) 
         "content": "Hello {{ name }}",
         "arguments": [{"name": "name", "required": True}],
         "tags": [],
+        "updated_at": "2024-01-01T00:00:00Z",
     }
     mock_api.post("/prompts/").mock(
         return_value=Response(201, json=created_prompt),
@@ -576,11 +591,12 @@ async def test__create_prompt_tool__creates_with_arguments(mock_api, mock_auth) 
         },
     )
 
-    assert "with-args" in result[0].text
+    # Returns CallToolResult with structuredContent
+    assert isinstance(result, types.CallToolResult)
+    assert result.structuredContent["name"] == "with-args"
 
     # Verify payload was sent correctly
     request_body = mock_api.calls[0].request.content
-    import json
     payload = json.loads(request_body)
     assert payload["name"] == "with-args"
     assert payload["content"] == "Hello {{ name }}"
@@ -589,6 +605,8 @@ async def test__create_prompt_tool__creates_with_arguments(mock_api, mock_auth) 
 @pytest.mark.asyncio
 async def test__create_prompt_tool__creates_with_tags(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test create_prompt tool with tags."""
+    import json
+
     created_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440012",
         "name": "tagged",
@@ -597,6 +615,7 @@ async def test__create_prompt_tool__creates_with_tags(mock_api, mock_auth) -> No
         "content": None,
         "arguments": [],
         "tags": ["test", "example"],
+        "updated_at": "2024-01-01T00:00:00Z",
     }
     mock_api.post("/prompts/").mock(
         return_value=Response(201, json=created_prompt),
@@ -607,7 +626,6 @@ async def test__create_prompt_tool__creates_with_tags(mock_api, mock_auth) -> No
         {"name": "tagged", "tags": ["test", "example"]},
     )
 
-    import json
     payload = json.loads(mock_api.calls[0].request.content)
     assert payload["tags"] == ["test", "example"]
 
@@ -824,7 +842,10 @@ async def test__list_tags__returns_all_tags(
 
 @pytest.mark.asyncio
 async def test__edit_prompt_template_tool__updates_content(mock_api, mock_auth) -> None:  # noqa: ARG001
-    """Test edit_prompt_template tool performs str-replace successfully."""
+    """Test edit_prompt_template tool performs str-replace and returns structured response."""
+    import json
+    from mcp import types
+
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440010",
         "name": "test-prompt",
@@ -833,6 +854,7 @@ async def test__edit_prompt_template_tool__updates_content(mock_api, mock_auth) 
         "content": "Hello world!",
         "arguments": [],
         "tags": [],
+        "updated_at": "2024-01-01T00:00:00Z",
     }
     mock_api.patch("/prompts/name/test-prompt/str-replace").mock(
         return_value=Response(
@@ -854,16 +876,27 @@ async def test__edit_prompt_template_tool__updates_content(mock_api, mock_auth) 
         },
     )
 
-    assert len(result) == 1
-    assert "test-prompt" in result[0].text
-    assert "exact" in result[0].text
-    assert "line 1" in result[0].text
+    # Returns CallToolResult with structuredContent
+    assert isinstance(result, types.CallToolResult)
+    assert result.structuredContent["id"] == "550e8400-e29b-41d4-a716-446655440010"
+    assert result.structuredContent["name"] == "test-prompt"
+    assert result.structuredContent["updated_at"] == "2024-01-01T00:00:00Z"
+    assert result.structuredContent["match_type"] == "exact"
+    assert result.structuredContent["line"] == 1
+    assert "test-prompt" in result.structuredContent["summary"]
+    assert "exact" in result.structuredContent["summary"]
+    assert "line 1" in result.structuredContent["summary"]
+
+    # Text content also has the response as JSON
+    response_data = json.loads(result.content[0].text)
+    assert response_data["id"] == "550e8400-e29b-41d4-a716-446655440010"
 
 
 @pytest.mark.asyncio
 async def test__edit_prompt_template_tool__with_arguments(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test edit_prompt_template tool with atomic arguments update."""
     import json
+    from mcp import types
 
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440011",
@@ -873,6 +906,7 @@ async def test__edit_prompt_template_tool__with_arguments(mock_api, mock_auth) -
         "content": "Hello {{ name }}!",
         "arguments": [{"name": "name", "required": True}],
         "tags": [],
+        "updated_at": "2024-01-01T00:00:00Z",
     }
     mock_api.patch("/prompts/name/with-new-var/str-replace").mock(
         return_value=Response(
@@ -895,7 +929,9 @@ async def test__edit_prompt_template_tool__with_arguments(mock_api, mock_auth) -
         },
     )
 
-    assert "with-new-var" in result[0].text
+    # Returns CallToolResult with structuredContent
+    assert isinstance(result, types.CallToolResult)
+    assert result.structuredContent["name"] == "with-new-var"
 
     # Verify payload included arguments
     payload = json.loads(mock_api.calls[0].request.content)
@@ -909,12 +945,15 @@ async def test__edit_prompt_template_tool__whitespace_normalized_match(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test edit_prompt_template tool reports whitespace_normalized match type."""
+    from mcp import types
+
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440012",
         "name": "normalized",
         "content": "Updated content",
         "arguments": [],
         "tags": [],
+        "updated_at": "2024-01-01T00:00:00Z",
     }
     mock_api.patch("/prompts/name/normalized/str-replace").mock(
         return_value=Response(
@@ -936,13 +975,19 @@ async def test__edit_prompt_template_tool__whitespace_normalized_match(
         },
     )
 
-    assert "whitespace_normalized" in result[0].text
-    assert "line 5" in result[0].text
+    # Returns CallToolResult with structuredContent
+    assert isinstance(result, types.CallToolResult)
+    assert result.structuredContent["match_type"] == "whitespace_normalized"
+    assert result.structuredContent["line"] == 5
+    assert "whitespace_normalized" in result.structuredContent["summary"]
+    assert "line 5" in result.structuredContent["summary"]
 
 
 @pytest.mark.asyncio
 async def test__edit_prompt_template_tool__no_match_error(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test edit_prompt_template tool returns structured error when no match found."""
+    from mcp import types
+
     mock_api.patch("/prompts/name/no-match-test/str-replace").mock(
         return_value=Response(
             400,
@@ -965,16 +1010,12 @@ async def test__edit_prompt_template_tool__no_match_error(mock_api, mock_auth) -
         },
     )
 
-    # Returns CallToolResult with isError=True per MCP spec
-    import json
-    from mcp import types
-
+    # Returns CallToolResult with isError=True and structuredContent per MCP spec
     assert isinstance(result, types.CallToolResult)
     assert result.isError is True
-    assert len(result.content) == 1
-    error_data = json.loads(result.content[0].text)
-    assert error_data["error"] == "no_match"
-    assert "not found" in error_data["message"].lower()
+    assert result.structuredContent["error"] == "no_match"
+    assert "not found" in result.structuredContent["message"].lower()
+    assert result.structuredContent["suggestion"] == "Verify the text exists and check for whitespace differences"
 
 
 @pytest.mark.asyncio
@@ -982,6 +1023,8 @@ async def test__edit_prompt_template_tool__multiple_matches_error(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test edit_prompt_template tool returns structured error with match locations."""
+    from mcp import types
+
     mock_api.patch("/prompts/name/multi-match-test/str-replace").mock(
         return_value=Response(
             400,
@@ -1007,18 +1050,13 @@ async def test__edit_prompt_template_tool__multiple_matches_error(
         },
     )
 
-    # Returns CallToolResult with isError=True per MCP spec
-    import json
-    from mcp import types
-
+    # Returns CallToolResult with isError=True and structuredContent per MCP spec
     assert isinstance(result, types.CallToolResult)
     assert result.isError is True
-    assert len(result.content) == 1
-    error_data = json.loads(result.content[0].text)
-    assert error_data["error"] == "multiple_matches"
-    assert len(error_data["matches"]) == 2
-    assert error_data["matches"][0]["line"] == 5
-    assert error_data["matches"][1]["line"] == 12
+    assert result.structuredContent["error"] == "multiple_matches"
+    assert len(result.structuredContent["matches"]) == 2
+    assert result.structuredContent["matches"][0]["line"] == 5
+    assert result.structuredContent["matches"][1]["line"] == 12
 
 
 @pytest.mark.asyncio
@@ -1026,6 +1064,8 @@ async def test__edit_prompt_template_tool__template_validation_error(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test edit_prompt_template tool handles template validation error (string detail)."""
+    from mcp import types
+
     mock_api.patch("/prompts/name/validation-test/str-replace").mock(
         return_value=Response(
             400,
@@ -1044,16 +1084,11 @@ async def test__edit_prompt_template_tool__template_validation_error(
         },
     )
 
-    # Returns CallToolResult with isError=True per MCP spec
-    import json
-    from mcp import types
-
+    # Returns CallToolResult with isError=True and structuredContent per MCP spec
     assert isinstance(result, types.CallToolResult)
     assert result.isError is True
-    assert len(result.content) == 1
-    error_data = json.loads(result.content[0].text)
-    assert error_data["error"] == "validation_error"
-    assert "undefined variable" in error_data["message"].lower()
+    assert result.structuredContent["error"] == "validation_error"
+    assert "undefined variable" in result.structuredContent["message"].lower()
 
 
 @pytest.mark.asyncio
@@ -1125,12 +1160,15 @@ async def test__edit_prompt_template_tool__empty_new_str_allowed(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test edit_prompt_template tool allows empty new_str for deletion."""
+    from mcp import types
+
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440016",
         "name": "deleted-text",
         "content": "Remaining content",
         "arguments": [],
         "tags": [],
+        "updated_at": "2024-01-01T00:00:00Z",
     }
     mock_api.patch("/prompts/name/deleted-text/str-replace").mock(
         return_value=Response(
@@ -1152,7 +1190,9 @@ async def test__edit_prompt_template_tool__empty_new_str_allowed(
         },
     )
 
-    assert "deleted-text" in result[0].text
+    # Returns CallToolResult with structuredContent
+    assert isinstance(result, types.CallToolResult)
+    assert result.structuredContent["name"] == "deleted-text"
 
 
 @pytest.mark.asyncio
