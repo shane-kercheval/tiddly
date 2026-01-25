@@ -5,11 +5,13 @@ Note: mock_auth fixture is used for its side effect (patching get_bearer_token).
 Tests that use mock_auth but don't reference it directly have ARG001 noqa comments.
 """
 
+import json
 from typing import Any
 
 import httpx
 import pytest
 from httpx import Response
+from mcp import types
 from mcp.shared.exceptions import McpError
 
 from prompt_mcp_server.server import (
@@ -434,8 +436,6 @@ async def test__get_prompt_template_tool__returns_raw_content(
     sample_prompt: dict[str, Any],
 ) -> None:
     """Test get_prompt_template returns raw template content as JSON."""
-    import json
-
     mock_api.get("/prompts/name/code-review").mock(
         return_value=Response(200, json=sample_prompt),
     )
@@ -462,8 +462,6 @@ async def test__get_prompt_template_tool__includes_all_metadata(
     sample_prompt: dict[str, Any],
 ) -> None:
     """Test get_prompt_template includes all metadata fields."""
-    import json
-
     mock_api.get("/prompts/name/code-review").mock(
         return_value=Response(200, json=sample_prompt),
     )
@@ -529,9 +527,6 @@ async def test__get_prompt_template_tool__api_unavailable(
 @pytest.mark.asyncio
 async def test__create_prompt_tool__creates_prompt(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test create_prompt tool creates a prompt and returns structured response."""
-    import json
-    from mcp import types
-
     created_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440010",
         "name": "new-prompt",
@@ -563,9 +558,6 @@ async def test__create_prompt_tool__creates_prompt(mock_api, mock_auth) -> None:
 @pytest.mark.asyncio
 async def test__create_prompt_tool__creates_with_arguments(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test create_prompt tool with arguments."""
-    import json
-    from mcp import types
-
     created_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440011",
         "name": "with-args",
@@ -605,8 +597,6 @@ async def test__create_prompt_tool__creates_with_arguments(mock_api, mock_auth) 
 @pytest.mark.asyncio
 async def test__create_prompt_tool__creates_with_tags(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test create_prompt tool with tags."""
-    import json
-
     created_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440012",
         "name": "tagged",
@@ -732,7 +722,7 @@ async def test__search_prompts__no_params__returns_all(
 
     result = await handle_call_tool("search_prompts", {})
 
-    import json
+
     data = json.loads(result[0].text)
     assert data["total"] == 1
     assert len(data["items"]) == 1
@@ -806,7 +796,7 @@ async def test__search_prompts__results_include_length_and_preview(
 
     result = await handle_call_tool("search_prompts", {})
 
-    import json
+
     data = json.loads(result[0].text)
     # API returns content_length/content_preview, MCP translates to prompt_length/prompt_preview
     assert data["items"][0]["prompt_length"] == 500
@@ -831,7 +821,7 @@ async def test__list_tags__returns_all_tags(
 
     result = await handle_call_tool("list_tags", {})
 
-    import json
+
     data = json.loads(result[0].text)
     assert len(data["tags"]) == 3
     assert data["tags"][0]["name"] == "python"
@@ -843,9 +833,6 @@ async def test__list_tags__returns_all_tags(
 @pytest.mark.asyncio
 async def test__edit_prompt_template_tool__updates_content(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test edit_prompt_template tool performs str-replace and returns structured response."""
-    import json
-    from mcp import types
-
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440010",
         "name": "test-prompt",
@@ -895,9 +882,6 @@ async def test__edit_prompt_template_tool__updates_content(mock_api, mock_auth) 
 @pytest.mark.asyncio
 async def test__edit_prompt_template_tool__with_arguments(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test edit_prompt_template tool with atomic arguments update."""
-    import json
-    from mcp import types
-
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440011",
         "name": "with-new-var",
@@ -945,8 +929,6 @@ async def test__edit_prompt_template_tool__whitespace_normalized_match(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test edit_prompt_template tool reports whitespace_normalized match type."""
-    from mcp import types
-
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440012",
         "name": "normalized",
@@ -986,8 +968,6 @@ async def test__edit_prompt_template_tool__whitespace_normalized_match(
 @pytest.mark.asyncio
 async def test__edit_prompt_template_tool__no_match_error(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test edit_prompt_template tool returns structured error when no match found."""
-    from mcp import types
-
     mock_api.patch("/prompts/name/no-match-test/str-replace").mock(
         return_value=Response(
             400,
@@ -1023,8 +1003,6 @@ async def test__edit_prompt_template_tool__multiple_matches_error(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test edit_prompt_template tool returns structured error with match locations."""
-    from mcp import types
-
     mock_api.patch("/prompts/name/multi-match-test/str-replace").mock(
         return_value=Response(
             400,
@@ -1064,8 +1042,6 @@ async def test__edit_prompt_template_tool__template_validation_error(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test edit_prompt_template tool handles template validation error (string detail)."""
-    from mcp import types
-
     mock_api.patch("/prompts/name/validation-test/str-replace").mock(
         return_value=Response(
             400,
@@ -1160,8 +1136,6 @@ async def test__edit_prompt_template_tool__empty_new_str_allowed(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test edit_prompt_template tool allows empty new_str for deletion."""
-    from mcp import types
-
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440016",
         "name": "deleted-text",
@@ -1219,8 +1193,6 @@ async def test__update_prompt_tool__updates_title(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test update_prompt tool updates title and returns structured response."""
-    import json
-
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440020",
         "name": "test-prompt",
@@ -1258,8 +1230,6 @@ async def test__update_prompt_tool__updates_tags(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test update_prompt tool updates tags."""
-    import json
-
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440021",
         "name": "test-prompt",
@@ -1291,8 +1261,6 @@ async def test__update_prompt_tool__renames_prompt(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test update_prompt tool renames prompt."""
-    import json
-
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440022",
         "name": "new-name",
@@ -1324,8 +1292,6 @@ async def test__update_prompt_tool__content_replacement(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test update_prompt tool replaces content."""
-    import json
-
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440024",
         "name": "test-prompt",
@@ -1357,8 +1323,6 @@ async def test__update_prompt_tool__content_and_arguments_together(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test update_prompt tool replaces content and arguments together."""
-    import json
-
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440025",
         "name": "test-prompt",
@@ -1396,8 +1360,6 @@ async def test__update_prompt_tool__with_expected_updated_at_success(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test update_prompt with valid expected_updated_at succeeds."""
-    import json
-
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440026",
         "name": "test-prompt",
@@ -1745,7 +1707,7 @@ async def test__get_prompt_metadata__returns_length_and_preview(
 
     result = await handle_call_tool("get_prompt_metadata", {"name": "code-review"})
 
-    import json
+
     data = json.loads(result[0].text)
     # API returns content_length/content_preview, MCP translates to prompt_length/prompt_preview
     assert data["prompt_length"] == 1500
@@ -1805,7 +1767,7 @@ async def test__get_prompt_template__with_start_end_line__returns_partial(
         {"name": "code-review", "start_line": 5, "end_line": 7},
     )
 
-    import json
+
     data = json.loads(result[0].text)
     assert data["content"] == "Line 5\nLine 6\nLine 7"
     assert data["content_metadata"]["total_lines"] == 100

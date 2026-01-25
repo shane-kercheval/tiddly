@@ -998,7 +998,7 @@ async def _handle_create_prompt(arguments: dict[str, Any]) -> types.CallToolResu
 
 async def _handle_edit_prompt_template(
     arguments: dict[str, Any],
-) -> list[types.TextContent] | types.CallToolResult:
+) -> types.CallToolResult:
     """
     Handle edit_prompt_template tool call.
 
@@ -1006,17 +1006,15 @@ async def _handle_edit_prompt_template(
     Optionally updates arguments atomically with content changes.
 
     Returns:
-        - list[types.TextContent] for success (SDK wraps with isError=False)
-        - types.CallToolResult with isError=True for tool execution errors (400s)
+        CallToolResult with structuredContent containing {id, name, updated_at, match_type,
+        line, summary} on success, or {error, message, ...} with isError=True for tool
+        execution errors (400s like no_match, multiple_matches).
 
     Error handling note:
         This server uses the low-level MCP SDK, which allows returning
-        CallToolResult(isError=True) per MCP spec for tool execution errors
-        (no_match, multiple_matches). This differs from Content MCP which uses
-        FastMCP and cannot set isError=True due to SDK limitations.
-
-        Both approaches return the same structured JSON error data; the difference
-        is only in the isError flag. See implementation plan appendix for rationale.
+        CallToolResult(isError=True) per MCP spec for tool execution errors.
+        This differs from Content MCP which uses FastMCP and cannot set isError=True
+        due to SDK limitations.
     """
     # Validate required parameters first (before accessing HTTP client/token)
     prompt_name = arguments.get("name", "")
@@ -1091,6 +1089,8 @@ async def _handle_edit_prompt_template(
         ) from e
 
     # Success response
+    # API returns: {response_type, match_type, line, data: {id, name, updated_at, ...}}
+    # match_type and line are at top level; entity fields are nested in data
     match_type = result.get("match_type", "exact")
     line = result.get("line", 0)
     data = result.get("data", {})

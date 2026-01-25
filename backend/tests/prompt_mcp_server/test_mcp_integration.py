@@ -5,12 +5,14 @@ These tests verify the MCP handlers work correctly against the actual REST API
 with a real PostgreSQL database (via testcontainers).
 """
 
+import json
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from mcp import types
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from prompt_mcp_server import server as server_module
@@ -173,8 +175,6 @@ async def test__create_prompt_tool__creates_in_db(
     mcp_integration_client: AsyncClient,
 ) -> None:
     """Test create_prompt tool creates prompt in real database."""
-    from mcp import types
-
     result = await handle_call_tool(
         "create_prompt",
         {
@@ -306,8 +306,6 @@ async def test__search_prompts__excludes_archived_prompts(
     mcp_integration_client: AsyncClient,
 ) -> None:
     """Test that archived prompts are not returned by search_prompts tool."""
-    import json
-
     # Create a prompt with a unique name for searching
     response = await mcp_integration_client.post(
         "/prompts/",
