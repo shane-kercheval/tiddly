@@ -24,10 +24,10 @@ The MCP specification added support for **structured content** in tool responses
 
 | Library | Version | Structured Content Support |
 |---------|---------|---------------------------|
-| MCP SDK | 1.24.0 | `CallToolResult.structured_content` field |
+| MCP SDK | 1.24.0 | `CallToolResult.structuredContent` field |
 | FastMCP | 2.14.1 | Automatic - dict returns become structured content |
 
-### How FastMCP Handles Returns
+### How FastMCP Handles Returns (Content MCP Server)
 
 When a tool returns a `dict`, FastMCP automatically provides both formats:
 
@@ -52,6 +52,25 @@ def get_summary() -> str:
 # structured_content: {'result': 'Updated successfully'}  # Less useful for parsing
 ```
 
+### Low-Level SDK Behavior (Prompt MCP Server)
+
+**Important:** The Prompt MCP server uses the low-level MCP SDK (`mcp.server.lowlevel.Server`) because it needs the `prompts` capability for `list_prompts`/`get_prompt`, which FastMCP doesn't support.
+
+Unlike FastMCP, the low-level SDK does **NOT** auto-promote dicts to `structuredContent`. Returning `list[types.TextContent]` with `json.dumps()` only populates the `content` field - `structuredContent` remains `None`.
+
+To get proper structured content, handlers must explicitly return `types.CallToolResult`:
+
+```python
+# WRONG - no structuredContent:
+return [types.TextContent(type="text", text=json.dumps(data, indent=2))]
+
+# CORRECT - both content and structuredContent:
+return types.CallToolResult(
+    content=[types.TextContent(type="text", text=json.dumps(data, indent=2))],
+    structuredContent=data,
+)
+```
+
 ### Current Return Type Inconsistencies
 
 **Content MCP Server (`mcp_server/server.py`):**
@@ -69,20 +88,24 @@ def get_summary() -> str:
 **Prompt MCP Server (`prompt_mcp_server/server.py`):**
 | Tool | Returns | Structured Content |
 |------|---------|-------------------|
-| `search_prompts` | `json.dumps(...)` | Full structured data |
-| `get_prompt_template` | `json.dumps(...)` | Full structured data |
-| `get_prompt_metadata` | `json.dumps(...)` | Full structured data |
-| `list_tags` | `json.dumps(...)` | Full structured data |
-| **`create_prompt`** | **f-string** | `{'result': '...'}` - less useful |
-| **`edit_prompt_template`** | **f-string** | `{'result': '...'}` - less useful |
-| **`update_prompt_metadata`** | **f-string** | `{'result': '...'}` - less useful |
+| `search_prompts` | `list[TextContent]` with JSON | **None** (not using CallToolResult) |
+| `get_prompt_template` | `list[TextContent]` with JSON | **None** |
+| `get_prompt_metadata` | `list[TextContent]` with JSON | **None** |
+| `list_tags` | `list[TextContent]` with JSON | **None** |
+| `create_prompt` | `list[TextContent]` with f-string | **None** |
+| `edit_prompt_template` | `list[TextContent]` with f-string | **None** |
+| `update_prompt_metadata` | `list[TextContent]` with f-string | **None** |
 
-### Decision: Standardize on Structured Dict Returns
+### Decision: Standardize on Structured Returns
 
-All mutation tools should return structured dicts containing:
+All mutation tools should return structured data containing:
 - `id`: Entity ID for reference
 - `updated_at`: Timestamp for optimistic locking
 - `summary`: Human-readable description of changes
+
+**For Content MCP Server (FastMCP):** Return `dict` - FastMCP auto-promotes to `structuredContent`.
+
+**For Prompt MCP Server (low-level SDK):** Return `types.CallToolResult` with both `content` and `structuredContent` explicitly set.
 
 This enables:
 1. **Programmatic verification** - Clients can confirm the update succeeded
@@ -91,10 +114,40 @@ This enables:
 
 ---
 
+## Background: 409 Conflict Handling
+
+### Backend Behavior
+
+The backend returns 409 Conflict with `server_state` when optimistic locking fails (see `api/helpers/conflict_check.py`):
+
+```python
+raise HTTPException(
+    status_code=409,
+    detail={
+        "error": "conflict",
+        "message": "This item was modified since you loaded it",
+        "server_state": response_schema.model_validate(current_entity).model_dump(mode="json"),
+    },
+)
+```
+
+### Current MCP Handling (Problem)
+
+The current `_handle_api_error` functions don't specifically handle 409. They fall through to generic error handling which extracts `message` but **discards `server_state`**. This means clients can't see the current entity state to resolve conflicts.
+
+### Required Change
+
+Add explicit 409 handling that preserves `server_state` for conflict resolution. This allows clients to:
+1. See what the current state is
+2. Decide whether to overwrite or merge changes
+3. Retry with the updated `expected_updated_at`
+
+---
+
 ## Milestone 1: Content MCP Server - Rename and Extend `update_item`
 
 ### Goal
-Rename `update_item_metadata` → `update_item`, add `content` parameter for full content replacement, add `expected_updated_at` for optimistic locking, and return structured dict.
+Rename `update_item_metadata` → `update_item`, add `content` parameter for full content replacement, add `expected_updated_at` for optimistic locking, return structured dict, and handle 409 conflicts properly.
 
 ### Key Changes
 
@@ -128,7 +181,7 @@ Rename `update_item_metadata` → `update_item`, add `content` parameter for ful
    ```python
    expected_updated_at: Annotated[
        str | None,
-       Field(description="For optimistic locking. If provided and the item was modified after this timestamp, returns 409 Conflict. Use the updated_at from a previous response."),
+       Field(description="For optimistic locking. If provided and the item was modified after this timestamp, returns a conflict error with the current server state. Use the updated_at from a previous response."),
    ] = None,
    ```
 
@@ -158,9 +211,21 @@ Rename `update_item_metadata` → `update_item`, add `content` parameter for ful
    }
    ```
 
-8. **Handle 409 Conflict for optimistic locking:**
+8. **Handle 409 Conflict with `server_state` preservation:**
    ```python
    if e.response.status_code == 409:
+       try:
+           detail = e.response.json().get("detail", {})
+           server_state = detail.get("server_state")
+           if server_state:
+               # Return error with current state so client can resolve conflict
+               return {
+                   "error": "conflict",
+                   "message": "This item was modified since you loaded it. See server_state for current version.",
+                   "server_state": server_state,
+               }
+       except (ValueError, KeyError):
+           pass
        raise ToolError("Conflict: item was modified. Fetch latest version and retry.")
    ```
 
@@ -169,11 +234,12 @@ Rename `update_item_metadata` → `update_item`, add `content` parameter for ful
    - Clear guidance: "Use `update_item` for full content replacement, `edit_content` for targeted string-based edits"
    - Note that all `update_item` parameters are optional (at least one required)
    - Document `expected_updated_at` for optimistic locking
+   - Document that 409 conflicts return `server_state` for resolution
 
 **File: `frontend/src/pages/settings/SettingsMCP.tsx`**
 
 1. Rename `update_item_metadata` → `update_item` in the tool list
-2. Update description to mention content replacement capability
+2. Update description: `"Update metadata or fully replace content"`
 
 ### Success Criteria
 - `update_item` tool accepts `content` parameter
@@ -181,7 +247,7 @@ Rename `update_item_metadata` → `update_item`, add `content` parameter for ful
 - Providing `content` fully replaces the item's content field
 - Existing metadata-only updates continue to work
 - Returns structured dict with `{id, updated_at, summary}`
-- 409 Conflict handled when `expected_updated_at` is stale
+- 409 Conflict returns `{error, message, server_state}` for conflict resolution
 - `edit_content` tool still works for targeted string replacement
 - MCP server instructions reflect the new tool name and capability
 - Frontend Settings page shows updated tool name and description
@@ -194,7 +260,7 @@ Rename `update_item_metadata` → `update_item`, add `content` parameter for ful
   - Verify `content` fully replaces (not appends)
   - Verify returns dict with `{id, updated_at, summary}`
   - `update_item` with valid `expected_updated_at` succeeds
-  - `update_item` with stale `expected_updated_at` returns 409/error
+  - `update_item` with stale `expected_updated_at` returns conflict error with `server_state`
   - Validation error when no fields provided (including content in check)
 - **Integration:** Verify via MCP client that tool schema shows `content` and `expected_updated_at` parameters
 
@@ -210,7 +276,7 @@ None - this is the first milestone
 ## Milestone 2: Prompt MCP Server - Rename and Extend `update_prompt`
 
 ### Goal
-Rename `update_prompt_metadata` → `update_prompt`, add `content` and `arguments` parameters for full template replacement, add `expected_updated_at` for optimistic locking, and return structured dict.
+Rename `update_prompt_metadata` → `update_prompt`, add `content` and `arguments` parameters for full template replacement, add `expected_updated_at` for optimistic locking, return proper `CallToolResult` with `structuredContent`, and handle 409 conflicts properly.
 
 ### Key Changes
 
@@ -256,7 +322,7 @@ Rename `update_prompt_metadata` → `update_prompt`, add `content` and `argument
        "type": "string",
        "description": (
            "For optimistic locking. If provided and the prompt was modified after this timestamp, "
-           "returns error. Use the updated_at from a previous response."
+           "returns a conflict error with the current server state. Use the updated_at from a previous response."
        ),
    },
    ```
@@ -267,7 +333,7 @@ Rename `update_prompt_metadata` → `update_prompt`, add `content` and `argument
 
 5. **Update dispatch table:** Change key from `"update_prompt_metadata"` to `"update_prompt"`
 
-6. **Change return from f-string to structured JSON:**
+6. **Return `types.CallToolResult` with `structuredContent`:**
    ```python
    # OLD:
    return [types.TextContent(
@@ -282,32 +348,62 @@ Rename `update_prompt_metadata` → `update_prompt`, add `content` and `argument
        "updated_at": result.get("updated_at"),
        "summary": summary,
    }
-   return [types.TextContent(
-       type="text",
-       text=json.dumps(response_data, indent=2),
-   )]
+   return types.CallToolResult(
+       content=[types.TextContent(
+           type="text",
+           text=json.dumps(response_data, indent=2),
+       )],
+       structuredContent=response_data,
+   )
    ```
 
-7. **Update MCP server instructions:** Update the `instructions` string to include:
+7. **Handle 409 Conflict with `server_state` preservation:**
+   ```python
+   if e.response.status_code == 409:
+       try:
+           detail = e.response.json().get("detail", {})
+           server_state = detail.get("server_state")
+           if server_state:
+               error_data = {
+                   "error": "conflict",
+                   "message": "This prompt was modified since you loaded it. See server_state for current version.",
+                   "server_state": server_state,
+               }
+               return types.CallToolResult(
+                   content=[types.TextContent(
+                       type="text",
+                       text=json.dumps(error_data, indent=2),
+                   )],
+                   structuredContent=error_data,
+                   isError=True,
+               )
+       except (ValueError, KeyError):
+           pass
+       # Fall through to generic error handling
+   ```
+
+8. **Update MCP server instructions:** Update the `instructions` string to include:
    - Updated tool list with `update_prompt` (not `update_prompt_metadata`)
    - Clear guidance: "Use `update_prompt` for full template replacement, `edit_prompt_template` for targeted string-based edits"
    - Note that all `update_prompt` parameters are optional (at least one required)
    - **Critical warning:** When using `update_prompt` with `content` that changes template variables, you MUST also provide `arguments` with ALL arguments (full replacement, not merge)
    - Document `expected_updated_at` for optimistic locking
+   - Document that 409 conflicts return `server_state` for resolution
    - Update example workflows to show both patterns
 
 **File: `frontend/src/pages/settings/SettingsMCP.tsx`**
 
 1. Rename `update_prompt_metadata` → `update_prompt` in the tool list
-2. Update description: "Update metadata, content, or arguments"
-3. **Fix the `edit_prompt_template` description:** Change "Edit content using string replacement" to "Edit template using string replacement"
+2. Update description: `"Update metadata, content, or arguments"`
+3. **Fix the `edit_prompt_template` description:** Change `"Edit content using string replacement"` to `"Edit template using string replacement"`
 
 ### Success Criteria
 - `update_prompt` tool accepts `content`, `arguments`, and `expected_updated_at` parameters
 - Providing `content` fully replaces the prompt's template
 - Providing `arguments` fully replaces the prompt's arguments list
 - Existing metadata-only updates continue to work
-- Returns structured JSON with `{id, name, updated_at, summary}`
+- Returns `CallToolResult` with `structuredContent` containing `{id, name, updated_at, summary}`
+- 409 Conflict returns `CallToolResult(isError=True)` with `{error, message, server_state}` in `structuredContent`
 - `edit_prompt_template` tool still works for targeted string replacement
 - MCP server instructions reflect the new tool name and capabilities
 - Frontend Settings page shows updated tool names and descriptions
@@ -321,9 +417,9 @@ Rename `update_prompt_metadata` → `update_prompt`, add `content` and `argument
   - `update_prompt` with content + arguments together
   - `update_prompt` with all fields
   - Verify template validation still runs on content updates
-  - Verify returns structured JSON with `{id, name, updated_at, summary}`
+  - Verify returns `CallToolResult` with `structuredContent` containing expected fields
   - `update_prompt` with valid `expected_updated_at` succeeds
-  - `update_prompt` with stale `expected_updated_at` returns error
+  - `update_prompt` with stale `expected_updated_at` returns conflict error with `server_state` in `structuredContent`
 - **Integration:** Verify via MCP client that tool schema shows new parameters
 
 ### Dependencies
@@ -342,7 +438,7 @@ Rename `update_prompt_metadata` → `update_prompt`, add `content` and `argument
 ## Milestone 3: Prompt MCP Server - Update Other Mutation Tools
 
 ### Goal
-Update `create_prompt` and `edit_prompt_template` to return structured JSON instead of f-string summaries, for consistency with read tools and `update_prompt`.
+Update `create_prompt` and `edit_prompt_template` to return `types.CallToolResult` with proper `structuredContent` instead of just `list[TextContent]`, for consistency and programmatic parsing.
 
 ### Key Changes
 
@@ -363,10 +459,13 @@ Update `create_prompt` and `edit_prompt_template` to return structured JSON inst
        "updated_at": result.get("updated_at"),
        "summary": f"Created prompt '{result['name']}'",
    }
-   return [types.TextContent(
-       type="text",
-       text=json.dumps(response_data, indent=2),
-   )]
+   return types.CallToolResult(
+       content=[types.TextContent(
+           type="text",
+           text=json.dumps(response_data, indent=2),
+       )],
+       structuredContent=response_data,
+   )
    ```
 
 2. **Update `_handle_edit_prompt_template` return:**
@@ -386,21 +485,43 @@ Update `create_prompt` and `edit_prompt_template` to return structured JSON inst
        "line": line,
        "summary": f"Updated prompt '{prompt_name}' (match: {match_type} at line {line})",
    }
-   return [types.TextContent(
-       type="text",
-       text=json.dumps(response_data, indent=2),
-   )]
+   return types.CallToolResult(
+       content=[types.TextContent(
+           type="text",
+           text=json.dumps(response_data, indent=2),
+       )],
+       structuredContent=response_data,
+   )
+   ```
+
+3. **Update error returns in `_handle_edit_prompt_template`:**
+
+   The `no_match` and `multiple_matches` error cases should also use `CallToolResult` with `structuredContent`:
+   ```python
+   # For no_match and multiple_matches errors:
+   error_data = {
+       "error": "no_match",  # or "multiple_matches"
+       "message": "...",
+       # ... other fields
+   }
+   return types.CallToolResult(
+       content=[types.TextContent(type="text", text=json.dumps(error_data, indent=2))],
+       structuredContent=error_data,
+       isError=True,
+   )
    ```
 
 ### Success Criteria
-- `create_prompt` returns structured JSON with `{id, name, updated_at, summary}`
-- `edit_prompt_template` returns structured JSON with `{id, name, updated_at, match_type, line, summary}`
-- All Prompt MCP mutation tools now return structured data
+- `create_prompt` returns `CallToolResult` with `structuredContent` containing `{id, name, updated_at, summary}`
+- `edit_prompt_template` returns `CallToolResult` with `structuredContent` containing `{id, name, updated_at, match_type, line, summary}`
+- Error cases return `CallToolResult(isError=True)` with structured error data
+- All Prompt MCP mutation tools now have proper `structuredContent` for programmatic parsing
 
 ### Testing Strategy
-- **Unit tests:** Update existing tests to verify structured JSON returns:
-  - `create_prompt` returns dict with expected fields
-  - `edit_prompt_template` returns dict with expected fields including `match_type` and `line`
+- **Unit tests:** Update existing tests to verify:
+  - `create_prompt` returns `CallToolResult` with `structuredContent` containing expected fields
+  - `edit_prompt_template` returns `CallToolResult` with `structuredContent` including `match_type` and `line`
+  - Error cases return `CallToolResult` with `isError=True` and `structuredContent`
 
 ### Dependencies
 - Milestone 2 (for consistency in approach)
@@ -431,12 +552,14 @@ Update all MCP server instructions, CLAUDE.md, and any other documentation to re
 - Include the "Tool Selection Guide" (see below) in the MCP server instructions
 - Document `expected_updated_at` for optimistic locking
 - Document that all mutation tools now return structured data with `updated_at`
+- Document that 409 conflicts return `server_state` for resolution
 
 ### Success Criteria
 - MCP server instructions clearly document both update patterns
 - Tool descriptions distinguish between full replacement and targeted editing
 - No references to old tool names (`update_item_metadata`, `update_prompt_metadata`)
 - Optimistic locking workflow is documented
+- Conflict resolution with `server_state` is documented
 
 ### Testing Strategy
 - Manual review of all instruction strings
@@ -455,17 +578,17 @@ Update all MCP server instructions, CLAUDE.md, and any other documentation to re
 | Old Tool Name | New Tool Name | New Parameters | Return Type Change |
 |---------------|---------------|----------------|-------------------|
 | `update_item_metadata` | `update_item` | `content`, `expected_updated_at` | `str` → `dict` |
-| `update_prompt_metadata` | `update_prompt` | `content`, `arguments`, `expected_updated_at` | f-string → JSON |
-| `create_prompt` | (no rename) | (none) | f-string → JSON |
-| `edit_prompt_template` | (no rename) | (none) | f-string → JSON |
+| `update_prompt_metadata` | `update_prompt` | `content`, `arguments`, `expected_updated_at` | `list[TextContent]` → `CallToolResult` with `structuredContent` |
+| `create_prompt` | (no rename) | (none) | `list[TextContent]` → `CallToolResult` with `structuredContent` |
+| `edit_prompt_template` | (no rename) | (none) | `list[TextContent]` → `CallToolResult` with `structuredContent` |
 
 | File | Change Type |
 |------|-------------|
-| `backend/src/mcp_server/server.py` | Rename tool, add parameters, change return type, update instructions |
-| `backend/src/prompt_mcp_server/server.py` | Rename tool, add parameters, change return types, update instructions |
+| `backend/src/mcp_server/server.py` | Rename tool, add parameters, change return type, add 409 handling, update instructions |
+| `backend/src/prompt_mcp_server/server.py` | Rename tool, add parameters, use `CallToolResult` with `structuredContent`, add 409 handling, update instructions |
 | `frontend/src/pages/settings/SettingsMCP.tsx` | Update tool names and descriptions |
-| `backend/tests/mcp_server/test_*.py` | Add tests for content replacement, optimistic locking, structured returns |
-| `backend/tests/prompt_mcp_server/test_*.py` | Add tests for content/arguments replacement, optimistic locking, structured returns |
+| `backend/tests/mcp_server/test_*.py` | Add tests for content replacement, optimistic locking, structured returns, 409 conflict handling |
+| `backend/tests/prompt_mcp_server/test_*.py` | Add tests for content/arguments replacement, optimistic locking, `CallToolResult` with `structuredContent`, 409 conflict handling |
 
 ## Tool Selection Guide (for MCP Server Instructions)
 
@@ -506,8 +629,8 @@ All mutation tools now return `updated_at` in their response. To prevent concurr
 1. Fetch the item to get current `updated_at`
 2. Make your changes
 3. Pass `expected_updated_at` with the timestamp from step 1
-4. If another edit happened in between, you'll get a 409 Conflict error
-5. Re-fetch and retry if needed
+4. If another edit happened in between, you'll get a conflict error with `server_state` containing the current version
+5. Use `server_state` to resolve the conflict (merge changes or overwrite), then retry
 
 ---
 
@@ -528,3 +651,7 @@ All mutation tools now return `updated_at` in their response. To prevent concurr
 5. **Validation must include `content`** - The "at least one field required" check must be updated to include `content` as a valid field.
 
 6. **Structured returns enable optimistic locking** - All mutation tools return `{id, updated_at, ...}` so clients can use `expected_updated_at` on subsequent calls.
+
+7. **409 Conflict handling must preserve `server_state`** - The backend returns the current entity state on conflicts. MCP tools must pass this through so clients can resolve conflicts programmatically.
+
+8. **Prompt MCP uses low-level SDK** - Unlike FastMCP (Content MCP), the Prompt MCP server must explicitly return `types.CallToolResult` with `structuredContent` set. Simply returning `list[TextContent]` does NOT populate `structuredContent`.
