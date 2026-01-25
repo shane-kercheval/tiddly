@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 import pytest
 from httpx import Response
+from mcp.shared.exceptions import McpError
 
 from prompt_mcp_server.server import (
     handle_call_tool,
@@ -1493,30 +1494,31 @@ async def test__update_prompt_tool__missing_name_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__no_changes(
+async def test__update_prompt_tool__no_data_fields_error(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
-    """Test update_prompt tool handles no-op case (no updates provided)."""
-    updated_prompt = {
-        "id": "550e8400-e29b-41d4-a716-446655440023",
-        "name": "test-prompt",
-        "title": None,
-        "description": None,
-        "content": "Hello world",
-        "arguments": [],
-        "tags": [],
-        "updated_at": "2024-01-02T00:00:00Z",
-    }
-    mock_api.patch("/prompts/name/test-prompt").mock(
-        return_value=Response(200, json=updated_prompt),
-    )
+    """Test update_prompt requires at least one data field."""
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool(
+            "update_prompt",
+            {"name": "test-prompt"},  # No data fields provided
+        )
 
-    result = await handle_call_tool(
-        "update_prompt",
-        {"name": "test-prompt"},  # No other fields
-    )
+    assert "at least one" in str(exc_info.value).lower()
 
-    assert "no changes" in result.structuredContent["summary"]
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__expected_updated_at_alone_not_sufficient(
+    mock_api, mock_auth,  # noqa: ARG001
+) -> None:
+    """Test expected_updated_at alone doesn't satisfy 'at least one field' requirement."""
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool(
+            "update_prompt",
+            {"name": "test-prompt", "expected_updated_at": "2024-01-01T00:00:00Z"},
+        )
+
+    assert "at least one" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio

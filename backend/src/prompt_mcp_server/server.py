@@ -42,6 +42,7 @@ Prompts are Jinja2 templates with defined arguments that can be rendered with us
 - `edit_prompt_template`: Edit template using string replacement for targeted edits
 - `update_prompt`: Update metadata (title, description, tags, name) and/or fully replace content and arguments.
   Use `edit_prompt_template` instead for targeted string-based edits.
+  **Important:** If updating content that changes template variables ({{ var }}), you MUST also provide the full arguments list.
 - `list_tags`: Get all tags with usage counts
 
 Note: There is no delete tool. Prompts can only be deleted via the web UI.
@@ -169,7 +170,7 @@ _MCP_ERROR_CODES = {
     "forbidden": types.INVALID_REQUEST,
     "not_found": types.INVALID_PARAMS,
     "validation": types.INVALID_PARAMS,
-    "conflict_modified": types.INVALID_PARAMS,  # Not used directly - handled specially
+    "conflict_modified": types.INVALID_PARAMS,  # Handled via _make_conflict_result() instead
     "conflict_name": types.INVALID_PARAMS,
     "internal": types.INTERNAL_ERROR,
 }
@@ -1112,6 +1113,16 @@ async def _handle_update_prompt(
             types.ErrorData(
                 code=types.INVALID_PARAMS,
                 message="Missing required parameter: name",
+            ),
+        )
+
+    # Validate at least one data field is provided (expected_updated_at is a control parameter)
+    data_fields = ["new_name", "title", "description", "tags", "content", "arguments"]
+    if not any(k in arguments for k in data_fields):
+        raise McpError(
+            types.ErrorData(
+                code=types.INVALID_PARAMS,
+                message="At least one of new_name, title, description, tags, content, or arguments must be provided",
             ),
         )
 

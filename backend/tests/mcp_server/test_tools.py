@@ -625,11 +625,11 @@ async def test__update_item__conflict_returns_server_state(
 
 
 @pytest.mark.asyncio
-async def test__update_item__conflict_without_server_state_raises_error(
+async def test__update_item__name_conflict_raises_error(
     mock_api,
     mcp_client: Client,
 ) -> None:
-    """Test update_item with 409 but no server_state raises ToolError."""
+    """Test 409 name conflict (no server_state) raises ToolError with 'already exists' message."""
     note_id = "550e8400-e29b-41d4-a716-446655440002"
     mock_api.patch(f"/notes/{note_id}").mock(
         return_value=Response(
