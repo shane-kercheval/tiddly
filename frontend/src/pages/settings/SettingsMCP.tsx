@@ -466,11 +466,11 @@ export function SettingsMCP(): ReactNode {
               </li>
               <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">edit_prompt_template</span>
-                <span>Edit content using string replacement</span>
+                <span>Edit template using string replacement</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">update_prompt_metadata</span>
-                <span>Update title, description, tags</span>
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">update_prompt</span>
+                <span>Update metadata, content, or arguments</span>
               </li>
             </ul>
           </>

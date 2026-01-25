@@ -9,12 +9,14 @@ for creating new prompts via AI.
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, NoReturn
 
 import httpx
 from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
+
+from shared.api_errors import ParsedApiError, parse_http_error
 
 from .api_client import api_get, api_patch, api_post, get_api_base_url, get_default_timeout
 from .auth import AuthenticationError, get_bearer_token
@@ -37,11 +39,17 @@ Prompts are Jinja2 templates with defined arguments that can be rendered with us
 - `get_prompt_template`: Get full template content and arguments for viewing/editing
 - `get_prompt_metadata`: Get metadata only (prompt_length, prompt_preview) - use for size check
 - `create_prompt`: Create a new prompt template with Jinja2 content
-- `edit_prompt_template`: Edit template content using string replacement
-- `update_prompt_metadata`: Update title, description, tags, or rename a prompt
+- `edit_prompt_template`: Edit template using string replacement for targeted edits
+- `update_prompt`: Update metadata (title, description, tags, name) and/or fully replace content and arguments.
+  Use `edit_prompt_template` instead for targeted string-based edits.
 - `list_tags`: Get all tags with usage counts
 
 Note: There is no delete tool. Prompts can only be deleted via the web UI.
+
+**Optimistic Locking:**
+All mutation tools return `updated_at` in their response. Use `expected_updated_at` parameter on
+`update_prompt` to prevent concurrent edit conflicts. If the prompt was modified after this timestamp,
+returns a conflict error with `server_state` containing the current version for resolution.
 
 **When to use get_prompt_metadata vs get_prompt_template:**
 - Use `get_prompt_metadata` first to check prompt_length before loading large templates
@@ -155,82 +163,40 @@ def _get_token() -> str:
         ) from e
 
 
-def _handle_api_error(e: httpx.HTTPStatusError, context: str = "") -> None:
-    """Translate API errors to MCP errors. Always raises."""
-    status = e.response.status_code
+# MCP error codes for each error category
+_MCP_ERROR_CODES = {
+    "auth": types.INVALID_REQUEST,
+    "forbidden": types.INVALID_REQUEST,
+    "not_found": types.INVALID_PARAMS,
+    "validation": types.INVALID_PARAMS,
+    "conflict_modified": types.INVALID_PARAMS,  # Not used directly - handled specially
+    "conflict_name": types.INVALID_PARAMS,
+    "internal": types.INTERNAL_ERROR,
+}
 
-    if status == 401:
-        raise McpError(
-            types.ErrorData(
-                code=types.INVALID_REQUEST,
-                message="Invalid or expired token",
-            ),
-        ) from e
 
-    if status == 403:
-        raise McpError(
-            types.ErrorData(
-                code=types.INVALID_REQUEST,
-                message="Access denied",
-            ),
-        ) from e
+def _raise_mcp_error(info: ParsedApiError) -> NoReturn:
+    """Raise McpError from parsed API error. Always raises."""
+    raise McpError(
+        types.ErrorData(
+            code=_MCP_ERROR_CODES[info.category],
+            message=info.message,
+        ),
+    )
 
-    if status == 404:
-        raise McpError(
-            types.ErrorData(
-                code=types.INVALID_PARAMS,
-                message=f"Not found{': ' + context if context else ''}",
-            ),
-        ) from e
 
-    # Handle validation errors (400 Bad Request, 422 Unprocessable Entity)
-    if status in (400, 422):
-        try:
-            detail = e.response.json().get("detail", "Validation error")
-            if isinstance(detail, dict):
-                message = detail.get("message", str(detail))
-            elif isinstance(detail, list):
-                # FastAPI validation errors return a list
-                message = "; ".join(
-                    f"{err.get('loc', ['unknown'])[-1]}: {err.get('msg', 'invalid')}"
-                    for err in detail
-                    if isinstance(err, dict)
-                ) or "Validation error"
-            else:
-                message = str(detail)
-        except (ValueError, KeyError):
-            message = "Validation error"
-        raise McpError(
-            types.ErrorData(
-                code=types.INVALID_PARAMS,
-                message=message,
-            ),
-        ) from e
-
-    # Try to extract detailed error message from API response
-    try:
-        detail = e.response.json().get("detail", {})
-        if isinstance(detail, dict):
-            message = detail.get("message", str(detail))
-            raise McpError(
-                types.ErrorData(
-                    code=types.INTERNAL_ERROR,
-                    message=message,
-                ),
-            ) from e
-        raise McpError(
-            types.ErrorData(
-                code=types.INTERNAL_ERROR,
-                message=str(detail),
-            ),
-        ) from e
-    except (ValueError, KeyError):
-        raise McpError(
-            types.ErrorData(
-                code=types.INTERNAL_ERROR,
-                message=f"API error {status}{': ' + context if context else ''}",
-            ),
-        ) from e
+def _make_conflict_result(info: ParsedApiError) -> types.CallToolResult:
+    """Create CallToolResult for conflict_modified errors."""
+    error_data = {
+        "error": "conflict",
+        "message": info.message,
+        "server_state": info.server_state,
+    }
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=json.dumps(error_data, indent=2))],
+        structuredContent=error_data,
+        isError=True,
+    )
 
 
 # Page size for list_prompts pagination (API maximum is 100)
@@ -271,8 +237,7 @@ async def handle_list_prompts(
             params={"limit": _LIST_PROMPTS_PAGE_SIZE, "offset": offset},
         )
     except httpx.HTTPStatusError as e:
-        _handle_api_error(e, "listing prompts")
-        raise  # Unreachable but satisfies type checker
+        _raise_mcp_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise McpError(
             types.ErrorData(
@@ -331,15 +296,7 @@ async def handle_get_prompt(
     try:
         prompt = await api_get(client, f"/prompts/name/{name}", token)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise McpError(
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=f"Prompt '{name}' not found",
-                ),
-            ) from e
-        _handle_api_error(e, f"fetching prompt '{name}'")
-        raise
+        _raise_mcp_error(parse_http_error(e, entity_type="prompt", entity_name=name))
     except httpx.RequestError as e:
         raise McpError(
             types.ErrorData(
@@ -662,10 +619,13 @@ async def handle_list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="update_prompt_metadata",
+            name="update_prompt",
             description=(
-                "Update a prompt's metadata (title, description, tags, or name). "
-                "To edit template content or arguments, use edit_prompt_template instead."
+                "Update a prompt. All parameters are optional - only provide the fields you want "
+                "to change (at least one required). Can update metadata (title, description, tags, name) "
+                "and/or fully replace template content and arguments. "
+                "NOTE: To make partial/targeted edits to the template using string replacement, "
+                "use edit_prompt_template instead. This tool replaces the entire content field."
             ),
             inputSchema={
                 "type": "object",
@@ -700,6 +660,47 @@ async def handle_list_tools() -> list[types.Tool]:
                             "Use lowercase-with-hyphens format."
                         ),
                     },
+                    "content": {
+                        "type": "string",
+                        "description": (
+                            "New template content (FULL REPLACEMENT of entire template). Omit to leave unchanged. "
+                            "IMPORTANT: If your new content changes template variables ({{ var }}), you MUST also "
+                            "provide the arguments parameter with ALL arguments defined."
+                        ),
+                    },
+                    "arguments": {
+                        "type": "array",
+                        "description": (
+                            "New arguments list (FULL REPLACEMENT - not a merge). Omit to leave unchanged. "
+                            "IMPORTANT: If provided, you must include ALL arguments, not just changed ones. "
+                            "This completely replaces the existing arguments list."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": "Argument name (lowercase with underscores)",
+                                },
+                                "description": {
+                                    "type": "string",
+                                    "description": "Description of the argument",
+                                },
+                                "required": {
+                                    "type": "boolean",
+                                    "description": "Whether this argument is required",
+                                },
+                            },
+                            "required": ["name"],
+                        },
+                    },
+                    "expected_updated_at": {
+                        "type": "string",
+                        "description": (
+                            "For optimistic locking. If provided and the prompt was modified after this timestamp, "
+                            "returns a conflict error with the current server state. Use the updated_at from a previous response."
+                        ),
+                    },
                 },
                 "required": ["name"],
             },
@@ -721,7 +722,7 @@ async def handle_call_tool(
         "get_prompt_metadata": lambda args: _handle_get_prompt_metadata(args),
         "create_prompt": lambda args: _handle_create_prompt(args),
         "edit_prompt_template": lambda args: _handle_edit_prompt_template(args),
-        "update_prompt_metadata": lambda args: _handle_update_prompt_metadata(args),
+        "update_prompt": lambda args: _handle_update_prompt(args),
     }
 
     handler = handlers.get(name)
@@ -768,8 +769,7 @@ async def _handle_search_prompts(
     try:
         result = await api_get(client, "/prompts/", token, params if params else None)
     except httpx.HTTPStatusError as e:
-        _handle_api_error(e, "searching prompts")
-        raise
+        _raise_mcp_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise McpError(
             types.ErrorData(
@@ -806,8 +806,7 @@ async def _handle_list_tags() -> list[types.TextContent]:
     try:
         result = await api_get(client, "/tags/", token)
     except httpx.HTTPStatusError as e:
-        _handle_api_error(e, "listing tags")
-        raise
+        _raise_mcp_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise McpError(
             types.ErrorData(
@@ -862,15 +861,7 @@ async def _handle_get_prompt_template(
             params if params else None,
         )
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise McpError(
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=f"Prompt '{prompt_name}' not found",
-                ),
-            ) from e
-        _handle_api_error(e, f"fetching prompt '{prompt_name}'")
-        raise
+        _raise_mcp_error(parse_http_error(e, entity_type="prompt", entity_name=prompt_name))
     except httpx.RequestError as e:
         raise McpError(
             types.ErrorData(
@@ -927,15 +918,7 @@ async def _handle_get_prompt_metadata(
     try:
         prompt = await api_get(client, f"/prompts/name/{prompt_name}/metadata", token)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise McpError(
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=f"Prompt '{prompt_name}' not found",
-                ),
-            ) from e
-        _handle_api_error(e, f"fetching metadata for prompt '{prompt_name}'")
-        raise
+        _raise_mcp_error(parse_http_error(e, entity_type="prompt", entity_name=prompt_name))
     except httpx.RequestError as e:
         raise McpError(
             types.ErrorData(
@@ -988,21 +971,7 @@ async def _handle_create_prompt(arguments: dict[str, Any]) -> list[types.TextCon
     try:
         result = await api_post(client, "/prompts/", token, payload)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 409:
-            # Name conflict
-            try:
-                detail = e.response.json().get("detail", {})
-                message = detail.get("message", "A prompt with this name already exists")
-            except (ValueError, KeyError):
-                message = "A prompt with this name already exists"
-            raise McpError(
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=message,
-                ),
-            ) from e
-        _handle_api_error(e, "creating prompt")
-        raise
+        _raise_mcp_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise McpError(
             types.ErrorData(
@@ -1082,17 +1051,10 @@ async def _handle_edit_prompt_template(
             client, f"/prompts/name/{prompt_name}/str-replace", token, payload,
         )
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise McpError(
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=f"Prompt '{prompt_name}' not found",
-                ),
-            ) from e
+        # Return tool execution errors with isError=True per MCP spec for 400.
+        # This allows the LLM to see and handle the error (e.g., retry with
+        # different parameters). Uses JSON format for AI parseability.
         if e.response.status_code == 400:
-            # Return tool execution errors with isError=True per MCP spec.
-            # This allows the LLM to see and handle the error (e.g., retry with
-            # different parameters). Uses JSON format for AI parseability.
             try:
                 error_detail = e.response.json().get("detail", {})
                 if isinstance(error_detail, dict):
@@ -1109,8 +1071,7 @@ async def _handle_edit_prompt_template(
                 )
             except (ValueError, KeyError):
                 pass
-        _handle_api_error(e, f"editing prompt '{prompt_name}'")
-        raise
+        _raise_mcp_error(parse_http_error(e, entity_type="prompt", entity_name=prompt_name))
     except httpx.RequestError as e:
         raise McpError(
             types.ErrorData(
@@ -1133,14 +1094,16 @@ async def _handle_edit_prompt_template(
     ]
 
 
-async def _handle_update_prompt_metadata(
+async def _handle_update_prompt(
     arguments: dict[str, Any],
-) -> list[types.TextContent]:
+) -> types.CallToolResult:
     """
-    Handle update_prompt_metadata tool call.
+    Handle update_prompt tool call.
 
-    Updates prompt metadata (title, description, tags, name) via the name-based PATCH endpoint.
-    Does not update content or arguments - use edit_prompt_template for those.
+    Updates prompt metadata (title, description, tags, name) and/or fully replaces
+    content and arguments via the name-based PATCH endpoint.
+
+    Returns CallToolResult with structuredContent for programmatic parsing.
     """
     # Validate required parameter
     prompt_name = arguments.get("name", "")
@@ -1158,7 +1121,13 @@ async def _handle_update_prompt_metadata(
     # Build payload - only include fields that were provided
     # Map new_name -> name for the API (PromptUpdate schema uses 'name' for the new name)
     field_mapping = {
-        "new_name": "name", "title": "title", "description": "description", "tags": "tags",
+        "new_name": "name",
+        "title": "title",
+        "description": "description",
+        "tags": "tags",
+        "content": "content",
+        "arguments": "arguments",
+        "expected_updated_at": "expected_updated_at",
     }
     payload = {field_mapping[k]: arguments[k] for k in field_mapping if k in arguments}
 
@@ -1167,28 +1136,10 @@ async def _handle_update_prompt_metadata(
             client, f"/prompts/name/{prompt_name}", token, payload,
         )
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise McpError(
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=f"Prompt '{prompt_name}' not found",
-                ),
-            ) from e
-        if e.response.status_code == 409:
-            # Name conflict
-            try:
-                detail = e.response.json().get("detail", {})
-                message = detail.get("message", "A prompt with this name already exists")
-            except (ValueError, KeyError):
-                message = "A prompt with this name already exists"
-            raise McpError(
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=message,
-                ),
-            ) from e
-        _handle_api_error(e, f"updating metadata for prompt '{prompt_name}'")
-        raise
+        info = parse_http_error(e, entity_type="prompt", entity_name=prompt_name)
+        if info.category == "conflict_modified":
+            return _make_conflict_result(info)
+        _raise_mcp_error(info)
     except httpx.RequestError as e:
         raise McpError(
             types.ErrorData(
@@ -1197,21 +1148,27 @@ async def _handle_update_prompt_metadata(
             ),
         ) from e
 
-    # Success response
+    # Success response - build summary of what was updated
     updated_name = result.get("name", prompt_name)
-    prompt_id = result.get("id", "")
-
-    # Build a summary of what was updated
     updates = [f"renamed to '{updated_name}'"] if "new_name" in arguments else []
-    updates.extend(f"{k} updated" for k in ("title", "description", "tags") if k in arguments)
+    # Exclude expected_updated_at from summary (it's a control parameter, not a data update)
+    data_fields = ["title", "description", "tags", "content", "arguments"]
+    updates.extend(f"{k} updated" for k in data_fields if k in arguments)
 
     summary = ", ".join(updates) if updates else "no changes"
 
-    return [
-        types.TextContent(
+    response_data = {
+        "id": result.get("id"),
+        "name": result.get("name"),
+        "updated_at": result.get("updated_at"),
+        "summary": summary,
+    }
+    return types.CallToolResult(
+        content=[types.TextContent(
             type="text",
-            text=f"Updated prompt '{prompt_name}' (ID: {prompt_id}): {summary}",
-        ),
-    ]
+            text=json.dumps(response_data, indent=2),
+        )],
+        structuredContent=response_data,
+    )
 
 

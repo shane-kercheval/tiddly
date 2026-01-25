@@ -32,6 +32,8 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
+from shared.api_errors import ParsedApiError, parse_http_error
+
 from .api_client import api_get, api_patch, api_post, get_api_base_url, get_default_timeout
 from .auth import AuthenticationError, get_bearer_token
 
@@ -168,27 +170,9 @@ def _get_token() -> str:
         raise ToolError(str(e))
 
 
-def _handle_api_error(e: httpx.HTTPStatusError, context: str = "") -> NoReturn:
-    """Translate API errors to meaningful MCP ToolErrors. Always raises."""
-    status = e.response.status_code
-
-    if status == 401:
-        raise ToolError("Invalid or expired token")
-    if status == 403:
-        raise ToolError("Access denied")
-
-    # Try to extract detailed error message from API response
-    try:
-        detail = e.response.json().get("detail", {})
-        if isinstance(detail, dict):
-            message = detail.get("message", str(detail))
-            error_code = detail.get("error_code", "")
-            if error_code:
-                raise ToolError(f"{message} (code: {error_code})")
-            raise ToolError(message)
-        raise ToolError(str(detail))
-    except (ValueError, KeyError):
-        raise ToolError(f"API error {status}{': ' + context if context else ''}")
+def _raise_tool_error(info: ParsedApiError) -> NoReturn:
+    """Raise ToolError from parsed API error. Always raises."""
+    raise ToolError(info.message)
 
 
 @mcp.tool(
@@ -264,8 +248,7 @@ async def search_items(
     try:
         return await api_get(client, endpoint, token, params)
     except httpx.HTTPStatusError as e:
-        _handle_api_error(e, "searching items")
-        raise  # Unreachable but satisfies type checker
+        _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
@@ -344,10 +327,7 @@ async def get_item(
     try:
         return await api_get(client, endpoint, token, params if params else None)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise ToolError(f"{type.title()} with ID {id} not found")
-        _handle_api_error(e, f"getting {type} {id}")
-        raise
+        _raise_tool_error(parse_http_error(e, entity_type=type, entity_name=id))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
@@ -411,10 +391,8 @@ async def edit_content(
     try:
         return await api_patch(client, endpoint, token, payload)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise ToolError(f"{type.title()} with ID {id} not found")
+        # Return structured error data for 400 (no_match, multiple_matches, content_empty).
         if e.response.status_code == 400:
-            # Return structured error data (no_match, multiple_matches, content_empty).
             try:
                 error_detail = e.response.json().get("detail", {})
                 if isinstance(error_detail, dict):
@@ -422,8 +400,7 @@ async def edit_content(
                 return {"error": "unknown", "message": str(error_detail)}
             except (ValueError, KeyError):
                 pass
-        _handle_api_error(e, f"editing {type} {id}")
-        raise
+        _raise_tool_error(parse_http_error(e, entity_type=type, entity_name=id))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
@@ -494,10 +471,7 @@ async def search_in_content(
     try:
         return await api_get(client, endpoint, token, params)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise ToolError(f"{type.title()} with ID {id} not found")
-        _handle_api_error(e, f"searching in {type} {id}")
-        raise
+        _raise_tool_error(parse_http_error(e, entity_type=type, entity_name=id))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
@@ -586,25 +560,14 @@ async def update_item(
     try:
         result = await api_patch(client, endpoint, token, payload)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise ToolError(f"{type.title()} with ID {id} not found")
-        if e.response.status_code == 409:
-            # Return conflict error with server_state for resolution
-            try:
-                detail = e.response.json().get("detail", {})
-                if isinstance(detail, dict):
-                    server_state = detail.get("server_state")
-                    if server_state:
-                        return {
-                            "error": "conflict",
-                            "message": "This item was modified since you loaded it. See server_state for current version.",
-                            "server_state": server_state,
-                        }
-            except (ValueError, KeyError):
-                pass
-            raise ToolError("Conflict: item was modified. Fetch latest version and retry.")
-        _handle_api_error(e, f"updating {type} {id}")
-        raise
+        info = parse_http_error(e, entity_type=type, entity_name=id)
+        if info.category == "conflict_modified":
+            return {
+                "error": "conflict",
+                "message": info.message,
+                "server_state": info.server_state,
+            }
+        _raise_tool_error(info)
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
@@ -650,22 +613,21 @@ async def create_bookmark(
     try:
         return await api_post(client, "/bookmarks/", token, payload)
     except httpx.HTTPStatusError as e:
+        # Special handling for 409: check for ARCHIVED_URL_EXISTS error code
         if e.response.status_code == 409:
-            # Extract rich error details for duplicate URL
             try:
                 detail = e.response.json().get("detail", {})
-                error_code = detail.get("error_code", "")
+                error_code = detail.get("error_code", "") if isinstance(detail, dict) else ""
                 if error_code == "ARCHIVED_URL_EXISTS":
                     bookmark_id = detail.get("existing_bookmark_id")
                     raise ToolError(
                         f"An archived bookmark exists with this URL (ID: {bookmark_id}). "
                         "Use the web UI to restore or permanently delete it first.",
                     )
-                raise ToolError("A bookmark with this URL already exists")
             except (ValueError, KeyError, TypeError):
-                raise ToolError("A bookmark with this URL already exists")
-        _handle_api_error(e, "creating bookmark")
-        raise
+                pass
+            raise ToolError("A bookmark with this URL already exists")
+        _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
@@ -698,8 +660,7 @@ async def create_note(
     try:
         return await api_post(client, "/notes/", token, payload)
     except httpx.HTTPStatusError as e:
-        _handle_api_error(e, "creating note")
-        raise
+        _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
@@ -721,7 +682,6 @@ async def list_tags() -> dict[str, Any]:
     try:
         return await api_get(client, "/tags/", token)
     except httpx.HTTPStatusError as e:
-        _handle_api_error(e, "listing tags")
-        raise
+        _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")

@@ -860,12 +860,12 @@ const markdownBaseTheme = EditorView.baseTheme({
     fontSize: SYNTAX_FONT_SIZE,
   },
 
-  // Inline code content - light pink background with pink text
+  // Inline code content - light blue background with blue text
   // Use mix-blend-mode so text selection shows through the background
   '.cm-md-inline-code-content': {
-    backgroundColor: '#fdf2f8',
+    backgroundColor: '#eff6ff',
     mixBlendMode: 'multiply',
-    color: '#db2777',
+    color: '#2563eb',
     fontFamily: '"Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: '0.9em',
     padding: '0.1em 0.2em',

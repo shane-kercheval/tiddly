@@ -215,6 +215,24 @@ async def test__search_items__invalid_token(mock_api) -> None:
     assert "invalid" in error_text or "expired" in error_text
 
 
+@pytest.mark.asyncio
+async def test__search_items__forbidden(mock_api) -> None:
+    """Test 403 forbidden error handling."""
+    from mcp_server.server import mcp
+
+    mock_api.get("/content/").mock(
+        return_value=Response(403, json={"detail": "Access denied"}),
+    )
+
+    with patch("mcp_server.server.get_bearer_token") as mock_auth:
+        mock_auth.return_value = "valid_token"
+        async with Client(transport=mcp) as client:
+            result = await client.call_tool("search_items", {}, raise_on_error=False)
+
+    assert result.is_error
+    assert "access denied" in result.content[0].text.lower()
+
+
 # --- get_item tests (replaces get_content) ---
 
 
@@ -627,7 +645,7 @@ async def test__update_item__conflict_without_server_state_raises_error(
     )
 
     assert result.is_error
-    assert "conflict" in result.content[0].text.lower()
+    assert "already exists" in result.content[0].text.lower()
 
 
 @pytest.mark.asyncio
