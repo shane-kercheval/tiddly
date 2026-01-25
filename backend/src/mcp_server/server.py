@@ -103,9 +103,15 @@ but NOT the full `content` field. Use `get_item(id, type)` to fetch full content
 
 - **`update_item`**: Update metadata (title, description, tags, url) and/or fully replace content.
   All parameters are optional - only provide what you want to change (at least one required).
-  Supports `expected_updated_at` for optimistic locking to prevent concurrent edit conflicts.
 - **`edit_content`**: Make targeted edits to the content field using string replacement.
   Use this for fixing typos, inserting/deleting paragraphs, etc. without rewriting everything.
+
+## Optimistic Locking
+
+All mutation tools (`update_item`, `edit_content`, `create_bookmark`, `create_note`) return
+`updated_at` in their response. Use `expected_updated_at` parameter on `update_item` to prevent
+concurrent edit conflicts. If the item was modified after this timestamp, returns a conflict
+error with `server_state` containing the current version for resolution.
 
 ## Limitations
 
