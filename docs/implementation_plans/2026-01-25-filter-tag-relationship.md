@@ -31,426 +31,704 @@ Filters lack this relationship.
 
 ## Solution
 
-Create a `filter_tags` junction table to model the many-to-many relationship between filters and tags. This enables:
+Fully normalize the filter expression storage. Replace the JSONB `filter_expression` column with proper relational tables:
 
-1. **Tag visibility** - Tags in filters can be included in `/tags/` response via a simple join
-2. **Cascading renames** - When a tag is renamed, we can find and update all filter expressions that reference it
-3. **Deletion warnings** - We can warn users if deleting a tag that's used in filters
+- `filter_groups` - stores each group in the filter with its position and operator
+- `filter_group_tags` - junction table linking groups to tags
 
-The junction table is the normalized relational design. A `filter_count` column on `Tag` would be a denormalization that loses information about *which* filters use the tag.
+This enables:
+1. **Single source of truth** - Tags are referenced by ID, not name strings
+2. **Automatic cascade on rename** - Tag renames just work (FK references ID)
+3. **Automatic cascade on delete** - Tag deletions cascade to filter groups
+4. **Tag visibility** - Tags in filters can be included in `/tags/` via simple joins
+
+**API contract unchanged** - The request/response format stays exactly the same. Normalization/denormalization happens in the service layer.
 
 ---
 
-## Milestone 1: Database Schema - `filter_tags` Junction Table
+## Milestone 1: Database Schema Changes
 
 ### Goal
-Create the junction table and model relationship between filters and tags.
+Create the new normalized tables and remove the JSONB column.
 
 ### Success Criteria
-- `filter_tags` table exists with proper foreign keys and indexes
-- `ContentFilter` model has `tag_objects` relationship
-- Existing functionality unchanged
-- Migration is reversible
+- `filter_groups` table exists with proper constraints
+- `filter_group_tags` junction table exists with foreign keys
+- `filter_expression` JSONB column removed from `content_filters`
+- `group_operator` remains on `content_filters` table (filter-level setting)
+- All migrations reversible
 
 ### Key Changes
 
-**1. Create `filter_tags` junction table (`models/tag.py`):**
+**1. Create `filter_groups` table (`models/filter_group.py` or add to `content_filter.py`):**
 
 ```python
-filter_tags = Table(
-    "filter_tags",
+class FilterGroup(Base):
+    __tablename__ = "filter_groups"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
+    filter_id: Mapped[UUID] = mapped_column(
+        ForeignKey("content_filters.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    position: Mapped[int] = mapped_column(nullable=False)  # Order within filter
+    operator: Mapped[str] = mapped_column(String(10), default="AND")  # Always "AND" for now
+
+    # Relationships
+    content_filter: Mapped["ContentFilter"] = relationship(back_populates="groups")
+    tag_objects: Mapped[list["Tag"]] = relationship(
+        secondary="filter_group_tags",
+        order_by="Tag.name",
+    )
+
+    __table_args__ = (
+        # Ensure unique positions within a filter
+        UniqueConstraint("filter_id", "position", name="uq_filter_groups_filter_position"),
+    )
+```
+
+**2. Create `filter_group_tags` junction table (`models/tag.py`):**
+
+```python
+filter_group_tags = Table(
+    "filter_group_tags",
     Base.metadata,
-    Column("filter_id", ForeignKey("content_filters.id", ondelete="CASCADE"), primary_key=True),
+    Column("group_id", ForeignKey("filter_groups.id", ondelete="CASCADE"), primary_key=True),
     Column("tag_id", ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
-    Index("ix_filter_tags_tag_id", "tag_id"),
+    Index("ix_filter_group_tags_tag_id", "tag_id"),
 )
 ```
 
-**2. Add relationship to `ContentFilter` model:**
+**3. Update `ContentFilter` model:**
 
 ```python
-# In models/content_filter.py
-tag_objects: Mapped[list["Tag"]] = relationship(
-    secondary="filter_tags", back_populates="filters"
-)
-```
+class ContentFilter(Base):
+    # ... existing fields ...
 
-**3. Add back-reference to `Tag` model:**
+    # Remove: filter_expression JSONB column
 
-```python
-# In models/tag.py
-filters: Mapped[list["ContentFilter"]] = relationship(
-    secondary="filter_tags", back_populates="tag_objects"
-)
+    # Keep group_operator on the filter (it's filter-level, not group-level)
+    group_operator: Mapped[str] = mapped_column(String(10), default="OR")
+
+    # Add relationship to groups
+    groups: Mapped[list["FilterGroup"]] = relationship(
+        back_populates="content_filter",
+        cascade="all, delete-orphan",
+        order_by="FilterGroup.position",
+    )
 ```
 
 **4. Create Alembic migration:**
 
-Use `make migration message="add filter_tags junction table"` to generate the migration.
+Use `make migration message="normalize filter expression to filter_groups and filter_group_tags"`.
+
+The migration should:
+1. Create `filter_groups` table
+2. Create `filter_group_tags` table
+3. Migrate data from `filter_expression` JSONB to new tables (see Milestone 2)
+4. Drop `filter_expression` column
+5. Add `group_operator` column if not already present (extract from JSONB during migration)
 
 ### Testing Strategy
 - Migration applies and rolls back cleanly
-- Junction table has correct constraints (composite PK, FKs, index)
-- CASCADE delete works: deleting a filter removes junction entries
-- CASCADE delete works: deleting a tag removes junction entries
-- Existing filter CRUD operations unchanged
+- Tables have correct constraints (FKs, unique position per filter)
+- CASCADE delete works: deleting a filter removes groups and junction entries
+- CASCADE delete works: deleting a tag removes junction entries (but keeps group)
+- CASCADE delete works: deleting a group removes junction entries
 
 ### Dependencies
 None
 
 ### Risk Factors
-- Ensure import order doesn't cause circular dependency between models
+- Data migration must happen before dropping JSONB column
+- Ensure rollback recreates JSONB with correct data
 
 ---
 
-## Milestone 2: Sync Junction Table on Filter Create/Update
+## Milestone 2: Data Migration
 
 ### Goal
-When creating or updating a filter, sync the `filter_tags` junction table with tags in the filter expression.
+Migrate existing filter expression data from JSONB to the new normalized tables.
 
 ### Success Criteria
-- Creating a filter with tags creates `Tag` records (via existing `get_or_create_tags`)
-- Creating a filter populates `filter_tags` junction entries
-- Updating a filter's expression syncs junction entries (adds new, removes old)
-- Tags from filters appear in `/tags/` endpoint
+- All existing filter groups exist in `filter_groups` table
+- All tag references exist in `filter_group_tags` with proper FK to `tags` table
+- `Tag` records created for any tags that don't exist yet
+- Migration is idempotent
+- `group_operator` extracted from JSONB to column
 
 ### Key Changes
 
-**1. Create helper function to extract tags from filter expression:**
+**1. Migration logic (in Alembic migration):**
 
 ```python
-# In services/content_filter_service.py
-def extract_tags_from_filter_expression(filter_expression: FilterExpression | dict) -> list[str]:
-    """Extract all unique tag names from a filter expression."""
-    # Handle both FilterExpression model and dict (from DB)
-    ...
+def upgrade():
+    # Create new tables first (from Milestone 1)
+    # ...
+
+    # Migrate data
+    connection = op.get_bind()
+
+    # Get all filters with their expressions
+    filters = connection.execute(
+        text("SELECT id, user_id, filter_expression FROM content_filters")
+    ).fetchall()
+
+    for filter_row in filters:
+        filter_id = filter_row.id
+        user_id = filter_row.user_id
+        expression = filter_row.filter_expression  # JSONB parsed as dict
+
+        if not expression:
+            continue
+
+        # Extract group_operator (default "OR")
+        group_operator = expression.get("group_operator", "OR")
+        connection.execute(
+            text("UPDATE content_filters SET group_operator = :op WHERE id = :id"),
+            {"op": group_operator, "id": filter_id}
+        )
+
+        # Process each group
+        for position, group in enumerate(expression.get("groups", [])):
+            tag_names = group.get("tags", [])
+            operator = group.get("operator", "AND")
+
+            if not tag_names:
+                continue
+
+            # Create filter_group
+            group_id = uuid7()
+            connection.execute(
+                text("""
+                    INSERT INTO filter_groups (id, filter_id, position, operator)
+                    VALUES (:id, :filter_id, :position, :operator)
+                """),
+                {"id": group_id, "filter_id": filter_id, "position": position, "operator": operator}
+            )
+
+            # Get or create tags and link to group
+            for tag_name in tag_names:
+                normalized_name = tag_name.lower().strip()
+
+                # Get or create tag
+                tag_result = connection.execute(
+                    text("SELECT id FROM tags WHERE user_id = :user_id AND name = :name"),
+                    {"user_id": user_id, "name": normalized_name}
+                ).fetchone()
+
+                if tag_result:
+                    tag_id = tag_result.id
+                else:
+                    tag_id = uuid7()
+                    connection.execute(
+                        text("INSERT INTO tags (id, user_id, name) VALUES (:id, :user_id, :name)"),
+                        {"id": tag_id, "user_id": user_id, "name": normalized_name}
+                    )
+
+                # Link tag to group
+                connection.execute(
+                    text("""
+                        INSERT INTO filter_group_tags (group_id, tag_id)
+                        VALUES (:group_id, :tag_id)
+                        ON CONFLICT DO NOTHING
+                    """),
+                    {"group_id": group_id, "tag_id": tag_id}
+                )
+
+    # Drop old column
+    op.drop_column("content_filters", "filter_expression")
 ```
 
-**2. Update `create_filter` in `content_filter_service.py`:**
+**2. Verification queries:**
 
-```python
-async def create_filter(...) -> ContentFilter:
-    # Extract tags from expression
-    tag_names = extract_tags_from_filter_expression(data.filter_expression)
+```sql
+-- Verify group counts match
+SELECT cf.id, COUNT(fg.id) as group_count
+FROM content_filters cf
+LEFT JOIN filter_groups fg ON fg.filter_id = cf.id
+GROUP BY cf.id;
 
-    # Get or create Tag records
-    if tag_names:
-        tag_objects = await get_or_create_tags(db, user_id, tag_names)
-    else:
-        tag_objects = []
-
-    content_filter = ContentFilter(...)
-    content_filter.tag_objects = tag_objects  # Populate junction table
-    ...
+-- Verify tags are linked
+SELECT fg.filter_id, fg.position, array_agg(t.name) as tags
+FROM filter_groups fg
+JOIN filter_group_tags fgt ON fgt.group_id = fg.id
+JOIN tags t ON t.id = fgt.tag_id
+GROUP BY fg.filter_id, fg.position
+ORDER BY fg.filter_id, fg.position;
 ```
 
-**3. Update `update_filter` in `content_filter_service.py`:**
+### Testing Strategy
+- Test with no existing filters (no-op)
+- Test with filters that have empty expressions (no groups created)
+- Test with filters that have multiple groups
+- Test with tags that already exist (reuses existing Tag records)
+- Test with new tags (creates Tag records)
+- Test idempotency
+- Verify rollback restores JSONB correctly
+
+### Dependencies
+- Milestone 1 schema created (but JSONB not dropped yet)
+
+### Risk Factors
+- Large datasets may need batching
+- Ensure transaction for atomicity
+
+---
+
+## Milestone 3: Service Layer - Normalize on Write
+
+### Goal
+Update `content_filter_service.py` to write to normalized tables instead of JSONB.
+
+### Success Criteria
+- `create_filter` creates `FilterGroup` records and links tags
+- `update_filter` syncs groups (add/remove/reorder as needed)
+- API request format unchanged
+- `Tag` records created for new tags (via existing `get_or_create_tags`)
+
+### Key Changes
+
+**1. Update `create_filter` in `content_filter_service.py`:**
 
 ```python
-async def update_filter(...) -> ContentFilter | None:
-    ...
-    if data.filter_expression is not None:
-        tag_names = extract_tags_from_filter_expression(data.filter_expression)
-        if tag_names:
-            tag_objects = await get_or_create_tags(db, user_id, tag_names)
-        else:
-            tag_objects = []
-        content_filter.tag_objects = tag_objects  # Syncs junction table
-    ...
-```
+async def create_filter(
+    db: AsyncSession,
+    user_id: UUID,
+    data: ContentFilterCreate,
+) -> ContentFilter:
+    content_filter = ContentFilter(
+        user_id=user_id,
+        name=data.name,
+        content_types=data.content_types,
+        group_operator=data.filter_expression.group_operator,
+        default_sort_by=data.default_sort_by,
+        default_sort_ascending=data.default_sort_ascending,
+    )
+    db.add(content_filter)
+    await db.flush()  # Get filter ID
 
-**4. Update `get_user_tags_with_counts` in `tag_service.py`:**
+    # Create groups with tags
+    await _sync_filter_groups(db, user_id, content_filter, data.filter_expression.groups)
 
-Modify the query to include tags that are in `filter_tags`, even if they have count=0 in content.
+    await db.refresh(content_filter)
+    await add_filter_to_sidebar(db, user_id, content_filter.id)
 
-```python
-async def get_user_tags_with_counts(...) -> list[TagCount]:
-    # Subquery for tags used in filters
-    filter_tag_subq = (
-        select(filter_tags.c.tag_id)
-        .where(filter_tags.c.tag_id == Tag.id)
-        .correlate(Tag)
-        .exists()
+    return content_filter
+
+
+async def _sync_filter_groups(
+    db: AsyncSession,
+    user_id: UUID,
+    content_filter: ContentFilter,
+    groups: list[FilterGroup],  # Pydantic schema, not ORM model
+) -> None:
+    """Sync filter groups and their tags. Replaces all existing groups."""
+    # Delete existing groups (cascade deletes junction entries)
+    await db.execute(
+        delete(FilterGroupModel).where(FilterGroupModel.filter_id == content_filter.id)
     )
 
-    # ... existing count logic ...
+    # Create new groups
+    for position, group in enumerate(groups):
+        if not group.tags:
+            continue
 
-    if not include_inactive:
-        # Include tags with count > 0 OR tags used in filters
-        query = query.having((total_count > 0) | filter_tag_subq)
+        # Get or create tags
+        tag_objects = await get_or_create_tags(db, user_id, group.tags)
+
+        filter_group = FilterGroupModel(
+            filter_id=content_filter.id,
+            position=position,
+            operator=group.operator,
+        )
+        filter_group.tag_objects = tag_objects
+        db.add(filter_group)
+
+    await db.flush()
+```
+
+**2. Update `update_filter`:**
+
+```python
+async def update_filter(
+    db: AsyncSession,
+    user_id: UUID,
+    filter_id: UUID,
+    data: ContentFilterUpdate,
+) -> ContentFilter | None:
+    content_filter = await get_filter(db, user_id, filter_id)
+    if content_filter is None:
+        return None
+
+    # Update scalar fields
+    if data.name is not None:
+        content_filter.name = data.name
+    if data.content_types is not None:
+        content_filter.content_types = data.content_types
+    if data.default_sort_by is not None:
+        content_filter.default_sort_by = data.default_sort_by
+    if data.default_sort_ascending is not None:
+        content_filter.default_sort_ascending = data.default_sort_ascending
+
+    # Update filter expression (groups + group_operator)
+    if data.filter_expression is not None:
+        content_filter.group_operator = data.filter_expression.group_operator
+        await _sync_filter_groups(db, user_id, content_filter, data.filter_expression.groups)
+
+    content_filter.updated_at = func.clock_timestamp()
+    await db.flush()
+    await db.refresh(content_filter)
+    return content_filter
 ```
 
 ### Testing Strategy
 
 **Service-level tests (`test_content_filter_service.py`):**
-- `test__create_filter__creates_tag_records` - Tags in expression create `Tag` records
-- `test__create_filter__populates_filter_tags_junction` - Junction entries created
-- `test__create_filter__empty_expression_no_tags` - Empty groups don't create tags
-- `test__update_filter__adds_new_tags_to_junction` - New tags added
-- `test__update_filter__removes_old_tags_from_junction` - Old tags removed (but Tag records remain)
-- `test__update_filter__syncs_junction_on_expression_change` - Full sync behavior
-
-**API-level tests (`test_tags.py`):**
-- `test__list_tags__includes_tags_from_filters` - Filter-only tags appear in response
-- `test__list_tags__filter_tags_have_zero_count` - Filter-only tags have count=0
-- `test__list_tags__combines_filter_and_content_tags` - Tag in both has content count only
-- `test__list_tags__filter_tag_removed_when_filter_updated` - Tag no longer in any filter excluded (unless has content)
+- `test__create_filter__creates_filter_groups` - Groups created with correct positions
+- `test__create_filter__creates_tags_for_new_tag_names` - Tag records created
+- `test__create_filter__links_tags_to_groups` - Junction entries exist
+- `test__create_filter__empty_groups_skipped` - Groups with no tags not created
+- `test__update_filter__replaces_groups` - Old groups deleted, new ones created
+- `test__update_filter__preserves_groups_when_expression_not_provided` - Partial update works
 
 ### Dependencies
-- Milestone 1 complete
+- Milestone 2 complete (data migrated)
 
 ### Risk Factors
-- SQLAlchemy relationship assignment behavior - verify it replaces (not appends) junction entries
-- Ensure orphaned tags (removed from filter, not used by content) handled correctly
+- Ensure `_sync_filter_groups` properly deletes old groups before creating new
+- Verify SQLAlchemy cascade behavior
 
 ---
 
-## Milestone 3: Cascade Tag Renames to Filter Expressions
+## Milestone 4: Service Layer - Denormalize on Read
 
 ### Goal
-When a tag is renamed via `/tags/{tag_name}` (PATCH), update the JSONB `filter_expression` in all filters that reference the old tag name.
+Update filter retrieval to reconstruct the `filter_expression` JSON structure from normalized tables.
 
 ### Success Criteria
-- Renaming a tag updates all filter expressions that reference it
-- Filter behavior unchanged after rename (still matches same content)
-- Junction table unaffected (references tag by ID, not name)
+- `get_filter` returns filter with reconstructed `filter_expression`
+- `get_filters` returns list with reconstructed expressions
+- API response format unchanged
+- Efficient queries (avoid N+1)
 
 ### Key Changes
 
-**1. Update `rename_tag` in `tag_service.py`:**
+**1. Update `ContentFilterResponse` schema (`schemas/content_filter.py`):**
+
+The schema stays the same - it expects `filter_expression` as a nested object. We need to reconstruct this from the ORM model.
 
 ```python
-async def rename_tag(
-    db: AsyncSession,
-    user_id: UUID,
-    old_name: str,
-    new_name: str,
-) -> Tag:
-    # ... existing validation and rename logic ...
+class ContentFilterResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
-    # Update filter expressions that reference the old name
-    await update_filter_expressions_for_renamed_tag(db, user_id, old_normalized, new_normalized)
+    id: UUID
+    name: str
+    content_types: list[ContentType]
+    filter_expression: FilterExpression  # Reconstructed from groups relationship
+    default_sort_by: str | None
+    default_sort_ascending: bool | None
+    created_at: datetime
+    updated_at: datetime
 
-    # ... rest of existing logic ...
-```
-
-**2. Create helper to update filter expressions:**
-
-```python
-async def update_filter_expressions_for_renamed_tag(
-    db: AsyncSession,
-    user_id: UUID,
-    old_name: str,
-    new_name: str,
-) -> None:
-    """Update all filter expressions that reference a renamed tag."""
-    # Find filters using this tag via junction table
-    result = await db.execute(
-        select(ContentFilter)
-        .join(filter_tags, ContentFilter.id == filter_tags.c.filter_id)
-        .join(Tag, filter_tags.c.tag_id == Tag.id)
-        .where(
-            ContentFilter.user_id == user_id,
-            Tag.name == new_name,  # Tag already renamed at this point
-        )
-    )
-
-    for content_filter in result.scalars():
-        # Update JSONB: replace old_name with new_name in all groups
-        updated_expression = replace_tag_in_expression(
-            content_filter.filter_expression, old_name, new_name
-        )
-        content_filter.filter_expression = updated_expression
-        content_filter.updated_at = func.clock_timestamp()
-
-    await db.flush()
-
-
-def replace_tag_in_expression(expression: dict, old_name: str, new_name: str) -> dict:
-    """Replace a tag name in a filter expression."""
-    # Deep copy to avoid mutating original
-    result = copy.deepcopy(expression)
-    for group in result.get("groups", []):
-        if "tags" in group:
-            group["tags"] = [
-                new_name if tag == old_name else tag
-                for tag in group["tags"]
+    @model_validator(mode="before")
+    @classmethod
+    def build_filter_expression(cls, data: Any) -> Any:
+        """Reconstruct filter_expression from normalized groups."""
+        if hasattr(data, "groups"):
+            # ORM model - reconstruct expression
+            groups = [
+                {
+                    "tags": [tag.name for tag in group.tag_objects],
+                    "operator": group.operator,
+                }
+                for group in sorted(data.groups, key=lambda g: g.position)
             ]
-    return result
+            # Convert to dict for Pydantic
+            data_dict = {
+                "id": data.id,
+                "name": data.name,
+                "content_types": data.content_types,
+                "filter_expression": {
+                    "groups": groups,
+                    "group_operator": data.group_operator,
+                },
+                "default_sort_by": data.default_sort_by,
+                "default_sort_ascending": data.default_sort_ascending,
+                "created_at": data.created_at,
+                "updated_at": data.updated_at,
+            }
+            return data_dict
+        return data
 ```
 
-### Testing Strategy
-
-**Service-level tests (`test_tag_service.py`):**
-- `test__rename_tag__updates_filter_expressions` - Filter JSONB updated with new name
-- `test__rename_tag__updates_multiple_filters` - All affected filters updated
-- `test__rename_tag__updates_filter_updated_at` - Filter timestamp updated
-- `test__rename_tag__filter_with_multiple_groups` - All groups in expression updated
-- `test__rename_tag__only_affects_users_filters` - Other users' filters unchanged
-
-**API-level tests (`test_tags.py`):**
-- `test__rename_tag__filter_still_works_after_rename` - Create filter with tag, rename tag, verify filter still matches content with renamed tag
-
-### Dependencies
-- Milestone 2 complete (junction table populated)
-
-### Risk Factors
-- JSONB update must preserve other expression fields
-- Concurrent modification - consider optimistic locking if filters have `updated_at` checks
-- Transaction scope - ensure tag rename and filter updates are atomic
-
----
-
-## Milestone 4: Handle Tag Deletion with Filters
-
-### Goal
-When a tag is deleted, also remove it from filter expressions that reference it.
-
-### Success Criteria
-- Deleting a tag removes it from all filter expressions
-- Empty groups after tag removal are handled gracefully
-- Junction entries cascade automatically (via FK)
-
-### Key Changes
-
-**1. Update `delete_tag` in `tag_service.py`:**
+**2. Update queries to eagerly load groups and tags:**
 
 ```python
-async def delete_tag(
+async def get_filter(
     db: AsyncSession,
     user_id: UUID,
-    tag_name: str,
-) -> None:
-    # ... existing validation ...
-
-    # Update filter expressions to remove the tag
-    await remove_tag_from_filter_expressions(db, user_id, normalized)
-
-    # Delete the tag (junction entries cascade automatically)
-    await db.delete(tag)
-    await db.flush()
-```
-
-**2. Create helper to remove tag from filter expressions:**
-
-```python
-async def remove_tag_from_filter_expressions(
-    db: AsyncSession,
-    user_id: UUID,
-    tag_name: str,
-) -> None:
-    """Remove a tag from all filter expressions that reference it."""
-    # Find filters using this tag via junction table
-    # (Query before deletion since junction will cascade)
-    tag = await get_tag_by_name(db, user_id, tag_name)
-    if tag is None:
-        return
-
-    result = await db.execute(
+    filter_id: UUID,
+) -> ContentFilter | None:
+    query = (
         select(ContentFilter)
-        .join(filter_tags, ContentFilter.id == filter_tags.c.filter_id)
-        .where(filter_tags.c.tag_id == tag.id)
-    )
-
-    for content_filter in result.scalars():
-        updated_expression = remove_tag_from_expression(
-            content_filter.filter_expression, tag_name
+        .options(
+            selectinload(ContentFilter.groups).selectinload(FilterGroup.tag_objects)
         )
-        content_filter.filter_expression = updated_expression
-        content_filter.updated_at = func.clock_timestamp()
+        .where(
+            ContentFilter.id == filter_id,
+            ContentFilter.user_id == user_id,
+        )
+    )
+    result = await db.execute(query)
+    return result.scalar_one_or_none()
 
-    await db.flush()
 
-
-def remove_tag_from_expression(expression: dict, tag_name: str) -> dict:
-    """Remove a tag from a filter expression."""
-    result = copy.deepcopy(expression)
-    for group in result.get("groups", []):
-        if "tags" in group:
-            group["tags"] = [tag for tag in group["tags"] if tag != tag_name]
-    # Optionally: remove empty groups
-    result["groups"] = [g for g in result["groups"] if g.get("tags")]
-    return result
+async def get_filters(db: AsyncSession, user_id: UUID) -> list[ContentFilter]:
+    query = (
+        select(ContentFilter)
+        .options(
+            selectinload(ContentFilter.groups).selectinload(FilterGroup.tag_objects)
+        )
+        .where(ContentFilter.user_id == user_id)
+        .order_by(ContentFilter.created_at)
+    )
+    result = await db.execute(query)
+    return list(result.scalars().all())
 ```
 
 ### Testing Strategy
 
-**Service-level tests (`test_tag_service.py`):**
-- `test__delete_tag__removes_from_filter_expressions` - Filter JSONB no longer contains tag
-- `test__delete_tag__removes_empty_groups_from_expression` - Groups with no tags removed
-- `test__delete_tag__junction_entries_cascade` - `filter_tags` entries removed
-- `test__delete_tag__filter_with_multiple_tags_keeps_others` - Other tags in group preserved
-
-**API-level tests (`test_tags.py`):**
-- `test__delete_tag__filter_still_valid_after_deletion` - Filter works (matches remaining criteria)
+**API-level tests (`test_filters.py`):**
+- `test__get_filter__returns_filter_expression_format` - Response has correct structure
+- `test__get_filters__returns_filter_expression_for_all` - List endpoint works
+- `test__create_and_get_filter__roundtrip` - Create filter, get it back, expression matches
+- `test__get_filter__orders_groups_by_position` - Groups in correct order
+- `test__get_filter__orders_tags_alphabetically` - Tags sorted within group
 
 ### Dependencies
 - Milestone 3 complete
 
 ### Risk Factors
-- Deleting last tag from a filter's only group leaves an empty filter - is this OK?
-- Consider whether to warn users before deleting a tag used in filters (future enhancement)
+- Pydantic `model_validator` with `mode="before"` can be tricky - test thoroughly
+- Ensure eager loading prevents N+1 queries
 
 ---
 
-## Milestone 5: Data Migration for Existing Filters
+## Milestone 5: Update Tags API to Include Filter Tags
 
 ### Goal
-Populate the `filter_tags` junction table for any existing filters that have tags in their expressions.
+Modify `/tags/` endpoint to include tags that are used in filters, even with count=0.
 
 ### Success Criteria
-- All existing filter tags have corresponding junction entries
-- All tags referenced in filters exist in `tags` table
-- Migration is idempotent
+- Tags used only in filters appear in `/tags/` response
+- Tags used only in filters have `count: 0`
+- Tags used in both filters and content have correct content count
+- No duplicate tags in response
 
 ### Key Changes
 
-**1. Create data migration:**
+**1. Update `get_user_tags_with_counts` in `tag_service.py`:**
 
 ```python
-async def upgrade():
-    # For each filter with tags in filter_expression:
-    #   1. Extract tag names from expression
-    #   2. Get or create Tag records
-    #   3. Insert junction entries
+async def get_user_tags_with_counts(
+    db: AsyncSession,
+    user_id: UUID,
+    include_inactive: bool = False,
+) -> list[TagCount]:
+    # Subquery: tags used in filters (via filter_group_tags)
+    filter_tag_subq = (
+        select(filter_group_tags.c.tag_id)
+        .join(FilterGroup, filter_group_tags.c.group_id == FilterGroup.id)
+        .join(ContentFilter, FilterGroup.filter_id == ContentFilter.id)
+        .where(ContentFilter.user_id == user_id)
+        .distinct()
+    ).subquery()
 
-    # Query all filters
-    filters = await db.execute(select(ContentFilter))
+    in_filter_subq = (
+        select(literal(1))
+        .select_from(filter_tag_subq)
+        .where(filter_tag_subq.c.tag_id == Tag.id)
+        .exists()
+    )
 
-    for content_filter in filters.scalars():
-        expression = content_filter.filter_expression
-        tag_names = extract_tags_from_filter_expression(expression)
+    # ... existing count subqueries for bookmarks, notes, prompts ...
 
-        if not tag_names:
-            continue
+    query = (
+        select(Tag.name, total_count)
+        .where(Tag.user_id == user_id)
+        .group_by(Tag.id, Tag.name)
+        .order_by(total_count.desc(), Tag.name.asc())
+    )
 
-        # Get or create tags
-        tag_objects = await get_or_create_tags(db, content_filter.user_id, tag_names)
+    if not include_inactive:
+        # Include tags with count > 0 OR tags used in filters
+        query = query.having((total_count > 0) | in_filter_subq)
 
-        # Insert junction entries (ignore conflicts for idempotency)
-        for tag in tag_objects:
-            await db.execute(
-                filter_tags.insert()
-                .values(filter_id=content_filter.id, tag_id=tag.id)
-                .on_conflict_do_nothing()
-            )
-
-    await db.commit()
+    result = await db.execute(query)
+    return [TagCount(name=row.name, count=row.count) for row in result]
 ```
 
 ### Testing Strategy
-- Test with no existing filters (no-op)
-- Test with filters that have no tags (no-op)
-- Test with filters that have tags (junction populated)
-- Test idempotency (running twice doesn't duplicate or error)
-- Verify tag counts correct after migration
+
+**API-level tests (`test_tags.py`):**
+- `test__list_tags__includes_tags_from_filters` - Filter-only tags appear
+- `test__list_tags__filter_tags_have_zero_count` - Count is 0 for filter-only tags
+- `test__list_tags__tag_in_filter_and_content_has_content_count` - No double counting
+- `test__list_tags__filter_deleted_removes_tag_from_list` - Tag disappears when filter deleted (if not used elsewhere)
 
 ### Dependencies
-- Milestone 4 complete (full implementation ready)
+- Milestone 4 complete
 
 ### Risk Factors
-- Large number of filters may need batching
-- Ensure migration runs in transaction for atomicity
+- Query performance with additional subquery - benchmark if needed
+
+---
+
+## Milestone 6: Verify Tag Rename/Delete Cascades
+
+### Goal
+Verify that tag renames and deletes automatically propagate to filters via FK relationships.
+
+### Success Criteria
+- Renaming a tag: filters continue to work (they reference tag by ID)
+- Deleting a tag: tag removed from filter groups (FK cascade)
+- No manual JSONB updates needed
+
+### Key Changes
+
+No code changes needed - this should work automatically via FK relationships. This milestone is primarily verification and testing.
+
+**Expected behavior:**
+
+1. **Tag rename:**
+   - `Tag.name` is updated
+   - `filter_group_tags` references `tag_id` (unchanged)
+   - Filter response reconstructs expression using new tag name
+
+2. **Tag delete:**
+   - `Tag` record deleted
+   - `filter_group_tags` entries cascade deleted (FK `ondelete="CASCADE"`)
+   - Filter groups may now have fewer tags (or be empty)
+
+### Testing Strategy
+
+**API-level tests (`test_tags.py`):**
+- `test__rename_tag__filter_uses_new_name` - Get filter after rename, expression shows new name
+- `test__rename_tag__filter_still_matches_content` - Filter functionality unchanged
+- `test__delete_tag__removed_from_filter_groups` - Get filter after delete, tag gone from expression
+- `test__delete_tag__filter_with_multiple_tags_keeps_others` - Other tags in group preserved
+- `test__delete_tag__empty_group_after_delete` - Group with no remaining tags (verify behavior)
+
+**Edge cases:**
+- Filter with single tag in single group - after delete, filter has empty groups (is this OK?)
+- Consider whether to auto-delete empty groups
+
+### Dependencies
+- Milestone 5 complete
+
+### Risk Factors
+- Empty groups after tag deletion - decide on desired behavior
+- May want to clean up empty groups automatically
+
+---
+
+## Milestone 7: Update Filter Application Logic
+
+### Goal
+Update the code that applies filters to content queries to work with normalized structure.
+
+### Success Criteria
+- `build_filter_from_expression` works with new ORM structure
+- Filtering bookmarks/notes/prompts by filter_id still works
+- Performance comparable to JSONB approach
+
+### Key Changes
+
+**1. Update filter application in `content_service.py` or relevant location:**
+
+The filter logic needs to work with `FilterGroup` ORM objects instead of JSONB dicts.
+
+```python
+def build_filter_from_groups(
+    groups: list[FilterGroup],
+    group_operator: str,
+    entity_class: type[Bookmark | Note | Prompt],
+    user_id: UUID,
+) -> ColumnElement[bool] | None:
+    """Build SQLAlchemy filter from normalized filter groups."""
+    if not groups:
+        return None
+
+    group_conditions = []
+    for group in groups:
+        if not group.tag_objects:
+            continue
+
+        tag_names = [tag.name for tag in group.tag_objects]
+
+        if group.operator == "AND":
+            # Must have ALL tags in group
+            tag_conditions = []
+            for tag_name in tag_names:
+                subq = (
+                    select(1)
+                    .select_from(entity_tags_table)  # bookmark_tags, note_tags, etc.
+                    .join(Tag)
+                    .where(
+                        entity_tags_table.c.entity_id == entity_class.id,
+                        Tag.name == tag_name,
+                        Tag.user_id == user_id,
+                    )
+                )
+                tag_conditions.append(subq.exists())
+            if tag_conditions:
+                group_conditions.append(and_(*tag_conditions))
+
+    if not group_conditions:
+        return None
+
+    if group_operator == "OR":
+        return or_(*group_conditions)
+    else:
+        return and_(*group_conditions)
+```
+
+**2. Update callers to pass ORM groups instead of JSONB:**
+
+```python
+# In list endpoints
+resolved = await resolve_filter_and_sorting(db, current_user.id, filter_id, sort_by, sort_order)
+
+if resolved.filter_groups:
+    filter_condition = build_filter_from_groups(
+        resolved.filter_groups,
+        resolved.group_operator,
+        Bookmark,
+        current_user.id,
+    )
+    if filter_condition is not None:
+        query = query.where(filter_condition)
+```
+
+### Testing Strategy
+
+**Existing filter tests should pass:**
+- `test_list_bookmarks_with_filter_id`
+- `test_list_bookmarks_with_filter_id_complex_filter`
+- `test_list_content_with_filter_id__*`
+
+**Additional tests:**
+- `test__filter__after_tag_rename_still_matches` - Rename tag, filter still finds content
+- `test__filter__after_tag_delete_excludes_that_criteria` - Delete tag, filter ignores that tag
+
+### Dependencies
+- Milestone 6 complete
+
+### Risk Factors
+- Ensure query performance is acceptable
+- May need to adjust eager loading for filter resolution
 
 ---
 
@@ -458,15 +736,22 @@ async def upgrade():
 
 | Milestone | Focus | Risk |
 |-----------|-------|------|
-| 1 | Junction table schema | Low |
-| 2 | Sync on filter create/update | Medium |
-| 3 | Cascade tag renames | Medium |
-| 4 | Handle tag deletion | Low |
-| 5 | Data migration | Low |
+| 1 | Database schema (new tables) | Low |
+| 2 | Data migration from JSONB | Medium |
+| 3 | Service layer - write path | Medium |
+| 4 | Service layer - read path | Medium |
+| 5 | Tags API includes filter tags | Low |
+| 6 | Verify rename/delete cascades | Low |
+| 7 | Filter application logic | Medium |
 
 **Key design decisions:**
-- Junction table (`filter_tags`) over denormalized `filter_count` column - enables cascading operations
-- JSONB remains source of truth for filter logic; junction table enables efficient queries and cascading
-- Orphaned tags (removed from filter, no content) remain in `tags` table - user can delete via Settings
+- Fully normalized schema (no JSONB for filter expressions)
+- Single source of truth - tags referenced by FK, not name strings
+- API contract unchanged - normalization/denormalization in service layer
+- Tag renames cascade automatically via FK relationships
+- Tag deletes cascade automatically via FK `ondelete="CASCADE"`
 
-**No backwards compatibility concerns** - this is additive functionality that fixes existing bugs.
+**Benefits over JSONB approach:**
+- No sync logic needed between JSONB and junction tables
+- Tag operations (rename/delete) just work
+- Cleaner relational design
