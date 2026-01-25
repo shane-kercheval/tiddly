@@ -29,6 +29,8 @@ from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 
 from evals.utils import (
+    MCP_CONCURRENCY_LIMIT,
+    call_tool_with_retry,
     create_checks_from_config,
     create_test_cases_from_config,
     delete_prompt_via_api,
@@ -37,8 +39,7 @@ from evals.utils import (
     load_yaml_config,
 )
 
-# Limit concurrent MCP connections to avoid overwhelming npx mcp-remote processes.
-_MCP_SEMAPHORE = asyncio.Semaphore(20)
+_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 # Load configuration at module level
 CONFIG_PATH = Path(__file__).parent / "config_update_prompt.yaml"
@@ -55,8 +56,10 @@ def _get_args_from_llm_call(prediction: dict[str, Any]) -> list[str] | None:
     """
     Extract argument names from what the LLM passed in its tool call.
 
-    Returns None if the LLM did not provide the arguments parameter.
-    Returns sorted list of names if arguments was provided.
+    Returns:
+        None: If the LLM did not provide the arguments parameter at all.
+        list[str]: Sorted list of argument names if arguments was provided
+            (may be empty if LLM provided an empty list or malformed entries).
     """
     tool_args = prediction.get("arguments", {})
     if "arguments" not in tool_args:
@@ -84,30 +87,6 @@ def _get_args_from_final_state(prompt_data: dict[str, Any]) -> list[str]:
         return []
     names = [arg.get("name") for arg in args if isinstance(arg, dict) and arg.get("name")]
     return sorted(names)
-
-
-async def _call_tool_with_retry(
-    mcp_manager: MCPClientManager,
-    tool_name: str,
-    args: dict[str, Any],
-    max_retries: int = 3,
-    retry_delay: float = 1.0,
-) -> Any:
-    """Call MCP tool with retry logic for transient failures."""
-    last_error = None
-    for attempt in range(max_retries):
-        try:
-            result = await mcp_manager.call_tool(tool_name, args)
-            has_content = result.content and len(result.content) > 0
-            has_structured = result.structuredContent is not None
-            if has_content or has_structured:
-                return result
-            last_error = ValueError(f"Empty response from {tool_name}")
-        except Exception as e:
-            last_error = e
-        if attempt < max_retries - 1:
-            await asyncio.sleep(retry_delay * (attempt + 1))
-    raise last_error or ValueError(f"Failed to call {tool_name} after {max_retries} retries")
 
 
 def _parse_tool_result(exec_result: Any) -> dict[str, Any] | None:
@@ -154,7 +133,7 @@ async def _execute_and_verify(
         exec_args = dict(predicted_args)
         exec_args["name"] = unique_name
 
-        exec_result = await _call_tool_with_retry(mcp_manager, predicted_tool, exec_args)
+        exec_result = await call_tool_with_retry(mcp_manager, predicted_tool, exec_args)
 
         if exec_result.isError:
             error_text = exec_result.content[0].text if exec_result.content else "Unknown error"
@@ -164,7 +143,7 @@ async def _execute_and_verify(
 
         # Fetch final prompt state via MCP
         # Use get_prompt_content for content and arguments
-        final_get_result = await _call_tool_with_retry(
+        final_get_result = await call_tool_with_retry(
             mcp_manager, "get_prompt_content", {"name": unique_name},
         )
         final_prompt = json.loads(final_get_result.content[0].text)
@@ -172,7 +151,7 @@ async def _execute_and_verify(
         final_argument_names = _get_args_from_final_state(final_prompt)
 
         # Use get_prompt_metadata for tags (get_prompt_content doesn't return tags)
-        final_metadata_result = await _call_tool_with_retry(
+        final_metadata_result = await call_tool_with_retry(
             mcp_manager, "get_prompt_metadata", {"name": unique_name},
         )
         final_metadata = json.loads(final_metadata_result.content[0].text)
@@ -250,7 +229,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
             if tags:
                 create_payload["tags"] = tags
 
-            create_result = await _call_tool_with_retry(
+            create_result = await call_tool_with_retry(
                 mcp_manager,
                 "create_prompt",
                 create_payload,
@@ -267,7 +246,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
             prompt_data = None  # Will store template data if fetched
 
             if "get_prompt_content" in show_results:
-                get_template_result = await _call_tool_with_retry(
+                get_template_result = await call_tool_with_retry(
                     mcp_manager,
                     "get_prompt_content",
                     {"name": unique_name},
@@ -279,7 +258,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                 )
 
             if "get_prompt_metadata" in show_results:
-                get_metadata_result = await _call_tool_with_retry(
+                get_metadata_result = await call_tool_with_retry(
                     mcp_manager,
                     "get_prompt_metadata",
                     {"name": unique_name},

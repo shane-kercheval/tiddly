@@ -13,6 +13,8 @@ from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 from evals.utils import (
+    MCP_CONCURRENCY_LIMIT,
+    call_tool_with_retry,
     create_checks_from_config,
     create_test_cases_from_config,
     delete_note_via_api,
@@ -21,36 +23,7 @@ from evals.utils import (
     load_yaml_config,
 )
 
-# Limit concurrent MCP connections to avoid overwhelming npx mcp-remote processes.
-# Each connection spawns a subprocess, and too many concurrent connections cause
-# asyncio task/cancel scope issues in the MCP client SDK.
-_MCP_SEMAPHORE = asyncio.Semaphore(20)
-
-
-async def _call_tool_with_retry(
-    mcp_manager: MCPClientManager,
-    tool_name: str,
-    args: dict[str, Any],
-    max_retries: int = 3,
-    retry_delay: float = 1.0,
-) -> Any:
-    """Call MCP tool with retry logic for transient failures."""
-    last_error = None
-    for attempt in range(max_retries):
-        try:
-            result = await mcp_manager.call_tool(tool_name, args)
-            # Check for valid response (either content or structuredContent)
-            has_content = result.content and len(result.content) > 0
-            has_structured = result.structuredContent is not None
-            if has_content or has_structured:
-                return result
-            # Empty response, retry
-            last_error = ValueError(f"Empty response from {tool_name}")
-        except Exception as e:
-            last_error = e
-        if attempt < max_retries - 1:
-            await asyncio.sleep(retry_delay * (attempt + 1))
-    raise last_error or ValueError(f"Failed to call {tool_name} after {max_retries} retries")
+_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 # Load configuration at module level
 CONFIG_PATH = Path(__file__).parent / "config_edit_content.yaml"
@@ -91,7 +64,7 @@ async def _run_edit_content_eval(
         print(".", end="", flush=True)
         tools = mcp_manager.get_tools()
         # Create the note (with retry for transient failures)
-        create_result = await _call_tool_with_retry(
+        create_result = await call_tool_with_retry(
             mcp_manager,
             "create_note",
             {
@@ -106,7 +79,7 @@ async def _run_edit_content_eval(
 
         try:
             # Search for the issue (with retry)
-            search_result = await _call_tool_with_retry(
+            search_result = await call_tool_with_retry(
                 mcp_manager,
                 "search_in_content",
                 {
@@ -145,7 +118,7 @@ Fix the issue."""
 
             if prediction["tool_name"] == "edit_content":
                 try:
-                    edit_result = await _call_tool_with_retry(
+                    edit_result = await call_tool_with_retry(
                         mcp_manager,
                         "edit_content",
                         prediction["arguments"],
@@ -154,7 +127,7 @@ Fix the issue."""
                         tool_result = edit_result.structuredContent
 
                         # Get final content
-                        get_result = await _call_tool_with_retry(
+                        get_result = await call_tool_with_retry(
                             mcp_manager,
                             "get_item",
                             {"id": content_id, "type": "note"},

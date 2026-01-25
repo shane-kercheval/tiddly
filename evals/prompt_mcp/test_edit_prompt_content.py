@@ -19,6 +19,7 @@ from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 from evals.utils import (
+    MCP_CONCURRENCY_LIMIT,
     create_checks_from_config,
     create_prompt_via_api,
     create_test_cases_from_config,
@@ -28,10 +29,7 @@ from evals.utils import (
     load_yaml_config,
 )
 
-# Limit concurrent MCP connections to avoid overwhelming npx mcp-remote processes.
-# Each connection spawns a subprocess, and too many concurrent connections cause
-# asyncio task/cancel scope issues in the MCP client SDK.
-_MCP_SEMAPHORE = asyncio.Semaphore(20)
+_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 # Load configuration at module level
 CONFIG_PATH = Path(__file__).parent / "config_edit_prompt_content.yaml"

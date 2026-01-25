@@ -18,6 +18,8 @@ from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 
 from evals.utils import (
+    MCP_CONCURRENCY_LIMIT,
+    call_tool_with_retry,
     create_checks_from_config,
     create_test_cases_from_config,
     delete_note_via_api,
@@ -26,32 +28,7 @@ from evals.utils import (
     load_yaml_config,
 )
 
-# Limit concurrent MCP connections to avoid overwhelming npx mcp-remote processes.
-_MCP_SEMAPHORE = asyncio.Semaphore(20)
-
-
-async def _call_tool_with_retry(
-    mcp_manager: MCPClientManager,
-    tool_name: str,
-    args: dict[str, Any],
-    max_retries: int = 3,
-    retry_delay: float = 1.0,
-) -> Any:
-    """Call MCP tool with retry logic for transient failures."""
-    last_error = None
-    for attempt in range(max_retries):
-        try:
-            result = await mcp_manager.call_tool(tool_name, args)
-            has_content = result.content and len(result.content) > 0
-            has_structured = result.structuredContent is not None
-            if has_content or has_structured:
-                return result
-            last_error = ValueError(f"Empty response from {tool_name}")
-        except Exception as e:
-            last_error = e
-        if attempt < max_retries - 1:
-            await asyncio.sleep(retry_delay * (attempt + 1))
-    raise last_error or ValueError(f"Failed to call {tool_name} after {max_retries} retries")
+_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 
 # Load configuration at module level
@@ -115,7 +92,7 @@ async def _run_update_item_eval(
                 "content": content,
                 "tags": tags if tags else ["eval-test"],
             }
-            create_result = await _call_tool_with_retry(
+            create_result = await call_tool_with_retry(
                 mcp_manager,
                 "create_note",
                 create_payload,
@@ -125,7 +102,7 @@ async def _run_update_item_eval(
             original_tags = tags if tags else ["eval-test"]
 
             # Get the note content via MCP to show the LLM
-            get_result = await _call_tool_with_retry(
+            get_result = await call_tool_with_retry(
                 mcp_manager,
                 "get_item",
                 {"id": note_id, "type": "note"},
@@ -163,7 +140,7 @@ async def _run_update_item_eval(
 
             if predicted_tool in ("update_item", "edit_content"):
                 try:
-                    exec_result = await _call_tool_with_retry(
+                    exec_result = await call_tool_with_retry(
                         mcp_manager,
                         predicted_tool,
                         predicted_args,
@@ -172,7 +149,7 @@ async def _run_update_item_eval(
                         tool_result = exec_result.structuredContent
 
                         # Fetch final state via MCP to verify the change
-                        final_get_result = await _call_tool_with_retry(
+                        final_get_result = await call_tool_with_retry(
                             mcp_manager,
                             "get_item",
                             {"id": note_id, "type": "note"},
