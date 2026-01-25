@@ -421,8 +421,8 @@ export function SettingsMCP(): ReactNode {
                 <span>Create a new note</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">update_item_metadata</span>
-                <span>Update metadata (title, description, tags)</span>
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">update_item</span>
+                <span>Update metadata or fully replace content</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">edit_content</span>

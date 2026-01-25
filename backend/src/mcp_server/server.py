@@ -54,7 +54,7 @@ URL but can be user-provided. For notes, it's user-written markdown.
 
 ## Tool Naming Convention
 
-- **Item tools** (`search_items`, `get_item`, `update_item_metadata`): Operate on bookmark/note entities
+- **Item tools** (`search_items`, `get_item`, `update_item`): Operate on bookmark/note entities
 - **Content tools** (`edit_content`, `search_in_content`): Operate on the content text field
 
 ## Available Tools
@@ -68,8 +68,9 @@ URL but can be user-provided. For notes, it's user-written markdown.
 - `edit_content`: Edit the `content` field using string replacement (NOT title/description)
 - `search_in_content`: Search within item's text fields for matches with context
 
-**Metadata Updates:**
-- `update_item_metadata`: Change title, description, tags, or url (bookmarks only)
+**Update:**
+- `update_item`: Update metadata (title, description, tags, url) and/or fully replace content.
+  Use `edit_content` instead for targeted string-based edits to content.
 
 **Create:**
 - `create_bookmark`: Save a new URL (metadata auto-fetched if not provided)
@@ -96,10 +97,13 @@ Each item includes: `id`, `title`, `description`, `tags`, `created_at`, `updated
 **Note:** Search results include `content_length` and `content_preview` (first 500 chars)
 but NOT the full `content` field. Use `get_item(id, type)` to fetch full content.
 
-## Updating Metadata vs Content
+## Updating Items
 
-- **`update_item_metadata`**: Change title, description, tags, or url (bookmarks only)
-- **`edit_content`**: Change the content text field using string replacement
+- **`update_item`**: Update metadata (title, description, tags, url) and/or fully replace content.
+  All parameters are optional - only provide what you want to change (at least one required).
+  Supports `expected_updated_at` for optimistic locking to prevent concurrent edit conflicts.
+- **`edit_content`**: Make targeted edits to the content field using string replacement.
+  Use this for fixing typos, inserting/deleting paragraphs, etc. without rewriting everything.
 
 ## Limitations
 
@@ -134,7 +138,7 @@ but NOT the full `content` field. Use `get_item(id, type)` to fetch full content
    - If small enough, call `get_item(id="<uuid>", type="note")` to get full content
 
 8. "Update a bookmark's tags"
-   - Call `update_item_metadata(id="<uuid>", type="bookmark", tags=["new-tag", "another"])`
+   - Call `update_item(id="<uuid>", type="bookmark", tags=["new-tag", "another"])`
 
 Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
 """.strip(),  # noqa: E501
@@ -375,7 +379,7 @@ async def edit_content(
     Replace old_str with new_str in the item's 'content' field.
 
     **Important:** This tool ONLY edits the `content` field (main body text).
-    It does NOT edit title, description, or tags. Use update_item_metadata for those.
+    It does NOT edit title, description, or tags. Use update_item for those.
 
     The edit will fail if old_str matches 0 or multiple locations. On failure,
     the response includes match locations with context to help construct a unique match.
@@ -500,13 +504,15 @@ async def search_in_content(
 
 @mcp.tool(
     description=(
-        "Update a bookmark or note's metadata (title, description, tags). "
-        "For bookmarks, can also update url. "
-        "Does NOT edit content - use edit_content for that."
+        "Update a bookmark or note. All parameters are optional - only provide the fields "
+        "you want to change (at least one required). Can update metadata (title, description, "
+        "tags, url) and/or fully replace content. "
+        "NOTE: To make partial/targeted edits to content using string replacement, "
+        "use edit_content instead. This tool replaces the entire content field."
     ),
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
-async def update_item_metadata(
+async def update_item(
     id: Annotated[str, Field(description="The item ID (UUID)")],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
@@ -528,21 +534,36 @@ async def update_item_metadata(
         str | None,
         Field(description="New URL (bookmarks only). Omit to leave unchanged."),
     ] = None,
-) -> str:
+    content: Annotated[
+        str | None,
+        Field(description="New content (FULL REPLACEMENT of entire content field). Omit to leave unchanged."),
+    ] = None,
+    expected_updated_at: Annotated[
+        str | None,
+        Field(
+            description="For optimistic locking. If provided and the item was modified after "
+            "this timestamp, returns a conflict error with the current server state. "
+            "Use the updated_at from a previous response."
+        ),
+    ] = None,
+) -> dict[str, Any]:
     """
-    Update item metadata.
+    Update a bookmark or note.
 
-    At least one field must be provided.
+    At least one data field must be provided (title, description, tags, url, or content).
     Tags are replaced entirely (not merged) - provide the complete tag list.
     The `url` parameter only applies to bookmarks - raises an error if provided for notes.
 
-    Returns a summary string confirming the update.
+    Use `expected_updated_at` to prevent concurrent edit conflicts. If the item was modified
+    after this timestamp, returns a conflict response with the current server state.
+
+    Returns a dict with {id, updated_at, summary} for programmatic use and optimistic locking.
     """
     if type not in ("bookmark", "note"):
         raise ToolError(f"Invalid type '{type}'. Must be 'bookmark' or 'note'.")
 
-    if title is None and description is None and tags is None and url is None:
-        raise ToolError("At least one of title, description, tags, or url must be provided")
+    if title is None and description is None and tags is None and url is None and content is None:
+        raise ToolError("At least one of title, description, tags, url, or content must be provided")
 
     if url is not None and type == "note":
         raise ToolError("url parameter is only valid for bookmarks")
@@ -552,7 +573,14 @@ async def update_item_metadata(
 
     # Build payload from provided fields
     endpoint = f"/{type}s/{id}"
-    fields = {"title": title, "description": description, "tags": tags, "url": url}
+    fields = {
+        "title": title,
+        "description": description,
+        "tags": tags,
+        "url": url,
+        "content": content,
+        "expected_updated_at": expected_updated_at,
+    }
     payload = {k: v for k, v in fields.items() if v is not None}
 
     try:
@@ -560,17 +588,38 @@ async def update_item_metadata(
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             raise ToolError(f"{type.title()} with ID {id} not found")
+        if e.response.status_code == 409:
+            # Return conflict error with server_state for resolution
+            try:
+                detail = e.response.json().get("detail", {})
+                if isinstance(detail, dict):
+                    server_state = detail.get("server_state")
+                    if server_state:
+                        return {
+                            "error": "conflict",
+                            "message": "This item was modified since you loaded it. See server_state for current version.",
+                            "server_state": server_state,
+                        }
+            except (ValueError, KeyError):
+                pass
+            raise ToolError("Conflict: item was modified. Fetch latest version and retry.")
         _handle_api_error(e, f"updating {type} {id}")
         raise
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
-    # Build summary of what was updated (consistent with Prompt MCP server)
+    # Build summary of what was updated
     item_title = result.get("title") or result.get("url") or id
-    item_id = result.get("id", id)
-    updates = [f"{k} updated" for k in payload]
+    # Exclude expected_updated_at from summary (it's a control parameter, not a data update)
+    data_fields = {k: v for k, v in payload.items() if k != "expected_updated_at"}
+    updates = [f"{k} updated" for k in data_fields]
     summary = ", ".join(updates) if updates else "no changes"
-    return f"Updated {type} '{item_title}' (ID: {item_id}): {summary}"
+
+    return {
+        "id": result.get("id"),
+        "updated_at": result.get("updated_at"),
+        "summary": f"Updated {type} '{item_title}': {summary}",
+    }
 
 
 @mcp.tool(
