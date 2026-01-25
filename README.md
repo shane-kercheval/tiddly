@@ -153,7 +153,7 @@ make prompt-mcp-server    # Prompt MCP server (port 8002)
 | `get_item` | Get bookmark or note by ID with optional partial read (line range) |
 | `edit_content` | Edit bookmark or note content using string replacement |
 | `search_in_content` | Search within a single item's content for matches with context |
-| `update_item_metadata` | Update metadata (title, description, tags) |
+| `update_item` | Update metadata or fully replace content |
 | `create_bookmark` | Create a new bookmark |
 | `create_note` | Create a new note |
 | `list_tags` | List all tags with usage counts |
@@ -163,12 +163,12 @@ make prompt-mcp-server    # Prompt MCP server (port 8002)
 | Tool | Description |
 |------|-------------|
 | `search_prompts` | Search prompts with text query and tag filtering |
-| `get_prompt_template` | Get raw template content for viewing/editing |
-| `get_prompt_metadata` | Get metadata without full content |
+| `get_prompt_content` | Get template and arguments for viewing/editing |
+| `get_prompt_metadata` | Get metadata without the template |
 | `list_tags` | List all tags with usage counts |
 | `create_prompt` | Create a new prompt template |
-| `edit_prompt_template` | Edit content using string replacement |
-| `update_prompt_metadata` | Update title, description, tags |
+| `edit_prompt_content` | Edit template and arguments using string replacement |
+| `update_prompt` | Update metadata, template, or arguments |
 
 ### Configuration
 

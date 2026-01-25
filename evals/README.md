@@ -56,24 +56,35 @@ make evals
 
 # Run specific eval suite
 make evals-content-mcp
+make evals-prompt-mcp
 
 # Run with verbose output
 uv run pytest evals/ -v
 
-# Run a specific test
+# Run specific eval tests
 uv run pytest evals/content_mcp/test_edit_content.py -v
+uv run pytest evals/content_mcp/test_update_item.py -v
+uv run pytest evals/prompt_mcp/test_edit_prompt_content.py -v
+uv run pytest evals/prompt_mcp/test_update_prompt.py -v
 ```
 
 ## Directory Structure
 
 ```
 evals/
-├── README.md           # This file
-├── conftest.py         # Shared pytest fixtures (MCP connections)
-├── utils.py            # Shared helper functions
-└── content_mcp/        # Content MCP server evals
-    ├── config.yaml     # Test cases, checks, and model config
-    └── test_edit_content.py
+├── README.md                           # This file
+├── conftest.py                         # Shared pytest fixtures
+├── utils.py                            # Shared helper functions
+├── content_mcp/                        # Content MCP server evals
+│   ├── config_edit_content.yaml        # edit_content test cases
+│   ├── test_edit_content.py            # edit_content eval tests
+│   ├── config_update_item.yaml         # update_item test cases
+│   └── test_update_item.py             # update_item eval tests
+└── prompt_mcp/                          # Prompt MCP server evals
+    ├── config_edit_prompt_content.yaml  # edit_prompt_content test cases
+    ├── test_edit_prompt_content.py      # edit_prompt_content eval tests
+    ├── config_update_prompt.yaml        # update_prompt test cases
+    └── test_update_prompt.py            # update_prompt eval tests
 ```
 
 ## Configuration
@@ -152,3 +163,47 @@ If evaluations fail, check:
 2. **API key valid**: Check `OPENAI_API_KEY` in `.env`
 3. **Database accessible**: Run `make docker-up` if containers are down
 4. **Verbose output**: Run with `-v` flag for detailed failure info
+
+## Findings
+
+### evals/prompt_mcp/test_update_prompt.py
+
+**Tests whether LLMs can:**
+- Choose `update_prompt` over `edit_prompt_content` when appropriate
+- Omit `arguments` parameter when template variables aren't changing
+- Omit `tags` parameter when not updating tags
+- Include ALL existing tags when adding a new tag (full replacement)
+
+**Findings** (models tested: gpt-4.1-mini, gpt-4.1, gpt-5.1, gpt-5.2):
+
+#### Key Takeaways
+
+1. **LLMs prefer surgical edits over full replacement** - Models choose `edit_prompt_content` over `update_prompt` even when full replacement is more appropriate.
+
+2. **"Full replacement" semantics are hard for LLMs** - Parameters like `arguments` and `tags` replace the entire list (not merge). Models often:
+   - Provide `arguments` when they should omit it (risking data loss)
+   - Provide `tags` when they should omit it (risking data loss)
+   - Only provide new tags instead of all tags (removing existing ones)
+
+3. **Model reliability varies**
+    - gpt-4.1-mini & gpt-4.1: had 0% success rate across all test cases
+    - gpt-5.2 is the only one that passes at 0.6 threshold but still has sporadic failures.
+
+4. **Tool descriptions help but don't guarantee correct behavior** - We did see significant improvement when adding detailed tool descriptions in the prompt, but models still made mistakes.
+
+### evals/content_mcp/test_update_item.py
+
+**Tests whether LLMs can:**
+- Choose `update_item` over `edit_content` when appropriate
+- Omit `tags` parameter when not updating tags
+- Include ALL existing tags when adding a new tag (full replacement)
+
+**Findings** (models tested: gpt-4.1-mini, gpt-4.1):
+
+#### Key Takeaways
+
+1. **Showing full tool results is critical** - Initial eval only showed content, not tags. LLM would call `get_item` again to see tags before updating. After showing full `get_item` result (including tags), gpt-4.1 passes.
+
+2. **gpt-4.1-mini still fails** - Even with full tool results, gpt-4.1-mini has 0% success rate. Use gpt-4.1 or higher.
+
+3. **Same "full replacement" challenges as prompts** - Tags require providing ALL values when updating.

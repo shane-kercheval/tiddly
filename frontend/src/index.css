@@ -266,7 +266,7 @@ body {
 
 /* Inline code */
 .milkdown-wrapper .milkdown code {
-  @apply bg-gray-100 px-1.5 py-0.5 rounded text-sm text-pink-600 font-mono;
+  @apply bg-blue-50 px-1.5 py-0.5 rounded text-sm text-blue-600 font-mono;
 }
 
 /* Code blocks */

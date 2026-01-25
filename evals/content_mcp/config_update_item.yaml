@@ -1,0 +1,236 @@
+# Content MCP Server Evaluation Configuration
+# Tests the update_item tool for full content replacement and tags behavior
+#
+# CRITICAL BEHAVIORS TESTED:
+# 1. LLM should choose update_item (not edit_content) for substantial rewrites
+# 2. When NOT updating tags: LLM should NOT provide tags parameter
+# 3. When updating tags: LLM MUST provide ALL tags (existing + new)
+# 4. Tags is a FULL REPLACEMENT, not a merge
+#
+# EXPECTED_TAGS SEMANTICS:
+# - null: LLM should NOT provide tags parameter (tags preserved automatically)
+# - ["tag1", "tag2"]: Final tags should exactly match (LLM must provide ALL tags)
+
+model:
+  name: "gpt-4.1"
+  temperature: 0
+
+eval:
+  samples: 10
+  success_threshold: 0.6
+
+test_cases:
+  # Test 1: Convert meeting notes to executive summary
+  # Substantial restructuring - should use update_item, not edit_content
+  - id: "meeting-notes-to-summary"
+    input:
+      content: |
+        ## Meeting Notes - Q3 Planning Session
+
+        **Date:** 2024-01-15
+        **Attendees:** Alice Chen, Bob Martinez, Charlie Kim
+        **Location:** Conference Room B
+
+        ### Discussion Points
+
+        1. Budget allocation for new hires
+           - Marketing department: $50,000
+           - Engineering team: $120,000
+           - Operations staff: $30,000
+           - Total approved: $200,000
+
+        2. Product launch timeline
+           - Beta release: March 15th
+           - Public launch: April 30th
+           - Marketing campaign starts: April 1st
+
+        3. Risk assessment items
+           - Supply chain delays are possible
+           - Need contingency plan for Q2
+           - Vendor contracts expire in June
+
+        ### Action Items
+
+        - [ ] Alice to draft detailed hiring plan by Friday
+        - [ ] Bob to finalize budget spreadsheet
+        - [ ] Charlie to contact backup vendors
+        - [ ] Schedule follow-up meeting for Feb 1st
+
+        ### Notes
+
+        Next meeting scheduled for February 1st, same time.
+      instruction: "Convert these meeting notes into a formal executive summary. Write it as flowing prose paragraphs instead of bullet points. Remove the checkbox action items and meeting logistics - focus on the key decisions and outcomes."
+    expected:
+      tool_name: "update_item"
+      final_must_contain: ["Q3", "budget", "$200,000"]
+      final_must_not_contain: "- [ ]"
+    metadata:
+      description: "Major restructuring from bullet points to prose - must use update_item"
+
+  # Test 2: Restructure API docs into table format
+  # Converting free-form text to structured table
+  - id: "api-docs-to-table"
+    input:
+      content: |
+        # API Endpoint Documentation
+
+        ## User Endpoints
+
+        GET /api/v1/users
+        This endpoint returns a paginated list of all users in the system.
+        Authentication is required via Bearer token.
+        Query parameters: limit (default 20), offset (default 0), sort_by (name, created_at)
+        Returns: Array of user objects with id, name, email, created_at fields.
+
+        POST /api/v1/users
+        Creates a new user account in the system.
+        Requires admin role authentication.
+        Request body must include: name (string), email (string), role (string).
+        Optional fields: phone, department, manager_id.
+        Returns: Created user object with generated id.
+
+        GET /api/v1/users/{id}
+        Retrieves a single user by their unique identifier.
+        Authentication required. Users can only view their own profile unless admin.
+        Path parameter: id (UUID format required).
+        Returns: Full user object including preferences and metadata.
+
+        DELETE /api/v1/users/{id}
+        Permanently removes a user from the system.
+        Requires admin role. Cannot delete yourself.
+        Returns: 204 No Content on success.
+        Caution: This action cannot be undone.
+      instruction: "Rewrite this documentation as a markdown table. The table should have columns: Method, Endpoint, Description, Auth Required, Notes. Keep it concise - one row per endpoint."
+    expected:
+      tool_name: "update_item"
+      final_must_contain: ["|", "Method", "Endpoint", "GET", "POST", "DELETE"]
+    metadata:
+      description: "Convert prose docs to table format - structural change requires update_item"
+
+  # Test 3: Rewrite technical notes as beginner-friendly guide
+  # Complete tone/audience change requiring full rewrite
+  - id: "technical-to-beginner"
+    input:
+      content: |
+        ## Redis Caching Implementation Notes
+
+        Cache invalidation strategy uses TTL-based expiry with write-through
+        on mutations. Key schema: `{entity_type}:{user_id}:{entity_id}`.
+
+        Connection pooling configured via redis-py with max_connections=50.
+        Sentinel support enabled for HA deployments. Failover timeout: 30s.
+
+        Serialization: msgpack for binary efficiency. Compression disabled
+        due to latency overhead (tested: ~2ms penalty per op).
+
+        Monitoring: Redis INFO stats exported to Prometheus via redis_exporter.
+        Key metrics: connected_clients, used_memory, keyspace_hits/misses.
+
+        Known issues:
+        - Race condition possible during cache warm-up (mitigated by locks)
+        - Large values (>1MB) cause fragmentation; consider chunking
+        - Pub/sub not suitable for reliable messaging; use Kafka instead
+      instruction: "Rewrite this as a beginner-friendly guide explaining what Redis caching is and why we use it. Avoid jargon - explain concepts simply. Write in a friendly, educational tone."
+    expected:
+      tool_name: "update_item"
+      final_must_contain: ["Redis", "cache"]
+      final_must_not_contain: ["TTL-based expiry", "write-through", "msgpack"]
+    metadata:
+      description: "Complete tone change from technical to beginner - requires update_item"
+
+  # Test 4: Consolidate scattered notes into organized document
+  # Reorganizing chaotic content into structured format
+  - id: "organize-scattered-notes"
+    input:
+      content: |
+        need to fix the login bug - users getting 500 error
+
+        talked to Sarah - she said the database migration
+        might have broken something
+
+        TODO: check the logs from yesterday
+
+        also the new feature request from client:
+        - dark mode support
+        - export to PDF
+        - keyboard shortcuts
+
+        meeting with stakeholders on Thursday 2pm
+
+        possible root cause: the user_sessions table
+        is missing an index on created_at column
+
+        UPDATE: confirmed - adding index fixed the 500 error
+        need to add this to the migration scripts
+
+        reminder: update documentation for the API changes
+
+        client priority order: 1. dark mode, 2. shortcuts, 3. PDF
+      instruction: "Organize these scattered notes into a proper document with clear sections: 'Bug Fix Summary', 'Feature Requests', and 'Action Items'. Use proper formatting with headers and bullet points."
+    expected:
+      tool_name: "update_item"
+      final_must_contain: ["Bug Fix", "Feature Request", "Dark mode"]
+    metadata:
+      description: "Reorganize chaotic notes into structured document - requires update_item"
+
+  # Test 5: Add tag to note with existing tags
+  # Tags are FULL REPLACEMENT - LLM must provide ALL tags (existing + new)
+  - id: "add-tag-to-existing"
+    input:
+      content: |
+        # Project Ideas
+
+        - Build a CLI tool for managing bookmarks
+        - Create a web scraper for news articles
+        - Develop a markdown editor with live preview
+      tags:
+        - "ideas"
+        - "projects"
+      instruction: "Add the tag 'backlog' to this note. Keep the existing tags."
+    expected:
+      tool_name: "update_item"
+      final_must_contain: ["Project Ideas", "CLI tool"]
+      expected_tags: ["backlog", "ideas", "projects"]
+    metadata:
+      description: "Add tag - tags are FULL REPLACEMENT, must provide ALL tags"
+
+  # Test 6: Rewrite content when note has tags (but NOT updating tags)
+  # LLM should NOT provide tags parameter - existing tags should be preserved
+  - id: "rewrite-preserve-tags"
+    input:
+      content: |
+        quick notes from standup:
+        - john working on auth
+        - sarah doing frontend
+        - need to review PRs
+      tags:
+        - "meetings"
+        - "standup"
+      instruction: "Rewrite this as a formal standup summary with proper sections for each team member's updates. Do not change the tags."
+    expected:
+      tool_name: "update_item"
+      final_must_contain: ["John", "Sarah"]
+      expected_tags: null  # Should NOT provide tags - existing tags preserved
+    metadata:
+      description: "Rewrite content with existing tags - should NOT provide tags parameter"
+
+checks:
+  # Primary check: Verify correct tool was selected (update_item, NOT edit_content)
+  - type: "exact_match"
+    arguments:
+      actual: "$.output.value.tool_prediction.tool_name"
+      expected: "$.test_case.expected.tool_name"
+
+  # Verify final content contains expected text
+  - type: "contains"
+    arguments:
+      text: "$.output.value.final_content"
+      phrases: "$.test_case.expected.final_must_contain"
+
+  # Verify tags behavior:
+  # - If expected is null: LLM should NOT have provided tags
+  # - If expected is a list: final tags should match
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.tags_check"
+      expected: true

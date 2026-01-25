@@ -1,7 +1,7 @@
 """
-Evaluation tests for the Prompt MCP server's edit_prompt_template tool.
+Evaluation tests for the Prompt MCP server's edit_prompt_content tool.
 
-These tests verify that an LLM can correctly use the edit_prompt_template tool
+These tests verify that an LLM can correctly use the edit_prompt_content tool
 to make changes to prompt templates, including atomic updates to both
 content and arguments when adding/removing/renaming variables.
 
@@ -19,6 +19,7 @@ from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 from evals.utils import (
+    MCP_CONCURRENCY_LIMIT,
     create_checks_from_config,
     create_prompt_via_api,
     create_test_cases_from_config,
@@ -28,13 +29,10 @@ from evals.utils import (
     load_yaml_config,
 )
 
-# Limit concurrent MCP connections to avoid overwhelming npx mcp-remote processes.
-# Each connection spawns a subprocess, and too many concurrent connections cause
-# asyncio task/cancel scope issues in the MCP client SDK.
-_MCP_SEMAPHORE = asyncio.Semaphore(20)
+_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 # Load configuration at module level
-CONFIG_PATH = Path(__file__).parent / "config_edit_prompt_template.yaml"
+CONFIG_PATH = Path(__file__).parent / "config_edit_prompt_content.yaml"
 CONFIG = load_yaml_config(CONFIG_PATH)
 
 # Extract configuration values
@@ -57,7 +55,7 @@ def _extract_argument_names(prediction: dict[str, Any]) -> list[str]:
     return sorted(names)
 
 
-async def _run_edit_prompt_template_eval(
+async def _run_edit_prompt_content_eval(
     prompt_name: str,
     content: str,
     arguments: list[dict[str, Any]],
@@ -66,7 +64,7 @@ async def _run_edit_prompt_template_eval(
     temperature: float,
 ) -> dict[str, Any]:
     """
-    Run a single edit_prompt_template evaluation case end-to-end.
+    Run a single edit_prompt_content evaluation case end-to-end.
 
     Steps:
     1. Create prompt via API (unique name to avoid conflicts)
@@ -88,20 +86,20 @@ async def _run_edit_prompt_template_eval(
     prompt_id = created_prompt["id"]
 
     try:
-        # Get MCP tools and use get_prompt_template to get the context
+        # Get MCP tools and use get_prompt_content to get the context
         config = get_prompt_mcp_config()
         # Acquire semaphore to limit concurrent MCP connections
         async with _MCP_SEMAPHORE, MCPClientManager(config) as mcp_manager:
             print(".", end="", flush=True)
             tools = mcp_manager.get_tools()
 
-            # Call get_prompt_template MCP tool to get the prompt data
+            # Call get_prompt_content MCP tool to get the prompt data
             get_template_result = await mcp_manager.call_tool(
-                "get_prompt_template",
+                "get_prompt_content",
                 {"name": unique_name},
             )
 
-            # Parse the JSON response from get_prompt_template
+            # Parse the JSON response from get_prompt_content
             # call_tool returns CallToolResult with .content attribute
             prompt_data = json.loads(get_template_result.content[0].text)
 
@@ -110,7 +108,7 @@ async def _run_edit_prompt_template_eval(
             # that out from the tool descriptions and server instructions
             llm_prompt = f"""I want to edit this prompt template.
 
-`get_prompt_template` tool result:
+`get_prompt_content` tool result:
 ```json
 {json.dumps(prompt_data, indent=2)}
 ```
@@ -159,24 +157,24 @@ async def _run_edit_prompt_template_eval(
     samples=EVAL_CONFIG["samples"],
     success_threshold=EVAL_CONFIG["success_threshold"],
 )
-async def test_edit_prompt_template(test_case: TestCase) -> dict[str, Any]:
+async def test_edit_prompt_content(test_case: TestCase) -> dict[str, Any]:
     """
-    Test that the LLM correctly uses edit_prompt_template to modify prompts.
+    Test that the LLM correctly uses edit_prompt_content to modify prompts.
 
     Each test case:
     1. Creates a prompt with specific content and arguments
-    2. Gets the prompt data via MCP get_prompt_template tool
+    2. Gets the prompt data via MCP get_prompt_content tool
     3. Asks the LLM to make a specific change
     4. Computes final_content by applying the predicted edit
     5. Extracts argument_names from prediction
 
     The checks verify:
-    - Correct tool was selected (edit_prompt_template)
+    - Correct tool was selected (edit_prompt_content)
     - Final content contains expected text (variables preserved)
     - Final content does not contain forbidden text (variables removed)
     - Argument names exactly match expected (sorted list comparison)
     """
-    return await _run_edit_prompt_template_eval(
+    return await _run_edit_prompt_content_eval(
         prompt_name=test_case.input["prompt_name"],
         content=test_case.input["content"],
         arguments=test_case.input["arguments"],

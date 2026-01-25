@@ -1,5 +1,6 @@
 """Shared utilities for MCP server evaluations."""
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,12 @@ import yaml
 from flex_evals import TestCase, get_check_class
 from flex_evals.checks.base import BaseCheck
 from sik_llms import RegisteredClients, create_client, user_message
+from sik_llms.mcp_manager import MCPClientManager
+
+# Concurrency limit for MCP connections. Tuned to avoid overwhelming npx mcp-remote
+# processes which spawn subprocesses for each connection. Too high causes timeouts
+# and connection failures; too low slows down parallel test execution.
+MCP_CONCURRENCY_LIMIT = 20
 
 # Default configuration
 PAT_TOKEN = "bm_devtoken"
@@ -104,6 +111,48 @@ def create_test_cases_from_config(
     return test_cases
 
 
+async def call_tool_with_retry(
+    mcp_manager: MCPClientManager,
+    tool_name: str,
+    args: dict[str, Any],
+    max_retries: int = 3,
+    retry_delay: float = 1.0,
+) -> Any:
+    """
+    Call MCP tool with retry logic for transient failures.
+
+    Args:
+        mcp_manager: The MCP client manager instance.
+        tool_name: Name of the tool to call.
+        args: Arguments to pass to the tool.
+        max_retries: Maximum number of retry attempts.
+        retry_delay: Base delay between retries (multiplied by attempt number).
+
+    Returns:
+        The tool result (with content or structuredContent).
+
+    Raises:
+        ValueError: If the tool returns empty response after all retries.
+        Exception: If the tool call fails after all retries.
+    """
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            result = await mcp_manager.call_tool(tool_name, args)
+            # Check for valid response (either content or structuredContent)
+            has_content = result.content and len(result.content) > 0
+            has_structured = result.structuredContent is not None
+            if has_content or has_structured:
+                return result
+            # Empty response, retry
+            last_error = ValueError(f"Empty response from {tool_name}")
+        except Exception as e:
+            last_error = e
+        if attempt < max_retries - 1:
+            await asyncio.sleep(retry_delay * (attempt + 1))
+    raise last_error or ValueError(f"Failed to call {tool_name} after {max_retries} retries")
+
+
 async def get_tool_prediction(
     prompt: str,
     tools: list,
@@ -127,7 +176,7 @@ async def get_tool_prediction(
     if response.tool_prediction:
         return {
             "tool_name": response.tool_prediction.name,
-            "arguments": response.tool_prediction.arguments,
+            "arguments": response.tool_prediction.arguments or {},
         }
     return {"tool_name": None, "arguments": {}}
 
@@ -192,6 +241,43 @@ async def get_prompt_via_api(prompt_id: str) -> dict[str, Any]:
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"{API_BASE_URL}/prompts/{prompt_id}",
+            headers={"Authorization": f"Bearer {PAT_TOKEN}"},
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def create_note_via_api(
+    title: str,
+    content: str,
+    tags: list[str] | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Create a note via the API and return the response."""
+    payload: dict[str, Any] = {
+        "title": title,
+        "content": content,
+    }
+    if tags:
+        payload["tags"] = tags
+    if description:
+        payload["description"] = description
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{API_BASE_URL}/notes/",
+            headers={"Authorization": f"Bearer {PAT_TOKEN}"},
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def get_note_via_api(note_id: str) -> dict[str, Any]:
+    """Get a note by ID via the API."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{API_BASE_URL}/notes/{note_id}",
             headers={"Authorization": f"Bearer {PAT_TOKEN}"},
         )
         response.raise_for_status()

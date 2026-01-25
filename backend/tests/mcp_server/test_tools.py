@@ -215,6 +215,24 @@ async def test__search_items__invalid_token(mock_api) -> None:
     assert "invalid" in error_text or "expired" in error_text
 
 
+@pytest.mark.asyncio
+async def test__search_items__forbidden(mock_api) -> None:
+    """Test 403 forbidden error handling."""
+    from mcp_server.server import mcp
+
+    mock_api.get("/content/").mock(
+        return_value=Response(403, json={"detail": "Access denied"}),
+    )
+
+    with patch("mcp_server.server.get_bearer_token") as mock_auth:
+        mock_auth.return_value = "valid_token"
+        async with Client(transport=mcp) as client:
+            result = await client.call_tool("search_items", {}, raise_on_error=False)
+
+    assert result.is_error
+    assert "access denied" in result.content[0].text.lower()
+
+
 # --- get_item tests (replaces get_content) ---
 
 
@@ -369,93 +387,299 @@ async def test__get_item__invalid_type(
     assert "invalid" in result.content[0].text.lower()
 
 
-# --- update_item_metadata tests ---
+# --- update_item tests ---
 
 
 @pytest.mark.asyncio
-async def test__update_item_metadata__note_success(
+async def test__update_item__note_metadata_success(
     mock_api,
     mcp_client: Client,
     sample_note: dict[str, Any],
 ) -> None:
-    """Test updating note metadata returns summary string."""
+    """Test updating note metadata returns structured dict."""
     note_id = "550e8400-e29b-41d4-a716-446655440002"
-    updated_note = {**sample_note, "title": "Updated Title", "tags": ["new-tag"]}
+    updated_note = {
+        **sample_note,
+        "title": "Updated Title",
+        "tags": ["new-tag"],
+        "updated_at": "2024-01-02T00:00:00Z",
+    }
     mock_api.patch(f"/notes/{note_id}").mock(
         return_value=Response(200, json=updated_note),
     )
 
     result = await mcp_client.call_tool(
-        "update_item_metadata",
+        "update_item",
         {"id": note_id, "type": "note", "title": "Updated Title", "tags": ["new-tag"]},
     )
 
-    # Returns summary string, not full response
-    response_text = result.content[0].text
-    assert "Updated note" in response_text
-    assert note_id in response_text
-    assert "title updated" in response_text
-    assert "tags updated" in response_text
+    # Returns structured dict with id, updated_at, summary
+    assert result.data["id"] == note_id
+    assert result.data["updated_at"] == "2024-01-02T00:00:00Z"
+    assert "Updated note" in result.data["summary"]
+    assert "title updated" in result.data["summary"]
+    assert "tags updated" in result.data["summary"]
 
 
 @pytest.mark.asyncio
-async def test__update_item_metadata__bookmark_with_url(
+async def test__update_item__bookmark_with_url(
     mock_api,
     mcp_client: Client,
     sample_bookmark: dict[str, Any],
 ) -> None:
-    """Test updating bookmark metadata including URL returns summary string."""
+    """Test updating bookmark metadata including URL returns structured dict."""
     bookmark_id = "550e8400-e29b-41d4-a716-446655440001"
-    updated_bookmark = {**sample_bookmark, "url": "https://new-url.com"}
+    updated_bookmark = {
+        **sample_bookmark,
+        "url": "https://new-url.com",
+        "updated_at": "2024-01-02T00:00:00Z",
+    }
     mock_api.patch(f"/bookmarks/{bookmark_id}").mock(
         return_value=Response(200, json=updated_bookmark),
     )
 
     result = await mcp_client.call_tool(
-        "update_item_metadata",
+        "update_item",
         {"id": bookmark_id, "type": "bookmark", "url": "https://new-url.com"},
     )
 
-    # Returns summary string, not full response
-    response_text = result.content[0].text
-    assert "Updated bookmark" in response_text
-    assert bookmark_id in response_text
-    assert "url updated" in response_text
+    # Returns structured dict
+    assert result.data["id"] == bookmark_id
+    assert result.data["updated_at"] == "2024-01-02T00:00:00Z"
+    assert "Updated bookmark" in result.data["summary"]
+    assert "url updated" in result.data["summary"]
 
 
 @pytest.mark.asyncio
-async def test__update_item_metadata__updates_description(
+async def test__update_item__updates_description(
     mock_api,
     mcp_client: Client,
     sample_note: dict[str, Any],
 ) -> None:
-    """Test updating item description returns summary string."""
+    """Test updating item description returns structured dict."""
     note_id = "550e8400-e29b-41d4-a716-446655440002"
-    updated_note = {**sample_note, "description": "Updated description"}
+    updated_note = {
+        **sample_note,
+        "description": "Updated description",
+        "updated_at": "2024-01-02T00:00:00Z",
+    }
     mock_api.patch(f"/notes/{note_id}").mock(
         return_value=Response(200, json=updated_note),
     )
 
     result = await mcp_client.call_tool(
-        "update_item_metadata",
+        "update_item",
         {"id": note_id, "type": "note", "description": "Updated description"},
     )
 
-    # Returns summary string, not full response
-    response_text = result.content[0].text
-    assert "Updated note" in response_text
-    assert note_id in response_text
-    assert "description updated" in response_text
+    assert result.data["id"] == note_id
+    assert "description updated" in result.data["summary"]
 
 
 @pytest.mark.asyncio
-async def test__update_item_metadata__note_url_error(
+async def test__update_item__content_replacement(
+    mock_api,
+    mcp_client: Client,
+    sample_note: dict[str, Any],
+) -> None:
+    """Test updating item content with full replacement."""
+    note_id = "550e8400-e29b-41d4-a716-446655440002"
+    updated_note = {
+        **sample_note,
+        "content": "Completely new content",
+        "updated_at": "2024-01-02T00:00:00Z",
+    }
+    mock_api.patch(f"/notes/{note_id}").mock(
+        return_value=Response(200, json=updated_note),
+    )
+
+    result = await mcp_client.call_tool(
+        "update_item",
+        {"id": note_id, "type": "note", "content": "Completely new content"},
+    )
+
+    assert result.data["id"] == note_id
+    assert "content updated" in result.data["summary"]
+
+    # Verify payload was sent correctly
+    import json
+    payload = json.loads(mock_api.calls[0].request.content)
+    assert payload["content"] == "Completely new content"
+
+
+@pytest.mark.asyncio
+async def test__update_item__metadata_and_content_together(
+    mock_api,
+    mcp_client: Client,
+    sample_note: dict[str, Any],
+) -> None:
+    """Test updating both metadata and content in a single call."""
+    note_id = "550e8400-e29b-41d4-a716-446655440002"
+    updated_note = {
+        **sample_note,
+        "title": "New Title",
+        "content": "New content",
+        "tags": ["updated"],
+        "updated_at": "2024-01-02T00:00:00Z",
+    }
+    mock_api.patch(f"/notes/{note_id}").mock(
+        return_value=Response(200, json=updated_note),
+    )
+
+    result = await mcp_client.call_tool(
+        "update_item",
+        {
+            "id": note_id,
+            "type": "note",
+            "title": "New Title",
+            "content": "New content",
+            "tags": ["updated"],
+        },
+    )
+
+    assert result.data["id"] == note_id
+    assert "title updated" in result.data["summary"]
+    assert "content updated" in result.data["summary"]
+    assert "tags updated" in result.data["summary"]
+
+
+@pytest.mark.asyncio
+async def test__update_item__with_expected_updated_at_success(
+    mock_api,
+    mcp_client: Client,
+    sample_note: dict[str, Any],
+) -> None:
+    """Test update_item with valid expected_updated_at succeeds."""
+    note_id = "550e8400-e29b-41d4-a716-446655440002"
+    updated_note = {
+        **sample_note,
+        "title": "New Title",
+        "updated_at": "2024-01-02T00:00:00Z",
+    }
+    mock_api.patch(f"/notes/{note_id}").mock(
+        return_value=Response(200, json=updated_note),
+    )
+
+    result = await mcp_client.call_tool(
+        "update_item",
+        {
+            "id": note_id,
+            "type": "note",
+            "title": "New Title",
+            "expected_updated_at": "2024-01-01T00:00:00Z",
+        },
+    )
+
+    assert result.data["id"] == note_id
+    assert "title updated" in result.data["summary"]
+    # expected_updated_at should NOT appear in summary (it's a control param)
+    assert "expected_updated_at" not in result.data["summary"]
+
+    # Verify expected_updated_at was sent in payload
+    import json
+    payload = json.loads(mock_api.calls[0].request.content)
+    assert payload["expected_updated_at"] == "2024-01-01T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test__update_item__conflict_returns_server_state(
+    mock_api,
+    mcp_client: Client,
+    sample_note: dict[str, Any],
+) -> None:
+    """Test update_item with stale expected_updated_at returns conflict with server_state."""
+    note_id = "550e8400-e29b-41d4-a716-446655440002"
+    current_server_state = {
+        **sample_note,
+        "title": "Someone else's title",
+        "updated_at": "2024-01-02T00:00:00Z",
+    }
+    mock_api.patch(f"/notes/{note_id}").mock(
+        return_value=Response(
+            409,
+            json={
+                "detail": {
+                    "error": "conflict",
+                    "message": "This item was modified since you loaded it",
+                    "server_state": current_server_state,
+                },
+            },
+        ),
+    )
+
+    result = await mcp_client.call_tool(
+        "update_item",
+        {
+            "id": note_id,
+            "type": "note",
+            "title": "My title",
+            "expected_updated_at": "2024-01-01T00:00:00Z",
+        },
+    )
+
+    # Should return structured conflict response (not error)
+    assert result.data["error"] == "conflict"
+    assert "modified" in result.data["message"].lower()
+    assert result.data["server_state"]["title"] == "Someone else's title"
+    assert result.data["server_state"]["updated_at"] == "2024-01-02T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test__update_item__name_conflict_raises_error(
+    mock_api,
+    mcp_client: Client,
+) -> None:
+    """Test 409 name conflict (no server_state) raises ToolError with API-provided message."""
+    note_id = "550e8400-e29b-41d4-a716-446655440002"
+    mock_api.patch(f"/notes/{note_id}").mock(
+        return_value=Response(
+            409,
+            json={"detail": {"message": "A note with this name already exists", "error_code": "NAME_CONFLICT"}},
+        ),
+    )
+
+    result = await mcp_client.call_tool(
+        "update_item",
+        {"id": note_id, "type": "note", "title": "New Title"},
+        raise_on_error=False,
+    )
+
+    assert result.is_error
+    assert "already exists" in result.content[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__update_item__name_conflict_string_detail_preserved(
+    mock_api,
+    mcp_client: Client,
+) -> None:
+    """Test 409 with string detail preserves the server-provided message."""
+    note_id = "550e8400-e29b-41d4-a716-446655440002"
+    mock_api.patch(f"/notes/{note_id}").mock(
+        return_value=Response(
+            409,
+            json={"detail": "Custom conflict message from server"},
+        ),
+    )
+
+    result = await mcp_client.call_tool(
+        "update_item",
+        {"id": note_id, "type": "note", "title": "New Title"},
+        raise_on_error=False,
+    )
+
+    assert result.is_error
+    assert "custom conflict message" in result.content[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__update_item__note_url_error(
     mock_api,  # noqa: ARG001 - needed to reset HTTP client
     mcp_client: Client,
 ) -> None:
     """Test that url parameter raises error for notes."""
     result = await mcp_client.call_tool(
-        "update_item_metadata",
+        "update_item",
         {"id": "some-id", "type": "note", "url": "https://example.com"},
         raise_on_error=False,
     )
@@ -466,13 +690,13 @@ async def test__update_item_metadata__note_url_error(
 
 
 @pytest.mark.asyncio
-async def test__update_item_metadata__no_fields_error(
+async def test__update_item__no_fields_error(
     mock_api,  # noqa: ARG001 - needed to reset HTTP client
     mcp_client: Client,
 ) -> None:
-    """Test that at least one field must be provided."""
+    """Test that at least one data field must be provided."""
     result = await mcp_client.call_tool(
-        "update_item_metadata",
+        "update_item",
         {"id": "some-id", "type": "note"},
         raise_on_error=False,
     )
@@ -482,15 +706,35 @@ async def test__update_item_metadata__no_fields_error(
 
 
 @pytest.mark.asyncio
-async def test__update_item_metadata__not_found(mock_api, mcp_client: Client) -> None:
-    """Test 404 error handling for update_item_metadata."""
+async def test__update_item__expected_updated_at_alone_not_sufficient(
+    mock_api,  # noqa: ARG001 - needed to reset HTTP client
+    mcp_client: Client,
+) -> None:
+    """Test that expected_updated_at alone doesn't satisfy the 'at least one field' requirement."""
+    result = await mcp_client.call_tool(
+        "update_item",
+        {
+            "id": "some-id",
+            "type": "note",
+            "expected_updated_at": "2024-01-01T00:00:00Z",
+        },
+        raise_on_error=False,
+    )
+
+    assert result.is_error
+    assert "at least one" in result.content[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__update_item__not_found(mock_api, mcp_client: Client) -> None:
+    """Test 404 error handling for update_item."""
     missing_id = "00000000-0000-0000-0000-000000000000"
     mock_api.patch(f"/notes/{missing_id}").mock(
         return_value=Response(404, json={"detail": "Not found"}),
     )
 
     result = await mcp_client.call_tool(
-        "update_item_metadata",
+        "update_item",
         {"id": missing_id, "type": "note", "title": "New Title"},
         raise_on_error=False,
     )

@@ -32,6 +32,8 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
+from shared.api_errors import ParsedApiError, parse_http_error
+
 from .api_client import api_get, api_patch, api_post, get_api_base_url, get_default_timeout
 from .auth import AuthenticationError, get_bearer_token
 
@@ -54,7 +56,7 @@ URL but can be user-provided. For notes, it's user-written markdown.
 
 ## Tool Naming Convention
 
-- **Item tools** (`search_items`, `get_item`, `update_item_metadata`): Operate on bookmark/note entities
+- **Item tools** (`search_items`, `get_item`, `update_item`): Operate on bookmark/note entities
 - **Content tools** (`edit_content`, `search_in_content`): Operate on the content text field
 
 ## Available Tools
@@ -68,8 +70,9 @@ URL but can be user-provided. For notes, it's user-written markdown.
 - `edit_content`: Edit the `content` field using string replacement (NOT title/description)
 - `search_in_content`: Search within item's text fields for matches with context
 
-**Metadata Updates:**
-- `update_item_metadata`: Change title, description, tags, or url (bookmarks only)
+**Update:**
+- `update_item`: Update metadata (title, description, tags, url) and/or fully replace content.
+  Use `edit_content` instead for targeted string-based edits to content.
 
 **Create:**
 - `create_bookmark`: Save a new URL (metadata auto-fetched if not provided)
@@ -96,10 +99,19 @@ Each item includes: `id`, `title`, `description`, `tags`, `created_at`, `updated
 **Note:** Search results include `content_length` and `content_preview` (first 500 chars)
 but NOT the full `content` field. Use `get_item(id, type)` to fetch full content.
 
-## Updating Metadata vs Content
+## Updating Items
 
-- **`update_item_metadata`**: Change title, description, tags, or url (bookmarks only)
-- **`edit_content`**: Change the content text field using string replacement
+- **`update_item`**: Update metadata (title, description, tags, url) and/or fully replace content.
+  All parameters are optional - only provide what you want to change (at least one required).
+- **`edit_content`**: Make targeted edits to the content field using string replacement.
+  Use this for fixing typos, inserting/deleting paragraphs, etc. without rewriting everything.
+
+## Optimistic Locking
+
+All mutation tools (`update_item`, `edit_content`, `create_bookmark`, `create_note`) return
+`updated_at` in their response. Use `expected_updated_at` parameter on `update_item` to prevent
+concurrent edit conflicts. If the item was modified after this timestamp, returns a conflict
+error with `server_state` containing the current version for resolution.
 
 ## Limitations
 
@@ -134,7 +146,7 @@ but NOT the full `content` field. Use `get_item(id, type)` to fetch full content
    - If small enough, call `get_item(id="<uuid>", type="note")` to get full content
 
 8. "Update a bookmark's tags"
-   - Call `update_item_metadata(id="<uuid>", type="bookmark", tags=["new-tag", "another"])`
+   - Call `update_item(id="<uuid>", type="bookmark", tags=["new-tag", "another"])`
 
 Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
 """.strip(),  # noqa: E501
@@ -164,27 +176,9 @@ def _get_token() -> str:
         raise ToolError(str(e))
 
 
-def _handle_api_error(e: httpx.HTTPStatusError, context: str = "") -> NoReturn:
-    """Translate API errors to meaningful MCP ToolErrors. Always raises."""
-    status = e.response.status_code
-
-    if status == 401:
-        raise ToolError("Invalid or expired token")
-    if status == 403:
-        raise ToolError("Access denied")
-
-    # Try to extract detailed error message from API response
-    try:
-        detail = e.response.json().get("detail", {})
-        if isinstance(detail, dict):
-            message = detail.get("message", str(detail))
-            error_code = detail.get("error_code", "")
-            if error_code:
-                raise ToolError(f"{message} (code: {error_code})")
-            raise ToolError(message)
-        raise ToolError(str(detail))
-    except (ValueError, KeyError):
-        raise ToolError(f"API error {status}{': ' + context if context else ''}")
+def _raise_tool_error(info: ParsedApiError) -> NoReturn:
+    """Raise ToolError from parsed API error. Always raises."""
+    raise ToolError(info.message)
 
 
 @mcp.tool(
@@ -260,8 +254,7 @@ async def search_items(
     try:
         return await api_get(client, endpoint, token, params)
     except httpx.HTTPStatusError as e:
-        _handle_api_error(e, "searching items")
-        raise  # Unreachable but satisfies type checker
+        _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
@@ -340,19 +333,21 @@ async def get_item(
     try:
         return await api_get(client, endpoint, token, params if params else None)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise ToolError(f"{type.title()} with ID {id} not found")
-        _handle_api_error(e, f"getting {type} {id}")
-        raise
+        _raise_tool_error(parse_http_error(e, entity_type=type, entity_name=id))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
 
 @mcp.tool(
     description=(
-        "Edit the 'content' field using string replacement. Does NOT edit title or "
-        "description - only the main content body. The old_str must match exactly "
-        "one location. Use search_in_content first to verify match uniqueness."
+        "Edit the 'content' field using string replacement. "
+        "Use when: making targeted changes (small or large) where you can identify "
+        "specific text to replace; adding, removing, or modifying a section while "
+        "keeping the rest unchanged. More efficient than replacing entire content. "
+        "Examples: fix a typo, add a paragraph, remove a section, update specific text. "
+        "Does NOT edit title, description, or tags - only the main content body. "
+        "The old_str must match exactly one location. "
+        "Use search_in_content first to verify match uniqueness."
     ),
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
@@ -375,7 +370,7 @@ async def edit_content(
     Replace old_str with new_str in the item's 'content' field.
 
     **Important:** This tool ONLY edits the `content` field (main body text).
-    It does NOT edit title, description, or tags. Use update_item_metadata for those.
+    It does NOT edit title, description, or tags. Use update_item for those.
 
     The edit will fail if old_str matches 0 or multiple locations. On failure,
     the response includes match locations with context to help construct a unique match.
@@ -407,10 +402,8 @@ async def edit_content(
     try:
         return await api_patch(client, endpoint, token, payload)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise ToolError(f"{type.title()} with ID {id} not found")
+        # Return structured error data for 400 (no_match, multiple_matches, content_empty).
         if e.response.status_code == 400:
-            # Return structured error data (no_match, multiple_matches, content_empty).
             try:
                 error_detail = e.response.json().get("detail", {})
                 if isinstance(error_detail, dict):
@@ -418,8 +411,7 @@ async def edit_content(
                 return {"error": "unknown", "message": str(error_detail)}
             except (ValueError, KeyError):
                 pass
-        _handle_api_error(e, f"editing {type} {id}")
-        raise
+        _raise_tool_error(parse_http_error(e, entity_type=type, entity_name=id))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
@@ -490,23 +482,26 @@ async def search_in_content(
     try:
         return await api_get(client, endpoint, token, params)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise ToolError(f"{type.title()} with ID {id} not found")
-        _handle_api_error(e, f"searching in {type} {id}")
-        raise
+        _raise_tool_error(parse_http_error(e, entity_type=type, entity_name=id))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
 
 @mcp.tool(
     description=(
-        "Update a bookmark or note's metadata (title, description, tags). "
-        "For bookmarks, can also update url. "
-        "Does NOT edit content - use edit_content for that."
+        "Update metadata and/or fully replace content. "
+        "Use when: updating metadata (title, description, tags, url); "
+        "rewriting/restructuring where most content changes; changes are extensive "
+        "enough that finding old_str is impractical. Safer for major rewrites. "
+        "Examples: convert format (bullets to prose), change tone/audience, "
+        "reorganize structure, complete rewrite, update tags. "
+        "All parameters optional - only provide what you want to change (at least one required). "
+        "NOTE: For targeted edits where you can identify specific text to replace, "
+        "use edit_content instead - it's more efficient for surgical changes."
     ),
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
-async def update_item_metadata(
+async def update_item(
     id: Annotated[str, Field(description="The item ID (UUID)")],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
@@ -528,21 +523,36 @@ async def update_item_metadata(
         str | None,
         Field(description="New URL (bookmarks only). Omit to leave unchanged."),
     ] = None,
-) -> str:
+    content: Annotated[
+        str | None,
+        Field(description="New content (FULL REPLACEMENT of entire content field). Omit to leave unchanged."),  # noqa: E501
+    ] = None,
+    expected_updated_at: Annotated[
+        str | None,
+        Field(
+            description="For optimistic locking. If provided and the item was modified after "
+            "this timestamp, returns a conflict error with the current server state. "
+            "Use the updated_at from a previous response.",
+        ),
+    ] = None,
+) -> dict[str, Any]:
     """
-    Update item metadata.
+    Update a bookmark or note.
 
-    At least one field must be provided.
+    At least one data field must be provided (title, description, tags, url, or content).
     Tags are replaced entirely (not merged) - provide the complete tag list.
     The `url` parameter only applies to bookmarks - raises an error if provided for notes.
 
-    Returns a summary string confirming the update.
+    Use `expected_updated_at` to prevent concurrent edit conflicts. If the item was modified
+    after this timestamp, returns a conflict response with the current server state.
+
+    Returns a dict with {id, updated_at, summary} for programmatic use and optimistic locking.
     """
     if type not in ("bookmark", "note"):
         raise ToolError(f"Invalid type '{type}'. Must be 'bookmark' or 'note'.")
 
-    if title is None and description is None and tags is None and url is None:
-        raise ToolError("At least one of title, description, tags, or url must be provided")
+    if title is None and description is None and tags is None and url is None and content is None:
+        raise ToolError("At least one of title, description, tags, url, or content must be provided")  # noqa: E501
 
     if url is not None and type == "note":
         raise ToolError("url parameter is only valid for bookmarks")
@@ -552,25 +562,42 @@ async def update_item_metadata(
 
     # Build payload from provided fields
     endpoint = f"/{type}s/{id}"
-    fields = {"title": title, "description": description, "tags": tags, "url": url}
+    fields = {
+        "title": title,
+        "description": description,
+        "tags": tags,
+        "url": url,
+        "content": content,
+        "expected_updated_at": expected_updated_at,
+    }
     payload = {k: v for k, v in fields.items() if v is not None}
 
     try:
         result = await api_patch(client, endpoint, token, payload)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
-            raise ToolError(f"{type.title()} with ID {id} not found")
-        _handle_api_error(e, f"updating {type} {id}")
-        raise
+        info = parse_http_error(e, entity_type=type, entity_name=id)
+        if info.category == "conflict_modified":
+            return {
+                "error": "conflict",
+                "message": info.message,
+                "server_state": info.server_state,
+            }
+        _raise_tool_error(info)
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
-    # Build summary of what was updated (consistent with Prompt MCP server)
+    # Build summary of what was updated
     item_title = result.get("title") or result.get("url") or id
-    item_id = result.get("id", id)
-    updates = [f"{k} updated" for k in payload]
+    # Exclude expected_updated_at from summary (it's a control parameter, not a data update)
+    data_fields = {k: v for k, v in payload.items() if k != "expected_updated_at"}
+    updates = [f"{k} updated" for k in data_fields]
     summary = ", ".join(updates) if updates else "no changes"
-    return f"Updated {type} '{item_title}' (ID: {item_id}): {summary}"
+
+    return {
+        "id": result.get("id"),
+        "updated_at": result.get("updated_at"),
+        "summary": f"Updated {type} '{item_title}': {summary}",
+    }
 
 
 @mcp.tool(
@@ -601,22 +628,21 @@ async def create_bookmark(
     try:
         return await api_post(client, "/bookmarks/", token, payload)
     except httpx.HTTPStatusError as e:
+        # Special handling for 409: check for ARCHIVED_URL_EXISTS error code
         if e.response.status_code == 409:
-            # Extract rich error details for duplicate URL
             try:
                 detail = e.response.json().get("detail", {})
-                error_code = detail.get("error_code", "")
+                error_code = detail.get("error_code", "") if isinstance(detail, dict) else ""
                 if error_code == "ARCHIVED_URL_EXISTS":
                     bookmark_id = detail.get("existing_bookmark_id")
                     raise ToolError(
                         f"An archived bookmark exists with this URL (ID: {bookmark_id}). "
                         "Use the web UI to restore or permanently delete it first.",
                     )
-                raise ToolError("A bookmark with this URL already exists")
             except (ValueError, KeyError, TypeError):
-                raise ToolError("A bookmark with this URL already exists")
-        _handle_api_error(e, "creating bookmark")
-        raise
+                pass
+            raise ToolError("A bookmark with this URL already exists")
+        _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
@@ -649,8 +675,7 @@ async def create_note(
     try:
         return await api_post(client, "/notes/", token, payload)
     except httpx.HTTPStatusError as e:
-        _handle_api_error(e, "creating note")
-        raise
+        _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
 
@@ -672,7 +697,6 @@ async def list_tags() -> dict[str, Any]:
     try:
         return await api_get(client, "/tags/", token)
     except httpx.HTTPStatusError as e:
-        _handle_api_error(e, "listing tags")
-        raise
+        _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
