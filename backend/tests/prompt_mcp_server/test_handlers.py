@@ -34,9 +34,9 @@ def test__server__has_instructions() -> None:
     assert len(server.instructions) > 0
     # Verify key content is present
     assert "prompt template manager" in server.instructions.lower()
-    assert "get_prompt_template" in server.instructions
+    assert "get_prompt_content" in server.instructions
     assert "create_prompt" in server.instructions
-    assert "edit_prompt_template" in server.instructions
+    assert "edit_prompt_content" in server.instructions
     assert "update_prompt" in server.instructions
     assert "Jinja2" in server.instructions
 
@@ -375,20 +375,20 @@ async def test__list_tools__returns_all_tools() -> None:
         "search_prompts",
         "list_tags",
         "get_prompt_metadata",
-        "get_prompt_template",
+        "get_prompt_content",
         "create_prompt",
-        "edit_prompt_template",
+        "edit_prompt_content",
         "update_prompt",
     }
 
-    get_template = next(t for t in result if t.name == "get_prompt_template")
-    assert "raw content" in get_template.description
-    assert "viewing or editing" in get_template.description
+    get_content = next(t for t in result if t.name == "get_prompt_content")
+    assert "template and arguments" in get_content.description
+    assert "viewing or editing" in get_content.description
 
     create_prompt = next(t for t in result if t.name == "create_prompt")
     assert "Create a new prompt" in create_prompt.description
 
-    edit_prompt = next(t for t in result if t.name == "edit_prompt_template")
+    edit_prompt = next(t for t in result if t.name == "edit_prompt_content")
     assert "Edit a prompt" in edit_prompt.description
     assert "string replacement" in edit_prompt.description
 
@@ -398,11 +398,11 @@ async def test__list_tools__returns_all_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test__list_tools__get_prompt_template_has_schema() -> None:
-    """Test get_prompt_template tool has proper input schema."""
+async def test__list_tools__get_prompt_content_has_schema() -> None:
+    """Test get_prompt_content tool has proper input schema."""
     result = await handle_list_tools()
 
-    get_template = next(t for t in result if t.name == "get_prompt_template")
+    get_template = next(t for t in result if t.name == "get_prompt_content")
     schema = get_template.inputSchema
     assert schema["type"] == "object"
     assert "name" in schema["properties"]
@@ -426,21 +426,21 @@ async def test__list_tools__create_prompt_has_schema() -> None:
     assert set(schema["required"]) == {"name", "content"}
 
 
-# --- call_tool (get_prompt_template) tests ---
+# --- call_tool (get_prompt_content) tests ---
 
 
 @pytest.mark.asyncio
-async def test__get_prompt_template_tool__returns_raw_content(
+async def test__get_prompt_content_tool__returns_raw_content(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
     sample_prompt: dict[str, Any],
 ) -> None:
-    """Test get_prompt_template returns raw template content as JSON."""
+    """Test get_prompt_content returns raw template content as JSON."""
     mock_api.get("/prompts/name/code-review").mock(
         return_value=Response(200, json=sample_prompt),
     )
 
-    result = await handle_call_tool("get_prompt_template", {"name": "code-review"})
+    result = await handle_call_tool("get_prompt_content", {"name": "code-review"})
 
     assert len(result) == 1
     # Response should be JSON-formatted
@@ -452,34 +452,33 @@ async def test__get_prompt_template_tool__returns_raw_content(
     # Content should be raw template (not rendered)
     assert response_data["content"] == "Please review the following {{ language }} code:\n\n{{ code }}"
     assert len(response_data["arguments"]) == 2
-    assert response_data["tags"] == ["development", "code-review"]
 
 
 @pytest.mark.asyncio
-async def test__get_prompt_template_tool__includes_all_metadata(
+async def test__get_prompt_content_tool__includes_all_metadata(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
     sample_prompt: dict[str, Any],
 ) -> None:
-    """Test get_prompt_template includes all metadata fields."""
+    """Test get_prompt_content includes all metadata fields."""
     mock_api.get("/prompts/name/code-review").mock(
         return_value=Response(200, json=sample_prompt),
     )
 
-    result = await handle_call_tool("get_prompt_template", {"name": "code-review"})
+    result = await handle_call_tool("get_prompt_content", {"name": "code-review"})
     response_data = json.loads(result[0].text)
 
     # Verify all expected fields are present
-    expected_fields = {"id", "name", "title", "description", "content", "arguments", "tags"}
+    expected_fields = {"id", "name", "title", "description", "content", "arguments"}
     assert set(response_data.keys()) == expected_fields
 
 
 @pytest.mark.asyncio
-async def test__get_prompt_template_tool__not_found_error(
+async def test__get_prompt_content_tool__not_found_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
-    """Test get_prompt_template returns error for nonexistent prompt."""
+    """Test get_prompt_content returns error for nonexistent prompt."""
     from mcp.shared.exceptions import McpError
 
     mock_api.get("/prompts/name/nonexistent").mock(
@@ -487,28 +486,28 @@ async def test__get_prompt_template_tool__not_found_error(
     )
 
     with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("get_prompt_template", {"name": "nonexistent"})
+        await handle_call_tool("get_prompt_content", {"name": "nonexistent"})
 
     assert "not found" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio
-async def test__get_prompt_template_tool__missing_name_error() -> None:
-    """Test get_prompt_template returns error when name is missing."""
+async def test__get_prompt_content_tool__missing_name_error() -> None:
+    """Test get_prompt_content returns error when name is missing."""
     from mcp.shared.exceptions import McpError
 
     with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("get_prompt_template", {})
+        await handle_call_tool("get_prompt_content", {})
 
     assert "Missing required parameter: name" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
-async def test__get_prompt_template_tool__api_unavailable(
+async def test__get_prompt_content_tool__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
-    """Test get_prompt_template handles network errors."""
+    """Test get_prompt_content handles network errors."""
     from mcp.shared.exceptions import McpError
 
     mock_api.get("/prompts/name/test-prompt").mock(
@@ -516,7 +515,7 @@ async def test__get_prompt_template_tool__api_unavailable(
     )
 
     with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("get_prompt_template", {"name": "test-prompt"})
+        await handle_call_tool("get_prompt_content", {"name": "test-prompt"})
 
     assert "unavailable" in str(exc_info.value).lower()
 
@@ -827,12 +826,12 @@ async def test__list_tags__returns_all_tags(
     assert data["tags"][0]["name"] == "python"
 
 
-# --- call_tool (edit_prompt_template) tests ---
+# --- call_tool (edit_prompt_content) tests ---
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_template_tool__updates_content(mock_api, mock_auth) -> None:  # noqa: ARG001
-    """Test edit_prompt_template tool performs str-replace and returns structured response."""
+async def test__edit_prompt_content_tool__updates_content(mock_api, mock_auth) -> None:  # noqa: ARG001
+    """Test edit_prompt_content tool performs str-replace and returns structured response."""
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440010",
         "name": "test-prompt",
@@ -855,7 +854,7 @@ async def test__edit_prompt_template_tool__updates_content(mock_api, mock_auth) 
     )
 
     result = await handle_call_tool(
-        "edit_prompt_template",
+        "edit_prompt_content",
         {
             "name": "test-prompt",
             "old_str": "Hello wrold",
@@ -880,8 +879,8 @@ async def test__edit_prompt_template_tool__updates_content(mock_api, mock_auth) 
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_template_tool__with_arguments(mock_api, mock_auth) -> None:  # noqa: ARG001
-    """Test edit_prompt_template tool with atomic arguments update."""
+async def test__edit_prompt_content_tool__with_arguments(mock_api, mock_auth) -> None:  # noqa: ARG001
+    """Test edit_prompt_content tool with atomic arguments update."""
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440011",
         "name": "with-new-var",
@@ -904,7 +903,7 @@ async def test__edit_prompt_template_tool__with_arguments(mock_api, mock_auth) -
     )
 
     result = await handle_call_tool(
-        "edit_prompt_template",
+        "edit_prompt_content",
         {
             "name": "with-new-var",
             "old_str": "Hello world!",
@@ -925,10 +924,10 @@ async def test__edit_prompt_template_tool__with_arguments(mock_api, mock_auth) -
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_template_tool__whitespace_normalized_match(
+async def test__edit_prompt_content_tool__whitespace_normalized_match(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
-    """Test edit_prompt_template tool reports whitespace_normalized match type."""
+    """Test edit_prompt_content tool reports whitespace_normalized match type."""
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440012",
         "name": "normalized",
@@ -949,7 +948,7 @@ async def test__edit_prompt_template_tool__whitespace_normalized_match(
     )
 
     result = await handle_call_tool(
-        "edit_prompt_template",
+        "edit_prompt_content",
         {
             "name": "normalized",
             "old_str": "old text",
@@ -966,8 +965,8 @@ async def test__edit_prompt_template_tool__whitespace_normalized_match(
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_template_tool__no_match_error(mock_api, mock_auth) -> None:  # noqa: ARG001
-    """Test edit_prompt_template tool returns structured error when no match found."""
+async def test__edit_prompt_content_tool__no_match_error(mock_api, mock_auth) -> None:  # noqa: ARG001
+    """Test edit_prompt_content tool returns structured error when no match found."""
     mock_api.patch("/prompts/name/no-match-test/str-replace").mock(
         return_value=Response(
             400,
@@ -982,7 +981,7 @@ async def test__edit_prompt_template_tool__no_match_error(mock_api, mock_auth) -
     )
 
     result = await handle_call_tool(
-        "edit_prompt_template",
+        "edit_prompt_content",
         {
             "name": "no-match-test",
             "old_str": "nonexistent text",
@@ -999,10 +998,10 @@ async def test__edit_prompt_template_tool__no_match_error(mock_api, mock_auth) -
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_template_tool__multiple_matches_error(
+async def test__edit_prompt_content_tool__multiple_matches_error(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
-    """Test edit_prompt_template tool returns structured error with match locations."""
+    """Test edit_prompt_content tool returns structured error with match locations."""
     mock_api.patch("/prompts/name/multi-match-test/str-replace").mock(
         return_value=Response(
             400,
@@ -1020,7 +1019,7 @@ async def test__edit_prompt_template_tool__multiple_matches_error(
     )
 
     result = await handle_call_tool(
-        "edit_prompt_template",
+        "edit_prompt_content",
         {
             "name": "multi-match-test",
             "old_str": "foo",
@@ -1038,10 +1037,10 @@ async def test__edit_prompt_template_tool__multiple_matches_error(
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_template_tool__template_validation_error(
+async def test__edit_prompt_content_tool__template_validation_error(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
-    """Test edit_prompt_template tool handles template validation error (string detail)."""
+    """Test edit_prompt_content tool handles template validation error (string detail)."""
     mock_api.patch("/prompts/name/validation-test/str-replace").mock(
         return_value=Response(
             400,
@@ -1052,7 +1051,7 @@ async def test__edit_prompt_template_tool__template_validation_error(
     )
 
     result = await handle_call_tool(
-        "edit_prompt_template",
+        "edit_prompt_content",
         {
             "name": "validation-test",
             "old_str": "Hello",
@@ -1068,8 +1067,8 @@ async def test__edit_prompt_template_tool__template_validation_error(
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_template_tool__not_found_error(mock_api, mock_auth) -> None:  # noqa: ARG001
-    """Test edit_prompt_template tool raises McpError when prompt not found."""
+async def test__edit_prompt_content_tool__not_found_error(mock_api, mock_auth) -> None:  # noqa: ARG001
+    """Test edit_prompt_content tool raises McpError when prompt not found."""
     from mcp.shared.exceptions import McpError
 
     mock_api.patch("/prompts/name/nonexistent-prompt/str-replace").mock(
@@ -1078,7 +1077,7 @@ async def test__edit_prompt_template_tool__not_found_error(mock_api, mock_auth) 
 
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
-            "edit_prompt_template",
+            "edit_prompt_content",
             {
                 "name": "nonexistent-prompt",
                 "old_str": "text",
@@ -1090,13 +1089,13 @@ async def test__edit_prompt_template_tool__not_found_error(mock_api, mock_auth) 
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_template_tool__missing_name_error() -> None:
-    """Test edit_prompt_template tool requires name parameter."""
+async def test__edit_prompt_content_tool__missing_name_error() -> None:
+    """Test edit_prompt_content tool requires name parameter."""
     from mcp.shared.exceptions import McpError
 
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
-            "edit_prompt_template",
+            "edit_prompt_content",
             {"old_str": "text", "new_str": "replacement"},
         )
 
@@ -1104,13 +1103,13 @@ async def test__edit_prompt_template_tool__missing_name_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_template_tool__missing_old_str_error() -> None:
-    """Test edit_prompt_template tool requires old_str parameter."""
+async def test__edit_prompt_content_tool__missing_old_str_error() -> None:
+    """Test edit_prompt_content tool requires old_str parameter."""
     from mcp.shared.exceptions import McpError
 
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
-            "edit_prompt_template",
+            "edit_prompt_content",
             {"name": "some-prompt", "new_str": "replacement"},
         )
 
@@ -1118,13 +1117,13 @@ async def test__edit_prompt_template_tool__missing_old_str_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_template_tool__missing_new_str_error() -> None:
-    """Test edit_prompt_template tool requires new_str parameter."""
+async def test__edit_prompt_content_tool__missing_new_str_error() -> None:
+    """Test edit_prompt_content tool requires new_str parameter."""
     from mcp.shared.exceptions import McpError
 
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
-            "edit_prompt_template",
+            "edit_prompt_content",
             {"name": "some-prompt", "old_str": "text"},
         )
 
@@ -1132,10 +1131,10 @@ async def test__edit_prompt_template_tool__missing_new_str_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_template_tool__empty_new_str_allowed(
+async def test__edit_prompt_content_tool__empty_new_str_allowed(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
-    """Test edit_prompt_template tool allows empty new_str for deletion."""
+    """Test edit_prompt_content tool allows empty new_str for deletion."""
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440016",
         "name": "deleted-text",
@@ -1156,7 +1155,7 @@ async def test__edit_prompt_template_tool__empty_new_str_allowed(
     )
 
     result = await handle_call_tool(
-        "edit_prompt_template",
+        "edit_prompt_content",
         {
             "name": "deleted-text",
             "old_str": "text to delete",
@@ -1170,11 +1169,11 @@ async def test__edit_prompt_template_tool__empty_new_str_allowed(
 
 
 @pytest.mark.asyncio
-async def test__list_tools__edit_prompt_template_has_schema() -> None:
-    """Test edit_prompt_template tool has proper input schema."""
+async def test__list_tools__edit_prompt_content_has_schema() -> None:
+    """Test edit_prompt_content tool has proper input schema."""
     result = await handle_list_tools()
 
-    edit_prompt = next(t for t in result if t.name == "edit_prompt_template")
+    edit_prompt = next(t for t in result if t.name == "edit_prompt_content")
     schema = edit_prompt.inputSchema
     assert schema["type"] == "object"
     assert "name" in schema["properties"]
@@ -1735,15 +1734,15 @@ async def test__get_prompt_metadata__prompt_not_found(
     assert "not found" in str(exc_info.value).lower()
 
 
-# --- call_tool (get_prompt_template with start_line/end_line) tests ---
+# --- call_tool (get_prompt_content with start_line/end_line) tests ---
 
 
 @pytest.mark.asyncio
-async def test__get_prompt_template__with_start_end_line__returns_partial(
+async def test__get_prompt_content__with_start_end_line__returns_partial(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
-    """Test get_prompt_template with start_line/end_line parameters."""
+    """Test get_prompt_content with start_line/end_line parameters."""
     partial_response = {
         "id": "550e8400-e29b-41d4-a716-446655440001",
         "name": "code-review",
@@ -1763,7 +1762,7 @@ async def test__get_prompt_template__with_start_end_line__returns_partial(
     )
 
     result = await handle_call_tool(
-        "get_prompt_template",
+        "get_prompt_content",
         {"name": "code-review", "start_line": 5, "end_line": 7},
     )
 

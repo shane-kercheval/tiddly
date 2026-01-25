@@ -258,7 +258,7 @@ describe('SettingsMCP', () => {
       renderWithRouter()
 
       expect(screen.getByText('search_prompts')).toBeInTheDocument()
-      expect(screen.getByText('get_prompt_template')).toBeInTheDocument()
+      expect(screen.getByText('get_prompt_content')).toBeInTheDocument()
       expect(screen.getByText('create_prompt')).toBeInTheDocument()
     })
 

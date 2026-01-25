@@ -163,12 +163,12 @@ make prompt-mcp-server    # Prompt MCP server (port 8002)
 | Tool | Description |
 |------|-------------|
 | `search_prompts` | Search prompts with text query and tag filtering |
-| `get_prompt_template` | Get raw template content for viewing/editing |
-| `get_prompt_metadata` | Get metadata without full content |
+| `get_prompt_content` | Get template and arguments for viewing/editing |
+| `get_prompt_metadata` | Get metadata without the template |
 | `list_tags` | List all tags with usage counts |
 | `create_prompt` | Create a new prompt template |
-| `edit_prompt_template` | Edit template using string replacement |
-| `update_prompt` | Update metadata, content, or arguments |
+| `edit_prompt_content` | Edit template and arguments using string replacement |
+| `update_prompt` | Update metadata, template, or arguments |
 
 ### Configuration
 

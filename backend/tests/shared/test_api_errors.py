@@ -2,9 +2,8 @@
 
 from unittest.mock import MagicMock
 
-import pytest
 
-from shared.api_errors import ParsedApiError, parse_http_error
+from shared.api_errors import parse_http_error
 
 
 def _make_http_error(status_code: int, json_body: dict | None = None) -> MagicMock:

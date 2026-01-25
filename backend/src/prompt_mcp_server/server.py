@@ -36,13 +36,19 @@ Prompts are Jinja2 templates with defined arguments that can be rendered with us
 
 **Tools:**
 - `search_prompts`: Search prompts with filters. Returns prompt_length and prompt_preview.
-- `get_prompt_template`: Get full template content and arguments for viewing/editing
-- `get_prompt_metadata`: Get metadata only (prompt_length, prompt_preview) - use for size check
+- `get_prompt_content`: Get a prompt's Jinja2 template and arguments. Returns both the raw template text
+  and the argument definitions list. Use before edit_prompt_content.
+- `get_prompt_metadata`: Get metadata without the template. Returns title, description, tags, prompt_length,
+  and prompt_preview. Use to check size before loading with get_prompt_content.
 - `create_prompt`: Create a new prompt template with Jinja2 content
-- `edit_prompt_template`: Edit template using string replacement for targeted edits
-- `update_prompt`: Update metadata (title, description, tags, name) and/or fully replace content and arguments.
-  Use `edit_prompt_template` instead for targeted string-based edits.
-  **Important:** If updating content that changes template variables ({{ var }}), you MUST also provide the full arguments list.
+- `edit_prompt_content`: Edit template using string replacement. Use for targeted changes (small or large)
+  where you can identify specific text to replace. More efficient than replacing the entire template.
+  Examples: fix typo, add/remove a paragraph, rename a variable.
+- `update_prompt`: Update metadata (title, description, tags, name) and/or fully replace template.
+  Use for metadata changes, or when rewriting/restructuring most of the content.
+  Safer for major rewrites (avoids whitespace/formatting matching issues).
+  Examples: complete rewrite, change prompt's purpose, update tags.
+  **Important:** If updating template that changes variables ({{ var }}), you MUST also provide the full arguments list.
 - `list_tags`: Get all tags with usage counts
 
 Note: There is no delete tool. Prompts can only be deleted via the web UI.
@@ -52,9 +58,9 @@ All mutation tools return `updated_at` in their response. Use `expected_updated_
 `update_prompt` to prevent concurrent edit conflicts. If the prompt was modified after this timestamp,
 returns a conflict error with `server_state` containing the current version for resolution.
 
-**When to use get_prompt_metadata vs get_prompt_template:**
-- Use `get_prompt_metadata` first to check prompt_length before loading large templates
-- Use `get_prompt_template` when you need the full content for viewing or editing
+**When to use get_prompt_metadata vs get_prompt_content:**
+- Use `get_prompt_metadata` to check prompt_length before loading large templates
+- Use `get_prompt_content` when you need the template and arguments for viewing or editing
 
 Example workflows:
 
@@ -65,12 +71,12 @@ Example workflows:
      - arguments: [{"name": "article_text", "description": "To summarize", "required": true}]
 
 2. "Fix a typo in my code-review prompt"
-   - Call `get_prompt_template(name="code-review")` to see current content
-   - Call `edit_prompt_template(name="code-review", old_str="teh code", new_str="the code")`
+   - Call `get_prompt_content(name="code-review")` to see current content
+   - Call `edit_prompt_content(name="code-review", old_str="teh code", new_str="the code")`
 
 3. "Add a new variable to my prompt"
    - When adding {{ new_var }} to the template, you must also add its argument definition
-   - Call `edit_prompt_template` with BOTH the content change AND the updated arguments list:
+   - Call `edit_prompt_content` with BOTH the content change AND the updated arguments list:
      - old_str: "Review this code:"
      - new_str: "Review this {{ language }} code:"
      - arguments: [...existing args..., {"name": "language", "description": "Lang"}]
@@ -80,17 +86,26 @@ Example workflows:
    - Similarly, remove from both content and arguments in one call
    - Omit the removed argument from the arguments list
 
-5. "Search for prompts about code review"
+5. "Completely rewrite my prompt with a new structure"
+   - Use `update_prompt` when most content changes (not `edit_prompt_content`)
+   - Call `update_prompt(name="my-prompt", content="New template...", arguments=[...])`
+   - Safer for major rewrites - avoids string matching issues
+
+6. "Update my prompt's tags"
+   - Call `update_prompt(name="my-prompt", tags=["new-tag", "another-tag"])`
+   - Tags fully replace existing tags, so include all tags you want
+
+7. "Search for prompts about code review"
    - Call `search_prompts(query="code review")` to find matching prompts
    - Response includes prompt_length and prompt_preview for each result
 
-6. "What tags do I have?"
+8. "What tags do I have?"
    - Call `list_tags()` to see all tags with usage counts
 
 Prompt naming: lowercase with hyphens (e.g., `code-review`, `meeting-notes`).
 Argument naming: lowercase with underscores (e.g., `code_to_review`, `article_text`).
 Template syntax: Jinja2 with {{ variable_name }} placeholders.
-""".strip(),
+""".strip(),  # noqa: E501
 )
 
 # Module-level client for connection reuse
@@ -363,7 +378,7 @@ async def handle_list_tools() -> list[types.Tool]:
             description=(
                 "Search prompts with filters. Returns metadata including prompt_length "
                 "and prompt_preview (first 500 chars) for size assessment before fetching "
-                "full content. Use this for discovery before get_prompt_template."
+                "the template. Use for discovery before get_prompt_content."
             ),
             inputSchema={
                 "type": "object",
@@ -422,12 +437,12 @@ async def handle_list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="get_prompt_template",
+            name="get_prompt_content",
             description=(
-                "Get a prompt template's raw content and arguments for viewing or editing. "
-                "Unlike the MCP get_prompt capability which renders templates with arguments, "
-                "this returns the raw Jinja2 template content. Use this before edit_prompt_template "  # noqa: E501
-                "to see the current content and construct the old_str for string replacement."
+                "Get a prompt's Jinja2 template and arguments for viewing or editing. "
+                "Returns the raw template text AND the argument definitions list. "
+                "Use before edit_prompt_content to see the current template and construct "
+                "the old_str for string replacement."
             ),
             inputSchema={
                 "type": "object",
@@ -458,9 +473,9 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="get_prompt_metadata",
             description=(
-                "Get a prompt's metadata without the template content. "
+                "Get a prompt's metadata without the template. "
                 "Returns name, title, description, arguments, tags, prompt_length, "
-                "and prompt_preview. Use to check size or arguments before fetching template."
+                "and prompt_preview. Use to check size before fetching with get_prompt_content."
             ),
             inputSchema={
                 "type": "object",
@@ -556,13 +571,16 @@ async def handle_list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="edit_prompt_template",
+            name="edit_prompt_content",
             description=(
-                "Edit a prompt template's content using string replacement. Use get_prompt_template "  # noqa: E501
-                "first to see the current content and construct the old_str. Optional parameter to "  # noqa: E501
-                "update arguments atomically when adding/removing template variables. Note that "
-                "updating arguments is required when editing template text that adds or removes "
-                "variables, to avoid validation errors"
+                "Edit a prompt's template and arguments using string replacement. "
+                "Use when: making targeted changes (small or large) where you can identify "
+                "specific text to replace; adding, removing, or modifying a section while "
+                "keeping the rest unchanged. More efficient than replacing the entire template. "
+                "Examples: fix a typo, add a paragraph, remove a section, rename a variable. "
+                "Use get_prompt_content first to see the current template and construct old_str. "
+                "When adding/removing template variables, you must also update the arguments list "
+                "(it replaces all existing arguments, so include the ones you want to keep)."
             ),
             inputSchema={
                 "type": "object",
@@ -578,8 +596,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "minLength": 1,
                         "description": (
-                            "Exact text to find in the prompt content. Must match exactly "
-                            "one location. Include 3-5 lines of surrounding context for uniqueness."  # noqa: E501
+                            "Exact text to find in the template. Must match exactly one location. "
                         ),
                     },
                     "new_str": {
@@ -622,11 +639,16 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="update_prompt",
             description=(
-                "Update a prompt. All parameters are optional - only provide the fields you want "
-                "to change (at least one required). Can update metadata (title, description, tags, name) "
-                "and/or fully replace template content and arguments. "
-                "NOTE: To make partial/targeted edits to the template using string replacement, "
-                "use edit_prompt_template instead. This tool replaces the entire content field."
+                "Update a prompt's metadata and/or fully replace template content. "
+                "Use when: updating metadata (title, description, tags, name); "
+                "rewriting/restructuring where most content changes; changes are extensive "
+                "enough that finding old_str is impractical. Safer for major rewrites "
+                "(avoids whitespace/formatting matching issues). "
+                "Examples: complete template rewrite, change prompt's purpose, update tags. "
+                "For targeted changes where you can identify specific text to replace, "
+                "use edit_prompt_content instead (more efficient). "
+                "All parameters are optional - only provide fields you want to change "
+                "(at least one required)."
             ),
             inputSchema={
                 "type": "object",
@@ -658,23 +680,26 @@ async def handle_list_tools() -> list[types.Tool]:
                         "items": {"type": "string"},
                         "description": (
                             "New tags list (optional). Replaces all existing tags. "
-                            "Use lowercase-with-hyphens format."
+                            "Use lowercase-with-hyphens format. "
+                            "If tags aren't changing, omit to preserve existing tags."
                         ),
                     },
                     "content": {
                         "type": "string",
                         "description": (
-                            "New template content (FULL REPLACEMENT of entire template). Omit to leave unchanged. "
-                            "IMPORTANT: If your new content changes template variables ({{ var }}), you MUST also "
+                            "New template content (FULL REPLACEMENT of entire template). Omit to leave unchanged. "  # noqa: E501
+                            "IMPORTANT: If your new content changes template variables ({{ var }}), you MUST also "  # noqa: E501
                             "provide the arguments parameter with ALL arguments defined."
                         ),
                     },
                     "arguments": {
                         "type": "array",
                         "description": (
-                            "New arguments list (FULL REPLACEMENT - not a merge). Omit to leave unchanged. "
-                            "IMPORTANT: If provided, you must include ALL arguments, not just changed ones. "
-                            "This completely replaces the existing arguments list."
+                            "New arguments list (FULL REPLACEMENT). "
+                            "Omit if template variables ({{ var }}) aren't changing - "
+                            "existing arguments are preserved automatically. "
+                            "Only provide when adding, removing, or renaming variables. "
+                            "If provided, must include ALL arguments (replaces entire list)."
                         ),
                         "items": {
                             "type": "object",
@@ -698,8 +723,8 @@ async def handle_list_tools() -> list[types.Tool]:
                     "expected_updated_at": {
                         "type": "string",
                         "description": (
-                            "For optimistic locking. If provided and the prompt was modified after this timestamp, "
-                            "returns a conflict error with the current server state. Use the updated_at from a previous response."
+                            "For optimistic locking. If provided and the prompt was modified after this timestamp, "  # noqa: E501
+                            "returns a conflict error with the current server state. Use the updated_at from a previous response."  # noqa: E501
                         ),
                     },
                 },
@@ -719,10 +744,10 @@ async def handle_call_tool(
     handlers = {
         "search_prompts": lambda args: _handle_search_prompts(args),
         "list_tags": lambda _: _handle_list_tags(),
-        "get_prompt_template": lambda args: _handle_get_prompt_template(args),
+        "get_prompt_content": lambda args: _handle_get_prompt_content(args),
         "get_prompt_metadata": lambda args: _handle_get_prompt_metadata(args),
         "create_prompt": lambda args: _handle_create_prompt(args),
-        "edit_prompt_template": lambda args: _handle_edit_prompt_template(args),
+        "edit_prompt_content": lambda args: _handle_edit_prompt_content(args),
         "update_prompt": lambda args: _handle_update_prompt(args),
     }
 
@@ -824,14 +849,14 @@ async def _handle_list_tags() -> list[types.TextContent]:
     ]
 
 
-async def _handle_get_prompt_template(
+async def _handle_get_prompt_content(
     arguments: dict[str, Any],
 ) -> list[types.TextContent]:
     """
-    Handle get_prompt_template tool call.
+    Handle get_prompt_content tool call.
 
-    Fetches a prompt by name and returns the raw template content and metadata as JSON.
-    This allows agents to inspect the template before editing.
+    Fetches a prompt by name and returns the raw template content and arguments as JSON.
+    This allows agents to inspect the prompt before editing.
     Supports optional start_line/end_line for partial reads.
     """
     # Validate required parameter
@@ -879,7 +904,6 @@ async def _handle_get_prompt_template(
         "description": prompt.get("description"),
         "content": prompt.get("content"),
         "arguments": prompt.get("arguments", []),
-        "tags": prompt.get("tags", []),
     }
 
     # Include content_metadata if present (for partial reads)
@@ -996,11 +1020,11 @@ async def _handle_create_prompt(arguments: dict[str, Any]) -> types.CallToolResu
     )
 
 
-async def _handle_edit_prompt_template(
+async def _handle_edit_prompt_content(
     arguments: dict[str, Any],
 ) -> types.CallToolResult:
     """
-    Handle edit_prompt_template tool call.
+    Handle edit_prompt_content tool call.
 
     Performs string replacement on prompt content via the name-based str-replace API endpoint.
     Optionally updates arguments atomically with content changes.
@@ -1139,7 +1163,7 @@ async def _handle_update_prompt(
         raise McpError(
             types.ErrorData(
                 code=types.INVALID_PARAMS,
-                message="At least one of new_name, title, description, tags, content, or arguments must be provided",
+                message="At least one of new_name, title, description, tags, content, or arguments must be provided",  # noqa: E501
             ),
         )
 

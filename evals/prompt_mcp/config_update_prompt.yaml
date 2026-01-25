@@ -1,0 +1,438 @@
+# Prompt MCP Server Evaluation Configuration
+# Tests the update_prompt tool for full content replacement scenarios
+#
+# CRITICAL BEHAVIORS TESTED:
+# 1. When variables DON'T change: LLM should NOT provide arguments parameter
+# 2. When variables DO change: LLM MUST provide arguments with ALL variables
+# 3. Arguments is a FULL REPLACEMENT, not a merge
+# 4. When NOT updating tags: LLM should NOT provide tags parameter
+# 5. When updating tags: LLM MUST provide ALL tags (existing + new)
+# 6. Tags is a FULL REPLACEMENT, not a merge
+# 7. LLM should choose update_prompt (not edit_prompt_content) for substantial rewrites
+#
+# EXPECTED_ARGUMENT_NAMES SEMANTICS:
+# - null: LLM should NOT provide arguments parameter (variables unchanged)
+# - ["arg1", "arg2"]: LLM MUST provide arguments, final state should have these args
+#
+# EXPECTED_TAGS SEMANTICS:
+# - null: LLM should NOT provide tags parameter (tags preserved automatically)
+# - ["tag1", "tag2"]: Final tags should exactly match (LLM must provide ALL tags)
+
+model:
+  name: "gpt-5.2"
+  temperature: 1
+
+eval:
+  samples: 10
+  success_threshold: 0.6
+
+test_cases:
+  # Test 1: Rewrite content WITHOUT changing variables
+  # LLM should NOT provide arguments parameter - leave existing args unchanged
+  - id: "rewrite-keep-variables"
+    input:
+      prompt_name: "eval-rewrite-keep-vars"
+      show_results:
+        - "get_prompt_content"
+      content: |
+        You are a code review assistant. Your job is to examine code carefully.
+
+        Please review the following code:
+
+        ```
+        {{ code }}
+        ```
+
+        When reviewing, consider:
+        - Code style and formatting issues
+        - Potential bugs or logic errors
+        - Performance concerns
+        - Security vulnerabilities
+
+        Provide your feedback in a constructive and helpful manner.
+        Be specific about line numbers when pointing out issues.
+      arguments:
+        - name: "code"
+          description: "The code to review"
+          required: true
+      instruction: "Rewrite this prompt to be more concise and professional. Keep the same {{ code }} variable - just improve the surrounding text and make it shorter."
+    expected:
+      tool_name: "update_prompt"
+      final_must_contain: "{{ code }}"
+      final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
+      expected_argument_names: null  # LLM should NOT provide arguments
+    metadata:
+      description: "Rewrite without changing variables - should NOT provide arguments"
+
+  # Test 2: Rewrite content ADDING a new variable
+  # LLM MUST provide arguments with BOTH existing and new variables
+  - id: "rewrite-add-variable"
+    input:
+      prompt_name: "eval-rewrite-add-var"
+      show_results:
+        - "get_prompt_content"
+      content: |
+        Please analyze the following data and provide insights.
+
+        ## Data to Analyze
+
+        {{ data }}
+
+        ## Your Task
+
+        Review the data above and provide:
+        1. Key trends you observe
+        2. Any anomalies or outliers
+        3. Actionable recommendations
+
+        Format your response with clear sections and bullet points
+        for easy reading.
+      arguments:
+        - name: "data"
+          description: "The data to analyze"
+          required: true
+      instruction: "Rewrite this prompt to also accept a {{ focus_area }} variable that specifies what aspect to focus on (e.g., 'revenue trends', 'user behavior'). Add a line like 'Focus particularly on {{ focus_area }}' in the task section."
+    expected:
+      tool_name: "update_prompt"
+      final_must_contain:
+        - "{{ data }}"
+        - "{{ focus_area }}"
+      final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
+      expected_argument_names: ["data", "focus_area"]  # MUST provide ALL args
+    metadata:
+      description: "Add variable - MUST provide arguments with ALL vars (data + focus_area)"
+
+  # Test 3: Rewrite content REMOVING variables
+  # LLM MUST provide arguments excluding removed variables
+  - id: "rewrite-remove-variables"
+    input:
+      prompt_name: "eval-rewrite-remove-vars"
+      show_results:
+        - "get_prompt_content"
+      content: |
+        Draft a {{ formality }} email for a {{ recipient_type }} audience.
+
+        ## Email Details
+
+        Subject: {{ subject }}
+
+        Key points to cover:
+        {{ key_points }}
+
+        ## Guidelines
+
+        - Match the tone to the {{ formality }} level specified
+        - Address appropriately for {{ recipient_type }} recipients
+        - Keep the email focused and professional
+        - Include a clear call to action
+      arguments:
+        - name: "formality"
+          description: "Formality level (formal, casual, neutral)"
+          required: true
+        - name: "recipient_type"
+          description: "Type of recipient (client, colleague, manager)"
+          required: true
+        - name: "subject"
+          description: "Email subject line"
+          required: true
+        - name: "key_points"
+          description: "Bullet points to include in the email"
+          required: true
+      instruction: |
+        Simplify this prompt by removing the formality and recipient_type variables.
+        The new prompt should just focus on subject and key_points. Rewrite it as:
+
+        "Write a professional email.
+
+        Subject: {{ subject }}
+
+        Include these points:
+        {{ key_points }}
+
+        Keep it concise and clear."
+    expected:
+      tool_name: "update_prompt"
+      final_must_contain:
+        - "{{ subject }}"
+        - "{{ key_points }}"
+      final_must_not_contain:
+        - "{{ formality }}"
+        - "{{ recipient_type }}"
+      expected_argument_names: ["key_points", "subject"]  # Only remaining vars
+    metadata:
+      description: "Remove variables - MUST provide arguments with only remaining vars"
+
+  # Test 4: Complete template replacement with all new variables
+  # Tests wholesale replacement - new content, new vars, everything different
+  - id: "complete-replacement"
+    input:
+      prompt_name: "eval-complete-replace"
+      show_results:
+        - "get_prompt_content"
+      content: |
+        You are a {{ role }} assistant specializing in {{ domain }}.
+
+        ## User Query
+
+        {{ query }}
+
+        ## Conversation Context
+
+        Previous messages:
+        {{ context }}
+
+        ## Instructions
+
+        Respond helpfully while staying in character as a {{ role }}.
+        Keep your responses focused on {{ domain }} topics.
+        If the query is outside your expertise, politely redirect.
+        Reference the context when relevant to maintain conversation flow.
+      arguments:
+        - name: "role"
+          description: "Assistant role/persona to adopt"
+          required: true
+        - name: "domain"
+          description: "Knowledge domain to focus on"
+          required: true
+        - name: "query"
+          description: "User's current question"
+          required: true
+        - name: "context"
+          description: "Previous conversation history"
+          required: false
+      instruction: |
+        Replace this prompt entirely with a simpler analysis prompt:
+
+        "Analyze the following input and provide insights.
+
+        ## Input
+
+        {{ input_text }}
+
+        ## Analysis Required
+
+        Please provide:
+        1. A brief summary (2-3 sentences)
+        2. Key themes or patterns identified
+        3. Suggested next steps or actions
+
+        Format your response as {{ output_format }}."
+    expected:
+      tool_name: "update_prompt"
+      final_must_contain:
+        - "{{ input_text }}"
+        - "{{ output_format }}"
+      final_must_not_contain:
+        - "{{ role }}"
+        - "{{ domain }}"
+        - "{{ query }}"
+        - "{{ context }}"
+      expected_argument_names: ["input_text", "output_format"]  # All new args
+    metadata:
+      description: "Complete replacement - MUST provide all new arguments"
+
+  # Test 5: Rename variables while rewriting
+  # LLM must provide arguments with new variable names
+  - id: "rewrite-rename-variables"
+    input:
+      prompt_name: "eval-rewrite-rename"
+      show_results:
+        - "get_prompt_content"
+      content: |
+        Translate the following text to the target language.
+
+        ## Source Text
+
+        {{ txt }}
+
+        ## Target Language
+
+        {{ lang }}
+
+        ## Translation Guidelines
+
+        - Preserve the original meaning and tone
+        - Use natural expressions in the target language
+        - Maintain any formatting (bullets, numbering, etc.)
+        - If idioms don't translate directly, use equivalent expressions
+      arguments:
+        - name: "txt"
+          description: "Text to translate"
+          required: true
+        - name: "lang"
+          description: "Target language code"
+          required: true
+      instruction: |
+        Rewrite this prompt with more descriptive variable names. Replace {{ txt }} with {{ source_content }} and {{ lang }} with {{ target_language }}. Keep the general structure but use the new variable names throughout.
+    expected:
+      tool_name: "update_prompt"
+      final_must_contain:
+        - "{{ source_content }}"
+        - "{{ target_language }}"
+      final_must_not_contain:
+        - "{{ txt }}"
+        - "{{ lang }}"
+      expected_argument_names: ["source_content", "target_language"]  # Renamed args
+    metadata:
+      description: "Rename variables - MUST provide arguments with new names"
+
+  # Test 6: Metadata-only update (no content change)
+  # Tests that LLM uses update_prompt for metadata without changing content
+  - id: "metadata-only-update"
+    input:
+      prompt_name: "eval-metadata-only"
+      show_results:
+        - "get_prompt_metadata"
+      content: |
+        Review the following {{ language }} code for quality issues.
+
+        ## Code
+
+        ```{{ language }}
+        {{ code }}
+        ```
+
+        ## Review Criteria
+
+        Check for:
+        - Syntax correctness
+        - Logic errors
+        - Code style violations
+        - Potential security issues
+        - Performance concerns
+
+        Provide specific feedback with line references.
+      arguments:
+        - name: "language"
+          description: "Programming language"
+          required: true
+        - name: "code"
+          description: "Code to review"
+          required: true
+      instruction: "Update this prompt's title to 'Code Review Assistant' and add these tags: 'code', 'review', 'development'."
+    expected:
+      tool_name: "update_prompt"
+      final_must_contain:
+        - "{{ language }}"
+        - "{{ code }}"
+      final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
+      expected_argument_names: null  # LLM should NOT provide arguments
+      expected_tags: ["code", "development", "review"]  # Instruction asks to add tags
+    metadata:
+      description: "Metadata-only update - should NOT provide content or arguments"
+
+  # Test 7: Add tag to prompt with existing tags
+  # Tags are FULL REPLACEMENT - LLM must provide ALL tags (existing + new)
+  - id: "add-tag-to-existing"
+    input:
+      prompt_name: "eval-add-tag"
+      show_results:
+        - "get_prompt_metadata"
+      content: |
+        Generate a {{ document_type }} document based on the following requirements.
+
+        ## Requirements
+
+        {{ requirements }}
+
+        ## Output Format
+
+        Please structure the document with:
+        - Clear headings and sections
+        - Professional formatting
+        - Appropriate length for the document type
+
+        Include any standard sections expected for a {{ document_type }}.
+      arguments:
+        - name: "document_type"
+          description: "Type of document to generate (e.g., 'proposal', 'report', 'memo')"
+          required: true
+        - name: "requirements"
+          description: "Specific requirements and content to include"
+          required: true
+      tags:
+        - "writing"
+        - "documents"
+      instruction: "Add the tag 'business' to this prompt. Keep the existing tags."
+    expected:
+      tool_name: "update_prompt"
+      final_must_contain:
+        - "{{ document_type }}"
+        - "{{ requirements }}"
+      final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
+      expected_argument_names: null  # Variables don't change, should NOT provide arguments
+      expected_tags: ["business", "documents", "writing"]  # ALL tags (existing + new)
+    metadata:
+      description: "Add tag - tags are FULL REPLACEMENT, must provide ALL tags"
+
+  # Test 8: Rewrite content when prompt has tags (but NOT updating tags)
+  # LLM should NOT provide tags parameter - existing tags should be preserved
+  - id: "rewrite-preserve-tags"
+    input:
+      prompt_name: "eval-preserve-tags"
+      show_results:
+        - "get_prompt_content"
+      content: |
+        You are a helpful assistant for {{ task_type }} tasks.
+
+        ## Your Role
+
+        Help the user with their {{ task_type }} needs by providing
+        clear, actionable advice and guidance.
+
+        ## Guidelines
+
+        - Be concise and direct
+        - Provide examples when helpful
+        - Ask clarifying questions if needed
+      arguments:
+        - name: "task_type"
+          description: "Type of task to help with"
+          required: true
+      tags:
+        - "assistant"
+        - "productivity"
+      instruction: "Rewrite this prompt to be more professional and detailed. Don't change the prompt arguments."
+    expected:
+      tool_name: "update_prompt"
+      final_must_contain: "{{ task_type }}"
+      final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
+      expected_argument_names: null  # Variables don't change, should NOT provide arguments
+      expected_tags: null  # Should NOT provide tags - existing tags preserved automatically
+    metadata:
+      description: "Rewrite content with existing tags - should NOT provide tags parameter"
+
+checks:
+  # Primary check: Verify correct tool was selected (update_prompt, NOT edit_prompt_content)
+  - type: "exact_match"
+    arguments:
+      actual: "$.output.value.tool_prediction.tool_name"
+      expected: "$.test_case.expected.tool_name"
+
+  # Verify final content contains expected text
+  - type: "contains"
+    arguments:
+      text: "$.output.value.final_content"
+      phrases: "$.test_case.expected.final_must_contain"
+
+  # Verify final content does not contain forbidden text (when specified)
+  - type: "contains"
+    arguments:
+      text: "$.output.value.final_content"
+      phrases: "$.test_case.expected.final_must_not_contain"
+      negate: true
+
+  # Verify argument behavior:
+  # - If expected is null: LLM should NOT have provided arguments
+  # - If expected is a list: final argument names should match
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.expected_argument_names_check"
+      expected: true
+
+  # Verify tags behavior (when expected_tags specified):
+  # Tags are FULL REPLACEMENT - final tags should exactly match expected_tags
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.tags_check"
+      expected: true

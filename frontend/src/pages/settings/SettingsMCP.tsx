@@ -446,12 +446,12 @@ export function SettingsMCP(): ReactNode {
                 <span>Search prompts by text/tags</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_prompt_template</span>
-                <span>Get raw template for viewing/editing</span>
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_prompt_content</span>
+                <span>Get template and arguments for viewing/editing</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_prompt_metadata</span>
-                <span>Get metadata without full content</span>
+                <span>Get metadata without the template</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_tags</span>
@@ -465,8 +465,8 @@ export function SettingsMCP(): ReactNode {
                 <span>Create a new prompt template</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">edit_prompt_template</span>
-                <span>Edit template using string replacement</span>
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">edit_prompt_content</span>
+                <span>Edit template and arguments using string replacement</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">update_prompt</span>

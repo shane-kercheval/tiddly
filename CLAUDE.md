@@ -64,7 +64,7 @@ make migration message="description"  # Create new migration
   - `auth.py`: Bearer token extraction from MCP request headers
   - `api_client.py`: HTTP client helpers for API requests
 - **prompt_mcp_server/**: Prompt MCP server (uses low-level MCP SDK for prompts capability)
-  - `server.py`: Tools: search_prompts, get_prompt_template, get_prompt_metadata, create_prompt, edit_prompt_template, update_prompt, list_tags
+  - `server.py`: Tools: search_prompts, get_prompt_content, get_prompt_metadata, create_prompt, edit_prompt_content, update_prompt, list_tags
   - `template_renderer.py`: Jinja2 template rendering with StrictUndefined
   - `auth.py`: Context-based token management via contextvars
 

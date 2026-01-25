@@ -31,7 +31,7 @@ class ParsedApiError:
     server_state: dict[str, Any] | None = None
 
 
-def parse_http_error(
+def parse_http_error(  # noqa: PLR0911
     e: httpx.HTTPStatusError,
     entity_type: str = "",
     entity_name: str = "",
@@ -57,7 +57,7 @@ def parse_http_error(
 
     if status == 404:
         if entity_name:
-            msg = f"{entity_type.title()} '{entity_name}' not found" if entity_type else f"'{entity_name}' not found"
+            msg = f"{entity_type.title()} '{entity_name}' not found" if entity_type else f"'{entity_name}' not found"  # noqa: E501
         else:
             msg = f"{entity_type.title()} not found" if entity_type else "Not found"
         return ParsedApiError("not_found", msg)
@@ -68,7 +68,7 @@ def parse_http_error(
         if server_state:
             return ParsedApiError(
                 "conflict_modified",
-                "This item was modified since you loaded it. See server_state for current version.",
+                "This item was modified since you loaded it. See server_state for current version.",  # noqa: E501
                 server_state=server_state,
             )
         # Name conflict - extract message from detail

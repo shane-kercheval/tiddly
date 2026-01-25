@@ -92,7 +92,7 @@ async def test_prompt(mcp_integration_client: AsyncClient) -> dict[str, Any]:
 
 
 @pytest.fixture(autouse=True)
-def setup_auth_token() -> None:
+def setup_auth_token() -> None: # type: ignore
     """Set up authentication token for MCP handlers."""
     # In dev mode, any token works (VITE_DEV_MODE=true set in conftest)
     set_current_token("test-integration-token")
@@ -333,3 +333,33 @@ async def test__search_prompts__excludes_archived_prompts(
     search_result = json.loads(result[0].text)
     prompt_names = [p["name"] for p in search_result["items"]]
     assert "searchable-archived-prompt" not in prompt_names
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_metadata__returns_tags(
+    mcp_integration_client: AsyncClient,  # noqa: ARG001 - triggers fixture
+    test_prompt: dict[str, Any],
+) -> None:
+    """Test that get_prompt_metadata returns tags and other metadata."""
+    result = await handle_call_tool(
+        "get_prompt_metadata",
+        {"name": test_prompt["name"]},
+    )
+
+    assert len(result) == 1
+    metadata = json.loads(result[0].text)
+
+    # Should have metadata fields
+    assert metadata["name"] == test_prompt["name"]
+    assert metadata["title"] == test_prompt["title"]
+    assert metadata["description"] == test_prompt["description"]
+    assert "arguments" in metadata
+
+    # Should have tags
+    assert "tags" in metadata
+    assert set(metadata["tags"]) == {"test", "greeting"}
+
+    # Should have size info (not full content)
+    assert "prompt_length" in metadata
+    assert "prompt_preview" in metadata
+    assert "content" not in metadata

@@ -196,3 +196,40 @@ async def get_prompt_via_api(prompt_id: str) -> dict[str, Any]:
         )
         response.raise_for_status()
         return response.json()
+
+
+async def create_note_via_api(
+    title: str,
+    content: str,
+    tags: list[str] | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Create a note via the API and return the response."""
+    payload: dict[str, Any] = {
+        "title": title,
+        "content": content,
+    }
+    if tags:
+        payload["tags"] = tags
+    if description:
+        payload["description"] = description
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{API_BASE_URL}/notes/",
+            headers={"Authorization": f"Bearer {PAT_TOKEN}"},
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def get_note_via_api(note_id: str) -> dict[str, Any]:
+    """Get a note by ID via the API."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{API_BASE_URL}/notes/{note_id}",
+            headers={"Authorization": f"Bearer {PAT_TOKEN}"},
+        )
+        response.raise_for_status()
+        return response.json()

@@ -340,9 +340,14 @@ async def get_item(
 
 @mcp.tool(
     description=(
-        "Edit the 'content' field using string replacement. Does NOT edit title or "
-        "description - only the main content body. The old_str must match exactly "
-        "one location. Use search_in_content first to verify match uniqueness."
+        "Edit the 'content' field using string replacement. "
+        "Use when: making targeted changes (small or large) where you can identify "
+        "specific text to replace; adding, removing, or modifying a section while "
+        "keeping the rest unchanged. More efficient than replacing entire content. "
+        "Examples: fix a typo, add a paragraph, remove a section, update specific text. "
+        "Does NOT edit title, description, or tags - only the main content body. "
+        "The old_str must match exactly one location. "
+        "Use search_in_content first to verify match uniqueness."
     ),
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
@@ -484,11 +489,15 @@ async def search_in_content(
 
 @mcp.tool(
     description=(
-        "Update a bookmark or note. All parameters are optional - only provide the fields "
-        "you want to change (at least one required). Can update metadata (title, description, "
-        "tags, url) and/or fully replace content. "
-        "NOTE: To make partial/targeted edits to content using string replacement, "
-        "use edit_content instead. This tool replaces the entire content field."
+        "Update metadata and/or fully replace content. "
+        "Use when: updating metadata (title, description, tags, url); "
+        "rewriting/restructuring where most content changes; changes are extensive "
+        "enough that finding old_str is impractical. Safer for major rewrites. "
+        "Examples: convert format (bullets to prose), change tone/audience, "
+        "reorganize structure, complete rewrite, update tags. "
+        "All parameters optional - only provide what you want to change (at least one required). "
+        "NOTE: For targeted edits where you can identify specific text to replace, "
+        "use edit_content instead - it's more efficient for surgical changes."
     ),
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
@@ -516,14 +525,14 @@ async def update_item(
     ] = None,
     content: Annotated[
         str | None,
-        Field(description="New content (FULL REPLACEMENT of entire content field). Omit to leave unchanged."),
+        Field(description="New content (FULL REPLACEMENT of entire content field). Omit to leave unchanged."),  # noqa: E501
     ] = None,
     expected_updated_at: Annotated[
         str | None,
         Field(
             description="For optimistic locking. If provided and the item was modified after "
             "this timestamp, returns a conflict error with the current server state. "
-            "Use the updated_at from a previous response."
+            "Use the updated_at from a previous response.",
         ),
     ] = None,
 ) -> dict[str, Any]:
@@ -543,7 +552,7 @@ async def update_item(
         raise ToolError(f"Invalid type '{type}'. Must be 'bookmark' or 'note'.")
 
     if title is None and description is None and tags is None and url is None and content is None:
-        raise ToolError("At least one of title, description, tags, url, or content must be provided")
+        raise ToolError("At least one of title, description, tags, url, or content must be provided")  # noqa: E501
 
     if url is not None and type == "note":
         raise ToolError("url parameter is only valid for bookmarks")
