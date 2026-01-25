@@ -74,6 +74,8 @@ def parse_http_error(  # noqa: PLR0911
         # Name conflict - extract message from detail
         if isinstance(detail, dict):
             msg = detail.get("message", "A resource with this name already exists")
+        elif isinstance(detail, str) and detail:
+            msg = detail
         else:
             msg = "A resource with this name already exists"
         return ParsedApiError("conflict_name", msg)
@@ -88,15 +90,22 @@ def parse_http_error(  # noqa: PLR0911
 def _safe_get_detail(e: httpx.HTTPStatusError) -> dict[str, Any] | str:
     """Safely extract detail from error response."""
     try:
-        return e.response.json().get("detail", {})
-    except (ValueError, KeyError):
+        body = e.response.json()
+        if isinstance(body, dict):
+            return body.get("detail", {})
+        # Non-dict JSON body (list, string, etc.) - return empty
+        return {}
+    except ValueError:
         return {}
 
 
 def _extract_validation_message(e: httpx.HTTPStatusError) -> str:
     """Extract validation error message from 400/422 response."""
     try:
-        detail = e.response.json().get("detail", "Validation error")
+        body = e.response.json()
+        if not isinstance(body, dict):
+            return "Validation error"
+        detail = body.get("detail", "Validation error")
         if isinstance(detail, dict):
             return detail.get("message", str(detail))
         if isinstance(detail, list):
@@ -110,5 +119,5 @@ def _extract_validation_message(e: httpx.HTTPStatusError) -> str:
                     messages.append(f"{field}: {msg}")
             return "; ".join(messages) if messages else "Validation error"
         return str(detail)
-    except (ValueError, KeyError):
+    except ValueError:
         return "Validation error"

@@ -1,19 +1,23 @@
 """Tests for shared API error parsing."""
 
+from typing import Any
 from unittest.mock import MagicMock
 
 
 from shared.api_errors import parse_http_error
 
 
-def _make_http_error(status_code: int, json_body: dict | None = None) -> MagicMock:
+_RAISE_VALUE_ERROR = object()  # Sentinel to indicate json() should raise
+
+
+def _make_http_error(status_code: int, json_body: Any = _RAISE_VALUE_ERROR) -> MagicMock:
     """Create a mock HTTPStatusError for testing."""
     mock_response = MagicMock()
     mock_response.status_code = status_code
-    if json_body is not None:
-        mock_response.json.return_value = json_body
-    else:
+    if json_body is _RAISE_VALUE_ERROR:
         mock_response.json.side_effect = ValueError("No JSON")
+    else:
+        mock_response.json.return_value = json_body
 
     mock_error = MagicMock()
     mock_error.response = mock_response
@@ -95,11 +99,21 @@ class TestParseHttpError:
         assert result.server_state is None
 
     def test__parse_http_error__409_with_string_detail(self) -> None:
-        """Test 409 with string detail returns conflict_name."""
+        """Test 409 with string detail preserves the server-provided message."""
         error = _make_http_error(409, {"detail": "Name conflict"})
         result = parse_http_error(error)
 
         assert result.category == "conflict_name"
+        assert result.message == "Name conflict"
+        assert result.server_state is None
+
+    def test__parse_http_error__409_with_empty_string_detail(self) -> None:
+        """Test 409 with empty string detail uses default message."""
+        error = _make_http_error(409, {"detail": ""})
+        result = parse_http_error(error)
+
+        assert result.category == "conflict_name"
+        assert "already exists" in result.message.lower()
         assert result.server_state is None
 
     def test__parse_http_error__400_validation_dict_detail(self) -> None:
@@ -144,7 +158,23 @@ class TestParseHttpError:
 
     def test__parse_http_error__no_json_body(self) -> None:
         """Test error with no JSON body is handled gracefully."""
-        error = _make_http_error(400, None)  # Will raise ValueError on json()
+        error = _make_http_error(400)  # Will raise ValueError on json()
+        result = parse_http_error(error)
+
+        assert result.category == "validation"
+        assert "Validation error" in result.message
+
+    def test__parse_http_error__list_json_body(self) -> None:
+        """Test error with list JSON body (non-dict) is handled gracefully."""
+        error = _make_http_error(409, ["error1", "error2"])
+        result = parse_http_error(error)
+
+        assert result.category == "conflict_name"
+        assert "already exists" in result.message.lower()
+
+    def test__parse_http_error__string_json_body(self) -> None:
+        """Test error with string JSON body (non-dict) is handled gracefully."""
+        error = _make_http_error(400, "Just a string")
         result = parse_http_error(error)
 
         assert result.category == "validation"

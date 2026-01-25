@@ -629,12 +629,12 @@ async def test__update_item__name_conflict_raises_error(
     mock_api,
     mcp_client: Client,
 ) -> None:
-    """Test 409 name conflict (no server_state) raises ToolError with 'already exists' message."""
+    """Test 409 name conflict (no server_state) raises ToolError with API-provided message."""
     note_id = "550e8400-e29b-41d4-a716-446655440002"
     mock_api.patch(f"/notes/{note_id}").mock(
         return_value=Response(
             409,
-            json={"detail": "Conflict occurred"},
+            json={"detail": {"message": "A note with this name already exists", "error_code": "NAME_CONFLICT"}},
         ),
     )
 
@@ -646,6 +646,30 @@ async def test__update_item__name_conflict_raises_error(
 
     assert result.is_error
     assert "already exists" in result.content[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__update_item__name_conflict_string_detail_preserved(
+    mock_api,
+    mcp_client: Client,
+) -> None:
+    """Test 409 with string detail preserves the server-provided message."""
+    note_id = "550e8400-e29b-41d4-a716-446655440002"
+    mock_api.patch(f"/notes/{note_id}").mock(
+        return_value=Response(
+            409,
+            json={"detail": "Custom conflict message from server"},
+        ),
+    )
+
+    result = await mcp_client.call_tool(
+        "update_item",
+        {"id": note_id, "type": "note", "title": "New Title"},
+        raise_on_error=False,
+    )
+
+    assert result.is_error
+    assert "custom conflict message" in result.content[0].text.lower()
 
 
 @pytest.mark.asyncio

@@ -1157,9 +1157,10 @@ async def _handle_update_prompt(
             ),
         )
 
-    # Validate at least one data field is provided (expected_updated_at is a control parameter)
+    # Validate at least one data field is provided with a non-None value
+    # (expected_updated_at is a control parameter, not a data field)
     data_fields = ["new_name", "title", "description", "tags", "content", "arguments"]
-    if not any(k in arguments for k in data_fields):
+    if not any(k in arguments and arguments[k] is not None for k in data_fields):
         raise McpError(
             types.ErrorData(
                 code=types.INVALID_PARAMS,
@@ -1170,7 +1171,7 @@ async def _handle_update_prompt(
     client = get_http_client()
     token = _get_token()
 
-    # Build payload - only include fields that were provided
+    # Build payload - only include fields that were provided with non-None values
     # Map new_name -> name for the API (PromptUpdate schema uses 'name' for the new name)
     field_mapping = {
         "new_name": "name",
@@ -1181,7 +1182,11 @@ async def _handle_update_prompt(
         "arguments": "arguments",
         "expected_updated_at": "expected_updated_at",
     }
-    payload = {field_mapping[k]: arguments[k] for k in field_mapping if k in arguments}
+    payload = {
+        field_mapping[k]: arguments[k]
+        for k in field_mapping
+        if k in arguments and arguments[k] is not None
+    }
 
     try:
         result = await api_patch(
