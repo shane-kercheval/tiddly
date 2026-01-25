@@ -196,6 +196,8 @@ Rename `update_item_metadata` → `update_item`, add `content` parameter for ful
        raise ToolError("At least one of title, description, tags, url, or content must be provided")
    ```
 
+   **Note:** `expected_updated_at` is intentionally NOT included in this validation. It's a control parameter for conflict detection, not a data field. Calling the tool with only `expected_updated_at` would be a no-op since there's nothing to update.
+
 6. **Update payload building:** Include `content` and `expected_updated_at` in the payload if provided
 
 7. **Change return type from `str` to `dict`:**
@@ -228,6 +230,12 @@ Rename `update_item_metadata` → `update_item`, add `content` parameter for ful
            pass
        raise ToolError("Conflict: item was modified. Fetch latest version and retry.")
    ```
+
+   **Design Decision:** We return conflict as structured data (dict) rather than raising `ToolError` because:
+   - FastMCP doesn't support `isError=True` on dict returns
+   - Returning a dict allows programmatic parsing of `server_state`
+   - Clients can distinguish "conflict that can be resolved" vs "actual error"
+   - The `error` field in the response indicates this is not a successful update
 
 9. **Update MCP server instructions:** Update the `instructions` string to include:
    - Updated tool list with `update_item` (not `update_item_metadata`)
@@ -326,6 +334,8 @@ Rename `update_prompt_metadata` → `update_prompt`, add `content` and `argument
        ),
    },
    ```
+
+   **Note:** The "at least one field required" validation should include: `name`, `title`, `description`, `tags`, `content`, or `arguments`. `expected_updated_at` is intentionally NOT included - it's a control parameter for conflict detection, not a data field.
 
 4. **Update handler:** `_handle_update_prompt_metadata` → `_handle_update_prompt`
    - Add `content`, `arguments`, and `expected_updated_at` to the field mapping
@@ -655,3 +665,7 @@ All mutation tools now return `updated_at` in their response. To prevent concurr
 7. **409 Conflict handling must preserve `server_state`** - The backend returns the current entity state on conflicts. MCP tools must pass this through so clients can resolve conflicts programmatically.
 
 8. **Prompt MCP uses low-level SDK** - Unlike FastMCP (Content MCP), the Prompt MCP server must explicitly return `types.CallToolResult` with `structuredContent` set. Simply returning `list[TextContent]` does NOT populate `structuredContent`.
+
+9. **`expected_updated_at` is a control parameter, not a data field** - It should NOT satisfy the "at least one field required" validation. Calling the tool with only `expected_updated_at` would be a no-op since there's nothing to update. The validation must require at least one actual data field (title, description, tags, url/name, content, or arguments).
+
+10. **Content MCP 409 conflicts return dict, not ToolError** - FastMCP doesn't support `isError=True` on dict returns. We return conflict as structured data (`{error, message, server_state}`) so clients can programmatically parse `server_state` and resolve conflicts. The `error` field indicates this is not a successful update. Prompt MCP can use `CallToolResult(isError=True, structuredContent=...)` since it uses the low-level SDK.
