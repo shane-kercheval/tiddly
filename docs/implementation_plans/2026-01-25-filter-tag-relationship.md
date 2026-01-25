@@ -39,7 +39,7 @@ Fully normalize the filter expression storage. Replace the JSONB `filter_express
 This enables:
 1. **Single source of truth** - Tags are referenced by ID, not name strings
 2. **Automatic cascade on rename** - Tag renames just work (FK references ID)
-3. **Automatic cascade on delete** - Tag deletions cascade to filter groups
+3. **Safe delete handling** - API blocks deletion of tags used in filters (409 Conflict), requiring explicit removal from filters first
 4. **Tag visibility** - Tags in filters can be included in `/tags/` via simple joins
 
 **API contract unchanged** - The request/response format stays exactly the same. Normalization/denormalization happens in the service layer.
@@ -99,6 +99,8 @@ filter_group_tags = Table(
     Index("ix_filter_group_tags_tag_id", "tag_id"),
 )
 ```
+
+Note: The `ondelete="CASCADE"` on `tag_id` is for referential integrity, but we block tag deletion at the application layer if the tag is used in any filters (see Milestone 6). The CASCADE is a safety net that maintains DB consistency.
 
 **3. Update `ContentFilter` model:**
 
@@ -586,51 +588,123 @@ async def get_user_tags_with_counts(
 
 ---
 
-## Milestone 6: Verify Tag Rename/Delete Cascades
+## Milestone 6: Tag Rename Cascades + Block Delete if Used in Filters
 
 ### Goal
-Verify that tag renames and deletes automatically propagate to filters via FK relationships.
+- Verify tag renames automatically propagate to filters via FK relationships
+- Block tag deletion if the tag is used in any filters (require user to remove from filters first)
 
 ### Success Criteria
 - Renaming a tag: filters continue to work (they reference tag by ID)
-- Deleting a tag: tag removed from filter groups (FK cascade)
-- No manual JSONB updates needed
+- Deleting a tag used in filters: returns 409 Conflict with list of affected filter names
+- Deleting a tag not used in filters: succeeds as before
+- Frontend displays clear error message when deletion blocked
 
 ### Key Changes
 
-No code changes needed - this should work automatically via FK relationships. This milestone is primarily verification and testing.
+**1. Tag rename - no code changes needed:**
 
-**Expected behavior:**
+Works automatically via FK relationships:
+- `Tag.name` is updated
+- `filter_group_tags` references `tag_id` (unchanged)
+- Filter response reconstructs expression using new tag name
 
-1. **Tag rename:**
-   - `Tag.name` is updated
-   - `filter_group_tags` references `tag_id` (unchanged)
-   - Filter response reconstructs expression using new tag name
+**2. Update `delete_tag` in `tag_service.py` to check for filter usage:**
 
-2. **Tag delete:**
-   - `Tag` record deleted
-   - `filter_group_tags` entries cascade deleted (FK `ondelete="CASCADE"`)
-   - Filter groups may now have fewer tags (or be empty)
+```python
+class TagInUseByFiltersError(Exception):
+    """Raised when trying to delete a tag that is used in filters."""
+
+    def __init__(self, tag_name: str, filter_names: list[str]) -> None:
+        self.tag_name = tag_name
+        self.filter_names = filter_names
+        super().__init__(
+            f"Tag '{tag_name}' is used in {len(filter_names)} filter(s): {', '.join(filter_names)}"
+        )
+
+
+async def get_filters_using_tag(
+    db: AsyncSession,
+    user_id: UUID,
+    tag_id: UUID,
+) -> list[str]:
+    """Get names of filters that use a specific tag."""
+    result = await db.execute(
+        select(ContentFilter.name)
+        .join(FilterGroup, ContentFilter.id == FilterGroup.filter_id)
+        .join(filter_group_tags, FilterGroup.id == filter_group_tags.c.group_id)
+        .where(
+            ContentFilter.user_id == user_id,
+            filter_group_tags.c.tag_id == tag_id,
+        )
+        .distinct()
+    )
+    return list(result.scalars().all())
+
+
+async def delete_tag(
+    db: AsyncSession,
+    user_id: UUID,
+    tag_name: str,
+) -> None:
+    # ... existing validation to get tag ...
+
+    # Check if tag is used in any filters
+    filter_names = await get_filters_using_tag(db, user_id, tag.id)
+    if filter_names:
+        raise TagInUseByFiltersError(tag_name, filter_names)
+
+    # Proceed with deletion
+    await db.delete(tag)
+    await db.flush()
+```
+
+**3. Update `tags.py` router to handle new error:**
+
+```python
+from services.tag_service import TagInUseByFiltersError
+
+@router.delete("/{tag_name}", status_code=204)
+async def delete_tag(
+    tag_name: str,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    try:
+        await tag_service.delete_tag(db, current_user.id, tag_name)
+    except TagNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Tag '{tag_name}' not found")
+    except TagInUseByFiltersError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": f"Cannot delete tag '{e.tag_name}' because it is used in filters",
+                "filters": e.filter_names,
+            },
+        )
+```
+
+**4. Frontend: Handle 409 response in Tags settings page:**
+
+Display error message like:
+> Cannot delete tag "work". It is used in the following filters: Work Tasks, Priority Items.
+> Please remove the tag from these filters before deleting.
 
 ### Testing Strategy
 
 **API-level tests (`test_tags.py`):**
 - `test__rename_tag__filter_uses_new_name` - Get filter after rename, expression shows new name
 - `test__rename_tag__filter_still_matches_content` - Filter functionality unchanged
-- `test__delete_tag__removed_from_filter_groups` - Get filter after delete, tag gone from expression
-- `test__delete_tag__filter_with_multiple_tags_keeps_others` - Other tags in group preserved
-- `test__delete_tag__empty_group_after_delete` - Group with no remaining tags (verify behavior)
-
-**Edge cases:**
-- Filter with single tag in single group - after delete, filter has empty groups (is this OK?)
-- Consider whether to auto-delete empty groups
+- `test__delete_tag__blocked_when_used_in_filter` - Returns 409 with filter names
+- `test__delete_tag__blocked_lists_multiple_filters` - Multiple filter names in response
+- `test__delete_tag__succeeds_when_not_in_filters` - Tag not in any filter deletes normally
+- `test__delete_tag__succeeds_after_removing_from_filter` - Update filter to remove tag, then delete succeeds
 
 ### Dependencies
 - Milestone 5 complete
 
 ### Risk Factors
-- Empty groups after tag deletion - decide on desired behavior
-- May want to clean up empty groups automatically
+- None significant - this is a safer approach than cascading deletes
 
 ---
 
@@ -749,9 +823,10 @@ if resolved.filter_groups:
 - Single source of truth - tags referenced by FK, not name strings
 - API contract unchanged - normalization/denormalization in service layer
 - Tag renames cascade automatically via FK relationships
-- Tag deletes cascade automatically via FK `ondelete="CASCADE"`
+- Tag deletes blocked if used in filters (409 Conflict) - user must remove from filters first
 
 **Benefits over JSONB approach:**
 - No sync logic needed between JSONB and junction tables
-- Tag operations (rename/delete) just work
+- Tag renames just work (FK references ID, not name)
 - Cleaner relational design
+- Explicit user action required before breaking filters
