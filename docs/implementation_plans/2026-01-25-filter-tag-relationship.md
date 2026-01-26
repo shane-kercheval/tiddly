@@ -46,17 +46,19 @@ This enables:
 
 ---
 
-## Milestone 1: Database Schema Changes
+## Milestone 1: Database Schema + Data Migration
 
 ### Goal
-Create the new normalized tables and remove the JSONB column.
+Create the new normalized tables, migrate existing data from JSONB, and remove the JSONB column.
 
 ### Success Criteria
 - `filter_groups` table exists with proper constraints
 - `filter_group_tags` junction table exists with foreign keys
+- All existing filter data migrated to new tables
+- `Tag` records created for any tags that don't exist yet
+- `group_operator` extracted from JSONB to column on `content_filters`
 - `filter_expression` JSONB column removed from `content_filters`
-- `group_operator` remains on `content_filters` table (filter-level setting)
-- All migrations reversible
+- Migration is reversible (rollback recreates JSONB with correct data)
 
 ### Key Changes
 
@@ -100,7 +102,7 @@ filter_group_tags = Table(
 )
 ```
 
-Note: The `ondelete="CASCADE"` on `tag_id` is for referential integrity, but we block tag deletion at the application layer if the tag is used in any filters (see Milestone 6). The CASCADE is a safety net that maintains DB consistency.
+Note: The `ondelete="CASCADE"` on `tag_id` is for referential integrity, but we block tag deletion at the application layer if the tag is used in any filters (see Milestone 5). The CASCADE is a safety net that maintains DB consistency.
 
 **3. Update `ContentFilter` model:**
 
@@ -126,53 +128,39 @@ class ContentFilter(Base):
 Use `make migration message="normalize filter expression to filter_groups and filter_group_tags"`.
 
 The migration should:
-1. Create `filter_groups` table
-2. Create `filter_group_tags` table
-3. Migrate data from `filter_expression` JSONB to new tables (see Milestone 2)
-4. Drop `filter_expression` column
-5. Add `group_operator` column if not already present (extract from JSONB during migration)
-
-### Testing Strategy
-- Migration applies and rolls back cleanly
-- Tables have correct constraints (FKs, unique position per filter)
-- CASCADE delete works: deleting a filter removes groups and junction entries
-- CASCADE delete works: deleting a tag removes junction entries (but keeps group)
-- CASCADE delete works: deleting a group removes junction entries
-
-### Dependencies
-None
-
-### Risk Factors
-- Data migration must happen before dropping JSONB column
-- Ensure rollback recreates JSONB with correct data
-
----
-
-## Milestone 2: Data Migration
-
-### Goal
-Migrate existing filter expression data from JSONB to the new normalized tables.
-
-### Success Criteria
-- All existing filter groups exist in `filter_groups` table
-- All tag references exist in `filter_group_tags` with proper FK to `tags` table
-- `Tag` records created for any tags that don't exist yet
-- Migration is idempotent
-- `group_operator` extracted from JSONB to column
-
-### Key Changes
-
-**1. Migration logic (in Alembic migration):**
+1. Add `group_operator` column to `content_filters`
+2. Create `filter_groups` table
+3. Create `filter_group_tags` table
+4. Migrate data from `filter_expression` JSONB to new tables
+5. Drop `filter_expression` column
 
 ```python
 def upgrade():
-    # Create new tables first (from Milestone 1)
-    # ...
+    # 1. Add group_operator column
+    op.add_column("content_filters", sa.Column("group_operator", sa.String(10), server_default="OR"))
 
-    # Migrate data
+    # 2. Create filter_groups table
+    op.create_table(
+        "filter_groups",
+        sa.Column("id", sa.UUID(), primary_key=True),
+        sa.Column("filter_id", sa.UUID(), sa.ForeignKey("content_filters.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("position", sa.Integer(), nullable=False),
+        sa.Column("operator", sa.String(10), server_default="AND"),
+        sa.UniqueConstraint("filter_id", "position", name="uq_filter_groups_filter_position"),
+    )
+    op.create_index("ix_filter_groups_filter_id", "filter_groups", ["filter_id"])
+
+    # 3. Create filter_group_tags junction table
+    op.create_table(
+        "filter_group_tags",
+        sa.Column("group_id", sa.UUID(), sa.ForeignKey("filter_groups.id", ondelete="CASCADE"), primary_key=True),
+        sa.Column("tag_id", sa.UUID(), sa.ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+    )
+    op.create_index("ix_filter_group_tags_tag_id", "filter_group_tags", ["tag_id"])
+
+    # 4. Migrate data
     connection = op.get_bind()
 
-    # Get all filters with their expressions
     filters = connection.execute(
         text("SELECT id, user_id, filter_expression FROM content_filters")
     ).fetchall()
@@ -180,12 +168,12 @@ def upgrade():
     for filter_row in filters:
         filter_id = filter_row.id
         user_id = filter_row.user_id
-        expression = filter_row.filter_expression  # JSONB parsed as dict
+        expression = filter_row.filter_expression
 
         if not expression:
             continue
 
-        # Extract group_operator (default "OR")
+        # Extract group_operator
         group_operator = expression.get("group_operator", "OR")
         connection.execute(
             text("UPDATE content_filters SET group_operator = :op WHERE id = :id"),
@@ -214,7 +202,6 @@ def upgrade():
             for tag_name in tag_names:
                 normalized_name = tag_name.lower().strip()
 
-                # Get or create tag
                 tag_result = connection.execute(
                     text("SELECT id FROM tags WHERE user_id = :user_id AND name = :name"),
                     {"user_id": user_id, "name": normalized_name}
@@ -229,7 +216,6 @@ def upgrade():
                         {"id": tag_id, "user_id": user_id, "name": normalized_name}
                     )
 
-                # Link tag to group
                 connection.execute(
                     text("""
                         INSERT INTO filter_group_tags (group_id, tag_id)
@@ -239,47 +225,55 @@ def upgrade():
                     {"group_id": group_id, "tag_id": tag_id}
                 )
 
-    # Drop old column
+    # 5. Drop old column
     op.drop_column("content_filters", "filter_expression")
 ```
 
-**2. Verification queries:**
+**5. Verification queries (for manual verification after migration):**
 
 ```sql
--- Verify group counts match
-SELECT cf.id, COUNT(fg.id) as group_count
+-- Verify group counts match original
+SELECT cf.id, cf.name, COUNT(fg.id) as group_count
 FROM content_filters cf
 LEFT JOIN filter_groups fg ON fg.filter_id = cf.id
-GROUP BY cf.id;
+GROUP BY cf.id, cf.name;
 
--- Verify tags are linked
-SELECT fg.filter_id, fg.position, array_agg(t.name) as tags
-FROM filter_groups fg
+-- Verify tags are linked correctly
+SELECT cf.name as filter_name, fg.position, array_agg(t.name ORDER BY t.name) as tags
+FROM content_filters cf
+JOIN filter_groups fg ON fg.filter_id = cf.id
 JOIN filter_group_tags fgt ON fgt.group_id = fg.id
 JOIN tags t ON t.id = fgt.tag_id
-GROUP BY fg.filter_id, fg.position
-ORDER BY fg.filter_id, fg.position;
+GROUP BY cf.name, fg.filter_id, fg.position
+ORDER BY cf.name, fg.position;
 ```
 
 ### Testing Strategy
-- Test with no existing filters (no-op)
-- Test with filters that have empty expressions (no groups created)
-- Test with filters that have multiple groups
-- Test with tags that already exist (reuses existing Tag records)
-- Test with new tags (creates Tag records)
-- Test idempotency
-- Verify rollback restores JSONB correctly
+
+**Migration tests:**
+- Migration applies cleanly on empty database
+- Migration applies with existing filters (data migrated correctly)
+- Migration rolls back cleanly (JSONB restored with correct data)
+- Filters with empty expressions handled (no groups created)
+- Filters with multiple groups preserve order
+- Tags that already exist are reused (not duplicated)
+- New tags are created
+
+**Schema tests (after migration):**
+- Tables have correct constraints (FKs, unique position per filter)
+- CASCADE delete: deleting a filter removes groups and junction entries
+- CASCADE delete: deleting a group removes junction entries
 
 ### Dependencies
-- Milestone 1 schema created (but JSONB not dropped yet)
+None
 
 ### Risk Factors
-- Large datasets may need batching
-- Ensure transaction for atomicity
+- Large datasets may need batching in migration
+- Ensure rollback correctly reconstructs JSONB from normalized data
 
 ---
 
-## Milestone 3: Service Layer - Normalize on Write
+## Milestone 2: Service Layer - Write Path
 
 ### Goal
 Update `content_filter_service.py` to write to normalized tables instead of JSONB.
@@ -396,7 +390,7 @@ async def update_filter(
 - `test__update_filter__preserves_groups_when_expression_not_provided` - Partial update works
 
 ### Dependencies
-- Milestone 2 complete (data migrated)
+- Milestone 1 complete (schema + data migrated)
 
 ### Risk Factors
 - Ensure `_sync_filter_groups` properly deletes old groups before creating new
@@ -404,7 +398,7 @@ async def update_filter(
 
 ---
 
-## Milestone 4: Service Layer - Denormalize on Read
+## Milestone 3: Service Layer - Read Path
 
 ### Goal
 Update filter retrieval to reconstruct the `filter_expression` JSON structure from normalized tables.
@@ -510,7 +504,7 @@ async def get_filters(db: AsyncSession, user_id: UUID) -> list[ContentFilter]:
 - `test__get_filter__orders_tags_alphabetically` - Tags sorted within group
 
 ### Dependencies
-- Milestone 3 complete
+- Milestone 2 complete
 
 ### Risk Factors
 - Pydantic `model_validator` with `mode="before"` can be tricky - test thoroughly
@@ -518,7 +512,7 @@ async def get_filters(db: AsyncSession, user_id: UUID) -> list[ContentFilter]:
 
 ---
 
-## Milestone 5: Update Tags API to Include Filter Tags
+## Milestone 4: Update Tags API to Include Filter Tags
 
 ### Goal
 Modify `/tags/` endpoint to include tags that are used in filters, even with count=0.
@@ -581,14 +575,14 @@ async def get_user_tags_with_counts(
 - `test__list_tags__filter_deleted_removes_tag_from_list` - Tag disappears when filter deleted (if not used elsewhere)
 
 ### Dependencies
-- Milestone 4 complete
+- Milestone 3 complete
 
 ### Risk Factors
 - Query performance with additional subquery - benchmark if needed
 
 ---
 
-## Milestone 6: Tag Rename Cascades + Block Delete if Used in Filters
+## Milestone 5: Tag Rename Cascades + Block Delete if Used in Filters
 
 ### Goal
 - Verify tag renames automatically propagate to filters via FK relationships
@@ -701,14 +695,14 @@ Display error message like:
 - `test__delete_tag__succeeds_after_removing_from_filter` - Update filter to remove tag, then delete succeeds
 
 ### Dependencies
-- Milestone 5 complete
+- Milestone 4 complete
 
 ### Risk Factors
 - None significant - this is a safer approach than cascading deletes
 
 ---
 
-## Milestone 7: Update Filter Application Logic
+## Milestone 6: Update Filter Application Logic
 
 ### Goal
 Update the code that applies filters to content queries to work with normalized structure.
@@ -798,7 +792,7 @@ if resolved.filter_groups:
 - `test__filter__after_tag_delete_excludes_that_criteria` - Delete tag, filter ignores that tag
 
 ### Dependencies
-- Milestone 6 complete
+- Milestone 5 complete
 
 ### Risk Factors
 - Ensure query performance is acceptable
@@ -810,13 +804,12 @@ if resolved.filter_groups:
 
 | Milestone | Focus | Risk |
 |-----------|-------|------|
-| 1 | Database schema (new tables) | Low |
-| 2 | Data migration from JSONB | Medium |
-| 3 | Service layer - write path | Medium |
-| 4 | Service layer - read path | Medium |
-| 5 | Tags API includes filter tags | Low |
-| 6 | Verify rename/delete cascades | Low |
-| 7 | Filter application logic | Medium |
+| 1 | Database schema + data migration | Medium |
+| 2 | Service layer - write path | Medium |
+| 3 | Service layer - read path | Medium |
+| 4 | Tags API includes filter tags | Low |
+| 5 | Tag rename/delete handling | Low |
+| 6 | Filter application logic | Medium |
 
 **Key design decisions:**
 - Fully normalized schema (no JSONB for filter expressions)
