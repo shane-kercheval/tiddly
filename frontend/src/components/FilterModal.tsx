@@ -43,7 +43,7 @@ export function FilterModal({
   const [name, setName] = useState('')
   const [contentTypes, setContentTypes] = useState<ContentType[]>(['bookmark', 'note'])
   const [filterExpression, setFilterExpression] = useState<FilterExpression>(createEmptyFilterExpression())
-  const [defaultSortBy, setDefaultSortBy] = useState<BaseSortOption | null>(null)
+  const [defaultSortBy, setDefaultSortBy] = useState<BaseSortOption>('last_used_at')
   const [defaultSortAscending, setDefaultSortAscending] = useState<boolean>(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -58,13 +58,13 @@ export function FilterModal({
         setName(filter.name)
         setContentTypes(filter.content_types)
         setFilterExpression(filter.filter_expression)
-        setDefaultSortBy((filter.default_sort_by as BaseSortOption) || null)
+        setDefaultSortBy((filter.default_sort_by as BaseSortOption) || 'last_used_at')
         setDefaultSortAscending(filter.default_sort_ascending ?? false)
       } else {
         setName('')
         setContentTypes(['bookmark', 'note'])  // Default to all types for new filters
         setFilterExpression(createEmptyFilterExpression())
-        setDefaultSortBy(null)
+        setDefaultSortBy('last_used_at')
         setDefaultSortAscending(false)
       }
       setError(null)
@@ -111,7 +111,7 @@ export function FilterModal({
           content_types: contentTypes,
           filter_expression: cleanedExpression,
           default_sort_by: defaultSortBy,
-          default_sort_ascending: defaultSortBy ? defaultSortAscending : null,
+          default_sort_ascending: defaultSortAscending,
         })
       } else if (onCreate) {
         await onCreate({
@@ -119,7 +119,7 @@ export function FilterModal({
           content_types: contentTypes,
           filter_expression: cleanedExpression,
           default_sort_by: defaultSortBy,
-          default_sort_ascending: defaultSortBy ? defaultSortAscending : null,
+          default_sort_ascending: defaultSortAscending,
         })
       }
       onClose()
@@ -225,36 +225,27 @@ export function FilterModal({
           <div className="flex items-center gap-3">
             <select
               id="filter-sort"
-              value={defaultSortBy ?? ''}
-              onChange={(e) => {
-                const value = e.target.value as BaseSortOption | ''
-                setDefaultSortBy(value || null)
-                if (!value) {
-                  setDefaultSortAscending(false)
-                }
-              }}
+              value={defaultSortBy}
+              onChange={(e) => setDefaultSortBy(e.target.value as BaseSortOption)}
               className="appearance-none cursor-pointer flex-1 rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2 pr-8 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.5rem_center] bg-no-repeat"
               disabled={isSubmitting}
             >
-              <option value="">System default (Last Used)</option>
               {BASE_SORT_OPTIONS.map((option) => (
                 <option key={option} value={option}>
                   {SORT_LABELS[option]}
                 </option>
               ))}
             </select>
-            {defaultSortBy && (
-              <label className="flex items-center gap-2 text-sm text-gray-600">
-                <input
-                  type="checkbox"
-                  checked={defaultSortAscending}
-                  onChange={(e) => setDefaultSortAscending(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900/10"
-                  disabled={isSubmitting}
-                />
-                Ascending
-              </label>
-            )}
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={defaultSortAscending}
+                onChange={(e) => setDefaultSortAscending(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900/10"
+                disabled={isSubmitting}
+              />
+              Ascending
+            </label>
           </div>
         </div>
 

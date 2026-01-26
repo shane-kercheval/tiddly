@@ -5,9 +5,9 @@ import { FilterModal } from './FilterModal'
 import type { ContentFilter, TagCount } from '../types'
 
 const mockSuggestions: TagCount[] = [
-  { name: 'react', count: 5 },
-  { name: 'typescript', count: 3 },
-  { name: 'javascript', count: 8 },
+  { name: 'react', content_count: 5, filter_count: 0 },
+  { name: 'typescript', content_count: 3, filter_count: 0 },
+  { name: 'javascript', content_count: 8, filter_count: 0 },
 ]
 
 const mockFilter: ContentFilter = {
@@ -97,8 +97,8 @@ describe('FilterModal', () => {
             groups: [],
             group_operator: 'OR',
           },
-          default_sort_by: null,
-          default_sort_ascending: null,
+          default_sort_by: 'last_used_at',
+          default_sort_ascending: false,
         })
       })
     })
@@ -158,8 +158,8 @@ describe('FilterModal', () => {
             groups: [{ tags: ['react'], operator: 'AND' }],
             group_operator: 'OR',
           },
-          default_sort_by: null,
-          default_sort_ascending: null,
+          default_sort_by: 'last_used_at',
+          default_sort_ascending: false,
         })
       })
 
@@ -195,8 +195,8 @@ describe('FilterModal', () => {
           name: 'Updated Name',
           content_types: mockFilter.content_types,
           filter_expression: mockFilter.filter_expression,
-          default_sort_by: null,
-          default_sort_ascending: null,
+          default_sort_by: 'last_used_at',
+          default_sort_ascending: false,
         })
       })
 
@@ -245,8 +245,8 @@ describe('FilterModal', () => {
             groups: [{ tags: ['react'], operator: 'AND' }],
             group_operator: 'OR',
           },
-          default_sort_by: null,
-          default_sort_ascending: null,
+          default_sort_by: 'last_used_at',
+          default_sort_ascending: false,
         })
       })
     })
@@ -347,7 +347,7 @@ describe('FilterModal', () => {
   })
 
   describe('sort configuration', () => {
-    it('should render sort dropdown with system default selected', () => {
+    it('should render sort dropdown with Last Used selected by default', () => {
       render(
         <FilterModal
           isOpen={true}
@@ -358,8 +358,7 @@ describe('FilterModal', () => {
 
       const sortDropdown = screen.getByLabelText('Default Sort')
       expect(sortDropdown).toBeInTheDocument()
-      expect(sortDropdown).toHaveValue('')
-      expect(screen.getByText('System default (Last Used)')).toBeInTheDocument()
+      expect(sortDropdown).toHaveValue('last_used_at')
     })
 
     it('should show all base sort options in dropdown', () => {
@@ -380,7 +379,7 @@ describe('FilterModal', () => {
       expect(sortDropdown.querySelector('option[value="title"]')).toBeInTheDocument()
     })
 
-    it('should not show ascending checkbox when system default is selected', () => {
+    it('should always show ascending checkbox', () => {
       render(
         <FilterModal
           isOpen={true}
@@ -388,47 +387,9 @@ describe('FilterModal', () => {
           tagSuggestions={mockSuggestions}
         />
       )
-
-      expect(screen.queryByLabelText('Ascending')).not.toBeInTheDocument()
-    })
-
-    it('should show ascending checkbox when sort option is selected', async () => {
-      const user = userEvent.setup()
-
-      render(
-        <FilterModal
-          isOpen={true}
-          onClose={vi.fn()}
-          tagSuggestions={mockSuggestions}
-        />
-      )
-
-      const sortDropdown = screen.getByLabelText('Default Sort')
-      await user.selectOptions(sortDropdown, 'title')
 
       expect(screen.getByLabelText('Ascending')).toBeInTheDocument()
-    })
-
-    it('should hide ascending checkbox when switching back to system default', async () => {
-      const user = userEvent.setup()
-
-      render(
-        <FilterModal
-          isOpen={true}
-          onClose={vi.fn()}
-          tagSuggestions={mockSuggestions}
-        />
-      )
-
-      const sortDropdown = screen.getByLabelText('Default Sort')
-
-      // Select a sort option
-      await user.selectOptions(sortDropdown, 'title')
-      expect(screen.getByLabelText('Ascending')).toBeInTheDocument()
-
-      // Switch back to system default
-      await user.selectOptions(sortDropdown, '')
-      expect(screen.queryByLabelText('Ascending')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('Ascending')).not.toBeChecked()
     })
 
     it('should submit with custom sort configuration', async () => {
@@ -619,42 +580,6 @@ describe('FilterModal', () => {
       })
     })
 
-    it('should clear sort config when changing to system default', async () => {
-      const filterWithSort: ContentFilter = {
-        ...mockFilter,
-        default_sort_by: 'title',
-        default_sort_ascending: true,
-      }
-      const onUpdate = vi.fn().mockResolvedValue(mockFilter)
-      const user = userEvent.setup()
-
-      render(
-        <FilterModal
-          isOpen={true}
-          onClose={vi.fn()}
-          filter={filterWithSort}
-          tagSuggestions={mockSuggestions}
-          onUpdate={onUpdate}
-        />
-      )
-
-      // Change to system default
-      const sortDropdown = screen.getByLabelText('Default Sort')
-      await user.selectOptions(sortDropdown, '')
-
-      // Submit
-      await user.click(screen.getByText('Save'))
-
-      await waitFor(() => {
-        expect(onUpdate).toHaveBeenCalledWith('1', {
-          name: 'Work Resources',
-          content_types: filterWithSort.content_types,
-          filter_expression: mockFilter.filter_expression,
-          default_sort_by: null,
-          default_sort_ascending: null,
-        })
-      })
-    })
   })
 
   describe('content types configuration', () => {
@@ -840,8 +765,8 @@ describe('FilterModal', () => {
             groups: [{ tags: ['test'], operator: 'AND' }],
             group_operator: 'OR',
           },
-          default_sort_by: null,
-          default_sort_ascending: null,
+          default_sort_by: 'last_used_at',
+          default_sort_ascending: false,
         })
       })
     })
@@ -871,8 +796,8 @@ describe('FilterModal', () => {
           name: 'Work Resources',
           content_types: ['bookmark', 'note'],
           filter_expression: mockFilter.filter_expression,
-          default_sort_by: null,
-          default_sort_ascending: null,
+          default_sort_by: 'last_used_at',
+          default_sort_ascending: false,
         })
       })
     })
@@ -916,8 +841,8 @@ describe('FilterModal', () => {
             groups: [],
             group_operator: 'OR',
           },
-          default_sort_by: null,
-          default_sort_ascending: null,
+          default_sort_by: 'last_used_at',
+          default_sort_ascending: false,
         })
       })
     })
@@ -959,8 +884,8 @@ describe('FilterModal', () => {
             groups: [],
             group_operator: 'OR',
           },
-          default_sort_by: null,
-          default_sort_ascending: null,
+          default_sort_by: 'last_used_at',
+          default_sort_ascending: false,
         })
       })
     })
@@ -990,8 +915,8 @@ describe('FilterModal', () => {
           name: 'Work Resources',
           content_types: ['bookmark', 'prompt'],
           filter_expression: mockFilter.filter_expression,
-          default_sort_by: null,
-          default_sort_ascending: null,
+          default_sort_by: 'last_used_at',
+          default_sort_ascending: false,
         })
       })
     })
