@@ -199,7 +199,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
                   }`}
                 >
                   <span>{suggestion.name}</span>
-                  <span className="text-gray-400">{suggestion.count}</span>
+                  <span className="text-gray-400">{suggestion.content_count}</span>
                 </button>
               ))}
             </div>

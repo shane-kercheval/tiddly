@@ -6,9 +6,9 @@ import type { TagCount } from '../../types'
 import type { SortByOption } from '../../constants/sortOptions'
 
 const mockTagSuggestions: TagCount[] = [
-  { name: 'react', count: 10 },
-  { name: 'typescript', count: 8 },
-  { name: 'javascript', count: 5 },
+  { name: 'react', content_count: 10, filter_count: 0 },
+  { name: 'typescript', content_count: 8, filter_count: 0 },
+  { name: 'javascript', content_count: 5, filter_count: 0 },
 ]
 
 const defaultProps = {

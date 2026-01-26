@@ -5,11 +5,11 @@ import { TagFilterInput } from './TagFilterInput'
 import type { TagCount } from '../types'
 
 const mockSuggestions: TagCount[] = [
-  { name: 'react', count: 10 },
-  { name: 'typescript', count: 8 },
-  { name: 'javascript', count: 5 },
-  { name: 'python', count: 3 },
-  { name: 'redis', count: 2 },
+  { name: 'react', content_count: 10, filter_count: 0 },
+  { name: 'typescript', content_count: 8, filter_count: 0 },
+  { name: 'javascript', content_count: 5, filter_count: 0 },
+  { name: 'python', content_count: 3, filter_count: 0 },
+  { name: 'redis', content_count: 2, filter_count: 0 },
 ]
 
 describe('TagFilterInput', () => {

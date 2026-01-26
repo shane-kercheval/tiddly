@@ -89,7 +89,7 @@ const mockNote: NoteType = {
 }
 
 const mockTagSuggestions: TagCount[] = [
-  { name: 'test', count: 5 },
+  { name: 'test', content_count: 5, filter_count: 0 },
 ]
 
 describe('CodeMirror focus restoration after Cmd+S', () => {
