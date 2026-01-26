@@ -382,12 +382,36 @@ async def update_filter(
 ### Testing Strategy
 
 **Service-level tests (`test_content_filter_service.py`):**
+
+**Create tests:**
 - `test__create_filter__creates_filter_groups` - Groups created with correct positions
 - `test__create_filter__creates_tags_for_new_tag_names` - Tag records created
+- `test__create_filter__reuses_existing_tags` - Existing tags linked, not duplicated
 - `test__create_filter__links_tags_to_groups` - Junction entries exist
 - `test__create_filter__empty_groups_skipped` - Groups with no tags not created
+- `test__create_filter__multiple_groups_correct_positions` - Position ordering preserved
+
+**Update tests - basic:**
 - `test__update_filter__replaces_groups` - Old groups deleted, new ones created
 - `test__update_filter__preserves_groups_when_expression_not_provided` - Partial update works
+- `test__update_filter__updates_group_operator` - group_operator changes correctly
+
+**Update tests - tag management:**
+- `test__update_filter__removes_tag_from_filter` - Tag removed from expression but still exists in tags table
+- `test__update_filter__adds_existing_tag` - Tag already in DB is reused, not duplicated
+- `test__update_filter__adds_new_tag` - New tag created in tags table
+- `test__update_filter__mixed_existing_and_new_tags` - Combination of reused and new tags
+
+**Update tests - group structure:**
+- `test__update_filter__to_empty_expression` - All groups removed, filter has no groups
+- `test__update_filter__reorders_groups` - Same tags but different group positions
+- `test__update_filter__same_tags_different_grouping` - Tags split across groups differently
+- `test__update_filter__adds_group` - Adds additional group to existing groups
+- `test__update_filter__removes_group` - Removes one group, keeps others
+
+**Update tests - junction table verification:**
+- `test__update_filter__cleans_up_old_junction_entries` - Old filter_group_tags entries removed
+- `test__update_filter__orphaned_tags_remain_in_db` - Tags removed from filter still exist in tags table
 
 ### Dependencies
 - Milestone 1 complete (schema + data migrated)
