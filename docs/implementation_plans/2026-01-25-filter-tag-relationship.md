@@ -614,11 +614,7 @@ async def get_user_tags_with_counts(
     ]
 ```
 
-**3. Update frontend to use new field names:**
-
-In the Tags settings page and anywhere else that consumes `/tags/`:
-- Change `tag.count` → `tag.content_count`
-- Optionally display `tag.filter_count` (e.g., "5 items, 2 filters")
+**Note:** Frontend updates are in Milestone 7. Milestones 4 and 7 must be deployed together.
 
 ### Testing Strategy
 
@@ -861,6 +857,72 @@ if resolved.filter_groups:
 
 ---
 
+## Milestone 7: Frontend - Update Tags Display
+
+### Goal
+Update the frontend to use the new `/tags/` response format (`content_count` + `filter_count` instead of `count`).
+
+### Success Criteria
+- Tags settings page displays tag counts correctly
+- No errors when fetching tags
+- Optionally display filter count information to users (e.g., "5 items, 2 filters")
+
+### Key Changes
+
+**1. Update TypeScript types (`frontend/src/types/` or API client):**
+
+```typescript
+// Before
+interface TagCount {
+  name: string;
+  count: number;
+}
+
+// After
+interface TagCount {
+  name: string;
+  content_count: number;
+  filter_count: number;
+}
+```
+
+**2. Update Tags settings page:**
+
+Find where `tag.count` is used and update to `tag.content_count`. Consider displaying filter usage:
+
+```tsx
+// Option A: Just show content count (minimal change)
+<span>{tag.content_count}</span>
+
+// Option B: Show both counts
+<span>{tag.content_count} items</span>
+{tag.filter_count > 0 && <span>, {tag.filter_count} filters</span>}
+```
+
+**3. Update any other components that consume `/tags/` endpoint:**
+
+Search codebase for usage of the tags API response and update field references.
+
+### Testing Strategy
+
+**Frontend tests:**
+- Verify Tags settings page renders with new response format
+- Test display when `filter_count` is 0
+- Test display when `content_count` is 0 but `filter_count` > 0
+
+**Manual testing:**
+- Navigate to Settings → Tags
+- Verify counts display correctly
+- Create a filter with a tag, verify `filter_count` updates
+
+### Dependencies
+- Milestone 4 complete (backend returns new format)
+
+### Risk Factors
+- Must deploy Milestone 4 (backend) and Milestone 7 (frontend) together to avoid breaking the UI
+
+---
+
 ## Summary
 
 | Milestone | Focus | Risk |
@@ -871,6 +933,7 @@ if resolved.filter_groups:
 | 4 | Tags API: include filter tags + `content_count`/`filter_count` | Low |
 | 5 | Tag rename/delete handling | Low |
 | 6 | Filter application logic | Medium |
+| 7 | Frontend: update tags display | Low |
 
 **Key design decisions:**
 - Fully normalized schema (no JSONB for filter expressions)
@@ -879,6 +942,7 @@ if resolved.filter_groups:
 - Tags API response format changed: `count` → `content_count` + `filter_count` (breaking change)
 - Tag renames cascade automatically via FK relationships
 - Tag deletes blocked if used in filters (409 Conflict) - user must remove from filters first
+- **Deployment:** Milestones 4 (backend) and 7 (frontend) must be deployed together
 
 **Benefits over JSONB approach:**
 - No sync logic needed between JSONB and junction tables
