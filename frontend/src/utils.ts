@@ -237,7 +237,7 @@ export function getGoogleFaviconUrl(url: string): string | null {
 /**
  * Regex pattern for valid tags: lowercase alphanumeric with hyphens.
  *
- * Note: This validation is intentionally duplicated in the backend (backend/src/schemas/bookmark.py)
+ * Note: This validation is intentionally duplicated in the backend (backend/src/schemas/validators.py)
  * for security. Frontend validation provides immediate UX feedback. Keep both in sync if
  * changing the tag format rules.
  *

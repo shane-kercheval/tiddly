@@ -5,6 +5,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { ReactNode, KeyboardEvent } from 'react'
 import type { FilterExpression, FilterGroup, TagCount } from '../types'
+import { normalizeTag } from '../utils'
 import { PlusIcon, CloseIconFilled } from './icons'
 
 interface FilterExpressionBuilderProps {
@@ -55,8 +56,7 @@ function GroupEditor({
 
   const addTag = useCallback(
     (tag: string): void => {
-      // Normalize: lowercase, trim, convert underscores to hyphens
-      const normalizedTag = tag.toLowerCase().trim().replace(/_/g, '-')
+      const normalizedTag = normalizeTag(tag)
       if (normalizedTag && !group.tags.includes(normalizedTag)) {
         onUpdate([...group.tags, normalizedTag])
       }

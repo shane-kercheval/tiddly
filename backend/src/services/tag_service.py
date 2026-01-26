@@ -339,6 +339,8 @@ async def delete_tag(
         await db.delete(tag)
         await db.flush()
     except IntegrityError:
+        # Rollback the failed transaction before re-querying
+        await db.rollback()
         # Re-fetch to get current filter names for the error message
         filters = await get_filters_using_tag(db, user_id, tag.id)
         raise TagInUseByFiltersError(tag.name, filters) from None
