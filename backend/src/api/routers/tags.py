@@ -7,6 +7,7 @@ from models.user import User
 from schemas.tag import TagListResponse, TagRenameRequest, TagResponse
 from services.tag_service import (
     TagAlreadyExistsError,
+    TagInUseByFiltersError,
     TagNotFoundError,
     delete_tag,
     get_user_tags_with_counts,
@@ -80,7 +81,8 @@ async def delete_tag_endpoint(
 
     This removes the tag from all bookmarks and notes, then deletes the tag itself.
 
-    Returns 204 if successful, 404 if the tag doesn't exist.
+    Returns 204 if successful, 404 if the tag doesn't exist,
+    409 if the tag is used in filters (must be removed from filters first).
     """
     try:
         await delete_tag(db, current_user.id, tag_name)
@@ -88,4 +90,12 @@ async def delete_tag_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
+        ) from e
+    except TagInUseByFiltersError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": f"Cannot delete tag '{e.tag_name}' because it is used in filters",
+                "filters": e.filters,
+            },
         ) from e

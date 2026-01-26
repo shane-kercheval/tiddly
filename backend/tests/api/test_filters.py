@@ -661,7 +661,7 @@ async def test_get_filters_includes_prompt_content_types(client: AsyncClient) ->
 
 
 # =============================================================================
-# Milestone 3: Read Path - Filter Expression Reconstruction Tests
+# Filter Expression Reconstruction Tests
 # =============================================================================
 
 

@@ -910,7 +910,7 @@ async def test__get_filters__returns_sort_fields(
 
 
 # =============================================================================
-# Milestone 2: Write Path - FilterGroup and Tag Tests
+# FilterGroup and Tag Tests
 # =============================================================================
 
 

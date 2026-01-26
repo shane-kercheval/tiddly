@@ -31,6 +31,19 @@ class TagAlreadyExistsError(Exception):
         super().__init__(f"Tag '{tag_name}' already exists")
 
 
+class TagInUseByFiltersError(Exception):
+    """Raised when trying to delete a tag that is used in filters."""
+
+    def __init__(self, tag_name: str, filters: list[dict[str, str]]) -> None:
+        self.tag_name = tag_name
+        self.filters = filters  # List of {"id": ..., "name": ...}
+        filter_names = [f["name"] for f in filters]
+        filters_str = ", ".join(filter_names)
+        super().__init__(
+            f"Tag '{tag_name}' is used in {len(filters)} filter(s): {filters_str}",
+        )
+
+
 async def get_or_create_tags(
     db: AsyncSession,
     user_id: UUID,
@@ -262,6 +275,36 @@ async def rename_tag(
     return tag
 
 
+async def get_filters_using_tag(
+    db: AsyncSession,
+    user_id: UUID,
+    tag_id: UUID,
+) -> list[dict[str, str]]:
+    """
+    Get filters that use a specific tag.
+
+    Args:
+        db: Database session.
+        user_id: User ID to scope the filters.
+        tag_id: ID of the tag to check.
+
+    Returns:
+        List of filter dicts with 'id' and 'name', ordered by name.
+    """
+    result = await db.execute(
+        select(ContentFilter.id, ContentFilter.name)
+        .join(FilterGroup, ContentFilter.id == FilterGroup.filter_id)
+        .join(filter_group_tags, FilterGroup.id == filter_group_tags.c.group_id)
+        .where(
+            ContentFilter.user_id == user_id,
+            filter_group_tags.c.tag_id == tag_id,
+        )
+        .distinct()
+        .order_by(ContentFilter.name.asc()),
+    )
+    return [{"id": str(row.id), "name": row.name} for row in result]
+
+
 async def delete_tag(
     db: AsyncSession,
     user_id: UUID,
@@ -277,11 +320,17 @@ async def delete_tag(
 
     Raises:
         TagNotFoundError: If the tag doesn't exist.
+        TagInUseByFiltersError: If the tag is used in any filters.
     """
     normalized = tag_name.lower().strip()
     tag = await get_tag_by_name(db, user_id, normalized)
     if tag is None:
         raise TagNotFoundError(normalized)
+
+    # Check if tag is used in any filters
+    filters = await get_filters_using_tag(db, user_id, tag.id)
+    if filters:
+        raise TagInUseByFiltersError(tag.name, filters)
 
     await db.delete(tag)
     await db.flush()

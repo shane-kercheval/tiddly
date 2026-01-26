@@ -697,3 +697,235 @@ async def test__list_tags__sorted_by_filter_count_then_content_count(
     # Last two should be alphabetically sorted since both have filter_count=0, content_count=1
     assert tag_order[3] == "alpha-tag"
     assert tag_order[4] == "no-filter-low-content"
+
+
+# ============================================================================
+# Tag rename cascade tests
+# ============================================================================
+
+
+async def test__rename_tag__filter_uses_new_name(client: AsyncClient) -> None:
+    """Test that renaming a tag updates the filter expression to show the new name."""
+    # Create a bookmark with a tag (creates the tag)
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["old-tag-name"]},
+    )
+
+    # Create a filter using the tag
+    filter_response = await client.post(
+        "/filters/",
+        json={
+            "name": "Test Filter",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["old-tag-name"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert filter_response.status_code == 201
+    filter_id = filter_response.json()["id"]
+
+    # Rename the tag
+    rename_response = await client.patch(
+        "/tags/old-tag-name",
+        json={"new_name": "new-tag-name"},
+    )
+    assert rename_response.status_code == 200
+
+    # Get the filter and verify it shows the new tag name
+    get_filter_response = await client.get(f"/filters/{filter_id}")
+    assert get_filter_response.status_code == 200
+    filter_data = get_filter_response.json()
+
+    # The filter expression should now contain the new tag name
+    tags_in_filter = filter_data["filter_expression"]["groups"][0]["tags"]
+    assert "new-tag-name" in tags_in_filter
+    assert "old-tag-name" not in tags_in_filter
+
+
+async def test__rename_tag__filter_still_matches_content(client: AsyncClient) -> None:
+    """Test that renaming a tag doesn't break filter functionality."""
+    # Create a bookmark with a tag
+    bookmark_response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "title": "Tagged Bookmark", "tags": ["work"]},
+    )
+    assert bookmark_response.status_code == 201
+
+    # Create a filter using the tag
+    filter_response = await client.post(
+        "/filters/",
+        json={
+            "name": "Work Filter",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["work"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert filter_response.status_code == 201
+    filter_id = filter_response.json()["id"]
+
+    # Verify filter matches the bookmark before rename
+    list_response = await client.get(f"/bookmarks/?filter_id={filter_id}")
+    assert list_response.status_code == 200
+    assert list_response.json()["total"] == 1
+
+    # Rename the tag
+    rename_response = await client.patch(
+        "/tags/work",
+        json={"new_name": "job"},
+    )
+    assert rename_response.status_code == 200
+
+    # Verify filter still matches the bookmark after rename
+    list_response = await client.get(f"/bookmarks/?filter_id={filter_id}")
+    assert list_response.status_code == 200
+    assert list_response.json()["total"] == 1
+    assert list_response.json()["items"][0]["title"] == "Tagged Bookmark"
+
+
+# ============================================================================
+# Tag delete blocking tests
+# ============================================================================
+
+
+async def test__delete_tag__blocked_when_used_in_filter(client: AsyncClient) -> None:
+    """Test that deleting a tag used in a filter returns 409 with filter info."""
+    # Create a bookmark with a tag (creates the tag)
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["protected-tag"]},
+    )
+
+    # Create a filter using the tag
+    filter_response = await client.post(
+        "/filters/",
+        json={
+            "name": "My Filter",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["protected-tag"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    filter_id = filter_response.json()["id"]
+
+    # Try to delete the tag - should fail with 409
+    delete_response = await client.delete("/tags/protected-tag")
+    assert delete_response.status_code == 409
+
+    data = delete_response.json()
+    assert "detail" in data
+    assert data["detail"]["message"] == "Cannot delete tag 'protected-tag' because it is used in filters"
+    # Filters include both id and name
+    assert len(data["detail"]["filters"]) == 1
+    assert data["detail"]["filters"][0]["id"] == filter_id
+    assert data["detail"]["filters"][0]["name"] == "My Filter"
+
+
+async def test__delete_tag__blocked_lists_multiple_filters(client: AsyncClient) -> None:
+    """Test that 409 response lists all filters using the tag, ordered by name."""
+    # Create a bookmark with a tag (creates the tag)
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["shared-filter-tag"]},
+    )
+
+    # Create multiple filters using the same tag (in non-alphabetical order)
+    filter_ids = {}
+    for name in ["Filter C", "Filter A", "Filter B"]:
+        response = await client.post(
+            "/filters/",
+            json={
+                "name": name,
+                "content_types": ["bookmark"],
+                "filter_expression": {
+                    "groups": [{"tags": ["shared-filter-tag"], "operator": "AND"}],
+                    "group_operator": "OR",
+                },
+            },
+        )
+        filter_ids[name] = response.json()["id"]
+
+    # Try to delete the tag - should fail with 409 listing all filters
+    delete_response = await client.delete("/tags/shared-filter-tag")
+    assert delete_response.status_code == 409
+
+    data = delete_response.json()
+    filters = data["detail"]["filters"]
+    assert len(filters) == 3
+
+    # Filters should be ordered alphabetically by name
+    assert filters[0]["name"] == "Filter A"
+    assert filters[0]["id"] == filter_ids["Filter A"]
+    assert filters[1]["name"] == "Filter B"
+    assert filters[1]["id"] == filter_ids["Filter B"]
+    assert filters[2]["name"] == "Filter C"
+    assert filters[2]["id"] == filter_ids["Filter C"]
+
+
+async def test__delete_tag__succeeds_when_not_in_filters(client: AsyncClient) -> None:
+    """Test that tags not used in filters can be deleted normally."""
+    # Create a bookmark with a tag
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["deletable-tag"]},
+    )
+
+    # Delete the tag - should succeed (no filters use it)
+    delete_response = await client.delete("/tags/deletable-tag")
+    assert delete_response.status_code == 204
+
+    # Verify tag is gone
+    tags_response = await client.get("/tags/?include_inactive=true")
+    tag_names = [t["name"] for t in tags_response.json()["tags"]]
+    assert "deletable-tag" not in tag_names
+
+
+async def test__delete_tag__succeeds_after_removing_from_filter(
+    client: AsyncClient,
+) -> None:
+    """Test that a tag can be deleted after being removed from all filters."""
+    # Create a bookmark with a tag
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["removable-tag", "other-tag"]},
+    )
+
+    # Create a filter using the tag
+    filter_response = await client.post(
+        "/filters/",
+        json={
+            "name": "Test Filter",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["removable-tag"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    filter_id = filter_response.json()["id"]
+
+    # Try to delete - should fail
+    delete_response = await client.delete("/tags/removable-tag")
+    assert delete_response.status_code == 409
+
+    # Update filter to use a different tag
+    await client.patch(
+        f"/filters/{filter_id}",
+        json={
+            "filter_expression": {
+                "groups": [{"tags": ["other-tag"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+
+    # Now delete should succeed
+    delete_response = await client.delete("/tags/removable-tag")
+    assert delete_response.status_code == 204
