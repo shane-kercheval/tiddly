@@ -387,6 +387,12 @@ describe('normalizeTag', () => {
     expect(normalizeTag('TypeScript')).toBe('typescript')
   })
 
+  it('should convert underscores to hyphens', () => {
+    expect(normalizeTag('my_test')).toBe('my-test')
+    expect(normalizeTag('MY_TEST_TAG')).toBe('my-test-tag')
+    expect(normalizeTag('snake_case')).toBe('snake-case')
+  })
+
   it('should handle already normalized tags', () => {
     expect(normalizeTag('react')).toBe('react')
     expect(normalizeTag('react-native')).toBe('react-native')

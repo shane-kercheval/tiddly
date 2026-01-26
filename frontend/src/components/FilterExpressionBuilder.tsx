@@ -55,7 +55,8 @@ function GroupEditor({
 
   const addTag = useCallback(
     (tag: string): void => {
-      const normalizedTag = tag.toLowerCase().trim()
+      // Normalize: lowercase, trim, convert underscores to hyphens
+      const normalizedTag = tag.toLowerCase().trim().replace(/_/g, '-')
       if (normalizedTag && !group.tags.includes(normalizedTag)) {
         onUpdate([...group.tags, normalizedTag])
       }
@@ -148,7 +149,7 @@ function GroupEditor({
                 className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center justify-between"
               >
                 <span>{tag.name}</span>
-                <span className="text-xs text-gray-400">{tag.count}</span>
+                <span className="text-xs text-gray-400">{tag.content_count}</span>
               </button>
             ))}
           </div>

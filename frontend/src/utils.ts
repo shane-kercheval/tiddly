@@ -260,12 +260,12 @@ export function validateTag(tag: string): string | null {
 }
 
 /**
- * Normalize a tag to lowercase and trimmed.
+ * Normalize a tag to lowercase, trimmed, with underscores converted to hyphens.
  * @param tag - Tag to normalize
  * @returns Normalized tag
  */
 export function normalizeTag(tag: string): string {
-  return tag.toLowerCase().trim()
+  return tag.toLowerCase().trim().replace(/_/g, '-')
 }
 
 // ============================================================================
