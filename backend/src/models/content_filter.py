@@ -78,11 +78,11 @@ class ContentFilter(Base, UUIDv7Mixin, TimestampMixin):
         if loaded_groups is None:
             return {"groups": [], "group_operator": self.group_operator}
 
-        groups = [
-            {
-                "tags": sorted(tag.name for tag in group.tag_objects),
-                "operator": group.operator,
-            }
-            for group in sorted(loaded_groups, key=lambda g: g.position)
-        ]
+        groups = []
+        for group in sorted(loaded_groups, key=lambda g: g.position):
+            # Also check tag_objects via __dict__ to avoid lazy loading
+            loaded_tags = group.__dict__.get("tag_objects")
+            tag_names = sorted(tag.name for tag in loaded_tags) if loaded_tags else []
+            groups.append({"tags": tag_names, "operator": group.operator})
+
         return {"groups": groups, "group_operator": self.group_operator}

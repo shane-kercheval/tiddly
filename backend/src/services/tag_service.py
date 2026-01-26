@@ -332,8 +332,16 @@ async def delete_tag(
     if filters:
         raise TagInUseByFiltersError(tag.name, filters)
 
-    await db.delete(tag)
-    await db.flush()
+    # Delete the tag. The try/except handles a race condition where another
+    # request adds the tag to a filter between our check and the delete.
+    # The DB RESTRICT constraint will raise IntegrityError in that case.
+    try:
+        await db.delete(tag)
+        await db.flush()
+    except IntegrityError:
+        # Re-fetch to get current filter names for the error message
+        filters = await get_filters_using_tag(db, user_id, tag.id)
+        raise TagInUseByFiltersError(tag.name, filters) from None
 
 
 async def update_entity_tags(
