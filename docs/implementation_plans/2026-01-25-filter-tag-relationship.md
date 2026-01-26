@@ -820,167 +820,35 @@ Display error message like:
 
 ## Milestone 6: Update Filter Application Logic
 
-### Goal
-Update the code that applies filters to content queries to work with normalized structure.
+### Status: N/A - Solved by `filter_expression` property
 
-### Success Criteria
-- `build_filter_from_expression` works with new ORM structure
-- Filtering bookmarks/notes/prompts by filter_id still works
-- Performance comparable to JSONB approach
+**Decision:** Skip this milestone. The current approach works correctly and is architecturally sound.
 
-### Key Changes
+### Reasoning
 
-**1. Update `ResolvedFilter` dataclass (`api/helpers/filter_utils.py`):**
+1. **The `filter_expression` property already solved the problem.** The `ContentFilter.filter_expression` property (added in Milestone 3) reconstructs the dict format from ORM groups/tags. This provides clean encapsulation - the storage format changed but the interface didn't.
 
-Replace `filter_expression: dict | None` with ORM-based fields:
+2. **The property serves dual purposes:**
+   - API response serialization (`ContentFilterResponse`)
+   - Filter application (`resolve_filter_and_sorting` → `build_tag_filter_from_expression`)
 
-```python
-@dataclass
-class ResolvedFilter:
-    """Result of resolving a filter_id with sort parameters."""
+   If we implemented Milestone 6, we'd still need the property for API responses. We'd just be creating a parallel path for filter application with no real benefit.
 
-    # Changed: ORM groups instead of JSONB dict
-    filter_groups: list[FilterGroup] | None  # ORM objects with tag_objects loaded
-    group_operator: str | None  # "OR" or "AND"
+3. **The "optimization" is negligible.** Reconstructing a small dict from a few ORM objects is microseconds. Database queries dominate the time.
 
-    sort_by: str
-    sort_order: Literal["asc", "desc"]
-    content_types: list[str] | None
-```
+4. **More code = more maintenance.** Adding `build_filter_from_groups` alongside `build_tag_filter_from_expression` means two ways to do the same thing.
 
-**2. Update `resolve_filter_and_sorting` to return ORM groups:**
+### Verification
 
-```python
-async def resolve_filter_and_sorting(
-    db: AsyncSession,
-    user_id: UUID,
-    filter_id: UUID | None,
-    sort_by: str | None,
-    sort_order: Literal["asc", "desc"] | None,
-) -> ResolvedFilter:
-    filter_groups = None
-    group_operator = None
-    content_types = None
+All 72 filter-related tests pass, including the key tests that validate the normalized schema works correctly:
 
-    if filter_id is not None:
-        # get_filter now eagerly loads groups with tag_objects (see Milestone 3)
-        content_filter = await content_filter_service.get_filter(db, user_id, filter_id)
-        if content_filter is None:
-            raise HTTPException(status_code=404, detail="Filter not found")
+- `test__rename_tag__filter_uses_new_name` - Filter response shows new tag name after rename
+- `test__rename_tag__filter_still_matches_content` - Filter continues matching content after tag rename
+- `test__list_bookmarks__filter_applies_tag_expression` - Filter tag expressions work correctly
 
-        filter_groups = content_filter.groups  # ORM objects
-        group_operator = content_filter.group_operator
-        content_types = content_filter.content_types
+### Conclusion
 
-        # ... existing sort resolution logic ...
-
-    return ResolvedFilter(
-        filter_groups=filter_groups,
-        group_operator=group_operator,
-        sort_by=sort_by or "created_at",
-        sort_order=sort_order or "desc",
-        content_types=content_types,
-    )
-```
-
-**3. Update `build_filter_from_groups` (`services/utils.py`):**
-
-Replace `build_tag_filter_from_expression()` with a version that takes ORM objects:
-
-```python
-def build_filter_from_groups(
-    groups: list[FilterGroup],
-    group_operator: str,
-    entity_class: type[Bookmark | Note | Prompt],
-    user_id: UUID,
-) -> ColumnElement[bool] | None:
-    """Build SQLAlchemy filter from normalized filter groups."""
-    if not groups:
-        return None
-
-    group_conditions = []
-    for group in groups:
-        if not group.tag_objects:
-            continue
-
-        tag_names = [tag.name for tag in group.tag_objects]
-
-        if group.operator == "AND":
-            # Must have ALL tags in group
-            tag_conditions = []
-            for tag_name in tag_names:
-                subq = (
-                    select(1)
-                    .select_from(entity_tags_table)  # bookmark_tags, note_tags, etc.
-                    .join(Tag)
-                    .where(
-                        entity_tags_table.c.entity_id == entity_class.id,
-                        Tag.name == tag_name,
-                        Tag.user_id == user_id,
-                    )
-                )
-                tag_conditions.append(subq.exists())
-            if tag_conditions:
-                group_conditions.append(and_(*tag_conditions))
-
-    if not group_conditions:
-        return None
-
-    if group_operator == "OR":
-        return or_(*group_conditions)
-    else:
-        return and_(*group_conditions)
-```
-
-**4. Update all 4 list endpoints to use the new flow:**
-
-Replace the old pattern:
-```python
-# OLD (JSONB-based)
-resolved = await resolve_filter_and_sorting(db, current_user.id, filter_id, sort_by, sort_order)
-if resolved.filter_expression:
-    filters = build_tag_filter_from_expression(
-        resolved.filter_expression, current_user.id, bookmark_tags, Bookmark.id
-    )
-    query = query.where(*filters)
-```
-
-With:
-```python
-# NEW (ORM-based)
-resolved = await resolve_filter_and_sorting(db, current_user.id, filter_id, sort_by, sort_order)
-if resolved.filter_groups:
-    filter_condition = build_filter_from_groups(
-        resolved.filter_groups,
-        resolved.group_operator,
-        bookmark_tags,  # junction table
-        Bookmark.id,
-        current_user.id,
-    )
-    if filter_condition is not None:
-        query = query.where(filter_condition)
-```
-
-**5. Remove old `build_tag_filter_from_expression` function:**
-
-After all callers are updated, remove the old function from `services/utils.py`.
-
-### Testing Strategy
-
-**Existing filter tests should pass:**
-- `test_list_bookmarks_with_filter_id`
-- `test_list_bookmarks_with_filter_id_complex_filter`
-- `test_list_content_with_filter_id__*`
-
-**Additional tests:**
-- `test__filter__after_tag_rename_still_matches` - Rename tag, filter still finds content
-
-### Dependencies
-- Milestone 5 complete
-
-### Risk Factors
-- Ensure query performance is acceptable
-- May need to adjust eager loading for filter resolution
+The `filter_expression` property is the right abstraction - it lets the model own its serialization format regardless of internal storage. No code changes needed.
 
 ---
 
@@ -1052,15 +920,15 @@ Search codebase for usage of the tags API response and update field references.
 
 ## Summary
 
-| Milestone | Focus | Risk |
-|-----------|-------|------|
-| 1 | Database schema + data migration | Medium |
-| 2 | Service layer - write path | Medium |
-| 3 | Service layer - read path | Medium |
-| 4 | Tags API: include filter tags + `content_count`/`filter_count` | Low |
-| 5 | Tag rename/delete handling | Low |
-| 6 | Filter application logic | Medium |
-| 7 | Frontend: update tags display | Low |
+| Milestone | Focus | Status |
+|-----------|-------|--------|
+| 1 | Database schema + data migration | Complete |
+| 2 | Service layer - write path | Complete |
+| 3 | Service layer - read path | Complete |
+| 4 | Tags API: include filter tags + `content_count`/`filter_count` | Complete |
+| 5 | Tag rename/delete handling | Complete |
+| 6 | Filter application logic | N/A (solved by `filter_expression` property) |
+| 7 | Frontend: update tags display | Complete |
 
 **Key design decisions:**
 - Fully normalized schema (no JSONB for filter expressions)

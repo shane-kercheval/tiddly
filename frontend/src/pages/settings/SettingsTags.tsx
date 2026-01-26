@@ -5,6 +5,7 @@
  */
 import { useState, useMemo, useEffect } from 'react'
 import type { ReactNode, FormEvent } from 'react'
+import axios from 'axios'
 import toast from 'react-hot-toast'
 import { useTagsStore } from '../../stores/tagsStore'
 import { LoadingSpinner, ConfirmDeleteButton } from '../../components/ui'
@@ -14,6 +15,26 @@ import type { TagSortOption } from '../../utils'
 import type { TagCount } from '../../types'
 
 const ITEMS_PER_PAGE = 15
+
+/**
+ * Format tag usage counts for display.
+ * Examples: "5 items", "5 items · 2 filters", "0 items · 2 filters"
+ */
+function formatTagUsage(tag: TagCount): string {
+  const parts: string[] = []
+  parts.push(`${tag.content_count} ${tag.content_count === 1 ? 'item' : 'items'}`)
+  if (tag.filter_count > 0) {
+    parts.push(`${tag.filter_count} ${tag.filter_count === 1 ? 'filter' : 'filters'}`)
+  }
+  return parts.join(' · ')
+}
+
+/**
+ * Check if a tag is actively used (in content or filters).
+ */
+function isActiveTag(tag: TagCount): boolean {
+  return tag.content_count > 0 || tag.filter_count > 0
+}
 
 interface EditingState {
   tagName: string
@@ -127,7 +148,7 @@ function TagRow({
           )}
         </td>
         {showCount && (
-          <td className="py-3 pr-4 text-center text-sm text-gray-500">{tag.count}</td>
+          <td className="py-3 pr-4 text-center text-sm text-gray-500">{formatTagUsage(tag)}</td>
         )}
         <td className="py-3 pr-4 text-right">
           <div className="flex items-center justify-end gap-2">
@@ -159,7 +180,7 @@ function TagRow({
         </span>
       </td>
       {showCount && (
-        <td className="py-3 pr-4 text-center text-sm text-gray-500">{tag.count}</td>
+        <td className="py-3 pr-4 text-center text-sm text-gray-500">{formatTagUsage(tag)}</td>
       )}
       <td className="py-3 pr-4 text-right">
         <div className="flex items-center justify-end gap-1">
@@ -262,19 +283,41 @@ export function SettingsTags(): ReactNode {
   const handleDelete = async (tagName: string): Promise<void> => {
     try {
       await deleteTag(tagName)
-    } catch {
+    } catch (err) {
+      // Check for 409 Conflict - tag is used in filters
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        // Backend returns: { detail: { message: "...", filters: [{id, name}, ...] } }
+        const filters = err.response.data?.detail?.filters as
+          | Array<{ id: string; name: string }>
+          | undefined
+        if (filters?.length) {
+          const filterList = filters.map((f) => f.name).join(', ')
+          toast.error(
+            `Cannot delete tag "${tagName}". It is used in these filters: ${filterList}. Remove the tag from these filters first.`,
+            { duration: 6000 },
+          )
+          return
+        }
+        toast.error(
+          `Cannot delete tag "${tagName}". It is used in one or more filters. Remove the tag from filters first.`,
+          { duration: 5000 },
+        )
+        return
+      }
       toast.error('Failed to delete tag')
     }
   }
 
   // Separate, sort, and paginate tags
+  // Active: used in content or filters (content_count > 0 || filter_count > 0)
+  // Inactive: not used anywhere (content_count === 0 && filter_count === 0)
   const activeTags = useMemo(() => {
-    const filtered = tags.filter((tag) => tag.count > 0)
+    const filtered = tags.filter(isActiveTag)
     return sortTags(filtered, sortOption)
   }, [tags, sortOption])
 
   const unusedTags = useMemo(() => {
-    const filtered = tags.filter((tag) => tag.count === 0)
+    const filtered = tags.filter((tag) => !isActiveTag(tag))
     return sortTags(filtered, sortOption)
   }, [tags, sortOption])
 
@@ -338,7 +381,7 @@ export function SettingsTags(): ReactNode {
                         Tag
                       </th>
                       <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Items
+                        Usage
                       </th>
                       <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
                         Actions

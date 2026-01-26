@@ -458,10 +458,10 @@ describe('getFirstGroupTags', () => {
 
 describe('sortTags', () => {
   const tags: TagCount[] = [
-    { name: 'react', count: 5 },
-    { name: 'angular', count: 3 },
-    { name: 'vue', count: 5 },
-    { name: 'svelte', count: 1 },
+    { name: 'react', content_count: 5, filter_count: 0 },
+    { name: 'angular', content_count: 3, filter_count: 1 },
+    { name: 'vue', content_count: 5, filter_count: 2 },
+    { name: 'svelte', content_count: 1, filter_count: 0 },
   ]
 
   it('should sort by name ascending', () => {
@@ -474,13 +474,13 @@ describe('sortTags', () => {
     expect(sorted.map((t) => t.name)).toEqual(['vue', 'svelte', 'react', 'angular'])
   })
 
-  it('should sort by count ascending with name as tiebreaker', () => {
+  it('should sort by content_count ascending with name as tiebreaker', () => {
     const sorted = sortTags(tags, 'count-asc')
     // svelte (1), angular (3), react (5), vue (5) - react before vue alphabetically
     expect(sorted.map((t) => t.name)).toEqual(['svelte', 'angular', 'react', 'vue'])
   })
 
-  it('should sort by count descending with name as tiebreaker', () => {
+  it('should sort by content_count descending with name as tiebreaker', () => {
     const sorted = sortTags(tags, 'count-desc')
     // react (5), vue (5), angular (3), svelte (1) - react before vue alphabetically
     expect(sorted.map((t) => t.name)).toEqual(['react', 'vue', 'angular', 'svelte'])

@@ -277,7 +277,7 @@ import type { ContentFilter, TagCount } from './types'
 export type TagSortOption = 'name-asc' | 'name-desc' | 'count-asc' | 'count-desc'
 
 /**
- * Sort tags by name or count.
+ * Sort tags by name or content count.
  * @param tags - Array of tags to sort
  * @param sortOption - Sort option (name-asc, name-desc, count-asc, count-desc)
  * @returns Sorted copy of tags array
@@ -290,9 +290,9 @@ export function sortTags(tags: TagCount[], sortOption: TagSortOption): TagCount[
       case 'name-desc':
         return b.name.localeCompare(a.name)
       case 'count-asc':
-        return a.count - b.count || a.name.localeCompare(b.name)
+        return a.content_count - b.content_count || a.name.localeCompare(b.name)
       case 'count-desc':
-        return b.count - a.count || a.name.localeCompare(b.name)
+        return b.content_count - a.content_count || a.name.localeCompare(b.name)
     }
   })
 }
