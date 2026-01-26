@@ -539,17 +539,33 @@ async def get_filters(db: AsyncSession, user_id: UUID) -> list[ContentFilter]:
 ## Milestone 4: Update Tags API to Include Filter Tags
 
 ### Goal
-Modify `/tags/` endpoint to include tags that are used in filters, even with count=0.
+Modify `/tags/` endpoint to:
+1. Include tags that are used in filters
+2. Change response format from `count` to `content_count` + `filter_count`
 
 ### Success Criteria
 - Tags used only in filters appear in `/tags/` response
-- Tags used only in filters have `count: 0`
-- Tags used in both filters and content have correct content count
+- Tags used only in filters have `content_count: 0`, `filter_count: N`
+- Tags used in both filters and content have correct counts for each
 - No duplicate tags in response
+- Response format changed from `{"name": "...", "count": N}` to `{"name": "...", "content_count": N, "filter_count": M}`
 
 ### Key Changes
 
-**1. Update `get_user_tags_with_counts` in `tag_service.py`:**
+**Note:** This is a **breaking API change**. The frontend must be updated to use `content_count` instead of `count`.
+
+**1. Update `TagCount` schema (`schemas/tag.py`):**
+
+```python
+class TagCount(BaseModel):
+    """Schema for a tag with its usage counts."""
+
+    name: str
+    content_count: int  # Count of bookmarks + notes + prompts
+    filter_count: int   # Count of filters using this tag
+```
+
+**2. Update `get_user_tags_with_counts` in `tag_service.py`:**
 
 ```python
 async def get_user_tags_with_counts(
@@ -557,51 +573,72 @@ async def get_user_tags_with_counts(
     user_id: UUID,
     include_inactive: bool = False,
 ) -> list[TagCount]:
-    # Subquery: tags used in filters (via filter_group_tags)
-    filter_tag_subq = (
-        select(filter_group_tags.c.tag_id)
+    # ... existing count subqueries for bookmarks, notes, prompts ...
+    # Rename to content_count
+    content_count = (
+        func.coalesce(bookmark_count_subq, 0)
+        + func.coalesce(note_count_subq, 0)
+        + func.coalesce(prompt_count_subq, 0)
+    ).label("content_count")
+
+    # Subquery: count of filters using this tag
+    filter_count_subq = (
+        select(func.count(func.distinct(ContentFilter.id)))
+        .select_from(filter_group_tags)
         .join(FilterGroup, filter_group_tags.c.group_id == FilterGroup.id)
         .join(ContentFilter, FilterGroup.filter_id == ContentFilter.id)
-        .where(ContentFilter.user_id == user_id)
-        .distinct()
-    ).subquery()
-
-    in_filter_subq = (
-        select(literal(1))
-        .select_from(filter_tag_subq)
-        .where(filter_tag_subq.c.tag_id == Tag.id)
-        .exists()
+        .where(
+            filter_group_tags.c.tag_id == Tag.id,
+            ContentFilter.user_id == user_id,
+        )
+        .correlate(Tag)
+        .scalar_subquery()
     )
-
-    # ... existing count subqueries for bookmarks, notes, prompts ...
+    filter_count = func.coalesce(filter_count_subq, 0).label("filter_count")
 
     query = (
-        select(Tag.name, total_count)
+        select(Tag.name, content_count, filter_count)
         .where(Tag.user_id == user_id)
         .group_by(Tag.id, Tag.name)
-        .order_by(total_count.desc(), Tag.name.asc())
+        .order_by(content_count.desc(), Tag.name.asc())  # Sort by content_count
     )
 
     if not include_inactive:
-        # Include tags with count > 0 OR tags used in filters
-        query = query.having((total_count > 0) | in_filter_subq)
+        # Include tags with content_count > 0 OR filter_count > 0
+        query = query.having((content_count > 0) | (filter_count > 0))
 
     result = await db.execute(query)
-    return [TagCount(name=row.name, count=row.count) for row in result]
+    return [
+        TagCount(name=row.name, content_count=row.content_count, filter_count=row.filter_count)
+        for row in result
+    ]
 ```
+
+**3. Update frontend to use new field names:**
+
+In the Tags settings page and anywhere else that consumes `/tags/`:
+- Change `tag.count` → `tag.content_count`
+- Optionally display `tag.filter_count` (e.g., "5 items, 2 filters")
 
 ### Testing Strategy
 
 **API-level tests (`test_tags.py`):**
+- `test__list_tags__response_format_has_content_and_filter_counts` - Response has both count fields
 - `test__list_tags__includes_tags_from_filters` - Filter-only tags appear
-- `test__list_tags__filter_tags_have_zero_count` - Count is 0 for filter-only tags
-- `test__list_tags__tag_in_filter_and_content_has_content_count` - No double counting
-- `test__list_tags__filter_deleted_removes_tag_from_list` - Tag disappears when filter deleted (if not used elsewhere)
+- `test__list_tags__filter_only_tag_has_zero_content_count` - `content_count: 0`, `filter_count: N`
+- `test__list_tags__content_only_tag_has_zero_filter_count` - `content_count: N`, `filter_count: 0`
+- `test__list_tags__tag_in_filter_and_content_has_both_counts` - Both counts correct
+- `test__list_tags__filter_deleted_updates_filter_count` - `filter_count` decreases when filter deleted
+- `test__list_tags__tag_in_multiple_filters_counted_correctly` - Tag in 3 filters has `filter_count: 3`
+
+**Update existing tests:**
+All existing tests in `test_tags.py` that check `count` must be updated to check `content_count` instead.
 
 ### Dependencies
 - Milestone 3 complete
 
 ### Risk Factors
+- **Breaking API change** - Frontend must be updated simultaneously to use `content_count` instead of `count`
 - Query performance with additional subquery - benchmark if needed
 
 ---
@@ -831,14 +868,15 @@ if resolved.filter_groups:
 | 1 | Database schema + data migration | Medium |
 | 2 | Service layer - write path | Medium |
 | 3 | Service layer - read path | Medium |
-| 4 | Tags API includes filter tags | Low |
+| 4 | Tags API: include filter tags + `content_count`/`filter_count` | Low |
 | 5 | Tag rename/delete handling | Low |
 | 6 | Filter application logic | Medium |
 
 **Key design decisions:**
 - Fully normalized schema (no JSONB for filter expressions)
 - Single source of truth - tags referenced by FK, not name strings
-- API contract unchanged - normalization/denormalization in service layer
+- Filter API contract unchanged - normalization/denormalization in service layer
+- Tags API response format changed: `count` → `content_count` + `filter_count` (breaking change)
 - Tag renames cascade automatically via FK relationships
 - Tag deletes blocked if used in filters (409 Conflict) - user must remove from filters first
 
