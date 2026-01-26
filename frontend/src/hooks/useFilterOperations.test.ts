@@ -8,6 +8,7 @@ import { renderHook, act } from '@testing-library/react'
 import { useFilterOperations } from './useFilterOperations'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFiltersStore } from '../stores/filtersStore'
+import { useTagsStore } from '../stores/tagsStore'
 import * as invalidateModule from '../utils/invalidateFilterQueries'
 import type { SidebarOrderComputed, ContentFilter } from '../types'
 
@@ -18,6 +19,10 @@ vi.mock('../stores/settingsStore', () => ({
 
 vi.mock('../stores/filtersStore', () => ({
   useFiltersStore: vi.fn(),
+}))
+
+vi.mock('../stores/tagsStore', () => ({
+  useTagsStore: vi.fn(),
 }))
 
 // Mock queryClient
@@ -39,6 +44,7 @@ vi.mock('react-hot-toast', () => ({
 
 const mockUseSettingsStore = useSettingsStore as unknown as Mock
 const mockUseFiltersStore = useFiltersStore as unknown as Mock
+const mockUseTagsStore = useTagsStore as unknown as Mock
 
 // Sample data
 const mockFilter: ContentFilter = {
@@ -76,6 +82,7 @@ describe('useFilterOperations', () => {
   let mockStoreCreateFilter: Mock
   let mockStoreUpdateFilter: Mock
   let mockStoreDeleteFilter: Mock
+  let mockFetchTags: Mock
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -87,6 +94,7 @@ describe('useFilterOperations', () => {
     mockStoreCreateFilter = vi.fn().mockResolvedValue(mockFilter)
     mockStoreUpdateFilter = vi.fn().mockResolvedValue(mockFilter)
     mockStoreDeleteFilter = vi.fn().mockResolvedValue(undefined)
+    mockFetchTags = vi.fn().mockResolvedValue(undefined)
 
     // Setup settings store mock with selector support
     const settingsState = {
@@ -110,6 +118,14 @@ describe('useFilterOperations', () => {
         createFilter: mockStoreCreateFilter,
         updateFilter: mockStoreUpdateFilter,
         deleteFilter: mockStoreDeleteFilter,
+      }
+      return selector ? selector(state) : state
+    })
+
+    // Setup tags store mock
+    mockUseTagsStore.mockImplementation((selector: (state: unknown) => unknown) => {
+      const state = {
+        fetchTags: mockFetchTags,
       }
       return selector ? selector(state) : state
     })
@@ -170,6 +186,20 @@ describe('useFilterOperations', () => {
           })
         })
       ).rejects.toThrow('Creation failed')
+    })
+
+    it('refreshes tags after creating filter (filter may create new tags)', async () => {
+      const { result } = renderHook(() => useFilterOperations())
+
+      await act(async () => {
+        await result.current.createFilter({
+          name: 'New Filter',
+          content_types: ['bookmark'],
+          filter_expression: { groups: [{ tags: ['new-tag'], operator: 'AND' }], group_operator: 'OR' },
+        })
+      })
+
+      expect(mockFetchTags).toHaveBeenCalled()
     })
   })
 
@@ -260,6 +290,18 @@ describe('useFilterOperations', () => {
       })
 
       expect(returnedFilter).toEqual(updatedFilter)
+    })
+
+    it('refreshes tags after updating filter (filter may create new tags)', async () => {
+      const { result } = renderHook(() => useFilterOperations())
+
+      await act(async () => {
+        await result.current.updateFilter('filter-1', {
+          filter_expression: { groups: [{ tags: ['new-tag'], operator: 'AND' }], group_operator: 'OR' },
+        })
+      })
+
+      expect(mockFetchTags).toHaveBeenCalled()
     })
   })
 
