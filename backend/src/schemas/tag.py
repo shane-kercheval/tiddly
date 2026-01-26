@@ -8,10 +8,11 @@ from schemas.validators import validate_and_normalize_tag
 
 
 class TagCount(BaseModel):
-    """Schema for a tag with its usage count."""
+    """Schema for a tag with its usage counts."""
 
     name: str
-    count: int
+    content_count: int  # Count of bookmarks + notes + prompts
+    filter_count: int  # Count of filters using this tag
 
 
 class TagListResponse(BaseModel):

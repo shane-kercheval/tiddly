@@ -22,14 +22,15 @@ async def test_create_filter(client: AsyncClient) -> None:
 
     data = response.json()
     assert data["name"] == "Work Tasks"
-    assert data["filter_expression"]["groups"][0]["tags"] == ["work", "priority"]
+    # Tags are sorted alphabetically in the response
+    assert data["filter_expression"]["groups"][0]["tags"] == ["priority", "work"]
     assert "id" in data
     assert "created_at" in data
     assert "updated_at" in data
 
 
 async def test_create_filter_normalizes_tags(client: AsyncClient) -> None:
-    """Test that tags are normalized to lowercase."""
+    """Test that tags are normalized to lowercase and sorted alphabetically."""
     response = await client.post(
         "/filters/",
         json={
@@ -43,7 +44,8 @@ async def test_create_filter_normalizes_tags(client: AsyncClient) -> None:
     assert response.status_code == 201
 
     data = response.json()
-    assert data["filter_expression"]["groups"][0]["tags"] == ["work", "priority"]
+    # Tags are lowercase and sorted alphabetically
+    assert data["filter_expression"]["groups"][0]["tags"] == ["priority", "work"]
 
 
 async def test_create_filter_validates_name(client: AsyncClient) -> None:
@@ -656,3 +658,212 @@ async def test_get_filters_includes_prompt_content_types(client: AsyncClient) ->
     data = response.json()
     by_name = {item["name"]: item for item in data}
     assert set(by_name["With Prompt"]["content_types"]) == {"bookmark", "prompt"}
+
+
+# =============================================================================
+# Milestone 3: Read Path - Filter Expression Reconstruction Tests
+# =============================================================================
+
+
+async def test__get_filter__returns_filter_expression_format(client: AsyncClient) -> None:
+    """Test that get filter returns correctly reconstructed filter_expression structure."""
+    create_response = await client.post(
+        "/filters/",
+        json={
+            "name": "Read Test",
+            "filter_expression": {
+                "groups": [{"tags": ["work", "priority"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert create_response.status_code == 201
+    filter_id = create_response.json()["id"]
+
+    response = await client.get(f"/filters/{filter_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert "filter_expression" in data
+    assert "groups" in data["filter_expression"]
+    assert "group_operator" in data["filter_expression"]
+    assert data["filter_expression"]["group_operator"] == "OR"
+    assert len(data["filter_expression"]["groups"]) == 1
+    assert data["filter_expression"]["groups"][0]["operator"] == "AND"
+    # Tags should be sorted alphabetically
+    assert data["filter_expression"]["groups"][0]["tags"] == ["priority", "work"]
+
+
+async def test__get_filters__returns_filter_expression_for_all(client: AsyncClient) -> None:
+    """Test that get filters returns filter_expression for all filters."""
+    await client.post(
+        "/filters/",
+        json={
+            "name": "Filter 1",
+            "filter_expression": {
+                "groups": [{"tags": ["tag1"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    await client.post(
+        "/filters/",
+        json={
+            "name": "Filter 2",
+            "filter_expression": {
+                "groups": [{"tags": ["tag2", "tag3"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+
+    response = await client.get("/filters/")
+    assert response.status_code == 200
+
+    data = response.json()
+    by_name = {item["name"]: item for item in data}
+
+    assert "filter_expression" in by_name["Filter 1"]
+    assert by_name["Filter 1"]["filter_expression"]["groups"][0]["tags"] == ["tag1"]
+
+    assert "filter_expression" in by_name["Filter 2"]
+    # Tags sorted alphabetically
+    assert by_name["Filter 2"]["filter_expression"]["groups"][0]["tags"] == ["tag2", "tag3"]
+
+
+async def test__create_and_get_filter__roundtrip(client: AsyncClient) -> None:
+    """Test that creating and getting a filter returns matching expression."""
+    original_expression = {
+        "groups": [
+            {"tags": ["work", "high-priority"]},
+            {"tags": ["urgent"]},
+        ],
+        "group_operator": "OR",
+    }
+
+    create_response = await client.post(
+        "/filters/",
+        json={
+            "name": "Roundtrip Test",
+            "filter_expression": original_expression,
+        },
+    )
+    assert create_response.status_code == 201
+    filter_id = create_response.json()["id"]
+
+    get_response = await client.get(f"/filters/{filter_id}")
+    assert get_response.status_code == 200
+
+    data = get_response.json()
+    # Check structure matches (tags sorted alphabetically in each group)
+    assert data["filter_expression"]["group_operator"] == "OR"
+    assert len(data["filter_expression"]["groups"]) == 2
+    assert data["filter_expression"]["groups"][0]["tags"] == ["high-priority", "work"]
+    assert data["filter_expression"]["groups"][1]["tags"] == ["urgent"]
+
+
+async def test__get_filter__orders_groups_by_position(client: AsyncClient) -> None:
+    """Test that groups are returned in position order."""
+    create_response = await client.post(
+        "/filters/",
+        json={
+            "name": "Position Test",
+            "filter_expression": {
+                "groups": [
+                    {"tags": ["first"]},
+                    {"tags": ["second"]},
+                    {"tags": ["third"]},
+                ],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert create_response.status_code == 201
+    filter_id = create_response.json()["id"]
+
+    response = await client.get(f"/filters/{filter_id}")
+    assert response.status_code == 200
+
+    groups = response.json()["filter_expression"]["groups"]
+    assert len(groups) == 3
+    assert groups[0]["tags"] == ["first"]
+    assert groups[1]["tags"] == ["second"]
+    assert groups[2]["tags"] == ["third"]
+
+
+async def test__get_filter__orders_tags_alphabetically(client: AsyncClient) -> None:
+    """Test that tags within groups are sorted alphabetically."""
+    create_response = await client.post(
+        "/filters/",
+        json={
+            "name": "Tag Order Test",
+            "filter_expression": {
+                "groups": [{"tags": ["zebra", "apple", "mango", "banana"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert create_response.status_code == 201
+    filter_id = create_response.json()["id"]
+
+    response = await client.get(f"/filters/{filter_id}")
+    assert response.status_code == 200
+
+    tags = response.json()["filter_expression"]["groups"][0]["tags"]
+    assert tags == ["apple", "banana", "mango", "zebra"]
+
+
+async def test__get_filter__empty_expression(client: AsyncClient) -> None:
+    """Test that filters with no groups return empty expression correctly."""
+    create_response = await client.post(
+        "/filters/",
+        json={
+            "name": "Empty Expression",
+            "filter_expression": {
+                "groups": [],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert create_response.status_code == 201
+    filter_id = create_response.json()["id"]
+
+    response = await client.get(f"/filters/{filter_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["filter_expression"]["groups"] == []
+    assert data["filter_expression"]["group_operator"] == "OR"
+
+
+async def test__update_filter__returns_updated_expression(client: AsyncClient) -> None:
+    """Test that updating a filter returns the updated expression in response."""
+    create_response = await client.post(
+        "/filters/",
+        json={
+            "name": "Update Response Test",
+            "filter_expression": {
+                "groups": [{"tags": ["old-tag"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert create_response.status_code == 201
+    filter_id = create_response.json()["id"]
+
+    update_response = await client.patch(
+        f"/filters/{filter_id}",
+        json={
+            "filter_expression": {
+                "groups": [{"tags": ["new-tag-1", "new-tag-2"]}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert update_response.status_code == 200
+
+    # Response should contain the updated expression
+    data = update_response.json()
+    assert len(data["filter_expression"]["groups"]) == 1
+    # Tags sorted alphabetically
+    assert data["filter_expression"]["groups"][0]["tags"] == ["new-tag-1", "new-tag-2"]

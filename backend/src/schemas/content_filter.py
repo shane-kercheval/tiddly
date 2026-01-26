@@ -1,9 +1,9 @@
 """Pydantic schemas for content filter endpoints."""
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from schemas.validators import validate_and_normalize_tags
 
@@ -71,7 +71,11 @@ class ContentFilterUpdate(BaseModel):
 
 
 class ContentFilterResponse(BaseModel):
-    """Schema for content filter responses."""
+    """
+    Schema for content filter responses.
+
+    Reconstructs filter_expression from normalized groups relationship.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -83,3 +87,23 @@ class ContentFilterResponse(BaseModel):
     default_sort_ascending: bool | None
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_from_sqlalchemy(cls, data: Any) -> Any:
+        """
+        Reconstruct filter_expression from normalized groups.
+
+        Follows the established pattern from BookmarkResponse/NoteResponse.
+        Uses the model's filter_expression property which handles the __dict__
+        check internally to avoid lazy loading issues.
+        """
+        # Handle SQLAlchemy model objects
+        if hasattr(data, "__dict__"):
+            # Get all field names from the Pydantic model, excluding filter_expression
+            field_names = set(cls.model_fields.keys()) - {"filter_expression"}
+            data_dict = {key: getattr(data, key) for key in field_names if hasattr(data, key)}
+            # Use the model's property (handles eager loading check internally)
+            data_dict["filter_expression"] = data.filter_expression
+            return data_dict
+        return data

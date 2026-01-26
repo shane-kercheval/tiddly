@@ -132,18 +132,18 @@ async def test__user_delete__cascades_to_all_user_data(
     db_session.add(settings)
     await db_session.flush()
 
-    # Create content filters
+    # Create content filters (groups are stored separately, not as filter_expression)
     list1 = ContentFilter(
         user_id=user_id,
         name="Work",
         content_types=["bookmark", "note"],
-        filter_expression={"groups": [{"tags": ["python"]}], "group_operator": "OR"},
+        group_operator="OR",
     )
     list2 = ContentFilter(
         user_id=user_id,
         name="Personal",
         content_types=["bookmark"],
-        filter_expression={"groups": [{"tags": ["web"]}], "group_operator": "OR"},
+        group_operator="OR",
     )
     db_session.add_all([list1, list2])
     await db_session.flush()

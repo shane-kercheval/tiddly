@@ -1,5 +1,5 @@
 """ContentFilter model for storing custom filters with tag-based filter expressions."""
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import Boolean, ForeignKey, String
@@ -52,3 +52,37 @@ class ContentFilter(Base, UUIDv7Mixin, TimestampMixin):
         cascade="all, delete-orphan",
         order_by="FilterGroup.position",
     )
+
+    @property
+    def filter_expression(self) -> dict[str, Any]:
+        """
+        Reconstruct filter_expression dict from normalized groups.
+
+        Returns the same format as the original JSONB column for backwards
+        compatibility with existing filter application logic.
+
+        Example output:
+        {
+            "groups": [
+                {"tags": ["work", "priority"], "operator": "AND"},
+                {"tags": ["urgent"], "operator": "AND"}
+            ],
+            "group_operator": "OR"
+        }
+
+        Note: Requires groups relationship to be eagerly loaded, otherwise
+        may trigger lazy loading which doesn't work in async context.
+        """
+        # Access via __dict__ to avoid lazy loading issues in async context
+        loaded_groups = self.__dict__.get("groups")
+        if loaded_groups is None:
+            return {"groups": [], "group_operator": self.group_operator}
+
+        groups = [
+            {
+                "tags": sorted(tag.name for tag in group.tag_objects),
+                "operator": group.operator,
+            }
+            for group in sorted(loaded_groups, key=lambda g: g.position)
+        ]
+        return {"groups": groups, "group_operator": self.group_operator}

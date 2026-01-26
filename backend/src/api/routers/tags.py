@@ -25,12 +25,13 @@ async def list_tags(
     """
     Get all tags for the current user with their usage counts.
 
-    By default, returns only tags with at least one active content item.
-    Use include_inactive=true to also include tags with no active content
-    (useful for tag management).
+    Returns tags with `content_count` (active bookmarks, notes, prompts) and
+    `filter_count` (number of filters using this tag).
 
-    Results are sorted by count (most used first), then alphabetically.
-    Counts include active bookmarks, notes, and prompts (not deleted or archived).
+    By default, returns only tags with at least one active content item OR
+    used in at least one filter. Use include_inactive=true to include all tags.
+
+    Results are sorted by filter_count DESC, content_count DESC, then name ASC.
     """
     tags = await get_user_tags_with_counts(db, current_user.id, include_inactive)
     return TagListResponse(tags=tags)

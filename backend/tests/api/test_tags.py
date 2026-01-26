@@ -29,7 +29,7 @@ async def test_list_tags_single_bookmark(client: AsyncClient) -> None:
     assert tag_names == {"python", "web"}
     # Each tag has count of 1
     for tag in data["tags"]:
-        assert tag["count"] == 1
+        assert tag["content_count"] == 1
 
 
 async def test_list_tags_multiple_bookmarks(client: AsyncClient) -> None:
@@ -51,14 +51,14 @@ async def test_list_tags_multiple_bookmarks(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     data = response.json()
-    tag_counts = {tag["name"]: tag["count"] for tag in data["tags"]}
+    tag_counts = {tag["name"]: tag["content_count"] for tag in data["tags"]}
     assert tag_counts["python"] == 3
     assert tag_counts["web"] == 1
     assert tag_counts["api"] == 1
 
 
-async def test_list_tags_sorted_by_count(client: AsyncClient) -> None:
-    """Test that tags are sorted by count descending."""
+async def test_list_tags_sorted_by_content_count(client: AsyncClient) -> None:
+    """Test that tags are sorted by content_count descending."""
     await client.post(
         "/bookmarks/",
         json={"url": "https://ex1.com", "tags": ["rare"]},
@@ -82,13 +82,13 @@ async def test_list_tags_sorted_by_count(client: AsyncClient) -> None:
     data = response.json()
     tags = data["tags"]
 
-    # Should be sorted by count descending
+    # Should be sorted by content_count descending (all have filter_count=0)
     assert tags[0]["name"] == "common"
-    assert tags[0]["count"] == 3
+    assert tags[0]["content_count"] == 3
     assert tags[1]["name"] == "medium"
-    assert tags[1]["count"] == 2
+    assert tags[1]["content_count"] == 2
     assert tags[2]["name"] == "rare"
-    assert tags[2]["count"] == 1
+    assert tags[2]["content_count"] == 1
 
 
 async def test_list_tags_alphabetical_tiebreak(client: AsyncClient) -> None:
@@ -110,7 +110,7 @@ async def test_list_tags_alphabetical_tiebreak(client: AsyncClient) -> None:
 
 
 async def test_list_tags_response_format(client: AsyncClient) -> None:
-    """Test that tags response has correct format."""
+    """Test that tags response has correct format with content_count and filter_count."""
     await client.post(
         "/bookmarks/",
         json={"url": "https://example.com", "tags": ["test"]},
@@ -124,9 +124,11 @@ async def test_list_tags_response_format(client: AsyncClient) -> None:
     assert isinstance(data["tags"], list)
     assert len(data["tags"]) == 1
     assert "name" in data["tags"][0]
-    assert "count" in data["tags"][0]
+    assert "content_count" in data["tags"][0]
+    assert "filter_count" in data["tags"][0]
     assert data["tags"][0]["name"] == "test"
-    assert data["tags"][0]["count"] == 1
+    assert data["tags"][0]["content_count"] == 1
+    assert data["tags"][0]["filter_count"] == 0
 
 
 async def test_list_tags_bookmark_without_tags(client: AsyncClient) -> None:
@@ -146,7 +148,7 @@ async def test_list_tags_bookmark_without_tags(client: AsyncClient) -> None:
     data = response.json()
     assert len(data["tags"]) == 1
     assert data["tags"][0]["name"] == "python"
-    assert data["tags"][0]["count"] == 1
+    assert data["tags"][0]["content_count"] == 1
 
 
 async def test_list_tags_excludes_archived_and_deleted_bookmarks(client: AsyncClient) -> None:
@@ -179,7 +181,7 @@ async def test_list_tags_excludes_archived_and_deleted_bookmarks(client: AsyncCl
     assert response.status_code == 200
 
     data = response.json()
-    tag_counts = {tag["name"]: tag["count"] for tag in data["tags"]}
+    tag_counts = {tag["name"]: tag["content_count"] for tag in data["tags"]}
 
     # Active bookmark's tags should have count of 1
     assert "active-tag" in tag_counts
@@ -225,7 +227,7 @@ async def test_list_tags_include_inactive_shows_all_tags(client: AsyncClient) ->
     assert response.status_code == 200
 
     data = response.json()
-    tag_counts = {tag["name"]: tag["count"] for tag in data["tags"]}
+    tag_counts = {tag["name"]: tag["content_count"] for tag in data["tags"]}
 
     # All tags should be present
     assert len(tag_counts) == 4
@@ -293,7 +295,7 @@ async def test_list_tags_include_inactive_with_mixed_content_types(client: Async
     # With include_inactive: all three tags
     response_with_inactive = await client.get("/tags/?include_inactive=true")
     assert response_with_inactive.status_code == 200
-    tag_counts = {t["name"]: t["count"] for t in response_with_inactive.json()["tags"]}
+    tag_counts = {t["name"]: t["content_count"] for t in response_with_inactive.json()["tags"]}
     assert len(tag_counts) == 3
     assert tag_counts["bookmark-tag"] == 1
     assert tag_counts["note-tag"] == 0
@@ -437,3 +439,261 @@ async def test_delete_tag_removes_from_bookmarks(client: AsyncClient) -> None:
     assert "shared" not in tag_names
     assert "unique-1" in tag_names
     assert "unique-2" in tag_names
+
+
+# ============================================================================
+# Filter count tests
+# ============================================================================
+
+
+async def test__list_tags__includes_tags_from_filters(client: AsyncClient) -> None:
+    """Test that tags used only in filters appear in the tag list."""
+    # Create a filter with a tag that is not used in any content
+    response = await client.post(
+        "/filters/",
+        json={
+            "name": "Work Filter",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["filter-only-tag"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+
+    # Get tags - should include the filter-only tag
+    tags_response = await client.get("/tags/")
+    assert tags_response.status_code == 200
+
+    tags = tags_response.json()["tags"]
+    tag_names = [t["name"] for t in tags]
+    assert "filter-only-tag" in tag_names
+
+
+async def test__list_tags__filter_only_tag_has_zero_content_count(
+    client: AsyncClient,
+) -> None:
+    """Test that tags used only in filters have content_count: 0, filter_count: N."""
+    # Create a filter with a tag
+    response = await client.post(
+        "/filters/",
+        json={
+            "name": "Work Filter",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["filter-only"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+
+    # Get tags
+    tags_response = await client.get("/tags/")
+    tags_dict = {t["name"]: t for t in tags_response.json()["tags"]}
+
+    assert "filter-only" in tags_dict
+    assert tags_dict["filter-only"]["content_count"] == 0
+    assert tags_dict["filter-only"]["filter_count"] == 1
+
+
+async def test__list_tags__content_only_tag_has_zero_filter_count(
+    client: AsyncClient,
+) -> None:
+    """Test that tags used only in content have content_count: N, filter_count: 0."""
+    # Create a bookmark with a tag
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["content-only"]},
+    )
+
+    # Get tags
+    tags_response = await client.get("/tags/")
+    tags_dict = {t["name"]: t for t in tags_response.json()["tags"]}
+
+    assert "content-only" in tags_dict
+    assert tags_dict["content-only"]["content_count"] == 1
+    assert tags_dict["content-only"]["filter_count"] == 0
+
+
+async def test__list_tags__tag_in_filter_and_content_has_both_counts(
+    client: AsyncClient,
+) -> None:
+    """Test that tags used in both filters and content have correct counts."""
+    # Create a bookmark with a tag
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["shared-tag"]},
+    )
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example2.com", "tags": ["shared-tag"]},
+    )
+
+    # Create a filter with the same tag
+    response = await client.post(
+        "/filters/",
+        json={
+            "name": "Shared Filter",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["shared-tag"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+
+    # Get tags
+    tags_response = await client.get("/tags/")
+    tags_dict = {t["name"]: t for t in tags_response.json()["tags"]}
+
+    assert "shared-tag" in tags_dict
+    assert tags_dict["shared-tag"]["content_count"] == 2
+    assert tags_dict["shared-tag"]["filter_count"] == 1
+
+
+async def test__list_tags__filter_deleted_updates_filter_count(
+    client: AsyncClient,
+) -> None:
+    """Test that filter_count decreases when a filter is deleted."""
+    # Create a filter with a tag
+    response = await client.post(
+        "/filters/",
+        json={
+            "name": "Work Filter",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["filter-tag"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    assert response.status_code == 201
+    filter_id = response.json()["id"]
+
+    # Verify filter_count is 1
+    tags_response = await client.get("/tags/")
+    tags_dict = {t["name"]: t for t in tags_response.json()["tags"]}
+    assert tags_dict["filter-tag"]["filter_count"] == 1
+
+    # Delete the filter
+    delete_response = await client.delete(f"/filters/{filter_id}")
+    assert delete_response.status_code == 204
+
+    # Get tags - tag should no longer appear (no content and no filters)
+    tags_response = await client.get("/tags/")
+    tag_names = [t["name"] for t in tags_response.json()["tags"]]
+    assert "filter-tag" not in tag_names
+
+
+async def test__list_tags__tag_in_multiple_filters_counted_correctly(
+    client: AsyncClient,
+) -> None:
+    """Test that a tag in 3 filters has filter_count: 3."""
+    # Create 3 filters with the same tag
+    for i in range(3):
+        response = await client.post(
+            "/filters/",
+            json={
+                "name": f"Filter {i}",
+                "content_types": ["bookmark"],
+                "filter_expression": {
+                    "groups": [{"tags": ["multi-filter-tag"], "operator": "AND"}],
+                    "group_operator": "OR",
+                },
+            },
+        )
+        assert response.status_code == 201
+
+    # Get tags
+    tags_response = await client.get("/tags/")
+    tags_dict = {t["name"]: t for t in tags_response.json()["tags"]}
+
+    assert "multi-filter-tag" in tags_dict
+    assert tags_dict["multi-filter-tag"]["filter_count"] == 3
+    assert tags_dict["multi-filter-tag"]["content_count"] == 0
+
+
+async def test__list_tags__sorted_by_filter_count_then_content_count(
+    client: AsyncClient,
+) -> None:
+    """Test sorting: filter_count DESC, then content_count DESC, then name ASC."""
+    # Create tags with different combinations of counts:
+    # - "high-filter": filter_count=2, content_count=0
+    # - "low-filter-high-content": filter_count=1, content_count=3
+    # - "no-filter-high-content": filter_count=0, content_count=5
+    # - "no-filter-low-content": filter_count=0, content_count=1
+    # - "alpha-tag": filter_count=0, content_count=1 (same as above, but alphabetically first)
+
+    # Create 2 filters with "high-filter"
+    for i in range(2):
+        await client.post(
+            "/filters/",
+            json={
+                "name": f"Filter HF {i}",
+                "content_types": ["bookmark"],
+                "filter_expression": {
+                    "groups": [{"tags": ["high-filter"], "operator": "AND"}],
+                    "group_operator": "OR",
+                },
+            },
+        )
+
+    # Create 1 filter with "low-filter-high-content" and 3 bookmarks
+    await client.post(
+        "/filters/",
+        json={
+            "name": "Filter LF",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["low-filter-high-content"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+    for i in range(3):
+        await client.post(
+            "/bookmarks/",
+            json={"url": f"https://lf{i}.com", "tags": ["low-filter-high-content"]},
+        )
+
+    # Create 5 bookmarks with "no-filter-high-content"
+    for i in range(5):
+        await client.post(
+            "/bookmarks/",
+            json={"url": f"https://nfhc{i}.com", "tags": ["no-filter-high-content"]},
+        )
+
+    # Create 1 bookmark with "no-filter-low-content"
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://nflc.com", "tags": ["no-filter-low-content"]},
+    )
+
+    # Create 1 bookmark with "alpha-tag" (alphabetically before "no-filter-low-content")
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://alpha.com", "tags": ["alpha-tag"]},
+    )
+
+    # Get tags
+    tags_response = await client.get("/tags/")
+    tags = tags_response.json()["tags"]
+    tag_order = [t["name"] for t in tags]
+
+    # Expected order:
+    # 1. high-filter (filter_count=2)
+    # 2. low-filter-high-content (filter_count=1)
+    # 3. no-filter-high-content (filter_count=0, content_count=5)
+    # 4. low-filter-high-content already listed above
+    # 5. alpha-tag (filter_count=0, content_count=1, alphabetically before no-filter-low-content)
+    # 6. no-filter-low-content (filter_count=0, content_count=1)
+
+    assert tag_order[0] == "high-filter"
+    assert tag_order[1] == "low-filter-high-content"
+    assert tag_order[2] == "no-filter-high-content"
+    # Last two should be alphabetically sorted since both have filter_count=0, content_count=1
+    assert tag_order[3] == "alpha-tag"
+    assert tag_order[4] == "no-filter-low-content"
