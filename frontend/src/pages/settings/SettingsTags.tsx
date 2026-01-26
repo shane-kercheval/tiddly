@@ -8,6 +8,10 @@ import type { ReactNode, FormEvent } from 'react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { useTagsStore } from '../../stores/tagsStore'
+import { useFiltersStore } from '../../stores/filtersStore'
+import { useTagFilterStore } from '../../stores/tagFilterStore'
+import { queryClient } from '../../queryClient'
+import { contentKeys } from '../../hooks/useContentQuery'
 import { LoadingSpinner, ConfirmDeleteButton } from '../../components/ui'
 import { EditIcon } from '../../components/icons'
 import { validateTag, normalizeTag, sortTags } from '../../utils'
@@ -207,6 +211,9 @@ function TagRow({
  */
 export function SettingsTags(): ReactNode {
   const { tags, isLoading, renameTag, deleteTag, fetchTags } = useTagsStore()
+  const fetchFilters = useFiltersStore((state) => state.fetchFilters)
+  const renameTagInFilter = useTagFilterStore((state) => state.renameTag)
+  const removeTagFromFilter = useTagFilterStore((state) => state.removeTag)
   const [editingState, setEditingState] = useState<EditingState | null>(null)
   const [sortOption, setSortOption] = useState<TagSortOption>('name-asc')
   const [activeTagsPage, setActiveTagsPage] = useState(1)
@@ -268,7 +275,12 @@ export function SettingsTags(): ReactNode {
     }
 
     try {
+      // API call must succeed before updating caches to avoid stale/inconsistent state
       await renameTag(editingState.tagName, normalized)
+      // Update related caches
+      await fetchFilters() // Filters may contain the renamed tag
+      renameTagInFilter(editingState.tagName, normalized) // Update selected tag filter
+      await queryClient.invalidateQueries({ queryKey: contentKeys.lists() }) // Refresh content lists
       setEditingState(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to rename tag'
@@ -283,6 +295,9 @@ export function SettingsTags(): ReactNode {
   const handleDelete = async (tagName: string): Promise<void> => {
     try {
       await deleteTag(tagName)
+      // Update related caches
+      removeTagFromFilter(tagName) // Remove from selected tag filter if present
+      await queryClient.invalidateQueries({ queryKey: contentKeys.lists() }) // Refresh content lists
     } catch (err) {
       // Check for 409 Conflict - tag is used in filters
       if (axios.isAxiosError(err) && err.response?.status === 409) {
