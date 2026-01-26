@@ -1,20 +1,20 @@
-# Tiddly
+# [Tiddly](https://tiddly.me/)
 
-A bookmark and notes management system with tagging and search capabilities.
+Notes, Bookmarks, and Prompt management system; + Remote MCP Servers.
 
 ## Features
 
 - **Bookmarks & Notes** - Manage both bookmarks and markdown notes in one place
 - **Prompts** - Jinja2 templates with arguments, exposed via MCP for AI assistants
-- **Tag-based organization** - Filter content by tags with AND/OR matching
+- **MCP Servers** - AI agent access via Model Context Protocol (Claude, etc.)
 - **Custom lists** - Create filtered views based on tag expressions
+- **Tag-based organization** - Filter content by tags with AND/OR matching
 - **URL metadata extraction** - Auto-fetch title, description, and page content from URLs
 - **Full-text search** - Search across title, description, URL, and content
-- **Soft delete & restore** - Delete content without permanent loss
-- **Archive** - Hide content without deleting them
 - **Keyboard shortcuts** - Quick actions for power users
+- **Archive** - Hide content without deleting them
+- **Soft delete & restore** - Delete content without permanent loss
 - **Personal Access Tokens** - Programmatic API access for CLI tools and scripts
-- **MCP Servers** - AI agent access via Model Context Protocol (Claude, etc.)
 
 ## Project Structure
 
