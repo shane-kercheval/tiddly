@@ -54,17 +54,22 @@ def validate_and_normalize_tags(tags: list[str]) -> list[str]:
         tags: List of tag strings to validate.
 
     Returns:
-        List of normalized tags (lowercase, trimmed), with empty strings filtered out.
+        List of normalized tags (lowercase, trimmed), with empty strings filtered out
+        and duplicates removed (preserving first occurrence order).
 
     Raises:
         ValueError: If any tag has invalid format.
     """
     normalized = []
+    seen: set[str] = set()
     for tag in tags:
         trimmed = tag.lower().strip()
         if not trimmed:
             continue  # Skip empty tags silently
-        normalized.append(validate_and_normalize_tag(trimmed))
+        validated = validate_and_normalize_tag(trimmed)
+        if validated not in seen:
+            seen.add(validated)
+            normalized.append(validated)
     return normalized
 
 

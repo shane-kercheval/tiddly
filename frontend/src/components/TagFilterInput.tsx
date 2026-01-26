@@ -145,7 +145,7 @@ export function TagFilterInput({
               }`}
             >
               <span>{suggestion.name}</span>
-              <span className="text-xs text-gray-400">{suggestion.count}</span>
+              <span className="text-xs text-gray-400">{suggestion.content_count}</span>
             </button>
           ))}
         </div>

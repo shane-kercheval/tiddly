@@ -8,10 +8,10 @@ import type { TagCount } from '../types'
 
 describe('useTagAutocomplete', () => {
   const mockSuggestions: TagCount[] = [
-    { name: 'react', count: 5 },
-    { name: 'typescript', count: 3 },
-    { name: 'javascript', count: 7 },
-    { name: 'testing', count: 2 },
+    { name: 'react', content_count: 5, filter_count: 0 },
+    { name: 'typescript', content_count: 3, filter_count: 0 },
+    { name: 'javascript', content_count: 7, filter_count: 0 },
+    { name: 'testing', content_count: 2, filter_count: 0 },
   ]
 
   let mockOnChange: ReturnType<typeof vi.fn>

@@ -5,8 +5,13 @@
  */
 import { useState, useMemo, useEffect } from 'react'
 import type { ReactNode, FormEvent } from 'react'
+import axios from 'axios'
 import toast from 'react-hot-toast'
 import { useTagsStore } from '../../stores/tagsStore'
+import { useFiltersStore } from '../../stores/filtersStore'
+import { useTagFilterStore } from '../../stores/tagFilterStore'
+import { queryClient } from '../../queryClient'
+import { contentKeys } from '../../hooks/useContentQuery'
 import { LoadingSpinner, ConfirmDeleteButton } from '../../components/ui'
 import { EditIcon } from '../../components/icons'
 import { validateTag, normalizeTag, sortTags } from '../../utils'
@@ -14,6 +19,26 @@ import type { TagSortOption } from '../../utils'
 import type { TagCount } from '../../types'
 
 const ITEMS_PER_PAGE = 15
+
+/**
+ * Format tag usage counts for display.
+ * Examples: "5 items", "5 items · 2 filters", "0 items · 2 filters"
+ */
+function formatTagUsage(tag: TagCount): string {
+  const parts: string[] = []
+  parts.push(`${tag.content_count} ${tag.content_count === 1 ? 'item' : 'items'}`)
+  if (tag.filter_count > 0) {
+    parts.push(`${tag.filter_count} ${tag.filter_count === 1 ? 'filter' : 'filters'}`)
+  }
+  return parts.join(' · ')
+}
+
+/**
+ * Check if a tag is actively used (in content or filters).
+ */
+function isActiveTag(tag: TagCount): boolean {
+  return tag.content_count > 0 || tag.filter_count > 0
+}
 
 interface EditingState {
   tagName: string
@@ -127,7 +152,7 @@ function TagRow({
           )}
         </td>
         {showCount && (
-          <td className="py-3 pr-4 text-center text-sm text-gray-500">{tag.count}</td>
+          <td className="py-3 pr-4 text-center text-sm text-gray-500">{formatTagUsage(tag)}</td>
         )}
         <td className="py-3 pr-4 text-right">
           <div className="flex items-center justify-end gap-2">
@@ -159,7 +184,7 @@ function TagRow({
         </span>
       </td>
       {showCount && (
-        <td className="py-3 pr-4 text-center text-sm text-gray-500">{tag.count}</td>
+        <td className="py-3 pr-4 text-center text-sm text-gray-500">{formatTagUsage(tag)}</td>
       )}
       <td className="py-3 pr-4 text-right">
         <div className="flex items-center justify-end gap-1">
@@ -186,6 +211,9 @@ function TagRow({
  */
 export function SettingsTags(): ReactNode {
   const { tags, isLoading, renameTag, deleteTag, fetchTags } = useTagsStore()
+  const fetchFilters = useFiltersStore((state) => state.fetchFilters)
+  const renameTagInFilter = useTagFilterStore((state) => state.renameTag)
+  const removeTagFromFilter = useTagFilterStore((state) => state.removeTag)
   const [editingState, setEditingState] = useState<EditingState | null>(null)
   const [sortOption, setSortOption] = useState<TagSortOption>('name-asc')
   const [activeTagsPage, setActiveTagsPage] = useState(1)
@@ -247,7 +275,12 @@ export function SettingsTags(): ReactNode {
     }
 
     try {
+      // API call must succeed before updating caches to avoid stale/inconsistent state
       await renameTag(editingState.tagName, normalized)
+      // Update related caches
+      await fetchFilters() // Filters may contain the renamed tag
+      renameTagInFilter(editingState.tagName, normalized) // Update selected tag filter
+      await queryClient.invalidateQueries({ queryKey: contentKeys.lists() }) // Refresh content lists
       setEditingState(null)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to rename tag'
@@ -262,19 +295,44 @@ export function SettingsTags(): ReactNode {
   const handleDelete = async (tagName: string): Promise<void> => {
     try {
       await deleteTag(tagName)
-    } catch {
+      // Update related caches
+      removeTagFromFilter(tagName) // Remove from selected tag filter if present
+      await queryClient.invalidateQueries({ queryKey: contentKeys.lists() }) // Refresh content lists
+    } catch (err) {
+      // Check for 409 Conflict - tag is used in filters
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
+        // Backend returns: { detail: { message: "...", filters: [{id, name}, ...] } }
+        const filters = err.response.data?.detail?.filters as
+          | Array<{ id: string; name: string }>
+          | undefined
+        if (filters?.length) {
+          const filterList = filters.map((f) => f.name).join(', ')
+          toast.error(
+            `Cannot delete tag "${tagName}". It is used in these filters: ${filterList}. Remove the tag from these filters first.`,
+            { duration: 6000 },
+          )
+          return
+        }
+        toast.error(
+          `Cannot delete tag "${tagName}". It is used in one or more filters. Remove the tag from filters first.`,
+          { duration: 5000 },
+        )
+        return
+      }
       toast.error('Failed to delete tag')
     }
   }
 
   // Separate, sort, and paginate tags
+  // Active: used in content or filters (content_count > 0 || filter_count > 0)
+  // Inactive: not used anywhere (content_count === 0 && filter_count === 0)
   const activeTags = useMemo(() => {
-    const filtered = tags.filter((tag) => tag.count > 0)
+    const filtered = tags.filter(isActiveTag)
     return sortTags(filtered, sortOption)
   }, [tags, sortOption])
 
   const unusedTags = useMemo(() => {
-    const filtered = tags.filter((tag) => tag.count === 0)
+    const filtered = tags.filter((tag) => !isActiveTag(tag))
     return sortTags(filtered, sortOption)
   }, [tags, sortOption])
 
@@ -338,7 +396,7 @@ export function SettingsTags(): ReactNode {
                         Tag
                       </th>
                       <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Items
+                        Usage
                       </th>
                       <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
                         Actions

@@ -12,11 +12,11 @@ afterEach(async () => {
 })
 
 const mockSuggestions: TagCount[] = [
-  { name: 'react', count: 5 },
-  { name: 'typescript', count: 3 },
-  { name: 'javascript', count: 8 },
-  { name: 'frontend', count: 2 },
-  { name: 'backend', count: 4 },
+  { name: 'react', content_count: 5, filter_count: 0 },
+  { name: 'typescript', content_count: 3, filter_count: 0 },
+  { name: 'javascript', content_count: 8, filter_count: 0 },
+  { name: 'frontend', content_count: 2, filter_count: 0 },
+  { name: 'backend', content_count: 4, filter_count: 0 },
 ]
 
 function createEmptyExpression(): FilterExpression {

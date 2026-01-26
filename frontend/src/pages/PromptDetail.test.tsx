@@ -88,7 +88,10 @@ vi.mock('../hooks/usePromptMutations', () => ({
 
 vi.mock('../stores/tagsStore', () => ({
   useTagsStore: () => ({
-    tags: [{ name: 'code', count: 5 }, { name: 'review', count: 3 }],
+    tags: [
+      { name: 'code', content_count: 5, filter_count: 0 },
+      { name: 'review', content_count: 3, filter_count: 0 },
+    ],
   }),
 }))
 

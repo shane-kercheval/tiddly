@@ -98,9 +98,9 @@ const mockArchivedPrompt: PromptType = {
 }
 
 const mockTagSuggestions: TagCount[] = [
-  { name: 'test', count: 5 },
-  { name: 'example', count: 3 },
-  { name: 'javascript', count: 10 },
+  { name: 'test', content_count: 5, filter_count: 0 },
+  { name: 'example', content_count: 3, filter_count: 0 },
+  { name: 'javascript', content_count: 10, filter_count: 0 },
 ]
 
 // Run shared content component tests

@@ -153,7 +153,7 @@ async def test__get_user_tags_with_counts__counts_only_active_bookmarks(
     # Get counts
     counts = await get_user_tags_with_counts(db_session, test_user.id)
 
-    count_dict = {c.name: c.count for c in counts}
+    count_dict = {c.name: c.content_count for c in counts}
     # shared: 1 (only active bookmark)
     assert count_dict["shared"] == 1
     # active-only: 1
@@ -187,7 +187,7 @@ async def test__get_user_tags_with_counts__includes_future_scheduled_bookmarks(
     # Get counts - future-scheduled bookmark should be counted
     counts = await get_user_tags_with_counts(db_session, test_user.id)
 
-    count_dict = {c.name: c.count for c in counts}
+    count_dict = {c.name: c.content_count for c in counts}
     assert count_dict["scheduled"] == 1  # Future-scheduled counts as active
 
 
@@ -242,7 +242,7 @@ async def test__get_user_tags_with_counts__include_inactive_shows_orphan_tags(
 
     # Verify orphan tag has count 0
     orphan_count = next(c for c in counts if c.name == "orphan-tag")
-    assert orphan_count.count == 0
+    assert orphan_count.content_count == 0
 
 
 async def test__get_user_tags_with_counts__include_inactive_shows_tags_from_deleted_content(
@@ -272,7 +272,7 @@ async def test__get_user_tags_with_counts__include_inactive_shows_tags_from_dele
     )
     assert len(counts_with_inactive) == 1
     assert counts_with_inactive[0].name == "deleted-content-tag"
-    assert counts_with_inactive[0].count == 0
+    assert counts_with_inactive[0].content_count == 0
 
 
 async def test__get_user_tags_with_counts__include_inactive_shows_tags_from_archived_content(
@@ -302,7 +302,7 @@ async def test__get_user_tags_with_counts__include_inactive_shows_tags_from_arch
     )
     assert len(counts_with_inactive) == 1
     assert counts_with_inactive[0].name == "archived-content-tag"
-    assert counts_with_inactive[0].count == 0
+    assert counts_with_inactive[0].content_count == 0
 
 
 async def test__get_user_tags_with_counts__include_inactive_mixed_active_and_inactive(
@@ -339,7 +339,7 @@ async def test__get_user_tags_with_counts__include_inactive_mixed_active_and_ina
     counts_default = await get_user_tags_with_counts(db_session, test_user.id)
     assert len(counts_default) == 1
     assert counts_default[0].name == "active-tag"
-    assert counts_default[0].count == 1
+    assert counts_default[0].content_count == 1
 
     # With include_inactive: all three tags
     counts_with_inactive = await get_user_tags_with_counts(
@@ -347,7 +347,7 @@ async def test__get_user_tags_with_counts__include_inactive_mixed_active_and_ina
     )
     assert len(counts_with_inactive) == 3
 
-    tag_counts = {c.name: c.count for c in counts_with_inactive}
+    tag_counts = {c.name: c.content_count for c in counts_with_inactive}
     assert tag_counts["active-tag"] == 1
     assert tag_counts["inactive-tag"] == 0
     assert tag_counts["orphan-tag"] == 0
@@ -380,7 +380,7 @@ async def test__get_user_tags_with_counts__sorted_by_count_then_name(
 
     # common: 3, apple: 1, zebra: 1
     assert counts[0].name == "common"
-    assert counts[0].count == 3
+    assert counts[0].content_count == 3
     # apple and zebra both have count 1, should be alphabetical
     assert counts[1].name == "apple"
     assert counts[2].name == "zebra"
@@ -414,7 +414,7 @@ async def test__get_user_tags_with_counts__includes_prompt_tags(
     # Get counts
     counts = await get_user_tags_with_counts(db_session, test_user.id)
 
-    count_dict = {c.name: c.count for c in counts}
+    count_dict = {c.name: c.content_count for c in counts}
     # shared: 2 (1 bookmark + 1 prompt)
     assert count_dict["shared"] == 2
     # prompt-only: 1 (1 prompt)
@@ -464,7 +464,7 @@ async def test__get_user_tags_with_counts__excludes_archived_and_deleted_prompts
     # Get counts - only active prompt should be counted
     counts = await get_user_tags_with_counts(db_session, test_user.id)
 
-    count_dict = {c.name: c.count for c in counts}
+    count_dict = {c.name: c.content_count for c in counts}
     # Only the active prompt should count
     assert count_dict["prompt-shared"] == 1
 
@@ -704,7 +704,7 @@ async def test__bookmark_delete__removes_from_junction_but_preserves_tag(
 
     # Verify tag exists with count 1
     counts = await get_user_tags_with_counts(db_session, test_user.id)
-    assert counts[0].count == 1
+    assert counts[0].content_count == 1
 
     # Permanently delete the bookmark
     await db_session.delete(bookmark)

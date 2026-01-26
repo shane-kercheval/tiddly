@@ -8,6 +8,7 @@ import { useCallback } from 'react'
 import toast from 'react-hot-toast'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFiltersStore } from '../stores/filtersStore'
+import { useTagsStore } from '../stores/tagsStore'
 import { queryClient } from '../queryClient'
 import { invalidateFilterQueries } from '../utils/invalidateFilterQueries'
 import { computedToMinimal } from '../components/sidebar/sidebarDndUtils'
@@ -55,6 +56,7 @@ export function useFilterOperations(): UseFilterOperationsResult {
   const storeCreateFilter = useFiltersStore((state) => state.createFilter)
   const storeUpdateFilter = useFiltersStore((state) => state.updateFilter)
   const storeDeleteFilter = useFiltersStore((state) => state.deleteFilter)
+  const fetchTags = useTagsStore((state) => state.fetchTags)
 
   const createFilter = useCallback(
     async (data: ContentFilterCreate): Promise<ContentFilter> => {
@@ -62,6 +64,9 @@ export function useFilterOperations(): UseFilterOperationsResult {
 
       // Refresh sidebar to show new filter
       await fetchSidebar()
+
+      // Refresh tags in case filter created new tags
+      await fetchTags()
 
       // Move the new filter to the top of the sidebar
       const currentSidebar = useSettingsStore.getState().sidebar
@@ -78,7 +83,7 @@ export function useFilterOperations(): UseFilterOperationsResult {
 
       return result
     },
-    [storeCreateFilter, fetchSidebar, updateSidebar]
+    [storeCreateFilter, fetchSidebar, updateSidebar, fetchTags]
   )
 
   const updateFilter = useCallback(
@@ -118,6 +123,8 @@ export function useFilterOperations(): UseFilterOperationsResult {
         const result = await storeUpdateFilter(filterId, data)
         // Invalidate queries for this filter since filter expression may have changed
         await invalidateFilterQueries(queryClient, result.id)
+        // Refresh tags in case filter created new tags
+        await fetchTags()
         return result
       } catch (error) {
         rollbackSidebar()
@@ -127,7 +134,7 @@ export function useFilterOperations(): UseFilterOperationsResult {
         throw error
       }
     },
-    [sidebar, setSidebarOptimistic, storeUpdateFilter, rollbackSidebar]
+    [sidebar, setSidebarOptimistic, storeUpdateFilter, rollbackSidebar, fetchTags]
   )
 
   const deleteFilter = useCallback(

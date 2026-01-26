@@ -1868,7 +1868,7 @@ def test__search_query__defer_excludes_content_from_select() -> None:
     - content_length and content_preview should be computed via length() and left()
 
     If this test fails, it means content is being transferred from the database,
-    defeating the performance optimization of Milestone 3.
+    defeating the performance optimization.
     """
     from sqlalchemy import func
     from sqlalchemy.dialects import postgresql

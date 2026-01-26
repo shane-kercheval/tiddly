@@ -237,7 +237,7 @@ export function getGoogleFaviconUrl(url: string): string | null {
 /**
  * Regex pattern for valid tags: lowercase alphanumeric with hyphens.
  *
- * Note: This validation is intentionally duplicated in the backend (backend/src/schemas/bookmark.py)
+ * Note: This validation is intentionally duplicated in the backend (backend/src/schemas/validators.py)
  * for security. Frontend validation provides immediate UX feedback. Keep both in sync if
  * changing the tag format rules.
  *
@@ -260,12 +260,12 @@ export function validateTag(tag: string): string | null {
 }
 
 /**
- * Normalize a tag to lowercase and trimmed.
+ * Normalize a tag to lowercase, trimmed, with underscores converted to hyphens.
  * @param tag - Tag to normalize
  * @returns Normalized tag
  */
 export function normalizeTag(tag: string): string {
-  return tag.toLowerCase().trim()
+  return tag.toLowerCase().trim().replace(/_/g, '-')
 }
 
 // ============================================================================
@@ -277,7 +277,7 @@ import type { ContentFilter, TagCount } from './types'
 export type TagSortOption = 'name-asc' | 'name-desc' | 'count-asc' | 'count-desc'
 
 /**
- * Sort tags by name or count.
+ * Sort tags by name or content count.
  * @param tags - Array of tags to sort
  * @param sortOption - Sort option (name-asc, name-desc, count-asc, count-desc)
  * @returns Sorted copy of tags array
@@ -290,9 +290,9 @@ export function sortTags(tags: TagCount[], sortOption: TagSortOption): TagCount[
       case 'name-desc':
         return b.name.localeCompare(a.name)
       case 'count-asc':
-        return a.count - b.count || a.name.localeCompare(b.name)
+        return a.content_count - b.content_count || a.name.localeCompare(b.name)
       case 'count-desc':
-        return b.count - a.count || a.name.localeCompare(b.name)
+        return b.content_count - a.content_count || a.name.localeCompare(b.name)
     }
   })
 }

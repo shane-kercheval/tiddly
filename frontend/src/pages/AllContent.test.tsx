@@ -173,7 +173,10 @@ vi.mock('../hooks/useEffectiveSort', () => ({
 
 vi.mock('../stores/tagsStore', () => ({
   useTagsStore: () => ({
-    tags: [{ name: 'test', count: 5 }, { name: 'example', count: 3 }],
+    tags: [
+      { name: 'test', content_count: 5, filter_count: 0 },
+      { name: 'example', content_count: 3, filter_count: 0 },
+    ],
   }),
 }))
 

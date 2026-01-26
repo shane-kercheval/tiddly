@@ -6,9 +6,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
+from models.content_filter import ContentFilter
+from models.filter_group import FilterGroup
 from models.note import Note
 from models.prompt import Prompt
-from models.tag import Tag, bookmark_tags, note_tags, prompt_tags
+from models.tag import Tag, bookmark_tags, filter_group_tags, note_tags, prompt_tags
 from schemas.tag import TagCount
 from schemas.validators import validate_and_normalize_tags
 
@@ -27,6 +29,19 @@ class TagAlreadyExistsError(Exception):
     def __init__(self, tag_name: str) -> None:
         self.tag_name = tag_name
         super().__init__(f"Tag '{tag_name}' already exists")
+
+
+class TagInUseByFiltersError(Exception):
+    """Raised when trying to delete a tag that is used in filters."""
+
+    def __init__(self, tag_name: str, filters: list[dict[str, str]]) -> None:
+        self.tag_name = tag_name
+        self.filters = filters  # List of {"id": ..., "name": ...}
+        filter_names = [f["name"] for f in filters]
+        filters_str = ", ".join(filter_names)
+        super().__init__(
+            f"Tag '{tag_name}' is used in {len(filters)} filter(s): {filters_str}",
+        )
 
 
 async def get_or_create_tags(
@@ -83,18 +98,20 @@ async def get_user_tags_with_counts(
     """
     Get all tags for a user with their usage counts.
 
-    By default, only returns tags with at least one active content item.
-    Counts include active bookmarks, notes, and prompts (not deleted or archived).
+    By default, only returns tags with at least one active content item or filter.
+    content_count includes active bookmarks, notes, and prompts (not deleted or archived).
+    filter_count includes filters using this tag.
     Future-scheduled items (archived_at in future) count as active.
 
     Args:
         db: Database session.
         user_id: User ID to scope tags.
-        include_inactive: If True, include tags with no active content (count=0).
+        include_inactive: If True, include tags with no active content or filters.
             Useful for tag management UI. Defaults to False.
 
     Returns:
-        List of TagCount objects sorted by count desc, then name asc.
+        List of TagCount objects sorted by filter_count desc, content_count desc,
+        then name asc.
     """
     # Subquery for counting active bookmarks per tag
     bookmark_count_subq = (
@@ -139,24 +156,43 @@ async def get_user_tags_with_counts(
     )
 
     # Combined count from bookmarks, notes, and prompts
-    total_count = (
+    content_count = (
         func.coalesce(bookmark_count_subq, 0)
         + func.coalesce(note_count_subq, 0)
         + func.coalesce(prompt_count_subq, 0)
-    ).label("count")
+    ).label("content_count")
+
+    # Subquery for counting filters using this tag
+    filter_count_subq = (
+        select(func.count(func.distinct(ContentFilter.id)))
+        .select_from(filter_group_tags)
+        .join(FilterGroup, filter_group_tags.c.group_id == FilterGroup.id)
+        .join(ContentFilter, FilterGroup.filter_id == ContentFilter.id)
+        .where(
+            filter_group_tags.c.tag_id == Tag.id,
+            ContentFilter.user_id == user_id,
+        )
+        .correlate(Tag)
+        .scalar_subquery()
+    )
+    filter_count = func.coalesce(filter_count_subq, 0).label("filter_count")
 
     query = (
-        select(Tag.name, total_count)
+        select(Tag.name, content_count, filter_count)
         .where(Tag.user_id == user_id)
         .group_by(Tag.id, Tag.name)
-        .order_by(total_count.desc(), Tag.name.asc())
+        .order_by(filter_count.desc(), content_count.desc(), Tag.name.asc())
     )
 
     if not include_inactive:
-        query = query.having(total_count > 0)
+        # Include tags with content_count > 0 OR filter_count > 0
+        query = query.having((content_count > 0) | (filter_count > 0))
 
     result = await db.execute(query)
-    return [TagCount(name=row.name, count=row.count) for row in result]
+    return [
+        TagCount(name=row.name, content_count=row.content_count, filter_count=row.filter_count)
+        for row in result
+    ]
 
 
 async def get_tag_by_name(
@@ -239,6 +275,36 @@ async def rename_tag(
     return tag
 
 
+async def get_filters_using_tag(
+    db: AsyncSession,
+    user_id: UUID,
+    tag_id: UUID,
+) -> list[dict[str, str]]:
+    """
+    Get filters that use a specific tag.
+
+    Args:
+        db: Database session.
+        user_id: User ID to scope the filters.
+        tag_id: ID of the tag to check.
+
+    Returns:
+        List of filter dicts with 'id' and 'name', ordered by name.
+    """
+    result = await db.execute(
+        select(ContentFilter.id, ContentFilter.name)
+        .join(FilterGroup, ContentFilter.id == FilterGroup.filter_id)
+        .join(filter_group_tags, FilterGroup.id == filter_group_tags.c.group_id)
+        .where(
+            ContentFilter.user_id == user_id,
+            filter_group_tags.c.tag_id == tag_id,
+        )
+        .distinct()
+        .order_by(ContentFilter.name.asc()),
+    )
+    return [{"id": str(row.id), "name": row.name} for row in result]
+
+
 async def delete_tag(
     db: AsyncSession,
     user_id: UUID,
@@ -254,14 +320,30 @@ async def delete_tag(
 
     Raises:
         TagNotFoundError: If the tag doesn't exist.
+        TagInUseByFiltersError: If the tag is used in any filters.
     """
     normalized = tag_name.lower().strip()
     tag = await get_tag_by_name(db, user_id, normalized)
     if tag is None:
         raise TagNotFoundError(normalized)
 
-    await db.delete(tag)
-    await db.flush()
+    # Check if tag is used in any filters
+    filters = await get_filters_using_tag(db, user_id, tag.id)
+    if filters:
+        raise TagInUseByFiltersError(tag.name, filters)
+
+    # Delete the tag. The try/except handles a race condition where another
+    # request adds the tag to a filter between our check and the delete.
+    # The DB RESTRICT constraint will raise IntegrityError in that case.
+    try:
+        await db.delete(tag)
+        await db.flush()
+    except IntegrityError:
+        # Rollback the failed transaction before re-querying
+        await db.rollback()
+        # Re-fetch to get current filter names for the error message
+        filters = await get_filters_using_tag(db, user_id, tag.id)
+        raise TagInUseByFiltersError(tag.name, filters) from None
 
 
 async def update_entity_tags(

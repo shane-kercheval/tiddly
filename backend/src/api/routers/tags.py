@@ -7,6 +7,7 @@ from models.user import User
 from schemas.tag import TagListResponse, TagRenameRequest, TagResponse
 from services.tag_service import (
     TagAlreadyExistsError,
+    TagInUseByFiltersError,
     TagNotFoundError,
     delete_tag,
     get_user_tags_with_counts,
@@ -25,12 +26,13 @@ async def list_tags(
     """
     Get all tags for the current user with their usage counts.
 
-    By default, returns only tags with at least one active content item.
-    Use include_inactive=true to also include tags with no active content
-    (useful for tag management).
+    Returns tags with `content_count` (active bookmarks, notes, prompts) and
+    `filter_count` (number of filters using this tag).
 
-    Results are sorted by count (most used first), then alphabetically.
-    Counts include active bookmarks, notes, and prompts (not deleted or archived).
+    By default, returns only tags with at least one active content item OR
+    used in at least one filter. Use include_inactive=true to include all tags.
+
+    Results are sorted by filter_count DESC, content_count DESC, then name ASC.
     """
     tags = await get_user_tags_with_counts(db, current_user.id, include_inactive)
     return TagListResponse(tags=tags)
@@ -79,7 +81,8 @@ async def delete_tag_endpoint(
 
     This removes the tag from all bookmarks and notes, then deletes the tag itself.
 
-    Returns 204 if successful, 404 if the tag doesn't exist.
+    Returns 204 if successful, 404 if the tag doesn't exist,
+    409 if the tag is used in filters (must be removed from filters first).
     """
     try:
         await delete_tag(db, current_user.id, tag_name)
@@ -87,4 +90,12 @@ async def delete_tag_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
+        ) from e
+    except TagInUseByFiltersError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": f"Cannot delete tag '{e.tag_name}' because it is used in filters",
+                "filters": e.filters,
+            },
         ) from e

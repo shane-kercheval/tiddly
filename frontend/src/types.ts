@@ -144,10 +144,11 @@ export interface NoteSearchParams {
   filter_id?: string
 }
 
-/** Tag with usage count */
+/** Tag with usage counts */
 export interface TagCount {
   name: string
-  count: number
+  content_count: number  // Count of bookmarks + notes + prompts using this tag
+  filter_count: number   // Count of filters using this tag
 }
 
 /** Tags list response from GET /tags/ */

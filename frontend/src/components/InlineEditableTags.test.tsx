@@ -11,9 +11,9 @@ import { createRef } from 'react'
 
 describe('InlineEditableTags', () => {
   const mockSuggestions: TagCount[] = [
-    { name: 'react', count: 5 },
-    { name: 'typescript', count: 3 },
-    { name: 'javascript', count: 7 },
+    { name: 'react', content_count: 5, filter_count: 0 },
+    { name: 'typescript', content_count: 3, filter_count: 0 },
+    { name: 'javascript', content_count: 7, filter_count: 0 },
   ]
 
   let mockOnChange: ReturnType<typeof vi.fn>

@@ -51,7 +51,7 @@ async def test_filter(db_session: AsyncSession, test_user: User) -> ContentFilte
         user_id=test_user.id,
         name="Test List",
         content_types=["bookmark"],
-        filter_expression={"groups": [], "group_operator": "OR"},
+        group_operator="OR",
     )
     db_session.add(content_filter)
     await db_session.flush()

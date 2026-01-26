@@ -88,6 +88,30 @@ prompt_tags = Table(
 )
 
 
+# Junction table for many-to-many relationship between filter groups and tags.
+# Uses RESTRICT on tag_id to prevent deletion of tags used in filters.
+# The application layer provides a better error (409 Conflict with filter names);
+# RESTRICT is defense in depth for direct SQL access.
+filter_group_tags = Table(
+    "filter_group_tags",
+    Base.metadata,
+    Column(
+        "group_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("filter_groups.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "tag_id",
+        PG_UUID(as_uuid=True),
+        ForeignKey("tags.id", ondelete="RESTRICT"),
+        primary_key=True,
+    ),
+    # Index for lookups by tag (composite PK already indexes group_id first)
+    Index("ix_filter_group_tags_tag_id", "tag_id"),
+)
+
+
 class Tag(Base, UUIDv7Mixin):
     """Tag model - stores unique tags per user for cross-entity tagging."""
 
