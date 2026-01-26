@@ -81,7 +81,6 @@ class FilterGroup(Base):
     content_filter: Mapped["ContentFilter"] = relationship(back_populates="groups")
     tag_objects: Mapped[list["Tag"]] = relationship(
         secondary="filter_group_tags",
-        order_by="Tag.name",
     )
 
     __table_args__ = (
@@ -97,12 +96,12 @@ filter_group_tags = Table(
     "filter_group_tags",
     Base.metadata,
     Column("group_id", ForeignKey("filter_groups.id", ondelete="CASCADE"), primary_key=True),
-    Column("tag_id", ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", ForeignKey("tags.id", ondelete="RESTRICT"), primary_key=True),
     Index("ix_filter_group_tags_tag_id", "tag_id"),
 )
 ```
 
-Note: The `ondelete="CASCADE"` on `tag_id` is for referential integrity, but we block tag deletion at the application layer if the tag is used in any filters (see Milestone 5). The CASCADE is a safety net that maintains DB consistency.
+Note: `ondelete="RESTRICT"` on `tag_id` provides defense in depth. The application layer blocks tag deletion with a helpful 409 error listing affected filters (see Milestone 5). The RESTRICT constraint provides database-level protection if someone bypasses the API (e.g., direct SQL).
 
 **3. Update `ContentFilter` model:**
 
@@ -154,7 +153,7 @@ def upgrade():
     op.create_table(
         "filter_group_tags",
         sa.Column("group_id", sa.UUID(), sa.ForeignKey("filter_groups.id", ondelete="CASCADE"), primary_key=True),
-        sa.Column("tag_id", sa.UUID(), sa.ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+        sa.Column("tag_id", sa.UUID(), sa.ForeignKey("tags.id", ondelete="RESTRICT"), primary_key=True),
     )
     op.create_index("ix_filter_group_tags_tag_id", "filter_group_tags", ["tag_id"])
 
@@ -227,6 +226,58 @@ def upgrade():
 
     # 5. Drop old column
     op.drop_column("content_filters", "filter_expression")
+
+
+def downgrade():
+    # 1. Re-add filter_expression column
+    op.add_column("content_filters", sa.Column("filter_expression", JSONB, nullable=True))
+
+    # 2. Reconstruct JSONB from normalized tables
+    connection = op.get_bind()
+
+    filters = connection.execute(
+        text("SELECT id, group_operator FROM content_filters")
+    ).fetchall()
+
+    for filter_row in filters:
+        filter_id = filter_row.id
+        group_operator = filter_row.group_operator or "OR"
+
+        # Get groups with their tags
+        groups_result = connection.execute(
+            text("""
+                SELECT fg.position, fg.operator, array_agg(t.name ORDER BY t.name) as tag_names
+                FROM filter_groups fg
+                JOIN filter_group_tags fgt ON fgt.group_id = fg.id
+                JOIN tags t ON t.id = fgt.tag_id
+                WHERE fg.filter_id = :filter_id
+                GROUP BY fg.id, fg.position, fg.operator
+                ORDER BY fg.position
+            """),
+            {"filter_id": filter_id}
+        ).fetchall()
+
+        groups = [
+            {"tags": list(row.tag_names), "operator": row.operator}
+            for row in groups_result
+        ]
+
+        filter_expression = {"groups": groups, "group_operator": group_operator}
+
+        connection.execute(
+            text("UPDATE content_filters SET filter_expression = :expr WHERE id = :id"),
+            {"expr": json.dumps(filter_expression), "id": filter_id}
+        )
+
+    # 3. Make filter_expression NOT NULL
+    op.alter_column("content_filters", "filter_expression", nullable=False)
+
+    # 4. Drop normalized tables (reverse order of creation)
+    op.drop_table("filter_group_tags")
+    op.drop_table("filter_groups")
+
+    # 5. Drop group_operator column
+    op.drop_column("content_filters", "group_operator")
 ```
 
 **5. Verification queries (for manual verification after migration):**
@@ -454,31 +505,37 @@ class ContentFilterResponse(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def build_filter_expression(cls, data: Any) -> Any:
-        """Reconstruct filter_expression from normalized groups."""
-        if hasattr(data, "groups"):
-            # ORM model - reconstruct expression
-            groups = [
-                {
-                    "tags": [tag.name for tag in group.tag_objects],
-                    "operator": group.operator,
-                }
-                for group in sorted(data.groups, key=lambda g: g.position)
-            ]
-            # Convert to dict for Pydantic
-            data_dict = {
-                "id": data.id,
-                "name": data.name,
-                "content_types": data.content_types,
-                "filter_expression": {
+    def extract_from_sqlalchemy(cls, data: Any) -> Any:
+        """
+        Reconstruct filter_expression from normalized groups.
+
+        Follows the established pattern from BookmarkResponse/NoteResponse/PromptResponse.
+        Uses __dict__ check to detect ORM objects and avoid lazy loading issues.
+        """
+        # Handle SQLAlchemy model objects
+        if hasattr(data, "__dict__"):
+            # Get all field names from the Pydantic model, excluding filter_expression
+            field_names = set(cls.model_fields.keys()) - {"filter_expression"}
+            data_dict = {key: getattr(data, key) for key in field_names if hasattr(data, key)}
+
+            # Reconstruct filter_expression from normalized groups
+            # Check if groups is already loaded (not lazy) via __dict__
+            if "groups" in data.__dict__ and data.__dict__["groups"] is not None:
+                groups = [
+                    {
+                        "tags": [tag.name for tag in group.tag_objects],
+                        "operator": group.operator,
+                    }
+                    for group in sorted(data.__dict__["groups"], key=lambda g: g.position)
+                ]
+                data_dict["filter_expression"] = {
                     "groups": groups,
                     "group_operator": data.group_operator,
-                },
-                "default_sort_by": data.default_sort_by,
-                "default_sort_ascending": data.default_sort_ascending,
-                "created_at": data.created_at,
-                "updated_at": data.updated_at,
-            }
+                }
+            else:
+                # Groups not loaded - return empty expression
+                data_dict["filter_expression"] = {"groups": [], "group_operator": "OR"}
+
             return data_dict
         return data
 ```
@@ -600,7 +657,8 @@ async def get_user_tags_with_counts(
         select(Tag.name, content_count, filter_count)
         .where(Tag.user_id == user_id)
         .group_by(Tag.id, Tag.name)
-        .order_by(content_count.desc(), Tag.name.asc())  # Sort by content_count
+        # Sort by filter_count first (filter usage indicates importance), then content_count
+        .order_by(filter_count.desc(), content_count.desc(), Tag.name.asc())
     )
 
     if not include_inactive:
@@ -626,6 +684,7 @@ async def get_user_tags_with_counts(
 - `test__list_tags__tag_in_filter_and_content_has_both_counts` - Both counts correct
 - `test__list_tags__filter_deleted_updates_filter_count` - `filter_count` decreases when filter deleted
 - `test__list_tags__tag_in_multiple_filters_counted_correctly` - Tag in 3 filters has `filter_count: 3`
+- `test__list_tags__sorted_by_filter_count_then_content_count` - Tags with higher filter_count appear first; ties broken by content_count desc, then name asc
 
 **Update existing tests:**
 All existing tests in `test_tags.py` that check `count` must be updated to check `content_count` instead.
@@ -771,9 +830,62 @@ Update the code that applies filters to content queries to work with normalized 
 
 ### Key Changes
 
-**1. Update filter application in `content_service.py` or relevant location:**
+**1. Update `ResolvedFilter` dataclass (`api/helpers/filter_utils.py`):**
 
-The filter logic needs to work with `FilterGroup` ORM objects instead of JSONB dicts.
+Replace `filter_expression: dict | None` with ORM-based fields:
+
+```python
+@dataclass
+class ResolvedFilter:
+    """Result of resolving a filter_id with sort parameters."""
+
+    # Changed: ORM groups instead of JSONB dict
+    filter_groups: list[FilterGroup] | None  # ORM objects with tag_objects loaded
+    group_operator: str | None  # "OR" or "AND"
+
+    sort_by: str
+    sort_order: Literal["asc", "desc"]
+    content_types: list[str] | None
+```
+
+**2. Update `resolve_filter_and_sorting` to return ORM groups:**
+
+```python
+async def resolve_filter_and_sorting(
+    db: AsyncSession,
+    user_id: UUID,
+    filter_id: UUID | None,
+    sort_by: str | None,
+    sort_order: Literal["asc", "desc"] | None,
+) -> ResolvedFilter:
+    filter_groups = None
+    group_operator = None
+    content_types = None
+
+    if filter_id is not None:
+        # get_filter now eagerly loads groups with tag_objects (see Milestone 3)
+        content_filter = await content_filter_service.get_filter(db, user_id, filter_id)
+        if content_filter is None:
+            raise HTTPException(status_code=404, detail="Filter not found")
+
+        filter_groups = content_filter.groups  # ORM objects
+        group_operator = content_filter.group_operator
+        content_types = content_filter.content_types
+
+        # ... existing sort resolution logic ...
+
+    return ResolvedFilter(
+        filter_groups=filter_groups,
+        group_operator=group_operator,
+        sort_by=sort_by or "created_at",
+        sort_order=sort_order or "desc",
+        content_types=content_types,
+    )
+```
+
+**3. Update `build_filter_from_groups` (`services/utils.py`):**
+
+Replace `build_tag_filter_from_expression()` with a version that takes ORM objects:
 
 ```python
 def build_filter_from_groups(
@@ -820,22 +932,38 @@ def build_filter_from_groups(
         return and_(*group_conditions)
 ```
 
-**2. Update callers to pass ORM groups instead of JSONB:**
+**4. Update all 4 list endpoints to use the new flow:**
 
+Replace the old pattern:
 ```python
-# In list endpoints
+# OLD (JSONB-based)
 resolved = await resolve_filter_and_sorting(db, current_user.id, filter_id, sort_by, sort_order)
+if resolved.filter_expression:
+    filters = build_tag_filter_from_expression(
+        resolved.filter_expression, current_user.id, bookmark_tags, Bookmark.id
+    )
+    query = query.where(*filters)
+```
 
+With:
+```python
+# NEW (ORM-based)
+resolved = await resolve_filter_and_sorting(db, current_user.id, filter_id, sort_by, sort_order)
 if resolved.filter_groups:
     filter_condition = build_filter_from_groups(
         resolved.filter_groups,
         resolved.group_operator,
-        Bookmark,
+        bookmark_tags,  # junction table
+        Bookmark.id,
         current_user.id,
     )
     if filter_condition is not None:
         query = query.where(filter_condition)
 ```
+
+**5. Remove old `build_tag_filter_from_expression` function:**
+
+After all callers are updated, remove the old function from `services/utils.py`.
 
 ### Testing Strategy
 
@@ -846,7 +974,6 @@ if resolved.filter_groups:
 
 **Additional tests:**
 - `test__filter__after_tag_rename_still_matches` - Rename tag, filter still finds content
-- `test__filter__after_tag_delete_excludes_that_criteria` - Delete tag, filter ignores that tag
 
 ### Dependencies
 - Milestone 5 complete
@@ -940,8 +1067,10 @@ Search codebase for usage of the tags API response and update field references.
 - Single source of truth - tags referenced by FK, not name strings
 - Filter API contract unchanged - normalization/denormalization in service layer
 - Tags API response format changed: `count` → `content_count` + `filter_count` (breaking change)
+- Tags sorted by `filter_count DESC, content_count DESC` (filter usage indicates importance)
 - Tag renames cascade automatically via FK relationships
 - Tag deletes blocked if used in filters (409 Conflict) - user must remove from filters first
+- `filter_group_tags.tag_id` uses `ON DELETE RESTRICT` for defense in depth
 - **Deployment:** Milestones 4 (backend) and 7 (frontend) must be deployed together
 
 **Benefits over JSONB approach:**
