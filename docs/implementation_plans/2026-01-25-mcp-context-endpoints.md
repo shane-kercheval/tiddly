@@ -305,7 +305,7 @@ Based on the markdown output above, here is what each API endpoint needs to prov
 | Response field | Source | Existing? |
 |---------------|--------|-----------|
 | `counts` | `SELECT COUNT(*) ... GROUP BY` per type and status | New query (trivial) |
-| `top_tags` | Existing `TagCount` schema already has `content_count` and `filter_count` | **Existing** - reuse tag service |
+| `top_tags` | `get_user_tags_with_counts(content_types=["bookmark", "note"])` | **Existing** - reuse tag service with new `content_types` filter |
 | `filters` | Existing `ContentFilterResponse` + sidebar ordering | **Existing** - combine filter service + sidebar service |
 | `filters[].items` | Query each filter's expression with default sort, limit N | **New** - per-filter item query (concurrent) |
 | `recently_used/created/modified` | Single custom query with 3 UNION ALLs (one per sort order), scoped to `["bookmark", "note"]` | **New** - dedicated lightweight query (see below) |
@@ -383,12 +383,12 @@ Based on the markdown output above, here is what each API endpoint needs to prov
 | Response field | Source | Existing? |
 |---------------|--------|-----------|
 | `counts` | `SELECT COUNT(*) ... GROUP BY status` | New query (trivial) |
-| `top_tags` | Tag service filtered to prompt tags only | Need to filter - tags endpoint returns combined counts |
+| `top_tags` | `get_user_tags_with_counts(content_types=["prompt"])` | **Existing** - reuse tag service with new `content_types` filter |
 | `filters` | Filter service + sidebar, filtered to prompt content_types | **Existing** - filter by `content_types` |
 | `filters[].items` | Query each filter's expression with default sort, limit N | **New** - per-filter item query (concurrent) |
 | `recently_used/created/modified` | Single custom query with 3 UNION ALLs (one per sort order), prompts only | **New** - same pattern as content recent items query, but for prompts only (includes arguments) |
 
-**Open question for tags:** The existing tag service returns `content_count` as a combined count across all content types. For the prompt context, we ideally want only the count of prompts using each tag, not bookmarks+notes. The implementing agent should check whether the tag service can filter by content type, or whether we need a prompt-specific tag query. If complex, we can use the existing combined `content_count` as a starting point and refine later.
+**Tag filtering by content type:** Add a `content_types: list[str] | None = None` parameter to `get_user_tags_with_counts()` in `tag_service.py`. When provided, only include count subqueries for the specified types (e.g., skip the prompt subquery when `content_types=["bookmark", "note"]`). Existing callers pass `None` to retain the current combined-count behavior. The content context endpoint passes `["bookmark", "note"]`; the prompt context endpoint passes `["prompt"]`.
 
 ---
 
@@ -615,7 +615,7 @@ class MCPContextService:
 
 Implementation notes:
 - **Counts:** Use lightweight `SELECT COUNT(*)` queries grouped by status. The `BaseEntityService` doesn't have a count method currently, so add one or query directly.
-- **Tags:** Reuse `tag_service.get_tags()` which already returns `TagCount` with `content_count` and `filter_count`, sorted by `filter_count DESC, content_count DESC`. Apply `limit` parameter.
+- **Tags:** Reuse `tag_service.get_user_tags_with_counts()` with the new `content_types` parameter — pass `["bookmark", "note"]` for content context, `["prompt"]` for prompt context. Already returns `TagCount` with `content_count` and `filter_count`, sorted by `filter_count DESC, content_count DESC`. Apply `limit` parameter.
 - **Filters in sidebar order:** Call `sidebar_service.get_computed_sidebar()` to get filter IDs in user's preferred order, then fetch corresponding `ContentFilter` objects. Only include filter items (not builtins like "All", "Archived", "Trash"). Exclude filters with empty filter expressions (no tag-based rules) — these are content-type-only shortcuts (e.g., "All Notes") that provide no additional information beyond what the Overview section already shows. For prompt context, further filter to only filters whose `content_types` include "prompt". Limit to top `filter_limit` filters (default 5).
 - **Filter items:** For each included filter, query its top `filter_item_limit` items (default 5) using the filter's expression and default sort order. These per-filter queries run concurrently (after filters are fetched). This is a second phase of `asyncio.gather` — first fetch filters, then fetch items per filter in parallel.
 - **Recent items:** Use a single dedicated query per endpoint that UNIONs 3 subqueries (one per sort order: `last_used_at DESC`, `created_at DESC`, `updated_at DESC`), each with `LIMIT N`. For content context, scope to bookmarks and notes only (`content_types=["bookmark", "note"]`). For prompt context, query prompts only (including arguments). Batch-fetch tags once for all unique IDs across the combined result. This avoids depending on `search_all_content` internals and eliminates unnecessary count/filter/pagination logic.
@@ -707,7 +707,6 @@ None - this is the first milestone.
 
 ### Risk Factors
 
-- **Tag filtering for prompts:** The existing tag service returns combined counts across all content types. For prompt context, we may want prompt-only counts. The agent should investigate whether this is feasible without significant changes. If complex, use combined counts initially and note it as a future improvement.
 - **Sidebar service requires filters list:** `get_computed_sidebar()` takes a `filters` parameter. The agent should check the calling convention and ensure we have the filters available before calling it.
 - **Performance:** See "Performance: Concurrent Queries" section. Need to pass session factory, not single session.
 
@@ -1018,6 +1017,7 @@ None
 ### Modified Files
 | File | Change |
 |------|--------|
+| `backend/src/services/tag_service.py` | Add `content_types` parameter to `get_user_tags_with_counts()` |
 | `backend/src/api/main.py` | Register MCP router |
 | `backend/src/mcp_server/server.py` | Add `get_context` tool + markdown formatter + update instructions |
 | `backend/src/prompt_mcp_server/server.py` | Add `get_context` tool + markdown formatter + update instructions |
@@ -1037,5 +1037,4 @@ These were discussed but are intentionally deferred:
 3. **Top domains** (bookmarks) - Which sites the user bookmarks from most
 4. **Tag descriptions** - User-defined tag meanings
 5. **Content relationships** - Explicit links between items
-6. **Per-type tag counts** - Show prompt-only vs bookmark-only tag counts
-7. **Stale content indicators** - Items not used in N days
+6. **Stale content indicators** - Items not used in N days
