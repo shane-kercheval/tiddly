@@ -53,14 +53,23 @@ are listed below in the user's preferred order, which reflects their
 priority. Tags within a group are combined with AND (all must match).
 Groups are combined with the group operator (OR = any group matches).
 
-1. **Work Projects** (bookmarks, notes)
+1. **Work Projects** `[filter a1b2c3d4-e29b-41d4-a716-446655440000]` (bookmarks, notes)
    Rule: `(work AND project) OR (client)`
 
-2. **Learning** (bookmarks)
+2. **Learning** `[filter b2c3d4e5-e29b-41d4-a716-446655440000]` (bookmarks)
    Rule: `(tutorial) OR (course)`
 
-3. **Quick Reference** (bookmarks, notes)
+3. **Quick Reference** `[filter c3d4e5f6-e29b-41d4-a716-446655440000]` (bookmarks, notes)
    Rule: `(reference)`
+
+## Sidebar Organization
+Collections are a frontend-only grouping mechanism for organizing filters
+visually. They have no effect on search or filtering behavior.
+
+- Work Projects `[filter a1b2c3d4-e29b-41d4-a716-446655440000]`
+- [collection] Study Materials
+  - Learning `[filter b2c3d4e5-e29b-41d4-a716-446655440000]`
+- Quick Reference `[filter c3d4e5f6-e29b-41d4-a716-446655440000]`
 
 ## Filter Contents
 Top items from each filter, in sidebar order. Items already shown in a
@@ -163,11 +172,19 @@ are listed below in the user's preferred order, which reflects their
 priority. Tags within a group are combined with AND (all must match).
 Groups are combined with the group operator (OR = any group matches).
 
-1. **Development** (prompts)
+1. **Development** `[filter d4e5f6a7-e29b-41d4-a716-446655440000]` (prompts)
    Rule: `(code-review) OR (refactor)`
 
-2. **Writing Helpers** (prompts)
+2. **Writing Helpers** `[filter e5f6a7b8-e29b-41d4-a716-446655440000]` (prompts)
    Rule: `(writing) OR (editing)`
+
+## Sidebar Organization
+Collections are a frontend-only grouping mechanism for organizing filters
+visually. They have no effect on search or filtering behavior.
+
+- [collection] Code Tools
+  - Development `[filter d4e5f6a7-e29b-41d4-a716-446655440000]`
+- Writing Helpers `[filter e5f6a7b8-e29b-41d4-a716-446655440000]`
 
 ## Filter Contents
 Top items from each filter, in sidebar order. Items already shown in a
@@ -485,6 +502,8 @@ This way, concurrent queries in the context service each get their own session, 
 
 **Important:** Each session from the factory creates a savepoint (via `join_transaction_mode="create_savepoint"`), so concurrent reads don't interfere with each other within the same outer transaction.
 
+**Note on test concurrency:** In tests, all sessions from the factory share the same `AsyncConnection`, so `asyncio.gather` queries serialize rather than running in parallel. This is expected — tests verify correctness, not parallelism. Production uses the real connection pool where queries run concurrently. If asyncpg raises "another operation in progress" errors during testing, the fallback is to add a test-only flag that runs queries sequentially.
+
 ---
 
 ## Milestone 1: API Endpoints
@@ -540,15 +559,20 @@ class ContextItem(BaseModel):
     description: str | None
     content_preview: str | None
     tags: list[str]
-    last_used_at: datetime
+    last_used_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+class SidebarCollectionContext(BaseModel):
+    name: str
+    filter_names: list[str]  # Names of tag-based filters in this collection
 
 class ContentContextResponse(BaseModel):
     generated_at: datetime
     counts: ContentContextCounts
     top_tags: list[ContextTag]
     filters: list[ContextFilter]
+    sidebar_collections: list[SidebarCollectionContext]  # Only collections containing tag-based filters; empty if no collections
     recently_used: list[ContextItem]
     recently_created: list[ContextItem]
     recently_modified: list[ContextItem]
@@ -565,7 +589,7 @@ class ContextPrompt(BaseModel):
     content_preview: str | None
     arguments: list[PromptArgument]  # Reuse existing schema
     tags: list[str]
-    last_used_at: datetime
+    last_used_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -574,6 +598,7 @@ class PromptContextResponse(BaseModel):
     counts: EntityCounts
     top_tags: list[ContextTag]
     filters: list[ContextFilter]
+    sidebar_collections: list[SidebarCollectionContext]  # Same as content context
     recently_used: list[ContextPrompt]
     recently_created: list[ContextPrompt]
     recently_modified: list[ContextPrompt]
@@ -619,6 +644,7 @@ Implementation notes:
 - **Filters in sidebar order:** Call `sidebar_service.get_computed_sidebar()` to get filter IDs in user's preferred order, then fetch corresponding `ContentFilter` objects. Only include filter items (not builtins like "All", "Archived", "Trash"). Exclude filters with empty filter expressions (no tag-based rules) — these are content-type-only shortcuts (e.g., "All Notes") that provide no additional information beyond what the Overview section already shows. For prompt context, further filter to only filters whose `content_types` include "prompt". Limit to top `filter_limit` filters (default 5).
 - **Filter items:** For each included filter, query its top `filter_item_limit` items (default 5) using the filter's expression and default sort order. These per-filter queries run concurrently (after filters are fetched). This is a second phase of `asyncio.gather` — first fetch filters, then fetch items per filter in parallel.
 - **Recent items:** Use a single dedicated query per endpoint that UNIONs 3 subqueries (one per sort order: `last_used_at DESC`, `created_at DESC`, `updated_at DESC`), each with `LIMIT N`. For content context, scope to bookmarks and notes only (`content_types=["bookmark", "note"]`). For prompt context, query prompts only (including arguments). Batch-fetch tags once for all unique IDs across the combined result. This avoids depending on `search_all_content` internals and eliminates unnecessary count/filter/pagination logic.
+- **`last_used_at` null handling:** Items never accessed via `track_usage` have `last_used_at = NULL`. The `recently_used` subquery should sort nulls last (`ORDER BY last_used_at DESC NULLS LAST`). The `last_used_at` field in the response schema should be `datetime | None`. The MCP tool should omit the "Last used:" line for items with null `last_used_at`.
 
 **New file: `backend/src/api/routers/mcp.py`**
 
@@ -684,7 +710,8 @@ Create `backend/tests/api/test_mcp_context.py`:
 6. **Filters without tag rules excluded:** Create a filter with no filter expression (e.g., "All Notes"), verify it is excluded
 7. **Filter items:** Create a filter with tag rules and matching items, verify `items` contains the correct items
 8. **Filter limit/item limit:** Verify `filter_limit` and `filter_item_limit` parameters are respected
-9. **Recent items by last_used_at:** Create items, call track_usage on some, verify order
+8a. **Sidebar collections:** Create filters inside a collection, verify `sidebar_collections` includes the collection with its filter names. Verify collections without tag-based filters are excluded. Verify `sidebar_collections` is empty when no collections exist.
+9. **Recent items by last_used_at:** Create items, call track_usage on some, verify order. Items with null `last_used_at` sort last.
 10. **Recently created/modified:** Verify correct sort order
 11. **Description included:** Create item with description, verify it appears; create without, verify null
 12. **Empty state:** New user, verify valid response with empty lists and zero counts
@@ -767,10 +794,12 @@ The `_format_content_context_markdown(data: dict) -> str` function builds the ma
 
 Key formatting responsibilities:
 - Render filter expressions as human-readable rules: `(work AND project) OR (client)`
+- Format filters with `[filter id]` suffix
 - Format items with `[type id]` suffix
 - Include description only when present
 - Include preview
 - Format tags as comma-separated
+- **Sidebar Organization section:** Only rendered when the sidebar contains collections that have tag-based filters inside them. Shows a simple tree view with `[collection]` labels. Collections without any tag-based filters are omitted. If no collections exist, skip the section entirely (it would be redundant with the Filters list).
 - **Deduplication:** If an item already appeared in an earlier section (e.g., Filter Contents or Recently Used), show only the title, ID, relevant timestamp, and `(see [section name] above)` instead of repeating all details. The MCP tool tracks IDs seen so far and abbreviates duplicates. Section order for dedup: Filter Contents → Recently Used → Recently Created → Recently Modified.
 
 **Utility function for filter expression rendering:**
@@ -957,7 +986,108 @@ Milestones 1 and 2 (API endpoints and content tool for shared patterns)
 
 ---
 
-## Milestone 4: Documentation
+## Milestone 4: Expose Filters in MCP Tools
+
+### Goal
+
+Make filters actionable in both MCP servers by adding a `filter_id` parameter to search tools and a new `list_filters` tool. This allows agents to use filter IDs from the context output to search within filters.
+
+### Success Criteria
+
+- `search_items` (content MCP) accepts optional `filter_id` parameter
+- `search_prompts` (prompt MCP) accepts optional `filter_id` parameter
+- Both MCP servers have a `list_filters` tool that returns filters with IDs, names, content_types, and filter expressions
+- MCP server instructions updated for both servers
+- Frontend settings page updated for both servers
+
+### Key Changes
+
+**Update: `backend/src/mcp_server/server.py`**
+
+Add `filter_id` parameter to `search_items`:
+
+```python
+filter_id: Annotated[
+    str | None,
+    Field(description="Filter by content filter ID (UUID). Use list_filters to discover filter IDs."),
+] = None,
+```
+
+The tool passes `filter_id` to the existing API endpoint which already supports it (`GET /content?filter_id=...`).
+
+Add `list_filters` tool:
+
+```python
+@mcp.tool(
+    description="""List the user's content filters.
+
+Filters are saved views with tag-based rules. Use filter IDs with search_items
+to search within a specific filter. Returns filter ID, name, content types,
+and the tag-based filter expression.""",
+    annotations={"readOnlyHint": True},
+)
+async def list_filters() -> dict[str, Any]:
+    # Call GET /filters
+    data = await api_get(client, "/filters", token)
+    return data
+```
+
+**Update: `backend/src/prompt_mcp_server/server.py`**
+
+Add `filter_id` parameter to `search_prompts` input schema:
+
+```python
+"filter_id": {
+    "type": "string",
+    "description": "Filter by content filter ID (UUID). Use list_filters to discover filter IDs.",
+},
+```
+
+Add `list_filters` tool (same pattern — calls `GET /filters`, returns result).
+
+**Update MCP server instructions** in both servers. Add `list_filters` to the tool list and update `search_items`/`search_prompts` descriptions. Example additions:
+
+Content MCP:
+```
+- `list_filters`: List the user's content filters with IDs, names, and tag rules.
+  Use filter IDs with `search_items(filter_id=...)` to search within a specific filter.
+```
+
+Prompt MCP:
+```
+- `list_filters`: List the user's prompt filters with IDs, names, and tag rules.
+  Use filter IDs with `search_prompts(filter_id=...)` to search within a specific filter.
+```
+
+**Update: `frontend/src/pages/settings/SettingsMCP.tsx`**
+
+Add `list_filters` to both tool lists.
+
+### Testing Strategy
+
+**Content MCP tests:**
+
+1. **`search_items` with `filter_id`:** Create a filter, create items matching it, verify `search_items(filter_id=...)` returns matching items
+2. **`list_filters` tool:** Create filters, verify tool returns all filters with IDs, names, content_types, and expressions
+3. **`list_filters` empty state:** No filters, verify empty list returned
+
+**Prompt MCP tests:**
+
+1. **`search_prompts` with `filter_id`:** Same pattern for prompts
+2. **`list_filters` tool:** Same as content
+3. **`list_filters` empty state:** Same
+
+### Dependencies
+
+Milestones 1-3 (context endpoints provide the filter IDs that make this useful, though this milestone is technically independent)
+
+### Risk Factors
+
+- **Minimal:** The API already supports `filter_id` on all search endpoints and has a full `/filters` CRUD router. This milestone just exposes existing functionality in the MCP tools.
+
+---
+
+## Milestone 5: Documentation
 
 ### Goal
 
@@ -967,7 +1097,7 @@ Update all documentation to reflect the new endpoints and tools.
 
 - CLAUDE.md updated with MCP context endpoints section
 - MCP server instructions are complete and consistent
-- Frontend settings page lists `get_context` for both servers
+- Frontend settings page lists `get_context` and `list_filters` for both servers
 - No stale references anywhere
 
 ### Key Changes
@@ -996,7 +1126,7 @@ The MCP tools (`get_context`) convert this JSON to markdown optimized for LLM co
 
 ### Dependencies
 
-Milestones 1-3
+Milestones 1-4
 
 ### Risk Factors
 
