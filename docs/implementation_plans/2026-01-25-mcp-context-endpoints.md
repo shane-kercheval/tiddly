@@ -86,11 +86,19 @@ Groups are combined with the group operator (OR = any group matches).
    Tags: ideas
    Preview: Potential projects for Q1: 1) CLI tool for...
 
+2. **Meeting Notes 2026-01-20** `[note 7c9e6679-e29b-41d4-a716-446655440000]`
+   Created: 2026-01-20T09:00:00Z
+   (see Recently Used above)
+
 ## Recently Modified
 1. **Architecture Notes** `[note 1a2b3c4d-e29b-41d4-a716-446655440000]`
    Modified: 2026-01-25T09:30:00Z
    Tags: work, architecture
    Preview: Updated the service layer diagram to reflect...
+
+2. **Python Documentation** `[bookmark f47ac10b-e29b-41d4-a716-446655440000]`
+   Modified: 2026-01-24T14:00:00Z
+   (see Recently Used above)
 ```
 
 ### Prompt Context Tool Output
@@ -156,13 +164,18 @@ Groups are combined with the group operator (OR = any group matches).
    Args: `raw_notes` (required), `attendees`
    Preview: Given the following raw meeting notes, create a...
 
+2. **explain-code** — "Code Explainer"
+   Created: 2026-01-22T11:00:00Z
+   (see Recently Used above)
+
 ## Recently Modified
 1. **code-review** — "Code Review Assistant"
    Modified: 2026-01-25T09:00:00Z
-   Tags: code-review, development
-   Description: Reviews code for common bugs, style issues, and suggests improvements
-   Args: `language` (required), `code` (required), `focus_areas`
-   Preview: Review the following {{ language }} code for bugs, style...
+   (see Recently Used above)
+
+2. **summarize-article** — "Article Summarizer"
+   Modified: 2026-01-22T16:00:00Z
+   (see Recently Used above)
 ```
 
 ---
@@ -643,6 +656,7 @@ Key formatting responsibilities:
 - Include description only when present
 - Include preview
 - Format tags as comma-separated
+- **Deduplication:** If an item already appeared in an earlier section (e.g., Recently Used), show only the title, ID, relevant timestamp, and `(see Recently Used above)` instead of repeating all details. The MCP tool tracks IDs seen so far and abbreviates duplicates.
 
 **Utility function for filter expression rendering:**
 
