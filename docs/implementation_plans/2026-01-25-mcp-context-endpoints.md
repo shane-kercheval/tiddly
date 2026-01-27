@@ -10,104 +10,370 @@ Implement dedicated API endpoints and MCP tools to provide AI agents with a "pla
 - `GET /mcp/context/content` - Summary for bookmarks/notes (Content MCP Server)
 - `GET /mcp/context/prompts` - Summary for prompts (Prompt MCP Server)
 
-**Key design principle:** These endpoints are specifically optimized for AI agent consumption, not the UI. They live under `/mcp/` to signal this intent.
+**Architecture:**
+- API endpoints return **structured JSON** (reusable by any client)
+- MCP tools convert JSON to **markdown** optimized for LLM consumption (no structured output, text only)
+- MCP tools add explanatory prose (what filters are, how tags work, etc.) that doesn't belong in the API response
+
+Authentication: standard `get_current_user` dependency (same auth rules as all other endpoints).
 
 ---
 
-## What Information is Useful for AI Agents?
+## Target MCP Tool Output
 
-Based on analysis, agents benefit most from:
+The MCP tools convert structured API data into markdown. This is what the LLM will see.
 
-1. **Intent signals** - What is the user trying to accomplish? Sidebar order, recent activity, and filter definitions express this.
-2. **Vocabulary/taxonomy** - What tags do they use? How are they categorized?
-3. **Recency over completeness** - Recent items matter more than comprehensive history.
-4. **Relationships** - Which items go together? Tag co-occurrence and filter definitions reveal this.
-5. **Patterns to follow** - When creating new content, what conventions should the agent follow?
+### Content Context Tool Output
+
+```markdown
+# Content Context
+
+Generated: 2026-01-25T10:30:00Z
+
+## Overview
+- **Bookmarks:** 150 active, 25 archived
+- **Notes:** 75 active, 5 archived
+
+## Top Tags
+Tags are used to categorize content. `filters` indicates how many of the
+user's custom filters reference this tag — higher filter count suggests
+the tag is more important to the user's workflow.
+
+| Tag | Items | Filters |
+|-----|-------|---------|
+| python | 45 | 3 |
+| reference | 38 | 2 |
+| tutorial | 30 | 2 |
+| work | 28 | 1 |
+| to-read | 22 | 0 |
+
+## Filters
+Filters are custom saved views the user has created to organize their
+content. They define tag-based rules to surface specific items. Filters
+are listed below in the user's preferred order, which reflects their
+priority. Tags within a group are combined with AND (all must match).
+Groups are combined with the group operator (OR = any group matches).
+
+1. **Work Projects** (bookmarks, notes)
+   Rule: `(work AND project) OR (client)`
+
+2. **Learning** (bookmarks)
+   Rule: `(tutorial) OR (course)`
+
+3. **Quick Reference** (bookmarks, notes)
+   Rule: `(reference)`
+
+## Recently Used
+1. **Python Documentation** `[bookmark f47ac10b-e29b-41d4-a716-446655440000]`
+   Tags: python, reference
+   Description: Official Python 3.x documentation and standard library reference
+   Preview: The Python Language Reference describes the exact syntax and semantics of...
+
+2. **Meeting Notes 2026-01-20** `[note 7c9e6679-e29b-41d4-a716-446655440000]`
+   Tags: work, meeting
+   Preview: Discussed the new authentication flow. Key decisions: 1) Use JWT...
+
+3. **FastAPI Tutorial** `[bookmark 6ba7b810-e29b-41d4-a716-446655440000]`
+   Tags: python, tutorial
+   Description: Step-by-step guide to building APIs with FastAPI
+   Preview: FastAPI is a modern, fast web framework for building APIs with Python...
+
+## Recently Created
+1. **Project Ideas** `[note 9a8b7c6d-e29b-41d4-a716-446655440000]`
+   Tags: ideas
+   Preview: Potential projects for Q1: 1) CLI tool for...
+
+## Recently Modified
+1. **Architecture Notes** `[note 1a2b3c4d-e29b-41d4-a716-446655440000]`
+   Tags: work, architecture
+   Preview: Updated the service layer diagram to reflect...
+```
+
+### Prompt Context Tool Output
+
+```markdown
+# Prompt Context
+
+Generated: 2026-01-25T10:30:00Z
+
+## Overview
+- **Prompts:** 30 active, 2 archived
+
+## Top Tags
+Tags are used to categorize prompts. `filters` indicates how many of the
+user's custom filters reference this tag.
+
+| Tag | Prompts | Filters |
+|-----|---------|---------|
+| code-review | 8 | 2 |
+| writing | 6 | 1 |
+| analysis | 5 | 1 |
+| summarize | 4 | 0 |
+
+## Filters
+Filters are custom saved views the user has created to organize their
+prompts. They define tag-based rules to surface specific prompts. Filters
+are listed below in the user's preferred order, which reflects their
+priority. Tags within a group are combined with AND (all must match).
+Groups are combined with the group operator (OR = any group matches).
+
+1. **Development** (prompts)
+   Rule: `(code-review) OR (refactor)`
+
+2. **Writing Helpers** (prompts)
+   Rule: `(writing) OR (editing)`
+
+## Recently Used
+1. **code-review** — "Code Review Assistant"
+   Tags: code-review, development
+   Description: Reviews code for common bugs, style issues, and suggests improvements
+   Args: `language` (required), `code` (required), `focus_areas`
+   Preview: Review the following {{ language }} code for bugs, style...
+
+2. **summarize-article** — "Article Summarizer"
+   Tags: summarize, writing
+   Args: `article_text` (required), `length`
+   Preview: Summarize the following article in {{ length }} or fewer...
+
+3. **explain-code** — "Code Explainer"
+   Tags: code-review
+   Description: Explains code at the appropriate level for the target audience
+   Args: `code` (required), `audience`
+   Preview: Explain what this code does to someone who is a...
+
+## Recently Created
+1. **meeting-notes** — "Meeting Notes Generator"
+   Tags: writing, work
+   Description: Generates structured meeting notes from raw notes
+   Args: `raw_notes` (required), `attendees`
+   Preview: Given the following raw meeting notes, create a...
+
+## Recently Modified
+1. **code-review** — "Code Review Assistant"
+   Tags: code-review, development
+   Description: Reviews code for common bugs, style issues, and suggests improvements
+   Args: `language` (required), `code` (required), `focus_areas`
+   Preview: Review the following {{ language }} code for bugs, style...
+```
 
 ---
 
-## Milestone 1: API Endpoint for Content Context
+## Working Backwards: What the API Endpoints Need to Return
+
+Based on the markdown output above, here is what each API endpoint needs to provide.
+
+### `GET /mcp/context/content` Response
+
+```python
+{
+    "generated_at": "2026-01-25T10:30:00Z",
+    "counts": {
+        "bookmarks": {"active": 150, "archived": 25},
+        "notes": {"active": 75, "archived": 5}
+    },
+    "top_tags": [
+        {"name": "python", "content_count": 45, "filter_count": 3},
+        {"name": "reference", "content_count": 38, "filter_count": 2}
+    ],
+    "filters": [
+        {
+            "id": "uuid",
+            "name": "Work Projects",
+            "content_types": ["bookmark", "note"],
+            "filter_expression": {
+                "groups": [{"tags": ["work", "project"]}, {"tags": ["client"]}],
+                "group_operator": "OR"
+            }
+        }
+    ],
+    "recent_items": [
+        {
+            "type": "bookmark",
+            "id": "uuid",
+            "title": "Python Documentation",
+            "description": "Official Python 3.x documentation...",
+            "content_preview": "The Python Language Reference describes...",
+            "tags": ["python", "reference"],
+            "last_used_at": "2026-01-25T10:30:00Z",
+            "created_at": "2026-01-20T08:00:00Z",
+            "updated_at": "2026-01-24T14:00:00Z"
+        }
+    ],
+    "recently_created": [...],
+    "recently_modified": [...]
+}
+```
+
+**Data sources mapping:**
+
+| Response field | Source | Existing? |
+|---------------|--------|-----------|
+| `counts` | `SELECT COUNT(*) ... GROUP BY` per type and status | New query (trivial) |
+| `top_tags` | Existing `TagCount` schema already has `content_count` and `filter_count` | **Existing** - reuse tag service |
+| `filters` | Existing `ContentFilterResponse` + sidebar ordering | **Existing** - combine filter service + sidebar service |
+| `recent_items` | Existing unified content search with `sort_by=last_used_at` | **Existing** - `ContentListItem` already has all needed fields |
+| `recently_created` | Same with `sort_by=created_at` | **Existing** |
+| `recently_modified` | Same with `sort_by=updated_at` | **Existing** |
+
+**Key insight:** The content context endpoint mostly orchestrates existing services. The main new work is:
+1. Count queries (trivial)
+2. Ordering filters by sidebar position (combine existing services)
+3. Converting filter expression to human-readable string (done in MCP tool, not API)
+
+### `GET /mcp/context/prompts` Response
+
+```python
+{
+    "generated_at": "2026-01-25T10:30:00Z",
+    "counts": {
+        "active": 30,
+        "archived": 2
+    },
+    "top_tags": [
+        {"name": "code-review", "content_count": 8, "filter_count": 2}
+    ],
+    "filters": [
+        {
+            "id": "uuid",
+            "name": "Development",
+            "content_types": ["prompt"],
+            "filter_expression": {
+                "groups": [{"tags": ["code-review"]}, {"tags": ["refactor"]}],
+                "group_operator": "OR"
+            }
+        }
+    ],
+    "recently_used": [
+        {
+            "id": "uuid",
+            "name": "code-review",
+            "title": "Code Review Assistant",
+            "description": "Reviews code for common bugs...",
+            "content_preview": "Review the following {{ language }} code...",
+            "arguments": [
+                {"name": "language", "description": "Programming language", "required": true},
+                {"name": "code", "description": "Code to review", "required": true},
+                {"name": "focus_areas", "description": null, "required": false}
+            ],
+            "tags": ["code-review", "development"],
+            "last_used_at": "2026-01-25T10:30:00Z",
+            "created_at": "2026-01-10T08:00:00Z",
+            "updated_at": "2026-01-25T09:00:00Z"
+        }
+    ],
+    "recently_created": [...],
+    "recently_modified": [...]
+}
+```
+
+**Data sources mapping:**
+
+| Response field | Source | Existing? |
+|---------------|--------|-----------|
+| `counts` | `SELECT COUNT(*) ... GROUP BY status` | New query (trivial) |
+| `top_tags` | Tag service filtered to prompt tags only | Need to filter - tags endpoint returns combined counts |
+| `filters` | Filter service + sidebar, filtered to prompt content_types | **Existing** - filter by `content_types` |
+| `recently_used` | Prompt search with `sort_by=last_used_at` | **Existing** - `PromptListItem` has all fields including arguments |
+| `recently_created` | Same with `sort_by=created_at` | **Existing** |
+| `recently_modified` | Same with `sort_by=updated_at` | **Existing** |
+
+**Open question for tags:** The existing tag service returns `content_count` as a combined count across all content types. For the prompt context, we ideally want only the count of prompts using each tag, not bookmarks+notes. The implementing agent should check whether the tag service can filter by content type, or whether we need a prompt-specific tag query. If complex, we can use the existing combined `content_count` as a starting point and refine later.
+
+---
+
+## Milestone 1: API Endpoints
 
 ### Goal
 
-Create `GET /mcp/context/content` endpoint that returns aggregated context about a user's bookmarks and notes.
+Create both `GET /mcp/context/content` and `GET /mcp/context/prompts` API endpoints that return structured JSON.
 
 ### Success Criteria
 
-- Endpoint returns JSON with content counts, top tags, filters, and recent items
-- All fields are documented with clear descriptions
-- Response is optimized for LLM consumption (concise, structured)
-- Authentication uses standard `get_current_user` dependency
-- Tests cover all response sections
+- Both endpoints return structured JSON with the fields documented above
+- Authentication uses `get_current_user`
+- Filters are returned in sidebar order
+- Recent items are sorted correctly by their respective timestamp
+- Content preview respects `preview_length` parameter
+- Tags include both `content_count` and `filter_count`
+- Tests cover all response sections and edge cases
 
 ### Key Changes
 
 **New file: `backend/src/schemas/mcp_context.py`**
 
-```python
-from datetime import datetime
-from uuid import UUID
-from pydantic import BaseModel, Field
+Define Pydantic schemas for both response types. Reuse existing schemas where possible (e.g., `PromptArgument` from `schemas/prompt.py`, `FilterExpression` from `schemas/content_filter.py`).
 
-class ContentCounts(BaseModel):
+Content context schemas:
+
+```python
+class EntityCounts(BaseModel):
     active: int
     archived: int
 
 class ContentContextCounts(BaseModel):
-    bookmarks: ContentCounts
-    notes: ContentCounts
+    bookmarks: EntityCounts
+    notes: EntityCounts
 
 class ContextTag(BaseModel):
     name: str
-    count: int
-    content_types: list[str] = Field(
-        description="Which content types use this tag: 'bookmark', 'note', or both"
-    )
-
-class ContextItem(BaseModel):
-    type: str = Field(description="'bookmark' or 'note'")
-    id: UUID
-    title: str | None
-    description: str | None
-    preview: str | None = Field(description="First N characters of content")
-    tags: list[str]
-    last_used_at: datetime
-    created_at: datetime
-    updated_at: datetime
+    content_count: int
+    filter_count: int
 
 class ContextFilter(BaseModel):
     id: UUID
     name: str
     content_types: list[str]
-    description: str = Field(
-        description="Human-readable description of filter logic"
-    )
-    default_sort_by: str
+    filter_expression: FilterExpression  # Reuse existing schema
 
-class TagPair(BaseModel):
-    tags: list[str] = Field(description="Two tags that frequently appear together")
-    count: int = Field(description="Number of items with both tags")
+class ContextItem(BaseModel):
+    type: str
+    id: UUID
+    title: str | None
+    description: str | None
+    content_preview: str | None
+    tags: list[str]
+    last_used_at: datetime
+    created_at: datetime
+    updated_at: datetime
 
-class ContentContext(BaseModel):
+class ContentContextResponse(BaseModel):
     generated_at: datetime
     counts: ContentContextCounts
     top_tags: list[ContextTag]
-    tag_pairs: list[TagPair] = Field(
-        description="Tags that frequently appear together, revealing user's categorization patterns"
-    )
-    filters: list[ContextFilter] = Field(
-        description="Custom filters in sidebar order (user's priority)"
-    )
-    recent_items: list[ContextItem] = Field(
-        description="Recently accessed items (by last_used_at)"
-    )
+    filters: list[ContextFilter]
+    recent_items: list[ContextItem]
     recently_created: list[ContextItem]
     recently_modified: list[ContextItem]
 ```
 
+Prompt context schemas:
+
+```python
+class ContextPrompt(BaseModel):
+    id: UUID
+    name: str
+    title: str | None
+    description: str | None
+    content_preview: str | None
+    arguments: list[PromptArgument]  # Reuse existing schema
+    tags: list[str]
+    last_used_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+class PromptContextResponse(BaseModel):
+    generated_at: datetime
+    counts: EntityCounts
+    top_tags: list[ContextTag]
+    filters: list[ContextFilter]
+    recently_used: list[ContextPrompt]
+    recently_created: list[ContextPrompt]
+    recently_modified: list[ContextPrompt]
+```
+
 **New file: `backend/src/services/mcp_context_service.py`**
 
-Create a service that orchestrates calls to existing services:
+Service that orchestrates existing services with `asyncio.gather()` for parallel queries:
 
 ```python
 class MCPContextService:
@@ -118,181 +384,94 @@ class MCPContextService:
         tag_limit: int = 20,
         recent_limit: int = 10,
         preview_length: int = 200,
-    ) -> ContentContext:
-        """
-        Aggregate content context for MCP consumption.
+    ) -> ContentContextResponse:
+        # Parallel queries:
+        # 1. Count bookmarks by status
+        # 2. Count notes by status
+        # 3. Get top tags (reuse tag_service.get_tags)
+        # 4. Get filters in sidebar order
+        # 5. Search content sorted by last_used_at
+        # 6. Search content sorted by created_at
+        # 7. Search content sorted by updated_at
+        ...
 
-        Uses parallel queries for efficiency.
-        """
-        # Run independent queries in parallel
-        counts, tags, filters, recent, created, modified, tag_pairs = await asyncio.gather(
-            self._get_content_counts(db, user_id),
-            self._get_top_tags_with_types(db, user_id, tag_limit),
-            self._get_filters_with_descriptions(db, user_id),
-            self._get_recent_items(db, user_id, recent_limit, preview_length, sort_by="last_used_at"),
-            self._get_recent_items(db, user_id, recent_limit, preview_length, sort_by="created_at"),
-            self._get_recent_items(db, user_id, recent_limit, preview_length, sort_by="updated_at"),
-            self._get_tag_pairs(db, user_id, limit=10),
-        )
-
-        return ContentContext(
-            generated_at=datetime.now(UTC),
-            counts=counts,
-            top_tags=tags,
-            tag_pairs=tag_pairs,
-            filters=filters,
-            recent_items=recent,
-            recently_created=created,
-            recently_modified=modified,
-        )
+    async def get_prompt_context(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        tag_limit: int = 20,
+        recent_limit: int = 10,
+        preview_length: int = 200,
+    ) -> PromptContextResponse:
+        # Similar parallel queries, prompt-specific
+        ...
 ```
 
 Implementation notes:
-- `_get_content_counts`: Use `SELECT COUNT(*)` queries, not full entity fetches
-- `_get_top_tags_with_types`: Extend existing tag service to return which content types use each tag
-- `_get_filters_with_descriptions`: Fetch filters in sidebar order, convert filter expressions to human-readable descriptions (e.g., "(python AND tutorial) OR reference")
-- `_get_recent_items`: Use unified content search with specified sort, truncate content to `preview_length`
-- `_get_tag_pairs`: Query for tag co-occurrence (see implementation notes below)
+- **Counts:** Use lightweight `SELECT COUNT(*)` queries grouped by status. The `BaseEntityService` doesn't have a count method currently, so add one or query directly.
+- **Tags:** Reuse `tag_service.get_tags()` which already returns `TagCount` with `content_count` and `filter_count`, sorted by `filter_count DESC, content_count DESC`. Apply `limit` parameter.
+- **Filters in sidebar order:** Call `sidebar_service.get_computed_sidebar()` to get filter IDs in user's preferred order, then fetch corresponding `ContentFilter` objects. Only include filter items (not builtins like "All", "Archived", "Trash"). For prompt context, further filter to only filters whose `content_types` include "prompt".
+- **Recent items:** Use existing search methods (`content_service.search_all_content()` for content, `prompt_service.search()` for prompts) with appropriate `sort_by` and `limit`. These already return `content_preview`.
+- **Preview length:** The existing `content_preview` is 500 chars. If `preview_length` < 500, truncate in Python. If we need more flexibility, this can be refined later.
 
 **New file: `backend/src/api/routers/mcp.py`**
 
 ```python
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from api.dependencies import get_current_user, get_async_session
-from models import User
-from schemas.mcp_context import ContentContext, PromptContext
-from services.mcp_context_service import mcp_context_service
-
 router = APIRouter(prefix="/mcp", tags=["MCP"])
 
-@router.get("/context/content", response_model=ContentContext)
+@router.get("/context/content", response_model=ContentContextResponse)
 async def get_content_context(
-    tag_limit: int = Query(default=20, ge=1, le=100, description="Number of top tags to include"),
-    recent_limit: int = Query(default=10, ge=1, le=50, description="Number of recent items per category"),
-    preview_length: int = Query(default=200, ge=50, le=500, description="Character limit for content previews"),
+    tag_limit: int = Query(default=20, ge=1, le=100),
+    recent_limit: int = Query(default=10, ge=1, le=50),
+    preview_length: int = Query(default=200, ge=50, le=500),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
-) -> ContentContext:
-    """
-    Get aggregated context about user's bookmarks and notes for AI agent consumption.
+) -> ContentContextResponse:
+    ...
 
-    Returns counts, top tags, custom filters, and recent activity in a single response
-    optimized for LLM context windows.
-    """
-    return await mcp_context_service.get_content_context(
-        db=db,
-        user_id=current_user.id,
-        tag_limit=tag_limit,
-        recent_limit=recent_limit,
-        preview_length=preview_length,
-    )
+@router.get("/context/prompts", response_model=PromptContextResponse)
+async def get_prompt_context(
+    tag_limit: int = Query(default=20, ge=1, le=100),
+    recent_limit: int = Query(default=10, ge=1, le=50),
+    preview_length: int = Query(default=200, ge=50, le=500),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> PromptContextResponse:
+    ...
 ```
 
 **Update: `backend/src/api/main.py`**
 
-Register the new router:
-```python
-from api.routers import mcp
-app.include_router(mcp.router)
-```
-
-### Implementation Notes: Tag Pairs Query
-
-To find tags that frequently appear together, query the entity-tag relationship tables:
-
-```python
-async def _get_tag_pairs(
-    self,
-    db: AsyncSession,
-    user_id: UUID,
-    limit: int = 10,
-) -> list[TagPair]:
-    """
-    Find tag pairs that frequently co-occur.
-
-    Uses a self-join on entity tags to find pairs.
-    Only considers active (non-deleted, non-archived) items.
-    """
-    # This requires querying bookmark_tags and note_tags tables
-    # and counting co-occurrences. The exact SQL will depend on
-    # how the tag relationships are modeled.
-    #
-    # Conceptual approach:
-    # 1. For each content type, self-join tags table on entity_id
-    # 2. WHERE t1.tag_name < t2.tag_name (avoid duplicates and self-pairs)
-    # 3. GROUP BY (t1.tag_name, t2.tag_name)
-    # 4. ORDER BY count DESC
-    # 5. UNION results from bookmarks and notes
-    # 6. LIMIT to top N pairs
-```
-
-This is a nice-to-have feature. If implementation is complex, it can be deferred to a later milestone. The agent implementing this should assess complexity and ask if it should be deferred.
-
-### Implementation Notes: Filter Description
-
-Convert filter expressions to human-readable format:
-
-```python
-def _describe_filter_expression(expr: dict) -> str:
-    """
-    Convert filter expression JSON to human-readable description.
-
-    Example input: {"groups": [{"tags": ["python", "tutorial"]}, {"tags": ["reference"]}], "group_operator": "OR"}
-    Example output: "(python AND tutorial) OR (reference)"
-    """
-    groups = expr.get("groups", [])
-    group_operator = expr.get("group_operator", "OR")
-
-    group_strs = []
-    for group in groups:
-        tags = group.get("tags", [])
-        if len(tags) == 1:
-            group_strs.append(tags[0])
-        elif len(tags) > 1:
-            group_strs.append(f"({' AND '.join(tags)})")
-
-    return f" {group_operator} ".join(group_strs) if group_strs else "All items"
-```
+Register the new router.
 
 ### Testing Strategy
 
 Create `backend/tests/api/test_mcp_context.py`:
 
-1. **Test endpoint basics:**
-   - Authenticated request returns 200 with correct schema
-   - Unauthenticated request returns 401
-   - Query parameters are respected (tag_limit, recent_limit, preview_length)
+**Content context tests:**
 
-2. **Test counts accuracy:**
-   - Create known number of bookmarks and notes
-   - Verify counts match
-   - Verify archived items are counted separately
+1. **Basic response:** Create bookmarks and notes, verify response has correct schema
+2. **Counts:** Create known items (active + archived), verify counts are accurate
+3. **Tags:** Create items with tags, verify top_tags sorted by filter_count/content_count and limited by `tag_limit`
+4. **Filters in sidebar order:** Create filters, set sidebar order, verify filters appear in that order
+5. **Filters only (no builtins):** Verify "all", "archived", "trash" builtins are excluded
+6. **Recent items by last_used_at:** Create items, call track_usage on some, verify order
+7. **Recently created/modified:** Verify correct sort order
+8. **Preview truncation:** Create item with long content, verify preview respects `preview_length`
+9. **Description included:** Create item with description, verify it appears; create without, verify null
+10. **Empty state:** New user, verify valid response with empty lists and zero counts
+11. **Auth:** Unauthenticated request returns 401
 
-3. **Test top tags:**
-   - Create items with various tags
-   - Verify tags are sorted by count
-   - Verify `content_types` field is accurate
+**Prompt context tests:**
 
-4. **Test filters:**
-   - Create custom filters
-   - Verify they appear in sidebar order
-   - Verify description is human-readable
-
-5. **Test recent items:**
-   - Create items with different timestamps
-   - Verify `recent_items` sorted by `last_used_at`
-   - Verify `recently_created` sorted by `created_at`
-   - Verify `recently_modified` sorted by `updated_at`
-   - Verify preview is truncated to `preview_length`
-
-6. **Test tag pairs (if implemented):**
-   - Create items with overlapping tags
-   - Verify pairs are detected and counted
-
-7. **Test empty state:**
-   - New user with no content returns valid response with empty lists and zero counts
+1. **Basic response:** Create prompts, verify schema
+2. **Counts:** Active + archived counts
+3. **Arguments included:** Verify prompts include their arguments list
+4. **Prompt name included:** Verify `name` field is present (used for name-based endpoints)
+5. **Filters scoped to prompts:** Verify only filters with `content_types` including "prompt" appear
+6. **Recently used/created/modified:** Correct sort order
+7. **Empty state:** Valid response with no prompts
+8. **Auth:** 401 on unauthenticated request
 
 ### Dependencies
 
@@ -300,321 +479,138 @@ None - this is the first milestone.
 
 ### Risk Factors
 
-- **Performance:** Multiple queries in one request. Use `asyncio.gather()` for parallelism. Monitor response times.
-- **Tag pairs complexity:** The tag co-occurrence query may be complex. Assess and defer if needed.
-- **Preview truncation:** Ensure preview doesn't break mid-word or mid-unicode character.
+- **Tag filtering for prompts:** The existing tag service returns combined counts across all content types. For prompt context, we may want prompt-only counts. The agent should investigate whether this is feasible without significant changes. If complex, use combined counts initially and note it as a future improvement.
+- **Sidebar service requires filters list:** `get_computed_sidebar()` takes a `filters` parameter. The agent should check the calling convention and ensure we have the filters available before calling it.
+- **Performance:** Multiple parallel queries. Should be fast with `asyncio.gather()` but monitor.
 
 ---
 
-## Milestone 2: API Endpoint for Prompt Context
+## Milestone 2: Content MCP Server Tool
 
 ### Goal
 
-Create `GET /mcp/context/prompts` endpoint that returns aggregated context about a user's prompts.
+Add `get_context` tool to the Content MCP Server that calls `GET /mcp/context/content` and returns **markdown** (not JSON).
 
 ### Success Criteria
 
-- Endpoint returns JSON with prompt counts, top tags, filters, recent prompts, and argument vocabulary
-- Prompts include their arguments list for discoverability
-- Response is optimized for LLM consumption
-- Tests cover all response sections
-
-### Key Changes
-
-**Update: `backend/src/schemas/mcp_context.py`**
-
-Add prompt-specific schemas:
-
-```python
-class PromptContextCounts(BaseModel):
-    active: int
-    archived: int
-
-class PromptArgument(BaseModel):
-    name: str
-    description: str | None
-    required: bool
-
-class ContextPrompt(BaseModel):
-    id: UUID
-    name: str
-    title: str | None
-    description: str | None
-    preview: str | None = Field(description="First N characters of template")
-    arguments: list[PromptArgument]
-    tags: list[str]
-    last_used_at: datetime
-    created_at: datetime
-    updated_at: datetime
-
-class CommonArgument(BaseModel):
-    name: str = Field(description="Argument name used across multiple prompts")
-    appears_in: int = Field(description="Number of prompts using this argument")
-    usually_required: bool = Field(description="Whether this argument is usually marked required")
-
-class PromptContext(BaseModel):
-    generated_at: datetime
-    counts: PromptContextCounts
-    top_tags: list[ContextTag]
-    filters: list[ContextFilter] = Field(
-        description="Prompt filters in sidebar order"
-    )
-    common_arguments: list[CommonArgument] = Field(
-        description="Argument names used across multiple prompts - helps maintain consistent naming"
-    )
-    recently_used: list[ContextPrompt] = Field(
-        description="Recently used prompts (by last_used_at) - most relevant for agents"
-    )
-    recently_created: list[ContextPrompt]
-    recently_modified: list[ContextPrompt]
-```
-
-**Update: `backend/src/services/mcp_context_service.py`**
-
-Add prompt context method:
-
-```python
-async def get_prompt_context(
-    self,
-    db: AsyncSession,
-    user_id: UUID,
-    tag_limit: int = 20,
-    recent_limit: int = 10,
-    preview_length: int = 200,
-) -> PromptContext:
-    """
-    Aggregate prompt context for MCP consumption.
-    """
-    counts, tags, filters, recent, created, modified, common_args = await asyncio.gather(
-        self._get_prompt_counts(db, user_id),
-        self._get_prompt_tags(db, user_id, tag_limit),
-        self._get_prompt_filters(db, user_id),
-        self._get_recent_prompts(db, user_id, recent_limit, preview_length, sort_by="last_used_at"),
-        self._get_recent_prompts(db, user_id, recent_limit, preview_length, sort_by="created_at"),
-        self._get_recent_prompts(db, user_id, recent_limit, preview_length, sort_by="updated_at"),
-        self._get_common_arguments(db, user_id, limit=15),
-    )
-
-    return PromptContext(
-        generated_at=datetime.now(UTC),
-        counts=counts,
-        top_tags=tags,
-        filters=filters,
-        common_arguments=common_args,
-        recently_used=recent,
-        recently_created=created,
-        recently_modified=modified,
-    )
-```
-
-**Update: `backend/src/api/routers/mcp.py`**
-
-Add prompt context endpoint:
-
-```python
-@router.get("/context/prompts", response_model=PromptContext)
-async def get_prompt_context(
-    tag_limit: int = Query(default=20, ge=1, le=100),
-    recent_limit: int = Query(default=10, ge=1, le=50),
-    preview_length: int = Query(default=200, ge=50, le=500),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_async_session),
-) -> PromptContext:
-    """
-    Get aggregated context about user's prompts for AI agent consumption.
-
-    Returns counts, top tags, common argument names, and recent prompts
-    optimized for LLM context windows.
-    """
-    return await mcp_context_service.get_prompt_context(
-        db=db,
-        user_id=current_user.id,
-        tag_limit=tag_limit,
-        recent_limit=recent_limit,
-        preview_length=preview_length,
-    )
-```
-
-### Implementation Notes: Common Arguments
-
-Query the arguments JSON field across all prompts to find frequently used argument names:
-
-```python
-async def _get_common_arguments(
-    self,
-    db: AsyncSession,
-    user_id: UUID,
-    limit: int = 15,
-) -> list[CommonArgument]:
-    """
-    Find argument names that appear across multiple prompts.
-
-    This helps agents use consistent naming when creating new prompts.
-    """
-    # Prompts store arguments as JSONB array
-    # Need to unnest and aggregate
-    #
-    # Approach:
-    # 1. Fetch all active prompts for user
-    # 2. Flatten arguments in Python (simpler than PostgreSQL JSONB operations)
-    # 3. Count occurrences and calculate usually_required
-    #
-    # If performance becomes an issue, this could be a PostgreSQL query
-    # using jsonb_array_elements
-```
-
-### Testing Strategy
-
-Add to `backend/tests/api/test_mcp_context.py`:
-
-1. **Test endpoint basics:**
-   - Authenticated request returns 200 with correct schema
-   - Query parameters work correctly
-
-2. **Test counts accuracy:**
-   - Create known prompts
-   - Verify counts match
-
-3. **Test prompt-specific tags:**
-   - Verify only prompt tags are returned (not bookmark/note tags)
-
-4. **Test common arguments:**
-   - Create prompts with overlapping argument names
-   - Verify common arguments are detected
-   - Verify `usually_required` is calculated correctly
-
-5. **Test recent prompts:**
-   - Verify arguments list is included
-   - Verify preview is truncated
-
-6. **Test empty state:**
-   - User with no prompts returns valid response
-
-### Dependencies
-
-Milestone 1 (shared infrastructure)
-
-### Risk Factors
-
-- **Arguments extraction:** The JSONB query for common arguments may need optimization for users with many prompts.
-
----
-
-## Milestone 3: Content MCP Server Tool
-
-### Goal
-
-Add `get_context` tool to the Content MCP Server that calls `GET /mcp/context/content`.
-
-### Success Criteria
-
-- `get_context` tool is available in Content MCP Server
-- Tool documentation clearly explains what context is returned
-- Tool parameters allow customization (tag_limit, recent_limit, preview_length)
-- MCP server instructions updated to mention this tool
+- `get_context` tool returns markdown text (not structured JSON)
+- Markdown matches the target format documented above
+- Tool description explains what context is returned and recommends calling at session start
+- MCP server instructions updated
+- Frontend settings page updated
 
 ### Key Changes
 
 **Update: `backend/src/mcp_server/server.py`**
 
-Add the tool:
+Add the tool. The key difference from other tools: this one converts the JSON API response to markdown.
 
 ```python
 @mcp.tool(
     description="""Get a summary of the user's bookmarks and notes.
 
 Use this at the START of a session to understand:
-- What content exists (counts by type)
-- How content is organized (top tags, custom filters)
-- What the user is actively working with (recent items)
-- Tag relationships (which tags appear together)
+- What content the user has (counts by type)
+- How content is organized (top tags, custom filters in priority order)
+- What the user is actively working with (recently used, created, modified items)
 
-This replaces the need for multiple exploratory queries. The response includes:
-- Content counts (active/archived bookmarks and notes)
-- Top tags with usage counts and which content types use them
-- Tag pairs that frequently co-occur (reveals categorization patterns)
-- Custom filters in user-defined priority order
-- Recently used, created, and modified items with previews
-
-Call this first, then use search_items or get_item for specific content.""",
+Returns a markdown summary optimized for quick understanding. Use IDs from
+the response with get_item for full content. Use tag names with search_items
+to find related content.""",
     annotations={"readOnlyHint": True},
 )
 async def get_context(
-    tag_limit: Annotated[
-        int,
-        Field(default=20, ge=1, le=100, description="Number of top tags to include"),
-    ] = 20,
-    recent_limit: Annotated[
-        int,
-        Field(default=10, ge=1, le=50, description="Number of recent items per category"),
-    ] = 10,
-    preview_length: Annotated[
-        int,
-        Field(default=200, ge=50, le=500, description="Character limit for content previews"),
-    ] = 200,
-) -> dict[str, Any]:
-    """Get aggregated context about user's bookmarks and notes."""
-    client = await _get_http_client()
-    token = _get_token()
-
-    params = {
-        "tag_limit": tag_limit,
-        "recent_limit": recent_limit,
-        "preview_length": preview_length,
-    }
-
-    return await api_get(client, "/mcp/context/content", token, params)
+    tag_limit: Annotated[int, Field(default=20, ge=1, le=100, description="Number of top tags")] = 20,
+    recent_limit: Annotated[int, Field(default=10, ge=1, le=50, description="Recent items per category")] = 10,
+    preview_length: Annotated[int, Field(default=200, ge=50, le=500, description="Preview character limit")] = 200,
+) -> str:
+    # 1. Call API endpoint
+    data = await api_get(client, "/mcp/context/content", token, params)
+    # 2. Convert to markdown
+    return _format_content_context_markdown(data)
 ```
 
-**Update MCP server instructions** in the same file:
+The `_format_content_context_markdown(data: dict) -> str` function builds the markdown string from the API response. This is where the explanatory prose lives (what filters are, what filter_count means, etc.).
 
-Add to the instructions string:
-- Document `get_context` tool in the tool list
-- Recommend calling it at session start
-- Explain what each section of the response contains
+Key formatting responsibilities:
+- Render filter expressions as human-readable rules: `(work AND project) OR (client)`
+- Format items with `[type id]` suffix
+- Include description only when present
+- Include preview
+- Format tags as comma-separated
+
+**Utility function for filter expression rendering:**
+
+```python
+def _format_filter_expression(expr: dict) -> str:
+    """
+    Convert filter expression to human-readable rule string.
+
+    Example: {"groups": [{"tags": ["work", "project"]}, {"tags": ["client"]}], "group_operator": "OR"}
+    Returns: "(work AND project) OR (client)"
+    """
+    groups = expr.get("groups", [])
+    group_operator = expr.get("group_operator", "OR")
+    parts = []
+    for group in groups:
+        tags = group.get("tags", [])
+        if len(tags) == 1:
+            parts.append(tags[0])
+        elif len(tags) > 1:
+            parts.append(f"({' AND '.join(tags)})")
+    return f" {group_operator} ".join(parts) if parts else "All items"
+```
+
+**Update MCP server instructions** to document the new tool.
+
+**Update: `frontend/src/pages/settings/SettingsMCP.tsx`**
+
+Add `get_context` to the tool list: "Get context summary of bookmarks and notes"
 
 ### Testing Strategy
 
 Add to `backend/tests/mcp_server/`:
 
-1. **Test tool availability:**
-   - Tool appears in tool list
-   - Tool schema shows correct parameters
-
-2. **Test tool execution:**
-   - Returns structured response
-   - Parameters are passed correctly to API
-
-3. **Test error handling:**
-   - Auth error returns appropriate error
+1. **Tool availability:** Tool appears in tool list with correct schema
+2. **Markdown output format:** Call tool, verify output is a string containing expected markdown sections (## Overview, ## Top Tags, ## Filters, ## Recently Used, etc.)
+3. **Filter expression rendering:** Unit test `_format_filter_expression` with various expressions:
+   - Single tag group: `(python)` → `python`
+   - Multi-tag group: `(work AND project)`
+   - Multiple groups with OR: `(work AND project) OR (client)`
+   - Empty expression: `All items`
+4. **Item formatting:** Verify items include `[type id]`, description when present, preview
+5. **Empty state:** Returns valid markdown with zero counts and no items
+6. **Auth error:** Returns appropriate error
 
 ### Dependencies
 
-Milestones 1 and 2 (API endpoints must exist)
+Milestone 1 (API endpoints)
 
 ### Risk Factors
 
-- None significant - straightforward API proxy
+- **Markdown formatting:** Getting the markdown format right is iterative. The format defined in this plan is a starting point — adjust based on testing.
 
 ---
 
-## Milestone 4: Prompt MCP Server Tool
+## Milestone 3: Prompt MCP Server Tool
 
 ### Goal
 
-Add `get_context` tool to the Prompt MCP Server that calls `GET /mcp/context/prompts`.
+Add `get_context` tool to the Prompt MCP Server that calls `GET /mcp/context/prompts` and returns **markdown**.
 
 ### Success Criteria
 
-- `get_context` tool is available in Prompt MCP Server
-- Tool documentation explains prompt-specific context
+- `get_context` tool returns markdown text
+- Markdown matches the target format documented above
+- Prompt items include name, title, description, arguments, preview
 - MCP server instructions updated
+- Frontend settings page updated
 
 ### Key Changes
 
 **Update: `backend/src/prompt_mcp_server/server.py`**
 
-Add to the tool list in `handle_list_tools()`:
+Add to tool list in `handle_list_tools()`:
 
 ```python
 types.Tool(
@@ -622,166 +618,145 @@ types.Tool(
     description="""Get a summary of the user's prompts.
 
 Use this at the START of a session to understand:
-- What prompts exist (counts)
-- How prompts are organized (tags, filters)
-- Common argument naming patterns (for consistency when creating new prompts)
-- What prompts the user frequently uses (recently_used)
+- What prompts the user has (counts)
+- How prompts are organized (tags, filters in priority order)
+- What prompts the user frequently uses (recently used)
 
-This replaces the need for multiple exploratory queries. The response includes:
-- Prompt counts (active/archived)
-- Top tags with usage counts
-- Common argument names across prompts (helps maintain consistent naming)
-- Custom filters in user-defined priority order
-- Recently used, created, and modified prompts with previews and arguments
-
-Call this first, then use search_prompts or get_prompt_template for specific prompts.""",
+Returns a markdown summary optimized for quick understanding. Use prompt
+names from the response with get_prompt_content for full templates.
+Use tag names with search_prompts to find related prompts.""",
     inputSchema={
         "type": "object",
         "properties": {
-            "tag_limit": {
-                "type": "integer",
-                "description": "Number of top tags to include",
-                "default": 20,
-                "minimum": 1,
-                "maximum": 100,
-            },
-            "recent_limit": {
-                "type": "integer",
-                "description": "Number of recent prompts per category",
-                "default": 10,
-                "minimum": 1,
-                "maximum": 50,
-            },
-            "preview_length": {
-                "type": "integer",
-                "description": "Character limit for template previews",
-                "default": 200,
-                "minimum": 50,
-                "maximum": 500,
-            },
+            "tag_limit": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100,
+                          "description": "Number of top tags"},
+            "recent_limit": {"type": "integer", "default": 10, "minimum": 1, "maximum": 50,
+                             "description": "Recent prompts per category"},
+            "preview_length": {"type": "integer", "default": 200, "minimum": 50, "maximum": 500,
+                               "description": "Preview character limit"},
         },
     },
     annotations=types.ToolAnnotations(readOnlyHint=True),
 )
 ```
 
-Add handler:
+Add handler that calls the API and converts to markdown:
 
 ```python
 async def _handle_get_context(arguments: dict[str, Any]) -> types.CallToolResult:
-    """Handle get_context tool call."""
-    client = await _get_http_client()
-    token = get_bearer_token()
-
-    params = {
-        "tag_limit": arguments.get("tag_limit", 20),
-        "recent_limit": arguments.get("recent_limit", 10),
-        "preview_length": arguments.get("preview_length", 200),
-    }
-
-    result = await api_get(client, "/mcp/context/prompts", token, params)
-
+    data = await api_get(client, "/mcp/context/prompts", token, params)
+    markdown = _format_prompt_context_markdown(data)
     return types.CallToolResult(
-        content=[types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))],
-        structuredContent=result,
+        content=[types.TextContent(type="text", text=markdown)],
     )
 ```
 
-Update dispatch table to include `"get_context": _handle_get_context`.
+Note: **No `structuredContent`** — the whole point is to return compact markdown, not duplicate JSON.
 
-**Update MCP server instructions** in the same file.
+The `_format_prompt_context_markdown` function formats prompt items as:
+```
+1. **name** — "Title"
+   Tags: tag1, tag2
+   Description: ...  (only if present)
+   Args: `arg1` (required), `arg2` (required), `arg3`
+   Preview: First N chars of template...
+```
+
+The filter expression formatter can be shared (copied or extracted to a shared utility in `backend/src/shared/`).
+
+**Update MCP server instructions.**
+
+**Update: `frontend/src/pages/settings/SettingsMCP.tsx`**
+
+Add `get_context` to the prompt MCP tool list.
 
 ### Testing Strategy
 
 Add to `backend/tests/prompt_mcp_server/`:
 
-1. **Test tool availability:**
-   - Tool appears in tool list
-   - Tool schema shows correct parameters
-
-2. **Test tool execution:**
-   - Returns `CallToolResult` with `structuredContent`
-   - Parameters are passed correctly to API
+1. **Tool availability:** Tool in list with correct schema
+2. **Markdown output:** Verify sections present (## Overview, ## Top Tags, ## Filters, ## Recently Used, etc.)
+3. **Prompt formatting:** Verify items include name, title, args with required/optional markers, description when present, preview
+4. **No structured content:** Verify `CallToolResult` has no `structuredContent`
+5. **Empty state:** Valid markdown with zero counts
+6. **Auth error handling**
 
 ### Dependencies
 
-Milestones 1, 2, and 3
+Milestones 1 and 2 (API endpoints and content tool for shared patterns)
 
 ### Risk Factors
 
-- None significant
+- **Shared formatting code:** The filter expression formatter is needed by both MCP servers. Since they're separate packages, either duplicate the small utility or extract to `backend/src/shared/`. The agent should decide based on the codebase conventions.
 
 ---
 
-## Milestone 5: Documentation and Polish
+## Milestone 4: Documentation
 
 ### Goal
 
-Update all documentation and ensure consistent messaging.
+Update all documentation to reflect the new endpoints and tools.
 
 ### Success Criteria
 
-- CLAUDE.md updated with MCP context endpoints
+- CLAUDE.md updated with MCP context endpoints section
 - MCP server instructions are complete and consistent
-- Frontend settings page updated (if it lists MCP tools)
+- Frontend settings page lists `get_context` for both servers
+- No stale references anywhere
 
 ### Key Changes
 
 **Update: `CLAUDE.md`**
 
-Add section describing the MCP context endpoints:
+Add under the existing MCP section:
 
 ```markdown
 ### MCP Context Endpoints
 
-Dedicated endpoints for AI agent consumption:
+Dedicated endpoints for AI agent consumption, returning structured JSON:
 
-- `GET /mcp/context/content` - Summary of bookmarks/notes (counts, tags, filters, recent items)
-- `GET /mcp/context/prompts` - Summary of prompts (counts, tags, common arguments, recent prompts)
+- `GET /mcp/context/content` - Aggregated context about bookmarks/notes (counts, tags, filters, recent items)
+- `GET /mcp/context/prompts` - Aggregated context about prompts (counts, tags, filters, recent prompts with arguments)
 
-These provide agents with a "playbook" of context in a single request, replacing multiple exploratory queries.
+The MCP tools (`get_context`) convert this JSON to markdown optimized for LLM consumption.
 ```
 
-**Update: `frontend/src/pages/settings/SettingsMCP.tsx`**
-
-If tool lists are displayed, add `get_context` to both server sections:
-- Content MCP: "Get context summary for bookmarks and notes"
-- Prompt MCP: "Get context summary for prompts"
-
-**Verify MCP server instructions:**
-
-Both servers should have clear, consistent documentation for `get_context` in their instruction strings.
+**Verify:** MCP server instructions in both `server.py` files are complete.
 
 ### Testing Strategy
 
-- Manual review of all documentation
-- Grep for any inconsistencies in tool names or descriptions
-- Verify frontend displays correctly
+- Grep for consistency across documentation
+- Manual review
 
 ### Dependencies
 
-Milestones 1-4
+Milestones 1-3
 
 ### Risk Factors
 
-- None significant
+None
 
 ---
 
 ## Summary of Changes
 
+### New Files
+| File | Purpose |
+|------|---------|
+| `backend/src/schemas/mcp_context.py` | Pydantic response schemas for both endpoints |
+| `backend/src/services/mcp_context_service.py` | Service orchestrating existing services |
+| `backend/src/api/routers/mcp.py` | Router with both context endpoints |
+| `backend/tests/api/test_mcp_context.py` | API endpoint tests |
+
+### Modified Files
 | File | Change |
 |------|--------|
-| `backend/src/schemas/mcp_context.py` | New - Context response schemas |
-| `backend/src/services/mcp_context_service.py` | New - Context aggregation service |
-| `backend/src/api/routers/mcp.py` | New - MCP router with context endpoints |
 | `backend/src/api/main.py` | Register MCP router |
-| `backend/src/mcp_server/server.py` | Add `get_context` tool, update instructions |
-| `backend/src/prompt_mcp_server/server.py` | Add `get_context` tool, update instructions |
-| `backend/tests/api/test_mcp_context.py` | New - API endpoint tests |
-| `backend/tests/mcp_server/test_*.py` | Add `get_context` tool tests |
-| `backend/tests/prompt_mcp_server/test_*.py` | Add `get_context` tool tests |
-| `frontend/src/pages/settings/SettingsMCP.tsx` | Update tool list |
+| `backend/src/mcp_server/server.py` | Add `get_context` tool + markdown formatter + update instructions |
+| `backend/src/prompt_mcp_server/server.py` | Add `get_context` tool + markdown formatter + update instructions |
+| `backend/tests/mcp_server/test_*.py` | Tests for content `get_context` tool |
+| `backend/tests/prompt_mcp_server/test_*.py` | Tests for prompt `get_context` tool |
+| `frontend/src/pages/settings/SettingsMCP.tsx` | Add `get_context` to both tool lists |
 | `CLAUDE.md` | Document MCP context endpoints |
 
 ---
@@ -790,12 +765,10 @@ Milestones 1-4
 
 These were discussed but are intentionally deferred:
 
-1. **Usage frequency tracking** - Count of how many times each item/prompt is used (not just `last_used_at`)
-2. **Tag descriptions** - Let users define what their tags mean
-3. **Content relationships** - Explicit links between items
-4. **Top domains** (bookmarks) - Which sites the user bookmarks from most
-5. **Note structure patterns** - Detection of headers, code blocks, lists in notes
-6. **Template complexity distribution** - Simple vs conditional vs loop prompts
+1. **Usage frequency tracking** - Count of uses, not just `last_used_at`
+2. **Tag co-occurrence** - Pairs of tags that frequently appear together
+3. **Top domains** (bookmarks) - Which sites the user bookmarks from most
+4. **Tag descriptions** - User-defined tag meanings
+5. **Content relationships** - Explicit links between items
+6. **Per-type tag counts** - Show prompt-only vs bookmark-only tag counts
 7. **Stale content indicators** - Items not used in N days
-
-These can be added in future iterations based on user feedback.
