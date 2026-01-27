@@ -35,9 +35,8 @@ Generated: 2026-01-25T10:30:00Z
 - **Notes:** 75 active, 5 archived
 
 ## Top Tags
-Tags are used to categorize content. `filters` indicates how many of the
-user's custom filters reference this tag — higher filter count suggests
-the tag is more important to the user's workflow.
+Tags are used to categorize content. A tag referenced by any filter
+indicates it is important to the user's workflow.
 
 | Tag | Items | Filters |
 |-----|-------|---------|
@@ -65,26 +64,31 @@ Groups are combined with the group operator (OR = any group matches).
 
 ## Recently Used
 1. **Python Documentation** `[bookmark f47ac10b-e29b-41d4-a716-446655440000]`
+   Last used: 2026-01-25T08:30:00Z
    Tags: python, reference
    Description: Official Python 3.x documentation and standard library reference
    Preview: The Python Language Reference describes the exact syntax and semantics of...
 
 2. **Meeting Notes 2026-01-20** `[note 7c9e6679-e29b-41d4-a716-446655440000]`
+   Last used: 2026-01-25T05:30:00Z
    Tags: work, meeting
    Preview: Discussed the new authentication flow. Key decisions: 1) Use JWT...
 
 3. **FastAPI Tutorial** `[bookmark 6ba7b810-e29b-41d4-a716-446655440000]`
+   Last used: 2026-01-24T10:30:00Z
    Tags: python, tutorial
    Description: Step-by-step guide to building APIs with FastAPI
    Preview: FastAPI is a modern, fast web framework for building APIs with Python...
 
 ## Recently Created
 1. **Project Ideas** `[note 9a8b7c6d-e29b-41d4-a716-446655440000]`
+   Created: 2026-01-25T07:30:00Z
    Tags: ideas
    Preview: Potential projects for Q1: 1) CLI tool for...
 
 ## Recently Modified
 1. **Architecture Notes** `[note 1a2b3c4d-e29b-41d4-a716-446655440000]`
+   Modified: 2026-01-25T09:30:00Z
    Tags: work, architecture
    Preview: Updated the service layer diagram to reflect...
 ```
@@ -100,8 +104,8 @@ Generated: 2026-01-25T10:30:00Z
 - **Prompts:** 30 active, 2 archived
 
 ## Top Tags
-Tags are used to categorize prompts. `filters` indicates how many of the
-user's custom filters reference this tag.
+Tags are used to categorize prompts. A tag referenced by any filter
+indicates it is important to the user's workflow.
 
 | Tag | Prompts | Filters |
 |-----|---------|---------|
@@ -125,17 +129,20 @@ Groups are combined with the group operator (OR = any group matches).
 
 ## Recently Used
 1. **code-review** — "Code Review Assistant"
+   Last used: 2026-01-25T08:30:00Z
    Tags: code-review, development
    Description: Reviews code for common bugs, style issues, and suggests improvements
    Args: `language` (required), `code` (required), `focus_areas`
    Preview: Review the following {{ language }} code for bugs, style...
 
 2. **summarize-article** — "Article Summarizer"
+   Last used: 2026-01-24T15:00:00Z
    Tags: summarize, writing
    Args: `article_text` (required), `length`
    Preview: Summarize the following article in {{ length }} or fewer...
 
 3. **explain-code** — "Code Explainer"
+   Last used: 2026-01-24T10:00:00Z
    Tags: code-review
    Description: Explains code at the appropriate level for the target audience
    Args: `code` (required), `audience`
@@ -143,6 +150,7 @@ Groups are combined with the group operator (OR = any group matches).
 
 ## Recently Created
 1. **meeting-notes** — "Meeting Notes Generator"
+   Created: 2026-01-23T14:00:00Z
    Tags: writing, work
    Description: Generates structured meeting notes from raw notes
    Args: `raw_notes` (required), `attendees`
@@ -150,6 +158,7 @@ Groups are combined with the group operator (OR = any group matches).
 
 ## Recently Modified
 1. **code-review** — "Code Review Assistant"
+   Modified: 2026-01-25T09:00:00Z
    Tags: code-review, development
    Description: Reviews code for common bugs, style issues, and suggests improvements
    Args: `language` (required), `code` (required), `focus_areas`
@@ -186,7 +195,7 @@ Based on the markdown output above, here is what each API endpoint needs to prov
             }
         }
     ],
-    "recent_items": [
+    "recently_used": [
         {
             "type": "bookmark",
             "id": "uuid",
@@ -211,7 +220,7 @@ Based on the markdown output above, here is what each API endpoint needs to prov
 | `counts` | `SELECT COUNT(*) ... GROUP BY` per type and status | New query (trivial) |
 | `top_tags` | Existing `TagCount` schema already has `content_count` and `filter_count` | **Existing** - reuse tag service |
 | `filters` | Existing `ContentFilterResponse` + sidebar ordering | **Existing** - combine filter service + sidebar service |
-| `recent_items` | Existing unified content search with `sort_by=last_used_at` | **Existing** - `ContentListItem` already has all needed fields |
+| `recently_used` | Existing unified content search with `sort_by=last_used_at` | **Existing** - `ContentListItem` already has all needed fields |
 | `recently_created` | Same with `sort_by=created_at` | **Existing** |
 | `recently_modified` | Same with `sort_by=updated_at` | **Existing** |
 
@@ -281,6 +290,32 @@ Based on the markdown output above, here is what each API endpoint needs to prov
 
 ---
 
+## Performance: Concurrent Queries
+
+Each context endpoint runs ~7 queries (counts, tags, filters, recent items × 3 sort orders). All are lightweight reads. These should run concurrently.
+
+**Key constraint:** A single SQLAlchemy `AsyncSession` wraps a single database connection, which can only process one query at a time. To run queries concurrently, each coroutine needs its own session from the session factory.
+
+```python
+async def get_content_context(self, session_factory, user_id, ...):
+    async def _query(fn, *args):
+        async with session_factory() as db:
+            return await fn(db, *args)
+
+    counts, tags, filters, recent, created, modified = await asyncio.gather(
+        _query(self._get_counts, user_id),
+        _query(self._get_tags, user_id, tag_limit),
+        _query(self._get_filters, user_id),
+        _query(self._get_recent, user_id, recent_limit, "last_used_at"),
+        _query(self._get_recent, user_id, recent_limit, "created_at"),
+        _query(self._get_recent, user_id, recent_limit, "updated_at"),
+    )
+```
+
+This means the router passes a **session factory** (the `async_sessionmaker`) rather than a session instance. The implementing agent should check how `get_async_session` is implemented and determine the best way to expose the factory — either via a new dependency or by importing the factory directly in the service.
+
+---
+
 ## Milestone 1: API Endpoints
 
 ### Goal
@@ -341,7 +376,7 @@ class ContentContextResponse(BaseModel):
     counts: ContentContextCounts
     top_tags: list[ContextTag]
     filters: list[ContextFilter]
-    recent_items: list[ContextItem]
+    recently_used: list[ContextItem]
     recently_created: list[ContextItem]
     recently_modified: list[ContextItem]
 ```
@@ -373,37 +408,32 @@ class PromptContextResponse(BaseModel):
 
 **New file: `backend/src/services/mcp_context_service.py`**
 
-Service that orchestrates existing services with `asyncio.gather()` for parallel queries:
+Service that orchestrates existing services. See "Performance: Concurrent Queries" section above — uses `asyncio.gather()` with separate sessions per query.
 
 ```python
 class MCPContextService:
     async def get_content_context(
         self,
-        db: AsyncSession,
+        session_factory: async_sessionmaker,
         user_id: UUID,
-        tag_limit: int = 20,
+        tag_limit: int = 50,
         recent_limit: int = 10,
         preview_length: int = 200,
     ) -> ContentContextResponse:
-        # Parallel queries:
-        # 1. Count bookmarks by status
-        # 2. Count notes by status
-        # 3. Get top tags (reuse tag_service.get_tags)
-        # 4. Get filters in sidebar order
-        # 5. Search content sorted by last_used_at
-        # 6. Search content sorted by created_at
-        # 7. Search content sorted by updated_at
+        # Concurrent queries via asyncio.gather()
+        # Each query gets its own session from the factory
+        # See Performance section for pattern
         ...
 
     async def get_prompt_context(
         self,
-        db: AsyncSession,
+        session_factory: async_sessionmaker,
         user_id: UUID,
-        tag_limit: int = 20,
+        tag_limit: int = 50,
         recent_limit: int = 10,
         preview_length: int = 200,
     ) -> PromptContextResponse:
-        # Similar parallel queries, prompt-specific
+        # Same concurrent pattern, prompt-specific
         ...
 ```
 
@@ -421,9 +451,9 @@ router = APIRouter(prefix="/mcp", tags=["MCP"])
 
 @router.get("/context/content", response_model=ContentContextResponse)
 async def get_content_context(
-    tag_limit: int = Query(default=20, ge=1, le=100),
+    tag_limit: int = Query(default=50, ge=1, le=100),
     recent_limit: int = Query(default=10, ge=1, le=50),
-    preview_length: int = Query(default=200, ge=50, le=500),
+    preview_length: int = Query(default=500, ge=50, le=500),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> ContentContextResponse:
@@ -431,9 +461,9 @@ async def get_content_context(
 
 @router.get("/context/prompts", response_model=PromptContextResponse)
 async def get_prompt_context(
-    tag_limit: int = Query(default=20, ge=1, le=100),
+    tag_limit: int = Query(default=50, ge=1, le=100),
     recent_limit: int = Query(default=10, ge=1, le=50),
-    preview_length: int = Query(default=200, ge=50, le=500),
+    preview_length: int = Query(default=500, ge=50, le=500),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> PromptContextResponse:
@@ -445,6 +475,24 @@ async def get_prompt_context(
 Register the new router.
 
 ### Testing Strategy
+
+Tests follow the existing pattern: real PostgreSQL via testcontainers (session-scoped), per-test transaction rollback for isolation, no mocking of the DB layer. Tests create data via HTTP endpoints (`client.post("/bookmarks/", json={...})`) and then call the context endpoint to verify the aggregated response.
+
+**Test infrastructure for concurrent queries:** The context service uses a session factory (not a single session) for `asyncio.gather()`. The existing `client` fixture overrides `get_async_session` to yield a single test session. We need an additional fixture or dependency override for the session factory that creates sessions bound to the same test transaction:
+
+```python
+@pytest.fixture
+async def db_session_factory(db_connection: AsyncConnection) -> async_sessionmaker:
+    """Session factory bound to the test transaction (for concurrent query tests)."""
+    return async_sessionmaker(
+        bind=db_connection,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+```
+
+The `client` fixture (or the router) needs to inject this factory so that concurrent queries in the context service all participate in the same test transaction and see the same test data. The implementing agent should determine how to wire this — likely a new FastAPI dependency that the `client` fixture overrides.
 
 Create `backend/tests/api/test_mcp_context.py`:
 
@@ -481,7 +529,7 @@ None - this is the first milestone.
 
 - **Tag filtering for prompts:** The existing tag service returns combined counts across all content types. For prompt context, we may want prompt-only counts. The agent should investigate whether this is feasible without significant changes. If complex, use combined counts initially and note it as a future improvement.
 - **Sidebar service requires filters list:** `get_computed_sidebar()` takes a `filters` parameter. The agent should check the calling convention and ensure we have the filters available before calling it.
-- **Performance:** Multiple parallel queries. Should be fast with `asyncio.gather()` but monitor.
+- **Performance:** See "Performance: Concurrent Queries" section. Need to pass session factory, not single session.
 
 ---
 
@@ -520,9 +568,9 @@ to find related content.""",
     annotations={"readOnlyHint": True},
 )
 async def get_context(
-    tag_limit: Annotated[int, Field(default=20, ge=1, le=100, description="Number of top tags")] = 20,
+    tag_limit: Annotated[int, Field(default=50, ge=1, le=100, description="Number of top tags")] = 20,
     recent_limit: Annotated[int, Field(default=10, ge=1, le=50, description="Recent items per category")] = 10,
-    preview_length: Annotated[int, Field(default=200, ge=50, le=500, description="Preview character limit")] = 200,
+    preview_length: Annotated[int, Field(default=500, ge=50, le=500, description="Preview character limit")] = 200,
 ) -> str:
     # 1. Call API endpoint
     data = await api_get(client, "/mcp/context/content", token, params)
@@ -628,11 +676,11 @@ Use tag names with search_prompts to find related prompts.""",
     inputSchema={
         "type": "object",
         "properties": {
-            "tag_limit": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100,
+            "tag_limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 100,
                           "description": "Number of top tags"},
             "recent_limit": {"type": "integer", "default": 10, "minimum": 1, "maximum": 50,
                              "description": "Recent prompts per category"},
-            "preview_length": {"type": "integer", "default": 200, "minimum": 50, "maximum": 500,
+            "preview_length": {"type": "integer", "default": 500, "minimum": 50, "maximum": 500,
                                "description": "Preview character limit"},
         },
     },
