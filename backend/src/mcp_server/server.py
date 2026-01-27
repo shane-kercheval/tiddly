@@ -263,12 +263,13 @@ async def search_items(
     description=(
         "Get a bookmark or note by ID. By default includes full content. "
         "Use include_content=false to get content_length and content_preview for size assessment "
-        "before loading large content."
+        "before loading large content. "
+        "Supports partial reads via start_line/end_line for large documents."
     ),
     annotations={"readOnlyHint": True},
 )
 async def get_item(
-    id: Annotated[str, Field(description="The item ID (UUID)")],  # noqa: A002
+    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
         Field(description="Item type: 'bookmark' or 'note'"),
@@ -352,14 +353,21 @@ async def get_item(
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
 async def edit_content(
-    id: Annotated[str, Field(description="The item ID (UUID)")],  # noqa: A002
+    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
         Field(description="Item type: 'bookmark' or 'note'"),
     ],
     old_str: Annotated[
         str,
-        Field(description="Exact text to find. Include surrounding context for uniqueness."),
+        Field(
+            description=(
+                "Exact text to find. Must match exactly one location. "
+                "If not found, returns no_match error (whitespace normalization is automatic). "
+                "If multiple matches, returns multiple_matches error with line numbers and "
+                "context to help construct a unique match."
+            ),
+        ),
     ],
     new_str: Annotated[
         str,
@@ -424,7 +432,7 @@ async def edit_content(
     annotations={"readOnlyHint": True},
 )
 async def search_in_content(
-    id: Annotated[str, Field(description="The item ID (UUID)")],  # noqa: A002
+    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
         Field(description="Item type: 'bookmark' or 'note'"),
@@ -502,7 +510,7 @@ async def search_in_content(
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
 async def update_item(
-    id: Annotated[str, Field(description="The item ID (UUID)")],  # noqa: A002
+    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
         Field(description="Item type: 'bookmark' or 'note'"),

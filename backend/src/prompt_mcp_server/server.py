@@ -441,8 +441,9 @@ async def handle_list_tools() -> list[types.Tool]:
             description=(
                 "Get a prompt's Jinja2 template and arguments for viewing or editing. "
                 "Returns the raw template text AND the argument definitions list. "
-                "Use before edit_prompt_content to see the current template and construct "
-                "the old_str for string replacement."
+                "Supports partial reads via start_line/end_line for large templates; "
+                "response includes content_metadata with total_lines and is_partial flag. "
+                "Use get_prompt_metadata first to check prompt_length before loading large templates."
             ),
             inputSchema={
                 "type": "object",
@@ -451,7 +452,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": (
                             "The prompt name (e.g., 'code-review'). "
-                            "Get names from list_prompts."
+                            "Use search_prompts if you need to discover prompt names."
                         ),
                     },
                     "start_line": {
@@ -484,7 +485,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": (
                             "The prompt name (e.g., 'code-review'). "
-                            "Get names from list_prompts or search_prompts."
+                            "Use search_prompts if you need to discover prompt names."
                         ),
                     },
                 },
@@ -580,7 +581,8 @@ async def handle_list_tools() -> list[types.Tool]:
                 "Examples: fix a typo, add a paragraph, remove a section, rename a variable. "
                 "Use get_prompt_content first to see the current template and construct old_str. "
                 "When adding/removing template variables, you must also update the arguments list "
-                "(it replaces all existing arguments, so include the ones you want to keep)."
+                "(it replaces all existing arguments, so include the ones you want to keep). "
+                "Fails with structured error if old_str matches 0 or multiple locations."
             ),
             inputSchema={
                 "type": "object",
@@ -589,7 +591,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": (
                             "The prompt name (e.g., 'code-review'). "
-                            "Get names from list_prompts."
+                            "Use search_prompts if you need to discover prompt names."
                         ),
                     },
                     "old_str": {
@@ -597,6 +599,9 @@ async def handle_list_tools() -> list[types.Tool]:
                         "minLength": 1,
                         "description": (
                             "Exact text to find in the template. Must match exactly one location. "
+                            "If not found, returns no_match error (whitespace normalization is "
+                            "automatic). If multiple matches, returns multiple_matches error with "
+                            "line numbers and context to help construct a unique match."
                         ),
                     },
                     "new_str": {
