@@ -443,7 +443,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "Returns the raw template text AND the argument definitions list. "
                 "Supports partial reads via start_line/end_line for large templates; "
                 "response includes content_metadata with total_lines and is_partial flag. "
-                "Use get_prompt_metadata first to check prompt_length before loading large templates."
+                "Use get_prompt_metadata first to check prompt_length before loading large templates."  # noqa: E501
             ),
             inputSchema={
                 "type": "object",

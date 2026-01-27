@@ -269,7 +269,7 @@ async def search_items(
     annotations={"readOnlyHint": True},
 )
 async def get_item(
-    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002
+    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002, E501
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
         Field(description="Item type: 'bookmark' or 'note'"),
@@ -353,7 +353,7 @@ async def get_item(
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
 async def edit_content(
-    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002
+    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002, E501
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
         Field(description="Item type: 'bookmark' or 'note'"),
@@ -432,7 +432,7 @@ async def edit_content(
     annotations={"readOnlyHint": True},
 )
 async def search_in_content(
-    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002
+    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002, E501
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
         Field(description="Item type: 'bookmark' or 'note'"),
@@ -510,7 +510,7 @@ async def search_in_content(
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
 async def update_item(
-    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002
+    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002, E501
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
         Field(description="Item type: 'bookmark' or 'note'"),
