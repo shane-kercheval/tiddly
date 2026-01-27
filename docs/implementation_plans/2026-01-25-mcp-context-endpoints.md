@@ -325,7 +325,7 @@ Based on the markdown output above, here is what each API endpoint needs to prov
 | `top_tags` | `get_user_tags_with_counts(content_types=["bookmark", "note"])` | **Existing** - reuse tag service with new `content_types` filter |
 | `filters` | Existing `ContentFilterResponse` + sidebar ordering | **Existing** - combine filter service + sidebar service |
 | `filters[].items` | Query each filter's expression with default sort, limit N | **New** - per-filter item query (concurrent) |
-| `recently_used/created/modified` | Single custom query with 3 UNION ALLs (one per sort order), scoped to `["bookmark", "note"]` | **New** - dedicated lightweight query (see below) |
+| `recently_used/created/modified` | Single custom query with 3 UNION ALLs (one per sort order, each with `bucket` discriminator), scoped to `["bookmark", "note"]` | **New** - dedicated lightweight query (see below) |
 
 **Key insight:** The content context endpoint mostly orchestrates existing services. The main new work is:
 1. Count queries (trivial)
@@ -333,7 +333,7 @@ Based on the markdown output above, here is what each API endpoint needs to prov
 3. Converting filter expression to human-readable string (done in MCP tool, not API)
 4. A single recent-items query (see "Recent Items Query" below)
 
-**Recent items query:** Rather than calling `search_all_content()` 3 times (once per sort order), use a single dedicated query that UNIONs 3 subqueries — each fetching the top N items for one sort order (`last_used_at`, `created_at`, `updated_at`), scoped to bookmarks and notes only. Tags are batch-fetched once for all unique IDs across the combined result. This avoids depending on `search_all_content` internals (no wasted count queries, no text search / filter expression / pagination logic), and reduces the number of concurrent tasks in `asyncio.gather`.
+**Recent items query:** Rather than calling `search_all_content()` 3 times (once per sort order), use a single dedicated query that UNIONs 3 subqueries — each fetching the top N items for one sort order (`last_used_at`, `created_at`, `updated_at`), scoped to bookmarks and notes only. Each subquery includes a discriminator column (`literal('recently_used').label('bucket')`, etc.) so Python can split results back into the three lists after fetching. Tags are batch-fetched once for all unique IDs across the combined result. This avoids depending on `search_all_content` internals (no wasted count queries, no text search / filter expression / pagination logic), and reduces the number of concurrent tasks in `asyncio.gather`.
 
 ### `GET /mcp/context/prompts` Response
 
@@ -403,7 +403,7 @@ Based on the markdown output above, here is what each API endpoint needs to prov
 | `top_tags` | `get_user_tags_with_counts(content_types=["prompt"])` | **Existing** - reuse tag service with new `content_types` filter |
 | `filters` | Filter service + sidebar, filtered to prompt content_types | **Existing** - filter by `content_types` |
 | `filters[].items` | Query each filter's expression with default sort, limit N | **New** - per-filter item query (concurrent) |
-| `recently_used/created/modified` | Single custom query with 3 UNION ALLs (one per sort order), prompts only | **New** - same pattern as content recent items query, but for prompts only (includes arguments) |
+| `recently_used/created/modified` | Single custom query with 3 UNION ALLs (one per sort order, each with `bucket` discriminator), prompts only | **New** - same pattern as content recent items query, but for prompts only (includes arguments) |
 
 **Tag filtering by content type:** Add a `content_types: list[str] | None = None` parameter to `get_user_tags_with_counts()` in `tag_service.py`. When provided, only include count subqueries for the specified types (e.g., skip the prompt subquery when `content_types=["bookmark", "note"]`). Existing callers pass `None` to retain the current combined-count behavior. The content context endpoint passes `["bookmark", "note"]`; the prompt context endpoint passes `["prompt"]`.
 
@@ -563,9 +563,13 @@ class ContextItem(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+class SidebarCollectionFilter(BaseModel):
+    id: UUID
+    name: str
+
 class SidebarCollectionContext(BaseModel):
     name: str
-    filter_names: list[str]  # Names of tag-based filters in this collection
+    filters: list[SidebarCollectionFilter]  # Tag-based filters in this collection
 
 class ContentContextResponse(BaseModel):
     generated_at: datetime
@@ -642,7 +646,7 @@ Implementation notes:
 - **Counts:** Use lightweight `SELECT COUNT(*)` queries grouped by status. The `BaseEntityService` doesn't have a count method currently, so add one or query directly.
 - **Tags:** Reuse `tag_service.get_user_tags_with_counts()` with the new `content_types` parameter — pass `["bookmark", "note"]` for content context, `["prompt"]` for prompt context. Already returns `TagCount` with `content_count` and `filter_count`, sorted by `filter_count DESC, content_count DESC`. Apply `limit` parameter.
 - **Filters in sidebar order:** Call `sidebar_service.get_computed_sidebar()` to get filter IDs in user's preferred order, then fetch corresponding `ContentFilter` objects. Only include filter items (not builtins like "All", "Archived", "Trash"). Exclude filters with empty filter expressions (no tag-based rules) — these are content-type-only shortcuts (e.g., "All Notes") that provide no additional information beyond what the Overview section already shows. For prompt context, further filter to only filters whose `content_types` include "prompt". Limit to top `filter_limit` filters (default 5).
-- **Filter items:** For each included filter, query its top `filter_item_limit` items (default 5) using the filter's expression and default sort order. These per-filter queries run concurrently (after filters are fetched). This is a second phase of `asyncio.gather` — first fetch filters, then fetch items per filter in parallel.
+- **Filter items:** For each included filter, query its top `filter_item_limit` items (default 5) using the filter's expression and default sort order. These per-filter queries run concurrently (after filters are fetched). This is a second phase of `asyncio.gather` — first fetch filters, then fetch items per filter in parallel. **Content type scoping:** When fetching items per filter, intersect the filter's `content_types` with the endpoint's allowed types (`["bookmark", "note"]` for content context, `["prompt"]` for prompt context). This prevents prompts leaking into the content context or vice versa when a filter spans multiple content types. The content router already implements this intersection pattern (see `backend/src/api/routers/content.py` lines 76-82).
 - **Recent items:** Use a single dedicated query per endpoint that UNIONs 3 subqueries (one per sort order: `last_used_at DESC`, `created_at DESC`, `updated_at DESC`), each with `LIMIT N`. For content context, scope to bookmarks and notes only (`content_types=["bookmark", "note"]`). For prompt context, query prompts only (including arguments). Batch-fetch tags once for all unique IDs across the combined result. This avoids depending on `search_all_content` internals and eliminates unnecessary count/filter/pagination logic.
 - **`last_used_at` null handling:** Items never accessed via `track_usage` have `last_used_at = NULL`. The `recently_used` subquery should sort nulls last (`ORDER BY last_used_at DESC NULLS LAST`). The `last_used_at` field in the response schema should be `datetime | None`. The MCP tool should omit the "Last used:" line for items with null `last_used_at`.
 
@@ -710,6 +714,7 @@ Create `backend/tests/api/test_mcp_context.py`:
 6. **Filters without tag rules excluded:** Create a filter with no filter expression (e.g., "All Notes"), verify it is excluded
 7. **Filter items:** Create a filter with tag rules and matching items, verify `items` contains the correct items
 8. **Filter limit/item limit:** Verify `filter_limit` and `filter_item_limit` parameters are respected
+8b. **Filter items scoped to endpoint content types:** Create a filter with `content_types=["bookmark", "note", "prompt"]` and matching items of all types. Verify `/mcp/context/content` filter items only contain bookmarks/notes (no prompts). Verify `/mcp/context/prompts` filter items only contain prompts (no bookmarks/notes).
 8a. **Sidebar collections:** Create filters inside a collection, verify `sidebar_collections` includes the collection with its filter names. Verify collections without tag-based filters are excluded. Verify `sidebar_collections` is empty when no collections exist.
 9. **Recent items by last_used_at:** Create items, call track_usage on some, verify order. Items with null `last_used_at` sort last.
 10. **Recently created/modified:** Verify correct sort order
