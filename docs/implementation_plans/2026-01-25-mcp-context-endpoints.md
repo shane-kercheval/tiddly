@@ -62,6 +62,40 @@ Groups are combined with the group operator (OR = any group matches).
 3. **Quick Reference** (bookmarks, notes)
    Rule: `(reference)`
 
+## Filter Contents
+Top items from each filter, in sidebar order. Items already shown in a
+previous filter are abbreviated.
+
+### Work Projects
+1. **Client Onboarding Checklist** `[note 2b3c4d5e-e29b-41d4-a716-446655440000]`
+   Tags: work, project, client
+   Preview: Steps for onboarding new clients: 1) Schedule kickoff...
+
+2. **Project Roadmap Q1** `[bookmark 3c4d5e6f-e29b-41d4-a716-446655440000]`
+   Tags: work, project
+   Description: Internal roadmap for Q1 deliverables
+   Preview: Q1 priorities: 1) Launch auth v2, 2) Migrate...
+
+### Learning
+1. **FastAPI Tutorial** `[bookmark 6ba7b810-e29b-41d4-a716-446655440000]`
+   Tags: python, tutorial
+   Description: Step-by-step guide to building APIs with FastAPI
+   Preview: FastAPI is a modern, fast web framework for building APIs with Python...
+
+2. **Rust Course Notes** `[note 4d5e6f7a-e29b-41d4-a716-446655440000]`
+   Tags: tutorial, rust
+   Preview: Chapter 1: Ownership and borrowing. Rust's key innovation is...
+
+### Quick Reference
+1. **Python Documentation** `[bookmark f47ac10b-e29b-41d4-a716-446655440000]`
+   Tags: python, reference
+   Description: Official Python 3.x documentation and standard library reference
+   Preview: The Python Language Reference describes the exact syntax and semantics of...
+
+2. **HTTP Status Codes** `[bookmark 5e6f7a8b-e29b-41d4-a716-446655440000]`
+   Tags: reference, web
+   Preview: 200 OK, 201 Created, 204 No Content, 301 Moved...
+
 ## Recently Used
 1. **Python Documentation** `[bookmark f47ac10b-e29b-41d4-a716-446655440000]`
    Last used: 2026-01-25T08:30:00Z
@@ -135,6 +169,33 @@ Groups are combined with the group operator (OR = any group matches).
 2. **Writing Helpers** (prompts)
    Rule: `(writing) OR (editing)`
 
+## Filter Contents
+Top items from each filter, in sidebar order. Items already shown in a
+previous filter are abbreviated.
+
+### Development
+1. **code-review** — "Code Review Assistant"
+   Tags: code-review, development
+   Description: Reviews code for common bugs, style issues, and suggests improvements
+   Args: `language` (required), `code` (required), `focus_areas`
+   Preview: Review the following {{ language }} code for bugs, style...
+
+2. **refactor-code** — "Code Refactorer"
+   Tags: refactor, development
+   Args: `code` (required), `language` (required), `goals`
+   Preview: Refactor the following {{ language }} code with these goals...
+
+### Writing Helpers
+1. **summarize-article** — "Article Summarizer"
+   Tags: summarize, writing
+   Args: `article_text` (required), `length`
+   Preview: Summarize the following article in {{ length }} or fewer...
+
+2. **proofread** — "Proofreader"
+   Tags: writing, editing
+   Args: `text` (required), `tone`
+   Preview: Proofread the following text for grammar, clarity...
+
 ## Recently Used
 1. **code-review** — "Code Review Assistant"
    Last used: 2026-01-25T08:30:00Z
@@ -205,7 +266,20 @@ Based on the markdown output above, here is what each API endpoint needs to prov
             "filter_expression": {
                 "groups": [{"tags": ["work", "project"]}, {"tags": ["client"]}],
                 "group_operator": "OR"
-            }
+            },
+            "items": [
+                {
+                    "type": "bookmark",
+                    "id": "uuid",
+                    "title": "Client Onboarding Checklist",
+                    "description": null,
+                    "content_preview": "Steps for onboarding new clients...",
+                    "tags": ["work", "project", "client"],
+                    "last_used_at": "...",
+                    "created_at": "...",
+                    "updated_at": "..."
+                }
+            ]
         }
     ],
     "recently_used": [
@@ -233,14 +307,16 @@ Based on the markdown output above, here is what each API endpoint needs to prov
 | `counts` | `SELECT COUNT(*) ... GROUP BY` per type and status | New query (trivial) |
 | `top_tags` | Existing `TagCount` schema already has `content_count` and `filter_count` | **Existing** - reuse tag service |
 | `filters` | Existing `ContentFilterResponse` + sidebar ordering | **Existing** - combine filter service + sidebar service |
-| `recently_used` | Existing unified content search with `sort_by=last_used_at` | **Existing** - `ContentListItem` already has all needed fields |
-| `recently_created` | Same with `sort_by=created_at` | **Existing** |
-| `recently_modified` | Same with `sort_by=updated_at` | **Existing** |
+| `filters[].items` | Query each filter's expression with default sort, limit N | **New** - per-filter item query (concurrent) |
+| `recently_used/created/modified` | Single custom query with 3 UNION ALLs (one per sort order), scoped to `["bookmark", "note"]` | **New** - dedicated lightweight query (see below) |
 
 **Key insight:** The content context endpoint mostly orchestrates existing services. The main new work is:
 1. Count queries (trivial)
 2. Ordering filters by sidebar position (combine existing services)
 3. Converting filter expression to human-readable string (done in MCP tool, not API)
+4. A single recent-items query (see "Recent Items Query" below)
+
+**Recent items query:** Rather than calling `search_all_content()` 3 times (once per sort order), use a single dedicated query that UNIONs 3 subqueries — each fetching the top N items for one sort order (`last_used_at`, `created_at`, `updated_at`), scoped to bookmarks and notes only. Tags are batch-fetched once for all unique IDs across the combined result. This avoids depending on `search_all_content` internals (no wasted count queries, no text search / filter expression / pagination logic), and reduces the number of concurrent tasks in `asyncio.gather`.
 
 ### `GET /mcp/context/prompts` Response
 
@@ -262,7 +338,21 @@ Based on the markdown output above, here is what each API endpoint needs to prov
             "filter_expression": {
                 "groups": [{"tags": ["code-review"]}, {"tags": ["refactor"]}],
                 "group_operator": "OR"
-            }
+            },
+            "items": [
+                {
+                    "id": "uuid",
+                    "name": "code-review",
+                    "title": "Code Review Assistant",
+                    "description": "Reviews code for common bugs...",
+                    "content_preview": "Review the following {{ language }} code...",
+                    "arguments": [...],
+                    "tags": ["code-review", "development"],
+                    "last_used_at": "...",
+                    "created_at": "...",
+                    "updated_at": "..."
+                }
+            ]
         }
     ],
     "recently_used": [
@@ -295,9 +385,8 @@ Based on the markdown output above, here is what each API endpoint needs to prov
 | `counts` | `SELECT COUNT(*) ... GROUP BY status` | New query (trivial) |
 | `top_tags` | Tag service filtered to prompt tags only | Need to filter - tags endpoint returns combined counts |
 | `filters` | Filter service + sidebar, filtered to prompt content_types | **Existing** - filter by `content_types` |
-| `recently_used` | Prompt search with `sort_by=last_used_at` | **Existing** - `PromptListItem` has all fields including arguments |
-| `recently_created` | Same with `sort_by=created_at` | **Existing** |
-| `recently_modified` | Same with `sort_by=updated_at` | **Existing** |
+| `filters[].items` | Query each filter's expression with default sort, limit N | **New** - per-filter item query (concurrent) |
+| `recently_used/created/modified` | Single custom query with 3 UNION ALLs (one per sort order), prompts only | **New** - same pattern as content recent items query, but for prompts only (includes arguments) |
 
 **Open question for tags:** The existing tag service returns `content_count` as a combined count across all content types. For the prompt context, we ideally want only the count of prompts using each tag, not bookmarks+notes. The implementing agent should check whether the tag service can filter by content type, or whether we need a prompt-specific tag query. If complex, we can use the existing combined `content_count` as a starting point and refine later.
 
@@ -305,7 +394,11 @@ Based on the markdown output above, here is what each API endpoint needs to prov
 
 ## Performance: Concurrent Queries
 
-Each context endpoint runs ~7 queries (counts, tags, filters, recent items × 3 sort orders). All are lightweight reads. These should run concurrently.
+Each context endpoint runs in two phases of concurrent tasks:
+1. **Phase 1** (~4 tasks): counts, tags, filters, recent items. The recent items task is a single query that UNIONs 3 subqueries (one per sort order) and batch-fetches tags.
+2. **Phase 2** (up to `filter_limit` tasks): query top items per filter. Runs after Phase 1 completes (needs the filter list).
+
+All are lightweight indexed reads.
 
 **Key constraint:** A single SQLAlchemy `AsyncSession` wraps a single database connection, which can only process one query at a time. To run queries concurrently, each coroutine needs its own session from the session factory.
 
@@ -315,14 +408,22 @@ async def get_content_context(self, session_factory, user_id, ...):
         async with session_factory() as db:
             return await fn(db, *args)
 
-    counts, tags, filters, recent, created, modified = await asyncio.gather(
+    # Phase 1: fetch counts, tags, filters, and recent items concurrently
+    counts, tags, filters, recent_items = await asyncio.gather(
         _query(self._get_counts, user_id),
         _query(self._get_tags, user_id, tag_limit),
-        _query(self._get_filters, user_id),
-        _query(self._get_recent, user_id, recent_limit, "last_used_at"),
-        _query(self._get_recent, user_id, recent_limit, "created_at"),
-        _query(self._get_recent, user_id, recent_limit, "updated_at"),
+        _query(self._get_filters, user_id, filter_limit),
+        _query(self._get_recent_items, user_id, recent_limit),
     )
+    # recent_items contains all 3 lists (used, created, modified) from a single
+    # UNION ALL query with batch-fetched tags
+
+    # Phase 2: fetch top items per filter concurrently
+    filter_items = await asyncio.gather(
+        *[_query(self._get_filter_items, f, filter_item_limit) for f in filters]
+    )
+    for f, items in zip(filters, filter_items):
+        f.items = items
 ```
 
 This means the service needs access to a session factory rather than a single session.
@@ -398,7 +499,7 @@ Create both `GET /mcp/context/content` and `GET /mcp/context/prompts` API endpoi
 - Authentication uses `get_current_user`
 - Filters are returned in sidebar order
 - Recent items are sorted correctly by their respective timestamp
-- Content preview respects `preview_length` parameter
+- Each filter includes its top N items (using the filter's default sort)
 - Tags include both `content_count` and `filter_count`
 - Tests cover all response sections and edge cases
 
@@ -429,6 +530,8 @@ class ContextFilter(BaseModel):
     name: str
     content_types: list[str]
     filter_expression: FilterExpression  # Reuse existing schema
+    items: list[ContextItem]  # Top N items matching this filter (for content context)
+    # For prompt context, this is list[ContextPrompt] instead
 
 class ContextItem(BaseModel):
     type: str
@@ -488,11 +591,13 @@ class MCPContextService:
         user_id: UUID,
         tag_limit: int = 50,
         recent_limit: int = 10,
-        preview_length: int = 200,
+        filter_limit: int = 5,
+        filter_item_limit: int = 5,
     ) -> ContentContextResponse:
         # Concurrent queries via asyncio.gather()
         # Each query gets its own session from the factory
         # See Performance section for pattern
+        # After filters are fetched, query top items per filter (concurrent)
         ...
 
     async def get_prompt_context(
@@ -501,7 +606,8 @@ class MCPContextService:
         user_id: UUID,
         tag_limit: int = 50,
         recent_limit: int = 10,
-        preview_length: int = 200,
+        filter_limit: int = 5,
+        filter_item_limit: int = 5,
     ) -> PromptContextResponse:
         # Same concurrent pattern, prompt-specific
         ...
@@ -510,9 +616,9 @@ class MCPContextService:
 Implementation notes:
 - **Counts:** Use lightweight `SELECT COUNT(*)` queries grouped by status. The `BaseEntityService` doesn't have a count method currently, so add one or query directly.
 - **Tags:** Reuse `tag_service.get_tags()` which already returns `TagCount` with `content_count` and `filter_count`, sorted by `filter_count DESC, content_count DESC`. Apply `limit` parameter.
-- **Filters in sidebar order:** Call `sidebar_service.get_computed_sidebar()` to get filter IDs in user's preferred order, then fetch corresponding `ContentFilter` objects. Only include filter items (not builtins like "All", "Archived", "Trash"). For prompt context, further filter to only filters whose `content_types` include "prompt".
-- **Recent items:** Use existing search methods (`content_service.search_all_content()` for content, `prompt_service.search()` for prompts) with appropriate `sort_by` and `limit`. These already return `content_preview`.
-- **Preview length:** The existing `content_preview` is 500 chars. If `preview_length` < 500, truncate in Python. If we need more flexibility, this can be refined later.
+- **Filters in sidebar order:** Call `sidebar_service.get_computed_sidebar()` to get filter IDs in user's preferred order, then fetch corresponding `ContentFilter` objects. Only include filter items (not builtins like "All", "Archived", "Trash"). Exclude filters with empty filter expressions (no tag-based rules) — these are content-type-only shortcuts (e.g., "All Notes") that provide no additional information beyond what the Overview section already shows. For prompt context, further filter to only filters whose `content_types` include "prompt". Limit to top `filter_limit` filters (default 5).
+- **Filter items:** For each included filter, query its top `filter_item_limit` items (default 5) using the filter's expression and default sort order. These per-filter queries run concurrently (after filters are fetched). This is a second phase of `asyncio.gather` — first fetch filters, then fetch items per filter in parallel.
+- **Recent items:** Use a single dedicated query per endpoint that UNIONs 3 subqueries (one per sort order: `last_used_at DESC`, `created_at DESC`, `updated_at DESC`), each with `LIMIT N`. For content context, scope to bookmarks and notes only (`content_types=["bookmark", "note"]`). For prompt context, query prompts only (including arguments). Batch-fetch tags once for all unique IDs across the combined result. This avoids depending on `search_all_content` internals and eliminates unnecessary count/filter/pagination logic.
 
 **New file: `backend/src/api/routers/mcp.py`**
 
@@ -523,9 +629,10 @@ router = APIRouter(prefix="/mcp", tags=["MCP"])
 async def get_content_context(
     tag_limit: int = Query(default=50, ge=1, le=100),
     recent_limit: int = Query(default=10, ge=1, le=50),
-    preview_length: int = Query(default=500, ge=50, le=500),
+    filter_limit: int = Query(default=5, ge=0, le=20),
+    filter_item_limit: int = Query(default=5, ge=1, le=20),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_async_session),
+    session_factory: async_sessionmaker = Depends(get_session_factory),
 ) -> ContentContextResponse:
     ...
 
@@ -533,9 +640,10 @@ async def get_content_context(
 async def get_prompt_context(
     tag_limit: int = Query(default=50, ge=1, le=100),
     recent_limit: int = Query(default=10, ge=1, le=50),
-    preview_length: int = Query(default=500, ge=50, le=500),
+    filter_limit: int = Query(default=5, ge=0, le=20),
+    filter_item_limit: int = Query(default=5, ge=1, le=20),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_async_session),
+    session_factory: async_sessionmaker = Depends(get_session_factory),
 ) -> PromptContextResponse:
     ...
 ```
@@ -573,12 +681,14 @@ Create `backend/tests/api/test_mcp_context.py`:
 3. **Tags:** Create items with tags, verify top_tags sorted by filter_count/content_count and limited by `tag_limit`
 4. **Filters in sidebar order:** Create filters, set sidebar order, verify filters appear in that order
 5. **Filters only (no builtins):** Verify "all", "archived", "trash" builtins are excluded
-6. **Recent items by last_used_at:** Create items, call track_usage on some, verify order
-7. **Recently created/modified:** Verify correct sort order
-8. **Preview truncation:** Create item with long content, verify preview respects `preview_length`
-9. **Description included:** Create item with description, verify it appears; create without, verify null
-10. **Empty state:** New user, verify valid response with empty lists and zero counts
-11. **Auth:** Unauthenticated request returns 401
+6. **Filters without tag rules excluded:** Create a filter with no filter expression (e.g., "All Notes"), verify it is excluded
+7. **Filter items:** Create a filter with tag rules and matching items, verify `items` contains the correct items
+8. **Filter limit/item limit:** Verify `filter_limit` and `filter_item_limit` parameters are respected
+9. **Recent items by last_used_at:** Create items, call track_usage on some, verify order
+10. **Recently created/modified:** Verify correct sort order
+11. **Description included:** Create item with description, verify it appears; create without, verify null
+12. **Empty state:** New user, verify valid response with empty lists and zero counts
+13. **Auth:** Unauthenticated request returns 401
 
 **Prompt context tests:**
 
@@ -630,7 +740,12 @@ Add the tool. The key difference from other tools: this one converts the JSON AP
 Use this at the START of a session to understand:
 - What content the user has (counts by type)
 - How content is organized (top tags, custom filters in priority order)
+- What's inside each filter (top items per filter)
 - What the user is actively working with (recently used, created, modified items)
+
+Results reflect a point-in-time snapshot. Call once at session start; re-calling
+is only useful if the user significantly creates, modifies, or reorganizes
+content during the session.
 
 Returns a markdown summary optimized for quick understanding. Use IDs from
 the response with get_item for full content. Use tag names with search_items
@@ -638,9 +753,10 @@ to find related content.""",
     annotations={"readOnlyHint": True},
 )
 async def get_context(
-    tag_limit: Annotated[int, Field(default=50, ge=1, le=100, description="Number of top tags")] = 20,
+    tag_limit: Annotated[int, Field(default=50, ge=1, le=100, description="Number of top tags")] = 50,
     recent_limit: Annotated[int, Field(default=10, ge=1, le=50, description="Recent items per category")] = 10,
-    preview_length: Annotated[int, Field(default=500, ge=50, le=500, description="Preview character limit")] = 200,
+    filter_limit: Annotated[int, Field(default=5, ge=0, le=20, description="Max filters to include")] = 5,
+    filter_item_limit: Annotated[int, Field(default=5, ge=1, le=20, description="Items per filter")] = 5,
 ) -> str:
     # 1. Call API endpoint
     data = await api_get(client, "/mcp/context/content", token, params)
@@ -656,7 +772,7 @@ Key formatting responsibilities:
 - Include description only when present
 - Include preview
 - Format tags as comma-separated
-- **Deduplication:** If an item already appeared in an earlier section (e.g., Recently Used), show only the title, ID, relevant timestamp, and `(see Recently Used above)` instead of repeating all details. The MCP tool tracks IDs seen so far and abbreviates duplicates.
+- **Deduplication:** If an item already appeared in an earlier section (e.g., Filter Contents or Recently Used), show only the title, ID, relevant timestamp, and `(see [section name] above)` instead of repeating all details. The MCP tool tracks IDs seen so far and abbreviates duplicates. Section order for dedup: Filter Contents → Recently Used → Recently Created → Recently Modified.
 
 **Utility function for filter expression rendering:**
 
@@ -684,8 +800,9 @@ def _format_filter_expression(expr: dict) -> str:
 
 ```
 **Context:**
-- `get_context`: Get a markdown summary of the user's content (counts, tags, filters, recent items).
-  Call this at the start of a session to understand what the user has and how it's organized.
+- `get_context`: Get a markdown summary of the user's content (counts, tags, filters with top items, recent items).
+  Call this once at the start of a session to understand what the user has and how it's organized.
+  Re-calling is only useful if the user significantly creates, modifies, or reorganizes content during the session.
   Use IDs from the response with `get_item` for full content. Use tag names with `search_items`.
 ```
 
@@ -753,7 +870,12 @@ types.Tool(
 Use this at the START of a session to understand:
 - What prompts the user has (counts)
 - How prompts are organized (tags, filters in priority order)
+- What's inside each filter (top prompts per filter)
 - What prompts the user frequently uses (recently used)
+
+Results reflect a point-in-time snapshot. Call once at session start; re-calling
+is only useful if the user significantly creates, modifies, or reorganizes
+content during the session.
 
 Returns a markdown summary optimized for quick understanding. Use prompt
 names from the response with get_prompt_content for full templates.
@@ -765,8 +887,10 @@ Use tag names with search_prompts to find related prompts.""",
                           "description": "Number of top tags"},
             "recent_limit": {"type": "integer", "default": 10, "minimum": 1, "maximum": 50,
                              "description": "Recent prompts per category"},
-            "preview_length": {"type": "integer", "default": 500, "minimum": 50, "maximum": 500,
-                               "description": "Preview character limit"},
+            "filter_limit": {"type": "integer", "default": 5, "minimum": 0, "maximum": 20,
+                             "description": "Max filters to include"},
+            "filter_item_limit": {"type": "integer", "default": 5, "minimum": 1, "maximum": 20,
+                                  "description": "Items per filter"},
         },
     },
     annotations=types.ToolAnnotations(readOnlyHint=True),
@@ -801,8 +925,9 @@ The filter expression formatter can be shared (copied or extracted to a shared u
 
 ```
 **Context:**
-- `get_context`: Get a markdown summary of the user's prompts (counts, tags, filters, recent prompts with arguments).
-  Call this at the start of a session to understand what prompts exist and how they're organized.
+- `get_context`: Get a markdown summary of the user's prompts (counts, tags, filters with top items, recent prompts with arguments).
+  Call this once at the start of a session to understand what prompts exist and how they're organized.
+  Re-calling is only useful if the user significantly creates, modifies, or reorganizes content during the session.
   Use prompt names from the response with `get_prompt_content` for full templates.
 ```
 
