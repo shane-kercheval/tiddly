@@ -312,7 +312,64 @@ async def get_content_context(self, session_factory, user_id, ...):
     )
 ```
 
-This means the router passes a **session factory** (the `async_sessionmaker`) rather than a session instance. The implementing agent should check how `get_async_session` is implemented and determine the best way to expose the factory — either via a new dependency or by importing the factory directly in the service.
+This means the service needs access to a session factory rather than a single session.
+
+### Session Factory Dependency
+
+The existing `db/session.py` already has a module-level `async_session_factory` (an `async_sessionmaker`). The current `get_async_session` dependency yields a single session from it. For the context service, we need a new dependency that provides the factory itself:
+
+```python
+# In db/session.py (or api/dependencies.py)
+def get_session_factory() -> async_sessionmaker:
+    """Return the session factory for services that need concurrent queries."""
+    return async_session_factory
+```
+
+The router injects this instead of (or in addition to) `get_async_session`:
+
+```python
+@router.get("/context/content")
+async def get_content_context(
+    session_factory: async_sessionmaker = Depends(get_session_factory),
+    current_user: User = Depends(get_current_user),
+    ...
+```
+
+Note: `get_current_user` already uses its own session internally, so it doesn't conflict.
+
+### Test Override for Session Factory
+
+The key challenge: in tests, `db_connection` wraps everything in a transaction that rolls back after each test. Concurrent queries need their own sessions, but those sessions must be bound to the **same test connection** so they see the same test data and participate in the same rollback.
+
+The existing `conftest.py` already creates a test `session_factory` bound to `db_connection` with `join_transaction_mode="create_savepoint"` (line 97-102). We just need to expose it and override the dependency:
+
+```python
+# In conftest.py — new fixture
+@pytest.fixture
+def db_session_factory(db_connection: AsyncConnection) -> async_sessionmaker:
+    """Session factory bound to the test transaction for concurrent query tests."""
+    return async_sessionmaker(
+        bind=db_connection,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+```
+
+Then in the `client` fixture, add the override:
+
+```python
+# Existing override:
+app.dependency_overrides[get_async_session] = override_get_async_session
+
+# New override:
+from db.session import get_session_factory
+app.dependency_overrides[get_session_factory] = lambda: db_session_factory
+```
+
+This way, concurrent queries in the context service each get their own session, but all sessions are bound to the same test connection/transaction. They see test data created via the test client, and everything rolls back after the test.
+
+**Important:** Each session from the factory creates a savepoint (via `join_transaction_mode="create_savepoint"`), so concurrent reads don't interfere with each other within the same outer transaction.
 
 ---
 
@@ -609,7 +666,21 @@ def _format_filter_expression(expr: dict) -> str:
     return f" {group_operator} ".join(parts) if parts else "All items"
 ```
 
-**Update MCP server instructions** to document the new tool.
+**Update MCP server instructions** in the `instructions` string of `server.py`. Add `get_context` to the tool list and add guidance on when to use it. Example addition:
+
+```
+**Context:**
+- `get_context`: Get a markdown summary of the user's content (counts, tags, filters, recent items).
+  Call this at the start of a session to understand what the user has and how it's organized.
+  Use IDs from the response with `get_item` for full content. Use tag names with `search_items`.
+```
+
+Also add to the Example Workflows section:
+
+```
+9. "What does this user have?"
+   - Call `get_context()` to get an overview of their content, tags, filters, and recent activity
+```
 
 **Update: `frontend/src/pages/settings/SettingsMCP.tsx`**
 
@@ -712,7 +783,16 @@ The `_format_prompt_context_markdown` function formats prompt items as:
 
 The filter expression formatter can be shared (copied or extracted to a shared utility in `backend/src/shared/`).
 
-**Update MCP server instructions.**
+**Update MCP server instructions** in the `instructions` string of `server.py`. Add `get_context` to the tool list and add guidance. Example addition:
+
+```
+**Context:**
+- `get_context`: Get a markdown summary of the user's prompts (counts, tags, filters, recent prompts with arguments).
+  Call this at the start of a session to understand what prompts exist and how they're organized.
+  Use prompt names from the response with `get_prompt_content` for full templates.
+```
+
+Also add to Example Workflows.
 
 **Update: `frontend/src/pages/settings/SettingsMCP.tsx`**
 
