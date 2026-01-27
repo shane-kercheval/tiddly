@@ -94,6 +94,7 @@ async def get_user_tags_with_counts(
     db: AsyncSession,
     user_id: UUID,
     include_inactive: bool = False,
+    content_types: list[str] | None = None,
 ) -> list[TagCount]:
     """
     Get all tags for a user with their usage counts.
@@ -108,59 +109,76 @@ async def get_user_tags_with_counts(
         user_id: User ID to scope tags.
         include_inactive: If True, include tags with no active content or filters.
             Useful for tag management UI. Defaults to False.
+        content_types: If provided, only count items of these types for content_count.
+            Valid values: "bookmark", "note", "prompt". None means all types.
 
     Returns:
         List of TagCount objects sorted by filter_count desc, content_count desc,
         then name asc.
     """
-    # Subquery for counting active bookmarks per tag
-    bookmark_count_subq = (
-        select(func.count(bookmark_tags.c.bookmark_id))
-        .select_from(bookmark_tags)
-        .join(Bookmark, bookmark_tags.c.bookmark_id == Bookmark.id)
-        .where(
-            bookmark_tags.c.tag_id == Tag.id,
-            Bookmark.deleted_at.is_(None),
-            ~Bookmark.is_archived,
-        )
-        .correlate(Tag)
-        .scalar_subquery()
-    )
+    include_bookmarks = content_types is None or "bookmark" in content_types
+    include_notes = content_types is None or "note" in content_types
+    include_prompts = content_types is None or "prompt" in content_types
 
-    # Subquery for counting active notes per tag
-    note_count_subq = (
-        select(func.count(note_tags.c.note_id))
-        .select_from(note_tags)
-        .join(Note, note_tags.c.note_id == Note.id)
-        .where(
-            note_tags.c.tag_id == Tag.id,
-            Note.deleted_at.is_(None),
-            ~Note.is_archived,
-        )
-        .correlate(Tag)
-        .scalar_subquery()
-    )
+    # Build content_count from included types
+    count_parts = []
 
-    # Subquery for counting active prompts per tag
-    prompt_count_subq = (
-        select(func.count(prompt_tags.c.prompt_id))
-        .select_from(prompt_tags)
-        .join(Prompt, prompt_tags.c.prompt_id == Prompt.id)
-        .where(
-            prompt_tags.c.tag_id == Tag.id,
-            Prompt.deleted_at.is_(None),
-            ~Prompt.is_archived,
+    if include_bookmarks:
+        # Subquery for counting active bookmarks per tag
+        bookmark_count_subq = (
+            select(func.count(bookmark_tags.c.bookmark_id))
+            .select_from(bookmark_tags)
+            .join(Bookmark, bookmark_tags.c.bookmark_id == Bookmark.id)
+            .where(
+                bookmark_tags.c.tag_id == Tag.id,
+                Bookmark.deleted_at.is_(None),
+                ~Bookmark.is_archived,
+            )
+            .correlate(Tag)
+            .scalar_subquery()
         )
-        .correlate(Tag)
-        .scalar_subquery()
-    )
+        count_parts.append(func.coalesce(bookmark_count_subq, 0))
 
-    # Combined count from bookmarks, notes, and prompts
-    content_count = (
-        func.coalesce(bookmark_count_subq, 0)
-        + func.coalesce(note_count_subq, 0)
-        + func.coalesce(prompt_count_subq, 0)
-    ).label("content_count")
+    if include_notes:
+        # Subquery for counting active notes per tag
+        note_count_subq = (
+            select(func.count(note_tags.c.note_id))
+            .select_from(note_tags)
+            .join(Note, note_tags.c.note_id == Note.id)
+            .where(
+                note_tags.c.tag_id == Tag.id,
+                Note.deleted_at.is_(None),
+                ~Note.is_archived,
+            )
+            .correlate(Tag)
+            .scalar_subquery()
+        )
+        count_parts.append(func.coalesce(note_count_subq, 0))
+
+    if include_prompts:
+        # Subquery for counting active prompts per tag
+        prompt_count_subq = (
+            select(func.count(prompt_tags.c.prompt_id))
+            .select_from(prompt_tags)
+            .join(Prompt, prompt_tags.c.prompt_id == Prompt.id)
+            .where(
+                prompt_tags.c.tag_id == Tag.id,
+                Prompt.deleted_at.is_(None),
+                ~Prompt.is_archived,
+            )
+            .correlate(Tag)
+            .scalar_subquery()
+        )
+        count_parts.append(func.coalesce(prompt_count_subq, 0))
+
+    # Combined count from included types (fallback to 0 if no types included)
+    if count_parts:
+        content_count_expr = count_parts[0]
+        for part in count_parts[1:]:
+            content_count_expr = content_count_expr + part
+    else:
+        content_count_expr = func.literal(0)
+    content_count = content_count_expr.label("content_count")
 
     # Subquery for counting filters using this tag
     filter_count_subq = (

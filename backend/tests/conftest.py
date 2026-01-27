@@ -106,6 +106,17 @@ async def db_session(db_connection: AsyncConnection) -> AsyncGenerator[AsyncSess
 
 
 @pytest.fixture
+def db_session_factory(db_connection: AsyncConnection) -> async_sessionmaker:
+    """Session factory bound to the test transaction for concurrent query tests."""
+    return async_sessionmaker(
+        bind=db_connection,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+
+
+@pytest.fixture
 async def redis_client(redis_container: RedisContainer) -> AsyncGenerator[RedisClient]:
     """Create a Redis client connected to the test container and set as global."""
     client = RedisClient(get_redis_url(redis_container))
@@ -127,6 +138,7 @@ async def redis_client(redis_container: RedisContainer) -> AsyncGenerator[RedisC
 @pytest.fixture
 async def client(
     db_session: AsyncSession,
+    db_session_factory: async_sessionmaker,
     redis_client: RedisClient,
 ) -> AsyncGenerator[AsyncClient]:
     """Create a test client with database session and Redis overrides."""
@@ -136,12 +148,13 @@ async def client(
     get_settings.cache_clear()
 
     from api.main import app
-    from db.session import get_async_session
+    from db.session import get_async_session, get_session_factory
 
     async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
 
     app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_session_factory] = lambda: db_session_factory
 
     # Set the global Redis client and auth cache for the test
     # (redis_client fixture already sets these, but we ensure they're set here too)

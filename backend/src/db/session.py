@@ -21,6 +21,11 @@ async_session_factory = async_sessionmaker(
 )
 
 
+def get_session_factory() -> async_sessionmaker:
+    """Return the session factory for services that need concurrent queries."""
+    return async_session_factory
+
+
 async def get_async_session() -> AsyncGenerator[AsyncSession]:
     """
     Yield an async database session.
