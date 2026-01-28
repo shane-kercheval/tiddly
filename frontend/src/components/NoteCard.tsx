@@ -6,7 +6,7 @@ import type { NoteListItem } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { formatDate, truncate } from '../utils'
-import { ConfirmDeleteButton, CopyContentButton } from './ui'
+import { ConfirmDeleteButton, CopyContentButton, Tooltip } from './ui'
 import { NoteIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
 import { Tag } from './Tag'
 import { AddTagButton } from './AddTagButton'
@@ -128,7 +128,7 @@ export function NoteCard({
         {/* Row 2 (mobile): tags + actions + date */}
         <div className="flex items-center gap-2 md:contents">
           {/* Tags */}
-          {(note.tags.length > 0 || onTagAdd) && (
+          {note.tags.length > 0 && (
             <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
               {note.tags.map((tag) => (
                 <Tag
@@ -138,6 +138,13 @@ export function NoteCard({
                   onRemove={onTagRemove ? () => onTagRemove(note, tag) : undefined}
                 />
               ))}
+            </div>
+          )}
+
+          {/* Actions and date */}
+          <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
+            <div className="flex items-center">
+              {/* Add tag button */}
               {onTagAdd && tagSuggestions && (
                 <AddTagButton
                   existingTags={note.tags}
@@ -145,12 +152,7 @@ export function NoteCard({
                   onAdd={(tag) => onTagAdd(note, tag)}
                 />
               )}
-            </div>
-          )}
 
-          {/* Actions and date */}
-          <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
-            <div className="flex items-center">
               {/* Copy button - shown in active and archived views */}
               {view !== 'deleted' && (
                 <CopyContentButton contentType="note" id={note.id} />
@@ -158,38 +160,41 @@ export function NoteCard({
 
               {/* Archive button - shown in active view */}
               {view === 'active' && onArchive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onArchive(note) }}
-                  className="btn-icon"
-                  title="Archive note"
-                  aria-label="Archive note"
-                >
-                  <ArchiveIcon className="h-4 w-4" />
-                </button>
+                <Tooltip content="Archive" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onArchive(note) }}
+                    className="btn-icon"
+                    aria-label="Archive note"
+                  >
+                    <ArchiveIcon className="h-4 w-4" />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Restore button - shown in archived view (unarchive action) */}
               {view === 'archived' && onUnarchive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onUnarchive(note) }}
-                  className="btn-icon"
-                  title="Restore note"
-                  aria-label="Restore note"
-                >
-                  <RestoreIcon />
-                </button>
+                <Tooltip content="Restore" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onUnarchive(note) }}
+                    className="btn-icon"
+                    aria-label="Restore note"
+                  >
+                    <RestoreIcon />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Restore button - shown in deleted view */}
               {view === 'deleted' && onRestore && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onRestore(note) }}
-                  className="btn-icon"
-                  title="Restore note"
-                  aria-label="Restore note"
-                >
-                  <RestoreIcon />
-                </button>
+                <Tooltip content="Restore" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onRestore(note) }}
+                    className="btn-icon"
+                    aria-label="Restore note"
+                  >
+                    <RestoreIcon />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Delete button - shown in all views */}
@@ -202,14 +207,15 @@ export function NoteCard({
                   />
                 </span>
               ) : (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(note) }}
-                  className="btn-icon-danger"
-                  title="Delete note"
-                  aria-label="Delete note"
-                >
-                  <TrashIcon />
-                </button>
+                <Tooltip content="Delete" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(note) }}
+                    className="btn-icon-danger"
+                    aria-label="Delete note"
+                  >
+                    <TrashIcon />
+                  </button>
+                </Tooltip>
               )}
             </div>
             <div className="flex flex-col items-end gap-0.5">

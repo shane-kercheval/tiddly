@@ -9,6 +9,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ReactNode, KeyboardEvent, ChangeEvent } from 'react'
 import type { TagCount } from '../types'
 import { useTagAutocomplete } from '../hooks/useTagAutocomplete'
+import { Tooltip } from './ui'
 
 interface AddTagButtonProps {
   /** Tags already on this item (excluded from suggestions) */
@@ -133,19 +134,20 @@ export function AddTagButton({
   }
 
   return (
-    <div ref={containerRef} className="relative inline-block">
+    <div ref={containerRef} className="relative">
       {!isOpen ? (
-        <button
-          type="button"
-          onClick={handleButtonClick}
-          className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors px-1.5"
-          aria-label="Add tag"
-          title="Add tag"
-        >
-          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-        </button>
+        <Tooltip content="Add tag" compact>
+          <button
+            type="button"
+            onClick={handleButtonClick}
+            className="btn-icon"
+            aria-label="Add tag"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        </Tooltip>
       ) : (
         <div onClick={handleDropdownClick} className="relative">
           <input

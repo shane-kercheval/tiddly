@@ -6,7 +6,7 @@ import type { PromptListItem } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { formatDate, truncate } from '../utils'
-import { ConfirmDeleteButton, CopyContentButton } from './ui'
+import { ConfirmDeleteButton, CopyContentButton, Tooltip } from './ui'
 import { PromptIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
 import { Tag } from './Tag'
 import { AddTagButton } from './AddTagButton'
@@ -135,7 +135,7 @@ export function PromptCard({
         {/* Row 2 (mobile): tags + actions + date */}
         <div className="flex items-center gap-2 md:contents">
           {/* Tags */}
-          {(prompt.tags.length > 0 || onTagAdd) && (
+          {prompt.tags.length > 0 && (
             <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
               {prompt.tags.map((tag) => (
                 <Tag
@@ -145,6 +145,13 @@ export function PromptCard({
                   onRemove={onTagRemove ? () => onTagRemove(prompt, tag) : undefined}
                 />
               ))}
+            </div>
+          )}
+
+          {/* Actions and date */}
+          <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
+            <div className="flex items-center">
+              {/* Add tag button */}
               {onTagAdd && tagSuggestions && (
                 <AddTagButton
                   existingTags={prompt.tags}
@@ -152,12 +159,7 @@ export function PromptCard({
                   onAdd={(tag) => onTagAdd(prompt, tag)}
                 />
               )}
-            </div>
-          )}
 
-          {/* Actions and date */}
-          <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
-            <div className="flex items-center">
               {/* Copy button - shown in active and archived views */}
               {view !== 'deleted' && (
                 <CopyContentButton contentType="prompt" id={prompt.id} />
@@ -165,38 +167,41 @@ export function PromptCard({
 
               {/* Archive button - shown in active view */}
               {view === 'active' && onArchive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onArchive(prompt) }}
-                  className="btn-icon"
-                  title="Archive prompt"
-                  aria-label="Archive prompt"
-                >
-                  <ArchiveIcon className="h-4 w-4" />
-                </button>
+                <Tooltip content="Archive" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onArchive(prompt) }}
+                    className="btn-icon"
+                    aria-label="Archive prompt"
+                  >
+                    <ArchiveIcon className="h-4 w-4" />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Restore button - shown in archived view (unarchive action) */}
               {view === 'archived' && onUnarchive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onUnarchive(prompt) }}
-                  className="btn-icon"
-                  title="Restore prompt"
-                  aria-label="Restore prompt"
-                >
-                  <RestoreIcon />
-                </button>
+                <Tooltip content="Restore" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onUnarchive(prompt) }}
+                    className="btn-icon"
+                    aria-label="Restore prompt"
+                  >
+                    <RestoreIcon />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Restore button - shown in deleted view */}
               {view === 'deleted' && onRestore && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onRestore(prompt) }}
-                  className="btn-icon"
-                  title="Restore prompt"
-                  aria-label="Restore prompt"
-                >
-                  <RestoreIcon />
-                </button>
+                <Tooltip content="Restore" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onRestore(prompt) }}
+                    className="btn-icon"
+                    aria-label="Restore prompt"
+                  >
+                    <RestoreIcon />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Delete button - shown in all views */}
@@ -209,14 +214,15 @@ export function PromptCard({
                   />
                 </span>
               ) : (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(prompt) }}
-                  className="btn-icon-danger"
-                  title="Delete prompt"
-                  aria-label="Delete prompt"
-                >
-                  <TrashIcon />
-                </button>
+                <Tooltip content="Delete" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(prompt) }}
+                    className="btn-icon-danger"
+                    aria-label="Delete prompt"
+                  >
+                    <TrashIcon />
+                  </button>
+                </Tooltip>
               )}
             </div>
             <div className="flex flex-col items-end gap-0.5">

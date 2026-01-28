@@ -6,7 +6,7 @@ import type { ReactNode } from 'react'
 import type { BookmarkListItem } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { formatDate, truncate, getDomain, getUrlWithoutProtocol, getGoogleFaviconUrl } from '../utils'
-import { ConfirmDeleteButton } from './ui'
+import { ConfirmDeleteButton, Tooltip } from './ui'
 import {
   BookmarkIcon,
   CopyIcon,
@@ -234,7 +234,7 @@ export function BookmarkCard({
         {/* Row 2 (mobile): tags + actions + date */}
         <div className="flex items-center gap-2 md:contents">
           {/* Tags */}
-          {(bookmark.tags.length > 0 || onTagAdd) && (
+          {bookmark.tags.length > 0 && (
             <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
               {bookmark.tags.map((tag) => (
                 <Tag
@@ -244,6 +244,13 @@ export function BookmarkCard({
                   onRemove={onTagRemove ? () => onTagRemove(bookmark, tag) : undefined}
                 />
               ))}
+            </div>
+          )}
+
+          {/* Actions and date */}
+          <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
+            <div className="flex items-center">
+              {/* Add tag button */}
               {onTagAdd && tagSuggestions && (
                 <AddTagButton
                   existingTags={bookmark.tags}
@@ -251,76 +258,76 @@ export function BookmarkCard({
                   onAdd={(tag) => onTagAdd(bookmark, tag)}
                 />
               )}
-            </div>
-          )}
 
-          {/* Actions and date */}
-          <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
-            <div className="flex items-center">
               {/* Edit button - shown in active and archived views */}
               {view !== 'deleted' && onEdit && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onEdit(bookmark) }}
-                  className="btn-icon"
-                  title="Edit bookmark"
-                  aria-label="Edit bookmark"
-                >
-                  {isLoading ? (
-                    <div className="spinner-sm" />
-                  ) : (
-                    <EditIcon />
-                  )}
-                </button>
+                <Tooltip content="Edit" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onEdit(bookmark) }}
+                    className="btn-icon"
+                    aria-label="Edit bookmark"
+                  >
+                    {isLoading ? (
+                      <div className="spinner-sm" />
+                    ) : (
+                      <EditIcon />
+                    )}
+                  </button>
+                </Tooltip>
               )}
 
               {/* Copy URL button */}
-              <button
-                onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
-                className="btn-icon"
-                title={copySuccess ? 'Copied!' : 'Copy URL'}
-                aria-label={copySuccess ? 'Copied!' : 'Copy URL'}
-              >
-                {copySuccess ? (
-                  <CheckIcon className="h-4 w-4 text-green-600" />
-                ) : (
-                  <CopyIcon />
-                )}
-              </button>
+              <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
+                  className="btn-icon"
+                  aria-label={copySuccess ? 'Copied!' : 'Copy URL'}
+                >
+                  {copySuccess ? (
+                    <CheckIcon className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <CopyIcon />
+                  )}
+                </button>
+              </Tooltip>
 
               {/* Archive button - shown in active view */}
               {view === 'active' && onArchive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onArchive(bookmark) }}
-                  className="btn-icon"
-                  title="Archive bookmark"
-                  aria-label="Archive bookmark"
-                >
-                  <ArchiveIcon className="h-4 w-4" />
-                </button>
+                <Tooltip content="Archive" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onArchive(bookmark) }}
+                    className="btn-icon"
+                    aria-label="Archive bookmark"
+                  >
+                    <ArchiveIcon className="h-4 w-4" />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Restore button - shown in archived view (unarchive action) */}
               {view === 'archived' && onUnarchive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onUnarchive(bookmark) }}
-                  className="btn-icon"
-                  title="Restore bookmark"
-                  aria-label="Restore bookmark"
-                >
-                  <RestoreIcon />
-                </button>
+                <Tooltip content="Restore" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onUnarchive(bookmark) }}
+                    className="btn-icon"
+                    aria-label="Restore bookmark"
+                  >
+                    <RestoreIcon />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Restore button - shown in deleted view */}
               {view === 'deleted' && onRestore && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onRestore(bookmark) }}
-                  className="btn-icon"
-                  title="Restore bookmark"
-                  aria-label="Restore bookmark"
-                >
-                  <RestoreIcon />
-                </button>
+                <Tooltip content="Restore" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onRestore(bookmark) }}
+                    className="btn-icon"
+                    aria-label="Restore bookmark"
+                  >
+                    <RestoreIcon />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Delete button - shown in all views */}
@@ -333,14 +340,15 @@ export function BookmarkCard({
                   />
                 </span>
               ) : (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(bookmark) }}
-                  className="btn-icon-danger"
-                  title="Delete bookmark"
-                  aria-label="Delete bookmark"
-                >
-                  <TrashIcon />
-                </button>
+                <Tooltip content="Delete" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(bookmark) }}
+                    className="btn-icon-danger"
+                    aria-label="Delete bookmark"
+                  >
+                    <TrashIcon />
+                  </button>
+                </Tooltip>
               )}
             </div>
             <div className="flex flex-col items-end gap-0.5">
