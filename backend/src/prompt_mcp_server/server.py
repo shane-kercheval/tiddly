@@ -41,6 +41,9 @@ Prompts are Jinja2 templates with defined arguments that can be rendered with us
   Re-calling is only useful if the user significantly creates, modifies, or reorganizes content during the session.
   Use prompt names from the response with `get_prompt_content` for full templates.
 - `search_prompts`: Search prompts with filters. Returns prompt_length and prompt_preview.
+  Use `filter_id` to search within a saved content filter (discover IDs via `list_filters`).
+- `list_filters`: List the user's prompt filters with IDs, names, and tag rules.
+  Use filter IDs with `search_prompts(filter_id=...)` to search within a specific filter.
 - `get_prompt_content`: Get a prompt's Jinja2 template and arguments. Returns both the raw template text
   and the argument definitions list. Use before edit_prompt_content.
 - `get_prompt_metadata`: Get metadata without the template. Returns title, description, tags, prompt_length,
@@ -109,6 +112,10 @@ Example workflows:
 
 9. "What prompts does this user have?"
    - Call `get_context()` to get an overview of their prompts, tags, filters, and recent activity
+
+10. "Show me prompts from my Development filter"
+   - Call `list_filters()` to find the filter ID
+   - Call `search_prompts(filter_id="<uuid>")` to get prompts matching that filter
 
 Prompt naming: lowercase with hyphens (e.g., `code-review`, `meeting-notes`).
 Argument naming: lowercase with underscores (e.g., `code_to_review`, `article_text`).
@@ -483,9 +490,31 @@ async def handle_list_tools() -> list[types.Tool]:
                         "minimum": 0,
                         "description": "Number of results to skip for pagination",
                     },
+                    "filter_id": {
+                        "type": "string",
+                        "description": (
+                            "Filter by content filter ID (UUID). "
+                            "Use list_filters to discover filter IDs."
+                        ),
+                    },
                 },
                 "required": [],
             },
+        ),
+        types.Tool(
+            name="list_filters",
+            description=(
+                "List the user's prompt filters. "
+                "Filters are saved views with tag-based rules. Use filter IDs with "
+                "search_prompts(filter_id=...) to search within a specific filter. "
+                "Returns filter ID, name, content types, and the tag-based filter expression."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+            annotations=types.ToolAnnotations(readOnlyHint=True),
         ),
         types.Tool(
             name="list_tags",
@@ -809,6 +838,7 @@ async def handle_call_tool(
     handlers = {
         "get_context": lambda args: _handle_get_context(args),
         "search_prompts": lambda args: _handle_search_prompts(args),
+        "list_filters": lambda _: _handle_list_filters(),
         "list_tags": lambda _: _handle_list_tags(),
         "get_prompt_content": lambda args: _handle_get_prompt_content(args),
         "get_prompt_metadata": lambda args: _handle_get_prompt_metadata(args),
@@ -829,7 +859,7 @@ async def handle_call_tool(
     return await handler(arguments or {})
 
 
-async def _handle_search_prompts(
+async def _handle_search_prompts(  # noqa: PLR0912
     arguments: dict[str, Any],
 ) -> list[types.TextContent]:
     """
@@ -857,6 +887,8 @@ async def _handle_search_prompts(
         params["limit"] = arguments["limit"]
     if "offset" in arguments:
         params["offset"] = arguments["offset"]
+    if "filter_id" in arguments:
+        params["filter_id"] = arguments["filter_id"]
 
     try:
         result = await api_get(client, "/prompts/", token, params if params else None)
@@ -877,6 +909,31 @@ async def _handle_search_prompts(
             item["prompt_length"] = item.pop("content_length")
         if "content_preview" in item:
             item["prompt_preview"] = item.pop("content_preview")
+
+    return [
+        types.TextContent(
+            type="text",
+            text=json.dumps(result, indent=2, default=str),
+        ),
+    ]
+
+
+async def _handle_list_filters() -> list[types.TextContent]:
+    """Handle list_filters tool call. Returns all content filters."""
+    client = get_http_client()
+    token = _get_token()
+
+    try:
+        result = await api_get(client, "/filters/", token)
+    except httpx.HTTPStatusError as e:
+        _raise_mcp_error(parse_http_error(e))
+    except httpx.RequestError as e:
+        raise McpError(
+            types.ErrorData(
+                code=types.INTERNAL_ERROR,
+                message=f"API unavailable: {e}",
+            ),
+        ) from e
 
     return [
         types.TextContent(

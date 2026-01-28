@@ -235,6 +235,105 @@ async def test__search_items__forbidden(mock_api) -> None:
     assert "access denied" in result.content[0].text.lower()
 
 
+# --- search_items with filter_id ---
+
+
+@pytest.mark.asyncio
+async def test__search_items__with_filter_id(
+    mock_api,
+    mcp_client: Client,
+    sample_content_list: dict[str, Any],
+) -> None:
+    """Test search_items passes filter_id to API."""
+    mock_api.get("/content/").mock(
+        return_value=Response(200, json=sample_content_list),
+    )
+
+    await mcp_client.call_tool(
+        "search_items",
+        {"filter_id": "a1b2c3d4-e29b-41d4-a716-446655440000"},
+    )
+
+    request_url = str(mock_api.calls[0].request.url)
+    assert "filter_id=a1b2c3d4-e29b-41d4-a716-446655440000" in request_url
+
+
+@pytest.mark.asyncio
+async def test__search_items__with_filter_id_and_type(
+    mock_api,
+    mcp_client: Client,
+    sample_bookmark_list: dict[str, Any],
+) -> None:
+    """Test search_items with both filter_id and type routes to type-specific endpoint."""
+    mock_api.get("/bookmarks/").mock(
+        return_value=Response(200, json=sample_bookmark_list),
+    )
+
+    await mcp_client.call_tool(
+        "search_items",
+        {"filter_id": "a1b2c3d4-e29b-41d4-a716-446655440000", "type": "bookmark"},
+    )
+
+    request_url = str(mock_api.calls[0].request.url)
+    assert "filter_id=a1b2c3d4-e29b-41d4-a716-446655440000" in request_url
+
+
+# --- list_filters tests ---
+
+
+@pytest.mark.asyncio
+async def test__list_filters__returns_filters(
+    mock_api,
+    mcp_client: Client,
+) -> None:
+    """Test list_filters returns filter data from API."""
+    filters_response = [
+        {
+            "id": "a1b2c3d4-e29b-41d4-a716-446655440000",
+            "name": "Work Projects",
+            "content_types": ["bookmark", "note"],
+            "filter_expression": {
+                "groups": [{"tags": ["work", "project"]}],
+                "group_operator": "OR",
+            },
+        },
+    ]
+    mock_api.get("/filters/").mock(
+        return_value=Response(200, json=filters_response),
+    )
+
+    result = await mcp_client.call_tool("list_filters", {})
+
+    assert len(result.data["filters"]) == 1
+    assert result.data["filters"][0]["name"] == "Work Projects"
+
+
+@pytest.mark.asyncio
+async def test__list_filters__empty(
+    mock_api,
+    mcp_client: Client,
+) -> None:
+    """Test list_filters with no filters returns empty list."""
+    mock_api.get("/filters/").mock(
+        return_value=Response(200, json=[]),
+    )
+
+    result = await mcp_client.call_tool("list_filters", {})
+
+    assert result.data["filters"] == []
+
+
+@pytest.mark.asyncio
+async def test__list_filters__api_unavailable(mock_api, mcp_client: Client) -> None:
+    """Test network error handling for list_filters."""
+    mock_api.get("/filters/").mock(side_effect=httpx.ConnectError("Connection refused"))
+
+    result = await mcp_client.call_tool("list_filters", {}, raise_on_error=False)
+
+    assert result.is_error
+    assert "unavailable" in result.content[0].text.lower()
+
+
 # --- get_item tests (replaces get_content) ---
 
 

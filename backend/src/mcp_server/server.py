@@ -70,6 +70,9 @@ URL but can be user-provided. For notes, it's user-written markdown.
 
 **Search** (returns active items only - excludes archived/deleted):
 - `search_items`: Search across bookmarks and notes. Use `type` parameter to filter.
+  Use `filter_id` to search within a saved content filter (discover IDs via `list_filters`).
+- `list_filters`: List the user's content filters with IDs, names, and tag rules.
+  Use filter IDs with `search_items(filter_id=...)` to search within a specific filter.
 - `list_tags`: Get all tags with usage counts
 
 **Read & Edit:**
@@ -158,6 +161,10 @@ error with `server_state` containing the current version for resolution.
 9. "What does this user have?"
    - Call `get_context()` to get an overview of their content, tags, filters, and recent activity
 
+10. "Show me items from my Work Projects filter"
+   - Call `list_filters()` to find the filter ID
+   - Call `search_items(filter_id="<uuid>")` to get items matching that filter
+
 Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
 """.strip(),  # noqa: E501
 )
@@ -222,6 +229,15 @@ async def search_items(
     offset: Annotated[
         int, Field(ge=0, description="Number of results to skip for pagination"),
     ] = 0,
+    filter_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Filter by content filter ID (UUID). "
+                "Use list_filters to discover filter IDs."
+            ),
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """
     Search and filter bookmarks and/or notes.
@@ -249,6 +265,8 @@ async def search_items(
         params["q"] = query
     if tags:
         params["tags"] = tags
+    if filter_id:
+        params["filter_id"] = filter_id
 
     # Route to appropriate endpoint based on type filter
     if type == "bookmark":
@@ -263,6 +281,29 @@ async def search_items(
 
     try:
         return await api_get(client, endpoint, token, params)
+    except httpx.HTTPStatusError as e:
+        _raise_tool_error(parse_http_error(e))
+    except httpx.RequestError as e:
+        raise ToolError(f"API unavailable: {e}")
+
+
+@mcp.tool(
+    description=(
+        "List the user's content filters. "
+        "Filters are saved views with tag-based rules. Use filter IDs with "
+        "search_items(filter_id=...) to search within a specific filter. "
+        "Returns filter ID, name, content types, and the tag-based filter expression."
+    ),
+    annotations={"readOnlyHint": True},
+)
+async def list_filters() -> dict[str, Any]:
+    """List all content filters with IDs, names, and filter expressions."""
+    client = await _get_http_client()
+    token = _get_token()
+
+    try:
+        filters = await api_get(client, "/filters/", token)
+        return {"filters": filters}
     except httpx.HTTPStatusError as e:
         _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:

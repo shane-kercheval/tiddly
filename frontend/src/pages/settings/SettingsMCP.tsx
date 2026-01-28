@@ -411,6 +411,10 @@ export function SettingsMCP(): ReactNode {
                 <span>Search within content for editing</span>
               </li>
               <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_filters</span>
+                <span>List content filters with IDs and tag rules</span>
+              </li>
+              <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_tags</span>
                 <span>Get all tags with usage counts</span>
               </li>
@@ -466,6 +470,10 @@ export function SettingsMCP(): ReactNode {
               <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_prompt_metadata</span>
                 <span>Get metadata without the template</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_filters</span>
+                <span>List prompt filters with IDs and tag rules</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_tags</span>

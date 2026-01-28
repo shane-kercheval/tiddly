@@ -370,11 +370,12 @@ async def test__list_tools__returns_all_tools() -> None:
     """Test list_tools returns all available tools."""
     result = await handle_list_tools()
 
-    assert len(result) == 8
+    assert len(result) == 9
     tool_names = {t.name for t in result}
     assert tool_names == {
         "get_context",
         "search_prompts",
+        "list_filters",
         "list_tags",
         "get_prompt_metadata",
         "get_prompt_content",
@@ -804,6 +805,97 @@ async def test__search_prompts__results_include_length_and_preview(
     assert "prompt_preview" in data["items"][0]
     assert "content_length" not in data["items"][0]
     assert "content_preview" not in data["items"][0]
+
+
+# --- search_prompts with filter_id ---
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__with_filter_id__passes_to_api(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_prompt_list_item: dict[str, Any],
+) -> None:
+    """Test search_prompts passes filter_id to API."""
+    response_data = {
+        "items": [sample_prompt_list_item],
+        "total": 1,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_data),
+    )
+
+    await handle_call_tool(
+        "search_prompts",
+        {"filter_id": "a1b2c3d4-e29b-41d4-a716-446655440000"},
+    )
+
+    request_url = str(mock_api.calls[0].request.url)
+    assert "filter_id=a1b2c3d4-e29b-41d4-a716-446655440000" in request_url
+
+
+# --- list_filters tests ---
+
+
+@pytest.mark.asyncio
+async def test__list_filters__returns_filters(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test list_filters returns filter data from API."""
+    filters_response = [
+        {
+            "id": "a1b2c3d4-e29b-41d4-a716-446655440000",
+            "name": "Development",
+            "content_types": ["prompt"],
+            "filter_expression": {
+                "groups": [{"tags": ["code-review"]}],
+                "group_operator": "OR",
+            },
+        },
+    ]
+    mock_api.get("/filters/").mock(
+        return_value=Response(200, json=filters_response),
+    )
+
+    result = await handle_call_tool("list_filters", {})
+
+    data = json.loads(result[0].text)
+    assert len(data) == 1
+    assert data[0]["name"] == "Development"
+
+
+@pytest.mark.asyncio
+async def test__list_filters__empty(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test list_filters with no filters returns empty list."""
+    mock_api.get("/filters/").mock(
+        return_value=Response(200, json=[]),
+    )
+
+    result = await handle_call_tool("list_filters", {})
+
+    data = json.loads(result[0].text)
+    assert data == []
+
+
+@pytest.mark.asyncio
+async def test__list_filters__api_unavailable(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test network error handling for list_filters."""
+    mock_api.get("/filters/").mock(side_effect=httpx.ConnectError("Connection refused"))
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool("list_filters", {})
+
+    assert "unavailable" in str(exc_info.value).lower()
 
 
 # --- list_tags tests ---
