@@ -9,6 +9,8 @@ from httpx import Response
 
 from fastmcp import Client
 
+from mcp_server.server import _format_content_context_markdown, _format_filter_expression
+
 
 @pytest.fixture
 async def mcp_client(mock_auth):  # noqa: ARG001 - mock_auth needed for side effect
@@ -1249,3 +1251,327 @@ async def test__search_in_content__api_unavailable(mock_api, mcp_client: Client)
 
     assert result.is_error
     assert "unavailable" in result.content[0].text.lower()
+
+
+# --- _format_filter_expression unit tests ---
+
+
+def test__format_filter_expression__single_tag() -> None:
+    """Single tag group renders without parentheses."""
+    expr = {"groups": [{"tags": ["python"]}], "group_operator": "OR"}
+    assert _format_filter_expression(expr) == "python"
+
+
+def test__format_filter_expression__multi_tag_group() -> None:
+    """Multiple tags in one group are joined with AND."""
+    expr = {"groups": [{"tags": ["work", "project"]}], "group_operator": "OR"}
+    assert _format_filter_expression(expr) == "(work AND project)"
+
+
+def test__format_filter_expression__multiple_groups_or() -> None:
+    """Multiple groups joined with OR operator."""
+    expr = {
+        "groups": [{"tags": ["work", "project"]}, {"tags": ["client"]}],
+        "group_operator": "OR",
+    }
+    assert _format_filter_expression(expr) == "(work AND project) OR client"
+
+
+def test__format_filter_expression__empty() -> None:
+    """Empty expression returns 'All items'."""
+    assert _format_filter_expression({}) == "All items"
+    assert _format_filter_expression({"groups": []}) == "All items"
+
+
+def test__format_filter_expression__empty_tags_in_group() -> None:
+    """Groups with empty tags are skipped."""
+    expr = {"groups": [{"tags": []}], "group_operator": "OR"}
+    assert _format_filter_expression(expr) == "All items"
+
+
+# --- _format_content_context_markdown unit tests ---
+
+
+@pytest.fixture
+def sample_context_response() -> dict[str, Any]:
+    """Sample content context API response."""
+    return {
+        "generated_at": "2026-01-25T10:30:00Z",
+        "counts": {
+            "bookmarks": {"active": 150, "archived": 25},
+            "notes": {"active": 75, "archived": 5},
+        },
+        "top_tags": [
+            {"name": "python", "content_count": 45, "filter_count": 3},
+            {"name": "reference", "content_count": 38, "filter_count": 2},
+        ],
+        "filters": [
+            {
+                "id": "a1b2c3d4-e29b-41d4-a716-446655440000",
+                "name": "Work Projects",
+                "content_types": ["bookmark", "note"],
+                "filter_expression": {
+                    "groups": [{"tags": ["work", "project"]}, {"tags": ["client"]}],
+                    "group_operator": "OR",
+                },
+                "items": [
+                    {
+                        "type": "note",
+                        "id": "2b3c4d5e-e29b-41d4-a716-446655440000",
+                        "title": "Client Onboarding Checklist",
+                        "description": None,
+                        "content_preview": "Steps for onboarding new clients...",
+                        "tags": ["work", "project", "client"],
+                        "last_used_at": "2026-01-25T08:00:00Z",
+                        "created_at": "2026-01-20T08:00:00Z",
+                        "updated_at": "2026-01-24T14:00:00Z",
+                    },
+                ],
+            },
+        ],
+        "sidebar_collections": [
+            {
+                "name": "Study Materials",
+                "filters": [
+                    {"id": "b2c3d4e5-e29b-41d4-a716-446655440000", "name": "Learning"},
+                ],
+            },
+        ],
+        "recently_used": [
+            {
+                "type": "bookmark",
+                "id": "f47ac10b-e29b-41d4-a716-446655440000",
+                "title": "Python Documentation",
+                "description": "Official Python 3.x documentation",
+                "content_preview": "The Python Language Reference...",
+                "tags": ["python", "reference"],
+                "last_used_at": "2026-01-25T08:30:00Z",
+                "created_at": "2026-01-10T08:00:00Z",
+                "updated_at": "2026-01-24T14:00:00Z",
+            },
+        ],
+        "recently_created": [],
+        "recently_modified": [],
+    }
+
+
+def test__format_content_context_markdown__has_all_sections(
+    sample_context_response: dict[str, Any],
+) -> None:
+    """Verify all expected sections are present in markdown output."""
+    md = _format_content_context_markdown(sample_context_response)
+    assert "# Content Context" in md
+    assert "## Overview" in md
+    assert "## Top Tags" in md
+    assert "## Filters" in md
+    assert "## Sidebar Organization" in md
+    assert "## Filter Contents" in md
+    assert "## Recently Used" in md
+
+
+def test__format_content_context_markdown__overview_counts(
+    sample_context_response: dict[str, Any],
+) -> None:
+    """Verify overview section has correct counts."""
+    md = _format_content_context_markdown(sample_context_response)
+    assert "150 active, 25 archived" in md
+    assert "75 active, 5 archived" in md
+
+
+def test__format_content_context_markdown__tags_table(
+    sample_context_response: dict[str, Any],
+) -> None:
+    """Verify tags rendered as markdown table."""
+    md = _format_content_context_markdown(sample_context_response)
+    assert "| python | 45 | 3 |" in md
+    assert "| reference | 38 | 2 |" in md
+
+
+def test__format_content_context_markdown__filter_expression(
+    sample_context_response: dict[str, Any],
+) -> None:
+    """Verify filter expression rendered as human-readable rule."""
+    md = _format_content_context_markdown(sample_context_response)
+    assert "(work AND project) OR client" in md
+
+
+def test__format_content_context_markdown__filter_items(
+    sample_context_response: dict[str, Any],
+) -> None:
+    """Verify filter items include type, id, title, tags, and preview."""
+    md = _format_content_context_markdown(sample_context_response)
+    assert "Client Onboarding Checklist" in md
+    assert "[note 2b3c4d5e-e29b-41d4-a716-446655440000]" in md
+    assert "Tags: work, project, client" in md
+    assert "Preview: Steps for onboarding new clients..." in md
+
+
+def test__format_content_context_markdown__description_when_present(
+    sample_context_response: dict[str, Any],
+) -> None:
+    """Verify description is included when present, omitted when None."""
+    md = _format_content_context_markdown(sample_context_response)
+    # The recently_used item has a description
+    assert "Description: Official Python 3.x documentation" in md
+
+
+def test__format_content_context_markdown__sidebar_collections(
+    sample_context_response: dict[str, Any],
+) -> None:
+    """Verify sidebar collections render correctly."""
+    md = _format_content_context_markdown(sample_context_response)
+    assert "[collection] Study Materials" in md
+    assert "Learning `[filter b2c3d4e5-e29b-41d4-a716-446655440000]`" in md
+
+
+def test__format_content_context_markdown__deduplication(
+    sample_context_response: dict[str, Any],
+) -> None:
+    """Items seen in filter contents are abbreviated in recent sections."""
+    # Add the same item ID to recently_used that appears in filters
+    sample_context_response["recently_used"].insert(0, {
+        "type": "note",
+        "id": "2b3c4d5e-e29b-41d4-a716-446655440000",
+        "title": "Client Onboarding Checklist",
+        "description": None,
+        "content_preview": "Steps for onboarding new clients...",
+        "tags": ["work", "project", "client"],
+        "last_used_at": "2026-01-25T09:00:00Z",
+        "created_at": "2026-01-20T08:00:00Z",
+        "updated_at": "2026-01-24T14:00:00Z",
+    })
+    md = _format_content_context_markdown(sample_context_response)
+    # The item should appear abbreviated in Recently Used
+    lines = md.split("\n")
+    in_recently_used = False
+    found_abbreviated = False
+    for i, line in enumerate(lines):
+        if "## Recently Used" in line:
+            in_recently_used = True
+        elif line.startswith("## ") and in_recently_used:
+            break
+        elif in_recently_used and "2b3c4d5e" in line and "Client Onboarding" in line:
+            nearby = "\n".join(lines[i:i + 4])
+            if "(see above)" in nearby:
+                found_abbreviated = True
+    assert found_abbreviated, "Duplicate item should be abbreviated with '(see above)'"
+
+
+def test__format_content_context_markdown__empty_state() -> None:
+    """Empty state produces valid markdown with zero counts."""
+    data: dict[str, Any] = {
+        "generated_at": "2026-01-25T10:30:00Z",
+        "counts": {
+            "bookmarks": {"active": 0, "archived": 0},
+            "notes": {"active": 0, "archived": 0},
+        },
+        "top_tags": [],
+        "filters": [],
+        "sidebar_collections": [],
+        "recently_used": [],
+        "recently_created": [],
+        "recently_modified": [],
+    }
+    md = _format_content_context_markdown(data)
+    assert "# Content Context" in md
+    assert "## Overview" in md
+    assert "0 active, 0 archived" in md
+    # No filter/tag sections when empty
+    assert "## Top Tags" not in md
+    assert "## Filters" not in md
+    assert "## Recently Used" not in md
+
+
+def test__format_content_context_markdown__last_used_at_in_recent(
+    sample_context_response: dict[str, Any],
+) -> None:
+    """Recently used items show Last used timestamp."""
+    md = _format_content_context_markdown(sample_context_response)
+    assert "Last used: 2026-01-25T08:30:00Z" in md
+
+
+# --- get_context tool integration tests ---
+
+
+@pytest.mark.asyncio
+async def test__get_context__returns_markdown(
+    mock_api,
+    mcp_client: Client,
+    sample_context_response: dict[str, Any],
+) -> None:
+    """get_context tool returns markdown string with expected sections."""
+    mock_api.get("/mcp/context/content").mock(
+        return_value=Response(200, json=sample_context_response),
+    )
+
+    result = await mcp_client.call_tool("get_context", {})
+
+    text = result.content[0].text
+    assert "# Content Context" in text
+    assert "## Overview" in text
+    assert "## Top Tags" in text
+
+
+@pytest.mark.asyncio
+async def test__get_context__passes_parameters(
+    mock_api,
+    mcp_client: Client,
+    sample_context_response: dict[str, Any],
+) -> None:
+    """get_context passes query parameters to API."""
+    mock_api.get("/mcp/context/content").mock(
+        return_value=Response(200, json=sample_context_response),
+    )
+
+    await mcp_client.call_tool("get_context", {
+        "tag_limit": 10,
+        "recent_limit": 5,
+        "filter_limit": 3,
+        "filter_item_limit": 2,
+    })
+
+    request_url = str(mock_api.calls[0].request.url)
+    assert "tag_limit=10" in request_url
+    assert "recent_limit=5" in request_url
+    assert "filter_limit=3" in request_url
+    assert "filter_item_limit=2" in request_url
+
+
+@pytest.mark.asyncio
+async def test__get_context__auth_error(
+    mock_api,
+    mcp_client: Client,
+) -> None:
+    """get_context returns error on 401."""
+    mock_api.get("/mcp/context/content").mock(
+        return_value=Response(401, json={"detail": "Not authenticated"}),
+    )
+
+    result = await mcp_client.call_tool("get_context", {}, raise_on_error=False)
+    assert result.is_error
+
+
+@pytest.mark.asyncio
+async def test__get_context__api_unavailable(
+    mock_api,
+    mcp_client: Client,
+) -> None:
+    """get_context handles network errors."""
+    mock_api.get("/mcp/context/content").mock(
+        side_effect=httpx.ConnectError("Connection refused"),
+    )
+
+    result = await mcp_client.call_tool("get_context", {}, raise_on_error=False)
+    assert result.is_error
+    assert "unavailable" in result.content[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__get_context__tool_in_list(
+    mock_api,  # noqa: ARG001 - needed to reset HTTP client
+    mcp_client: Client,
+) -> None:
+    """get_context tool appears in the tool list."""
+    tools = await mcp_client.list_tools()
+    tool_names = [t.name for t in tools]
+    assert "get_context" in tool_names
