@@ -15,6 +15,7 @@ from mcp import types
 from mcp.shared.exceptions import McpError
 
 from prompt_mcp_server.server import (
+    _format_prompt_context_markdown,
     handle_call_tool,
     handle_get_prompt,
     handle_list_prompts,
@@ -369,10 +370,12 @@ async def test__list_tools__returns_all_tools() -> None:
     """Test list_tools returns all available tools."""
     result = await handle_list_tools()
 
-    assert len(result) == 7
+    assert len(result) == 9
     tool_names = {t.name for t in result}
     assert tool_names == {
+        "get_context",
         "search_prompts",
+        "list_filters",
         "list_tags",
         "get_prompt_metadata",
         "get_prompt_content",
@@ -802,6 +805,145 @@ async def test__search_prompts__results_include_length_and_preview(
     assert "prompt_preview" in data["items"][0]
     assert "content_length" not in data["items"][0]
     assert "content_preview" not in data["items"][0]
+
+
+# --- search_prompts with filter_id ---
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__with_filter_id__passes_to_api(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    sample_prompt_list_item: dict[str, Any],
+) -> None:
+    """Test search_prompts passes filter_id to API."""
+    response_data = {
+        "items": [sample_prompt_list_item],
+        "total": 1,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_data),
+    )
+
+    await handle_call_tool(
+        "search_prompts",
+        {"filter_id": "a1b2c3d4-e29b-41d4-a716-446655440000"},
+    )
+
+    request_url = str(mock_api.calls[0].request.url)
+    assert "filter_id=a1b2c3d4-e29b-41d4-a716-446655440000" in request_url
+
+
+# --- list_filters tests ---
+
+
+@pytest.mark.asyncio
+async def test__list_filters__returns_filters(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test list_filters returns filter data from API."""
+    filters_response = [
+        {
+            "id": "a1b2c3d4-e29b-41d4-a716-446655440000",
+            "name": "Development",
+            "content_types": ["prompt"],
+            "filter_expression": {
+                "groups": [{"tags": ["code-review"]}],
+                "group_operator": "OR",
+            },
+        },
+    ]
+    mock_api.get("/filters/").mock(
+        return_value=Response(200, json=filters_response),
+    )
+
+    result = await handle_call_tool("list_filters", {})
+
+    data = json.loads(result[0].text)
+    assert len(data["filters"]) == 1
+    assert data["filters"][0]["name"] == "Development"
+
+
+@pytest.mark.asyncio
+async def test__list_filters__excludes_non_prompt_filters(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test list_filters only returns filters whose content_types include 'prompt'."""
+    filters_response = [
+        {
+            "id": "a1b2c3d4-e29b-41d4-a716-446655440000",
+            "name": "Bookmark Only",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["work"]}],
+                "group_operator": "OR",
+            },
+        },
+        {
+            "id": "b2c3d4e5-e29b-41d4-a716-446655440000",
+            "name": "Prompt Filter",
+            "content_types": ["prompt"],
+            "filter_expression": {
+                "groups": [{"tags": ["code-review"]}],
+                "group_operator": "OR",
+            },
+        },
+        {
+            "id": "c3d4e5f6-e29b-41d4-a716-446655440000",
+            "name": "Mixed Filter",
+            "content_types": ["bookmark", "prompt"],
+            "filter_expression": {
+                "groups": [{"tags": ["shared"]}],
+                "group_operator": "OR",
+            },
+        },
+    ]
+    mock_api.get("/filters/").mock(
+        return_value=Response(200, json=filters_response),
+    )
+
+    result = await handle_call_tool("list_filters", {})
+
+    data = json.loads(result[0].text)
+    names = [f["name"] for f in data["filters"]]
+    assert "Prompt Filter" in names
+    assert "Mixed Filter" in names
+    assert "Bookmark Only" not in names
+
+
+@pytest.mark.asyncio
+async def test__list_filters__empty(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test list_filters with no filters returns empty list."""
+    mock_api.get("/filters/").mock(
+        return_value=Response(200, json=[]),
+    )
+
+    result = await handle_call_tool("list_filters", {})
+
+    data = json.loads(result[0].text)
+    assert data["filters"] == []
+
+
+@pytest.mark.asyncio
+async def test__list_filters__api_unavailable(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test network error handling for list_filters."""
+    mock_api.get("/filters/").mock(side_effect=httpx.ConnectError("Connection refused"))
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_call_tool("list_filters", {})
+
+    assert "unavailable" in str(exc_info.value).lower()
 
 
 # --- list_tags tests ---
@@ -1845,3 +1987,319 @@ async def test__cleanup__handles_no_resources() -> None:
 
     assert server_module._http_client is None
     assert len(server_module._background_tasks) == 0
+
+
+# --- get_context tool tests ---
+
+
+def _sample_prompt_context_response() -> dict[str, Any]:
+    """Build a sample prompt context API response."""
+    return {
+        "generated_at": "2026-01-25T10:30:00Z",
+        "counts": {"active": 30, "archived": 2},
+        "top_tags": [
+            {"name": "code-review", "content_count": 8, "filter_count": 2},
+            {"name": "writing", "content_count": 6, "filter_count": 1},
+        ],
+        "filters": [
+            {
+                "id": "d4e5f6a7-e29b-41d4-a716-446655440000",
+                "name": "Development",
+                "content_types": ["prompt"],
+                "filter_expression": {
+                    "groups": [{"tags": ["code-review"]}, {"tags": ["refactor"]}],
+                    "group_operator": "OR",
+                },
+                "items": [
+                    {
+                        "id": "aaa11111-e29b-41d4-a716-446655440000",
+                        "name": "code-review",
+                        "title": "Code Review Assistant",
+                        "description": "Reviews code for bugs",
+                        "content_preview": "Review the following {{ language }} code...",
+                        "arguments": [
+                            {"name": "language", "description": "Programming language", "required": True},
+                            {"name": "code", "description": "Code to review", "required": True},
+                            {"name": "focus_areas", "description": None, "required": False},
+                        ],
+                        "tags": ["code-review", "development"],
+                        "last_used_at": "2026-01-25T08:30:00Z",
+                        "created_at": "2026-01-10T08:00:00Z",
+                        "updated_at": "2026-01-25T09:00:00Z",
+                    },
+                ],
+            },
+        ],
+        "sidebar_items": [
+            {
+                "type": "collection",
+                "name": "Code Tools",
+                "items": [
+                    {"type": "filter", "id": "d4e5f6a7-e29b-41d4-a716-446655440000", "name": "Development"},
+                ],
+            },
+            {"type": "filter", "id": "e5f6a7b8-e29b-41d4-a716-446655440000", "name": "Writing Helpers"},
+        ],
+        "recently_used": [
+            {
+                "id": "aaa11111-e29b-41d4-a716-446655440000",
+                "name": "code-review",
+                "title": "Code Review Assistant",
+                "description": "Reviews code for bugs",
+                "content_preview": "Review the following {{ language }} code...",
+                "arguments": [
+                    {"name": "language", "description": "Programming language", "required": True},
+                    {"name": "code", "description": "Code to review", "required": True},
+                ],
+                "tags": ["code-review", "development"],
+                "last_used_at": "2026-01-25T08:30:00Z",
+                "created_at": "2026-01-10T08:00:00Z",
+                "updated_at": "2026-01-25T09:00:00Z",
+            },
+        ],
+        "recently_created": [],
+        "recently_modified": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test__get_context__returns_markdown(
+    mock_api: Any,
+    mock_auth: Any,  # noqa: ARG001
+) -> None:
+    """get_context tool returns markdown string with expected sections."""
+    mock_api.get("/mcp/context/prompts").mock(
+        return_value=Response(200, json=_sample_prompt_context_response()),
+    )
+
+    result = await handle_call_tool("get_context", {})
+    assert isinstance(result, list)
+    assert len(result) == 1
+    text = result[0].text
+    assert "# Prompt Context" in text
+    assert "## Overview" in text
+    assert "30 active, 2 archived" in text
+    assert "## Top Tags" in text
+    assert "## Filters" in text
+    assert "## Sidebar Organization" in text
+    assert "## Filter Contents" in text
+    assert "## Recently Used" in text
+
+
+@pytest.mark.asyncio
+async def test__get_context__passes_parameters(
+    mock_api: Any,
+    mock_auth: Any,  # noqa: ARG001
+) -> None:
+    """get_context passes query parameters to API."""
+    mock_api.get("/mcp/context/prompts").mock(
+        return_value=Response(200, json=_sample_prompt_context_response()),
+    )
+
+    await handle_call_tool("get_context", {
+        "tag_limit": 10,
+        "recent_limit": 5,
+        "filter_limit": 3,
+        "filter_item_limit": 2,
+    })
+
+    request_url = str(mock_api.calls[0].request.url)
+    assert "tag_limit=10" in request_url
+    assert "recent_limit=5" in request_url
+    assert "filter_limit=3" in request_url
+    assert "filter_item_limit=2" in request_url
+
+
+@pytest.mark.asyncio
+async def test__get_context__auth_error(
+    mock_api: Any,
+    mock_auth: Any,  # noqa: ARG001
+) -> None:
+    """get_context raises McpError on 401."""
+    mock_api.get("/mcp/context/prompts").mock(
+        return_value=Response(401, json={"detail": "Not authenticated"}),
+    )
+
+    with pytest.raises(McpError):
+        await handle_call_tool("get_context", {})
+
+
+@pytest.mark.asyncio
+async def test__get_context__api_unavailable(
+    mock_api: Any,
+    mock_auth: Any,  # noqa: ARG001
+) -> None:
+    """get_context raises McpError on network error."""
+    mock_api.get("/mcp/context/prompts").mock(
+        side_effect=httpx.ConnectError("Connection refused"),
+    )
+
+    with pytest.raises(McpError, match="API unavailable"):
+        await handle_call_tool("get_context", {})
+
+
+@pytest.mark.asyncio
+async def test__get_context__tool_in_list() -> None:
+    """get_context tool appears in the tool list with correct schema."""
+    tools = await handle_list_tools()
+    tool_names = [t.name for t in tools]
+    assert "get_context" in tool_names
+
+    context_tool = next(t for t in tools if t.name == "get_context")
+    assert context_tool.annotations.readOnlyHint is True
+    props = context_tool.inputSchema["properties"]
+    assert "tag_limit" in props
+    assert "recent_limit" in props
+    assert "filter_limit" in props
+    assert "filter_item_limit" in props
+
+
+@pytest.mark.asyncio
+async def test__get_context__no_structured_content(
+    mock_api: Any,
+    mock_auth: Any,  # noqa: ARG001
+) -> None:
+    """get_context returns text content, not CallToolResult with structuredContent."""
+    mock_api.get("/mcp/context/prompts").mock(
+        return_value=Response(200, json=_sample_prompt_context_response()),
+    )
+
+    result = await handle_call_tool("get_context", {})
+    # Returns list[TextContent], not CallToolResult
+    assert isinstance(result, list)
+    assert isinstance(result[0], types.TextContent)
+
+
+# --- Prompt context markdown formatting tests ---
+
+
+def test__format_prompt_context_markdown__has_all_sections() -> None:
+    """Markdown output contains all expected sections."""
+    data = _sample_prompt_context_response()
+    md = _format_prompt_context_markdown(data)
+    assert "# Prompt Context" in md
+    assert "## Overview" in md
+    assert "## Top Tags" in md
+    assert "## Filters" in md
+    assert "## Sidebar Organization" in md
+    assert "## Filter Contents" in md
+    assert "## Recently Used" in md
+
+
+def test__format_prompt_context_markdown__overview_counts() -> None:
+    """Overview shows correct prompt counts."""
+    data = _sample_prompt_context_response()
+    md = _format_prompt_context_markdown(data)
+    assert "30 active, 2 archived" in md
+
+
+def test__format_prompt_context_markdown__tags_table() -> None:
+    """Tags table includes tag names and counts."""
+    data = _sample_prompt_context_response()
+    md = _format_prompt_context_markdown(data)
+    assert "| code-review | 8 | 2 |" in md
+    assert "| writing | 6 | 1 |" in md
+
+
+def test__format_prompt_context_markdown__filter_expression() -> None:
+    """Filter section renders expression as human-readable rule."""
+    data = _sample_prompt_context_response()
+    md = _format_prompt_context_markdown(data)
+    assert "code-review OR refactor" in md
+
+
+def test__format_prompt_context_markdown__prompt_format() -> None:
+    """Prompt items show name, title, tags, description, args, and preview."""
+    data = _sample_prompt_context_response()
+    md = _format_prompt_context_markdown(data)
+    assert '**code-review** — "Code Review Assistant"' in md
+    assert "Tags: code-review, development" in md
+    assert "Description: Reviews code for bugs" in md
+    assert "`language` (required)" in md
+    assert "`code` (required)" in md
+    assert "`focus_areas`" in md
+    assert "Preview: Review the following" in md
+
+
+def test__format_prompt_context_markdown__sidebar_tree() -> None:
+    """Sidebar section renders both collections and root-level filters."""
+    data = _sample_prompt_context_response()
+    md = _format_prompt_context_markdown(data)
+    assert "[collection] Code Tools" in md
+    assert "Development `[filter d4e5f6a7" in md
+    assert "Writing Helpers `[filter e5f6a7b8" in md
+
+
+def test__format_prompt_context_markdown__deduplication() -> None:
+    """Items shown in filter contents are abbreviated in recent sections."""
+    data = _sample_prompt_context_response()
+    md = _format_prompt_context_markdown(data)
+    # The prompt appears in filter contents first, then recently_used should abbreviate
+    lines = md.split("\n")
+    # Find the Recently Used section
+    recently_idx = next(i for i, line in enumerate(lines) if "## Recently Used" in line)
+    recently_section = "\n".join(lines[recently_idx:])
+    assert "(see above)" in recently_section
+
+
+def test__format_prompt_context_markdown__empty_state() -> None:
+    """Empty state produces valid markdown with zero counts."""
+    data = {
+        "generated_at": "2026-01-25T10:30:00Z",
+        "counts": {"active": 0, "archived": 0},
+        "top_tags": [],
+        "filters": [],
+        "sidebar_items": [],
+        "recently_used": [],
+        "recently_created": [],
+        "recently_modified": [],
+    }
+    md = _format_prompt_context_markdown(data)
+    assert "# Prompt Context" in md
+    assert "## Overview" in md
+    assert "0 active, 0 archived" in md
+    # Optional sections should not appear
+    assert "## Top Tags" not in md
+    assert "## Filters" not in md
+    assert "## Sidebar Organization" not in md
+    assert "## Filter Contents" not in md
+    assert "## Recently Used" not in md
+
+
+def test__format_prompt_context_markdown__no_sidebar_when_empty() -> None:
+    """Sidebar section is omitted when sidebar_items is empty."""
+    data = _sample_prompt_context_response()
+    data["sidebar_items"] = []
+    md = _format_prompt_context_markdown(data)
+    assert "## Sidebar Organization" not in md
+
+
+def test__format_prompt_context_markdown__last_used_at_in_recent() -> None:
+    """Recently used section shows last_used_at timestamp."""
+    data = {
+        "generated_at": "2026-01-25T10:30:00Z",
+        "counts": {"active": 1, "archived": 0},
+        "top_tags": [],
+        "filters": [],
+        "sidebar_items": [],
+        "recently_used": [
+            {
+                "id": "bbb22222-e29b-41d4-a716-446655440000",
+                "name": "test-prompt",
+                "title": None,
+                "description": None,
+                "content_preview": None,
+                "arguments": [],
+                "tags": [],
+                "last_used_at": "2026-01-25T08:30:00Z",
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
+            },
+        ],
+        "recently_created": [],
+        "recently_modified": [],
+    }
+    md = _format_prompt_context_markdown(data)
+    assert "Last used: 2026-01-25T08:30:00Z" in md
+
+

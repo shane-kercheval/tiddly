@@ -13,6 +13,7 @@ from api.routers import (
     content,
     filters,
     health,
+    mcp,
     notes,
     prompts,
     settings,
@@ -148,3 +149,4 @@ app.include_router(tags.router)
 app.include_router(tokens.router)
 app.include_router(filters.router)
 app.include_router(settings.router)
+app.include_router(mcp.router)

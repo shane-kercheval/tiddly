@@ -17,6 +17,7 @@ from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
 
 from shared.api_errors import ParsedApiError, parse_http_error
+from shared.mcp_format import format_filter_expression
 
 from .api_client import api_get, api_patch, api_post, get_api_base_url, get_default_timeout
 from .auth import AuthenticationError, get_bearer_token
@@ -35,7 +36,14 @@ This MCP server is a prompt template manager for creating, editing, and using re
 Prompts are Jinja2 templates with defined arguments that can be rendered with user-provided values.
 
 **Tools:**
+- `get_context`: Get a markdown summary of the user's prompts (counts, tags, filters with top items, recent prompts with arguments).
+  Call this once at the start of a session to understand what prompts exist and how they're organized.
+  Re-calling is only useful if the user significantly creates, modifies, or reorganizes content during the session.
+  Use prompt names from the response with `get_prompt_content` for full templates.
 - `search_prompts`: Search prompts with filters. Returns prompt_length and prompt_preview.
+  Use `filter_id` to search within a saved content filter (discover IDs via `list_filters`).
+- `list_filters`: List filters relevant to prompts, with IDs, names, and tag rules.
+  Use filter IDs with `search_prompts(filter_id=...)` to search within a specific filter.
 - `get_prompt_content`: Get a prompt's Jinja2 template and arguments. Returns both the raw template text
   and the argument definitions list. Use before edit_prompt_content.
 - `get_prompt_metadata`: Get metadata without the template. Returns title, description, tags, prompt_length,
@@ -101,6 +109,13 @@ Example workflows:
 
 8. "What tags do I have?"
    - Call `list_tags()` to see all tags with usage counts
+
+9. "What prompts does this user have?"
+   - Call `get_context()` to get an overview of their prompts, tags, filters, and recent activity
+
+10. "Show me prompts from my Development filter"
+   - Call `list_filters()` to find the filter ID
+   - Call `search_prompts(filter_id="<uuid>")` to get prompts matching that filter
 
 Prompt naming: lowercase with hyphens (e.g., `code-review`, `meeting-notes`).
 Argument naming: lowercase with underscores (e.g., `code_to_review`, `article_text`).
@@ -374,6 +389,58 @@ async def handle_list_tools() -> list[types.Tool]:
     """List available tools."""
     return [
         types.Tool(
+            name="get_context",
+            description=(
+                "Get a summary of the user's prompts. "
+                "Use this at the START of a session to understand: "
+                "what prompts the user has (counts), how prompts are organized "
+                "(tags, filters in priority order), what's inside each filter "
+                "(top prompts per filter), and what prompts the user frequently uses "
+                "(recently used, created, modified). "
+                "Results reflect a point-in-time snapshot. Call once at session start; re-calling "
+                "is only useful if the user significantly creates, modifies, or reorganizes "
+                "content during the session. "
+                "Returns a markdown summary optimized for quick understanding. Use prompt "
+                "names from the response with get_prompt_content for full templates. "
+                "Use tag names with search_prompts to find related prompts."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tag_limit": {
+                        "type": "integer",
+                        "default": 50,
+                        "minimum": 1,
+                        "maximum": 100,
+                        "description": "Number of top tags",
+                    },
+                    "recent_limit": {
+                        "type": "integer",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50,
+                        "description": "Recent prompts per category",
+                    },
+                    "filter_limit": {
+                        "type": "integer",
+                        "default": 5,
+                        "minimum": 0,
+                        "maximum": 20,
+                        "description": "Max filters to include",
+                    },
+                    "filter_item_limit": {
+                        "type": "integer",
+                        "default": 5,
+                        "minimum": 1,
+                        "maximum": 20,
+                        "description": "Items per filter",
+                    },
+                },
+                "required": [],
+            },
+            annotations=types.ToolAnnotations(readOnlyHint=True),
+        ),
+        types.Tool(
             name="search_prompts",
             description=(
                 "Search prompts with filters. Returns metadata including prompt_length "
@@ -423,9 +490,31 @@ async def handle_list_tools() -> list[types.Tool]:
                         "minimum": 0,
                         "description": "Number of results to skip for pagination",
                     },
+                    "filter_id": {
+                        "type": "string",
+                        "description": (
+                            "Filter by content filter ID (UUID). "
+                            "Use list_filters to discover filter IDs."
+                        ),
+                    },
                 },
                 "required": [],
             },
+        ),
+        types.Tool(
+            name="list_filters",
+            description=(
+                "List filters relevant to prompts. "
+                "Filters are saved views with tag-based rules. Use filter IDs with "
+                "search_prompts(filter_id=...) to search within a specific filter. "
+                "Returns filter ID, name, content types, and the tag-based filter expression."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+            annotations=types.ToolAnnotations(readOnlyHint=True),
         ),
         types.Tool(
             name="list_tags",
@@ -747,7 +836,9 @@ async def handle_call_tool(
     """Handle tool calls."""
     # Dispatch table for tool handlers
     handlers = {
+        "get_context": lambda args: _handle_get_context(args),
         "search_prompts": lambda args: _handle_search_prompts(args),
+        "list_filters": lambda _: _handle_list_filters(),
         "list_tags": lambda _: _handle_list_tags(),
         "get_prompt_content": lambda args: _handle_get_prompt_content(args),
         "get_prompt_metadata": lambda args: _handle_get_prompt_metadata(args),
@@ -768,7 +859,7 @@ async def handle_call_tool(
     return await handler(arguments or {})
 
 
-async def _handle_search_prompts(
+async def _handle_search_prompts(  # noqa: PLR0912
     arguments: dict[str, Any],
 ) -> list[types.TextContent]:
     """
@@ -796,6 +887,8 @@ async def _handle_search_prompts(
         params["limit"] = arguments["limit"]
     if "offset" in arguments:
         params["offset"] = arguments["offset"]
+    if "filter_id" in arguments:
+        params["filter_id"] = arguments["filter_id"]
 
     try:
         result = await api_get(client, "/prompts/", token, params if params else None)
@@ -821,6 +914,34 @@ async def _handle_search_prompts(
         types.TextContent(
             type="text",
             text=json.dumps(result, indent=2, default=str),
+        ),
+    ]
+
+
+async def _handle_list_filters() -> list[types.TextContent]:
+    """Handle list_filters tool call. Returns filters relevant to prompts."""
+    client = get_http_client()
+    token = _get_token()
+
+    try:
+        result = await api_get(client, "/filters/", token)
+    except httpx.HTTPStatusError as e:
+        _raise_mcp_error(parse_http_error(e))
+    except httpx.RequestError as e:
+        raise McpError(
+            types.ErrorData(
+                code=types.INTERNAL_ERROR,
+                message=f"API unavailable: {e}",
+            ),
+        ) from e
+
+    # Only include filters relevant to prompts
+    filtered = [f for f in result if "prompt" in f.get("content_types", [])]
+
+    return [
+        types.TextContent(
+            type="text",
+            text=json.dumps({"filters": filtered}, indent=2, default=str),
         ),
     ]
 
@@ -1234,3 +1355,276 @@ async def _handle_update_prompt(
     )
 
 
+async def _handle_get_context(
+    arguments: dict[str, Any],
+) -> list[types.TextContent]:
+    """
+    Handle get_context tool call.
+
+    Calls the prompt context API endpoint and returns a markdown summary.
+    """
+    client = get_http_client()
+    token = _get_token()
+
+    params: dict[str, Any] = {}
+    for key in ("tag_limit", "recent_limit", "filter_limit", "filter_item_limit"):
+        if key in arguments:
+            params[key] = arguments[key]
+
+    try:
+        data = await api_get(client, "/mcp/context/prompts", token, params if params else None)
+    except httpx.HTTPStatusError as e:
+        _raise_mcp_error(parse_http_error(e))
+    except httpx.RequestError as e:
+        raise McpError(
+            types.ErrorData(
+                code=types.INTERNAL_ERROR,
+                message=f"API unavailable: {e}",
+            ),
+        ) from e
+
+    markdown = _format_prompt_context_markdown(data)
+    return [types.TextContent(type="text", text=markdown)]
+
+
+_TIME_LABELS: dict[str, str] = {
+    "last_used_at": "Last used",
+    "created_at": "Created",
+    "updated_at": "Modified",
+}
+
+
+def _format_prompt_context_markdown(data: dict[str, Any]) -> str:
+    """Convert prompt context API response to markdown."""
+    lines: list[str] = []
+    seen_ids: set[str] = set()
+
+    lines.append("# Prompt Context")
+    lines.append("")
+    lines.append(f"Generated: {data['generated_at']}")
+
+    _append_prompt_overview(lines, data)
+    _append_prompt_tags(lines, data)
+
+    filters = data.get("filters", [])
+    _append_prompt_filters(lines, filters)
+    _append_prompt_sidebar(lines, data)
+    _append_prompt_filter_contents(lines, filters, seen_ids)
+    _append_prompt_recent_sections(lines, data, seen_ids)
+
+    return "\n".join(lines)
+
+
+def _append_prompt_overview(
+    lines: list[str], data: dict[str, Any],
+) -> None:
+    """Append overview counts section."""
+    lines.append("")
+    lines.append("## Overview")
+    counts = data["counts"]
+    lines.append(
+        f"- **Prompts:** {counts['active']} active, {counts['archived']} archived",
+    )
+
+
+def _append_prompt_tags(
+    lines: list[str], data: dict[str, Any],
+) -> None:
+    """Append top tags table section."""
+    if not data.get("top_tags"):
+        return
+    lines.append("")
+    lines.append("## Top Tags")
+    lines.append(
+        "Tags are used to categorize prompts. A tag referenced by any"
+        " filter indicates it is important to the user's workflow.",
+    )
+    lines.append("")
+    lines.append("| Tag | Prompts | Filters |")
+    lines.append("|----|---------|---------|")
+    for tag in data["top_tags"]:
+        lines.append(
+            f"| {tag['name']} | {tag['content_count']}"
+            f" | {tag['filter_count']} |",
+        )
+    lines.append("")
+
+
+def _append_prompt_filters(
+    lines: list[str], filters: list[dict[str, Any]],
+) -> None:
+    """Append filter definitions section."""
+    if not filters:
+        return
+    lines.append("")
+    lines.append("## Filters")
+    lines.append(
+        "Filters are custom saved views the user has created to organize"
+        " their prompts. They define tag-based rules to surface specific"
+        " prompts. Filters are listed below in the user's preferred order,"
+        " which reflects their priority. Tags within a group are combined"
+        " with AND (all must match). Groups are combined with the group"
+        " operator (OR = any group matches).",
+    )
+    lines.append("")
+    for i, f in enumerate(filters, 1):
+        content_types = ", ".join(f["content_types"])
+        rule = format_filter_expression(f["filter_expression"])
+        lines.append(
+            f"{i}. **{f['name']}** `[filter {f['id']}]`"
+            f" ({content_types})",
+        )
+        lines.append(f"   Rule: `{rule}`")
+        lines.append("")
+
+
+def _append_prompt_sidebar(
+    lines: list[str], data: dict[str, Any],
+) -> None:
+    """Append sidebar organization section."""
+    sidebar_items = data.get("sidebar_items", [])
+    if not sidebar_items:
+        return
+
+    lines.append("## Sidebar Organization")
+    lines.append(
+        "Collections are a frontend-only grouping mechanism for organizing"
+        " filters visually. They have no effect on search or filtering"
+        " behavior.",
+    )
+    lines.append("")
+
+    for item in sidebar_items:
+        if item.get("type") == "collection":
+            lines.append(f"- [collection] {item['name']}")
+            for child in item.get("items", []):
+                lines.append(f"  - {child['name']} `[filter {child['id']}]`")
+        else:
+            lines.append(f"- {item['name']} `[filter {item['id']}]`")
+    lines.append("")
+
+
+def _append_prompt_filter_contents(
+    lines: list[str],
+    filters: list[dict[str, Any]],
+    seen_ids: set[str],
+) -> None:
+    """Append filter contents with top prompts per filter."""
+    if not filters:
+        return
+    lines.append("## Filter Contents")
+    lines.append(
+        "Top items from each filter, in sidebar order. Items already"
+        " shown in a previous filter are abbreviated.",
+    )
+    lines.append("")
+    for f in filters:
+        lines.append(f"### {f['name']}")
+        items = f.get("items", [])
+        if not items:
+            lines.append("(no items)")
+            lines.append("")
+            continue
+        for j, item in enumerate(items, 1):
+            item_id = str(item["id"])
+            if item_id in seen_ids:
+                _append_abbreviated_prompt(lines, j, item)
+            else:
+                seen_ids.add(item_id)
+                _append_prompt_lines(lines, j, item)
+        lines.append("")
+
+
+def _append_prompt_recent_sections(
+    lines: list[str],
+    data: dict[str, Any],
+    seen_ids: set[str],
+) -> None:
+    """Append recently used/created/modified sections."""
+    sections = [
+        ("recently_used", "Recently Used", "last_used_at"),
+        ("recently_created", "Recently Created", "created_at"),
+        ("recently_modified", "Recently Modified", "updated_at"),
+    ]
+    for section_key, section_title, time_field in sections:
+        items = data.get(section_key, [])
+        if not items:
+            continue
+        lines.append(f"## {section_title}")
+        for j, item in enumerate(items, 1):
+            item_id = str(item["id"])
+            if item_id in seen_ids:
+                _append_abbreviated_prompt(
+                    lines, j, item, time_field=time_field,
+                )
+            else:
+                seen_ids.add(item_id)
+                _append_prompt_lines(
+                    lines, j, item, extra_time_field=time_field,
+                )
+        lines.append("")
+
+
+def _append_abbreviated_prompt(
+    lines: list[str],
+    index: int,
+    item: dict[str, Any],
+    time_field: str | None = None,
+) -> None:
+    """Append an abbreviated prompt reference (already shown elsewhere)."""
+    name = item.get("name", "unknown")
+    title = item.get("title")
+    header = f"{index}. **{name}**"
+    if title:
+        header += f' — "{title}"'
+    lines.append(header)
+    if time_field:
+        ts = item.get(time_field, "")
+        if ts:
+            label = _TIME_LABELS.get(time_field, time_field)
+            lines.append(f"   {label}: {ts}")
+    lines.append("   (see above)")
+
+
+def _append_prompt_lines(
+    lines: list[str],
+    index: int,
+    item: dict[str, Any],
+    extra_time_field: str | None = None,
+) -> None:
+    """Append formatted prompt lines to the output."""
+    name = item.get("name", "unknown")
+    title = item.get("title")
+    header = f"{index}. **{name}**"
+    if title:
+        header += f' — "{title}"'
+    lines.append(header)
+
+    if extra_time_field:
+        ts = item.get(extra_time_field)
+        if ts:
+            label = _TIME_LABELS.get(extra_time_field, extra_time_field)
+            lines.append(f"   {label}: {ts}")
+
+    tags = item.get("tags", [])
+    if tags:
+        lines.append(f"   Tags: {', '.join(tags)}")
+
+    desc = item.get("description")
+    if desc:
+        lines.append(f"   Description: {desc}")
+
+    # Format arguments
+    arguments = item.get("arguments", [])
+    if arguments:
+        arg_parts = []
+        for arg in arguments:
+            arg_str = f"`{arg['name']}`"
+            if arg.get("required"):
+                arg_str += " (required)"
+            arg_parts.append(arg_str)
+        lines.append(f"   Args: {', '.join(arg_parts)}")
+
+    preview = item.get("content_preview")
+    if preview:
+        lines.append(f"   Preview: {preview}")

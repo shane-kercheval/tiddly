@@ -33,6 +33,7 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from shared.api_errors import ParsedApiError, parse_http_error
+from shared.mcp_format import format_filter_expression
 
 from .api_client import api_get, api_patch, api_post, get_api_base_url, get_default_timeout
 from .auth import AuthenticationError, get_bearer_token
@@ -61,8 +62,17 @@ URL but can be user-provided. For notes, it's user-written markdown.
 
 ## Available Tools
 
+**Context:**
+- `get_context`: Get a markdown summary of the user's content (counts, tags, filters with top items, recent items).
+  Call this once at the start of a session to understand what the user has and how it's organized.
+  Re-calling is only useful if the user significantly creates, modifies, or reorganizes content during the session.
+  Use IDs from the response with `get_item` for full content. Use tag names with `search_items`.
+
 **Search** (returns active items only - excludes archived/deleted):
 - `search_items`: Search across bookmarks and notes. Use `type` parameter to filter.
+  Use `filter_id` to search within a saved content filter (discover IDs via `list_filters`).
+- `list_filters`: List filters relevant to bookmarks and notes, with IDs, names, and tag rules.
+  Use filter IDs with `search_items(filter_id=...)` to search within a specific filter.
 - `list_tags`: Get all tags with usage counts
 
 **Read & Edit:**
@@ -148,6 +158,13 @@ error with `server_state` containing the current version for resolution.
 8. "Update a bookmark's tags"
    - Call `update_item(id="<uuid>", type="bookmark", tags=["new-tag", "another"])`
 
+9. "What does this user have?"
+   - Call `get_context()` to get an overview of their content, tags, filters, and recent activity
+
+10. "Show me items from my Work Projects filter"
+   - Call `list_filters()` to find the filter ID
+   - Call `search_items(filter_id="<uuid>")` to get items matching that filter
+
 Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
 """.strip(),  # noqa: E501
 )
@@ -212,6 +229,15 @@ async def search_items(
     offset: Annotated[
         int, Field(ge=0, description="Number of results to skip for pagination"),
     ] = 0,
+    filter_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Filter by content filter ID (UUID). "
+                "Use list_filters to discover filter IDs."
+            ),
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """
     Search and filter bookmarks and/or notes.
@@ -239,6 +265,8 @@ async def search_items(
         params["q"] = query
     if tags:
         params["tags"] = tags
+    if filter_id:
+        params["filter_id"] = filter_id
 
     # Route to appropriate endpoint based on type filter
     if type == "bookmark":
@@ -253,6 +281,32 @@ async def search_items(
 
     try:
         return await api_get(client, endpoint, token, params)
+    except httpx.HTTPStatusError as e:
+        _raise_tool_error(parse_http_error(e))
+    except httpx.RequestError as e:
+        raise ToolError(f"API unavailable: {e}")
+
+
+@mcp.tool(
+    description=(
+        "List filters relevant to bookmarks and notes. "
+        "Filters are saved views with tag-based rules. Use filter IDs with "
+        "search_items(filter_id=...) to search within a specific filter. "
+        "Returns filter ID, name, content types, and the tag-based filter expression."
+    ),
+    annotations={"readOnlyHint": True},
+)
+async def list_filters() -> dict[str, Any]:
+    """List filters relevant to bookmarks and notes."""
+    client = await _get_http_client()
+    token = _get_token()
+
+    try:
+        filters = await api_get(client, "/filters/", token)
+        # Only include filters relevant to bookmarks/notes
+        content_types = {"bookmark", "note"}
+        relevant = [f for f in filters if content_types & set(f.get("content_types", []))]
+        return {"filters": relevant}
     except httpx.HTTPStatusError as e:
         _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:
@@ -686,6 +740,293 @@ async def create_note(
         _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")
+
+
+@mcp.tool(
+    description=(
+        "Get a summary of the user's bookmarks and notes. "
+        "Use this at the START of a session to understand: "
+        "what content the user has (counts by type), how content is organized "
+        "(top tags, custom filters in priority order), what's inside each filter "
+        "(top items per filter), and what the user is actively working with "
+        "(recently used, created, modified items). "
+        "Results reflect a point-in-time snapshot. Call once at session start; re-calling "
+        "is only useful if the user significantly creates, modifies, or reorganizes "
+        "content during the session. "
+        "Returns a markdown summary optimized for quick understanding. Use IDs from "
+        "the response with get_item for full content. Use tag names with search_items "
+        "to find related content."
+    ),
+    annotations={"readOnlyHint": True},
+)
+async def get_context(
+    tag_limit: Annotated[
+        int, Field(default=50, ge=1, le=100, description="Number of top tags"),
+    ] = 50,
+    recent_limit: Annotated[
+        int, Field(default=10, ge=1, le=50, description="Recent items per category"),
+    ] = 10,
+    filter_limit: Annotated[
+        int, Field(default=5, ge=0, le=20, description="Max filters to include"),
+    ] = 5,
+    filter_item_limit: Annotated[
+        int, Field(default=5, ge=1, le=20, description="Items per filter"),
+    ] = 5,
+) -> str:
+    """Get a markdown summary of the user's content landscape."""
+    client = await _get_http_client()
+    token = _get_token()
+
+    params: dict[str, Any] = {
+        "tag_limit": tag_limit,
+        "recent_limit": recent_limit,
+        "filter_limit": filter_limit,
+        "filter_item_limit": filter_item_limit,
+    }
+
+    try:
+        data = await api_get(client, "/mcp/context/content", token, params)
+    except httpx.HTTPStatusError as e:
+        _raise_tool_error(parse_http_error(e))
+    except httpx.RequestError as e:
+        raise ToolError(f"API unavailable: {e}")
+
+    return _format_content_context_markdown(data)
+
+
+
+
+def _format_content_context_markdown(data: dict[str, Any]) -> str:
+    """Convert content context API response to markdown."""
+    lines: list[str] = []
+    seen_ids: set[str] = set()
+
+    lines.append("# Content Context")
+    lines.append("")
+    lines.append(f"Generated: {data['generated_at']}")
+
+    _append_overview_section(lines, data)
+    _append_tags_section(lines, data)
+
+    filters = data.get("filters", [])
+    _append_filters_section(lines, filters)
+    _append_sidebar_section(lines, data)
+    _append_filter_contents_section(lines, filters, seen_ids)
+    _append_recent_sections(lines, data, seen_ids)
+
+    return "\n".join(lines)
+
+
+def _append_overview_section(
+    lines: list[str], data: dict[str, Any],
+) -> None:
+    """Append overview counts section."""
+    lines.append("")
+    lines.append("## Overview")
+    counts = data["counts"]
+    bm = counts["bookmarks"]
+    notes = counts["notes"]
+    lines.append(
+        f"- **Bookmarks:** {bm['active']} active, {bm['archived']} archived",
+    )
+    lines.append(
+        f"- **Notes:** {notes['active']} active, {notes['archived']} archived",
+    )
+
+
+def _append_tags_section(
+    lines: list[str], data: dict[str, Any],
+) -> None:
+    """Append top tags table section."""
+    if not data.get("top_tags"):
+        return
+    lines.append("")
+    lines.append("## Top Tags")
+    lines.append(
+        "Tags are used to categorize content. A tag referenced by any"
+        " filter indicates it is important to the user's workflow.",
+    )
+    lines.append("")
+    lines.append("| Tag | Items | Filters |")
+    lines.append("|-----|-------|---------|")
+    for tag in data["top_tags"]:
+        lines.append(
+            f"| {tag['name']} | {tag['content_count']}"
+            f" | {tag['filter_count']} |",
+        )
+    lines.append("")
+
+
+def _append_filters_section(
+    lines: list[str], filters: list[dict[str, Any]],
+) -> None:
+    """Append filter definitions section."""
+    if not filters:
+        return
+    lines.append("")
+    lines.append("## Filters")
+    lines.append(
+        "Filters are custom saved views the user has created to organize"
+        " their content. They define tag-based rules to surface specific"
+        " items. Filters are listed below in the user's preferred order,"
+        " which reflects their priority. Tags within a group are combined"
+        " with AND (all must match). Groups are combined with the group"
+        " operator (OR = any group matches).",
+    )
+    lines.append("")
+    for i, f in enumerate(filters, 1):
+        content_types = ", ".join(f["content_types"])
+        rule = format_filter_expression(f["filter_expression"])
+        lines.append(
+            f"{i}. **{f['name']}** `[filter {f['id']}]`"
+            f" ({content_types})",
+        )
+        lines.append(f"   Rule: `{rule}`")
+        lines.append("")
+
+
+def _append_sidebar_section(
+    lines: list[str], data: dict[str, Any],
+) -> None:
+    """Append sidebar organization section from sidebar_items tree."""
+    sidebar_items = data.get("sidebar_items", [])
+    if not sidebar_items:
+        return
+
+    lines.append("## Sidebar Organization")
+    lines.append(
+        "Collections are a frontend-only grouping mechanism for organizing"
+        " filters visually. They have no effect on search or filtering"
+        " behavior.",
+    )
+    lines.append("")
+
+    for item in sidebar_items:
+        if item.get("type") == "collection":
+            lines.append(f"- [collection] {item['name']}")
+            for child in item.get("items", []):
+                lines.append(f"  - {child['name']} `[filter {child['id']}]`")
+        else:
+            lines.append(f"- {item['name']} `[filter {item['id']}]`")
+    lines.append("")
+
+
+def _append_filter_contents_section(
+    lines: list[str],
+    filters: list[dict[str, Any]],
+    seen_ids: set[str],
+) -> None:
+    """Append filter contents with top items per filter."""
+    if not filters:
+        return
+    lines.append("## Filter Contents")
+    lines.append(
+        "Top items from each filter, in sidebar order. Items already"
+        " shown in a previous filter are abbreviated.",
+    )
+    lines.append("")
+    for f in filters:
+        lines.append(f"### {f['name']}")
+        items = f.get("items", [])
+        if not items:
+            lines.append("(no items)")
+            lines.append("")
+            continue
+        for j, item in enumerate(items, 1):
+            item_id = str(item["id"])
+            if item_id in seen_ids:
+                _append_abbreviated_item(lines, j, item)
+            else:
+                seen_ids.add(item_id)
+                _append_item_lines(lines, j, item)
+        lines.append("")
+
+
+def _append_recent_sections(
+    lines: list[str],
+    data: dict[str, Any],
+    seen_ids: set[str],
+) -> None:
+    """Append recently used/created/modified sections."""
+    sections = [
+        ("recently_used", "Recently Used", "last_used_at"),
+        ("recently_created", "Recently Created", "created_at"),
+        ("recently_modified", "Recently Modified", "updated_at"),
+    ]
+    for section_key, section_title, time_field in sections:
+        items = data.get(section_key, [])
+        if not items:
+            continue
+        lines.append(f"## {section_title}")
+        for j, item in enumerate(items, 1):
+            item_id = str(item["id"])
+            if item_id in seen_ids:
+                _append_abbreviated_item(
+                    lines, j, item, time_field=time_field,
+                )
+            else:
+                seen_ids.add(item_id)
+                _append_item_lines(
+                    lines, j, item, extra_time_field=time_field,
+                )
+        lines.append("")
+
+
+_TIME_LABELS: dict[str, str] = {
+    "last_used_at": "Last used",
+    "created_at": "Created",
+    "updated_at": "Modified",
+}
+
+
+def _append_abbreviated_item(
+    lines: list[str],
+    index: int,
+    item: dict[str, Any],
+    time_field: str | None = None,
+) -> None:
+    """Append an abbreviated item reference (already shown elsewhere)."""
+    item_id = str(item["id"])
+    title = item.get("title") or "Untitled"
+    lines.append(
+        f"{index}. **{title}** `[{item['type']} {item_id}]`",
+    )
+    if time_field:
+        ts = item.get(time_field, "")
+        if ts:
+            label = _TIME_LABELS.get(time_field, time_field)
+            lines.append(f"   {label}: {ts}")
+    lines.append("   (see above)")
+
+
+def _append_item_lines(
+    lines: list[str],
+    index: int,
+    item: dict[str, Any],
+    extra_time_field: str | None = None,
+) -> None:
+    """Append formatted item lines to the output."""
+    item_id = str(item["id"])
+    title = item.get("title") or "Untitled"
+    lines.append(f"{index}. **{title}** `[{item['type']} {item_id}]`")
+
+    if extra_time_field:
+        ts = item.get(extra_time_field)
+        if ts:
+            label = _TIME_LABELS.get(extra_time_field, extra_time_field)
+            lines.append(f"   {label}: {ts}")
+
+    tags = item.get("tags", [])
+    if tags:
+        lines.append(f"   Tags: {', '.join(tags)}")
+
+    desc = item.get("description")
+    if desc:
+        lines.append(f"   Description: {desc}")
+
+    preview = item.get("content_preview")
+    if preview:
+        lines.append(f"   Preview: {preview}")
 
 
 @mcp.tool(

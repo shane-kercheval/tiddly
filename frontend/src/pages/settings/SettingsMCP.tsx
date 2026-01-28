@@ -389,6 +389,13 @@ export function SettingsMCP(): ReactNode {
             <p className="text-sm text-gray-500 mb-3">
               Tools for managing your bookmarks and notes.
             </p>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Context</h4>
+            <ul className="space-y-2 text-sm text-gray-600 mb-4">
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_context</span>
+                <span>Get context summary of bookmarks and notes</span>
+              </li>
+            </ul>
             <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Search & Read</h4>
             <ul className="space-y-2 text-sm text-gray-600 mb-4">
               <li className="flex items-start gap-2">
@@ -402,6 +409,10 @@ export function SettingsMCP(): ReactNode {
               <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_in_content</span>
                 <span>Search within content for editing</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_filters</span>
+                <span>List content filters with IDs and tag rules</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_tags</span>
@@ -439,6 +450,13 @@ export function SettingsMCP(): ReactNode {
             <p className="text-sm text-gray-500 mb-2">
               Agents can use your saved prompts and create new ones.
             </p>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Context</h4>
+            <ul className="space-y-2 text-sm text-gray-600 mb-4">
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_context</span>
+                <span>Get context summary of prompts</span>
+              </li>
+            </ul>
             <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Search & Read</h4>
             <ul className="space-y-2 text-sm text-gray-600 mb-4">
               <li className="flex items-start gap-2">
@@ -452,6 +470,10 @@ export function SettingsMCP(): ReactNode {
               <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_prompt_metadata</span>
                 <span>Get metadata without the template</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_filters</span>
+                <span>List prompt filters with IDs and tag rules</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_tags</span>
