@@ -883,8 +883,12 @@ describe('AllContent', () => {
       const addTagButton = screen.getByRole('button', { name: 'Add tag' })
       await user.click(addTagButton)
 
-      // Click on the 'example' suggestion (it's in tagsStore but not on this bookmark)
-      await user.click(screen.getByText('example'))
+      // Wait for dropdown to open (input appears)
+      await screen.findByPlaceholderText('Add tag...')
+
+      // Wait for and click the 'example' suggestion button (it's in tagsStore but not on this bookmark)
+      const suggestionButton = await screen.findByRole('button', { name: /^example/ })
+      await user.click(suggestionButton)
 
       expect(mockUpdateBookmark).toHaveBeenCalledWith({
         id: '1',
@@ -906,8 +910,12 @@ describe('AllContent', () => {
       const addTagButton = screen.getByRole('button', { name: 'Add tag' })
       await user.click(addTagButton)
 
-      // Click on the 'example' suggestion
-      await user.click(screen.getByText('example'))
+      // Wait for dropdown to open (input appears)
+      await screen.findByPlaceholderText('Add tag...')
+
+      // Wait for and click the 'example' suggestion button
+      const suggestionButton = await screen.findByRole('button', { name: /^example/ })
+      await user.click(suggestionButton)
 
       expect(mockUpdateNote).toHaveBeenCalledWith({
         id: '2',
@@ -929,8 +937,12 @@ describe('AllContent', () => {
       const addTagButton = screen.getByRole('button', { name: 'Add tag' })
       await user.click(addTagButton)
 
-      // Click on the 'example' suggestion
-      await user.click(screen.getByText('example'))
+      // Wait for dropdown to open (input appears)
+      await screen.findByPlaceholderText('Add tag...')
+
+      // Wait for and click the 'example' suggestion button
+      const suggestionButton = await screen.findByRole('button', { name: /^example/ })
+      await user.click(suggestionButton)
 
       expect(mockUpdatePrompt).toHaveBeenCalledWith({
         id: '5',
