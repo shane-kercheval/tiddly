@@ -231,11 +231,11 @@ export function BookmarkCard({
           )}
         </div>
 
-        {/* Row 2 (mobile): tags + actions + date */}
-        <div className="flex items-center gap-2 md:contents">
-          {/* Tags */}
+        {/* Mobile: tags row + actions/date row | Desktop: inline via md:contents */}
+        <div className="flex flex-col gap-2 md:contents">
+          {/* Tags row (mobile) */}
           {bookmark.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
+            <div className="flex flex-wrap gap-1 md:justify-end md:w-32 md:shrink-0">
               {bookmark.tags.map((tag) => (
                 <Tag
                   key={tag}
@@ -247,8 +247,8 @@ export function BookmarkCard({
             </div>
           )}
 
-          {/* Actions and date */}
-          <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
+          {/* Actions and date row (mobile): icons left, date right | Desktop: stacked right */}
+          <div className="flex items-center justify-between w-full md:w-auto md:flex-col md:items-end md:shrink-0">
             <div className="flex items-center">
               {/* Add tag button */}
               {onTagAdd && tagSuggestions && (
