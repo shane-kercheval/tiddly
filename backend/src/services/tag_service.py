@@ -1,7 +1,7 @@
 """Service layer for tag operations."""
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -177,7 +177,7 @@ async def get_user_tags_with_counts(
         for part in count_parts[1:]:
             content_count_expr = content_count_expr + part
     else:
-        content_count_expr = func.literal(0)
+        content_count_expr = literal(0)
     content_count = content_count_expr.label("content_count")
 
     # Subquery for counting filters using this tag

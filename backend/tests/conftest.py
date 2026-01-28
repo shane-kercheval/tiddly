@@ -148,6 +148,7 @@ async def client(
     get_settings.cache_clear()
 
     from api.main import app
+    from api.routers.mcp import get_concurrent_queries
     from db.session import get_async_session, get_session_factory
 
     async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
@@ -155,6 +156,7 @@ async def client(
 
     app.dependency_overrides[get_async_session] = override_get_async_session
     app.dependency_overrides[get_session_factory] = lambda: db_session_factory
+    app.dependency_overrides[get_concurrent_queries] = lambda: False
 
     # Set the global Redis client and auth cache for the test
     # (redis_client fixture already sets these, but we ensure they're set here too)

@@ -1,8 +1,11 @@
 """Tests for MCP context endpoints."""
 import uuid
+from unittest.mock import MagicMock
 
 import pytest
 from httpx import AsyncClient
+
+from services.mcp_context_service import _is_relevant_filter
 
 
 # =============================================================================
@@ -357,6 +360,56 @@ class TestContentContext:
         assert created_titles.index("Second") < created_titles.index("First")
 
     @pytest.mark.anyio
+    async def test__recently_modified__sorted_by_updated_at(
+        self, client: AsyncClient,
+    ) -> None:
+        bm1 = await _create_bookmark(client, title="First")
+        await _create_bookmark(client, title="Second")
+
+        # Update the first bookmark so it has a newer updated_at
+        await client.patch(
+            f"/bookmarks/{bm1['id']}",
+            json={"title": "First Updated"},
+        )
+
+        response = await client.get("/mcp/context/content")
+        data = response.json()
+
+        modified_titles = [item["title"] for item in data["recently_modified"]]
+        # "First Updated" was modified most recently
+        assert modified_titles.index("First Updated") < modified_titles.index("Second")
+
+    @pytest.mark.anyio
+    async def test__recently_used__null_last_used_at_sorts_last(
+        self, client: AsyncClient,
+    ) -> None:
+        await _create_bookmark(client, title="Never Used")
+        bm2 = await _create_bookmark(client, title="Used")
+
+        # Only track usage for one
+        await client.post(f"/bookmarks/{bm2['id']}/track-usage")
+
+        response = await client.get("/mcp/context/content")
+        data = response.json()
+
+        used_titles = [item["title"] for item in data["recently_used"]]
+        assert "Used" in used_titles
+        assert "Never Used" in used_titles
+        assert used_titles.index("Used") < used_titles.index("Never Used")
+
+    @pytest.mark.anyio
+    async def test__filter_limit_zero__returns_no_filters(
+        self, client: AsyncClient,
+    ) -> None:
+        await _create_bookmark(client, tags=["test"])
+        await _create_filter(client, "Test Filter", [["test"]], ["bookmark"])
+
+        response = await client.get("/mcp/context/content?filter_limit=0")
+        data = response.json()
+
+        assert data["filters"] == []
+
+    @pytest.mark.anyio
     async def test__description_included__when_present(
         self, client: AsyncClient,
     ) -> None:
@@ -520,6 +573,26 @@ class TestPromptContext:
         assert used_names.index("second-used") < used_names.index("first-used")
 
     @pytest.mark.anyio
+    async def test__filter_items__scoped_to_prompts_only(
+        self, client: AsyncClient,
+    ) -> None:
+        """Prompt context should not include bookmarks/notes in filter items."""
+        await _create_bookmark(client, tags=["shared"])
+        await _create_prompt(client, tags=["shared"])
+        await _create_filter(
+            client, "Shared", [["shared"]], ["bookmark", "note", "prompt"],
+        )
+
+        response = await client.get("/mcp/context/prompts")
+        data = response.json()
+
+        shared_filter = next((f for f in data["filters"] if f["name"] == "Shared"), None)
+        assert shared_filter is not None
+        # All items should be prompts — no bookmarks or notes
+        for item in shared_filter["items"]:
+            assert "arguments" in item  # Only ContextPrompt has arguments
+
+    @pytest.mark.anyio
     async def test__empty_state__valid_response(
         self, client: AsyncClient,
     ) -> None:
@@ -549,3 +622,40 @@ class TestPromptContext:
             assert response.status_code == 401
         finally:
             object.__setattr__(settings, "dev_mode", original)
+
+
+# =============================================================================
+# Unit tests for internal helpers
+# =============================================================================
+
+
+class TestIsRelevantFilter:
+    """Tests for _is_relevant_filter."""
+
+    def test__none_filter_expression__returns_false(self) -> None:
+        mock_filter = MagicMock()
+        mock_filter.filter_expression = None
+        mock_filter.content_types = ["bookmark"]
+
+        assert _is_relevant_filter(mock_filter, ["bookmark"]) is False
+
+    def test__empty_groups__returns_false(self) -> None:
+        mock_filter = MagicMock()
+        mock_filter.filter_expression = {"groups": []}
+        mock_filter.content_types = ["bookmark"]
+
+        assert _is_relevant_filter(mock_filter, ["bookmark"]) is False
+
+    def test__no_content_type_overlap__returns_false(self) -> None:
+        mock_filter = MagicMock()
+        mock_filter.filter_expression = {"groups": [{"tags": ["python"]}]}
+        mock_filter.content_types = ["prompt"]
+
+        assert _is_relevant_filter(mock_filter, ["bookmark", "note"]) is False
+
+    def test__valid_filter__returns_true(self) -> None:
+        mock_filter = MagicMock()
+        mock_filter.filter_expression = {"groups": [{"tags": ["python"]}]}
+        mock_filter.content_types = ["bookmark", "note"]
+
+        assert _is_relevant_filter(mock_filter, ["bookmark", "note"]) is True

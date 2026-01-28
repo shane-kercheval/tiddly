@@ -73,7 +73,7 @@ def _build_tag_filter(
     return [exists(subq)]
 
 
-async def _get_tags_for_items(
+async def get_tags_for_items(
     db: AsyncSession,
     user_id: UUID,
     bookmark_ids: list[UUID],
@@ -382,7 +382,7 @@ async def search_all_content(
     prompt_ids = [row.id for row in rows if row.type == "prompt"]
 
     # Fetch tags for all items
-    tags_map = await _get_tags_for_items(db, user_id, bookmark_ids, note_ids, prompt_ids)
+    tags_map = await get_tags_for_items(db, user_id, bookmark_ids, note_ids, prompt_ids)
 
     # Convert rows to ContentListItems
     items = [

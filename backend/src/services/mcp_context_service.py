@@ -1,4 +1,5 @@
 """Service layer for MCP context endpoints."""
+import asyncio
 from collections.abc import Callable, Coroutine
 from datetime import datetime, UTC
 from typing import Any
@@ -28,7 +29,7 @@ from schemas.mcp_context import (
 from schemas.prompt import PromptArgument
 from services.base_entity_service import CONTENT_PREVIEW_LENGTH
 from services.content_filter_service import get_filters
-from services.content_service import _get_tags_for_items, search_all_content
+from services.content_service import get_tags_for_items, search_all_content
 from services.sidebar_service import get_computed_sidebar
 from services.tag_service import get_user_tags_with_counts
 
@@ -40,8 +41,18 @@ async def get_content_context(
     recent_limit: int = 10,
     filter_limit: int = 5,
     filter_item_limit: int = 5,
+    concurrent: bool = True,
 ) -> ContentContextResponse:
-    """Build the content context response for bookmarks and notes."""
+    """Build the content context response for bookmarks and notes.
+
+    Args:
+        concurrent: When True, runs independent queries via asyncio.gather for
+            performance. Set to False in tests because the test transaction
+            rollback setup shares a single database connection, and concurrent
+            savepoints on a shared connection cause InvalidSavepointSpecification
+            errors. Overridden via the get_concurrent_queries dependency in the
+            router (see api/routers/mcp.py and tests/conftest.py).
+    """
     content_types = ["bookmark", "note"]
 
     async def _query(fn: Callable[..., Coroutine], *args: Any) -> Any:
@@ -49,10 +60,20 @@ async def get_content_context(
             return await fn(db, *args)
 
     # Phase 1: fetch counts, tags, filters, and recent items
-    counts = await _query(_get_content_counts, user_id)
-    tags = await _query(get_user_tags_with_counts, user_id, False, content_types)
-    filters_and_sidebar = await _query(_get_filters_in_sidebar_order, user_id, content_types)
-    recent_items = await _query(_get_recent_content_items, user_id, recent_limit)
+    if concurrent:
+        counts, tags, filters_and_sidebar, recent_items = await asyncio.gather(
+            _query(_get_content_counts, user_id),
+            _query(get_user_tags_with_counts, user_id, False, content_types),
+            _query(_get_filters_in_sidebar_order, user_id, content_types),
+            _query(_get_recent_content_items, user_id, recent_limit),
+        )
+    else:
+        counts = await _query(_get_content_counts, user_id)
+        tags = await _query(get_user_tags_with_counts, user_id, False, content_types)
+        filters_and_sidebar = await _query(
+            _get_filters_in_sidebar_order, user_id, content_types,
+        )
+        recent_items = await _query(_get_recent_content_items, user_id, recent_limit)
 
     # Apply tag limit
     top_tags = [
@@ -65,16 +86,28 @@ async def get_content_context(
     ordered_filters = ordered_filters[:filter_limit]
 
     # Phase 2: fetch top items per filter
-    filter_items_list = [
-        await _query(
-            _get_filter_items_content,
-            user_id,
-            f,
-            content_types,
-            filter_item_limit,
-        )
-        for f in ordered_filters
-    ]
+    if concurrent:
+        filter_items_list = await asyncio.gather(*(
+            _query(
+                _get_filter_items_content,
+                user_id,
+                f,
+                content_types,
+                filter_item_limit,
+            )
+            for f in ordered_filters
+        ))
+    else:
+        filter_items_list = [
+            await _query(
+                _get_filter_items_content,
+                user_id,
+                f,
+                content_types,
+                filter_item_limit,
+            )
+            for f in ordered_filters
+        ]
 
     # Build filter responses
     context_filters = []
@@ -108,8 +141,13 @@ async def get_prompt_context(
     recent_limit: int = 10,
     filter_limit: int = 5,
     filter_item_limit: int = 5,
+    concurrent: bool = True,
 ) -> PromptContextResponse:
-    """Build the prompt context response."""
+    """Build the prompt context response.
+
+    Args:
+        concurrent: See get_content_context for details.
+    """
     content_types = ["prompt"]
 
     async def _query(fn: Callable[..., Coroutine], *args: Any) -> Any:
@@ -117,10 +155,20 @@ async def get_prompt_context(
             return await fn(db, *args)
 
     # Phase 1: fetch counts, tags, filters, and recent items
-    counts = await _query(_get_prompt_counts, user_id)
-    tags = await _query(get_user_tags_with_counts, user_id, False, content_types)
-    filters_and_sidebar = await _query(_get_filters_in_sidebar_order, user_id, content_types)
-    recent_items = await _query(_get_recent_prompt_items, user_id, recent_limit)
+    if concurrent:
+        counts, tags, filters_and_sidebar, recent_items = await asyncio.gather(
+            _query(_get_prompt_counts, user_id),
+            _query(get_user_tags_with_counts, user_id, False, content_types),
+            _query(_get_filters_in_sidebar_order, user_id, content_types),
+            _query(_get_recent_prompt_items, user_id, recent_limit),
+        )
+    else:
+        counts = await _query(_get_prompt_counts, user_id)
+        tags = await _query(get_user_tags_with_counts, user_id, False, content_types)
+        filters_and_sidebar = await _query(
+            _get_filters_in_sidebar_order, user_id, content_types,
+        )
+        recent_items = await _query(_get_recent_prompt_items, user_id, recent_limit)
 
     top_tags = [
         ContextTag(name=t.name, content_count=t.content_count, filter_count=t.filter_count)
@@ -131,15 +179,26 @@ async def get_prompt_context(
     ordered_filters = ordered_filters[:filter_limit]
 
     # Phase 2: fetch top items per filter
-    filter_items_list = [
-        await _query(
-            _get_filter_items_prompts,
-            user_id,
-            f,
-            filter_item_limit,
-        )
-        for f in ordered_filters
-    ]
+    if concurrent:
+        filter_items_list = await asyncio.gather(*(
+            _query(
+                _get_filter_items_prompts,
+                user_id,
+                f,
+                filter_item_limit,
+            )
+            for f in ordered_filters
+        ))
+    else:
+        filter_items_list = [
+            await _query(
+                _get_filter_items_prompts,
+                user_id,
+                f,
+                filter_item_limit,
+            )
+            for f in ordered_filters
+        ]
 
     context_filters = []
     for f, items in zip(ordered_filters, filter_items_list):
@@ -277,8 +336,11 @@ def _is_relevant_filter(
     Excludes filters with no tag-based rules (empty filter expression)
     and filters whose content_types don't overlap with the endpoint's types.
     """
-    # Exclude filters without tag rules (e.g. "All Notes" which is just a content_type shortcut)
     expr = content_filter.filter_expression
+    if not expr:
+        return False
+
+    # Exclude filters without tag rules (e.g. "All Notes" which is just a content_type shortcut)
     groups = expr.get("groups", [])
     has_tag_rules = any(g.get("tags", []) for g in groups)
     if not has_tag_rules:
@@ -422,7 +484,7 @@ async def _get_recent_content_items(
     # Collect all IDs for batch tag fetching
     bookmark_ids = list({r.id for r in rows if r.type == "bookmark"})
     note_ids = list({r.id for r in rows if r.type == "note"})
-    tags_map = await _get_tags_for_items(db, user_id, bookmark_ids, note_ids)
+    tags_map = await get_tags_for_items(db, user_id, bookmark_ids, note_ids)
 
     # Split by bucket
     buckets: dict[str, list[ContextItem]] = {
@@ -446,11 +508,6 @@ async def _get_recent_content_items(
         buckets[row.bucket].append(item)
 
     # Sort each bucket (UNION ALL doesn't preserve inner ORDER BY)
-    buckets["recently_used"].sort(
-        key=lambda x: (x.last_used_at is None, x.last_used_at),
-        reverse=True,
-    )
-    # Fix: for recently_used, None should sort last (not first)
     buckets["recently_used"].sort(
         key=lambda x: x.last_used_at or datetime.min.replace(tzinfo=UTC),
         reverse=True,
@@ -510,7 +567,7 @@ async def _get_recent_prompt_items(
 
     # Batch fetch tags for all prompt IDs
     prompt_ids = list({r.id for r in rows})
-    tags_map = await _get_tags_for_items(db, user_id, [], [], prompt_ids)
+    tags_map = await get_tags_for_items(db, user_id, [], [], prompt_ids)
 
     buckets: dict[str, list[ContextPrompt]] = {
         "recently_used": [],
