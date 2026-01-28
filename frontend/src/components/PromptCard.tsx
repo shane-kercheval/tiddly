@@ -9,6 +9,8 @@ import { formatDate, truncate } from '../utils'
 import { ConfirmDeleteButton, CopyContentButton } from './ui'
 import { PromptIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
 import { Tag } from './Tag'
+import { AddTagButton } from './AddTagButton'
+import type { TagCount } from '../types'
 
 interface PromptCardProps {
   prompt: PromptListItem
@@ -21,6 +23,8 @@ interface PromptCardProps {
   onRestore?: (prompt: PromptListItem) => void
   onTagClick?: (tag: string) => void
   onTagRemove?: (prompt: PromptListItem, tag: string) => void
+  onTagAdd?: (prompt: PromptListItem, tag: string) => void
+  tagSuggestions?: TagCount[]
   /** Called when user cancels a scheduled auto-archive */
   onCancelScheduledArchive?: (prompt: PromptListItem) => void
 }
@@ -48,6 +52,8 @@ export function PromptCard({
   onRestore,
   onTagClick,
   onTagRemove,
+  onTagAdd,
+  tagSuggestions,
   onCancelScheduledArchive,
 }: PromptCardProps): ReactNode {
   // Display title if present, otherwise use name
@@ -129,7 +135,7 @@ export function PromptCard({
         {/* Row 2 (mobile): tags + actions + date */}
         <div className="flex items-center gap-2 md:contents">
           {/* Tags */}
-          {prompt.tags.length > 0 && (
+          {(prompt.tags.length > 0 || onTagAdd) && (
             <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
               {prompt.tags.map((tag) => (
                 <Tag
@@ -139,6 +145,13 @@ export function PromptCard({
                   onRemove={onTagRemove ? () => onTagRemove(prompt, tag) : undefined}
                 />
               ))}
+              {onTagAdd && tagSuggestions && (
+                <AddTagButton
+                  existingTags={prompt.tags}
+                  suggestions={tagSuggestions}
+                  onAdd={(tag) => onTagAdd(prompt, tag)}
+                />
+              )}
             </div>
           )}
 

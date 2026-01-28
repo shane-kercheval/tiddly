@@ -9,6 +9,8 @@ import { formatDate, truncate } from '../utils'
 import { ConfirmDeleteButton, CopyContentButton } from './ui'
 import { NoteIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
 import { Tag } from './Tag'
+import { AddTagButton } from './AddTagButton'
+import type { TagCount } from '../types'
 
 interface NoteCardProps {
   note: NoteListItem
@@ -21,6 +23,8 @@ interface NoteCardProps {
   onRestore?: (note: NoteListItem) => void
   onTagClick?: (tag: string) => void
   onTagRemove?: (note: NoteListItem, tag: string) => void
+  onTagAdd?: (note: NoteListItem, tag: string) => void
+  tagSuggestions?: TagCount[]
   /** Called when user cancels a scheduled auto-archive */
   onCancelScheduledArchive?: (note: NoteListItem) => void
 }
@@ -48,6 +52,8 @@ export function NoteCard({
   onRestore,
   onTagClick,
   onTagRemove,
+  onTagAdd,
+  tagSuggestions,
   onCancelScheduledArchive,
 }: NoteCardProps): ReactNode {
   // Display description if present, otherwise show truncated content preview
@@ -122,7 +128,7 @@ export function NoteCard({
         {/* Row 2 (mobile): tags + actions + date */}
         <div className="flex items-center gap-2 md:contents">
           {/* Tags */}
-          {note.tags.length > 0 && (
+          {(note.tags.length > 0 || onTagAdd) && (
             <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
               {note.tags.map((tag) => (
                 <Tag
@@ -132,6 +138,13 @@ export function NoteCard({
                   onRemove={onTagRemove ? () => onTagRemove(note, tag) : undefined}
                 />
               ))}
+              {onTagAdd && tagSuggestions && (
+                <AddTagButton
+                  existingTags={note.tags}
+                  suggestions={tagSuggestions}
+                  onAdd={(tag) => onTagAdd(note, tag)}
+                />
+              )}
             </div>
           )}
 

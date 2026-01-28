@@ -19,6 +19,8 @@ import {
 } from './icons'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { Tag } from './Tag'
+import { AddTagButton } from './AddTagButton'
+import type { TagCount } from '../types'
 
 interface BookmarkCardProps {
   bookmark: BookmarkListItem
@@ -37,6 +39,8 @@ interface BookmarkCardProps {
   onRestore?: (bookmark: BookmarkListItem) => void
   onTagClick?: (tag: string) => void
   onTagRemove?: (bookmark: BookmarkListItem, tag: string) => void
+  onTagAdd?: (bookmark: BookmarkListItem, tag: string) => void
+  tagSuggestions?: TagCount[]
   onLinkClick?: (bookmark: BookmarkListItem) => void
   /** Called when user cancels a scheduled auto-archive */
   onCancelScheduledArchive?: (bookmark: BookmarkListItem) => void
@@ -68,6 +72,8 @@ export function BookmarkCard({
   onRestore,
   onTagClick,
   onTagRemove,
+  onTagAdd,
+  tagSuggestions,
   onLinkClick,
   onCancelScheduledArchive,
   isLoading = false,
@@ -228,7 +234,7 @@ export function BookmarkCard({
         {/* Row 2 (mobile): tags + actions + date */}
         <div className="flex items-center gap-2 md:contents">
           {/* Tags */}
-          {bookmark.tags.length > 0 && (
+          {(bookmark.tags.length > 0 || onTagAdd) && (
             <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
               {bookmark.tags.map((tag) => (
                 <Tag
@@ -238,6 +244,13 @@ export function BookmarkCard({
                   onRemove={onTagRemove ? () => onTagRemove(bookmark, tag) : undefined}
                 />
               ))}
+              {onTagAdd && tagSuggestions && (
+                <AddTagButton
+                  existingTags={bookmark.tags}
+                  suggestions={tagSuggestions}
+                  onAdd={(tag) => onTagAdd(bookmark, tag)}
+                />
+              )}
             </div>
           )}
 

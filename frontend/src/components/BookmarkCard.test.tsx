@@ -238,4 +238,62 @@ describe('BookmarkCard', () => {
       expect(onTagRemove).toHaveBeenCalledWith(mockBookmark, 'test')
     })
   })
+
+  describe('tag addition', () => {
+    const mockSuggestions = [
+      { name: 'react', content_count: 5, filter_count: 0 },
+      { name: 'typescript', content_count: 3, filter_count: 0 },
+    ]
+
+    it('should show add tag button when onTagAdd is provided', () => {
+      render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          onDelete={vi.fn()}
+          onTagAdd={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      expect(screen.getByRole('button', { name: 'Add tag' })).toBeInTheDocument()
+    })
+
+    it('should not show add tag button when onTagAdd is not provided', () => {
+      render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          onDelete={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
+    })
+
+    it('should show add tag button even when item has zero tags', () => {
+      const bookmarkWithNoTags = { ...mockBookmark, tags: [] }
+
+      render(
+        <BookmarkCard
+          bookmark={bookmarkWithNoTags}
+          onDelete={vi.fn()}
+          onTagAdd={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      expect(screen.getByRole('button', { name: 'Add tag' })).toBeInTheDocument()
+    })
+
+    it('should not show add tag button when tagSuggestions is not provided', () => {
+      render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          onDelete={vi.fn()}
+          onTagAdd={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
+    })
+  })
 })
