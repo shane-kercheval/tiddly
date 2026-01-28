@@ -1,6 +1,7 @@
 # Implementation Plan: Add Tags from List/Filter View
 
 **Date:** 2026-01-27
+
 **Jira:** KAN-31
 
 ## Overview
@@ -31,6 +32,8 @@ Create a reusable `AddTagButton` component that renders a `+` button which, when
 ### Key Changes
 
 **New file: `frontend/src/components/AddTagButton.tsx`**
+
+This is intentionally a new component, not a reuse of `InlineEditableTags`. That component has form-based semantics (tags are edited locally and only persisted on form save). The list view needs immediate-commit behavior: pick a tag → PATCH fires right away, matching how tag removal already works.
 
 Props interface:
 ```typescript
