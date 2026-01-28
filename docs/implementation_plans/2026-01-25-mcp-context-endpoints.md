@@ -299,6 +299,17 @@ Based on the markdown output above, here is what each API endpoint needs to prov
             ]
         }
     ],
+    "sidebar_items": [
+        {"type": "filter", "id": "uuid", "name": "Work Projects"},
+        {
+            "type": "collection",
+            "name": "Study Materials",
+            "items": [
+                {"type": "filter", "id": "uuid", "name": "Learning"}
+            ]
+        },
+        {"type": "filter", "id": "uuid", "name": "Quick Reference"}
+    ],
     "recently_used": [
         {
             "type": "bookmark",
@@ -324,6 +335,7 @@ Based on the markdown output above, here is what each API endpoint needs to prov
 | `counts` | `SELECT COUNT(*) ... GROUP BY` per type and status | New query (trivial) |
 | `top_tags` | `get_user_tags_with_counts(content_types=["bookmark", "note"])` | **Existing** - reuse tag service with new `content_types` filter |
 | `filters` | Existing `ContentFilterResponse` + sidebar ordering | **Existing** - combine filter service + sidebar service |
+| `sidebar_items` | `get_computed_sidebar()` tree, filtered to exclude builtins | **Existing** - sidebar service returns full tree |
 | `filters[].items` | Query each filter's expression with default sort, limit N | **New** - per-filter item query (concurrent) |
 | `recently_used/created/modified` | Single custom query with 3 UNION ALLs (one per sort order, each with `bucket` discriminator), scoped to `["bookmark", "note"]` | **New** - dedicated lightweight query (see below) |
 
@@ -371,6 +383,16 @@ Based on the markdown output above, here is what each API endpoint needs to prov
                 }
             ]
         }
+    ],
+    "sidebar_items": [
+        {
+            "type": "collection",
+            "name": "Code Tools",
+            "items": [
+                {"type": "filter", "id": "uuid", "name": "Development"}
+            ]
+        },
+        {"type": "filter", "id": "uuid", "name": "Writing Helpers"}
     ],
     "recently_used": [
         {
@@ -563,20 +585,27 @@ class ContextItem(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-class SidebarCollectionFilter(BaseModel):
+class SidebarContextFilter(BaseModel):
+    type: Literal["filter"] = "filter"
     id: UUID
     name: str
 
-class SidebarCollectionContext(BaseModel):
+class SidebarContextCollection(BaseModel):
+    type: Literal["collection"] = "collection"
     name: str
-    filters: list[SidebarCollectionFilter]  # Tag-based filters in this collection
+    items: list[SidebarContextFilter]
+
+SidebarContextItem = Annotated[
+    SidebarContextFilter | SidebarContextCollection,
+    Field(discriminator="type"),
+]
 
 class ContentContextResponse(BaseModel):
     generated_at: datetime
     counts: ContentContextCounts
     top_tags: list[ContextTag]
     filters: list[ContextFilter]
-    sidebar_collections: list[SidebarCollectionContext]  # Only collections containing tag-based filters; empty if no collections
+    sidebar_items: list[SidebarContextItem]  # Tree of filters and collections in sidebar order
     recently_used: list[ContextItem]
     recently_created: list[ContextItem]
     recently_modified: list[ContextItem]
@@ -602,7 +631,7 @@ class PromptContextResponse(BaseModel):
     counts: EntityCounts
     top_tags: list[ContextTag]
     filters: list[ContextFilter]
-    sidebar_collections: list[SidebarCollectionContext]  # Same as content context
+    sidebar_items: list[SidebarContextItem]  # Same tree structure as content context
     recently_used: list[ContextPrompt]
     recently_created: list[ContextPrompt]
     recently_modified: list[ContextPrompt]
@@ -645,7 +674,7 @@ class MCPContextService:
 Implementation notes:
 - **Counts:** Use lightweight `SELECT COUNT(*)` queries grouped by status. The `BaseEntityService` doesn't have a count method currently, so add one or query directly.
 - **Tags:** Reuse `tag_service.get_user_tags_with_counts()` with the new `content_types` parameter — pass `["bookmark", "note"]` for content context, `["prompt"]` for prompt context. Already returns `TagCount` with `content_count` and `filter_count`, sorted by `filter_count DESC, content_count DESC`. Apply `limit` parameter.
-- **Filters in sidebar order:** Call `sidebar_service.get_computed_sidebar()` to get filter IDs in user's preferred order, then fetch corresponding `ContentFilter` objects. Only include filter items (not builtins like "All", "Archived", "Trash"). Exclude filters with empty filter expressions (no tag-based rules) — these are content-type-only shortcuts (e.g., "All Notes") that provide no additional information beyond what the Overview section already shows. For prompt context, further filter to only filters whose `content_types` include "prompt". Limit to top `filter_limit` filters (default 5).
+- **Filters in sidebar order:** Call `sidebar_service.get_computed_sidebar()` to get the full sidebar tree in user's preferred order. Walk the tree to extract filter IDs (from both root-level filters and filters nested in collections), fetch corresponding `ContentFilter` objects, and build the `sidebar_items` tree (excluding builtins like "All", "Archived", "Trash"). Exclude filters with empty filter expressions (no tag-based rules) — these are content-type-only shortcuts (e.g., "All Notes") that provide no additional information beyond what the Overview section already shows. For prompt context, further filter to only filters whose `content_types` include "prompt". Limit to top `filter_limit` filters (default 5). The `sidebar_items` field preserves the full tree structure (root-level filters and collections with nested filters) rather than splitting into separate flat lists.
 - **Filter items:** For each included filter, query its top `filter_item_limit` items (default 5) using the filter's expression and default sort order. These per-filter queries run concurrently (after filters are fetched). This is a second phase of `asyncio.gather` — first fetch filters, then fetch items per filter in parallel. **Content type scoping:** When fetching items per filter, intersect the filter's `content_types` with the endpoint's allowed types (`["bookmark", "note"]` for content context, `["prompt"]` for prompt context). This prevents prompts leaking into the content context or vice versa when a filter spans multiple content types. The content router already implements this intersection pattern (see `backend/src/api/routers/content.py` lines 76-82).
 - **Recent items:** Use a single dedicated query per endpoint that UNIONs 3 subqueries (one per sort order: `last_used_at DESC`, `created_at DESC`, `updated_at DESC`), each with `LIMIT N`. For content context, scope to bookmarks and notes only (`content_types=["bookmark", "note"]`). For prompt context, query prompts only (including arguments). Batch-fetch tags once for all unique IDs across the combined result. This avoids depending on `search_all_content` internals and eliminates unnecessary count/filter/pagination logic.
 - **`last_used_at` null handling:** Items never accessed via `track_usage` have `last_used_at = NULL`. The `recently_used` subquery should sort nulls last (`ORDER BY last_used_at DESC NULLS LAST`). The `last_used_at` field in the response schema should be `datetime | None`. The MCP tool should omit the "Last used:" line for items with null `last_used_at`.
@@ -715,7 +744,7 @@ Create `backend/tests/api/test_mcp_context.py`:
 7. **Filter items:** Create a filter with tag rules and matching items, verify `items` contains the correct items
 8. **Filter limit/item limit:** Verify `filter_limit` and `filter_item_limit` parameters are respected
 8b. **Filter items scoped to endpoint content types:** Create a filter with `content_types=["bookmark", "note", "prompt"]` and matching items of all types. Verify `/mcp/context/content` filter items only contain bookmarks/notes (no prompts). Verify `/mcp/context/prompts` filter items only contain prompts (no bookmarks/notes).
-8a. **Sidebar collections:** Create filters inside a collection, verify `sidebar_collections` includes the collection with its filter names. Verify collections without tag-based filters are excluded. Verify `sidebar_collections` is empty when no collections exist.
+8a. **Sidebar items:** Create filters and collections in the sidebar, verify `sidebar_items` returns the tree structure with interleaved root-level filters and collections. Verify `sidebar_items` is empty when no filters exist in the sidebar.
 9. **Recent items by last_used_at:** Create items, call track_usage on some, verify order. Items with null `last_used_at` sort last.
 10. **Recently created/modified:** Verify correct sort order
 11. **Description included:** Create item with description, verify it appears; create without, verify null
@@ -804,7 +833,7 @@ Key formatting responsibilities:
 - Include description only when present
 - Include preview
 - Format tags as comma-separated
-- **Sidebar Organization section:** Only rendered when the sidebar contains collections that have tag-based filters inside them. Shows a simple tree view with `[collection]` labels. Collections without any tag-based filters are omitted. If no collections exist, skip the section entirely (it would be redundant with the Filters list).
+- **Sidebar Organization section:** Only rendered when `sidebar_items` is non-empty. Walks the `sidebar_items` tree directly, rendering root-level filters and collections with their nested filters as a simple tree view with `[collection]` labels. Skipped entirely when `sidebar_items` is empty.
 - **Deduplication:** If an item already appeared in an earlier section (e.g., Filter Contents or Recently Used), show only the title, ID, relevant timestamp, and `(see [section name] above)` instead of repeating all details. The MCP tool tracks IDs seen so far and abbreviates duplicates. Section order for dedup: Filter Contents → Recently Used → Recently Created → Recently Modified.
 
 **Utility function for filter expression rendering:**
