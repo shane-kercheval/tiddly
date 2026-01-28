@@ -42,7 +42,7 @@ Prompts are Jinja2 templates with defined arguments that can be rendered with us
   Use prompt names from the response with `get_prompt_content` for full templates.
 - `search_prompts`: Search prompts with filters. Returns prompt_length and prompt_preview.
   Use `filter_id` to search within a saved content filter (discover IDs via `list_filters`).
-- `list_filters`: List the user's prompt filters with IDs, names, and tag rules.
+- `list_filters`: List filters relevant to prompts, with IDs, names, and tag rules.
   Use filter IDs with `search_prompts(filter_id=...)` to search within a specific filter.
 - `get_prompt_content`: Get a prompt's Jinja2 template and arguments. Returns both the raw template text
   and the argument definitions list. Use before edit_prompt_content.
@@ -504,7 +504,7 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="list_filters",
             description=(
-                "List the user's prompt filters. "
+                "List filters relevant to prompts. "
                 "Filters are saved views with tag-based rules. Use filter IDs with "
                 "search_prompts(filter_id=...) to search within a specific filter. "
                 "Returns filter ID, name, content types, and the tag-based filter expression."
@@ -919,7 +919,7 @@ async def _handle_search_prompts(  # noqa: PLR0912
 
 
 async def _handle_list_filters() -> list[types.TextContent]:
-    """Handle list_filters tool call. Returns all content filters."""
+    """Handle list_filters tool call. Returns filters relevant to prompts."""
     client = get_http_client()
     token = _get_token()
 
@@ -935,10 +935,13 @@ async def _handle_list_filters() -> list[types.TextContent]:
             ),
         ) from e
 
+    # Only include filters relevant to prompts
+    filtered = [f for f in result if "prompt" in f.get("content_types", [])]
+
     return [
         types.TextContent(
             type="text",
-            text=json.dumps(result, indent=2, default=str),
+            text=json.dumps({"filters": filtered}, indent=2, default=str),
         ),
     ]
 

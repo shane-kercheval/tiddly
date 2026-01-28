@@ -864,8 +864,56 @@ async def test__list_filters__returns_filters(
     result = await handle_call_tool("list_filters", {})
 
     data = json.loads(result[0].text)
-    assert len(data) == 1
-    assert data[0]["name"] == "Development"
+    assert len(data["filters"]) == 1
+    assert data["filters"][0]["name"] == "Development"
+
+
+@pytest.mark.asyncio
+async def test__list_filters__excludes_non_prompt_filters(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+) -> None:
+    """Test list_filters only returns filters whose content_types include 'prompt'."""
+    filters_response = [
+        {
+            "id": "a1b2c3d4-e29b-41d4-a716-446655440000",
+            "name": "Bookmark Only",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["work"]}],
+                "group_operator": "OR",
+            },
+        },
+        {
+            "id": "b2c3d4e5-e29b-41d4-a716-446655440000",
+            "name": "Prompt Filter",
+            "content_types": ["prompt"],
+            "filter_expression": {
+                "groups": [{"tags": ["code-review"]}],
+                "group_operator": "OR",
+            },
+        },
+        {
+            "id": "c3d4e5f6-e29b-41d4-a716-446655440000",
+            "name": "Mixed Filter",
+            "content_types": ["bookmark", "prompt"],
+            "filter_expression": {
+                "groups": [{"tags": ["shared"]}],
+                "group_operator": "OR",
+            },
+        },
+    ]
+    mock_api.get("/filters/").mock(
+        return_value=Response(200, json=filters_response),
+    )
+
+    result = await handle_call_tool("list_filters", {})
+
+    data = json.loads(result[0].text)
+    names = [f["name"] for f in data["filters"]]
+    assert "Prompt Filter" in names
+    assert "Mixed Filter" in names
+    assert "Bookmark Only" not in names
 
 
 @pytest.mark.asyncio
@@ -881,7 +929,7 @@ async def test__list_filters__empty(
     result = await handle_call_tool("list_filters", {})
 
     data = json.loads(result[0].text)
-    assert data == []
+    assert data["filters"] == []
 
 
 @pytest.mark.asyncio

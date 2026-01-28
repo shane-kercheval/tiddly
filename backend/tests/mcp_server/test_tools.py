@@ -309,6 +309,44 @@ async def test__list_filters__returns_filters(
 
 
 @pytest.mark.asyncio
+async def test__list_filters__excludes_non_content_filters(
+    mock_api,
+    mcp_client: Client,
+) -> None:
+    """Test list_filters excludes filters not relevant to bookmarks/notes."""
+    filters_response = [
+        {
+            "id": "aaaa-1111",
+            "name": "Bookmark Filter",
+            "content_types": ["bookmark"],
+            "filter_expression": {"groups": [{"tags": ["web"]}], "group_operator": "OR"},
+        },
+        {
+            "id": "bbbb-2222",
+            "name": "Prompt Only Filter",
+            "content_types": ["prompt"],
+            "filter_expression": {"groups": [{"tags": ["ai"]}], "group_operator": "OR"},
+        },
+        {
+            "id": "cccc-3333",
+            "name": "Mixed Filter",
+            "content_types": ["bookmark", "prompt"],
+            "filter_expression": {"groups": [{"tags": ["mixed"]}], "group_operator": "OR"},
+        },
+    ]
+    mock_api.get("/filters/").mock(
+        return_value=Response(200, json=filters_response),
+    )
+
+    result = await mcp_client.call_tool("list_filters", {})
+
+    filters = result.data["filters"]
+    assert len(filters) == 2
+    names = {f["name"] for f in filters}
+    assert names == {"Bookmark Filter", "Mixed Filter"}
+
+
+@pytest.mark.asyncio
 async def test__list_filters__empty(
     mock_api,
     mcp_client: Client,

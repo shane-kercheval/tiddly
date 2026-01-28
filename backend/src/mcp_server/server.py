@@ -71,7 +71,7 @@ URL but can be user-provided. For notes, it's user-written markdown.
 **Search** (returns active items only - excludes archived/deleted):
 - `search_items`: Search across bookmarks and notes. Use `type` parameter to filter.
   Use `filter_id` to search within a saved content filter (discover IDs via `list_filters`).
-- `list_filters`: List the user's content filters with IDs, names, and tag rules.
+- `list_filters`: List filters relevant to bookmarks and notes, with IDs, names, and tag rules.
   Use filter IDs with `search_items(filter_id=...)` to search within a specific filter.
 - `list_tags`: Get all tags with usage counts
 
@@ -289,7 +289,7 @@ async def search_items(
 
 @mcp.tool(
     description=(
-        "List the user's content filters. "
+        "List filters relevant to bookmarks and notes. "
         "Filters are saved views with tag-based rules. Use filter IDs with "
         "search_items(filter_id=...) to search within a specific filter. "
         "Returns filter ID, name, content types, and the tag-based filter expression."
@@ -297,13 +297,16 @@ async def search_items(
     annotations={"readOnlyHint": True},
 )
 async def list_filters() -> dict[str, Any]:
-    """List all content filters with IDs, names, and filter expressions."""
+    """List filters relevant to bookmarks and notes."""
     client = await _get_http_client()
     token = _get_token()
 
     try:
         filters = await api_get(client, "/filters/", token)
-        return {"filters": filters}
+        # Only include filters relevant to bookmarks/notes
+        content_types = {"bookmark", "note"}
+        relevant = [f for f in filters if content_types & set(f.get("content_types", []))]
+        return {"filters": relevant}
     except httpx.HTTPStatusError as e:
         _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:

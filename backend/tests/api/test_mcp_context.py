@@ -295,6 +295,36 @@ class TestContentContext:
         assert "prompt" not in item_types
 
     @pytest.mark.anyio
+    async def test__top_tags__excludes_prompt_only_tags(
+        self, client: AsyncClient,
+    ) -> None:
+        """Content context top_tags should not include tags only used by prompts."""
+        await _create_bookmark(client, tags=["python"])
+        await _create_prompt(client, tags=["prompt-only"])
+
+        response = await client.get("/mcp/context/content")
+        data = response.json()
+
+        tag_names = [t["name"] for t in data["top_tags"]]
+        assert "python" in tag_names
+        assert "prompt-only" not in tag_names
+
+    @pytest.mark.anyio
+    async def test__filters__excludes_prompt_only_filters(
+        self, client: AsyncClient,
+    ) -> None:
+        """Content context should not include filters scoped only to prompts."""
+        await _create_filter(client, "Prompt Only", [["test"]], ["prompt"])
+        await _create_filter(client, "BM Filter", [["test"]], ["bookmark"])
+
+        response = await client.get("/mcp/context/content")
+        data = response.json()
+
+        filter_names = [f["name"] for f in data["filters"]]
+        assert "BM Filter" in filter_names
+        assert "Prompt Only" not in filter_names
+
+    @pytest.mark.anyio
     async def test__sidebar_items__included_when_present(
         self, client: AsyncClient,
     ) -> None:
@@ -557,6 +587,21 @@ class TestPromptContext:
         filter_names = [f["name"] for f in data["filters"]]
         assert "Prompt Filter" in filter_names
         assert "BM Only" not in filter_names
+
+    @pytest.mark.anyio
+    async def test__top_tags__excludes_bookmark_only_tags(
+        self, client: AsyncClient,
+    ) -> None:
+        """Prompt context top_tags should not include tags only used by bookmarks/notes."""
+        await _create_bookmark(client, tags=["bookmark-only"])
+        await _create_prompt(client, tags=["code-review"])
+
+        response = await client.get("/mcp/context/prompts")
+        data = response.json()
+
+        tag_names = [t["name"] for t in data["top_tags"]]
+        assert "code-review" in tag_names
+        assert "bookmark-only" not in tag_names
 
     @pytest.mark.anyio
     async def test__recently_used__sorted_correctly(
