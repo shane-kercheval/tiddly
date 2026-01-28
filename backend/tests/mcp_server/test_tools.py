@@ -9,7 +9,7 @@ from httpx import Response
 
 from fastmcp import Client
 
-from mcp_server.server import _format_content_context_markdown, _format_filter_expression
+from mcp_server.server import _format_content_context_markdown
 
 
 @pytest.fixture
@@ -1251,42 +1251,6 @@ async def test__search_in_content__api_unavailable(mock_api, mcp_client: Client)
 
     assert result.is_error
     assert "unavailable" in result.content[0].text.lower()
-
-
-# --- _format_filter_expression unit tests ---
-
-
-def test__format_filter_expression__single_tag() -> None:
-    """Single tag group renders without parentheses."""
-    expr = {"groups": [{"tags": ["python"]}], "group_operator": "OR"}
-    assert _format_filter_expression(expr) == "python"
-
-
-def test__format_filter_expression__multi_tag_group() -> None:
-    """Multiple tags in one group are joined with AND."""
-    expr = {"groups": [{"tags": ["work", "project"]}], "group_operator": "OR"}
-    assert _format_filter_expression(expr) == "(work AND project)"
-
-
-def test__format_filter_expression__multiple_groups_or() -> None:
-    """Multiple groups joined with OR operator."""
-    expr = {
-        "groups": [{"tags": ["work", "project"]}, {"tags": ["client"]}],
-        "group_operator": "OR",
-    }
-    assert _format_filter_expression(expr) == "(work AND project) OR client"
-
-
-def test__format_filter_expression__empty() -> None:
-    """Empty expression returns 'All items'."""
-    assert _format_filter_expression({}) == "All items"
-    assert _format_filter_expression({"groups": []}) == "All items"
-
-
-def test__format_filter_expression__empty_tags_in_group() -> None:
-    """Groups with empty tags are skipped."""
-    expr = {"groups": [{"tags": []}], "group_operator": "OR"}
-    assert _format_filter_expression(expr) == "All items"
 
 
 # --- _format_content_context_markdown unit tests ---

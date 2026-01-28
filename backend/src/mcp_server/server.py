@@ -33,6 +33,7 @@ from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from shared.api_errors import ParsedApiError, parse_http_error
+from shared.mcp_format import format_filter_expression
 
 from .api_client import api_get, api_patch, api_post, get_api_base_url, get_default_timeout
 from .auth import AuthenticationError, get_bearer_token
@@ -749,18 +750,6 @@ async def get_context(
     return _format_content_context_markdown(data)
 
 
-def _format_filter_expression(expr: dict[str, Any]) -> str:
-    """Convert filter expression to human-readable rule string."""
-    groups = expr.get("groups", [])
-    group_operator = expr.get("group_operator", "OR")
-    parts = []
-    for group in groups:
-        tags = group.get("tags", [])
-        if len(tags) == 1:
-            parts.append(tags[0])
-        elif len(tags) > 1:
-            parts.append(f"({' AND '.join(tags)})")
-    return f" {group_operator} ".join(parts) if parts else "All items"
 
 
 def _format_content_context_markdown(data: dict[str, Any]) -> str:
@@ -821,6 +810,7 @@ def _append_tags_section(
             f"| {tag['name']} | {tag['content_count']}"
             f" | {tag['filter_count']} |",
         )
+    lines.append("")
 
 
 def _append_filters_section(
@@ -842,7 +832,7 @@ def _append_filters_section(
     lines.append("")
     for i, f in enumerate(filters, 1):
         content_types = ", ".join(f["content_types"])
-        rule = _format_filter_expression(f["filter_expression"])
+        rule = format_filter_expression(f["filter_expression"])
         lines.append(
             f"{i}. **{f['name']}** `[filter {f['id']}]`"
             f" ({content_types})",
