@@ -177,14 +177,14 @@ describe('Sidebar', () => {
       })
 
       // Find the delete buttons (there are 2: mobile and desktop sidebars)
-      const deleteButtons = screen.getAllByTitle('Delete filter')
+      const deleteButtons = screen.getAllByRole('button', { name: 'Delete filter' })
       expect(deleteButtons.length).toBeGreaterThan(0)
 
       // Use the first one (desktop sidebar)
       await user.click(deleteButtons[0])
 
       // Second click - confirms delete
-      const confirmButtons = screen.getAllByTitle('Click again to confirm')
+      const confirmButtons = screen.getAllByRole('button', { name: 'Click again to confirm' })
       await user.click(confirmButtons[0])
 
       // Wait for delete to complete
@@ -211,13 +211,13 @@ describe('Sidebar', () => {
       })
 
       // Find the delete buttons
-      const deleteButtons = screen.getAllByTitle('Delete filter')
+      const deleteButtons = screen.getAllByRole('button', { name: 'Delete filter' })
 
       // First click - shows confirmation
       await user.click(deleteButtons[0])
 
       // Second click - confirms delete
-      const confirmButtons = screen.getAllByTitle('Click again to confirm')
+      const confirmButtons = screen.getAllByRole('button', { name: 'Click again to confirm' })
       await user.click(confirmButtons[0])
 
       // Wait for delete to complete
@@ -245,11 +245,11 @@ describe('Sidebar', () => {
       })
 
       // Find the delete buttons
-      const deleteButtons = screen.getAllByTitle('Delete filter')
+      const deleteButtons = screen.getAllByRole('button', { name: 'Delete filter' })
       await user.click(deleteButtons[0])
 
       // Second click - confirms delete
-      const confirmButtons = screen.getAllByTitle('Click again to confirm')
+      const confirmButtons = screen.getAllByRole('button', { name: 'Click again to confirm' })
       await user.click(confirmButtons[0])
 
       // Wait for delete attempt and rollback
@@ -278,7 +278,7 @@ describe('Sidebar', () => {
         }),
       })
 
-      const bookmarkButtons = screen.getAllByTitle('New Bookmark')
+      const bookmarkButtons = screen.getAllByRole('button', { name: 'New Bookmark' })
       await user.click(bookmarkButtons[0])
 
       await waitFor(() => {
@@ -301,7 +301,7 @@ describe('Sidebar', () => {
         }),
       })
 
-      const noteButtons = screen.getAllByTitle('New Note')
+      const noteButtons = screen.getAllByRole('button', { name: 'New Note' })
       await user.click(noteButtons[0])
 
       await waitFor(() => {
@@ -334,7 +334,7 @@ describe('Sidebar', () => {
         })
 
         // Click the "Collection" button to open the modal
-        const collectionButtons = screen.getAllByTitle('New Collection')
+        const collectionButtons = screen.getAllByRole('button', { name: 'New Collection' })
         await user.click(collectionButtons[0])
 
         // Fill in the collection name in the modal
@@ -365,7 +365,7 @@ describe('Sidebar', () => {
         })
 
         // Click the "Collection" button to open the modal
-        const collectionButtons = screen.getAllByTitle('New Collection')
+        const collectionButtons = screen.getAllByRole('button', { name: 'New Collection' })
         await user.click(collectionButtons[0])
 
         // Fill in the collection name in the modal
@@ -397,7 +397,7 @@ describe('Sidebar', () => {
         })
 
         // Click the "Collection" button to open the modal
-        const collectionButtons = screen.getAllByTitle('New Collection')
+        const collectionButtons = screen.getAllByRole('button', { name: 'New Collection' })
         await user.click(collectionButtons[0])
 
         // Fill in the collection name in the modal
@@ -432,11 +432,11 @@ describe('Sidebar', () => {
         })
 
         // Find the delete buttons
-        const deleteButtons = screen.getAllByTitle('Delete filter')
+        const deleteButtons = screen.getAllByRole('button', { name: 'Delete filter' })
         await user.click(deleteButtons[0])
 
         // Second click - confirms delete
-        const confirmButtons = screen.getAllByTitle('Click again to confirm')
+        const confirmButtons = screen.getAllByRole('button', { name: 'Click again to confirm' })
         await user.click(confirmButtons[0])
 
         await waitFor(() => {
@@ -458,10 +458,10 @@ describe('Sidebar', () => {
           wrapper: createWrapper(['/app/content']),
         })
 
-        const deleteButtons = screen.getAllByTitle('Delete filter')
+        const deleteButtons = screen.getAllByRole('button', { name: 'Delete filter' })
         await user.click(deleteButtons[0])
 
-        const confirmButtons = screen.getAllByTitle('Click again to confirm')
+        const confirmButtons = screen.getAllByRole('button', { name: 'Click again to confirm' })
         await user.click(confirmButtons[0])
 
         await waitFor(() => {
@@ -485,10 +485,10 @@ describe('Sidebar', () => {
           wrapper: createWrapper(['/app/content']),
         })
 
-        const deleteButtons = screen.getAllByTitle('Delete filter')
+        const deleteButtons = screen.getAllByRole('button', { name: 'Delete filter' })
         await user.click(deleteButtons[0])
 
-        const confirmButtons = screen.getAllByTitle('Click again to confirm')
+        const confirmButtons = screen.getAllByRole('button', { name: 'Click again to confirm' })
         await user.click(confirmButtons[0])
 
         await waitFor(() => {

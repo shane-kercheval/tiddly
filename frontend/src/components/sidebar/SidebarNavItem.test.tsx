@@ -115,8 +115,8 @@ describe('SidebarNavItem', () => {
         { wrapper: createWrapper() }
       )
 
-      expect(screen.queryByTitle('Edit filter')).not.toBeInTheDocument()
-      expect(screen.queryByTitle('Delete filter')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Edit filter' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Delete filter' })).not.toBeInTheDocument()
     })
 
     it('should show edit button when onEdit is provided', () => {
@@ -130,7 +130,7 @@ describe('SidebarNavItem', () => {
         { wrapper: createWrapper() }
       )
 
-      expect(screen.getByTitle('Edit filter')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Edit filter' })).toBeInTheDocument()
     })
 
     it('should show delete button when onDelete is provided', () => {
@@ -144,7 +144,7 @@ describe('SidebarNavItem', () => {
         { wrapper: createWrapper() }
       )
 
-      expect(screen.getByTitle('Delete filter')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Delete filter' })).toBeInTheDocument()
     })
 
     it('should NOT show action buttons when sidebar is collapsed', () => {
@@ -159,8 +159,8 @@ describe('SidebarNavItem', () => {
         { wrapper: createWrapper() }
       )
 
-      expect(screen.queryByTitle('Edit filter')).not.toBeInTheDocument()
-      expect(screen.queryByTitle('Delete filter')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Edit filter' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Delete filter' })).not.toBeInTheDocument()
     })
 
     it('should call onEdit when edit button is clicked', async () => {
@@ -177,7 +177,7 @@ describe('SidebarNavItem', () => {
         { wrapper: createWrapper() }
       )
 
-      await user.click(screen.getByTitle('Edit filter'))
+      await user.click(screen.getByRole('button', { name: 'Edit filter' }))
       expect(onEdit).toHaveBeenCalledTimes(1)
     })
   })
@@ -198,11 +198,11 @@ describe('SidebarNavItem', () => {
       )
 
       // First click
-      await user.click(screen.getByTitle('Delete filter'))
+      await user.click(screen.getByRole('button', { name: 'Delete filter' }))
 
       // Should show confirmation text
       expect(screen.getByText('Delete?')).toBeInTheDocument()
-      expect(screen.getByTitle('Click again to confirm')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Click again to confirm' })).toBeInTheDocument()
       expect(onDelete).not.toHaveBeenCalled()
     })
 
@@ -221,10 +221,10 @@ describe('SidebarNavItem', () => {
       )
 
       // First click
-      await user.click(screen.getByTitle('Delete filter'))
+      await user.click(screen.getByRole('button', { name: 'Delete filter' }))
 
       // Second click
-      await user.click(screen.getByTitle('Click again to confirm'))
+      await user.click(screen.getByRole('button', { name: 'Click again to confirm' }))
 
       expect(onDelete).toHaveBeenCalledTimes(1)
     })
@@ -244,7 +244,7 @@ describe('SidebarNavItem', () => {
       )
 
       // First click
-      await user.click(screen.getByTitle('Delete filter'))
+      await user.click(screen.getByRole('button', { name: 'Delete filter' }))
       expect(screen.getByText('Delete?')).toBeInTheDocument()
 
       // Advance timers past the default timeout (3000ms)
@@ -255,7 +255,7 @@ describe('SidebarNavItem', () => {
       // Should reset to initial state
       await waitFor(() => {
         expect(screen.queryByText('Delete?')).not.toBeInTheDocument()
-        expect(screen.getByTitle('Delete filter')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Delete filter' })).toBeInTheDocument()
       })
     })
 
@@ -274,15 +274,15 @@ describe('SidebarNavItem', () => {
       )
 
       // Initially both buttons should be present
-      expect(screen.getByTitle('Edit filter')).toBeInTheDocument()
-      expect(screen.getByTitle('Delete filter')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Edit filter' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Delete filter' })).toBeInTheDocument()
 
       // First click on delete
-      await user.click(screen.getByTitle('Delete filter'))
+      await user.click(screen.getByRole('button', { name: 'Delete filter' }))
 
       // Edit button should be hidden during confirmation
-      expect(screen.queryByTitle('Edit filter')).not.toBeInTheDocument()
-      expect(screen.getByTitle('Click again to confirm')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Edit filter' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Click again to confirm' })).toBeInTheDocument()
     })
 
     it('should stop propagation on delete click', async () => {
@@ -302,7 +302,7 @@ describe('SidebarNavItem', () => {
         { wrapper: createWrapper() }
       )
 
-      await user.click(screen.getByTitle('Delete filter'))
+      await user.click(screen.getByRole('button', { name: 'Delete filter' }))
 
       // Parent click should not be triggered
       expect(parentClick).not.toHaveBeenCalled()

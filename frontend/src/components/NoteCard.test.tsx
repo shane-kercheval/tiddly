@@ -263,8 +263,8 @@ describe('NoteCard', () => {
     it('should show confirm delete button in deleted view', () => {
       render(<NoteCard note={mockNote} view="deleted" onDelete={vi.fn()} />)
 
-      // ConfirmDeleteButton initially shows "Delete permanently" tooltip
-      expect(screen.getByTitle('Delete permanently')).toBeInTheDocument()
+      // ConfirmDeleteButton initially shows "Delete permanently" aria-label
+      expect(screen.getByRole('button', { name: 'Delete permanently' })).toBeInTheDocument()
     })
 
     it('should call onRestore when restore button is clicked', async () => {
