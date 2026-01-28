@@ -2213,12 +2213,12 @@ def test__format_prompt_context_markdown__prompt_format() -> None:
     data = _sample_prompt_context_response()
     md = _format_prompt_context_markdown(data)
     assert '**code-review** — "Code Review Assistant"' in md
-    assert "Tags: code-review, development" in md
-    assert "Description: Reviews code for bugs" in md
+    assert "- **Tags**: code-review, development" in md
+    assert "- **Description**: Reviews code for bugs" in md
     assert "`language` (required)" in md
     assert "`code` (required)" in md
     assert "`focus_areas`" in md
-    assert "Preview: Review the following" in md
+    assert "- **Preview**: Review the following" in md
 
 
 def test__format_prompt_context_markdown__sidebar_tree() -> None:
@@ -2300,6 +2300,6 @@ def test__format_prompt_context_markdown__last_used_at_in_recent() -> None:
         "recently_modified": [],
     }
     md = _format_prompt_context_markdown(data)
-    assert "Last used: 2026-01-25T08:30:00Z" in md
+    assert "- **Last used**: 2026-01-25T08:30:00Z" in md
 
 
