@@ -35,6 +35,8 @@ Create a reusable `AddTagButton` component that renders a `+` button which, when
 
 This is intentionally a new component, not a reuse of `InlineEditableTags`. That component has form-based semantics (tags are edited locally and only persisted on form save). The list view needs immediate-commit behavior: pick a tag → PATCH fires right away, matching how tag removal already works.
 
+However, `AddTagButton` **must** compose the existing `useTagAutocomplete` hook (`frontend/src/hooks/useTagAutocomplete.ts`) for all autocomplete logic — input state, suggestion filtering, validation (`validateTag`/`normalizeTag` from `utils.ts`), duplicate detection, keyboard navigation, and error state. The component itself only manages the button/dropdown UI; the hook handles everything else. This ensures tag validation rules stay consistent with the detail view.
+
 Props interface:
 ```typescript
 interface AddTagButtonProps {
@@ -48,11 +50,11 @@ Behavior:
 - Renders a small `+` button styled to match existing tag chips (`badge-secondary`)
 - On click, shows an absolutely-positioned dropdown containing:
   - A text input (auto-focused) for filtering/typing a new tag
-  - A list of matching suggestions, excluding `existingTags`
-  - Enter key or click on suggestion calls `onAdd(tag)` and closes dropdown
+  - A list of matching suggestions, excluding `existingTags` (via `filteredSuggestions` from the hook)
+  - ArrowUp/ArrowDown for keyboard navigation, Enter to select (via `moveHighlight`/`selectHighlighted` from the hook)
   - Escape key or clicking outside closes dropdown
-- Normalize tag input: lowercase, trimmed, reject empty
-- Allow creating new tags not in suggestions (typed + Enter)
+  - Inline validation errors displayed from hook's `error` state (e.g., invalid characters, duplicate)
+- The hook's `onChange` callback should call `onAdd` with the newly added tag, then close the dropdown
 - Stop propagation on all click events so the card's onClick doesn't fire
 
 ### Testing Strategy
@@ -66,9 +68,11 @@ Tests:
 - Typing filters suggestions
 - Clicking a suggestion calls `onAdd` and closes dropdown
 - Enter key on typed text calls `onAdd` with normalized tag
+- ArrowDown/ArrowUp navigates suggestions, Enter selects highlighted
 - Escape closes dropdown without adding
 - Does not call `onAdd` for empty input
 - Does not call `onAdd` for duplicate tag (already in `existingTags`)
+- Shows inline validation error for invalid tag characters
 
 ### Success Criteria
 - Component renders, opens/closes correctly
@@ -134,7 +138,7 @@ const handleTagAddBookmark = async (bookmark: BookmarkListItem, tag: string): Pr
     const newTags = [...bookmark.tags, tag]
     await updateBookmarkMutation.mutateAsync({ id: bookmark.id, data: { tags: newTags } })
   } catch {
-    // mutation hooks already handle errors
+    toast.error('Failed to add tag')
   }
 }
 // Same pattern for handleTagAddNote and handleTagAddPrompt
