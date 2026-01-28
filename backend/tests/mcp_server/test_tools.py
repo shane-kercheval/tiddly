@@ -1328,12 +1328,28 @@ def sample_context_response() -> dict[str, Any]:
                     },
                 ],
             },
-        ],
-        "sidebar_collections": [
             {
+                "id": "b2c3d4e5-e29b-41d4-a716-446655440000",
+                "name": "Learning",
+                "content_types": ["bookmark"],
+                "filter_expression": {
+                    "groups": [{"tags": ["tutorial"]}],
+                    "group_operator": "OR",
+                },
+                "items": [],
+            },
+        ],
+        "sidebar_items": [
+            {
+                "type": "filter",
+                "id": "a1b2c3d4-e29b-41d4-a716-446655440000",
+                "name": "Work Projects",
+            },
+            {
+                "type": "collection",
                 "name": "Study Materials",
-                "filters": [
-                    {"id": "b2c3d4e5-e29b-41d4-a716-446655440000", "name": "Learning"},
+                "items": [
+                    {"type": "filter", "id": "b2c3d4e5-e29b-41d4-a716-446655440000", "name": "Learning"},
                 ],
             },
         ],
@@ -1415,13 +1431,21 @@ def test__format_content_context_markdown__description_when_present(
     assert "Description: Official Python 3.x documentation" in md
 
 
-def test__format_content_context_markdown__sidebar_collections(
+def test__format_content_context_markdown__sidebar_full_tree(
     sample_context_response: dict[str, Any],
 ) -> None:
-    """Verify sidebar collections render correctly."""
+    """Verify sidebar shows root-level filters and collections interleaved."""
     md = _format_content_context_markdown(sample_context_response)
+    # Root-level filter (Work Projects is not in any collection)
+    assert "- Work Projects `[filter a1b2c3d4" in md
+    # Collection with nested filter
     assert "[collection] Study Materials" in md
-    assert "Learning `[filter b2c3d4e5-e29b-41d4-a716-446655440000]`" in md
+    assert "  - Learning `[filter b2c3d4e5" in md
+
+    # Verify ordering: Work Projects before Study Materials
+    wp_pos = md.index("- Work Projects")
+    sm_pos = md.index("[collection] Study Materials")
+    assert wp_pos < sm_pos, "Root-level filter should appear before collection"
 
 
 def test__format_content_context_markdown__deduplication(
@@ -1467,7 +1491,7 @@ def test__format_content_context_markdown__empty_state() -> None:
         },
         "top_tags": [],
         "filters": [],
-        "sidebar_collections": [],
+        "sidebar_items": [],
         "recently_used": [],
         "recently_created": [],
         "recently_modified": [],
@@ -1482,12 +1506,66 @@ def test__format_content_context_markdown__empty_state() -> None:
     assert "## Recently Used" not in md
 
 
+def test__format_content_context_markdown__sidebar_omitted_without_collections() -> None:
+    """Sidebar section is omitted when no collections exist."""
+    data: dict[str, Any] = {
+        "generated_at": "2026-01-25T10:30:00Z",
+        "counts": {"bookmarks": {"active": 1, "archived": 0}, "notes": {"active": 0, "archived": 0}},
+        "top_tags": [],
+        "filters": [{"id": "aaa", "name": "F1", "content_types": ["bookmark"],
+                      "filter_expression": {"groups": [{"tags": ["x"]}]}, "items": []}],
+        "sidebar_items": [],
+        "recently_used": [], "recently_created": [], "recently_modified": [],
+    }
+    md = _format_content_context_markdown(data)
+    assert "## Sidebar Organization" not in md
+
+
 def test__format_content_context_markdown__last_used_at_in_recent(
     sample_context_response: dict[str, Any],
 ) -> None:
     """Recently used items show Last used timestamp."""
     md = _format_content_context_markdown(sample_context_response)
     assert "Last used: 2026-01-25T08:30:00Z" in md
+
+
+def test__format_content_context_markdown__created_at_in_recent() -> None:
+    """Recently created items show Created timestamp."""
+    data: dict[str, Any] = {
+        "generated_at": "2026-01-25T10:30:00Z",
+        "counts": {"bookmarks": {"active": 1, "archived": 0}, "notes": {"active": 0, "archived": 0}},
+        "top_tags": [], "filters": [], "sidebar_items": [],
+        "recently_used": [],
+        "recently_created": [{
+            "type": "note", "id": "aaa-bbb", "title": "New Note",
+            "description": None, "content_preview": "Content...",
+            "tags": ["ideas"], "last_used_at": None,
+            "created_at": "2026-01-25T07:30:00Z", "updated_at": "2026-01-25T07:30:00Z",
+        }],
+        "recently_modified": [],
+    }
+    md = _format_content_context_markdown(data)
+    assert "## Recently Created" in md
+    assert "Created: 2026-01-25T07:30:00Z" in md
+
+
+def test__format_content_context_markdown__modified_at_in_recent() -> None:
+    """Recently modified items show Modified timestamp."""
+    data: dict[str, Any] = {
+        "generated_at": "2026-01-25T10:30:00Z",
+        "counts": {"bookmarks": {"active": 1, "archived": 0}, "notes": {"active": 0, "archived": 0}},
+        "top_tags": [], "filters": [], "sidebar_items": [],
+        "recently_used": [], "recently_created": [],
+        "recently_modified": [{
+            "type": "note", "id": "ccc-ddd", "title": "Edited Note",
+            "description": None, "content_preview": "Updated...",
+            "tags": [], "last_used_at": None,
+            "created_at": "2026-01-20T09:00:00Z", "updated_at": "2026-01-25T09:30:00Z",
+        }],
+    }
+    md = _format_content_context_markdown(data)
+    assert "## Recently Modified" in md
+    assert "Modified: 2026-01-25T09:30:00Z" in md
 
 
 # --- get_context tool integration tests ---

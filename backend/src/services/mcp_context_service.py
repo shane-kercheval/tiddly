@@ -23,8 +23,9 @@ from schemas.mcp_context import (
     EntityCounts,
     PromptContextFilter,
     PromptContextResponse,
-    SidebarCollectionContext,
-    SidebarCollectionFilter,
+    SidebarContextCollection,
+    SidebarContextFilter,
+    SidebarContextItem,
 )
 from schemas.prompt import PromptArgument
 from services.base_entity_service import CONTENT_PREVIEW_LENGTH
@@ -43,9 +44,17 @@ async def get_content_context(
     filter_item_limit: int = 5,
     concurrent: bool = True,
 ) -> ContentContextResponse:
-    """Build the content context response for bookmarks and notes.
+    """
+    Build the content context response for bookmarks and notes.
 
     Args:
+        session_factory: Async SQLAlchemy session factory for database access.
+        user_id: The authenticated user's ID.
+        tag_limit: Maximum number of top tags to return.
+        recent_limit: Maximum number of items per recent section (used,
+            created, modified).
+        filter_limit: Maximum number of filters to include.
+        filter_item_limit: Maximum number of items per filter.
         concurrent: When True, runs independent queries via asyncio.gather for
             performance. Set to False in tests because the test transaction
             rollback setup shares a single database connection, and concurrent
@@ -81,8 +90,7 @@ async def get_content_context(
         for t in tags[:tag_limit]
     ]
 
-    # Unpack filters and sidebar collections
-    ordered_filters, sidebar_collections = filters_and_sidebar
+    ordered_filters, sidebar_items = filters_and_sidebar
     ordered_filters = ordered_filters[:filter_limit]
 
     # Phase 2: fetch top items per filter
@@ -127,7 +135,7 @@ async def get_content_context(
         counts=counts,
         top_tags=top_tags,
         filters=context_filters,
-        sidebar_collections=sidebar_collections,
+        sidebar_items=sidebar_items,
         recently_used=recently_used,
         recently_created=recently_created,
         recently_modified=recently_modified,
@@ -143,9 +151,17 @@ async def get_prompt_context(
     filter_item_limit: int = 5,
     concurrent: bool = True,
 ) -> PromptContextResponse:
-    """Build the prompt context response.
+    """
+    Build the prompt context response.
 
     Args:
+        session_factory: Async SQLAlchemy session factory for database access.
+        user_id: The authenticated user's ID.
+        tag_limit: Maximum number of top tags to return.
+        recent_limit: Maximum number of items per recent section (used,
+            created, modified).
+        filter_limit: Maximum number of filters to include.
+        filter_item_limit: Maximum number of items per filter.
         concurrent: See get_content_context for details.
     """
     content_types = ["prompt"]
@@ -175,7 +191,7 @@ async def get_prompt_context(
         for t in tags[:tag_limit]
     ]
 
-    ordered_filters, sidebar_collections = filters_and_sidebar
+    ordered_filters, sidebar_items = filters_and_sidebar
     ordered_filters = ordered_filters[:filter_limit]
 
     # Phase 2: fetch top items per filter
@@ -217,7 +233,7 @@ async def get_prompt_context(
         counts=counts,
         top_tags=top_tags,
         filters=context_filters,
-        sidebar_collections=sidebar_collections,
+        sidebar_items=sidebar_items,
         recently_used=recently_used,
         recently_created=recently_created,
         recently_modified=recently_modified,
@@ -280,30 +296,30 @@ async def _get_filters_in_sidebar_order(
     db: AsyncSession,
     user_id: UUID,
     endpoint_content_types: list[str],
-) -> tuple[list[ContentFilter], list[SidebarCollectionContext]]:
+) -> tuple[list[ContentFilter], list[SidebarContextItem]]:
     """
     Get filters in sidebar order, excluding builtins and filters without tag rules.
 
     Returns:
-        Tuple of (ordered filters, sidebar collections containing tag-based filters).
+        Tuple of (ordered filters, sidebar tree preserving interleaved order).
     """
     all_filters = await get_filters(db, user_id)
     sidebar = await get_computed_sidebar(db, user_id, all_filters)
 
-    # Build filter map for lookup
     filter_map = {f.id: f for f in all_filters}
 
-    # Walk sidebar to extract ordered filter IDs and collections
     ordered_filter_ids: list[UUID] = []
-    collections: list[SidebarCollectionContext] = []
+    sidebar_items: list[SidebarContextItem] = []
 
     for item in sidebar.items:
         if item.type == "filter":
             filt = filter_map.get(item.id)
             if filt and _is_relevant_filter(filt, endpoint_content_types):
                 ordered_filter_ids.append(item.id)
+                sidebar_items.append(
+                    SidebarContextFilter(id=item.id, name=item.name),
+                )
         elif item.type == "collection":
-            # Collect tag-based filters in this collection
             collection_filters = []
             for child in item.items:
                 if child.type == "filter":
@@ -312,18 +328,19 @@ async def _get_filters_in_sidebar_order(
                         if child.id not in ordered_filter_ids:
                             ordered_filter_ids.append(child.id)
                         collection_filters.append(
-                            SidebarCollectionFilter(id=child.id, name=child.name),
+                            SidebarContextFilter(id=child.id, name=child.name),
                         )
             if collection_filters:
-                collections.append(SidebarCollectionContext(
+                sidebar_items.append(SidebarContextCollection(
                     name=item.name,
-                    filters=collection_filters,
+                    items=collection_filters,
                 ))
 
-    # Build ordered filter list
-    ordered_filters = [filter_map[fid] for fid in ordered_filter_ids if fid in filter_map]
+    ordered_filters = [
+        filter_map[fid] for fid in ordered_filter_ids if fid in filter_map
+    ]
 
-    return ordered_filters, collections
+    return ordered_filters, sidebar_items
 
 
 def _is_relevant_filter(

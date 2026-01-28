@@ -1,8 +1,9 @@
 """Pydantic schemas for MCP context endpoints."""
 from datetime import datetime
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from schemas.content_filter import FilterExpression
 from schemas.prompt import PromptArgument
@@ -28,18 +29,26 @@ class ContextTag(BaseModel):
     filter_count: int
 
 
-class SidebarCollectionFilter(BaseModel):
-    """A filter reference within a sidebar collection."""
+class SidebarContextFilter(BaseModel):
+    """A filter in the sidebar tree (root-level or inside a collection)."""
 
+    type: Literal["filter"] = "filter"
     id: UUID
     name: str
 
 
-class SidebarCollectionContext(BaseModel):
-    """A sidebar collection containing tag-based filters."""
+class SidebarContextCollection(BaseModel):
+    """A collection in the sidebar tree containing filters."""
 
+    type: Literal["collection"] = "collection"
     name: str
-    filters: list[SidebarCollectionFilter]
+    items: list[SidebarContextFilter]
+
+
+SidebarContextItem = Annotated[
+    SidebarContextFilter | SidebarContextCollection,
+    Field(discriminator="type"),
+]
 
 
 # =============================================================================
@@ -85,7 +94,7 @@ class ContentContextResponse(BaseModel):
     counts: ContentContextCounts
     top_tags: list[ContextTag]
     filters: list[ContentContextFilter]
-    sidebar_collections: list[SidebarCollectionContext]
+    sidebar_items: list[SidebarContextItem]
     recently_used: list[ContextItem]
     recently_created: list[ContextItem]
     recently_modified: list[ContextItem]
@@ -128,7 +137,7 @@ class PromptContextResponse(BaseModel):
     counts: EntityCounts
     top_tags: list[ContextTag]
     filters: list[PromptContextFilter]
-    sidebar_collections: list[SidebarCollectionContext]
+    sidebar_items: list[SidebarContextItem]
     recently_used: list[ContextPrompt]
     recently_created: list[ContextPrompt]
     recently_modified: list[ContextPrompt]

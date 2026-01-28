@@ -127,7 +127,7 @@ class TestContentContext:
         assert "counts" in data
         assert "top_tags" in data
         assert "filters" in data
-        assert "sidebar_collections" in data
+        assert "sidebar_items" in data
         assert "recently_used" in data
         assert "recently_created" in data
         assert "recently_modified" in data
@@ -295,7 +295,7 @@ class TestContentContext:
         assert "prompt" not in item_types
 
     @pytest.mark.anyio
-    async def test__sidebar_collections__included_when_present(
+    async def test__sidebar_items__included_when_present(
         self, client: AsyncClient,
     ) -> None:
         f1 = await _create_filter(client, "Dev Filter", [["dev"]], ["bookmark"])
@@ -315,17 +315,19 @@ class TestContentContext:
         response = await client.get("/mcp/context/content")
         data = response.json()
 
-        assert len(data["sidebar_collections"]) == 1
-        assert data["sidebar_collections"][0]["name"] == "Development"
-        assert len(data["sidebar_collections"][0]["filters"]) == 1
+        assert len(data["sidebar_items"]) == 1
+        assert data["sidebar_items"][0]["type"] == "collection"
+        assert data["sidebar_items"][0]["name"] == "Development"
+        assert len(data["sidebar_items"][0]["items"]) == 1
+        assert data["sidebar_items"][0]["items"][0]["type"] == "filter"
 
     @pytest.mark.anyio
-    async def test__sidebar_collections__empty_when_no_collections(
+    async def test__sidebar_items__empty_when_no_sidebar_filters(
         self, client: AsyncClient,
     ) -> None:
         response = await client.get("/mcp/context/content")
         data = response.json()
-        assert data["sidebar_collections"] == []
+        assert data["sidebar_items"] == []
 
     @pytest.mark.anyio
     async def test__recently_used__sorted_by_last_used_at(
@@ -482,7 +484,7 @@ class TestPromptContext:
         assert "counts" in data
         assert "top_tags" in data
         assert "filters" in data
-        assert "sidebar_collections" in data
+        assert "sidebar_items" in data
         assert "recently_used" in data
         assert "recently_created" in data
         assert "recently_modified" in data

@@ -854,10 +854,11 @@ def _append_filters_section(
 def _append_sidebar_section(
     lines: list[str], data: dict[str, Any],
 ) -> None:
-    """Append sidebar organization section."""
-    sidebar_collections = data.get("sidebar_collections", [])
-    if not sidebar_collections:
+    """Append sidebar organization section from sidebar_items tree."""
+    sidebar_items = data.get("sidebar_items", [])
+    if not sidebar_items:
         return
+
     lines.append("## Sidebar Organization")
     lines.append(
         "Collections are a frontend-only grouping mechanism for organizing"
@@ -865,12 +866,14 @@ def _append_sidebar_section(
         " behavior.",
     )
     lines.append("")
-    for collection in sidebar_collections:
-        lines.append(f"- [collection] {collection['name']}")
-        for cf in collection["filters"]:
-            lines.append(
-                f"  - {cf['name']} `[filter {cf['id']}]`",
-            )
+
+    for item in sidebar_items:
+        if item.get("type") == "collection":
+            lines.append(f"- [collection] {item['name']}")
+            for child in item.get("items", []):
+                lines.append(f"  - {child['name']} `[filter {child['id']}]`")
+        else:
+            lines.append(f"- {item['name']} `[filter {item['id']}]`")
     lines.append("")
 
 
@@ -976,12 +979,8 @@ def _append_item_lines(
     if extra_time_field:
         ts = item.get(extra_time_field)
         if ts:
-            time_label = {
-                "last_used_at": "Last used",
-                "created_at": "Created",
-                "updated_at": "Modified",
-            }.get(extra_time_field, extra_time_field)
-            lines.append(f"   {time_label}: {ts}")
+            label = _TIME_LABELS.get(extra_time_field, extra_time_field)
+            lines.append(f"   {label}: {ts}")
 
     tags = item.get("tags", [])
     if tags:
