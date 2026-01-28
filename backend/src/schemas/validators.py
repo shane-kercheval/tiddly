@@ -22,6 +22,13 @@ PROMPT_NAME_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 ARGUMENT_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
+def normalize_preview(value: str | None) -> str | None:
+    """Collapse newlines, tabs, and runs of whitespace in a content preview."""
+    if value is None:
+        return None
+    return re.sub(r"\s+", " ", value).strip()
+
+
 def validate_and_normalize_tag(tag: str) -> str:
     """
     Normalize and validate a single tag.

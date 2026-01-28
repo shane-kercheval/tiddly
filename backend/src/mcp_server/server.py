@@ -881,7 +881,7 @@ def _append_filters_section(
             f"{i}. **{f['name']}** `[filter {f['id']}]`"
             f" ({content_types})",
         )
-        lines.append(f"   Rule: `{rule}`")
+        lines.append(f"   Tag rules: `{rule}`")
         lines.append("")
 
 
@@ -895,9 +895,12 @@ def _append_sidebar_section(
 
     lines.append("## Sidebar Organization")
     lines.append(
-        "Collections are a frontend-only grouping mechanism for organizing"
-        " filters visually. They have no effect on search or filtering"
-        " behavior.",
+        "This shows only user-created custom filters. Built-in views"
+        " (e.g. 'All Bookmarks', 'All Notes') are not listed here."
+        " Items may exist outside any custom filter."
+        " Collections are a visual grouping mechanism for organizing"
+        " filters in the sidebar and have no effect on search or"
+        " filtering behavior.",
     )
     lines.append("")
 

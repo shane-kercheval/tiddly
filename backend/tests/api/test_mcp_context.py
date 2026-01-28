@@ -310,6 +310,24 @@ class TestContentContext:
         assert "prompt-only" not in tag_names
 
     @pytest.mark.anyio
+    async def test__top_tags__excludes_filter_only_tags(
+        self, client: AsyncClient,
+    ) -> None:
+        """Tags used only in filters (content_count=0) should not appear in context."""
+        await _create_bookmark(client, tags=["python"])
+        # "filter-only" tag is used in a filter but not on any bookmarks/notes
+        await _create_filter(
+            client, "Filter Only", [["filter-only"]], ["bookmark", "note"],
+        )
+
+        response = await client.get("/mcp/context/content")
+        data = response.json()
+
+        tag_names = [t["name"] for t in data["top_tags"]]
+        assert "python" in tag_names
+        assert "filter-only" not in tag_names
+
+    @pytest.mark.anyio
     async def test__filters__excludes_prompt_only_filters(
         self, client: AsyncClient,
     ) -> None:
@@ -602,6 +620,24 @@ class TestPromptContext:
         tag_names = [t["name"] for t in data["top_tags"]]
         assert "code-review" in tag_names
         assert "bookmark-only" not in tag_names
+
+    @pytest.mark.anyio
+    async def test__top_tags__excludes_filter_only_tags(
+        self, client: AsyncClient,
+    ) -> None:
+        """Tags used only in filters (content_count=0) should not appear in context."""
+        await _create_prompt(client, tags=["code-review"])
+        # "filter-only" tag is used in a prompt-relevant filter but not on any prompts
+        await _create_filter(
+            client, "Filter Only", [["filter-only"]], ["prompt"],
+        )
+
+        response = await client.get("/mcp/context/prompts")
+        data = response.json()
+
+        tag_names = [t["name"] for t in data["top_tags"]]
+        assert "code-review" in tag_names
+        assert "filter-only" not in tag_names
 
     @pytest.mark.anyio
     async def test__recently_used__sorted_correctly(

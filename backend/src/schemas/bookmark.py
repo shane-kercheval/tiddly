@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, mod
 from core.config import get_settings
 from schemas.content_metadata import ContentMetadata
 from schemas.validators import (
+    normalize_preview,
     validate_and_normalize_tags,
     validate_description_length,
     validate_title_length,
@@ -150,6 +151,12 @@ class BookmarkListItem(BaseModel):
         default=None,
         description="First 500 characters of content.",
     )
+
+    @field_validator("content_preview", mode="before")
+    @classmethod
+    def strip_preview_whitespace(cls, v: str | None) -> str | None:
+        """Collapse whitespace in content preview for clean display."""
+        return normalize_preview(v)
 
     @model_validator(mode="before")
     @classmethod

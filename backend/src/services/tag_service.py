@@ -1,7 +1,8 @@
 """Service layer for tag operations."""
 from uuid import UUID
 
-from sqlalchemy import func, literal, select
+from sqlalchemy import cast, func, literal, select, type_coerce
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TEXT as PG_TEXT
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -180,16 +181,28 @@ async def get_user_tags_with_counts(
         content_count_expr = literal(0)
     content_count = content_count_expr.label("content_count")
 
-    # Subquery for counting filters using this tag
+    # Subquery for counting filters using this tag.
+    # When content_types is specified, only count filters whose content_types
+    # overlap with the requested types (e.g. prompt context only counts
+    # prompt-relevant filters, not bookmark-only filters).
+    filter_where = [
+        filter_group_tags.c.tag_id == Tag.id,
+        ContentFilter.user_id == user_id,
+    ]
+    if content_types is not None:
+        # PostgreSQL JSONB ?| operator: check if JSONB array contains
+        # any of the requested content types
+        filter_where.append(
+            type_coerce(ContentFilter.content_types, JSONB).has_any(
+                cast(content_types, ARRAY(PG_TEXT)),
+            ),
+        )
     filter_count_subq = (
         select(func.count(func.distinct(ContentFilter.id)))
         .select_from(filter_group_tags)
         .join(FilterGroup, filter_group_tags.c.group_id == FilterGroup.id)
         .join(ContentFilter, FilterGroup.filter_id == ContentFilter.id)
-        .where(
-            filter_group_tags.c.tag_id == Tag.id,
-            ContentFilter.user_id == user_id,
-        )
+        .where(*filter_where)
         .correlate(Tag)
         .scalar_subquery()
     )

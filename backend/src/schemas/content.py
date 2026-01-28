@@ -3,7 +3,9 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from schemas.validators import normalize_preview
 
 
 class ContentListItem(BaseModel):
@@ -35,6 +37,12 @@ class ContentListItem(BaseModel):
         default=None,
         description="First 500 characters of content.",
     )
+
+    @field_validator("content_preview", mode="before")
+    @classmethod
+    def strip_preview_whitespace(cls, v: str | None) -> str | None:
+        """Collapse whitespace in content preview for clean display."""
+        return normalize_preview(v)
 
     # Bookmark-specific (None for notes/prompts)
     url: str | None = None

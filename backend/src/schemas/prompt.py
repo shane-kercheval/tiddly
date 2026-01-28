@@ -9,6 +9,7 @@ from core.config import get_settings
 from schemas.content_metadata import ContentMetadata
 from schemas.validators import (
     check_duplicate_argument_names,
+    normalize_preview,
     validate_and_normalize_tags,
     validate_argument_name,
     validate_description_length,
@@ -194,6 +195,12 @@ class PromptListItem(BaseModel):
         default=None,
         description="First 500 characters of content.",
     )
+
+    @field_validator("content_preview", mode="before")
+    @classmethod
+    def strip_preview_whitespace(cls, v: str | None) -> str | None:
+        """Collapse whitespace in content preview for clean display."""
+        return normalize_preview(v)
 
     @model_validator(mode="before")
     @classmethod

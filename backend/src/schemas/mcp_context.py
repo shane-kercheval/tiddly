@@ -3,10 +3,11 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from schemas.content_filter import FilterExpression
 from schemas.prompt import PromptArgument
+from schemas.validators import normalize_preview
 
 
 # =============================================================================
@@ -76,6 +77,12 @@ class ContextItem(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("content_preview", mode="before")
+    @classmethod
+    def strip_preview_whitespace(cls, v: str | None) -> str | None:
+        """Collapse whitespace in content preview for clean display."""
+        return normalize_preview(v)
+
 
 class ContentContextFilter(BaseModel):
     """A filter with its top items for the content context response."""
@@ -118,6 +125,12 @@ class ContextPrompt(BaseModel):
     last_used_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("content_preview", mode="before")
+    @classmethod
+    def strip_preview_whitespace(cls, v: str | None) -> str | None:
+        """Collapse whitespace in content preview for clean display."""
+        return normalize_preview(v)
 
 
 class PromptContextFilter(BaseModel):

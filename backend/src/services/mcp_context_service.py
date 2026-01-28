@@ -84,11 +84,13 @@ async def get_content_context(
         )
         recent_items = await _query(_get_recent_content_items, user_id, recent_limit)
 
-    # Apply tag limit
+    # For MCP context, only include tags actually used on content items.
+    # Tags that only appear in filters (content_count=0) add noise.
+    # filter_count is kept as supplementary info for tags that are on content.
     top_tags = [
         ContextTag(name=t.name, content_count=t.content_count, filter_count=t.filter_count)
-        for t in tags[:tag_limit]
-    ]
+        for t in tags if t.content_count > 0
+    ][:tag_limit]
 
     ordered_filters, sidebar_items = filters_and_sidebar
     ordered_filters = ordered_filters[:filter_limit]
@@ -186,10 +188,13 @@ async def get_prompt_context(
         )
         recent_items = await _query(_get_recent_prompt_items, user_id, recent_limit)
 
+    # For MCP context, only include tags actually used on content items.
+    # Tags that only appear in filters (content_count=0) add noise.
+    # filter_count is kept as supplementary info for tags that are on content.
     top_tags = [
         ContextTag(name=t.name, content_count=t.content_count, filter_count=t.filter_count)
-        for t in tags[:tag_limit]
-    ]
+        for t in tags if t.content_count > 0
+    ][:tag_limit]
 
     ordered_filters, sidebar_items = filters_and_sidebar
     ordered_filters = ordered_filters[:filter_limit]
