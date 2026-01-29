@@ -998,8 +998,8 @@ def _append_abbreviated_item(
         ts = item.get(time_field, "")
         if ts:
             label = _TIME_LABELS.get(time_field, time_field)
-            lines.append(f"   {label}: {ts}")
-    lines.append("   (see above)")
+            lines.append(f"   - **{label}**: {ts}")
+    lines.append("   - *(see above)*")
 
 
 def _append_item_lines(
@@ -1017,19 +1017,19 @@ def _append_item_lines(
         ts = item.get(extra_time_field)
         if ts:
             label = _TIME_LABELS.get(extra_time_field, extra_time_field)
-            lines.append(f"   {label}: {ts}")
+            lines.append(f"   - **{label}**: {ts}")
 
     tags = item.get("tags", [])
     if tags:
-        lines.append(f"   Tags: {', '.join(tags)}")
+        lines.append(f"   - **Tags**: {', '.join(tags)}")
 
     desc = item.get("description")
     if desc:
-        lines.append(f"   Description: {desc}")
+        lines.append(f"   - **Description**: {desc}")
 
     preview = item.get("content_preview")
     if preview:
-        lines.append(f"   Preview: {preview}")
+        lines.append(f"   - **Preview**: {preview}")
 
 
 @mcp.tool(

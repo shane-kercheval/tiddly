@@ -263,8 +263,8 @@ describe('NoteCard', () => {
     it('should show confirm delete button in deleted view', () => {
       render(<NoteCard note={mockNote} view="deleted" onDelete={vi.fn()} />)
 
-      // ConfirmDeleteButton initially shows "Delete permanently" tooltip
-      expect(screen.getByTitle('Delete permanently')).toBeInTheDocument()
+      // ConfirmDeleteButton initially shows "Delete permanently" aria-label
+      expect(screen.getByRole('button', { name: 'Delete permanently' })).toBeInTheDocument()
     })
 
     it('should call onRestore when restore button is clicked', async () => {
@@ -304,6 +304,64 @@ describe('NoteCard', () => {
       await user.click(removeButton)
 
       expect(onTagRemove).toHaveBeenCalledWith(mockNote, 'test')
+    })
+  })
+
+  describe('tag addition', () => {
+    const mockSuggestions = [
+      { name: 'react', content_count: 5, filter_count: 0 },
+      { name: 'typescript', content_count: 3, filter_count: 0 },
+    ]
+
+    it('should show add tag button when onTagAdd is provided', () => {
+      render(
+        <NoteCard
+          note={mockNote}
+          onDelete={vi.fn()}
+          onTagAdd={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      expect(screen.getByRole('button', { name: 'Add tag' })).toBeInTheDocument()
+    })
+
+    it('should not show add tag button when onTagAdd is not provided', () => {
+      render(
+        <NoteCard
+          note={mockNote}
+          onDelete={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
+    })
+
+    it('should show add tag button even when item has zero tags', () => {
+      const noteWithNoTags = { ...mockNote, tags: [] }
+
+      render(
+        <NoteCard
+          note={noteWithNoTags}
+          onDelete={vi.fn()}
+          onTagAdd={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      expect(screen.getByRole('button', { name: 'Add tag' })).toBeInTheDocument()
+    })
+
+    it('should not show add tag button when tagSuggestions is not provided', () => {
+      render(
+        <NoteCard
+          note={mockNote}
+          onDelete={vi.fn()}
+          onTagAdd={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
     })
   })
 

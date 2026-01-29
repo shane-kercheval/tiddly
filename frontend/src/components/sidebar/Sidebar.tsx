@@ -52,6 +52,7 @@ import {
   NoteIcon,
   PromptIcon,
 } from '../icons'
+import { Tooltip } from '../ui'
 import type {
   SidebarItemComputed,
   SidebarBuiltinItemComputed,
@@ -543,7 +544,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           <button
             onClick={handleNewCollection}
             className="hidden md:flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-            title="New Collection"
+            aria-label="New Collection"
           >
             <PlusIcon className="h-3 w-3" />
             <span>Collection</span>
@@ -551,33 +552,39 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           <button
             onClick={handleNewFilter}
             className="hidden md:flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-            title="New Filter"
+            aria-label="New Filter"
           >
             <PlusIcon className="h-3 w-3" />
             <span>Filter</span>
           </button>
           <div className="flex-1" />
-          <button
-            onClick={handleQuickAddBookmark}
-            className="p-1.5 rounded-md text-blue-500 hover:bg-blue-50 hover:text-blue-600 transition-colors"
-            title="New Bookmark"
-          >
-            <BookmarkIcon className="h-4 w-4" />
-          </button>
-          <button
-            onClick={handleQuickAddNote}
-            className="p-1.5 rounded-md text-green-500 hover:bg-green-50 hover:text-green-600 transition-colors"
-            title="New Note"
-          >
-            <NoteIcon className="h-4 w-4" />
-          </button>
-          <button
-            onClick={handleQuickAddPrompt}
-            className="p-1.5 rounded-md text-orange-500 hover:bg-orange-50 hover:text-orange-600 transition-colors"
-            title="New Prompt"
-          >
-            <PromptIcon className="h-4 w-4" />
-          </button>
+          <Tooltip content="New Bookmark" compact>
+            <button
+              onClick={handleQuickAddBookmark}
+              className="p-1.5 rounded-md text-blue-500 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+              aria-label="New Bookmark"
+            >
+              <BookmarkIcon className="h-4 w-4" />
+            </button>
+          </Tooltip>
+          <Tooltip content="New Note" compact>
+            <button
+              onClick={handleQuickAddNote}
+              className="p-1.5 rounded-md text-green-500 hover:bg-green-50 hover:text-green-600 transition-colors"
+              aria-label="New Note"
+            >
+              <NoteIcon className="h-4 w-4" />
+            </button>
+          </Tooltip>
+          <Tooltip content="New Prompt" compact>
+            <button
+              onClick={handleQuickAddPrompt}
+              className="p-1.5 rounded-md text-orange-500 hover:bg-orange-50 hover:text-orange-600 transition-colors"
+              aria-label="New Prompt"
+            >
+              <PromptIcon className="h-4 w-4" />
+            </button>
+          </Tooltip>
         </div>
       )}
 

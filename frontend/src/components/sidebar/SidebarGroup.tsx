@@ -146,7 +146,7 @@ export function SidebarGroup({
                   }
                 }}
                 className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
-                title={onEdit ? 'Edit collection' : 'Rename group'}
+                aria-label={onEdit ? 'Edit collection' : 'Rename group'}
               >
                 <EditIcon className="h-3.5 w-3.5" />
               </button>
@@ -161,7 +161,7 @@ export function SidebarGroup({
                     ? 'bg-red-100 text-red-600 hover:bg-red-200 px-2'
                     : 'text-gray-400 hover:text-red-500 hover:bg-gray-100'
                 }`}
-                title={isConfirmingDelete ? 'Click again to confirm' : onEdit ? 'Delete collection' : 'Delete group'}
+                aria-label={isConfirmingDelete ? 'Click again to confirm' : onEdit ? 'Delete collection' : 'Delete group'}
               >
                 {isConfirmingDelete ? (
                   <span className="text-xs font-medium whitespace-nowrap">Delete?</span>

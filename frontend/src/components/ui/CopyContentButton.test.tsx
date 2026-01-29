@@ -56,14 +56,14 @@ describe('CopyContentButton', () => {
 
       const button = screen.getByRole('button')
       expect(button).toBeInTheDocument()
-      expect(button).toHaveAttribute('title', 'Copy note content')
+      expect(button).toHaveAttribute('aria-label', 'Copy note content')
     })
 
     it('renders copy icon for prompts', () => {
       render(<CopyContentButton contentType="prompt" id="456" />)
 
       const button = screen.getByRole('button')
-      expect(button).toHaveAttribute('title', 'Copy prompt content')
+      expect(button).toHaveAttribute('aria-label', 'Copy prompt content')
     })
 
     it('applies custom className', () => {
@@ -94,7 +94,7 @@ describe('CopyContentButton', () => {
       fireEvent.click(screen.getByRole('button'))
       await flushPromisesAndTimers()
 
-      expect(screen.getByRole('button')).toHaveAttribute('title', 'Copied!')
+      expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'Copied!')
     })
   })
 
@@ -127,7 +127,7 @@ describe('CopyContentButton', () => {
       fireEvent.click(screen.getByRole('button'))
 
       // Should show loading immediately
-      expect(screen.getByRole('button')).toHaveAttribute('title', 'Copying...')
+      expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'Copying...')
       expect(screen.getByRole('button')).toBeDisabled()
 
       // Resolve and cleanup
@@ -177,7 +177,7 @@ describe('CopyContentButton', () => {
       fireEvent.click(screen.getByRole('button'))
       await flushPromisesAndTimers()
 
-      expect(screen.getByRole('button')).toHaveAttribute('title', 'Failed to copy')
+      expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'Failed to copy')
       expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
     })
 
@@ -189,7 +189,7 @@ describe('CopyContentButton', () => {
       fireEvent.click(screen.getByRole('button'))
       await flushPromisesAndTimers()
 
-      expect(screen.getByRole('button')).toHaveAttribute('title', 'Failed to copy')
+      expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'Failed to copy')
       expect(mockWriteText).not.toHaveBeenCalled()
       expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
     })
@@ -203,7 +203,7 @@ describe('CopyContentButton', () => {
       await flushPromisesAndTimers()
 
       // Empty string is valid - clipboard will just be empty
-      expect(screen.getByRole('button')).toHaveAttribute('title', 'Copied!')
+      expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'Copied!')
       expect(mockWriteText).toHaveBeenCalledWith('')
     })
 
@@ -216,7 +216,7 @@ describe('CopyContentButton', () => {
       fireEvent.click(screen.getByRole('button'))
       await flushPromisesAndTimers()
 
-      expect(screen.getByRole('button')).toHaveAttribute('title', 'Failed to copy')
+      expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'Failed to copy')
       expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
     })
   })
@@ -230,12 +230,12 @@ describe('CopyContentButton', () => {
       fireEvent.click(screen.getByRole('button'))
       await flushPromisesAndTimers()
 
-      expect(screen.getByRole('button')).toHaveAttribute('title', 'Copied!')
+      expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'Copied!')
 
       // Fast-forward past feedback duration (2000ms)
       await flushPromisesAndTimers(2001)
 
-      expect(screen.getByRole('button')).toHaveAttribute('title', 'Copy note content')
+      expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'Copy note content')
     })
 
     it('resets to idle after error feedback duration', async () => {
@@ -247,12 +247,12 @@ describe('CopyContentButton', () => {
       fireEvent.click(screen.getByRole('button'))
       await flushPromisesAndTimers()
 
-      expect(screen.getByRole('button')).toHaveAttribute('title', 'Failed to copy')
+      expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'Failed to copy')
 
       // Fast-forward past feedback duration
       await flushPromisesAndTimers(2001)
 
-      expect(screen.getByRole('button')).toHaveAttribute('title', 'Copy note content')
+      expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'Copy note content')
       expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
       consoleErrorSpy.mockRestore()
     })

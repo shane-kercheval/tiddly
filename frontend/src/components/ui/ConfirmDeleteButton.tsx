@@ -99,7 +99,7 @@ export function ConfirmDeleteButton({
       onClick={handleClick}
       disabled={isDeleting}
       className={`${baseClasses} ${stateClasses} ${className}`}
-      title={isConfirming ? 'Click again to confirm' : title}
+      aria-label={isConfirming ? 'Click again to confirm' : title}
     >
       {isConfirming ? (
         <span className="inline-flex h-4 items-center text-xs font-medium leading-none">Delete?</span>

@@ -8,6 +8,7 @@ import { CopyIcon, CheckIcon } from '../icons'
 import { useNotes } from '../../hooks/useNotes'
 import { usePrompts } from '../../hooks/usePrompts'
 import { useCopyFeedback } from '../../hooks/useCopyFeedback'
+import { Tooltip } from './Tooltip'
 
 interface CopyContentButtonProps {
   /** Type of content to copy */
@@ -111,14 +112,15 @@ export function CopyContentButton({
   }
 
   return (
-    <button
-      onClick={handleCopy}
-      className={`btn-icon disabled:cursor-default ${className}`}
-      title={getTitle()}
-      aria-label={getTitle()}
-      disabled={state === 'loading'}
-    >
-      {getIcon()}
-    </button>
+    <Tooltip content={getTitle()} compact>
+      <button
+        onClick={handleCopy}
+        className={`btn-icon disabled:cursor-default ${className}`}
+        aria-label={getTitle()}
+        disabled={state === 'loading'}
+      >
+        {getIcon()}
+      </button>
+    </Tooltip>
   )
 }

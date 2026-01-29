@@ -1519,8 +1519,8 @@ def test__format_content_context_markdown__filter_items(
     md = _format_content_context_markdown(sample_context_response)
     assert "Client Onboarding Checklist" in md
     assert "[note 2b3c4d5e-e29b-41d4-a716-446655440000]" in md
-    assert "Tags: work, project, client" in md
-    assert "Preview: Steps for onboarding new clients..." in md
+    assert "- **Tags**: work, project, client" in md
+    assert "- **Preview**: Steps for onboarding new clients..." in md
 
 
 def test__format_content_context_markdown__description_when_present(
@@ -1529,7 +1529,7 @@ def test__format_content_context_markdown__description_when_present(
     """Verify description is included when present, omitted when None."""
     md = _format_content_context_markdown(sample_context_response)
     # The recently_used item has a description
-    assert "Description: Official Python 3.x documentation" in md
+    assert "- **Description**: Official Python 3.x documentation" in md
 
 
 def test__format_content_context_markdown__sidebar_full_tree(
@@ -1627,7 +1627,7 @@ def test__format_content_context_markdown__last_used_at_in_recent(
 ) -> None:
     """Recently used items show Last used timestamp."""
     md = _format_content_context_markdown(sample_context_response)
-    assert "Last used: 2026-01-25T08:30:00Z" in md
+    assert "- **Last used**: 2026-01-25T08:30:00Z" in md
 
 
 def test__format_content_context_markdown__created_at_in_recent() -> None:
@@ -1647,7 +1647,7 @@ def test__format_content_context_markdown__created_at_in_recent() -> None:
     }
     md = _format_content_context_markdown(data)
     assert "## Recently Created" in md
-    assert "Created: 2026-01-25T07:30:00Z" in md
+    assert "- **Created**: 2026-01-25T07:30:00Z" in md
 
 
 def test__format_content_context_markdown__modified_at_in_recent() -> None:
@@ -1666,7 +1666,7 @@ def test__format_content_context_markdown__modified_at_in_recent() -> None:
     }
     md = _format_content_context_markdown(data)
     assert "## Recently Modified" in md
-    assert "Modified: 2026-01-25T09:30:00Z" in md
+    assert "- **Modified**: 2026-01-25T09:30:00Z" in md
 
 
 # --- get_context tool integration tests ---

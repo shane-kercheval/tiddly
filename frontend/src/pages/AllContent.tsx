@@ -371,6 +371,15 @@ export function AllContent(): ReactNode {
     }
   }
 
+  const handleTagAddBookmark = async (bookmark: BookmarkListItem, tag: string): Promise<void> => {
+    try {
+      const newTags = [...bookmark.tags, tag]
+      await updateBookmarkMutation.mutateAsync({ id: bookmark.id, data: { tags: newTags } })
+    } catch {
+      toast.error('Failed to add tag')
+    }
+  }
+
   const handleCancelScheduledArchiveBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
     try {
       await updateBookmarkMutation.mutateAsync({ id: bookmark.id, data: { archived_at: null } })
@@ -434,6 +443,15 @@ export function AllContent(): ReactNode {
     }
   }
 
+  const handleTagAddNote = async (note: NoteListItem, tag: string): Promise<void> => {
+    try {
+      const newTags = [...note.tags, tag]
+      await updateNoteMutation.mutateAsync({ id: note.id, data: { tags: newTags } })
+    } catch {
+      toast.error('Failed to add tag')
+    }
+  }
+
   const handleCancelScheduledArchiveNote = async (note: NoteListItem): Promise<void> => {
     try {
       await updateNoteMutation.mutateAsync({ id: note.id, data: { archived_at: null } })
@@ -494,6 +512,15 @@ export function AllContent(): ReactNode {
       await updatePromptMutation.mutateAsync({ id: prompt.id, data: { tags: newTags } })
     } catch {
       toast.error('Failed to remove tag')
+    }
+  }
+
+  const handleTagAddPrompt = async (prompt: PromptListItem, tag: string): Promise<void> => {
+    try {
+      const newTags = [...prompt.tags, tag]
+      await updatePromptMutation.mutateAsync({ id: prompt.id, data: { tags: newTags } })
+    } catch {
+      toast.error('Failed to add tag')
     }
   }
 
@@ -704,6 +731,8 @@ export function AllContent(): ReactNode {
                   onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchiveBookmark : undefined}
                   onTagClick={handleTagClick}
                   onTagRemove={currentView !== 'deleted' ? handleTagRemoveBookmark : undefined}
+                  onTagAdd={currentView !== 'deleted' ? handleTagAddBookmark : undefined}
+                  tagSuggestions={tagSuggestions}
                   onLinkClick={(b) => trackBookmarkUsage(b.id)}
                 />
               )
@@ -723,6 +752,8 @@ export function AllContent(): ReactNode {
                   onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchivePrompt : undefined}
                   onTagClick={handleTagClick}
                   onTagRemove={currentView !== 'deleted' ? handleTagRemovePrompt : undefined}
+                  onTagAdd={currentView !== 'deleted' ? handleTagAddPrompt : undefined}
+                  tagSuggestions={tagSuggestions}
                 />
               )
             }
@@ -740,6 +771,8 @@ export function AllContent(): ReactNode {
                 onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchiveNote : undefined}
                 onTagClick={handleTagClick}
                 onTagRemove={currentView !== 'deleted' ? handleTagRemoveNote : undefined}
+                onTagAdd={currentView !== 'deleted' ? handleTagAddNote : undefined}
+                tagSuggestions={tagSuggestions}
               />
             )
           })}

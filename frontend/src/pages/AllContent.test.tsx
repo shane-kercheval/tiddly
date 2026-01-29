@@ -66,6 +66,23 @@ const mockDeletedNote: ContentListItem = {
   deleted_at: '2024-01-06T00:00:00Z',
 }
 
+const mockPrompt: ContentListItem = {
+  type: 'prompt',
+  id: '5',
+  title: 'Test Prompt',
+  description: 'A test prompt description',
+  tags: ['test', 'prompt'],
+  url: null,
+  version: null,
+  name: 'test-prompt',
+  arguments: [{ name: 'input', description: 'Input text', required: true }],
+  created_at: '2024-01-03T00:00:00Z',
+  updated_at: '2024-01-03T00:00:00Z',
+  last_used_at: '2024-01-03T00:00:00Z',
+  deleted_at: null,
+  archived_at: null,
+}
+
 // Mock response builders
 function createMockResponse(items: ContentListItem[]): ContentListResponse {
   return {
@@ -129,10 +146,11 @@ const mockDeleteNote = vi.fn()
 const mockRestoreNote = vi.fn()
 const mockArchiveNote = vi.fn()
 const mockUnarchiveNote = vi.fn()
+const mockUpdateNote = vi.fn()
 
 vi.mock('../hooks/useNoteMutations', () => ({
   useCreateNote: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUpdateNote: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateNote: () => ({ mutateAsync: mockUpdateNote, isPending: false }),
   useDeleteNote: () => ({ mutateAsync: mockDeleteNote, isPending: false }),
   useRestoreNote: () => ({ mutateAsync: mockRestoreNote, isPending: false }),
   useArchiveNote: () => ({ mutateAsync: mockArchiveNote, isPending: false }),
@@ -143,10 +161,11 @@ const mockDeletePrompt = vi.fn()
 const mockRestorePrompt = vi.fn()
 const mockArchivePrompt = vi.fn()
 const mockUnarchivePrompt = vi.fn()
+const mockUpdatePrompt = vi.fn()
 
 vi.mock('../hooks/usePromptMutations', () => ({
   useCreatePrompt: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUpdatePrompt: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdatePrompt: () => ({ mutateAsync: mockUpdatePrompt, isPending: false }),
   useDeletePrompt: () => ({ mutateAsync: mockDeletePrompt, isPending: false }),
   useRestorePrompt: () => ({ mutateAsync: mockRestorePrompt, isPending: false }),
   useArchivePrompt: () => ({ mutateAsync: mockArchivePrompt, isPending: false }),
@@ -846,6 +865,162 @@ describe('AllContent', () => {
       await user.click(restoreButton)
 
       expect(mockRestoreNote).toHaveBeenCalledWith('4')
+    })
+  })
+
+  describe('tag addition', () => {
+    it('calls updateBookmark mutation with correct tags when adding tag to bookmark', async () => {
+      const user = userEvent.setup()
+      mockUpdateBookmark.mockResolvedValue({ ...mockBookmark, tags: ['test', 'bookmark', 'example'] })
+      mockContentQueryData = createMockResponse([mockBookmark])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+      })
+
+      // Click add tag button to open dropdown
+      const addTagButton = screen.getByRole('button', { name: 'Add tag' })
+      await user.click(addTagButton)
+
+      // Wait for dropdown to open (input appears)
+      await screen.findByPlaceholderText('Add tag...')
+
+      // Wait for and click the 'example' suggestion button (it's in tagsStore but not on this bookmark)
+      const suggestionButton = await screen.findByRole('button', { name: /^example/ })
+      await user.click(suggestionButton)
+
+      expect(mockUpdateBookmark).toHaveBeenCalledWith({
+        id: '1',
+        data: { tags: ['test', 'bookmark', 'example'] },
+      })
+    })
+
+    it('calls updateNote mutation with correct tags when adding tag to note', async () => {
+      const user = userEvent.setup()
+      mockUpdateNote.mockResolvedValue({ ...mockNote, tags: ['test', 'note', 'example'] })
+      mockContentQueryData = createMockResponse([mockNote])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getByText('Test Note')).toBeInTheDocument()
+      })
+
+      // Click add tag button to open dropdown
+      const addTagButton = screen.getByRole('button', { name: 'Add tag' })
+      await user.click(addTagButton)
+
+      // Wait for dropdown to open (input appears)
+      await screen.findByPlaceholderText('Add tag...')
+
+      // Wait for and click the 'example' suggestion button
+      const suggestionButton = await screen.findByRole('button', { name: /^example/ })
+      await user.click(suggestionButton)
+
+      expect(mockUpdateNote).toHaveBeenCalledWith({
+        id: '2',
+        data: { tags: ['test', 'note', 'example'] },
+      })
+    })
+
+    it('calls updatePrompt mutation with correct tags when adding tag to prompt', async () => {
+      const user = userEvent.setup()
+      mockUpdatePrompt.mockResolvedValue({ ...mockPrompt, tags: ['test', 'prompt', 'example'] })
+      mockContentQueryData = createMockResponse([mockPrompt])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getByText('Test Prompt')).toBeInTheDocument()
+      })
+
+      // Click add tag button to open dropdown
+      const addTagButton = screen.getByRole('button', { name: 'Add tag' })
+      await user.click(addTagButton)
+
+      // Wait for dropdown to open (input appears)
+      await screen.findByPlaceholderText('Add tag...')
+
+      // Wait for and click the 'example' suggestion button
+      const suggestionButton = await screen.findByRole('button', { name: /^example/ })
+      await user.click(suggestionButton)
+
+      expect(mockUpdatePrompt).toHaveBeenCalledWith({
+        id: '5',
+        data: { tags: ['test', 'prompt', 'example'] },
+      })
+    })
+
+    it('does not show add tag button in deleted view', async () => {
+      mockContentQueryData = createMockResponse([mockDeletedNote])
+      renderAtRoute('/app/content/trash')
+
+      await waitFor(() => {
+        expect(screen.getByText('Deleted Note')).toBeInTheDocument()
+      })
+
+      expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('tag removal', () => {
+    it('calls updateBookmark mutation with correct tags when removing tag from bookmark', async () => {
+      const user = userEvent.setup()
+      mockUpdateBookmark.mockResolvedValue({ ...mockBookmark, tags: ['bookmark'] })
+      mockContentQueryData = createMockResponse([mockBookmark])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+      })
+
+      // Click remove button on 'test' tag
+      const removeButton = screen.getByRole('button', { name: /remove tag test/i })
+      await user.click(removeButton)
+
+      expect(mockUpdateBookmark).toHaveBeenCalledWith({
+        id: '1',
+        data: { tags: ['bookmark'] },
+      })
+    })
+
+    it('calls updateNote mutation with correct tags when removing tag from note', async () => {
+      const user = userEvent.setup()
+      mockUpdateNote.mockResolvedValue({ ...mockNote, tags: ['note'] })
+      mockContentQueryData = createMockResponse([mockNote])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getByText('Test Note')).toBeInTheDocument()
+      })
+
+      // Click remove button on 'test' tag
+      const removeButton = screen.getByRole('button', { name: /remove tag test/i })
+      await user.click(removeButton)
+
+      expect(mockUpdateNote).toHaveBeenCalledWith({
+        id: '2',
+        data: { tags: ['note'] },
+      })
+    })
+
+    it('calls updatePrompt mutation with correct tags when removing tag from prompt', async () => {
+      const user = userEvent.setup()
+      mockUpdatePrompt.mockResolvedValue({ ...mockPrompt, tags: ['prompt'] })
+      mockContentQueryData = createMockResponse([mockPrompt])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getByText('Test Prompt')).toBeInTheDocument()
+      })
+
+      // Click remove button on 'test' tag
+      const removeButton = screen.getByRole('button', { name: /remove tag test/i })
+      await user.click(removeButton)
+
+      expect(mockUpdatePrompt).toHaveBeenCalledWith({
+        id: '5',
+        data: { tags: ['prompt'] },
+      })
     })
   })
 })

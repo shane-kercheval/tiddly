@@ -6,7 +6,7 @@ import type { ReactNode } from 'react'
 import type { BookmarkListItem } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { formatDate, truncate, getDomain, getUrlWithoutProtocol, getGoogleFaviconUrl } from '../utils'
-import { ConfirmDeleteButton } from './ui'
+import { ConfirmDeleteButton, Tooltip } from './ui'
 import {
   BookmarkIcon,
   CopyIcon,
@@ -19,6 +19,8 @@ import {
 } from './icons'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { Tag } from './Tag'
+import { AddTagButton } from './AddTagButton'
+import type { TagCount } from '../types'
 
 interface BookmarkCardProps {
   bookmark: BookmarkListItem
@@ -37,6 +39,8 @@ interface BookmarkCardProps {
   onRestore?: (bookmark: BookmarkListItem) => void
   onTagClick?: (tag: string) => void
   onTagRemove?: (bookmark: BookmarkListItem, tag: string) => void
+  onTagAdd?: (bookmark: BookmarkListItem, tag: string) => void
+  tagSuggestions?: TagCount[]
   onLinkClick?: (bookmark: BookmarkListItem) => void
   /** Called when user cancels a scheduled auto-archive */
   onCancelScheduledArchive?: (bookmark: BookmarkListItem) => void
@@ -68,6 +72,8 @@ export function BookmarkCard({
   onRestore,
   onTagClick,
   onTagRemove,
+  onTagAdd,
+  tagSuggestions,
   onLinkClick,
   onCancelScheduledArchive,
   isLoading = false,
@@ -225,11 +231,11 @@ export function BookmarkCard({
           )}
         </div>
 
-        {/* Row 2 (mobile): tags + actions + date */}
-        <div className="flex items-center gap-2 md:contents">
-          {/* Tags */}
+        {/* Mobile: tags row + actions/date row | Desktop: inline via md:contents */}
+        <div className="flex flex-col gap-2 md:contents">
+          {/* Tags row (mobile) */}
           {bookmark.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
+            <div className="flex flex-wrap gap-1 md:justify-end md:w-32 md:shrink-0">
               {bookmark.tags.map((tag) => (
                 <Tag
                   key={tag}
@@ -241,73 +247,87 @@ export function BookmarkCard({
             </div>
           )}
 
-          {/* Actions and date */}
-          <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
+          {/* Actions and date row (mobile): icons left, date right | Desktop: stacked right */}
+          <div className="flex items-center justify-between w-full md:w-auto md:flex-col md:items-end md:shrink-0">
             <div className="flex items-center">
+              {/* Add tag button */}
+              {onTagAdd && tagSuggestions && (
+                <AddTagButton
+                  existingTags={bookmark.tags}
+                  suggestions={tagSuggestions}
+                  onAdd={(tag) => onTagAdd(bookmark, tag)}
+                />
+              )}
+
               {/* Edit button - shown in active and archived views */}
               {view !== 'deleted' && onEdit && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onEdit(bookmark) }}
-                  className="btn-icon"
-                  title="Edit bookmark"
-                  aria-label="Edit bookmark"
-                >
-                  {isLoading ? (
-                    <div className="spinner-sm" />
-                  ) : (
-                    <EditIcon />
-                  )}
-                </button>
+                <Tooltip content="Edit" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onEdit(bookmark) }}
+                    className="btn-icon"
+                    aria-label="Edit bookmark"
+                  >
+                    {isLoading ? (
+                      <div className="spinner-sm" />
+                    ) : (
+                      <EditIcon />
+                    )}
+                  </button>
+                </Tooltip>
               )}
 
               {/* Copy URL button */}
-              <button
-                onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
-                className="btn-icon"
-                title={copySuccess ? 'Copied!' : 'Copy URL'}
-                aria-label={copySuccess ? 'Copied!' : 'Copy URL'}
-              >
-                {copySuccess ? (
-                  <CheckIcon className="h-4 w-4 text-green-600" />
-                ) : (
-                  <CopyIcon />
-                )}
-              </button>
+              <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
+                  className="btn-icon"
+                  aria-label={copySuccess ? 'Copied!' : 'Copy URL'}
+                >
+                  {copySuccess ? (
+                    <CheckIcon className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <CopyIcon />
+                  )}
+                </button>
+              </Tooltip>
 
               {/* Archive button - shown in active view */}
               {view === 'active' && onArchive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onArchive(bookmark) }}
-                  className="btn-icon"
-                  title="Archive bookmark"
-                  aria-label="Archive bookmark"
-                >
-                  <ArchiveIcon className="h-4 w-4" />
-                </button>
+                <Tooltip content="Archive" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onArchive(bookmark) }}
+                    className="btn-icon"
+                    aria-label="Archive bookmark"
+                  >
+                    <ArchiveIcon className="h-4 w-4" />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Restore button - shown in archived view (unarchive action) */}
               {view === 'archived' && onUnarchive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onUnarchive(bookmark) }}
-                  className="btn-icon"
-                  title="Restore bookmark"
-                  aria-label="Restore bookmark"
-                >
-                  <RestoreIcon />
-                </button>
+                <Tooltip content="Restore" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onUnarchive(bookmark) }}
+                    className="btn-icon"
+                    aria-label="Restore bookmark"
+                  >
+                    <RestoreIcon />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Restore button - shown in deleted view */}
               {view === 'deleted' && onRestore && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onRestore(bookmark) }}
-                  className="btn-icon"
-                  title="Restore bookmark"
-                  aria-label="Restore bookmark"
-                >
-                  <RestoreIcon />
-                </button>
+                <Tooltip content="Restore" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onRestore(bookmark) }}
+                    className="btn-icon"
+                    aria-label="Restore bookmark"
+                  >
+                    <RestoreIcon />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Delete button - shown in all views */}
@@ -320,14 +340,15 @@ export function BookmarkCard({
                   />
                 </span>
               ) : (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(bookmark) }}
-                  className="btn-icon-danger"
-                  title="Delete bookmark"
-                  aria-label="Delete bookmark"
-                >
-                  <TrashIcon />
-                </button>
+                <Tooltip content="Delete" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(bookmark) }}
+                    className="btn-icon-danger"
+                    aria-label="Delete bookmark"
+                  >
+                    <TrashIcon />
+                  </button>
+                </Tooltip>
               )}
             </div>
             <div className="flex flex-col items-end gap-0.5">

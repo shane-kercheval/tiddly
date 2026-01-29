@@ -73,7 +73,6 @@ export function ContentTypeFilterChips({
                   ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                   : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700'
               } ${isOnlySelected ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
-              title={isOnlySelected ? 'At least one type must be selected' : `Toggle ${label}`}
             >
               {icon}
               <span>{label}</span>

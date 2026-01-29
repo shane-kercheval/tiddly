@@ -6,9 +6,11 @@ import type { NoteListItem } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { formatDate, truncate } from '../utils'
-import { ConfirmDeleteButton, CopyContentButton } from './ui'
+import { ConfirmDeleteButton, CopyContentButton, Tooltip } from './ui'
 import { NoteIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
 import { Tag } from './Tag'
+import { AddTagButton } from './AddTagButton'
+import type { TagCount } from '../types'
 
 interface NoteCardProps {
   note: NoteListItem
@@ -21,6 +23,8 @@ interface NoteCardProps {
   onRestore?: (note: NoteListItem) => void
   onTagClick?: (tag: string) => void
   onTagRemove?: (note: NoteListItem, tag: string) => void
+  onTagAdd?: (note: NoteListItem, tag: string) => void
+  tagSuggestions?: TagCount[]
   /** Called when user cancels a scheduled auto-archive */
   onCancelScheduledArchive?: (note: NoteListItem) => void
 }
@@ -48,6 +52,8 @@ export function NoteCard({
   onRestore,
   onTagClick,
   onTagRemove,
+  onTagAdd,
+  tagSuggestions,
   onCancelScheduledArchive,
 }: NoteCardProps): ReactNode {
   // Display description if present, otherwise show truncated content preview
@@ -119,11 +125,11 @@ export function NoteCard({
           )}
         </div>
 
-        {/* Row 2 (mobile): tags + actions + date */}
-        <div className="flex items-center gap-2 md:contents">
-          {/* Tags */}
+        {/* Mobile: tags row + actions/date row | Desktop: inline via md:contents */}
+        <div className="flex flex-col gap-2 md:contents">
+          {/* Tags row (mobile) */}
           {note.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
+            <div className="flex flex-wrap gap-1 md:justify-end md:w-32 md:shrink-0">
               {note.tags.map((tag) => (
                 <Tag
                   key={tag}
@@ -135,9 +141,18 @@ export function NoteCard({
             </div>
           )}
 
-          {/* Actions and date */}
-          <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
+          {/* Actions and date row (mobile): icons left, date right | Desktop: stacked right */}
+          <div className="flex items-center justify-between w-full md:w-auto md:flex-col md:items-end md:shrink-0">
             <div className="flex items-center">
+              {/* Add tag button */}
+              {onTagAdd && tagSuggestions && (
+                <AddTagButton
+                  existingTags={note.tags}
+                  suggestions={tagSuggestions}
+                  onAdd={(tag) => onTagAdd(note, tag)}
+                />
+              )}
+
               {/* Copy button - shown in active and archived views */}
               {view !== 'deleted' && (
                 <CopyContentButton contentType="note" id={note.id} />
@@ -145,38 +160,41 @@ export function NoteCard({
 
               {/* Archive button - shown in active view */}
               {view === 'active' && onArchive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onArchive(note) }}
-                  className="btn-icon"
-                  title="Archive note"
-                  aria-label="Archive note"
-                >
-                  <ArchiveIcon className="h-4 w-4" />
-                </button>
+                <Tooltip content="Archive" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onArchive(note) }}
+                    className="btn-icon"
+                    aria-label="Archive note"
+                  >
+                    <ArchiveIcon className="h-4 w-4" />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Restore button - shown in archived view (unarchive action) */}
               {view === 'archived' && onUnarchive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onUnarchive(note) }}
-                  className="btn-icon"
-                  title="Restore note"
-                  aria-label="Restore note"
-                >
-                  <RestoreIcon />
-                </button>
+                <Tooltip content="Restore" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onUnarchive(note) }}
+                    className="btn-icon"
+                    aria-label="Restore note"
+                  >
+                    <RestoreIcon />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Restore button - shown in deleted view */}
               {view === 'deleted' && onRestore && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onRestore(note) }}
-                  className="btn-icon"
-                  title="Restore note"
-                  aria-label="Restore note"
-                >
-                  <RestoreIcon />
-                </button>
+                <Tooltip content="Restore" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onRestore(note) }}
+                    className="btn-icon"
+                    aria-label="Restore note"
+                  >
+                    <RestoreIcon />
+                  </button>
+                </Tooltip>
               )}
 
               {/* Delete button - shown in all views */}
@@ -189,14 +207,15 @@ export function NoteCard({
                   />
                 </span>
               ) : (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(note) }}
-                  className="btn-icon-danger"
-                  title="Delete note"
-                  aria-label="Delete note"
-                >
-                  <TrashIcon />
-                </button>
+                <Tooltip content="Delete" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(note) }}
+                    className="btn-icon-danger"
+                    aria-label="Delete note"
+                  >
+                    <TrashIcon />
+                  </button>
+                </Tooltip>
               )}
             </div>
             <div className="flex flex-col items-end gap-0.5">
