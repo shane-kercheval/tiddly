@@ -732,7 +732,7 @@ export function SettingsMCP(): ReactNode {
             onChange={setIntegration}
           />
           <SelectorRow
-            label="Server"
+            label="Content"
             options={serverOptions}
             value={server}
             onChange={setServer}

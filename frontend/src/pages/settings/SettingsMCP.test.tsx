@@ -84,7 +84,7 @@ describe('SettingsMCP', () => {
     it('should render all selector row labels', () => {
       renderWithRouter()
 
-      expect(screen.getByText('Server')).toBeInTheDocument()
+      expect(screen.getByText('Content')).toBeInTheDocument()
       expect(screen.getByText('Client')).toBeInTheDocument()
       expect(screen.getByText('Auth')).toBeInTheDocument()
       expect(screen.getByText('Integration')).toBeInTheDocument()
