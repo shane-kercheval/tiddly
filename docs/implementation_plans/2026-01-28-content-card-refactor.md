@@ -1,10 +1,15 @@
 # Implementation Plan: ContentCard Component Refactor
 
 **Date:** 2026-01-28
+**Revised:** 2026-01-28 (v2 - simplified, no Header extraction)
 
 ## Overview
 
-The three card components (`BookmarkCard`, `NoteCard`, `PromptCard`) share ~70% identical code for layout, actions, tags, and date display. This refactor extracts the common structure into a composable `ContentCard` component using the compound component pattern, eliminating duplication while preserving flexibility for entity-specific content.
+The three card components (`BookmarkCard`, `NoteCard`, `PromptCard`) share significant duplicated code for actions, tags, date display, and scheduled archive banners. This refactor extracts the **truly shared** parts into a composable `ContentCard` component using the compound component pattern.
+
+**Key decision:** Headers are NOT extracted. Each card has unique header requirements (BookmarkCard's `showContentTypeIcon` toggle, favicon logic, URL links; NoteCard's version badge; PromptCard's name/title display). Forcing these into a generic abstraction creates more problems than it solves.
+
+**Why now:** A 4th content type ("task") is planned. Without this refactor, adding TaskCard means copying ~250 lines and maintaining 4 parallel implementations of identical action/tag/date logic.
 
 ## Problem Statement
 
@@ -14,33 +19,32 @@ The three card components (`BookmarkCard`, `NoteCard`, `PromptCard`) share ~70% 
 - `PromptCard.tsx`: 253 lines
 - **Total: 878 lines** with significant duplication
 
-**Duplicated across all three:**
+**Duplicated across all three (extract these):**
 - Card container with `card card-interactive group` styling
-- Responsive flex layout (mobile stacked, desktop row)
-- Tags section with `Tag` components and `AddTagButton`
-- Action buttons section (Archive, Restore, Delete) with Tooltip wrappers
+- Tags section with `Tag` components
+- Action buttons section (AddTag, Archive, Restore, Delete) with Tooltip wrappers
 - Date display with `getDateDisplay()` logic
 - Scheduled archive warning banner
 - Click handling with `stopPropagation()`
 
-**Entity-specific differences:**
-- **BookmarkCard**: Favicon, URL display, Edit button, Copy URL button, `isLoading` state
-- **NoteCard**: Version badge, CopyContentButton
-- **PromptCard**: Arguments display, CopyContentButton
+**Entity-specific (keep in each card):**
+- **BookmarkCard**: Header with `showContentTypeIcon` toggle, favicon, URL display, Edit button, Copy URL button, link click tracking
+- **NoteCard**: Header with version badge, CopyContentButton
+- **PromptCard**: Header with name/title display, arguments display, CopyContentButton
 
 ## Goals
 
-1. **Eliminate duplication**: Single source of truth for card layout and common actions
-2. **Composition over configuration**: Use compound components for flexibility
-3. **Type safety**: Generic typing for entity-specific callbacks
-4. **Maintainability**: Changes to card behavior only need to happen once
-5. **Testability**: Shared components tested once, entity cards test only their specifics
+1. **Eliminate duplication**: Single source of truth for shared card behavior
+2. **Composition over configuration**: Compound components for flexibility
+3. **Type safety**: Proper typing for callbacks
+4. **Maintainability**: Changes to shared behavior happen once
+5. **Easy to add new content types**: TaskCard can compose ContentCard subcomponents
 
 ## Non-Goals
 
+- Extracting headers (too much variation between cards)
 - Changing UI/UX behavior
-- Modifying the existing API or data structures
-- Creating abstractions for entity-specific features (favicon, URL, etc.)
+- Modifying existing API or data structures
 
 ---
 
@@ -48,59 +52,74 @@ The three card components (`BookmarkCard`, `NoteCard`, `PromptCard`) share ~70% 
 
 ### Compound Component Pattern
 
-The `ContentCard` will use React's compound component pattern, providing subcomponents that can be composed flexibly:
+The `ContentCard` provides a container and context, with subcomponents for shared UI:
 
 ```tsx
-<ContentCard
-  entity={bookmark}
-  view={view}
-  onClick={handleCardClick}
->
-  <ContentCard.Header>
-    <ContentCard.Icon color={CONTENT_TYPE_ICON_COLORS.bookmark}>
-      <BookmarkIcon />
-    </ContentCard.Icon>
-    <ContentCard.Title onClick={handleTitleClick}>
-      {displayTitle}
-    </ContentCard.Title>
-    {/* Bookmark-specific: favicon and URL */}
-    <Favicon url={bookmark.url} />
-    <ContentCard.Subtitle>{urlDisplay}</ContentCard.Subtitle>
-  </ContentCard.Header>
+export function NoteCard({ note, view, sortBy, onView, onDelete, ... }: NoteCardProps): ReactNode {
+  return (
+    <ContentCard view={view} onClick={onView ? () => onView(note) : undefined}>
+      {/* Header stays in NoteCard - entity-specific */}
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <div className="flex items-center gap-2 md:flex-wrap">
+          <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.note}`}>
+            <NoteIcon className="w-4 h-4" />
+          </span>
+          <button onClick={handleTitleClick} className="...">
+            {truncate(note.title, 60)}
+          </button>
+          {note.version > 1 && (
+            <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
+          )}
+        </div>
+        {note.description && (
+          <p className="mt-1 text-sm text-gray-500 line-clamp-2 md:line-clamp-1">
+            {note.description}
+          </p>
+        )}
+      </div>
 
-  <ContentCard.Description>{bookmark.description}</ContentCard.Description>
+      {/* Shared subcomponents */}
+      <ContentCard.Tags
+        tags={note.tags}
+        onTagClick={onTagClick}
+        onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
+      />
 
-  <ContentCard.Tags
-    tags={bookmark.tags}
-    onTagClick={onTagClick}
-    onTagRemove={onTagRemove ? (tag) => onTagRemove(bookmark, tag) : undefined}
-  />
+      <ContentCard.Actions>
+        {onTagAdd && tagSuggestions && (
+          <ContentCard.AddTagAction
+            existingTags={note.tags}
+            suggestions={tagSuggestions}
+            onAdd={(tag) => onTagAdd(note, tag)}
+          />
+        )}
+        {view !== 'deleted' && (
+          <CopyContentButton contentType="note" id={note.id} />
+        )}
+        {onArchive && <ContentCard.ArchiveAction onArchive={() => onArchive(note)} />}
+        {onUnarchive && <ContentCard.RestoreAction onRestore={() => onUnarchive(note)} />}
+        {onRestore && <ContentCard.RestoreAction onRestore={() => onRestore(note)} />}
+        <ContentCard.DeleteAction onDelete={() => onDelete(note)} />
+      </ContentCard.Actions>
 
-  <ContentCard.Actions>
-    {/* Bookmark-specific actions */}
-    <ContentCard.EditAction onClick={() => onEdit(bookmark)} isLoading={isLoading} />
-    <ContentCard.CopyUrlAction url={bookmark.url} onCopy={handleCopyUrl} />
-    {/* Shared actions - these read view from context */}
-    <ContentCard.AddTagAction
-      existingTags={bookmark.tags}
-      suggestions={tagSuggestions}
-      onAdd={(tag) => onTagAdd(bookmark, tag)}
-    />
-    <ContentCard.ArchiveAction onArchive={() => onArchive(bookmark)} />
-    <ContentCard.RestoreAction onRestore={() => onRestore(bookmark)} />
-    <ContentCard.DeleteAction onDelete={() => onDelete(bookmark)} />
-  </ContentCard.Actions>
+      <ContentCard.DateDisplay
+        sortBy={sortBy}
+        createdAt={note.created_at}
+        updatedAt={note.updated_at}
+        lastUsedAt={note.last_used_at}
+        archivedAt={note.archived_at}
+        deletedAt={note.deleted_at}
+      />
 
-  <ContentCard.DateDisplay
-    sortBy={sortBy}
-    entity={bookmark}
-  />
-
-  <ContentCard.ScheduledArchive
-    archivedAt={bookmark.archived_at}
-    onCancel={() => onCancelScheduledArchive(bookmark)}
-  />
-</ContentCard>
+      {onCancelScheduledArchive && (
+        <ContentCard.ScheduledArchive
+          archivedAt={note.archived_at}
+          onCancel={() => onCancelScheduledArchive(note)}
+        />
+      )}
+    </ContentCard>
+  )
+}
 ```
 
 ### Context for View State
@@ -113,6 +132,14 @@ interface ContentCardContextValue {
 }
 
 const ContentCardContext = createContext<ContentCardContextValue | null>(null)
+
+export function useContentCardContext(): ContentCardContextValue {
+  const context = useContext(ContentCardContext)
+  if (!context) {
+    throw new Error('ContentCard subcomponents must be used within ContentCard')
+  }
+  return context
+}
 ```
 
 ### File Structure
@@ -122,8 +149,6 @@ frontend/src/components/
 ├── ContentCard/
 │   ├── index.ts                    # Barrel export
 │   ├── ContentCard.tsx             # Main container + context provider
-│   ├── ContentCardHeader.tsx       # Header with icon, title, subtitle
-│   ├── ContentCardDescription.tsx  # Description/preview text
 │   ├── ContentCardTags.tsx         # Tags section
 │   ├── ContentCardActions.tsx      # Actions container
 │   ├── ContentCardDateDisplay.tsx  # Date with sort-aware formatting
@@ -133,13 +158,11 @@ frontend/src/components/
 │   │   ├── AddTagAction.tsx
 │   │   ├── ArchiveAction.tsx
 │   │   ├── RestoreAction.tsx
-│   │   ├── DeleteAction.tsx
-│   │   ├── EditAction.tsx          # For BookmarkCard
-│   │   └── CopyUrlAction.tsx       # For BookmarkCard
+│   │   └── DeleteAction.tsx
 │   └── ContentCard.test.tsx
-├── BookmarkCard.tsx                # Simplified, composes ContentCard
-├── NoteCard.tsx                    # Simplified, composes ContentCard
-└── PromptCard.tsx                  # Simplified, composes ContentCard
+├── BookmarkCard.tsx                # Composes ContentCard (keeps header + bookmark-specific)
+├── NoteCard.tsx                    # Composes ContentCard (keeps header + note-specific)
+└── PromptCard.tsx                  # Composes ContentCard (keeps header + prompt-specific)
 ```
 
 ---
@@ -154,6 +177,9 @@ Create the foundational `ContentCard` component with context provider and basic 
 **New file: `frontend/src/components/ContentCard/ContentCard.tsx`**
 
 ```typescript
+import { createContext, useContext } from 'react'
+import type { ReactNode } from 'react'
+
 interface ContentCardProps {
   view?: 'active' | 'archived' | 'deleted'
   onClick?: () => void
@@ -219,92 +245,21 @@ Barrel export that will grow as we add subcomponents.
 ### Dependencies
 None
 
-### Risk Factors
-None - this is additive and doesn't modify existing components yet.
-
 ---
 
-## Milestone 2: Header, Description, and Tags Subcomponents
+## Milestone 2: Tags and DateDisplay Subcomponents
 
 ### Goal
-Create the header section subcomponents (Icon, Title, Subtitle), Description, and Tags.
+Create the Tags section and DateDisplay subcomponents.
 
 ### Key Changes
-
-**New file: `frontend/src/components/ContentCard/ContentCardHeader.tsx`**
-
-```typescript
-// Container for the header row
-export function ContentCardHeader({ children }: { children: ReactNode }): ReactNode {
-  return (
-    <div className="min-w-0 flex-1 overflow-hidden">
-      <div className="flex items-center gap-2 md:flex-wrap">
-        {children}
-      </div>
-    </div>
-  )
-}
-
-// Icon wrapper with color prop
-export function ContentCardIcon({
-  children,
-  color
-}: {
-  children: ReactNode
-  color: string
-}): ReactNode {
-  return (
-    <span className={`shrink-0 w-4 h-4 ${color}`}>
-      {children}
-    </span>
-  )
-}
-
-// Clickable or static title
-export function ContentCardTitle({
-  children,
-  onClick,
-  title,
-}: {
-  children: ReactNode
-  onClick?: () => void
-  title?: string
-}): ReactNode {
-  // Implementation handles both clickable button and static span cases
-}
-
-// Subtitle for secondary text (e.g., URL)
-export function ContentCardSubtitle({
-  children,
-  className = '',
-}: {
-  children: ReactNode
-  className?: string
-}): ReactNode {
-  return (
-    <span className={`text-sm text-gray-400 truncate min-w-0 ${className}`}>
-      {children}
-    </span>
-  )
-}
-```
-
-**New file: `frontend/src/components/ContentCard/ContentCardDescription.tsx`**
-
-```typescript
-export function ContentCardDescription({ children }: { children: ReactNode }): ReactNode {
-  if (!children) return null
-  return (
-    <p className="mt-1 text-sm text-gray-500 line-clamp-2 md:line-clamp-1">
-      {children}
-    </p>
-  )
-}
-```
 
 **New file: `frontend/src/components/ContentCard/ContentCardTags.tsx`**
 
 ```typescript
+import type { ReactNode } from 'react'
+import { Tag } from '../Tag'
+
 interface ContentCardTagsProps {
   tags: string[]
   onTagClick?: (tag: string) => void
@@ -319,7 +274,7 @@ export function ContentCardTags({
   if (tags.length === 0) return null
 
   return (
-    <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
+    <div className="flex flex-wrap gap-1 md:justify-end md:w-32 md:shrink-0">
       {tags.map((tag) => (
         <Tag
           key={tag}
@@ -333,139 +288,13 @@ export function ContentCardTags({
 }
 ```
 
-### Testing Strategy
-
-Tests for each subcomponent:
-- `ContentCardHeader`: Renders children with correct layout
-- `ContentCardIcon`: Applies color class
-- `ContentCardTitle`: Renders as button when onClick provided, calls handler, stops propagation
-- `ContentCardSubtitle`: Renders with correct styling
-- `ContentCardDescription`: Renders children, returns null when empty
-- `ContentCardTags`: Renders Tag components, calls onTagClick/onTagRemove correctly
-
-### Success Criteria
-- All subcomponents render correctly
-- All tests pass
-- Components are exported from barrel file
-
-### Dependencies
-- Milestone 1
-
-### Risk Factors
-- Title click handling needs to match existing behavior (stopPropagation)
-
----
-
-## Milestone 3: Action Subcomponents
-
-### Goal
-Create the action button subcomponents that use context to conditionally render based on view.
-
-### Key Changes
-
-**New file: `frontend/src/components/ContentCard/ContentCardActions.tsx`**
-
-Container for the actions row:
-
-```typescript
-export function ContentCardActions({ children }: { children: ReactNode }): ReactNode {
-  return (
-    <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
-      <div className="flex items-center">
-        {children}
-      </div>
-    </div>
-  )
-}
-```
-
-**New files in `frontend/src/components/ContentCard/actions/`:**
-
-Each action component reads `view` from context and conditionally renders:
-
-```typescript
-// AddTagAction.tsx
-interface AddTagActionProps {
-  existingTags: string[]
-  suggestions: TagCount[]
-  onAdd: (tag: string) => void
-}
-
-export function AddTagAction({ existingTags, suggestions, onAdd }: AddTagActionProps): ReactNode {
-  const { view } = useContentCardContext()
-  if (view === 'deleted') return null
-  if (!suggestions) return null
-
-  return (
-    <AddTagButton
-      existingTags={existingTags}
-      suggestions={suggestions}
-      onAdd={onAdd}
-    />
-  )
-}
-
-// ArchiveAction.tsx
-interface ArchiveActionProps {
-  onArchive: () => void
-}
-
-export function ArchiveAction({ onArchive }: ArchiveActionProps): ReactNode {
-  const { view } = useContentCardContext()
-  if (view !== 'active') return null
-
-  return (
-    <Tooltip content="Archive" compact>
-      <button
-        onClick={(e) => { e.stopPropagation(); onArchive() }}
-        className="btn-icon"
-        aria-label="Archive"
-      >
-        <ArchiveIcon className="h-4 w-4" />
-      </button>
-    </Tooltip>
-  )
-}
-
-// RestoreAction.tsx - handles both archived (unarchive) and deleted (restore) views
-// DeleteAction.tsx - handles normal delete vs permanent delete in trash
-// EditAction.tsx - for BookmarkCard only
-// CopyUrlAction.tsx - for BookmarkCard only
-```
-
-### Testing Strategy
-
-For each action component:
-- Renders correctly in appropriate view(s)
-- Returns null in inappropriate views
-- Calls handler with stopPropagation
-- DeleteAction shows ConfirmDeleteButton in deleted view
-
-### Success Criteria
-- All action components respect view context
-- Correct tooltips and aria-labels
-- All tests pass
-
-### Dependencies
-- Milestone 1 (context)
-- Milestone 2 (structure)
-
-### Risk Factors
-- Need to ensure all stopPropagation calls are preserved
-- DeleteAction has two modes (soft delete vs permanent delete)
-
----
-
-## Milestone 4: DateDisplay and ScheduledArchive Subcomponents
-
-### Goal
-Create the date display and scheduled archive warning subcomponents.
-
-### Key Changes
-
 **New file: `frontend/src/components/ContentCard/ContentCardDateDisplay.tsx`**
 
 ```typescript
+import type { ReactNode } from 'react'
+import type { SortByOption } from '../../constants/sortOptions'
+import { formatDate } from '../../utils'
+
 interface ContentCardDateDisplayProps {
   sortBy: SortByOption
   createdAt: string
@@ -508,9 +337,207 @@ export function ContentCardDateDisplay({
 }
 ```
 
+### Testing Strategy
+
+- `ContentCardTags`: Renders Tag components, returns null when empty, calls handlers correctly
+- `ContentCardDateDisplay`: Correct label for each sortBy value
+
+### Success Criteria
+- All subcomponents render correctly
+- All tests pass
+- Components are exported from barrel file
+
+### Dependencies
+- Milestone 1
+
+---
+
+## Milestone 3: Action Subcomponents
+
+### Goal
+Create the action button subcomponents that use context to conditionally render based on view.
+
+### Key Changes
+
+**New file: `frontend/src/components/ContentCard/ContentCardActions.tsx`**
+
+```typescript
+import type { ReactNode } from 'react'
+
+interface ContentCardActionsProps {
+  children: ReactNode
+}
+
+export function ContentCardActions({ children }: ContentCardActionsProps): ReactNode {
+  return (
+    <div className="flex items-center justify-between w-full md:w-auto md:flex-col md:items-end md:shrink-0">
+      <div className="flex items-center">
+        {children}
+      </div>
+    </div>
+  )
+}
+```
+
+**New files in `frontend/src/components/ContentCard/actions/`:**
+
+```typescript
+// AddTagAction.tsx
+import type { ReactNode } from 'react'
+import { useContentCardContext } from '../ContentCard'
+import { AddTagButton } from '../../AddTagButton'
+import type { TagCount } from '../../../types'
+
+interface AddTagActionProps {
+  existingTags: string[]
+  suggestions: TagCount[]
+  onAdd: (tag: string) => void
+}
+
+export function AddTagAction({ existingTags, suggestions, onAdd }: AddTagActionProps): ReactNode {
+  const { view } = useContentCardContext()
+  if (view === 'deleted') return null
+
+  return (
+    <AddTagButton
+      existingTags={existingTags}
+      suggestions={suggestions}
+      onAdd={onAdd}
+    />
+  )
+}
+```
+
+```typescript
+// ArchiveAction.tsx
+import type { ReactNode } from 'react'
+import { useContentCardContext } from '../ContentCard'
+import { Tooltip } from '../../ui'
+import { ArchiveIcon } from '../../icons'
+
+interface ArchiveActionProps {
+  onArchive: () => void
+}
+
+export function ArchiveAction({ onArchive }: ArchiveActionProps): ReactNode {
+  const { view } = useContentCardContext()
+  if (view !== 'active') return null
+
+  return (
+    <Tooltip content="Archive" compact>
+      <button
+        onClick={(e) => { e.stopPropagation(); onArchive() }}
+        className="btn-icon"
+        aria-label="Archive"
+      >
+        <ArchiveIcon className="h-4 w-4" />
+      </button>
+    </Tooltip>
+  )
+}
+```
+
+```typescript
+// RestoreAction.tsx
+import type { ReactNode } from 'react'
+import { Tooltip } from '../../ui'
+import { RestoreIcon } from '../../icons'
+
+interface RestoreActionProps {
+  onRestore: () => void
+}
+
+export function RestoreAction({ onRestore }: RestoreActionProps): ReactNode {
+  // Note: Does not check view - caller decides when to render
+  // Used for both "unarchive" (archived view) and "restore" (deleted view)
+  return (
+    <Tooltip content="Restore" compact>
+      <button
+        onClick={(e) => { e.stopPropagation(); onRestore() }}
+        className="btn-icon"
+        aria-label="Restore"
+      >
+        <RestoreIcon />
+      </button>
+    </Tooltip>
+  )
+}
+```
+
+```typescript
+// DeleteAction.tsx
+import type { ReactNode } from 'react'
+import { useContentCardContext } from '../ContentCard'
+import { ConfirmDeleteButton, Tooltip } from '../../ui'
+import { TrashIcon } from '../../icons'
+
+interface DeleteActionProps {
+  onDelete: () => void
+}
+
+export function DeleteAction({ onDelete }: DeleteActionProps): ReactNode {
+  const { view } = useContentCardContext()
+
+  // Permanent delete in trash view requires confirmation
+  if (view === 'deleted') {
+    return (
+      <span onClick={(e) => e.stopPropagation()}>
+        <ConfirmDeleteButton
+          onConfirm={onDelete}
+          title="Delete permanently"
+        />
+      </span>
+    )
+  }
+
+  // Soft delete in other views
+  return (
+    <Tooltip content="Delete" compact>
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete() }}
+        className="btn-icon-danger"
+        aria-label="Delete"
+      >
+        <TrashIcon />
+      </button>
+    </Tooltip>
+  )
+}
+```
+
+### Testing Strategy
+
+For each action component:
+- Renders correctly in appropriate view(s)
+- Returns null in inappropriate views (ArchiveAction, AddTagAction)
+- Calls handler with stopPropagation
+- DeleteAction shows ConfirmDeleteButton in deleted view
+
+### Success Criteria
+- All action components respect view context where applicable
+- Correct tooltips and aria-labels
+- All tests pass
+
+### Dependencies
+- Milestone 1 (context)
+
+---
+
+## Milestone 4: ScheduledArchive Subcomponent
+
+### Goal
+Create the scheduled archive warning banner subcomponent.
+
+### Key Changes
+
 **New file: `frontend/src/components/ContentCard/ContentCardScheduledArchive.tsx`**
 
 ```typescript
+import type { ReactNode } from 'react'
+import { useContentCardContext } from './ContentCard'
+import { CloseIcon } from '../icons'
+import { formatDate } from '../../utils'
+
 interface ContentCardScheduledArchiveProps {
   archivedAt: string | null
   onCancel?: () => void
@@ -549,127 +576,43 @@ export function ContentCardScheduledArchive({
 
 ### Testing Strategy
 
-- `ContentCardDateDisplay`: Correct label for each sortBy value
-- `ContentCardScheduledArchive`:
-  - Returns null when not in active view
-  - Returns null when archived_at is in the past
-  - Returns null when archived_at is null
-  - Renders warning when archived_at is in the future
-  - Cancel button calls handler with stopPropagation
+- Returns null when not in active view
+- Returns null when archived_at is in the past
+- Returns null when archived_at is null
+- Renders warning when archived_at is in the future
+- Cancel button calls handler with stopPropagation
 
 ### Success Criteria
-- Date display matches existing behavior exactly
-- Scheduled archive logic matches existing behavior
+- Scheduled archive logic matches existing behavior exactly
 - All tests pass
 
 ### Dependencies
 - Milestone 1 (context for view)
-
-### Risk Factors
-- Date comparison logic must handle timezone correctly (existing code works, preserve it)
 
 ---
 
 ## Milestone 5: Migrate NoteCard
 
 ### Goal
-Refactor `NoteCard` to use `ContentCard` composition. NoteCard is chosen first because it's the simplest (no entity-specific features like favicon).
+Refactor `NoteCard` to use `ContentCard` composition. NoteCard is chosen first because it's the simplest.
 
 ### Key Changes
 
 **Modify: `frontend/src/components/NoteCard.tsx`**
 
 Before: 246 lines with duplicated layout and action logic
-After: ~80-100 lines composing ContentCard subcomponents
+After: ~120-140 lines composing ContentCard subcomponents
 
-```tsx
-export function NoteCard({
-  note,
-  view = 'active',
-  sortBy = 'created_at',
-  onView,
-  onDelete,
-  onArchive,
-  onUnarchive,
-  onRestore,
-  onTagClick,
-  onTagRemove,
-  onTagAdd,
-  tagSuggestions,
-  onCancelScheduledArchive,
-}: NoteCardProps): ReactNode {
-  return (
-    <ContentCard view={view} onClick={onView ? () => onView(note) : undefined}>
-      <ContentCard.Header>
-        <ContentCard.Icon color={CONTENT_TYPE_ICON_COLORS.note}>
-          <NoteIcon className="w-4 h-4" />
-        </ContentCard.Icon>
-        <ContentCard.Title
-          onClick={onView ? () => onView(note) : undefined}
-          title="View note"
-        >
-          {truncate(note.title, 60)}
-        </ContentCard.Title>
-        {note.version > 1 && (
-          <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
-        )}
-      </ContentCard.Header>
-
-      <ContentCard.Description>{note.description}</ContentCard.Description>
-
-      <ContentCard.Tags
-        tags={note.tags}
-        onTagClick={onTagClick}
-        onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
-      />
-
-      <ContentCard.Actions>
-        {onTagAdd && tagSuggestions && (
-          <ContentCard.AddTagAction
-            existingTags={note.tags}
-            suggestions={tagSuggestions}
-            onAdd={(tag) => onTagAdd(note, tag)}
-          />
-        )}
-        <CopyContentButton contentType="note" id={note.id} />
-        {onArchive && <ContentCard.ArchiveAction onArchive={() => onArchive(note)} />}
-        {onUnarchive && <ContentCard.RestoreAction onRestore={() => onUnarchive(note)} />}
-        {onRestore && <ContentCard.RestoreAction onRestore={() => onRestore(note)} />}
-        <ContentCard.DeleteAction onDelete={() => onDelete(note)} />
-      </ContentCard.Actions>
-
-      <ContentCard.DateDisplay
-        sortBy={sortBy}
-        createdAt={note.created_at}
-        updatedAt={note.updated_at}
-        lastUsedAt={note.last_used_at}
-        archivedAt={note.archived_at}
-        deletedAt={note.deleted_at}
-      />
-
-      {onCancelScheduledArchive && (
-        <ContentCard.ScheduledArchive
-          archivedAt={note.archived_at}
-          onCancel={() => onCancelScheduledArchive(note)}
-        />
-      )}
-    </ContentCard>
-  )
-}
-```
+The header (icon, title, version badge, description) stays in NoteCard. The tags, actions, date display, and scheduled archive use ContentCard subcomponents.
 
 ### Testing Strategy
 
 **Existing tests in `NoteCard.test.tsx` should pass unchanged.** This validates the refactor preserves behavior.
 
-Additional tests:
-- Verify version badge still renders when version > 1
-- Verify CopyContentButton still renders correctly
-
 ### Success Criteria
 - All existing `NoteCard.test.tsx` tests pass without modification
 - Visual appearance unchanged
-- Line count reduced from 246 to ~80-100
+- Line count reduced from 246 to ~120-140
 
 ### Dependencies
 - Milestones 1-4
@@ -689,7 +632,7 @@ Refactor `PromptCard` to use `ContentCard` composition.
 
 **Modify: `frontend/src/components/PromptCard.tsx`**
 
-Similar to NoteCard migration. PromptCard has arguments display which stays as entity-specific content.
+Similar to NoteCard migration. PromptCard's header (icon, title/name display, description) stays in PromptCard.
 
 ### Testing Strategy
 
@@ -697,39 +640,38 @@ Similar to NoteCard migration. PromptCard has arguments display which stays as e
 
 ### Success Criteria
 - All existing `PromptCard.test.tsx` tests pass
-- Arguments display preserved
-- Line count reduced from 253 to ~80-100
+- Line count reduced from 253 to ~120-140
 
 ### Dependencies
 - Milestone 5 (validates the pattern works)
-
-### Risk Factors
-- Arguments display may need special handling in header
 
 ---
 
 ## Milestone 7: Migrate BookmarkCard
 
 ### Goal
-Refactor `BookmarkCard` to use `ContentCard` composition. This is the most complex card with Edit, Copy URL, favicon, and URL display.
+Refactor `BookmarkCard` to use `ContentCard` composition. This is the most complex card.
 
 ### Key Changes
 
 **Modify: `frontend/src/components/BookmarkCard.tsx`**
 
-BookmarkCard has several entity-specific features:
-- Favicon rendering
+BookmarkCard keeps all its entity-specific features in-component:
+- `showContentTypeIcon` toggle logic
+- Favicon rendering with error fallback
 - URL display (inline on desktop, below title on mobile)
 - Edit button with isLoading state
-- Copy URL button (different from CopyContentButton)
+- Copy URL button with success feedback
+- Link click tracking with silent mode (shift+cmd/ctrl)
 
-These will use generic ContentCard subcomponents where possible and entity-specific JSX where not.
+Only the tags, actions container, date display, and scheduled archive use ContentCard subcomponents.
 
 ### Testing Strategy
 
 **Existing tests in `BookmarkCard.test.tsx` should pass unchanged.**
 
 Additional verification:
+- `showContentTypeIcon` behavior preserved
 - Edit button isLoading state works
 - Copy URL feedback (success checkmark) works
 - Favicon error fallback works
@@ -737,7 +679,7 @@ Additional verification:
 ### Success Criteria
 - All existing `BookmarkCard.test.tsx` tests pass
 - All bookmark-specific features preserved
-- Line count reduced from 379 to ~120-150
+- Line count reduced from 379 to ~200-220
 
 ### Dependencies
 - Milestone 6
@@ -751,14 +693,13 @@ Additional verification:
 ## Milestone 8: Cleanup and Documentation
 
 ### Goal
-Remove any dead code, update documentation, ensure consistent patterns.
+Remove any dead code, ensure consistent patterns.
 
 ### Key Changes
 
 1. Remove any unused imports from card components
-2. Update component JSDoc comments
-3. Add README or comments explaining the ContentCard pattern
-4. Verify all barrel exports are correct
+2. Verify all barrel exports are correct
+3. Run full test suite
 
 ### Testing Strategy
 
@@ -769,13 +710,10 @@ Remove any dead code, update documentation, ensure consistent patterns.
 ### Success Criteria
 - No lint warnings
 - All tests pass
-- Clean, documented code
+- Clean code
 
 ### Dependencies
 - Milestones 5-7
-
-### Risk Factors
-None
 
 ---
 
@@ -783,15 +721,18 @@ None
 
 | Milestone | Goal | Est. Lines Changed |
 |-----------|------|-------------------|
-| 1 | ContentCard container + context | +80 |
-| 2 | Header, Description, Tags subcomponents | +120 |
-| 3 | Action subcomponents | +150 |
-| 4 | DateDisplay, ScheduledArchive | +60 |
-| 5 | Migrate NoteCard | -150 |
-| 6 | Migrate PromptCard | -150 |
-| 7 | Migrate BookmarkCard | -200 |
-| 8 | Cleanup | +20 |
+| 1 | ContentCard container + context | +50 |
+| 2 | Tags, DateDisplay subcomponents | +60 |
+| 3 | Action subcomponents | +120 |
+| 4 | ScheduledArchive subcomponent | +40 |
+| 5 | Migrate NoteCard | -100 |
+| 6 | Migrate PromptCard | -110 |
+| 7 | Migrate BookmarkCard | -150 |
+| 8 | Cleanup | +10 |
 
-**Net result:** ~410 new lines for ContentCard, ~500 lines removed from card components = **~90 lines reduction** with significantly improved maintainability.
+**Net result:** ~280 new lines for ContentCard, ~360 lines removed from card components = **~80 lines reduction** with significantly improved maintainability.
 
-The real win is not line count but **single source of truth** - future changes to card layout, action buttons, or date display only need to happen in one place.
+**The real wins:**
+1. **Single source of truth** for actions, tags, date display, and scheduled archive
+2. **Easy to add TaskCard** - compose the same subcomponents with task-specific header
+3. **Reduced cognitive load** - each card file focuses on its unique behavior, not boilerplate
