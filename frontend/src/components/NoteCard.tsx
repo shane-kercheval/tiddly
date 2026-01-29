@@ -1,16 +1,17 @@
 /**
  * Component for displaying a single note card in list view.
+ *
+ * Uses ContentCard composition for shared layout, tags, actions, and date display.
+ * Note-specific header (icon, title, version badge, description) stays here.
  */
 import type { ReactNode } from 'react'
-import type { NoteListItem } from '../types'
+import type { NoteListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
-import { formatDate, truncate } from '../utils'
-import { ConfirmDeleteButton, CopyContentButton, Tooltip } from './ui'
-import { NoteIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
-import { Tag } from './Tag'
-import { AddTagButton } from './AddTagButton'
-import type { TagCount } from '../types'
+import { truncate } from '../utils'
+import { CopyContentButton } from './ui'
+import { NoteIcon } from './icons'
+import { ContentCard } from './ContentCard'
 
 interface NoteCardProps {
   note: NoteListItem
@@ -56,191 +57,119 @@ export function NoteCard({
   tagSuggestions,
   onCancelScheduledArchive,
 }: NoteCardProps): ReactNode {
-  // Display description if present, otherwise show truncated content preview
+  // Display description if present
   const previewText = note.description || ''
-
-  // Check if note has a scheduled future archive date
-  const hasScheduledArchive = view === 'active' &&
-    note.archived_at &&
-    new Date(note.archived_at) > new Date()
-
-  // Dynamic date display based on current sort option
-  const getDateDisplay = (): string => {
-    switch (sortBy) {
-      case 'updated_at':
-        return `Modified: ${formatDate(note.updated_at)}`
-      case 'last_used_at':
-        return `Used: ${formatDate(note.last_used_at)}`
-      case 'archived_at':
-        return `Archived: ${formatDate(note.archived_at!)}`
-      case 'deleted_at':
-        return `Deleted: ${formatDate(note.deleted_at!)}`
-      case 'created_at':
-      case 'title':
-      default:
-        return `Created: ${formatDate(note.created_at)}`
-    }
-  }
 
   const handleTitleClick = (e: React.MouseEvent): void => {
     e.stopPropagation() // Prevent card click from triggering edit
     onView?.(note)
   }
 
-  // Handle card click to go to view mode
-  const handleCardClick = (): void => {
-    onView?.(note)
-  }
-
   return (
-    <div
-      className={`card card-interactive group ${onView ? 'cursor-pointer' : ''}`}
-      onClick={onView ? handleCardClick : undefined}
+    <ContentCard
+      view={view}
+      onClick={onView ? () => onView(note) : undefined}
     >
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
-        {/* Row 1 (mobile) / Main content (desktop) */}
-        <div className="min-w-0 flex-1 overflow-hidden">
-          {/* Title row - on mobile, description is inline; on desktop, it wraps below */}
-          <div className="flex items-center gap-2 md:flex-wrap">
-            <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.note}`}>
-              <NoteIcon className="w-4 h-4" />
-            </span>
-            <button
-              onClick={handleTitleClick}
-              className="text-base font-medium text-gray-900 text-left cursor-pointer truncate min-w-0 md:shrink-0 md:overflow-visible md:whitespace-normal"
-              title="View note"
-            >
-              {truncate(note.title, 60)}
-            </button>
-            {note.version > 1 && (
-              <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
-            )}
-          </div>
-
-          {/* Description - 2 lines on mobile, 1 line on desktop */}
-          {previewText && (
-            <p className="mt-1 text-sm text-gray-500 line-clamp-2 md:line-clamp-1">
-              {previewText}
-            </p>
+      {/* Header stays in NoteCard - note-specific */}
+      <div className="min-w-0 flex-1 overflow-hidden">
+        {/* Title row - on mobile, description is inline; on desktop, it wraps below */}
+        <div className="flex items-center gap-2 md:flex-wrap">
+          <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.note}`}>
+            <NoteIcon className="w-4 h-4" />
+          </span>
+          <button
+            onClick={handleTitleClick}
+            className="text-base font-medium text-gray-900 text-left cursor-pointer truncate min-w-0 md:shrink-0 md:overflow-visible md:whitespace-normal"
+            title="View note"
+          >
+            {truncate(note.title, 60)}
+          </button>
+          {note.version > 1 && (
+            <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
           )}
         </div>
 
-        {/* Mobile: tags row + actions/date row | Desktop: inline via md:contents */}
-        <div className="flex flex-col gap-2 md:contents">
-          {/* Tags row (mobile) */}
-          {note.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 md:justify-end md:w-32 md:shrink-0">
-              {note.tags.map((tag) => (
-                <Tag
-                  key={tag}
-                  tag={tag}
-                  onClick={onTagClick ? () => onTagClick(tag) : undefined}
-                  onRemove={onTagRemove ? () => onTagRemove(note, tag) : undefined}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Actions and date row (mobile): icons left, date right | Desktop: stacked right */}
-          <div className="flex items-center justify-between w-full md:w-auto md:flex-col md:items-end md:shrink-0">
-            <div className="flex items-center">
-              {/* Add tag button */}
-              {onTagAdd && tagSuggestions && (
-                <AddTagButton
-                  existingTags={note.tags}
-                  suggestions={tagSuggestions}
-                  onAdd={(tag) => onTagAdd(note, tag)}
-                />
-              )}
-
-              {/* Copy button - shown in active and archived views */}
-              {view !== 'deleted' && (
-                <CopyContentButton contentType="note" id={note.id} />
-              )}
-
-              {/* Archive button - shown in active view */}
-              {view === 'active' && onArchive && (
-                <Tooltip content="Archive" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onArchive(note) }}
-                    className="btn-icon"
-                    aria-label="Archive note"
-                  >
-                    <ArchiveIcon className="h-4 w-4" />
-                  </button>
-                </Tooltip>
-              )}
-
-              {/* Restore button - shown in archived view (unarchive action) */}
-              {view === 'archived' && onUnarchive && (
-                <Tooltip content="Restore" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onUnarchive(note) }}
-                    className="btn-icon"
-                    aria-label="Restore note"
-                  >
-                    <RestoreIcon />
-                  </button>
-                </Tooltip>
-              )}
-
-              {/* Restore button - shown in deleted view */}
-              {view === 'deleted' && onRestore && (
-                <Tooltip content="Restore" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onRestore(note) }}
-                    className="btn-icon"
-                    aria-label="Restore note"
-                  >
-                    <RestoreIcon />
-                  </button>
-                </Tooltip>
-              )}
-
-              {/* Delete button - shown in all views */}
-              {/* Use ConfirmDeleteButton for permanent delete in trash view */}
-              {view === 'deleted' ? (
-                <span onClick={(e) => e.stopPropagation()}>
-                  <ConfirmDeleteButton
-                    onConfirm={() => onDelete(note)}
-                    title="Delete permanently"
-                  />
-                </span>
-              ) : (
-                <Tooltip content="Delete" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onDelete(note) }}
-                    className="btn-icon-danger"
-                    aria-label="Delete note"
-                  >
-                    <TrashIcon />
-                  </button>
-                </Tooltip>
-              )}
-            </div>
-            <div className="flex flex-col items-end gap-0.5">
-              <span className="text-xs text-gray-400">
-                {getDateDisplay()}
-              </span>
-              {hasScheduledArchive && note.archived_at && (
-                <span className="flex items-center gap-1 text-xs text-amber-600">
-                  <span>Archiving: {formatDate(note.archived_at)}</span>
-                  {onCancelScheduledArchive && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onCancelScheduledArchive(note) }}
-                      className="text-amber-500 hover:text-amber-700 transition-colors p-0.5 -m-0.5"
-                      title="Cancel scheduled archive"
-                      aria-label="Cancel scheduled archive"
-                    >
-                      <CloseIcon className="w-3 h-3" />
-                    </button>
-                  )}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
+        {/* Description - 2 lines on mobile, 1 line on desktop */}
+        {previewText && (
+          <p className="mt-1 text-sm text-gray-500 line-clamp-2 md:line-clamp-1">
+            {previewText}
+          </p>
+        )}
       </div>
-    </div>
+
+      {/* Footer wraps tags + actions for responsive layout (md:contents) */}
+      <ContentCard.Footer>
+        <ContentCard.Tags
+          tags={note.tags}
+          onTagClick={onTagClick}
+          onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
+        />
+
+        <ContentCard.Actions
+          meta={
+            <>
+              <ContentCard.DateDisplay
+                sortBy={sortBy}
+                createdAt={note.created_at}
+                updatedAt={note.updated_at}
+                lastUsedAt={note.last_used_at}
+                archivedAt={note.archived_at}
+                deletedAt={note.deleted_at}
+              />
+              {onCancelScheduledArchive && (
+                <ContentCard.ScheduledArchive
+                  archivedAt={note.archived_at}
+                  onCancel={() => onCancelScheduledArchive(note)}
+                />
+              )}
+            </>
+          }
+        >
+          {/* Add tag button */}
+          {onTagAdd && tagSuggestions && (
+            <ContentCard.AddTagAction
+              existingTags={note.tags}
+              suggestions={tagSuggestions}
+              onAdd={(tag) => onTagAdd(note, tag)}
+            />
+          )}
+
+          {/* Copy button - shown in active and archived views */}
+          {view !== 'deleted' && (
+            <CopyContentButton contentType="note" id={note.id} />
+          )}
+
+          {/* Archive button - shown in active view only (via context) */}
+          {onArchive && (
+            <ContentCard.ArchiveAction
+              onArchive={() => onArchive(note)}
+              entityName="note"
+            />
+          )}
+
+          {/* Restore button - shown in archived view (unarchive action) */}
+          {view === 'archived' && onUnarchive && (
+            <ContentCard.RestoreAction
+              onRestore={() => onUnarchive(note)}
+              entityName="note"
+            />
+          )}
+
+          {/* Restore button - shown in deleted view */}
+          {view === 'deleted' && onRestore && (
+            <ContentCard.RestoreAction
+              onRestore={() => onRestore(note)}
+              entityName="note"
+            />
+          )}
+
+          {/* Delete button - shown in all views */}
+          <ContentCard.DeleteAction
+            onDelete={() => onDelete(note)}
+            entityName="note"
+          />
+        </ContentCard.Actions>
+      </ContentCard.Footer>
+    </ContentCard>
   )
 }
