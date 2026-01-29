@@ -93,7 +93,7 @@ describe('SettingsMCP', () => {
     it('should render server options', () => {
       renderWithRouter()
 
-      expect(screen.getByRole('button', { name: 'Content' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Bookmarks & Notes' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Prompts' })).toBeInTheDocument()
     })
 
@@ -102,6 +102,7 @@ describe('SettingsMCP', () => {
 
       expect(screen.getByRole('button', { name: 'Claude Desktop' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Gemini CLI' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'ChatGPT' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Codex' })).toBeInTheDocument()
     })
@@ -120,10 +121,10 @@ describe('SettingsMCP', () => {
       expect(screen.getByRole('button', { name: 'Skills' })).toBeInTheDocument()
     })
 
-    it('should have Content server selected by default', () => {
+    it('should have Bookmarks & Notes server selected by default', () => {
       renderWithRouter()
 
-      const contentButton = screen.getByRole('button', { name: 'Content' })
+      const contentButton = screen.getByRole('button', { name: 'Bookmarks & Notes' })
       expect(contentButton).toHaveClass('bg-orange-500')
     })
 

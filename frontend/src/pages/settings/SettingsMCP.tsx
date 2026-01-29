@@ -11,7 +11,7 @@ const CONFIG_PATH_WINDOWS = '%APPDATA%\\Claude\\claude_desktop_config.json'
 
 // Selector types
 type ServerType = 'content' | 'prompts'
-type ClientType = 'claude-desktop' | 'claude-code' | 'chatgpt' | 'codex'
+type ClientType = 'claude-desktop' | 'claude-code' | 'gemini-cli' | 'chatgpt' | 'codex'
 type AuthType = 'bearer' | 'oauth'
 type IntegrationType = 'mcp' | 'skills'
 
@@ -662,6 +662,12 @@ export function SettingsMCP(): ReactNode {
         description: 'ChatGPT requires OAuth authentication. OAuth implementation is coming soon.',
       }
     }
+    if (client === 'gemini-cli') {
+      return {
+        title: 'Gemini CLI Integration Coming Soon',
+        description: 'Gemini CLI MCP integration instructions are coming soon.',
+      }
+    }
     if (client === 'codex') {
       return {
         title: 'Codex Integration Coming Soon',
@@ -684,16 +690,17 @@ export function SettingsMCP(): ReactNode {
 
   // Server options
   const serverOptions: SelectorOption<ServerType>[] = [
-    { value: 'content', label: 'Content', comingSoon: isSkills },
+    { value: 'content', label: 'Bookmarks & Notes', comingSoon: isSkills },
     { value: 'prompts', label: 'Prompts', comingSoon: isSkills },
   ]
 
-  // Client options - ChatGPT requires OAuth (coming soon for MCP), Codex coming soon
+  // Client options - ChatGPT requires OAuth (coming soon for MCP), Codex/Gemini CLI coming soon
   const clientOptions: SelectorOption<ClientType>[] = [
     { value: 'claude-desktop', label: 'Claude Desktop', comingSoon: isSkills },
     { value: 'claude-code', label: 'Claude Code', comingSoon: isSkills },
     { value: 'chatgpt', label: 'ChatGPT', comingSoon: isSkills || integration === 'mcp' },
     { value: 'codex', label: 'Codex', comingSoon: true },
+    { value: 'gemini-cli', label: 'Gemini CLI', comingSoon: true },
   ]
 
   // Auth options - ChatGPT only supports OAuth, not Bearer
