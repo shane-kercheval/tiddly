@@ -1,7 +1,7 @@
 # Implementation Plan: ContentCard Component Refactor
 
 **Date:** 2026-01-28
-**Revised:** 2026-01-28 (v2 - simplified, no Header extraction)
+**Revised:** 2026-01-28 (v3 - added Footer wrapper, static property attachment, simplified AddTagAction)
 
 ## Overview
 
@@ -52,7 +52,9 @@ The three card components (`BookmarkCard`, `NoteCard`, `PromptCard`) share signi
 
 ### Compound Component Pattern
 
-The `ContentCard` provides a container and context, with subcomponents for shared UI:
+The `ContentCard` provides a container and context, with subcomponents for shared UI.
+
+**Important layout detail:** The current cards use a `<div className="flex flex-col gap-2 md:contents">` wrapper around tags and the actions/date section. On mobile, this stacks them vertically. On desktop, `md:contents` makes the wrapper "disappear" so children flow directly into the parent flex. The `ContentCard.Footer` component preserves this behavior.
 
 ```tsx
 export function NoteCard({ note, view, sortBy, onView, onDelete, ... }: NoteCardProps): ReactNode {
@@ -78,45 +80,50 @@ export function NoteCard({ note, view, sortBy, onView, onDelete, ... }: NoteCard
         )}
       </div>
 
-      {/* Shared subcomponents */}
-      <ContentCard.Tags
-        tags={note.tags}
-        onTagClick={onTagClick}
-        onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
-      />
-
-      <ContentCard.Actions>
-        {onTagAdd && tagSuggestions && (
-          <ContentCard.AddTagAction
-            existingTags={note.tags}
-            suggestions={tagSuggestions}
-            onAdd={(tag) => onTagAdd(note, tag)}
-          />
-        )}
-        {view !== 'deleted' && (
-          <CopyContentButton contentType="note" id={note.id} />
-        )}
-        {onArchive && <ContentCard.ArchiveAction onArchive={() => onArchive(note)} />}
-        {onUnarchive && <ContentCard.RestoreAction onRestore={() => onUnarchive(note)} />}
-        {onRestore && <ContentCard.RestoreAction onRestore={() => onRestore(note)} />}
-        <ContentCard.DeleteAction onDelete={() => onDelete(note)} />
-      </ContentCard.Actions>
-
-      <ContentCard.DateDisplay
-        sortBy={sortBy}
-        createdAt={note.created_at}
-        updatedAt={note.updated_at}
-        lastUsedAt={note.last_used_at}
-        archivedAt={note.archived_at}
-        deletedAt={note.deleted_at}
-      />
-
-      {onCancelScheduledArchive && (
-        <ContentCard.ScheduledArchive
-          archivedAt={note.archived_at}
-          onCancel={() => onCancelScheduledArchive(note)}
+      {/* Footer wraps tags + actions for responsive layout (md:contents) */}
+      <ContentCard.Footer>
+        <ContentCard.Tags
+          tags={note.tags}
+          onTagClick={onTagClick}
+          onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
         />
-      )}
+
+        <ContentCard.Actions
+          meta={
+            <>
+              <ContentCard.DateDisplay
+                sortBy={sortBy}
+                createdAt={note.created_at}
+                updatedAt={note.updated_at}
+                lastUsedAt={note.last_used_at}
+                archivedAt={note.archived_at}
+                deletedAt={note.deleted_at}
+              />
+              {onCancelScheduledArchive && (
+                <ContentCard.ScheduledArchive
+                  archivedAt={note.archived_at}
+                  onCancel={() => onCancelScheduledArchive(note)}
+                />
+              )}
+            </>
+          }
+        >
+          {onTagAdd && tagSuggestions && (
+            <ContentCard.AddTagAction
+              existingTags={note.tags}
+              suggestions={tagSuggestions}
+              onAdd={(tag) => onTagAdd(note, tag)}
+            />
+          )}
+          {view !== 'deleted' && (
+            <CopyContentButton contentType="note" id={note.id} />
+          )}
+          {onArchive && <ContentCard.ArchiveAction onArchive={() => onArchive(note)} />}
+          {onUnarchive && <ContentCard.RestoreAction onRestore={() => onUnarchive(note)} />}
+          {onRestore && <ContentCard.RestoreAction onRestore={() => onRestore(note)} />}
+          <ContentCard.DeleteAction onDelete={() => onDelete(note)} />
+        </ContentCard.Actions>
+      </ContentCard.Footer>
     </ContentCard>
   )
 }
@@ -148,9 +155,10 @@ export function useContentCardContext(): ContentCardContextValue {
 frontend/src/components/
 ├── ContentCard/
 │   ├── index.ts                    # Barrel export
-│   ├── ContentCard.tsx             # Main container + context provider
+│   ├── ContentCard.tsx             # Main container + context provider + static property attachment
+│   ├── ContentCardFooter.tsx       # Responsive wrapper (md:contents)
 │   ├── ContentCardTags.tsx         # Tags section
-│   ├── ContentCardActions.tsx      # Actions container
+│   ├── ContentCardActions.tsx      # Actions container with date/scheduled archive
 │   ├── ContentCardDateDisplay.tsx  # Date with sort-aware formatting
 │   ├── ContentCardScheduledArchive.tsx  # Scheduled archive banner
 │   ├── actions/
@@ -167,10 +175,10 @@ frontend/src/components/
 
 ---
 
-## Milestone 1: ContentCard Container and Context
+## Milestone 1: ContentCard Container, Context, and Footer
 
 ### Goal
-Create the foundational `ContentCard` component with context provider and basic container styling.
+Create the foundational `ContentCard` component with context provider, the `Footer` wrapper for responsive layout, and establish the static property attachment pattern.
 
 ### Key Changes
 
@@ -178,7 +186,15 @@ Create the foundational `ContentCard` component with context provider and basic 
 
 ```typescript
 import { createContext, useContext } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, FC } from 'react'
+
+// Will be imported after other components are created
+import { ContentCardFooter } from './ContentCardFooter'
+import { ContentCardTags } from './ContentCardTags'
+import { ContentCardActions } from './ContentCardActions'
+import { ContentCardDateDisplay } from './ContentCardDateDisplay'
+import { ContentCardScheduledArchive } from './ContentCardScheduledArchive'
+import { AddTagAction, ArchiveAction, RestoreAction, DeleteAction } from './actions'
 
 interface ContentCardProps {
   view?: 'active' | 'archived' | 'deleted'
@@ -201,7 +217,7 @@ export function useContentCardContext(): ContentCardContextValue {
   return context
 }
 
-export function ContentCard({
+function ContentCardBase({
   view = 'active',
   onClick,
   children,
@@ -220,11 +236,69 @@ export function ContentCard({
     </ContentCardContext.Provider>
   )
 }
+
+// Static property attachment for compound component pattern
+// This enables ContentCard.Tags, ContentCard.Actions, etc. syntax
+interface ContentCardComponent extends FC<ContentCardProps> {
+  Footer: typeof ContentCardFooter
+  Tags: typeof ContentCardTags
+  Actions: typeof ContentCardActions
+  DateDisplay: typeof ContentCardDateDisplay
+  ScheduledArchive: typeof ContentCardScheduledArchive
+  AddTagAction: typeof AddTagAction
+  ArchiveAction: typeof ArchiveAction
+  RestoreAction: typeof RestoreAction
+  DeleteAction: typeof DeleteAction
+}
+
+export const ContentCard = Object.assign(ContentCardBase, {
+  Footer: ContentCardFooter,
+  Tags: ContentCardTags,
+  Actions: ContentCardActions,
+  DateDisplay: ContentCardDateDisplay,
+  ScheduledArchive: ContentCardScheduledArchive,
+  AddTagAction,
+  ArchiveAction,
+  RestoreAction,
+  DeleteAction,
+}) as ContentCardComponent
+```
+
+**New file: `frontend/src/components/ContentCard/ContentCardFooter.tsx`**
+
+The Footer preserves the critical `md:contents` responsive behavior from existing cards:
+
+```typescript
+import type { ReactNode } from 'react'
+
+interface ContentCardFooterProps {
+  children: ReactNode
+}
+
+export function ContentCardFooter({ children }: ContentCardFooterProps): ReactNode {
+  // md:contents makes this wrapper "disappear" on desktop,
+  // so children flow directly into the parent flex container
+  return (
+    <div className="flex flex-col gap-2 md:contents">
+      {children}
+    </div>
+  )
+}
 ```
 
 **New file: `frontend/src/components/ContentCard/index.ts`**
 
-Barrel export that will grow as we add subcomponents.
+```typescript
+export { ContentCard, useContentCardContext } from './ContentCard'
+export { ContentCardFooter } from './ContentCardFooter'
+export { ContentCardTags } from './ContentCardTags'
+export { ContentCardActions } from './ContentCardActions'
+export { ContentCardDateDisplay } from './ContentCardDateDisplay'
+export { ContentCardScheduledArchive } from './ContentCardScheduledArchive'
+export * from './actions'
+```
+
+Note: During implementation, you may need to handle circular imports by having the barrel file do the static property assignment, or by using a separate file for the compound component assembly.
 
 ### Testing Strategy
 
@@ -235,10 +309,17 @@ Barrel export that will grow as we add subcomponents.
 - Calls `onClick` when clicked
 - Context provides correct `view` value to children
 - Throws error when `useContentCardContext` used outside provider
+- Static properties are correctly attached (ContentCard.Footer, ContentCard.Tags, etc.)
+
+**ContentCardFooter tests:**
+- Renders children within `md:contents` wrapper
+- Children are accessible in the DOM
 
 ### Success Criteria
 - ContentCard renders with correct styling
 - Context provides view to children
+- Footer renders with `md:contents` class
+- Static property syntax works (ContentCard.Footer, etc.)
 - All tests pass
 - `npm run lint` passes
 
@@ -361,19 +442,27 @@ Create the action button subcomponents that use context to conditionally render 
 
 **New file: `frontend/src/components/ContentCard/ContentCardActions.tsx`**
 
+The Actions container handles the full actions row layout: buttons on the left, date/meta on the right (mobile) or stacked (desktop).
+
 ```typescript
 import type { ReactNode } from 'react'
 
 interface ContentCardActionsProps {
-  children: ReactNode
+  children: ReactNode  // Action buttons
+  meta?: ReactNode     // DateDisplay and ScheduledArchive
 }
 
-export function ContentCardActions({ children }: ContentCardActionsProps): ReactNode {
+export function ContentCardActions({ children, meta }: ContentCardActionsProps): ReactNode {
   return (
     <div className="flex items-center justify-between w-full md:w-auto md:flex-col md:items-end md:shrink-0">
       <div className="flex items-center">
         {children}
       </div>
+      {meta && (
+        <div className="flex flex-col items-end gap-0.5">
+          {meta}
+        </div>
+      )}
     </div>
   )
 }
@@ -384,7 +473,6 @@ export function ContentCardActions({ children }: ContentCardActionsProps): React
 ```typescript
 // AddTagAction.tsx
 import type { ReactNode } from 'react'
-import { useContentCardContext } from '../ContentCard'
 import { AddTagButton } from '../../AddTagButton'
 import type { TagCount } from '../../../types'
 
@@ -394,10 +482,10 @@ interface AddTagActionProps {
   onAdd: (tag: string) => void
 }
 
+// Note: Does NOT gate on view internally. The parent controls when to render
+// by passing/not passing onTagAdd. This matches existing behavior where
+// AllContent.tsx passes `onTagAdd={currentView !== 'deleted' ? handler : undefined}`
 export function AddTagAction({ existingTags, suggestions, onAdd }: AddTagActionProps): ReactNode {
-  const { view } = useContentCardContext()
-  if (view === 'deleted') return null
-
   return (
     <AddTagButton
       existingTags={existingTags}
@@ -508,13 +596,15 @@ export function DeleteAction({ onDelete }: DeleteActionProps): ReactNode {
 ### Testing Strategy
 
 For each action component:
-- Renders correctly in appropriate view(s)
-- Returns null in inappropriate views (ArchiveAction, AddTagAction)
-- Calls handler with stopPropagation
-- DeleteAction shows ConfirmDeleteButton in deleted view
+- `AddTagAction`: Renders AddTagButton with correct props (no view gating)
+- `ArchiveAction`: Renders in active view, returns null otherwise
+- `RestoreAction`: Always renders (caller controls when to show)
+- `DeleteAction`: Soft delete in active/archived, ConfirmDeleteButton in deleted
+- All: Call handlers with stopPropagation
 
 ### Success Criteria
-- All action components respect view context where applicable
+- ArchiveAction and DeleteAction respect view context
+- AddTagAction and RestoreAction render unconditionally (parent controls visibility)
 - Correct tooltips and aria-labels
 - All tests pass
 
@@ -721,9 +811,9 @@ Remove any dead code, ensure consistent patterns.
 
 | Milestone | Goal | Est. Lines Changed |
 |-----------|------|-------------------|
-| 1 | ContentCard container + context | +50 |
+| 1 | ContentCard container + context + Footer | +70 |
 | 2 | Tags, DateDisplay subcomponents | +60 |
-| 3 | Action subcomponents | +120 |
+| 3 | Action subcomponents | +100 |
 | 4 | ScheduledArchive subcomponent | +40 |
 | 5 | Migrate NoteCard | -100 |
 | 6 | Migrate PromptCard | -110 |
