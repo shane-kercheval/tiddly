@@ -46,11 +46,13 @@ function SelectorRow<T extends string>({
   disabled = false,
 }: SelectorRowProps<T>): ReactNode {
   return (
-    <div className="flex items-center gap-1.5">
-      <div className="w-32 flex-shrink-0 pl-4">
+    <div className="flex flex-col md:flex-row md:items-center gap-1.5">
+      {/* Label - on mobile shows above options with orange border, on desktop shows inline */}
+      <div className="border-l-4 border-l-orange-500 pl-3 md:border-l-0 md:pl-4 md:w-32 md:flex-shrink-0">
         <span className={`text-sm font-medium ${disabled ? 'text-gray-400' : 'text-gray-700'}`}>{label}</span>
       </div>
-      <div className="flex-1 flex gap-1.5">
+      {/* Options - stack vertically on mobile, horizontal on desktop */}
+      <div className="flex flex-col md:flex-row md:flex-1 gap-1.5 pl-4 md:pl-0">
         {options.map((option) => {
           const isSelected = value === option.value
           const isComingSoon = option.comingSoon
@@ -68,7 +70,7 @@ function SelectorRow<T extends string>({
               disabled={isOptionDisabled}
               onClick={() => !isOptionDisabled && onChange(option.value)}
               className={`
-                flex-1 px-4 py-2.5 text-sm font-medium transition-colors
+                md:flex-1 px-4 py-2.5 text-sm font-medium transition-colors text-left md:text-center
                 ${
                   isOptionDisabled
                     ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
@@ -136,14 +138,10 @@ function generateClaudeCodeCommand(
   promptMcpUrl: string
 ): string {
   if (server === 'content') {
-    return `claude mcp add bookmarks \\
-  --transport sse \\
-  ${mcpUrl}/mcp \\
+    return `claude mcp add --transport http bookmarks ${mcpUrl}/mcp \\
   --header "Authorization: Bearer YOUR_TOKEN_HERE"`
   } else {
-    return `claude mcp add prompts \\
-  --transport sse \\
-  ${promptMcpUrl}/mcp \\
+    return `claude mcp add --transport http prompts ${promptMcpUrl}/mcp \\
   --header "Authorization: Bearer YOUR_TOKEN_HERE"`
   }
 }
@@ -482,6 +480,159 @@ function ClaudeCodeInstructions({
 }
 
 /**
+ * Generate the Codex config TOML based on server selection.
+ */
+function generateCodexConfig(
+  server: ServerType,
+  mcpUrl: string,
+  promptMcpUrl: string
+): string {
+  if (server === 'content') {
+    return `[mcp_servers.bookmarks]
+url = "${mcpUrl}/mcp"
+http_headers = { "Authorization" = "Bearer YOUR_TOKEN_HERE" }`
+  } else {
+    return `[mcp_servers.prompts]
+url = "${promptMcpUrl}/mcp"
+http_headers = { "Authorization" = "Bearer YOUR_TOKEN_HERE" }`
+  }
+}
+
+/**
+ * Codex setup instructions component.
+ */
+interface CodexInstructionsProps {
+  server: ServerType
+  mcpUrl: string
+  promptMcpUrl: string
+}
+
+function CodexInstructions({
+  server,
+  mcpUrl,
+  promptMcpUrl,
+}: CodexInstructionsProps): ReactNode {
+  const [copiedConfig, setCopiedConfig] = useState(false)
+
+  const configContent = generateCodexConfig(server, mcpUrl, promptMcpUrl)
+
+  const handleCopyConfig = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(configContent)
+      setCopiedConfig(true)
+      setTimeout(() => setCopiedConfig(false), 2000)
+    } catch {
+      // Silent fail
+    }
+  }
+
+  return (
+    <>
+      {/* Step 1: Create PAT */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 1: Create a Personal Access Token
+        </h3>
+        <p className="text-gray-600 mb-3">
+          Create a PAT to authenticate with the MCP server.
+        </p>
+        <Link
+          to="/app/settings/tokens"
+          className="btn-primary inline-flex items-center gap-2"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Create Token
+        </Link>
+      </div>
+
+      {/* Step 2: Add to config */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 2: Add to Config File
+        </h3>
+        <p className="text-gray-600 mb-3">
+          Open (or create) <code className="bg-gray-100 px-1 rounded">~/.codex/config.toml</code> and add:
+        </p>
+        <div className="relative">
+          <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 whitespace-pre-wrap overflow-x-auto">
+            <code>{configContent}</code>
+          </pre>
+          <button
+            onClick={handleCopyConfig}
+            className={`absolute top-2 right-2 rounded px-2 py-1 text-xs transition-colors ${
+              copiedConfig
+                ? 'bg-green-600 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+          >
+            {copiedConfig ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+        <p className="mt-2 text-sm text-gray-500">
+          Replace <code className="bg-gray-100 px-1 rounded">YOUR_TOKEN_HERE</code> with
+          your Personal Access Token from Step 1.
+        </p>
+      </div>
+
+      {/* Step 3: Restart */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 3: Restart Codex
+        </h3>
+        <p className="text-gray-600 mb-3">
+          If Codex is running, quit and restart it.
+        </p>
+      </div>
+
+      {/* Step 4: Verify */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 4: Verify Installation
+        </h3>
+        <p className="text-gray-600 mb-3">
+          In Codex, type <code className="bg-gray-100 px-1 rounded">/mcp</code> to confirm the server
+          is connected and shows available tools.
+        </p>
+      </div>
+
+      {/* Using Prompts Note (only for prompt server) */}
+      {server === 'prompts' && (
+        <div className="mb-8 rounded-lg bg-blue-50 border border-blue-200 p-4">
+          <h3 className="text-sm font-semibold text-blue-900 mb-2">Using Your Prompts</h3>
+          <p className="text-sm text-blue-800 mb-3">
+            <strong>Note:</strong> Codex does not support MCP Prompts directly (the{' '}
+            <code className="bg-blue-100 px-1 rounded">/prompt-name</code> invocation style).
+            Instead, it exposes your server&apos;s tools for managing and retrieving prompts.
+          </p>
+          <p className="text-sm text-blue-800 mb-2">
+            To use a saved prompt, ask Codex to fetch and apply it:
+          </p>
+          <ul className="text-sm text-blue-800 list-disc list-inside space-y-1">
+            <li>
+              <em>&quot;Get my &apos;code-review&apos; prompt and use it to review the changes in this file&quot;</em>
+            </li>
+            <li>
+              <em>&quot;Search my prompts for &apos;commit message&apos; and use the best match to write a commit for my staged changes&quot;</em>
+            </li>
+          </ul>
+        </div>
+      )}
+
+      {/* Add Both Servers Tip */}
+      <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
+        <h3 className="text-sm font-semibold text-gray-900 mb-2">Want to add both servers?</h3>
+        <p className="text-sm text-gray-600">
+          Switch between &quot;Bookmarks &amp; Notes&quot; and &quot;Prompts&quot; in the selector above to see the configuration for each server.
+          You can add both configurations to your <code className="bg-gray-200 px-1 rounded text-xs">config.toml</code> file.
+        </p>
+      </div>
+    </>
+  )
+}
+
+/**
  * Coming soon placeholder component for various unsupported configurations.
  */
 interface ComingSoonProps {
@@ -515,6 +666,45 @@ interface AvailableToolsProps {
 }
 
 function AvailableTools({ server }: AvailableToolsProps): ReactNode {
+  const contentTools = [
+    { tool: 'get_context', category: 'Context', description: 'Get context summary of bookmarks and notes' },
+    { tool: 'search_items', category: 'Search & Read', description: 'Search bookmarks and notes by text/tags' },
+    { tool: 'get_item', category: 'Search & Read', description: 'Get full details by ID' },
+    { tool: 'search_in_content', category: 'Search & Read', description: 'Search within content for editing' },
+    { tool: 'list_filters', category: 'Search & Read', description: 'List content filters with IDs and tag rules' },
+    { tool: 'list_tags', category: 'Search & Read', description: 'Get all tags with usage counts' },
+    { tool: 'create_bookmark', category: 'Create & Edit', description: 'Save a new URL' },
+    { tool: 'create_note', category: 'Create & Edit', description: 'Create a new note' },
+    { tool: 'update_item', category: 'Create & Edit', description: 'Update metadata or fully replace content' },
+    { tool: 'edit_content', category: 'Create & Edit', description: 'Edit content using string replacement' },
+  ]
+
+  const promptTools = [
+    { tool: 'get_context', category: 'Context', description: 'Get context summary of prompts' },
+    { tool: 'search_prompts', category: 'Search & Read', description: 'Search prompts by text/tags' },
+    { tool: 'get_prompt_content', category: 'Search & Read', description: 'Get template and arguments for viewing/editing' },
+    { tool: 'get_prompt_metadata', category: 'Search & Read', description: 'Get metadata without the template' },
+    { tool: 'list_filters', category: 'Search & Read', description: 'List prompt filters with IDs and tag rules' },
+    { tool: 'list_tags', category: 'Search & Read', description: 'Get all tags with usage counts' },
+    { tool: 'create_prompt', category: 'Create & Edit', description: 'Create a new prompt template' },
+    { tool: 'edit_prompt_content', category: 'Create & Edit', description: 'Edit template and arguments using string replacement' },
+    { tool: 'update_prompt', category: 'Create & Edit', description: 'Update metadata, content, or arguments' },
+  ]
+
+  const tools = server === 'content' ? contentTools : promptTools
+
+  // Group tools by category and calculate rowSpan
+  const categoryGroups: { category: string; tools: typeof tools }[] = []
+  let currentCategory = ''
+  for (const tool of tools) {
+    if (tool.category !== currentCategory) {
+      categoryGroups.push({ category: tool.category, tools: [tool] })
+      currentCategory = tool.category
+    } else {
+      categoryGroups[categoryGroups.length - 1].tools.push(tool)
+    }
+  }
+
   return (
     <div className="mb-8">
       <h2 className="text-lg font-semibold text-gray-900 mb-2">Available MCP Tools</h2>
@@ -522,115 +712,67 @@ function AvailableTools({ server }: AvailableToolsProps): ReactNode {
         Once connected, AI agents can use these tools:
       </p>
 
-      {server === 'content' ? (
-        <>
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Content Server</h3>
-          <p className="text-sm text-gray-500 mb-3">
-            Tools for managing your bookmarks and notes.
-          </p>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Context</h4>
-          <ul className="space-y-2 text-sm text-gray-600 mb-4">
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_context</span>
-              <span>Get context summary of bookmarks and notes</span>
-            </li>
-          </ul>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Search & Read</h4>
-          <ul className="space-y-2 text-sm text-gray-600 mb-4">
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_items</span>
-              <span>Search bookmarks and notes by text/tags</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_item</span>
-              <span>Get full details by ID</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_in_content</span>
-              <span>Search within content for editing</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_filters</span>
-              <span>List content filters with IDs and tag rules</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_tags</span>
-              <span>Get all tags with usage counts</span>
-            </li>
-          </ul>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Create & Edit</h4>
-          <ul className="space-y-2 text-sm text-gray-600 mb-4">
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">create_bookmark</span>
-              <span>Save a new URL</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">create_note</span>
-              <span>Create a new note</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">update_item</span>
-              <span>Update metadata or fully replace content</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">edit_content</span>
-              <span>Edit content using string replacement</span>
-            </li>
-          </ul>
-        </>
-      ) : (
-        <>
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">Prompt Server</h3>
-          <p className="text-sm text-gray-500 mb-2">
-            Agents can use your saved prompts and create new ones.
-          </p>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Context</h4>
-          <ul className="space-y-2 text-sm text-gray-600 mb-4">
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_context</span>
-              <span>Get context summary of prompts</span>
-            </li>
-          </ul>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Search & Read</h4>
-          <ul className="space-y-2 text-sm text-gray-600 mb-4">
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">search_prompts</span>
-              <span>Search prompts by text/tags</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_prompt_content</span>
-              <span>Get template and arguments for viewing/editing</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">get_prompt_metadata</span>
-              <span>Get metadata without the template</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_filters</span>
-              <span>List prompt filters with IDs and tag rules</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">list_tags</span>
-              <span>Get all tags with usage counts</span>
-            </li>
-          </ul>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Create & Edit</h4>
-          <ul className="space-y-2 text-sm text-gray-600">
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">create_prompt</span>
-              <span>Create a new prompt template</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">edit_prompt_content</span>
-              <span>Edit template and arguments using string replacement</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">update_prompt</span>
-              <span>Update metadata, content, or arguments</span>
-            </li>
-          </ul>
-        </>
-      )}
+      {/* Mobile: Section/bullet format */}
+      <div className="md:hidden space-y-4">
+        {categoryGroups.map((group) => (
+          <div key={group.category}>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              {group.category}
+            </h4>
+            <ul className="space-y-2 text-sm text-gray-600">
+              {group.tools.map((item) => (
+                <li key={item.tool} className="flex items-start gap-2">
+                  <code className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800 text-xs flex-shrink-0">
+                    {item.tool}
+                  </code>
+                  <span className="text-xs">{item.description}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop: Table format */}
+      <div className="hidden md:block overflow-hidden rounded-lg border border-gray-200">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                Category
+              </th>
+              <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                Tool
+              </th>
+              <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                Description
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 bg-white">
+            {categoryGroups.map((group) =>
+              group.tools.map((item, index) => (
+                <tr key={item.tool}>
+                  {index === 0 && (
+                    <td
+                      rowSpan={group.tools.length}
+                      className="px-3 py-2 text-sm text-gray-500 whitespace-nowrap align-top border-r border-gray-200 bg-gray-50"
+                    >
+                      {group.category}
+                    </td>
+                  )}
+                  <td className="px-3 py-2 text-sm">
+                    <code className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">{item.tool}</code>
+                  </td>
+                  <td className="px-3 py-2 text-sm text-gray-600">
+                    {item.description}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -646,7 +788,7 @@ export function SettingsMCP(): ReactNode {
   const [integration, setIntegration] = useState<IntegrationType>('mcp')
 
   // Determine what content to show
-  const isSupported = auth === 'bearer' && integration === 'mcp' && (client === 'claude-desktop' || client === 'claude-code')
+  const isSupported = auth === 'bearer' && integration === 'mcp' && (client === 'claude-desktop' || client === 'claude-code' || client === 'codex')
 
   // Coming soon scenarios
   const getComingSoonContent = (): { title: string; description: string } | null => {
@@ -666,12 +808,6 @@ export function SettingsMCP(): ReactNode {
       return {
         title: 'Gemini CLI Integration Coming Soon',
         description: 'Gemini CLI MCP integration instructions are coming soon.',
-      }
-    }
-    if (client === 'codex') {
-      return {
-        title: 'Codex Integration Coming Soon',
-        description: 'Codex MCP integration instructions are coming soon.',
       }
     }
     if (auth === 'oauth') {
@@ -694,12 +830,12 @@ export function SettingsMCP(): ReactNode {
     { value: 'prompts', label: 'Prompts', comingSoon: isSkills },
   ]
 
-  // Client options - ChatGPT requires OAuth (coming soon for MCP), Codex/Gemini CLI coming soon
+  // Client options - ChatGPT requires OAuth (coming soon for MCP), Gemini CLI coming soon
   const clientOptions: SelectorOption<ClientType>[] = [
     { value: 'claude-desktop', label: 'Claude Desktop', comingSoon: isSkills },
     { value: 'claude-code', label: 'Claude Code', comingSoon: isSkills },
     { value: 'chatgpt', label: 'ChatGPT', comingSoon: isSkills || integration === 'mcp' },
-    { value: 'codex', label: 'Codex', comingSoon: true },
+    { value: 'codex', label: 'Codex', comingSoon: isSkills },
     { value: 'gemini-cli', label: 'Gemini CLI', comingSoon: true },
   ]
 
@@ -724,18 +860,18 @@ export function SettingsMCP(): ReactNode {
       {/* Config Selector */}
       <div className="mb-8">
         <h2 className="text-xl font-bold text-gray-900 mb-4">Select Integration</h2>
-        <div className="border-l-4 border-l-orange-500 bg-white py-1.5 flex flex-col gap-1.5">
-          <SelectorRow
-            label="Integration"
-            options={integrationOptions}
-            value={integration}
-            onChange={setIntegration}
-          />
+        <div className="md:border-l-4 md:border-l-orange-500 bg-white py-1.5 flex flex-col gap-4 md:gap-1.5">
           <SelectorRow
             label="Content"
             options={serverOptions}
             value={server}
             onChange={setServer}
+          />
+          <SelectorRow
+            label="Integration"
+            options={integrationOptions}
+            value={integration}
+            onChange={setIntegration}
           />
           <SelectorRow
             label="Client"
@@ -794,6 +930,13 @@ export function SettingsMCP(): ReactNode {
       )}
       {isSupported && client === 'claude-code' && (
         <ClaudeCodeInstructions
+          server={server}
+          mcpUrl={config.mcpUrl}
+          promptMcpUrl={config.promptMcpUrl}
+        />
+      )}
+      {isSupported && client === 'codex' && (
+        <CodexInstructions
           server={server}
           mcpUrl={config.mcpUrl}
           promptMcpUrl={config.promptMcpUrl}
