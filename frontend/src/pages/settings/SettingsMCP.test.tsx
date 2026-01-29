@@ -1,7 +1,7 @@
 /**
  * Tests for SettingsMCP settings page.
  *
- * Tests MCP server configuration generation and toggle functionality.
+ * Tests MCP & Skills configuration selector and conditional instruction rendering.
  */
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
@@ -48,78 +48,200 @@ describe('SettingsMCP', () => {
     it('should render page title', () => {
       renderWithRouter()
 
-      expect(screen.getByText('MCP Integration')).toBeInTheDocument()
+      expect(screen.getByText('AI Integration')).toBeInTheDocument()
     })
 
-    it('should render What is MCP section', () => {
+    it('should render What is MCP section when MCP is selected', () => {
       renderWithRouter()
 
+      // MCP is selected by default
       expect(screen.getByText('What is MCP?')).toBeInTheDocument()
     })
 
-    it('should render setup instructions', () => {
+    it('should render What are Skills section when Skills is selected', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Skills' }))
+
+      expect(screen.getByText('What are Skills?')).toBeInTheDocument()
+    })
+
+    it('should render Select Integration section', () => {
+      renderWithRouter()
+
+      expect(screen.getByText('Select Integration')).toBeInTheDocument()
+    })
+
+    it('should render Setup Instructions section', () => {
       renderWithRouter()
 
       expect(screen.getByText('Setup Instructions')).toBeInTheDocument()
     })
+  })
 
-    it('should render server selection cards', () => {
+  describe('selector rows', () => {
+    it('should render all selector row labels', () => {
       renderWithRouter()
 
-      expect(screen.getByText('Content MCP Server')).toBeInTheDocument()
-      expect(screen.getByText('Prompt MCP Server')).toBeInTheDocument()
+      expect(screen.getByText('Server')).toBeInTheDocument()
+      expect(screen.getByText('Client')).toBeInTheDocument()
+      expect(screen.getByText('Auth')).toBeInTheDocument()
+      expect(screen.getByText('Integration')).toBeInTheDocument()
+    })
+
+    it('should render server options', () => {
+      renderWithRouter()
+
+      expect(screen.getByRole('button', { name: 'Content' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Prompts' })).toBeInTheDocument()
+    })
+
+    it('should render client options', () => {
+      renderWithRouter()
+
+      expect(screen.getByRole('button', { name: 'Claude Desktop' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'ChatGPT' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Codex' })).toBeInTheDocument()
+    })
+
+    it('should render auth options', () => {
+      renderWithRouter()
+
+      expect(screen.getByRole('button', { name: 'Bearer Token' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'OAuth' })).toBeInTheDocument()
+    })
+
+    it('should render integration options', () => {
+      renderWithRouter()
+
+      expect(screen.getByRole('button', { name: 'MCP Server' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Skills' })).toBeInTheDocument()
+    })
+
+    it('should have Content server selected by default', () => {
+      renderWithRouter()
+
+      const contentButton = screen.getByRole('button', { name: 'Content' })
+      expect(contentButton).toHaveClass('bg-orange-500')
+    })
+
+    it('should have Claude Desktop selected by default', () => {
+      renderWithRouter()
+
+      const claudeDesktopButton = screen.getByRole('button', { name: 'Claude Desktop' })
+      expect(claudeDesktopButton).toHaveClass('bg-orange-500')
     })
   })
 
-  describe('server toggles', () => {
-    it('should have both servers enabled by default', () => {
-      renderWithRouter()
-
-      const switches = screen.getAllByRole('switch')
-      expect(switches[0]).toHaveAttribute('aria-checked', 'true') // Content server
-      expect(switches[1]).toHaveAttribute('aria-checked', 'true') // Prompt server
-    })
-
-    it('should toggle content server when switch is clicked', async () => {
+  describe('server selection', () => {
+    it('should switch to Prompts server when clicked', async () => {
       const user = userEvent.setup()
       renderWithRouter()
 
-      const contentSwitch = screen.getAllByRole('switch')[0]
-      await user.click(contentSwitch)
+      await user.click(screen.getByRole('button', { name: 'Prompts' }))
 
-      expect(contentSwitch).toHaveAttribute('aria-checked', 'false')
+      const promptsButton = screen.getByRole('button', { name: 'Prompts' })
+      expect(promptsButton).toHaveClass('bg-orange-500')
     })
 
-    it('should toggle prompt server when switch is clicked', async () => {
+    it('should show content server config when Content is selected', () => {
+      renderWithRouter()
+
+      const preElement = document.querySelector('pre code')
+      expect(preElement?.textContent).toContain('bookmarks_notes')
+      expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
+    })
+
+    it('should show prompt server config when Prompts is selected', async () => {
       const user = userEvent.setup()
       renderWithRouter()
 
-      const promptSwitch = screen.getAllByRole('switch')[1]
-      await user.click(promptSwitch)
+      await user.click(screen.getByRole('button', { name: 'Prompts' }))
 
-      expect(promptSwitch).toHaveAttribute('aria-checked', 'false')
+      const preElement = document.querySelector('pre code')
+      expect(preElement?.textContent).toContain('"prompts"')
+      expect(preElement?.textContent).toContain('http://localhost:8002/mcp')
+    })
+  })
+
+  describe('client selection', () => {
+    it('should show Claude Desktop instructions by default', () => {
+      renderWithRouter()
+
+      expect(screen.getByText('Step 2: Locate Config File')).toBeInTheDocument()
+      expect(screen.getByText(/macOS:/)).toBeInTheDocument()
+      expect(screen.getByText(/Windows:/)).toBeInTheDocument()
     })
 
-    it('should toggle server when card is clicked', async () => {
+    it('should show Claude Code instructions when Claude Code is selected', async () => {
       const user = userEvent.setup()
       renderWithRouter()
 
-      // Click the content server card
-      await user.click(screen.getByText('Content MCP Server'))
+      await user.click(screen.getByRole('button', { name: 'Claude Code' }))
 
-      const contentSwitch = screen.getAllByRole('switch')[0]
-      expect(contentSwitch).toHaveAttribute('aria-checked', 'false')
+      expect(screen.getByText('Step 2: Add MCP Server')).toBeInTheDocument()
+      // Check for the main command in the pre block
+      const preElement = document.querySelector('pre code')
+      expect(preElement?.textContent).toContain('claude mcp add bookmarks')
     })
 
-    it('should show warning when no servers selected', async () => {
+    it('should show coming soon for ChatGPT (requires OAuth)', async () => {
       const user = userEvent.setup()
       renderWithRouter()
 
-      // Disable both servers
-      await user.click(screen.getAllByRole('switch')[0])
-      await user.click(screen.getAllByRole('switch')[1])
+      await user.click(screen.getByRole('button', { name: 'ChatGPT' }))
 
-      expect(screen.getByText('Select at least one server to generate a configuration.')).toBeInTheDocument()
+      expect(screen.getByText('ChatGPT Integration Coming Soon')).toBeInTheDocument()
+    })
+
+    it('should show coming soon for Codex', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Codex' }))
+
+      expect(screen.getByText('Codex Integration Coming Soon')).toBeInTheDocument()
+    })
+  })
+
+  describe('coming soon features', () => {
+    it('should show coming soon message for Skills', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Skills' }))
+
+      expect(screen.getByText('Skills Coming Soon')).toBeInTheDocument()
+    })
+
+    it('should show coming soon message for OAuth', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'OAuth' }))
+
+      expect(screen.getByText('OAuth Coming Soon')).toBeInTheDocument()
+    })
+
+    it('should show coming soon message for ChatGPT (requires OAuth)', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'ChatGPT' }))
+
+      expect(screen.getByText('ChatGPT Integration Coming Soon')).toBeInTheDocument()
+      expect(screen.getByText(/OAuth authentication/)).toBeInTheDocument()
+    })
+
+    it('should show coming soon message for Codex', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Codex' }))
+
+      expect(screen.getByText('Codex Integration Coming Soon')).toBeInTheDocument()
     })
   })
 
@@ -130,65 +252,70 @@ describe('SettingsMCP', () => {
       return preElement?.textContent || ''
     }
 
-    it('should generate config with both servers when both enabled', () => {
+    it('should generate config with bookmarks_notes for content server', () => {
       renderWithRouter()
 
       const configText = getConfigText()
 
       expect(configText).toContain('bookmarks_notes')
-      expect(configText).toContain('prompts')
       expect(configText).toContain('http://localhost:8001/mcp')
-      expect(configText).toContain('http://localhost:8002/mcp')
-    })
-
-    it('should generate config with only content server when prompt disabled', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      // Disable prompt server
-      await user.click(screen.getAllByRole('switch')[1])
-
-      const configText = getConfigText()
-
-      expect(configText).toContain('bookmarks_notes')
       expect(configText).not.toContain('"prompts"')
-      expect(configText).toContain('http://localhost:8001/mcp')
     })
 
-    it('should generate config with only prompt server when content disabled', async () => {
+    it('should generate config with prompts for prompt server', async () => {
       const user = userEvent.setup()
       renderWithRouter()
 
-      // Disable content server
-      await user.click(screen.getAllByRole('switch')[0])
+      await user.click(screen.getByRole('button', { name: 'Prompts' }))
 
       const configText = getConfigText()
 
-      expect(configText).not.toContain('bookmarks_notes')
       expect(configText).toContain('"prompts"')
       expect(configText).toContain('http://localhost:8002/mcp')
+      expect(configText).not.toContain('bookmarks_notes')
     })
 
-    it('should use separate token placeholders when both servers enabled', () => {
+    it('should always use YOUR_TOKEN_HERE placeholder', () => {
       renderWithRouter()
-
-      const configText = getConfigText()
-
-      expect(configText).toContain('YOUR_BOOKMARKS_TOKEN')
-      expect(configText).toContain('YOUR_PROMPTS_TOKEN')
-    })
-
-    it('should use single token placeholder when only one server enabled', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      // Disable prompt server
-      await user.click(screen.getAllByRole('switch')[1])
 
       const configText = getConfigText()
 
       expect(configText).toContain('YOUR_TOKEN_HERE')
-      expect(configText).not.toContain('YOUR_BOOKMARKS_TOKEN')
+    })
+  })
+
+  describe('Claude Code config generation', () => {
+    it('should generate correct command for content server', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Claude Code' }))
+
+      const preElement = document.querySelector('pre code')
+      expect(preElement?.textContent).toContain('claude mcp add bookmarks')
+      expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
+    })
+
+    it('should generate correct command for prompt server', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Claude Code' }))
+      await user.click(screen.getByRole('button', { name: 'Prompts' }))
+
+      const preElement = document.querySelector('pre code')
+      expect(preElement?.textContent).toContain('claude mcp add prompts')
+      expect(preElement?.textContent).toContain('http://localhost:8002/mcp')
+    })
+
+    it('should show import from Claude Desktop option', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Claude Code' }))
+
+      expect(screen.getByText('Alternative: Import from Claude Desktop')).toBeInTheDocument()
+      expect(screen.getByText('claude mcp add-from-claude-desktop')).toBeInTheDocument()
     })
   })
 
@@ -198,17 +325,6 @@ describe('SettingsMCP', () => {
 
       const copyButtons = screen.getAllByText('Copy')
       fireEvent.click(copyButtons[0]) // First copy button is for macOS path
-
-      await waitFor(() => {
-        expect(screen.getAllByText('Copied!').length).toBeGreaterThan(0)
-      })
-    })
-
-    it('should show "Copied!" after clicking Windows path copy button', async () => {
-      renderWithRouter()
-
-      const copyButtons = screen.getAllByText('Copy')
-      fireEvent.click(copyButtons[1]) // Second copy button is for Windows path
 
       await waitFor(() => {
         expect(screen.getAllByText('Copied!').length).toBeGreaterThan(0)
@@ -227,59 +343,36 @@ describe('SettingsMCP', () => {
     })
   })
 
-  describe('separate tokens tip', () => {
-    it('should show tip about separate tokens when both servers enabled', () => {
-      renderWithRouter()
-
-      expect(screen.getByText(/consider creating separate tokens for each/i)).toBeInTheDocument()
-    })
-
-    it('should not show tip when only one server enabled', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      await user.click(screen.getAllByRole('switch')[1]) // Disable prompt server
-
-      expect(screen.queryByText(/consider creating separate tokens for each/i)).not.toBeInTheDocument()
-    })
-  })
-
   describe('available tools section', () => {
-    it('should show content server tools when enabled', () => {
+    it('should show content server tools when content server selected', () => {
       renderWithRouter()
 
+      expect(screen.getByText('Content Server')).toBeInTheDocument()
       expect(screen.getByText('search_items')).toBeInTheDocument()
       expect(screen.getByText('get_item')).toBeInTheDocument()
       expect(screen.getByText('create_bookmark')).toBeInTheDocument()
       expect(screen.getByText('create_note')).toBeInTheDocument()
     })
 
-    it('should show prompt server tools when enabled', () => {
+    it('should show prompt server tools when prompt server selected', async () => {
+      const user = userEvent.setup()
       renderWithRouter()
 
+      await user.click(screen.getByRole('button', { name: 'Prompts' }))
+
+      expect(screen.getByText('Prompt Server')).toBeInTheDocument()
       expect(screen.getByText('search_prompts')).toBeInTheDocument()
       expect(screen.getByText('get_prompt_content')).toBeInTheDocument()
       expect(screen.getByText('create_prompt')).toBeInTheDocument()
     })
 
-    it('should hide content tools when content server disabled', async () => {
+    it('should not show available tools for unsupported clients', async () => {
       const user = userEvent.setup()
       renderWithRouter()
 
-      await user.click(screen.getAllByRole('switch')[0]) // Disable content server
+      await user.click(screen.getByRole('button', { name: 'Codex' }))
 
-      expect(screen.queryByText('search_items')).not.toBeInTheDocument()
-      expect(screen.queryByText('get_item')).not.toBeInTheDocument()
-    })
-
-    it('should hide prompt tools when prompt server disabled', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      await user.click(screen.getAllByRole('switch')[1]) // Disable prompt server
-
-      expect(screen.queryByText('search_prompts')).not.toBeInTheDocument()
-      expect(screen.queryByText('create_prompt')).not.toBeInTheDocument()
+      expect(screen.queryByText('Available MCP Tools')).not.toBeInTheDocument()
     })
   })
 
@@ -297,6 +390,23 @@ describe('SettingsMCP', () => {
       const mcpLink = screen.getByRole('link', { name: /model context protocol/i })
       expect(mcpLink).toHaveAttribute('href', 'https://modelcontextprotocol.io/')
       expect(mcpLink).toHaveAttribute('target', '_blank')
+    })
+  })
+
+  describe('add both servers tip', () => {
+    it('should show tip about adding both servers for Claude Desktop', () => {
+      renderWithRouter()
+
+      expect(screen.getByText('Want to add both servers?')).toBeInTheDocument()
+    })
+
+    it('should show tip about adding both servers for Claude Code', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Claude Code' }))
+
+      expect(screen.getByText('Want to add both servers?')).toBeInTheDocument()
     })
   })
 })

@@ -300,8 +300,8 @@ export function SettingsFAQ(): ReactNode {
           answer={
             <p>
               Any MCP-compatible client works, including Claude Desktop, Claude Code, Cursor,
-              and others. The setup instructions in Settings → MCP Integration use Claude Desktop
-              as an example, but the configuration is similar for other clients.
+              and others. The setup instructions in Settings → AI Integration provide configuration
+              for Claude Desktop and Claude Code, with similar steps for other clients.
             </p>
           }
         />
