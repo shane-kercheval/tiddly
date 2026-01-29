@@ -36,7 +36,7 @@ export function ContentCardDateDisplay({
       case 'updated_at':
         return `Modified: ${formatDate(updatedAt)}`
       case 'last_used_at':
-        return `Used: ${formatDate(lastUsedAt)}`
+        return `Used: ${formatDate(lastUsedAt!)}`
       case 'archived_at':
         return `Archived: ${formatDate(archivedAt!)}`
       case 'deleted_at':
