@@ -1,16 +1,17 @@
 /**
  * Component for displaying a single prompt card in list view.
+ *
+ * Uses ContentCard composition for shared layout, tags, actions, and date display.
+ * Prompt-specific header (icon, title/name display, description) stays here.
  */
 import type { ReactNode } from 'react'
-import type { PromptListItem } from '../types'
+import type { PromptListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
-import { formatDate, truncate } from '../utils'
-import { ConfirmDeleteButton, CopyContentButton, Tooltip } from './ui'
-import { PromptIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
-import { Tag } from './Tag'
-import { AddTagButton } from './AddTagButton'
-import type { TagCount } from '../types'
+import { truncate } from '../utils'
+import { CopyContentButton } from './ui'
+import { PromptIcon } from './icons'
+import { ContentCard } from './ContentCard'
 
 interface PromptCardProps {
   prompt: PromptListItem
@@ -61,193 +62,121 @@ export function PromptCard({
   // Show description if present
   const previewText = prompt.description || ''
 
-  // Check if prompt has a scheduled future archive date
-  const hasScheduledArchive = view === 'active' &&
-    prompt.archived_at &&
-    new Date(prompt.archived_at) > new Date()
-
-  // Dynamic date display based on current sort option
-  const getDateDisplay = (): string => {
-    switch (sortBy) {
-      case 'updated_at':
-        return `Modified: ${formatDate(prompt.updated_at)}`
-      case 'last_used_at':
-        return `Used: ${formatDate(prompt.last_used_at)}`
-      case 'archived_at':
-        return `Archived: ${formatDate(prompt.archived_at!)}`
-      case 'deleted_at':
-        return `Deleted: ${formatDate(prompt.deleted_at!)}`
-      case 'created_at':
-      case 'title':
-      default:
-        return `Created: ${formatDate(prompt.created_at)}`
-    }
-  }
-
   const handleTitleClick = (e: React.MouseEvent): void => {
     e.stopPropagation() // Prevent card click from triggering edit
     onView?.(prompt)
   }
 
-  // Handle card click to go to view mode
-  const handleCardClick = (): void => {
-    onView?.(prompt)
-  }
-
   return (
-    <div
-      className={`card card-interactive group ${onView ? 'cursor-pointer' : ''}`}
-      onClick={onView ? handleCardClick : undefined}
+    <ContentCard
+      view={view}
+      onClick={onView ? () => onView(prompt) : undefined}
     >
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
-        {/* Row 1 (mobile) / Main content (desktop) */}
-        <div className="min-w-0 flex-1 overflow-hidden">
-          {/* Title row */}
-          <div className="flex items-center gap-2 md:flex-wrap">
-            <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.prompt}`}>
-              <PromptIcon className="w-4 h-4" />
-            </span>
-            <button
-              onClick={handleTitleClick}
-              className="text-base font-medium text-gray-900 text-left cursor-pointer truncate min-w-0 md:shrink-0"
-              title="View prompt"
-            >
-              {truncate(displayName, 60)}
-            </button>
-            {/* Show name inline on desktop */}
-            {prompt.title && prompt.title !== prompt.name && (
-              <span className="hidden md:inline text-xs text-gray-400 font-mono">{prompt.name}</span>
-            )}
-          </div>
-          {/* Name on separate line - mobile only */}
+      {/* Header stays in PromptCard - prompt-specific */}
+      <div className="min-w-0 flex-1 overflow-hidden">
+        {/* Title row */}
+        <div className="flex items-center gap-2 md:flex-wrap">
+          <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.prompt}`}>
+            <PromptIcon className="w-4 h-4" />
+          </span>
+          <button
+            onClick={handleTitleClick}
+            className="text-base font-medium text-gray-900 text-left cursor-pointer truncate min-w-0 md:shrink-0"
+            title="View prompt"
+          >
+            {truncate(displayName, 60)}
+          </button>
+          {/* Show name inline on desktop */}
           {prompt.title && prompt.title !== prompt.name && (
-            <span className="block md:hidden mt-0.5 text-xs text-gray-400 font-mono">{prompt.name}</span>
-          )}
-
-          {/* Description - 2 lines on mobile, 1 line on desktop */}
-          {previewText && (
-            <p className="mt-1 text-sm text-gray-500 line-clamp-2 md:line-clamp-1">
-              {previewText}
-            </p>
+            <span className="hidden md:inline text-xs text-gray-400 font-mono">{prompt.name}</span>
           )}
         </div>
+        {/* Name on separate line - mobile only */}
+        {prompt.title && prompt.title !== prompt.name && (
+          <span className="block md:hidden mt-0.5 text-xs text-gray-400 font-mono">{prompt.name}</span>
+        )}
 
-        {/* Mobile: tags row + actions/date row | Desktop: inline via md:contents */}
-        <div className="flex flex-col gap-2 md:contents">
-          {/* Tags row (mobile) */}
-          {prompt.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 md:justify-end md:w-32 md:shrink-0">
-              {prompt.tags.map((tag) => (
-                <Tag
-                  key={tag}
-                  tag={tag}
-                  onClick={onTagClick ? () => onTagClick(tag) : undefined}
-                  onRemove={onTagRemove ? () => onTagRemove(prompt, tag) : undefined}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Actions and date row (mobile): icons left, date right | Desktop: stacked right */}
-          <div className="flex items-center justify-between w-full md:w-auto md:flex-col md:items-end md:shrink-0">
-            <div className="flex items-center">
-              {/* Add tag button */}
-              {onTagAdd && tagSuggestions && (
-                <AddTagButton
-                  existingTags={prompt.tags}
-                  suggestions={tagSuggestions}
-                  onAdd={(tag) => onTagAdd(prompt, tag)}
-                />
-              )}
-
-              {/* Copy button - shown in active and archived views */}
-              {view !== 'deleted' && (
-                <CopyContentButton contentType="prompt" id={prompt.id} />
-              )}
-
-              {/* Archive button - shown in active view */}
-              {view === 'active' && onArchive && (
-                <Tooltip content="Archive" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onArchive(prompt) }}
-                    className="btn-icon"
-                    aria-label="Archive prompt"
-                  >
-                    <ArchiveIcon className="h-4 w-4" />
-                  </button>
-                </Tooltip>
-              )}
-
-              {/* Restore button - shown in archived view (unarchive action) */}
-              {view === 'archived' && onUnarchive && (
-                <Tooltip content="Restore" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onUnarchive(prompt) }}
-                    className="btn-icon"
-                    aria-label="Restore prompt"
-                  >
-                    <RestoreIcon />
-                  </button>
-                </Tooltip>
-              )}
-
-              {/* Restore button - shown in deleted view */}
-              {view === 'deleted' && onRestore && (
-                <Tooltip content="Restore" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onRestore(prompt) }}
-                    className="btn-icon"
-                    aria-label="Restore prompt"
-                  >
-                    <RestoreIcon />
-                  </button>
-                </Tooltip>
-              )}
-
-              {/* Delete button - shown in all views */}
-              {/* Use ConfirmDeleteButton for permanent delete in trash view */}
-              {view === 'deleted' ? (
-                <span onClick={(e) => e.stopPropagation()}>
-                  <ConfirmDeleteButton
-                    onConfirm={() => onDelete(prompt)}
-                    title="Delete permanently"
-                  />
-                </span>
-              ) : (
-                <Tooltip content="Delete" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onDelete(prompt) }}
-                    className="btn-icon-danger"
-                    aria-label="Delete prompt"
-                  >
-                    <TrashIcon />
-                  </button>
-                </Tooltip>
-              )}
-            </div>
-            <div className="flex flex-col items-end gap-0.5">
-              <span className="text-xs text-gray-400">
-                {getDateDisplay()}
-              </span>
-              {hasScheduledArchive && prompt.archived_at && (
-                <span className="flex items-center gap-1 text-xs text-amber-600">
-                  <span>Archiving: {formatDate(prompt.archived_at)}</span>
-                  {onCancelScheduledArchive && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onCancelScheduledArchive(prompt) }}
-                      className="text-amber-500 hover:text-amber-700 transition-colors p-0.5 -m-0.5"
-                      title="Cancel scheduled archive"
-                      aria-label="Cancel scheduled archive"
-                    >
-                      <CloseIcon className="w-3 h-3" />
-                    </button>
-                  )}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
+        {/* Description - 2 lines on mobile, 1 line on desktop */}
+        {previewText && (
+          <p className="mt-1 text-sm text-gray-500 line-clamp-2 md:line-clamp-1">
+            {previewText}
+          </p>
+        )}
       </div>
-    </div>
+
+      {/* Footer wraps tags + actions for responsive layout (md:contents) */}
+      <ContentCard.Footer>
+        <ContentCard.Tags
+          tags={prompt.tags}
+          onTagClick={onTagClick}
+          onTagRemove={onTagRemove ? (tag) => onTagRemove(prompt, tag) : undefined}
+        />
+
+        <ContentCard.Actions
+          meta={
+            <>
+              <ContentCard.DateDisplay
+                sortBy={sortBy}
+                createdAt={prompt.created_at}
+                updatedAt={prompt.updated_at}
+                lastUsedAt={prompt.last_used_at}
+                archivedAt={prompt.archived_at}
+                deletedAt={prompt.deleted_at}
+              />
+              {onCancelScheduledArchive && (
+                <ContentCard.ScheduledArchive
+                  archivedAt={prompt.archived_at}
+                  onCancel={() => onCancelScheduledArchive(prompt)}
+                />
+              )}
+            </>
+          }
+        >
+          {/* Add tag button */}
+          {onTagAdd && tagSuggestions && (
+            <ContentCard.AddTagAction
+              existingTags={prompt.tags}
+              suggestions={tagSuggestions}
+              onAdd={(tag) => onTagAdd(prompt, tag)}
+            />
+          )}
+
+          {/* Copy button - shown in active and archived views */}
+          {view !== 'deleted' && (
+            <CopyContentButton contentType="prompt" id={prompt.id} />
+          )}
+
+          {/* Archive button - shown in active view only (via context) */}
+          {onArchive && (
+            <ContentCard.ArchiveAction
+              onArchive={() => onArchive(prompt)}
+              entityName="prompt"
+            />
+          )}
+
+          {/* Restore button - shown in archived view (unarchive action) */}
+          {view === 'archived' && onUnarchive && (
+            <ContentCard.RestoreAction
+              onRestore={() => onUnarchive(prompt)}
+              entityName="prompt"
+            />
+          )}
+
+          {/* Restore button - shown in deleted view */}
+          {view === 'deleted' && onRestore && (
+            <ContentCard.RestoreAction
+              onRestore={() => onRestore(prompt)}
+              entityName="prompt"
+            />
+          )}
+
+          {/* Delete button - shown in all views */}
+          <ContentCard.DeleteAction
+            onDelete={() => onDelete(prompt)}
+            entityName="prompt"
+          />
+        </ContentCard.Actions>
+      </ContentCard.Footer>
+    </ContentCard>
   )
 }

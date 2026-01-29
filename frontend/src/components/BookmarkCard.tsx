@@ -1,26 +1,24 @@
 /**
  * Component for displaying a single bookmark card.
+ *
+ * Uses ContentCard composition for shared layout, tags, actions, and date display.
+ * Bookmark-specific features (favicon, URL display, copy button, edit button,
+ * showContentTypeIcon toggle, link click tracking) stay here.
  */
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import type { BookmarkListItem } from '../types'
+import type { BookmarkListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
-import { formatDate, truncate, getDomain, getUrlWithoutProtocol, getGoogleFaviconUrl } from '../utils'
-import { ConfirmDeleteButton, Tooltip } from './ui'
+import { truncate, getDomain, getUrlWithoutProtocol, getGoogleFaviconUrl } from '../utils'
+import { Tooltip } from './ui'
 import {
   BookmarkIcon,
   CopyIcon,
   CheckIcon,
   EditIcon,
-  ArchiveIcon,
-  RestoreIcon,
-  TrashIcon,
-  CloseIcon,
 } from './icons'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
-import { Tag } from './Tag'
-import { AddTagButton } from './AddTagButton'
-import type { TagCount } from '../types'
+import { ContentCard } from './ContentCard'
 
 interface BookmarkCardProps {
   bookmark: BookmarkListItem
@@ -86,29 +84,6 @@ export function BookmarkCard({
   const faviconUrl = getGoogleFaviconUrl(bookmark.url) ?? `https://icons.duckduckgo.com/ip3/${domain}.ico`
   const defaultFavicon = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%239CA3AF" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`
 
-  // Dynamic date display based on current sort option
-  const getDateDisplay = (): string => {
-    switch (sortBy) {
-      case 'updated_at':
-        return `Modified: ${formatDate(bookmark.updated_at)}`
-      case 'last_used_at':
-        return `Used: ${formatDate(bookmark.last_used_at)}`
-      case 'archived_at':
-        return `Archived: ${formatDate(bookmark.archived_at!)}`
-      case 'deleted_at':
-        return `Deleted: ${formatDate(bookmark.deleted_at!)}`
-      case 'created_at':
-      case 'title':
-      default:
-        return `Created: ${formatDate(bookmark.created_at)}`
-    }
-  }
-
-  // Check if bookmark has a scheduled future archive date
-  const hasScheduledArchive = view === 'active' &&
-    bookmark.archived_at &&
-    new Date(bookmark.archived_at) > new Date()
-
   // State for copy button feedback
   const [copySuccess, setCopySuccess] = useState(false)
 
@@ -166,214 +141,171 @@ export function BookmarkCard({
   )
 
   return (
-    <div
-      className="card card-interactive group cursor-pointer"
+    <ContentCard
+      view={view}
       onClick={handleCardClick}
+      className="cursor-pointer"
     >
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
-        {/* Row 1 (mobile) / Main content (desktop) */}
-        <div className="min-w-0 flex-1 overflow-hidden">
-          {/* Title row */}
-          <div className="flex items-center gap-2 md:flex-wrap">
-            {/* Left icon: BookmarkIcon in multi-content view, Favicon in bookmarks-only view */}
-            {showContentTypeIcon ? (
-              <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.bookmark}`}>
-                <BookmarkIcon className="w-4 h-4" />
-              </span>
-            ) : (
-              renderFavicon()
-            )}
-            <a
-              href={bookmark.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={handleLinkClick}
-              className="text-base font-medium text-gray-900 truncate min-w-0 md:shrink-0"
-              title={bookmark.url}
-            >
-              {truncate(displayTitle, 60)}
-            </a>
-            {/* Favicon between title and URL - only in multi-content view */}
-            {showContentTypeIcon && renderFavicon()}
-            {/* URL inline on desktop */}
-            {hasTitle && (
-              <a
-                href={bookmark.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={handleLinkClick}
-                className="hidden md:inline text-sm text-gray-400 truncate min-w-0"
-                title={bookmark.url}
-              >
-                {urlDisplay}
-              </a>
-            )}
-          </div>
-          {/* URL on separate line - mobile only, inline on desktop */}
+      {/* Header stays in BookmarkCard - bookmark-specific */}
+      <div className="min-w-0 flex-1 overflow-hidden">
+        {/* Title row */}
+        <div className="flex items-center gap-2 md:flex-wrap">
+          {/* Left icon: BookmarkIcon in multi-content view, Favicon in bookmarks-only view */}
+          {showContentTypeIcon ? (
+            <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.bookmark}`}>
+              <BookmarkIcon className="w-4 h-4" />
+            </span>
+          ) : (
+            renderFavicon()
+          )}
+          <a
+            href={bookmark.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={handleLinkClick}
+            className="text-base font-medium text-gray-900 truncate min-w-0 md:shrink-0"
+            title={bookmark.url}
+          >
+            {truncate(displayTitle, 60)}
+          </a>
+          {/* Favicon between title and URL - only in multi-content view */}
+          {showContentTypeIcon && renderFavicon()}
+          {/* URL inline on desktop */}
           {hasTitle && (
             <a
               href={bookmark.url}
               target="_blank"
               rel="noopener noreferrer"
               onClick={handleLinkClick}
-              className="block md:hidden mt-0.5 text-sm text-gray-400 truncate"
+              className="hidden md:inline text-sm text-gray-400 truncate min-w-0"
               title={bookmark.url}
             >
               {urlDisplay}
             </a>
           )}
-
-          {/* Description - 2 lines on mobile, 1 line on desktop */}
-          {bookmark.description && (
-            <p className="mt-1 text-sm text-gray-500 line-clamp-2 md:line-clamp-1">
-              {bookmark.description}
-            </p>
-          )}
         </div>
+        {/* URL on separate line - mobile only, inline on desktop */}
+        {hasTitle && (
+          <a
+            href={bookmark.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={handleLinkClick}
+            className="block md:hidden mt-0.5 text-sm text-gray-400 truncate"
+            title={bookmark.url}
+          >
+            {urlDisplay}
+          </a>
+        )}
 
-        {/* Mobile: tags row + actions/date row | Desktop: inline via md:contents */}
-        <div className="flex flex-col gap-2 md:contents">
-          {/* Tags row (mobile) */}
-          {bookmark.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 md:justify-end md:w-32 md:shrink-0">
-              {bookmark.tags.map((tag) => (
-                <Tag
-                  key={tag}
-                  tag={tag}
-                  onClick={onTagClick ? () => onTagClick(tag) : undefined}
-                  onRemove={onTagRemove ? () => onTagRemove(bookmark, tag) : undefined}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Actions and date row (mobile): icons left, date right | Desktop: stacked right */}
-          <div className="flex items-center justify-between w-full md:w-auto md:flex-col md:items-end md:shrink-0">
-            <div className="flex items-center">
-              {/* Add tag button */}
-              {onTagAdd && tagSuggestions && (
-                <AddTagButton
-                  existingTags={bookmark.tags}
-                  suggestions={tagSuggestions}
-                  onAdd={(tag) => onTagAdd(bookmark, tag)}
-                />
-              )}
-
-              {/* Edit button - shown in active and archived views */}
-              {view !== 'deleted' && onEdit && (
-                <Tooltip content="Edit" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onEdit(bookmark) }}
-                    className="btn-icon"
-                    aria-label="Edit bookmark"
-                  >
-                    {isLoading ? (
-                      <div className="spinner-sm" />
-                    ) : (
-                      <EditIcon />
-                    )}
-                  </button>
-                </Tooltip>
-              )}
-
-              {/* Copy URL button */}
-              <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
-                  className="btn-icon"
-                  aria-label={copySuccess ? 'Copied!' : 'Copy URL'}
-                >
-                  {copySuccess ? (
-                    <CheckIcon className="h-4 w-4 text-green-600" />
-                  ) : (
-                    <CopyIcon />
-                  )}
-                </button>
-              </Tooltip>
-
-              {/* Archive button - shown in active view */}
-              {view === 'active' && onArchive && (
-                <Tooltip content="Archive" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onArchive(bookmark) }}
-                    className="btn-icon"
-                    aria-label="Archive bookmark"
-                  >
-                    <ArchiveIcon className="h-4 w-4" />
-                  </button>
-                </Tooltip>
-              )}
-
-              {/* Restore button - shown in archived view (unarchive action) */}
-              {view === 'archived' && onUnarchive && (
-                <Tooltip content="Restore" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onUnarchive(bookmark) }}
-                    className="btn-icon"
-                    aria-label="Restore bookmark"
-                  >
-                    <RestoreIcon />
-                  </button>
-                </Tooltip>
-              )}
-
-              {/* Restore button - shown in deleted view */}
-              {view === 'deleted' && onRestore && (
-                <Tooltip content="Restore" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onRestore(bookmark) }}
-                    className="btn-icon"
-                    aria-label="Restore bookmark"
-                  >
-                    <RestoreIcon />
-                  </button>
-                </Tooltip>
-              )}
-
-              {/* Delete button - shown in all views */}
-              {/* Use ConfirmDeleteButton for permanent delete in trash view */}
-              {view === 'deleted' ? (
-                <span onClick={(e) => e.stopPropagation()}>
-                  <ConfirmDeleteButton
-                    onConfirm={() => onDelete(bookmark)}
-                    title="Delete permanently"
-                  />
-                </span>
-              ) : (
-                <Tooltip content="Delete" compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onDelete(bookmark) }}
-                    className="btn-icon-danger"
-                    aria-label="Delete bookmark"
-                  >
-                    <TrashIcon />
-                  </button>
-                </Tooltip>
-              )}
-            </div>
-            <div className="flex flex-col items-end gap-0.5">
-              <span className="text-xs text-gray-400">
-                {getDateDisplay()}
-              </span>
-              {hasScheduledArchive && bookmark.archived_at && (
-                <span className="flex items-center gap-1 text-xs text-amber-600">
-                  <span>Archiving: {formatDate(bookmark.archived_at)}</span>
-                  {onCancelScheduledArchive && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onCancelScheduledArchive(bookmark) }}
-                      className="text-amber-500 hover:text-amber-700 transition-colors p-0.5 -m-0.5"
-                      title="Cancel scheduled archive"
-                      aria-label="Cancel scheduled archive"
-                    >
-                      <CloseIcon className="w-3 h-3" />
-                    </button>
-                  )}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
+        {/* Description - 2 lines on mobile, 1 line on desktop */}
+        {bookmark.description && (
+          <p className="mt-1 text-sm text-gray-500 line-clamp-2 md:line-clamp-1">
+            {bookmark.description}
+          </p>
+        )}
       </div>
-    </div>
+
+      {/* Footer wraps tags + actions for responsive layout (md:contents) */}
+      <ContentCard.Footer>
+        <ContentCard.Tags
+          tags={bookmark.tags}
+          onTagClick={onTagClick}
+          onTagRemove={onTagRemove ? (tag) => onTagRemove(bookmark, tag) : undefined}
+        />
+
+        <ContentCard.Actions
+          meta={
+            <>
+              <ContentCard.DateDisplay
+                sortBy={sortBy}
+                createdAt={bookmark.created_at}
+                updatedAt={bookmark.updated_at}
+                lastUsedAt={bookmark.last_used_at}
+                archivedAt={bookmark.archived_at}
+                deletedAt={bookmark.deleted_at}
+              />
+              {onCancelScheduledArchive && (
+                <ContentCard.ScheduledArchive
+                  archivedAt={bookmark.archived_at}
+                  onCancel={() => onCancelScheduledArchive(bookmark)}
+                />
+              )}
+            </>
+          }
+        >
+          {/* Add tag button */}
+          {onTagAdd && tagSuggestions && (
+            <ContentCard.AddTagAction
+              existingTags={bookmark.tags}
+              suggestions={tagSuggestions}
+              onAdd={(tag) => onTagAdd(bookmark, tag)}
+            />
+          )}
+
+          {/* Edit button - shown in active and archived views (bookmark-specific) */}
+          {view !== 'deleted' && onEdit && (
+            <Tooltip content="Edit" compact>
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(bookmark) }}
+                className="btn-icon"
+                aria-label="Edit bookmark"
+              >
+                {isLoading ? (
+                  <div className="spinner-sm" />
+                ) : (
+                  <EditIcon />
+                )}
+              </button>
+            </Tooltip>
+          )}
+
+          {/* Copy URL button (bookmark-specific) */}
+          <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
+              className="btn-icon"
+              aria-label={copySuccess ? 'Copied!' : 'Copy URL'}
+            >
+              {copySuccess ? (
+                <CheckIcon className="h-4 w-4 text-green-600" />
+              ) : (
+                <CopyIcon />
+              )}
+            </button>
+          </Tooltip>
+
+          {/* Archive button - shown in active view only (via context) */}
+          {onArchive && (
+            <ContentCard.ArchiveAction
+              onArchive={() => onArchive(bookmark)}
+              entityName="bookmark"
+            />
+          )}
+
+          {/* Restore button - shown in archived view (unarchive action) */}
+          {view === 'archived' && onUnarchive && (
+            <ContentCard.RestoreAction
+              onRestore={() => onUnarchive(bookmark)}
+              entityName="bookmark"
+            />
+          )}
+
+          {/* Restore button - shown in deleted view */}
+          {view === 'deleted' && onRestore && (
+            <ContentCard.RestoreAction
+              onRestore={() => onRestore(bookmark)}
+              entityName="bookmark"
+            />
+          )}
+
+          {/* Delete button - shown in all views */}
+          <ContentCard.DeleteAction
+            onDelete={() => onDelete(bookmark)}
+            entityName="bookmark"
+          />
+        </ContentCard.Actions>
+      </ContentCard.Footer>
+    </ContentCard>
   )
 }
