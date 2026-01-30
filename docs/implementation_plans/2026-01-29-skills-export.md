@@ -43,10 +43,10 @@ Review the following {{ language | default('') }} code for:
 ```
 
 **Design decisions:**
-1. **Keep Jinja2 syntax** - LLMs understand it and can substitute contextually (see [Appendix A.4](#a4-jinja2-vs-arguments))
+1. **Keep Jinja2 syntax** - LLMs understand it and can substitute contextually (see [Appendix A.5](#a5-jinja2-vs-arguments))
 2. **Document variables in body** - Helps both humans and LLMs understand what's needed
 3. **Include in description** - "Requires: X. Optional: Y." helps model decide when to use skill
-4. **No conversion to `$ARGUMENTS`** - Our variables are contextual, not positional user input
+4. **No conversion to `$ARGUMENTS`** - Our variables are contextual, not positional user input; also `$ARGUMENTS` is Claude Code-specific (see [Appendix A.5](#a5-jinja2-vs-arguments))
 
 **Directory structure in archive:**
 ```
@@ -948,7 +948,7 @@ Then upload `skills.zip` via Settings → Capabilities → Skills.
 
 ---
 
-## A.4 Jinja2 vs $ARGUMENTS
+## A.5 Jinja2 vs $ARGUMENTS
 
 Our prompts use Jinja2 template syntax (`{{ variable }}`), while Claude Code supports a runtime `$ARGUMENTS` system. These serve different purposes:
 
@@ -958,20 +958,27 @@ Our prompts use Jinja2 template syntax (`{{ variable }}`), while Claude Code sup
 | **Source** | LLM infers from context | User types after `/skill-name` |
 | **Example** | `{{ code }}` (LLM finds relevant code) | `$0` (user provides explicitly) |
 
-**Why we keep Jinja2:**
-1. LLMs understand Jinja2 and can infer what to substitute from context
-2. Our prompts use contextual placeholders, not positional arguments
-3. Jinja2 is more expressive (filters, defaults, conditionals)
-4. The variables are documented in the skill body for both humans and LLMs
+### Platform Support for `$ARGUMENTS`
 
-**We do NOT convert to `$ARGUMENTS` because:**
-1. Our prompts don't have positional arguments
-2. `$ARGUMENTS` is for explicit user input at invocation time
-3. Converting would lose the contextual semantics
+| Platform | `$ARGUMENTS` Support |
+|----------|---------------------|
+| **Claude Code** | ✅ Yes - supports `$ARGUMENTS`, `$0`, `$1`, etc. |
+| **Claude Desktop** | ❌ No - not documented, no slash commands |
+| **Codex CLI** | ❌ No - not documented in Codex spec |
+
+`$ARGUMENTS` is a **Claude Code-specific extension** to the Agent Skills Standard. The base spec doesn't define runtime argument injection.
+
+### Why We Keep Jinja2 (No Conversion to `$ARGUMENTS`)
+
+1. **Our variables are contextual, not positional** - Prompts have named placeholders like `{{ code_to_review }}` that the LLM fills in from context, not single positional arguments from user input
+2. **Cross-platform compatibility** - Jinja2 works everywhere; `$ARGUMENTS` only works in Claude Code
+3. **Semantic structure preserved** - Converting `{{ code }}`, `{{ language }}`, `{{ focus_areas }}` to a single `$ARGUMENTS` blob loses the meaning of each variable
+4. **LLMs understand Jinja2** - They can infer what to substitute from context and the documented variable descriptions
+5. **More expressive** - Jinja2 supports filters, defaults, conditionals that `$ARGUMENTS` doesn't
 
 ---
 
-## A.5 Agent Skills Standard
+## A.6 Agent Skills Standard
 
 The Agent Skills Standard ([agentskills.io](https://agentskills.io)) is the base specification that Claude Code, Claude Desktop, and Codex build upon.
 
@@ -998,7 +1005,7 @@ Skills use progressive disclosure to manage context:
 
 ---
 
-## A.6 Sources
+## A.7 Sources
 
 - [Agent Skills Specification](https://agentskills.io/specification) - Official standard
 - [Claude Code Skills Documentation](https://code.claude.com/docs/en/skills) - Anthropic
