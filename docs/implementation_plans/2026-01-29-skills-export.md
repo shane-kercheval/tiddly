@@ -68,8 +68,8 @@ Update app configuration limits and add `include_content` parameter to `BaseEnti
 
 ### Success Criteria
 
-- `max_prompt_name_length` changed from 255 to 100
-- `max_description_length` changed from 2000 to 1000
+- `max_prompt_name_length` changed from 255 to 100 (backend + frontend)
+- `max_description_length` changed from 2000 to 1000 (backend + frontend)
 - `BaseEntityService.search()` supports `include_content: bool = False` parameter
 - When `include_content=True`, full content is loaded (no defer)
 - When `include_content=False`, content is deferred (current behavior)
@@ -90,6 +90,17 @@ max_description_length: int = Field(
     validation_alias="VITE_MAX_DESCRIPTION_LENGTH",
 )
 ```
+
+**Update: `frontend/src/config.ts`**
+
+The frontend already validates against these limits in `Prompt.tsx`. Update the defaults to match:
+
+```typescript
+maxPromptNameLength: parseInt(import.meta.env.VITE_MAX_PROMPT_NAME_LENGTH || '100', 10),  // Changed from '255'
+maxDescriptionLength: parseInt(import.meta.env.VITE_MAX_DESCRIPTION_LENGTH || '1000', 10),  // Changed from '2000'
+```
+
+**Note:** `maxDescriptionLength` is shared across Bookmarks, Notes, and Prompts. The new 1000-char limit applies to all.
 
 **Update: `backend/src/services/base_entity_service.py`**
 
@@ -638,6 +649,7 @@ Milestone 1
 | File | Change |
 |------|--------|
 | `backend/src/core/config.py` | Change `max_prompt_name_length` to 100, `max_description_length` to 1000 |
+| `frontend/src/config.ts` | Change `maxPromptNameLength` default to 100, `maxDescriptionLength` default to 1000 |
 | `backend/src/services/base_entity_service.py` | Add `include_content: bool = False` parameter to `search()` |
 | `backend/src/api/routers/prompts.py` | Add `GET /prompts/export/skills` endpoint |
 | `frontend/src/pages/settings/SettingsMCP.tsx` | Add skills export instructions with tag dropdown, remove comingSoon |
