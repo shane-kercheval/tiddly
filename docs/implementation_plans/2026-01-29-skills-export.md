@@ -162,26 +162,7 @@ None - this is the first milestone.
 
 ### Risk Factors
 
-- **Breaking change for config:** Changing max lengths may affect existing data. See migration audit below.
-
-### Migration Audit (Required Before Deployment)
-
-Before deploying the config changes, run this query to identify affected data:
-
-```sql
-SELECT id, name, LENGTH(name) as name_len, LENGTH(description) as desc_len
-FROM prompts
-WHERE LENGTH(name) > 100 OR LENGTH(description) > 1000;
-```
-
-**If results found:**
-- Names >100 chars: These prompts can still be read but cannot be edited without truncating the name
-- Descriptions >1000 chars: Same behavior - readable but not editable without truncation
-
-**Decision:** If violations exist, choose one of:
-1. **Grandfather existing data** - Allow reads, block edits until user truncates (recommended)
-2. **Auto-truncate** - Migration script truncates existing data (data loss risk)
-3. **Delay deployment** - Wait until manual cleanup is done
+- **Breaking change for config:** Reducing max lengths may affect existing data. Existing prompts with names >100 chars or descriptions >1000 chars will be readable but not editable until the user truncates them.
 
 ---
 
@@ -454,7 +435,12 @@ API endpoint tests:
 
 ### Dependencies
 
-Milestone 0 (infrastructure changes)
+- Milestone 0 (infrastructure changes)
+- **New package:** Add `pyyaml>=6.0` to `pyproject.toml` dependencies (for `yaml.safe_dump()` in skill converter)
+
+### Implementation Notes
+
+- **Route ordering:** The new `GET /prompts/export/skills` endpoint MUST be placed BEFORE the `GET /prompts/{prompt_id}` route to avoid FastAPI matching "export" as a prompt_id. Follow the existing pattern where `/name/{name}` routes come before `/{prompt_id}`.
 
 ### Risk Factors
 
@@ -627,9 +613,12 @@ function ClaudeDesktopInstructions({ exportUrl }: { exportUrl: string }) {
 
 Milestone 1
 
+### Implementation Notes
+
+- **Tags API:** Use existing `GET /tags/` endpoint which returns `TagListResponse` with all user tags and counts.
+
 ### Risk Factors
 
-- **Tag API:** Need to fetch user's tags. Use existing tags endpoint or add if needed.
 - **UX complexity:** Three different clients with different instructions. Use tabs or accordion for clarity.
 
 ---
@@ -648,10 +637,11 @@ Milestone 1
 
 | File | Change |
 |------|--------|
+| `pyproject.toml` | Add `pyyaml>=6.0` dependency |
 | `backend/src/core/config.py` | Change `max_prompt_name_length` to 100, `max_description_length` to 1000 |
 | `frontend/src/config.ts` | Change `maxPromptNameLength` default to 100, `maxDescriptionLength` default to 1000 |
 | `backend/src/services/base_entity_service.py` | Add `include_content: bool = False` parameter to `search()` |
-| `backend/src/api/routers/prompts.py` | Add `GET /prompts/export/skills` endpoint |
+| `backend/src/api/routers/prompts.py` | Add `GET /prompts/export/skills` endpoint (place BEFORE `/{prompt_id}` route) |
 | `frontend/src/pages/settings/SettingsMCP.tsx` | Add skills export instructions with tag dropdown, remove comingSoon |
 
 ---
