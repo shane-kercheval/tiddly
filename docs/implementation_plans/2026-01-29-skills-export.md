@@ -151,7 +151,26 @@ None - this is the first milestone.
 
 ### Risk Factors
 
-- **Breaking change for config:** Changing max lengths may affect existing data. Run migration check for any prompts with names >100 chars or descriptions >1000 chars. If found, decide whether to truncate or grandfather.
+- **Breaking change for config:** Changing max lengths may affect existing data. See migration audit below.
+
+### Migration Audit (Required Before Deployment)
+
+Before deploying the config changes, run this query to identify affected data:
+
+```sql
+SELECT id, name, LENGTH(name) as name_len, LENGTH(description) as desc_len
+FROM prompts
+WHERE LENGTH(name) > 100 OR LENGTH(description) > 1000;
+```
+
+**If results found:**
+- Names >100 chars: These prompts can still be read but cannot be edited without truncating the name
+- Descriptions >1000 chars: Same behavior - readable but not editable without truncation
+
+**Decision:** If violations exist, choose one of:
+1. **Grandfather existing data** - Allow reads, block edits until user truncates (recommended)
+2. **Auto-truncate** - Migration script truncates existing data (data loss risk)
+3. **Delay deployment** - Wait until manual cleanup is done
 
 ---
 
@@ -181,7 +200,10 @@ Create the `prompt_to_skill_md()` conversion function and `GET /prompts/export/s
 Conversion function with client-specific behavior per [Appendix A.1](#a1-platform-constraints-summary):
 
 ```python
+from dataclasses import dataclass
 from typing import Literal
+
+import yaml
 
 ClientType = Literal["claude-code", "claude-desktop", "codex"]
 
@@ -192,7 +214,15 @@ CLIENT_CONSTRAINTS = {
     "codex": {"name_max": 100, "desc_max": 500, "desc_single_line": True},
 }
 
-def prompt_to_skill_md(prompt: Prompt, client: ClientType) -> str:
+
+@dataclass
+class SkillExport:
+    """Result of converting a prompt to a skill."""
+    directory_name: str  # Sanitized name for archive directory (matches frontmatter)
+    content: str         # Full SKILL.md content
+
+
+def prompt_to_skill_md(prompt: Prompt, client: ClientType) -> SkillExport:
     """
     Convert a prompt to SKILL.md format for the specified client.
 
@@ -210,11 +240,12 @@ def prompt_to_skill_md(prompt: Prompt, client: ClientType) -> str:
         client: Target client for export.
 
     Returns:
-        SKILL.md content as a string.
+        SkillExport with directory_name and content.
+        The directory_name matches the frontmatter name (required by Agent Skills spec).
     """
     constraints = CLIENT_CONSTRAINTS[client]
 
-    # Truncate name if needed
+    # Truncate name if needed (this becomes both frontmatter name AND directory name)
     name = prompt.name[:constraints["name_max"]]
 
     # Build description with argument hints
@@ -244,17 +275,27 @@ def prompt_to_skill_md(prompt: Prompt, client: ClientType) -> str:
         template_vars_section += "\n"
 
     # Handle missing content gracefully (defensive - shouldn't happen via API)
-    content = prompt.content or ""
+    body_content = prompt.content or ""
 
-    return f"""---
-name: {name}
-description: {desc}
+    # Build frontmatter with proper YAML escaping
+    # This handles special characters like : # and multi-line descriptions correctly
+    frontmatter = yaml.safe_dump(
+        {"name": name, "description": desc},
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+    ).strip()
+
+    content = f"""---
+{frontmatter}
 ---
 
 {template_vars_section}## Instructions
 
-{content}
+{body_content}
 """
+
+    return SkillExport(directory_name=name, content=content)
 ```
 
 **Update: `backend/src/api/routers/prompts.py`**
@@ -326,11 +367,13 @@ def create_tar_gz(prompts: list[Prompt], client: ClientType) -> io.BytesIO:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
         for prompt in prompts:
-            content = prompt_to_skill_md(prompt, client).encode("utf-8")
-            info = tarfile.TarInfo(name=f"{prompt.name}/SKILL.md")
-            info.size = len(content)
+            skill = prompt_to_skill_md(prompt, client)
+            content_bytes = skill.content.encode("utf-8")
+            # Use skill.directory_name (truncated) to match frontmatter name
+            info = tarfile.TarInfo(name=f"{skill.directory_name}/SKILL.md")
+            info.size = len(content_bytes)
             info.mtime = int(time.time())
-            tar.addfile(info, io.BytesIO(content))
+            tar.addfile(info, io.BytesIO(content_bytes))
     buffer.seek(0)
     return buffer
 
@@ -339,8 +382,9 @@ def create_zip(prompts: list[Prompt], client: ClientType) -> io.BytesIO:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for prompt in prompts:
-            content = prompt_to_skill_md(prompt, client)
-            zf.writestr(f"{prompt.name}/SKILL.md", content)
+            skill = prompt_to_skill_md(prompt, client)
+            # Use skill.directory_name (truncated) to match frontmatter name
+            zf.writestr(f"{skill.directory_name}/SKILL.md", skill.content)
     buffer.seek(0)
     return buffer
 ```
@@ -366,6 +410,11 @@ Unit tests for `prompt_to_skill_md()`:
 13. **Description truncation (codex):** Description >500 chars truncated
 14. **Description single-line (codex):** Multi-line description collapsed to single line
 15. **Description multi-line (claude-code):** Multi-line description preserved
+16. **YAML escaping - colon:** Description with `:` character produces valid YAML
+17. **YAML escaping - hash:** Description with `#` character is not treated as comment
+18. **YAML escaping - quotes:** Description with quotes produces valid YAML
+19. **Directory name matches frontmatter:** Verify `skill.directory_name == name` in frontmatter
+20. **Directory name truncated:** 80-char prompt name → 64-char directory for claude-code
 
 **New file: `backend/tests/api/test_prompts_export.py`**
 
@@ -387,6 +436,10 @@ API endpoint tests:
 14. **Auth required:** 401 without authentication
 15. **PAT access allowed:** Verify PAT works (not Auth0-only)
 16. **Client required:** Verify 422 if client parameter missing
+17. **Directory name matches frontmatter:** Extract archive, verify directory name == frontmatter name
+18. **Truncated name in directory:** 80-char prompt name → 64-char directory for claude-code
+19. **Name collision (last wins):** Two prompts that truncate to same name → second overwrites first in archive
+20. **YAML special chars in description:** Description with `:` and `#` → valid parseable YAML in archive
 
 ### Dependencies
 
@@ -395,7 +448,8 @@ Milestone 0 (infrastructure changes)
 ### Risk Factors
 
 - **Prompt names with special chars:** Prompt names should already be valid directory names (lowercase-with-hyphens). Verify no edge cases.
-- **Large exports:** Many prompts with large content could create large archives. Current in-memory approach is fine for reasonable sizes.
+- **Large exports:** Many prompts with large content could create large archives. Current in-memory approach is fine for reasonable sizes (<1000 prompts). If users hit memory issues with very large exports, consider streaming archive generation.
+- **Name collision after truncation:** If two prompts truncate to the same name (e.g., both 80-char names share first 64 chars), the second one overwrites the first in the archive. This is rare and the behavior is deterministic (last wins).
 
 ---
 
@@ -445,11 +499,15 @@ function SkillsExportInstructions({ client, apiUrl, userTags }: SkillsExportProp
 
   const [selectedTags, setSelectedTags] = useState<string[]>(defaultTags);
 
-  // Build query params
-  const tagsParam = selectedTags.length > 0
-    ? `&tags=${selectedTags.join(',')}`
-    : '';
-  const exportUrl = `${apiUrl}/prompts/export/skills?client=${client}${tagsParam}`;
+  // Build query params with repeated keys for FastAPI list parsing
+  // FastAPI expects ?tags=foo&tags=bar, NOT ?tags=foo,bar
+  const buildExportUrl = () => {
+    const params = new URLSearchParams();
+    params.append('client', client);
+    selectedTags.forEach(tag => params.append('tags', tag));
+    return `${apiUrl}/prompts/export/skills?${params.toString()}`;
+  };
+  const exportUrl = buildExportUrl();
 
   return (
     <div>
@@ -465,6 +523,13 @@ function SkillsExportInstructions({ client, apiUrl, userTags }: SkillsExportProp
       {(client === 'claude-code' || client === 'claude-desktop') && (
         <Warning>
           Prompt names longer than 64 characters will be truncated for {client}.
+        </Warning>
+      )}
+
+      {/* Warning for Codex description formatting */}
+      {client === 'codex' && (
+        <Warning>
+          Multi-line descriptions will be collapsed to a single line for Codex compatibility.
         </Warning>
       )}
 
@@ -602,6 +667,10 @@ Milestone 1
 10. **Frontend tag dropdown:** Fetch user's tags and populate dropdown. Default to "skill" or "skills" if either exists in user's tags, otherwise default to empty (all prompts).
 
 11. **Defensive content handling:** Handle `None` or empty content gracefully in conversion function. This shouldn't happen via normal API (validation prevents it) but is good defensive coding.
+
+12. **Sync behavior (additive):** The sync command extracts skills to the target directory, overwriting files with the same name but NOT deleting existing skills. If a user removes a prompt from their export (e.g., by changing tags), the corresponding skill remains in their local skills directory until manually deleted. This is intentional - users may have manually created skills that shouldn't be deleted.
+
+13. **Name collision after truncation:** If two prompts truncate to the same name for a client, the second one overwrites the first in the archive. This is rare (requires two 65+ char names sharing the first 64 chars) and the behavior is deterministic.
 
 ---
 
