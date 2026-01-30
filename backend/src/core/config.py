@@ -59,13 +59,13 @@ class Settings(BaseSettings):
         default=100_000, validation_alias="VITE_MAX_PROMPT_CONTENT_LENGTH",
     )
     max_prompt_name_length: int = Field(
-        default=255, validation_alias="VITE_MAX_PROMPT_NAME_LENGTH",
+        default=100, validation_alias="VITE_MAX_PROMPT_NAME_LENGTH",
     )
     max_argument_name_length: int = Field(
         default=100, validation_alias="VITE_MAX_ARGUMENT_NAME_LENGTH",
     )
     max_description_length: int = Field(
-        default=2000, validation_alias="VITE_MAX_DESCRIPTION_LENGTH",
+        default=1000, validation_alias="VITE_MAX_DESCRIPTION_LENGTH",
     )
     max_title_length: int = Field(
         default=500, validation_alias="VITE_MAX_TITLE_LENGTH",

@@ -7,7 +7,7 @@ template validation, and name uniqueness for prompts.
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.prompt import Prompt
@@ -1507,3 +1507,83 @@ Done!{% endif %}
 
     assert prompt.content is not None
     assert len(prompt.arguments) == 3
+
+
+# =============================================================================
+# include_content Parameter Tests (BaseEntityService.search)
+# =============================================================================
+
+
+async def test__search__include_content_false_defers_content(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that include_content=False (default) defers content but provides metrics."""
+    test_content = "This is test content for deferred loading."
+    await prompt_service.create(
+        db_session, test_user.id,
+        PromptCreate(name="deferred-prompt", content=test_content),
+    )
+    await db_session.flush()
+
+    prompts, total = await prompt_service.search(
+        db_session, test_user.id, include_content=False,
+    )
+
+    assert total == 1
+    prompt = prompts[0]
+    # content_length and content_preview should be populated
+    assert prompt.content_length == len(test_content)
+    assert prompt.content_preview == test_content  # Content is short, so preview == full
+    # Verify content was deferred (not loaded into memory)
+    assert 'content' in inspect(prompt).unloaded
+
+
+async def test__search__include_content_true_loads_full_content(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that include_content=True loads full content."""
+    test_content = "This is test content that should be fully loaded."
+    await prompt_service.create(
+        db_session, test_user.id,
+        PromptCreate(name="full-content-prompt", content=test_content),
+    )
+    await db_session.flush()
+
+    prompts, total = await prompt_service.search(
+        db_session, test_user.id, include_content=True,
+    )
+
+    assert total == 1
+    prompt = prompts[0]
+    # Full content should be loaded (not deferred)
+    assert 'content' not in inspect(prompt).unloaded
+    assert prompt.content == test_content
+    # content_length and content_preview should still be populated
+    assert prompt.content_length == len(test_content)
+    assert prompt.content_preview == test_content
+
+
+async def test__search__include_content_true_with_pagination(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that pagination works with include_content=True."""
+    for i in range(5):
+        await prompt_service.create(
+            db_session, test_user.id,
+            PromptCreate(name=f"paginated-prompt-{i}", content=f"Content {i}"),
+        )
+    await db_session.flush()
+
+    prompts, total = await prompt_service.search(
+        db_session, test_user.id, offset=2, limit=2, include_content=True,
+    )
+
+    assert total == 5
+    assert len(prompts) == 2
+    # Verify full content is loaded for paginated results
+    for prompt in prompts:
+        assert prompt.content is not None
+        assert prompt.content.startswith("Content ")

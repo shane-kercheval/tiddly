@@ -105,15 +105,15 @@ class TestPromptCreate:
         assert "Invalid prompt name format" in str(exc_info.value)
 
     def test__prompt_create__name_max_length(self) -> None:
-        """Prompt name at max length (255) should be accepted, over should be rejected."""
-        # 255 chars accepted
-        long_name = "a" * 255
+        """Prompt name at max length (100) should be accepted, over should be rejected."""
+        # 100 chars accepted
+        long_name = "a" * 100
         prompt = PromptCreate(name=long_name, content="Test content")
         assert prompt.name == long_name
 
-        # 256 chars rejected
+        # 101 chars rejected
         with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="a" * 256, content="Test content")
+            PromptCreate(name="a" * 101, content="Test content")
         assert "exceeds maximum length" in str(exc_info.value)
 
     def test__prompt_create__title_max_length(self) -> None:
@@ -160,15 +160,15 @@ class TestPromptCreate:
         assert prompt.arguments == []
 
     def test__prompt_create__description_max_length(self) -> None:
-        """Description should respect max_description_length setting (2000)."""
-        # 2000 chars accepted
-        long_desc = "a" * 2000
+        """Description should respect max_description_length setting (1000)."""
+        # 1000 chars accepted
+        long_desc = "a" * 1000
         prompt = PromptCreate(name="test", content="Test content", description=long_desc)
         assert prompt.description == long_desc
 
-        # 2001 chars rejected
+        # 1001 chars rejected
         with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="test", content="Test content", description="a" * 2001)
+            PromptCreate(name="test", content="Test content", description="a" * 1001)
         assert "exceeds maximum length" in str(exc_info.value)
 
     def test__prompt_create__content_max_length(self) -> None:
