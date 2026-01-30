@@ -630,7 +630,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
               />
               <SidebarNavItem
                 to="/app/settings/mcp"
-                label="MCP Integration"
+                label="AI Integration"
                 isCollapsed={isCollapsed}
                 onClick={onNavClick}
               />

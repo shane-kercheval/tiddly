@@ -2,12 +2,12 @@
  * Inline editable tags component.
  *
  * Displays tags in view-mode style (pills) but allows inline editing.
- * Tags can be removed via X button (visible on hover) and added via "+" button.
+ * Tags can be removed via X button (visible on hover) and added via tag icon button.
  *
  * Features:
  * - View-mode visual styling (badge pills)
  * - X button on hover to remove tags
- * - "+" button to show input and add new tags
+ * - Tag icon button to show input and add new tags
  * - Autocomplete dropdown for tag suggestions
  * - Keyboard navigation (arrows, Enter, Escape)
  * - Tab moves to next field (standard form behavior)
@@ -18,6 +18,7 @@ import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
 import type { TagCount } from '../types'
 import { useTagAutocomplete } from '../hooks/useTagAutocomplete'
 import { Tag } from './Tag'
+import { Tooltip } from './ui'
 
 interface InlineEditableTagsProps {
   /** Currently selected tags */
@@ -206,20 +207,21 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
           )}
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={handleAddClick}
-          disabled={disabled}
-          className={`inline-flex items-center gap-0.5 h-5 px-1 text-xs text-gray-400 rounded transition-colors ${
-            disabled ? 'cursor-not-allowed' : 'hover:text-gray-600 hover:bg-gray-100'
-          }`}
-          aria-label="Add tag"
-        >
-          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          <span>Tags</span>
-        </button>
+        <Tooltip content="Add tag" compact>
+          <button
+            type="button"
+            onClick={handleAddClick}
+            disabled={disabled}
+            className={`inline-flex items-center h-5 px-1 text-gray-500 rounded transition-colors ${
+              disabled ? 'cursor-not-allowed' : 'hover:text-gray-700 hover:bg-gray-100'
+            }`}
+            aria-label="Add tag"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+            </svg>
+          </button>
+        </Tooltip>
       )}
     </div>
   )
