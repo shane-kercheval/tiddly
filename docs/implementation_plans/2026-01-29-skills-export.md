@@ -17,11 +17,11 @@ Export prompts as Claude/Codex skills via a new API endpoint. Skills are markdow
 
 ### Skills Support by Platform
 
-| Platform | Installation | Manual Invocation | Auto-Invocation | Our Export Support |
+| Platform | Installation | Manual Invocation | Auto-Invocation | Our Export Format |
 |----------|--------------|-------------------|-----------------|-------------------|
-| **Claude Code** | `~/.claude/skills/` or `.claude/skills/` | `/skill-name` slash command | Yes (by model) | Direct (tar.gz) |
-| **Claude Desktop** | Upload `.zip` via Settings → Capabilities | Natural language only | Yes (by model) | Manual repackage needed |
-| **Codex CLI** | `~/.codex/skills/` | `$skill-name` prefix | Yes (by model) | Direct (tar.gz) |
+| **Claude Code** | `~/.claude/skills/` or `.claude/skills/` | `/skill-name` slash command | Yes (by model) | tar.gz (default) |
+| **Claude Desktop** | Upload `.zip` via Settings → Capabilities | Natural language only | Yes (by model) | zip |
+| **Codex CLI** | `~/.codex/skills/` | `$skill-name` prefix | Yes (by model) | tar.gz (default) |
 | **ChatGPT** | Built-in only (in `/home/oai/skills`) | Natural language only | Yes (by model) | Not supported |
 
 ### Key Findings
@@ -37,7 +37,7 @@ Export prompts as Claude/Codex skills via a new API endpoint. Skills are markdow
 - Skills uploaded as `.zip` files through Settings → Capabilities → Skills
 - No slash commands - invoke via natural language ("use my code review skill")
 - No network access - skills can't fetch from internet or hit APIs
-- **Requires manual repackaging** - user must extract tar.gz, then zip individual skill folders for upload
+- **Use `?format=zip`** to get a zip file for direct upload
 
 **Codex CLI**:
 - Uses `$skill-name` syntax (NOT slash commands)
@@ -226,11 +226,12 @@ Create the `prompt_to_skill_md()` conversion function and `GET /prompts/export/s
 ### Success Criteria
 
 - `prompt_to_skill_md()` correctly converts prompts to SKILL.md format
-- Endpoint returns a valid tar.gz with `{prompt-name}/SKILL.md` structure
+- Endpoint returns a valid archive with `{prompt-name}/SKILL.md` structure
+- Supports `format` parameter (`tar.gz` or `zip`, default: `tar.gz`)
 - Supports filtering by tag (default: `skill`)
 - Supports `tag_match` parameter (`all` or `any`, default: `all`)
 - Supports `view` parameter (`active`, `archived`, `deleted`, default: `active`)
-- Returns empty tar.gz (valid archive with no entries) when no prompts match
+- Returns empty archive (valid, extractable, no entries) when no prompts match
 - Authentication uses `get_current_user` (allows PAT access for sync scripts)
 
 ### Key Changes
@@ -271,6 +272,7 @@ Add the export endpoint:
 ```python
 @router.get("/export/skills")
 async def export_skills(
+    format: Literal["tar.gz", "zip"] = Query(default="tar.gz", description="Archive format"),
     tag: str = Query(default="skill", description="Tag to filter prompts for export"),
     tag_match: Literal["all", "any"] = Query(default="all", description="Tag matching mode"),
     view: Literal["active", "archived", "deleted"] = Query(default="active", description="View filter"),
@@ -278,47 +280,61 @@ async def export_skills(
     db: AsyncSession = Depends(get_async_session),
 ) -> StreamingResponse:
     """
-    Export prompts as Claude/Codex skills in tar.gz format.
+    Export prompts as Claude/Codex skills.
 
-    Returns a tarball containing {prompt-name}/SKILL.md for each matching prompt.
-    Use with: curl ... | tar -xzf - -C ~/.claude/skills/
+    Returns an archive containing {prompt-name}/SKILL.md for each matching prompt.
+    - tar.gz (default): For Claude Code and Codex CLI
+    - zip: For Claude Desktop
     """
     ...
 ```
 
 Implementation notes:
 - Query prompts using existing `PromptService.search()` with `tags=[tag]`, `tag_match=tag_match`, `view=view`
-- Build tarball in memory using `tarfile` and `io.BytesIO`
+- Build archive in memory using `tarfile` or `zipfile` and `io.BytesIO`
 - Each prompt becomes `{prompt.name}/SKILL.md` in the archive
-- Return `StreamingResponse` with `media_type="application/gzip"` and appropriate headers
-- Set `Content-Disposition: attachment; filename=skills.tar.gz`
+- Return `StreamingResponse` with appropriate media type and headers
 
-**Tarball generation pattern:**
+**Archive generation patterns:**
 
 ```python
 import tarfile
+import zipfile
 import io
-from datetime import datetime
 
-buffer = io.BytesIO()
-with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
-    for prompt in prompts:
-        skill_md = prompt_to_skill_md(prompt)
-        content = skill_md.encode("utf-8")
+def create_tar_gz(prompts: list[Prompt]) -> io.BytesIO:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+        for prompt in prompts:
+            content = prompt_to_skill_md(prompt).encode("utf-8")
+            info = tarfile.TarInfo(name=f"{prompt.name}/SKILL.md")
+            info.size = len(content)
+            tar.addfile(info, io.BytesIO(content))
+    buffer.seek(0)
+    return buffer
 
-        # Create TarInfo for the file
-        info = tarfile.TarInfo(name=f"{prompt.name}/SKILL.md")
-        info.size = len(content)
-        info.mtime = int(datetime.now().timestamp())
+def create_zip(prompts: list[Prompt]) -> io.BytesIO:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for prompt in prompts:
+            content = prompt_to_skill_md(prompt)
+            zf.writestr(f"{prompt.name}/SKILL.md", content)
+    buffer.seek(0)
+    return buffer
 
-        tar.addfile(info, io.BytesIO(content))
-
-buffer.seek(0)
-return StreamingResponse(
-    buffer,
-    media_type="application/gzip",
-    headers={"Content-Disposition": "attachment; filename=skills.tar.gz"},
-)
+# Return appropriate response
+if format == "tar.gz":
+    return StreamingResponse(
+        create_tar_gz(prompts),
+        media_type="application/gzip",
+        headers={"Content-Disposition": "attachment; filename=skills.tar.gz"},
+    )
+else:
+    return StreamingResponse(
+        create_zip(prompts),
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=skills.zip"},
+    )
 ```
 
 ### Testing Strategy
@@ -342,16 +358,19 @@ Unit tests for `prompt_to_skill_md()`:
 
 API endpoint tests:
 
-1. **Basic export:** Create prompts with `skill` tag, verify tar.gz contains correct SKILL.md files
-2. **Tag filtering:** Create prompts with different tags, verify only matching ones exported
-3. **tag_match=any:** Create prompts, verify OR matching works
-4. **tag_match=all:** Create prompts with multiple tags, verify AND matching works
-5. **View filter:** Create active and archived prompts, verify `view` parameter works
-6. **Empty result:** No prompts match → valid empty tar.gz (extractable, no files)
-7. **Response headers:** Verify Content-Type, Content-Disposition
-8. **Directory structure:** Verify `{name}/SKILL.md` structure in tarball
-9. **Auth required:** 401 without authentication
-10. **PAT access allowed:** Verify PAT works (not Auth0-only)
+1. **Basic export (tar.gz):** Create prompts with `skill` tag, verify tar.gz contains correct SKILL.md files
+2. **Basic export (zip):** Same test with `?format=zip`, verify zip structure
+3. **Tag filtering:** Create prompts with different tags, verify only matching ones exported
+4. **tag_match=any:** Create prompts, verify OR matching works
+5. **tag_match=all:** Create prompts with multiple tags, verify AND matching works
+6. **View filter:** Create active and archived prompts, verify `view` parameter works
+7. **Empty result (tar.gz):** No prompts match → valid empty tar.gz (extractable, no files)
+8. **Empty result (zip):** No prompts match → valid empty zip
+9. **Response headers (tar.gz):** Verify Content-Type `application/gzip`, Content-Disposition
+10. **Response headers (zip):** Verify Content-Type `application/zip`, Content-Disposition
+11. **Directory structure:** Verify `{name}/SKILL.md` structure in both formats
+12. **Auth required:** 401 without authentication
+13. **PAT access allowed:** Verify PAT works (not Auth0-only)
 
 ### Dependencies
 
@@ -413,21 +432,15 @@ Enable skills with `codex --enable skills`. Invoke with `$skill-name` or let Cod
 
 ### Claude Desktop
 
-Claude Desktop requires `.zip` uploads. Manual steps:
+Download the zip file and upload to Claude Desktop:
 
-1. Download and extract the tar.gz:
-   ```bash
-   curl -sH "Authorization: Bearer YOUR_PAT" \
-     "https://prompts-mcp.tiddly.me/api/prompts/export/skills?tag=skill" \
-     -o skills.tar.gz && tar -xzf skills.tar.gz
-   ```
+```bash
+curl -sH "Authorization: Bearer YOUR_PAT" \
+  "https://prompts-mcp.tiddly.me/api/prompts/export/skills?tag=skill&format=zip" \
+  -o skills.zip
+```
 
-2. Zip each skill folder individually:
-   ```bash
-   cd skills && for d in */; do zip -r "${d%/}.zip" "$d"; done
-   ```
-
-3. Upload each `.zip` file in Claude Desktop → Settings → Capabilities → Skills
+Then upload `skills.zip` in Claude Desktop → Settings → Capabilities → Skills.
 
 Invoke skills via natural language (e.g., "use my code review skill").
 ```
@@ -445,7 +458,6 @@ Milestone 1
 ### Risk Factors
 
 - **UX complexity:** Three different clients with different instructions. Consider tabs, accordion, or separate sections for clarity.
-- **Claude Desktop workflow:** The manual repackaging is cumbersome. Consider future enhancement to support `.zip` export format.
 
 ---
 
@@ -478,7 +490,9 @@ Milestone 1
    - Use a high limit, or
    - Implement a generator/streaming approach if large exports become a concern
 
-4. **tar.gz only:** Per discussion, only tar.gz is supported (not zip). tar.gz works on macOS, Linux, and Windows 10+ natively.
+4. **Two archive formats:** Support both `tar.gz` (default) and `zip` via `?format=` parameter:
+   - `tar.gz`: For Claude Code and Codex (single piped command on macOS/Linux)
+   - `zip`: For Claude Desktop (direct upload)
 
 5. **Jinja2 vs $ARGUMENTS:** Our prompts use Jinja2 template variables (`{{ code }}`, `{{ language | default('') }}`). These are **contextual placeholders** that the LLM fills in based on the conversation. This is different from Claude Code's `$ARGUMENTS` system which is for **explicit user input** at invocation time (e.g., `/fix-issue 123`). We keep Jinja2 syntax because:
    - LLMs understand Jinja2 and can infer substitutions
@@ -489,7 +503,7 @@ Milestone 1
 
 7. **Edge case - empty tag:** If user passes `tag=""`, should return all prompts or error? Recommend: treat empty tag as "no tag filter" and return all active prompts. Or reject with 400. The implementing agent should decide and test.
 
-8. **Platform compatibility:** The exported tar.gz works directly on Claude Code and Codex. Claude Desktop requires `.zip` format, so users must manually extract and repackage:
-   - **Claude Code / Codex:** Extract tar.gz directly to skills directory (single command)
-   - **Claude Desktop:** Extract tar.gz, zip each skill folder individually, upload via Settings
+8. **Platform compatibility:** Each platform has its preferred format:
+   - **Claude Code / Codex:** Use `?format=tar.gz` (default) - extract directly to skills directory
+   - **Claude Desktop:** Use `?format=zip` - download and upload via Settings
    - **ChatGPT:** Not supported (no user skill upload available)
