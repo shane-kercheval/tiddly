@@ -1,4 +1,9 @@
 """Prompts CRUD endpoints."""
+
+import io
+import tarfile
+import time
+import zipfile
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
@@ -7,6 +12,7 @@ if TYPE_CHECKING:
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi import Response as FastAPIResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,9 +55,14 @@ from services.content_lines import apply_partial_read
 from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
 from services.prompt_service import NameConflictError, PromptService, validate_template
+from services.skill_converter import ClientType, prompt_to_skill_md
 from services.template_renderer import TemplateError, render_template
 
 router = APIRouter(prefix="/prompts", tags=["prompts"])
+
+# Page size for internal pagination when fetching all prompts for export
+# Exposed as constant for testability
+EXPORT_PAGE_SIZE = 100
 
 # Type alias for str-replace response union
 StrReplaceResponse = StrReplaceSuccess[PromptResponse] | StrReplaceSuccessMinimal
@@ -427,6 +438,126 @@ async def str_replace_prompt_by_name(
         raise HTTPException(status_code=404, detail="Prompt not found")
 
     return await _perform_str_replace(db, prompt, data, include_updated_entity)
+
+
+def _build_skills_dict(
+    prompts: list["Prompt"],
+    client: ClientType,
+) -> dict[str, str]:
+    """
+    Convert prompts to skills and deduplicate by directory name.
+
+    If multiple prompts truncate to the same directory name, the last one wins.
+    This ensures deterministic archive contents regardless of extraction tool.
+
+    Returns:
+        Dict mapping directory_name to SKILL.md content.
+    """
+    skills: dict[str, str] = {}
+    for prompt in prompts:
+        skill = prompt_to_skill_md(prompt, client)
+        skills[skill.directory_name] = skill.content
+    return skills
+
+
+def _create_tar_gz(prompts: list["Prompt"], client: ClientType) -> io.BytesIO:
+    """Create a tar.gz archive containing SKILL.md files for each prompt."""
+    skills = _build_skills_dict(prompts, client)
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+        for directory_name, content in skills.items():
+            content_bytes = content.encode("utf-8")
+            info = tarfile.TarInfo(name=f"{directory_name}/SKILL.md")
+            info.size = len(content_bytes)
+            info.mtime = int(time.time())
+            tar.addfile(info, io.BytesIO(content_bytes))
+    buffer.seek(0)
+    return buffer
+
+
+def _create_zip(prompts: list["Prompt"], client: ClientType) -> io.BytesIO:
+    """Create a zip archive containing SKILL.md files for each prompt."""
+    skills = _build_skills_dict(prompts, client)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for directory_name, content in skills.items():
+            zf.writestr(f"{directory_name}/SKILL.md", content)
+    buffer.seek(0)
+    return buffer
+
+
+@router.get("/export/skills")
+async def export_skills(
+    client: ClientType = Query(..., description="Target client for export"),
+    tags: list[str] = Query(
+        default=[],
+        description="Tags to filter prompts (empty = all prompts)",
+    ),
+    tag_match: Literal["all", "any"] = Query(
+        default="all",
+        description="Tag matching mode: 'all' (AND) or 'any' (OR)",
+    ),
+    view: Literal["active", "archived", "deleted"] = Query(
+        default="active",
+        description="View filter",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> StreamingResponse:
+    """
+    Export prompts as skills for the specified client.
+
+    Returns an archive containing {prompt-name}/SKILL.md for each matching prompt.
+    Archive format is determined by client:
+    - claude-desktop: zip (for upload via Settings)
+    - claude-code, codex: tar.gz (for direct extraction)
+
+    If no tags specified, exports ALL prompts.
+
+    The SKILL.md format follows the Agent Skills Standard (agentskills.io):
+    - YAML frontmatter with name and description
+    - Template Variables section documenting Jinja2 placeholders
+    - Instructions section with the raw template content
+
+    Client-specific constraints:
+    - claude-code/claude-desktop: name max 64 chars, desc max 1024 chars
+    - codex: name max 100 chars, desc max 500 chars (single-line only)
+    """
+    # Collect all matching prompts (handle pagination internally)
+    all_prompts: list["Prompt"] = []  # noqa: UP037
+    offset = 0
+
+    while True:
+        prompts, total = await prompt_service.search(
+            db=db,
+            user_id=current_user.id,
+            tags=tags if tags else None,  # None = no tag filter
+            tag_match=tag_match,
+            view=view,
+            offset=offset,
+            limit=EXPORT_PAGE_SIZE,
+            include_content=True,  # Need full content for export
+        )
+        all_prompts.extend(prompts)
+        if len(all_prompts) >= total:
+            break
+        offset += EXPORT_PAGE_SIZE
+
+    # Determine archive format based on client
+    if client == "claude-desktop":
+        archive = _create_zip(all_prompts, client)
+        return StreamingResponse(
+            archive,
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=skills.zip"},
+        )
+
+    archive = _create_tar_gz(all_prompts, client)
+    return StreamingResponse(
+        archive,
+        media_type="application/gzip",
+        headers={"Content-Disposition": "attachment; filename=skills.tar.gz"},
+    )
 
 
 @router.get("/{prompt_id}", response_model=PromptResponse)
