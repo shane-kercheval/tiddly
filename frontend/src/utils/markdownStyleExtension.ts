@@ -33,12 +33,12 @@ const SYNTAX_FONT_SIZE = '0.9em'
  */
 class CheckboxWidget extends WidgetType {
   checked: boolean
-  pos: number
+  bracketPos: number  // Position of [ character for editing
 
-  constructor(checked: boolean, pos: number) {
+  constructor(checked: boolean, bracketPos: number) {
     super()
     this.checked = checked
-    this.pos = pos
+    this.bracketPos = bracketPos
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -52,7 +52,7 @@ class CheckboxWidget extends WidgetType {
       e.preventDefault() // Prevent focus change
       const newText = this.checked ? '[ ]' : '[x]'
       view.dispatch({
-        changes: { from: this.pos, to: this.pos + 3, insert: newText },
+        changes: { from: this.bracketPos, to: this.bracketPos + 3, insert: newText },
       })
     })
 
@@ -60,7 +60,7 @@ class CheckboxWidget extends WidgetType {
   }
 
   eq(other: CheckboxWidget): boolean {
-    return other.checked === this.checked && other.pos === this.pos
+    return other.checked === this.checked && other.bracketPos === this.bracketPos
   }
 
   ignoreEvent(): boolean {
@@ -74,7 +74,8 @@ class CheckboxWidget extends WidgetType {
 interface LineInfo {
   type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'bullet' | 'numbered' | 'task' | 'blockquote' | 'code-start' | 'code-end' | 'code-content' | 'hr'
   checked?: boolean
-  checkboxPos?: number
+  checkboxPos?: number  // Position to place the widget (start of line after indent)
+  bracketPos?: number   // Position of [ character for editing
 }
 
 function parseLine(text: string, inCodeBlock: boolean): LineInfo | null {
@@ -97,12 +98,15 @@ function parseLine(text: string, inCodeBlock: boolean): LineInfo | null {
   if (text.startsWith('###### ')) return { type: 'h6' }
 
   // Task lists - check for [ ] or [x]
-  const taskMatch = text.match(/^(\s*)[-*+]\s+\[([ xX])\]\s/)
+  const taskMatch = text.match(/^(\s*)([-*+])\s+\[([ xX])\]\s/)
   if (taskMatch) {
-    const checked = taskMatch[2].toLowerCase() === 'x'
-    // Position of the [ character
-    const checkboxPos = taskMatch[1].length + 2 // indent + "- "
-    return { type: 'task', checked, checkboxPos }
+    const checked = taskMatch[3].toLowerCase() === 'x'
+    const indent = taskMatch[1].length
+    // checkboxPos: start of line (after indent) - widget appears before "- [ ]"
+    // bracketPos: position of [ character - for editing when clicked
+    const checkboxPos = indent
+    const bracketPos = indent + taskMatch[2].length + 1 // indent + "-" + " "
+    return { type: 'task', checked, checkboxPos, bracketPos }
   }
 
   // Bullet lists
@@ -509,13 +513,14 @@ function buildDecorations(view: EditorView): DecorationSet {
       const inlineDecorations: Array<{ from: number; to: number; decoration: Decoration }> = []
 
       // Checkbox widget for task items (added here so it sorts with other decorations)
-      if (info?.type === 'task' && info.checkboxPos !== undefined) {
-        const checkboxPos = line.from + info.checkboxPos
+      if (info?.type === 'task' && info.checkboxPos !== undefined && info.bracketPos !== undefined) {
+        const widgetPos = line.from + info.checkboxPos   // Where to place the widget
+        const bracketPos = line.from + info.bracketPos   // Where [ is for editing
         inlineDecorations.push({
-          from: checkboxPos,
-          to: checkboxPos,
+          from: widgetPos,
+          to: widgetPos,
           decoration: Decoration.widget({
-            widget: new CheckboxWidget(info.checked ?? false, checkboxPos),
+            widget: new CheckboxWidget(info.checked ?? false, bracketPos),
             side: -1,
           }),
         })
@@ -892,27 +897,25 @@ const markdownBaseTheme = EditorView.baseTheme({
     borderRadius: '3px',
   },
 
-  // Checkbox widget - positioned to the left, negative marginRight pulls text closer
+  // Checkbox widget - appears before the task syntax
   '.cm-checkbox-widget': {
     width: '14px',
     height: '14px',
-    marginRight: '-24px',
-    marginLeft: '-20px',
+    marginRight: '4px',
     verticalAlign: 'middle',
     cursor: 'pointer',
     accentColor: '#374151',
-    position: 'relative',
-    zIndex: '10',
     pointerEvents: 'auto',
   },
 
-  // Task syntax (- [ ] or - [x]) - hidden since checkbox replaces it visually
+  // Task syntax (- [ ] or - [x]) - dimmed gray like other markdown syntax
   '.cm-md-task-syntax': {
-    color: 'transparent !important',
+    color: `${SYNTAX_COLOR} !important`,
     textDecoration: 'none !important',
+    fontSize: SYNTAX_FONT_SIZE,
   },
   '.cm-md-task-syntax *': {
-    color: 'transparent !important',
+    color: `${SYNTAX_COLOR} !important`,
     textDecoration: 'none !important',
   },
 

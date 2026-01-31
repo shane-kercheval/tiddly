@@ -23,7 +23,7 @@ export function ContentCardTags({
   if (tags.length === 0) return null
 
   return (
-    <div className="inline-flex flex-wrap items-center gap-1">
+    <div className="inline-flex flex-wrap items-baseline gap-1 md:-translate-y-0.5">
       {tags.map((tag) => (
         <Tag
           key={tag}

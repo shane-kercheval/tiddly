@@ -103,7 +103,7 @@ body {
   }
 
   .badge-secondary {
-    @apply inline-flex items-center rounded-md bg-gray-50 px-1.5 py-px text-xs font-normal text-gray-600 border border-gray-200;
+    @apply inline-flex items-baseline rounded-md bg-gray-50 px-1.5 py-px text-xs font-normal text-gray-600 border border-gray-200;
   }
 
   /* Modal backdrop with safe area support for notched devices */

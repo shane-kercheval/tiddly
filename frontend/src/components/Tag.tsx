@@ -39,7 +39,7 @@ export function Tag({
   )
 
   return (
-    <div className="group/tag relative">
+    <div className="group/tag relative inline-flex items-baseline">
       {onClick ? (
         <button
           onClick={(e) => {

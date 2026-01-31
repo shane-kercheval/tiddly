@@ -165,7 +165,7 @@ export function PromptCard({
           {/* Row 1: Title + tags + date */}
           <div className="flex items-start gap-2">
             {/* Left: Title and tags */}
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0 flex-1">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0 flex-1">
               <button
                 onClick={handleTitleClick}
                 className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"

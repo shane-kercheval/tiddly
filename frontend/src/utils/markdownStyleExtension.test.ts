@@ -434,15 +434,17 @@ describe('parseLine', () => {
       expect(result?.checked).toBe(true)
     })
 
-    it('should provide checkbox position', () => {
+    it('should provide checkbox and bracket positions', () => {
       const result = parseLine('- [ ] Task', false)
-      expect(result?.checkboxPos).toBe(2) // Position of [
+      expect(result?.checkboxPos).toBe(0) // Widget position (start of line)
+      expect(result?.bracketPos).toBe(2)  // Position of [ for editing
     })
 
     it('should handle indented tasks', () => {
       const result = parseLine('  - [ ] Nested task', false)
       expect(result?.type).toBe('task')
-      expect(result?.checkboxPos).toBe(4) // indent + "- "
+      expect(result?.checkboxPos).toBe(2) // Widget position (after indent)
+      expect(result?.bracketPos).toBe(4)  // Position of [ for editing
     })
   })
 
