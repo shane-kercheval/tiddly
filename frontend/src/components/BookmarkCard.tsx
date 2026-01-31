@@ -5,7 +5,7 @@
  * Bookmark-specific features (favicon, URL display, copy button, edit button,
  * showContentTypeIcon toggle, link click tracking) stay here.
  */
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { BookmarkListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
@@ -86,6 +86,16 @@ export function BookmarkCard({
 
   // State for copy button feedback
   const [copySuccess, setCopySuccess] = useState(false)
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Clean up timer on unmount to prevent state updates after teardown
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // Track usage when link is clicked (unless shift+modifier key is held for silent mode)
   const handleLinkClick = (e: React.MouseEvent): void => {
@@ -112,8 +122,8 @@ export function BookmarkCard({
       setCopySuccess(true)
       // Track usage when copying
       onLinkClick?.(bookmark)
-      // Reset after brief flash
-      setTimeout(() => setCopySuccess(false), 1000)
+      // Reset after brief flash (store ref for cleanup on unmount)
+      copyTimeoutRef.current = setTimeout(() => setCopySuccess(false), 1000)
     } catch (err) {
       console.error('Failed to copy URL:', err)
     }
