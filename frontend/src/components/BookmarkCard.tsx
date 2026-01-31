@@ -145,7 +145,7 @@ export function BookmarkCard({
             {displayTitle}
           </span>
 
-          {/* URL row (if has title) */}
+          {/* URL row (if has title) - always show as link on mobile (no hover) */}
           {hasTitle && (
             <button
               onClick={handleUrlClick}
@@ -162,7 +162,7 @@ export function BookmarkCard({
                   }}
                 />
               )}
-              <span className="text-xs text-gray-400 truncate" title={bookmark.url}>
+              <span className="text-xs text-blue-500 underline truncate" title={bookmark.url}>
                 {displayUrl}
               </span>
             </button>
