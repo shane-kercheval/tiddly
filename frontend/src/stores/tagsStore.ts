@@ -14,6 +14,7 @@ interface TagsState {
 
 interface FetchTagsOptions {
   includeInactive?: boolean
+  contentTypes?: ('bookmark' | 'note' | 'prompt')[]
 }
 
 interface TagsActions {
@@ -38,6 +39,9 @@ export const useTagsStore = create<TagsStore>((set, get) => ({
       const params = new URLSearchParams()
       if (options?.includeInactive) {
         params.set('include_inactive', 'true')
+      }
+      if (options?.contentTypes) {
+        options.contentTypes.forEach((ct) => params.append('content_types', ct))
       }
       const url = params.toString() ? `/tags/?${params.toString()}` : '/tags/'
       const response = await api.get<TagListResponse>(url)

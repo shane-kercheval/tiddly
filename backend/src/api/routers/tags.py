@@ -1,5 +1,7 @@
 """Tag management endpoints."""
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_user
@@ -20,6 +22,13 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 @router.get("/", response_model=TagListResponse)
 async def list_tags(
     include_inactive: bool = False,
+    content_types: list[Literal["bookmark", "note", "prompt"]] | None = Query(
+        default=None,
+        description="Filter to tags associated with these content types. "
+        "When specified, only returns tags that have at least one item of these "
+        "types (or are used in a compatible filter). Also scopes content_count "
+        "and filter_count to only count items/filters of these types.",
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> TagListResponse:
@@ -30,11 +39,18 @@ async def list_tags(
     `filter_count` (number of filters using this tag).
 
     By default, returns only tags with at least one active content item OR
-    used in at least one filter. Use include_inactive=true to include all tags.
+    used in at least one filter. Use include_inactive=true to include tags
+    that only have archived/deleted content.
+
+    When content_types is specified, only returns tags associated with those
+    content types. For example, content_types=prompt returns only tags that
+    are used on at least one prompt.
 
     Results are sorted by filter_count DESC, content_count DESC, then name ASC.
     """
-    tags = await get_user_tags_with_counts(db, current_user.id, include_inactive)
+    tags = await get_user_tags_with_counts(
+        db, current_user.id, include_inactive, content_types,
+    )
     return TagListResponse(tags=tags)
 
 

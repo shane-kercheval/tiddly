@@ -1,4 +1,5 @@
 """Service layer for tag operations."""
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import cast, func, literal, select, type_coerce
@@ -43,6 +44,61 @@ class TagInUseByFiltersError(Exception):
         super().__init__(
             f"Tag '{tag_name}' is used in {len(filters)} filter(s): {filters_str}",
         )
+
+
+def _build_active_content_count_subquery(
+    junction_table: Any,
+    entity_model: type,
+    id_column_name: str,
+) -> Any:
+    """Build a subquery to count active (non-deleted, non-archived) items for a tag."""
+    id_column = getattr(junction_table.c, id_column_name)
+    subq = (
+        select(func.count(id_column))
+        .select_from(junction_table)
+        .join(entity_model, id_column == entity_model.id)
+        .where(
+            junction_table.c.tag_id == Tag.id,
+            entity_model.deleted_at.is_(None),
+            ~entity_model.is_archived,
+        )
+        .correlate(Tag)
+        .scalar_subquery()
+    )
+    return func.coalesce(subq, 0)
+
+
+def _build_has_content_subquery(
+    junction_table: Any,
+) -> Any:
+    """Build a subquery to check if a tag has ANY content (including archived/deleted)."""
+    return (
+        select(literal(1))
+        .select_from(junction_table)
+        .where(junction_table.c.tag_id == Tag.id)
+        .correlate(Tag)
+        .exists()
+    )
+
+
+def _sum_expressions(parts: list) -> Any:
+    """Sum a list of SQLAlchemy expressions. Returns None if parts is empty."""
+    if not parts:
+        return None
+    result = parts[0]
+    for part in parts[1:]:
+        result = result + part
+    return result
+
+
+def _or_expressions(parts: list) -> Any:
+    """OR together a list of SQLAlchemy expressions. Returns None if parts is empty."""
+    if not parts:
+        return None
+    result = parts[0]
+    for part in parts[1:]:
+        result = result | part
+    return result
 
 
 async def get_or_create_tags(
@@ -109,76 +165,37 @@ async def get_user_tags_with_counts(
         db: Database session.
         user_id: User ID to scope tags.
         include_inactive: If True, include tags with no active content or filters.
-            Useful for tag management UI. Defaults to False.
-        content_types: If provided, only count items of these types for content_count.
+            When combined with content_types, includes tags that have archived/deleted
+            items of those types. Useful for tag management UI. Defaults to False.
+        content_types: If provided, filter to only tags associated with these content
+            types. Also scopes content_count and filter_count to those types.
             Valid values: "bookmark", "note", "prompt". None means all types.
 
     Returns:
         List of TagCount objects sorted by filter_count desc, content_count desc,
         then name asc.
     """
-    include_bookmarks = content_types is None or "bookmark" in content_types
-    include_notes = content_types is None or "note" in content_types
-    include_prompts = content_types is None or "prompt" in content_types
+    # Define content type configurations: (type_name, junction_table, model, id_column)
+    type_configs = [
+        ("bookmark", bookmark_tags, Bookmark, "bookmark_id"),
+        ("note", note_tags, Note, "note_id"),
+        ("prompt", prompt_tags, Prompt, "prompt_id"),
+    ]
 
-    # Build content_count from included types
-    count_parts = []
+    # Filter to included types
+    included_configs = [
+        cfg for cfg in type_configs
+        if content_types is None or cfg[0] in content_types
+    ]
 
-    if include_bookmarks:
-        # Subquery for counting active bookmarks per tag
-        bookmark_count_subq = (
-            select(func.count(bookmark_tags.c.bookmark_id))
-            .select_from(bookmark_tags)
-            .join(Bookmark, bookmark_tags.c.bookmark_id == Bookmark.id)
-            .where(
-                bookmark_tags.c.tag_id == Tag.id,
-                Bookmark.deleted_at.is_(None),
-                ~Bookmark.is_archived,
-            )
-            .correlate(Tag)
-            .scalar_subquery()
-        )
-        count_parts.append(func.coalesce(bookmark_count_subq, 0))
-
-    if include_notes:
-        # Subquery for counting active notes per tag
-        note_count_subq = (
-            select(func.count(note_tags.c.note_id))
-            .select_from(note_tags)
-            .join(Note, note_tags.c.note_id == Note.id)
-            .where(
-                note_tags.c.tag_id == Tag.id,
-                Note.deleted_at.is_(None),
-                ~Note.is_archived,
-            )
-            .correlate(Tag)
-            .scalar_subquery()
-        )
-        count_parts.append(func.coalesce(note_count_subq, 0))
-
-    if include_prompts:
-        # Subquery for counting active prompts per tag
-        prompt_count_subq = (
-            select(func.count(prompt_tags.c.prompt_id))
-            .select_from(prompt_tags)
-            .join(Prompt, prompt_tags.c.prompt_id == Prompt.id)
-            .where(
-                prompt_tags.c.tag_id == Tag.id,
-                Prompt.deleted_at.is_(None),
-                ~Prompt.is_archived,
-            )
-            .correlate(Tag)
-            .scalar_subquery()
-        )
-        count_parts.append(func.coalesce(prompt_count_subq, 0))
+    # Build content_count from included types (only counts ACTIVE items)
+    count_parts = [
+        _build_active_content_count_subquery(cfg[1], cfg[2], cfg[3])
+        for cfg in included_configs
+    ]
 
     # Combined count from included types (fallback to 0 if no types included)
-    if count_parts:
-        content_count_expr = count_parts[0]
-        for part in count_parts[1:]:
-            content_count_expr = content_count_expr + part
-    else:
-        content_count_expr = literal(0)
+    content_count_expr = _sum_expressions(count_parts) if count_parts else literal(0)
     content_count = content_count_expr.label("content_count")
 
     # Subquery for counting filters using this tag.
@@ -208,6 +225,13 @@ async def get_user_tags_with_counts(
     )
     filter_count = func.coalesce(filter_count_subq, 0).label("filter_count")
 
+    # Build subqueries to check if tag has ANY content of specified types
+    # (including archived/deleted). Used for content_types filtering.
+    has_content_parts = [
+        _build_has_content_subquery(cfg[1])
+        for cfg in included_configs
+    ] if content_types is not None else []
+
     query = (
         select(Tag.name, content_count, filter_count)
         .where(Tag.user_id == user_id)
@@ -215,9 +239,24 @@ async def get_user_tags_with_counts(
         .order_by(filter_count.desc(), content_count.desc(), Tag.name.asc())
     )
 
-    if not include_inactive:
-        # Include tags with content_count > 0 OR filter_count > 0
+    # Apply filtering based on content_types and include_inactive
+    has_any_content = _or_expressions(has_content_parts)
+
+    if has_any_content is not None:
+        # content_types specified with valid types - filter to those types
+        if include_inactive:
+            # Include tags with ANY content of specified types (including archived/deleted)
+            query = query.having(has_any_content | (filter_count > 0))
+        else:
+            # Only include tags with ACTIVE content of specified types
+            query = query.having((content_count > 0) | (filter_count > 0))
+    elif content_types is not None:
+        # content_types=[] (empty list) - no types to match, return nothing
+        query = query.having(filter_count > 0)
+    elif not include_inactive:
+        # No content_types filter, but exclude orphaned tags
         query = query.having((content_count > 0) | (filter_count > 0))
+    # else: no content_types and include_inactive=True -> return all tags
 
     result = await db.execute(query)
     return [

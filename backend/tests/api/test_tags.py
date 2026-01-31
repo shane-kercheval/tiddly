@@ -929,3 +929,352 @@ async def test__delete_tag__succeeds_after_removing_from_filter(
     # Now delete should succeed
     delete_response = await client.delete("/tags/removable-tag")
     assert delete_response.status_code == 204
+
+
+# ============================================================================
+# content_types filter tests
+# ============================================================================
+
+
+async def test__list_tags__content_types_prompt_only_returns_prompt_tags(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types=prompt only returns tags associated with prompts."""
+    # Create bookmark with bookmark-only tag
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["bookmark-only", "shared"]},
+    )
+
+    # Create note with note-only tag
+    await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Content", "tags": ["note-only", "shared"]},
+    )
+
+    # Create prompt with prompt-only tag
+    await client.post(
+        "/prompts/",
+        json={"name": "test-prompt", "content": "Hello", "tags": ["prompt-only", "shared"]},
+    )
+
+    # Without filter: all tags returned
+    response = await client.get("/tags/")
+    assert response.status_code == 200
+    all_tags = {t["name"] for t in response.json()["tags"]}
+    assert all_tags == {"bookmark-only", "note-only", "prompt-only", "shared"}
+
+    # With content_types=prompt: only tags associated with prompts
+    response = await client.get("/tags/?content_types=prompt")
+    assert response.status_code == 200
+    prompt_tags = {t["name"] for t in response.json()["tags"]}
+    assert prompt_tags == {"prompt-only", "shared"}
+    assert "bookmark-only" not in prompt_tags
+    assert "note-only" not in prompt_tags
+
+
+async def test__list_tags__content_types_prompt_content_count_only_counts_prompts(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types=prompt makes content_count only count prompts."""
+    # Create shared tag on multiple content types
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["shared"]},
+    )
+    await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Content", "tags": ["shared"]},
+    )
+    await client.post(
+        "/prompts/",
+        json={"name": "prompt-1", "content": "Hello", "tags": ["shared"]},
+    )
+    await client.post(
+        "/prompts/",
+        json={"name": "prompt-2", "content": "World", "tags": ["shared"]},
+    )
+
+    # Without filter: content_count = 4 (1 bookmark + 1 note + 2 prompts)
+    response = await client.get("/tags/")
+    tags_dict = {t["name"]: t for t in response.json()["tags"]}
+    assert tags_dict["shared"]["content_count"] == 4
+
+    # With content_types=prompt: content_count = 2 (only prompts)
+    response = await client.get("/tags/?content_types=prompt")
+    tags_dict = {t["name"]: t for t in response.json()["tags"]}
+    assert tags_dict["shared"]["content_count"] == 2
+
+
+async def test__list_tags__content_types_bookmark_only_returns_bookmark_tags(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types=bookmark only returns tags associated with bookmarks."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["bookmark-tag"]},
+    )
+    await client.post(
+        "/prompts/",
+        json={"name": "test-prompt", "content": "Hello", "tags": ["prompt-tag"]},
+    )
+
+    response = await client.get("/tags/?content_types=bookmark")
+    assert response.status_code == 200
+    tags = {t["name"] for t in response.json()["tags"]}
+    assert tags == {"bookmark-tag"}
+
+
+async def test__list_tags__content_types_multiple_types(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types accepts multiple types."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["bookmark-tag"]},
+    )
+    await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Content", "tags": ["note-tag"]},
+    )
+    await client.post(
+        "/prompts/",
+        json={"name": "test-prompt", "content": "Hello", "tags": ["prompt-tag"]},
+    )
+
+    # Request bookmark and note tags only
+    response = await client.get("/tags/?content_types=bookmark&content_types=note")
+    assert response.status_code == 200
+    tags = {t["name"] for t in response.json()["tags"]}
+    assert tags == {"bookmark-tag", "note-tag"}
+    assert "prompt-tag" not in tags
+
+
+async def test__list_tags__content_types_with_include_inactive_includes_archived_tags(
+    client: AsyncClient,
+) -> None:
+    """Test that include_inactive=true with content_types includes archived/deleted items."""
+    # Create active prompt
+    await client.post(
+        "/prompts/",
+        json={"name": "active-prompt", "content": "Hello", "tags": ["active-tag"]},
+    )
+
+    # Create and archive a prompt
+    archived_response = await client.post(
+        "/prompts/",
+        json={"name": "archived-prompt", "content": "Hello", "tags": ["archived-tag"]},
+    )
+    await client.post(f"/prompts/{archived_response.json()['id']}/archive")
+
+    # content_types=prompt without include_inactive: only active-tag
+    response = await client.get("/tags/?content_types=prompt")
+    tags = {t["name"] for t in response.json()["tags"]}
+    assert tags == {"active-tag"}
+
+    # content_types=prompt WITH include_inactive: both tags
+    response = await client.get("/tags/?content_types=prompt&include_inactive=true")
+    tags_dict = {t["name"]: t for t in response.json()["tags"]}
+    assert "active-tag" in tags_dict
+    assert "archived-tag" in tags_dict
+    assert tags_dict["active-tag"]["content_count"] == 1
+    assert tags_dict["archived-tag"]["content_count"] == 0  # Archived, so not counted
+
+
+async def test__list_tags__content_types_with_include_inactive_excludes_other_types(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types still filters by type even with include_inactive=true."""
+    # Create bookmark-only tag
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["bookmark-only"]},
+    )
+
+    # Create and archive a prompt
+    archived_response = await client.post(
+        "/prompts/",
+        json={"name": "archived-prompt", "content": "Hello", "tags": ["prompt-archived"]},
+    )
+    await client.post(f"/prompts/{archived_response.json()['id']}/archive")
+
+    # content_types=prompt with include_inactive: only prompt-archived (not bookmark-only)
+    response = await client.get("/tags/?content_types=prompt&include_inactive=true")
+    tags = {t["name"] for t in response.json()["tags"]}
+    assert tags == {"prompt-archived"}
+    assert "bookmark-only" not in tags
+
+
+async def test__list_tags__content_types_excludes_archived_by_default(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types filter excludes archived/deleted items by default."""
+    # Create active prompt
+    await client.post(
+        "/prompts/",
+        json={"name": "active-prompt", "content": "Hello", "tags": ["active-tag"]},
+    )
+
+    # Create and archive a prompt
+    archived_response = await client.post(
+        "/prompts/",
+        json={"name": "archived-prompt", "content": "Hello", "tags": ["archived-tag"]},
+    )
+    await client.post(f"/prompts/{archived_response.json()['id']}/archive")
+
+    # Create and delete a prompt
+    deleted_response = await client.post(
+        "/prompts/",
+        json={"name": "deleted-prompt", "content": "Hello", "tags": ["deleted-tag"]},
+    )
+    await client.delete(f"/prompts/{deleted_response.json()['id']}")
+
+    # Only active-tag should appear
+    response = await client.get("/tags/?content_types=prompt")
+    tags = {t["name"] for t in response.json()["tags"]}
+    assert tags == {"active-tag"}
+
+
+async def test__list_tags__content_types_filter_count_scoped_to_content_types(
+    client: AsyncClient,
+) -> None:
+    """Test that filter_count only counts filters matching the content_types."""
+    # Create a bookmark-only filter with a tag
+    await client.post(
+        "/filters/",
+        json={
+            "name": "Bookmark Filter",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["shared-tag"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+
+    # Create a prompt-only filter with the same tag
+    await client.post(
+        "/filters/",
+        json={
+            "name": "Prompt Filter",
+            "content_types": ["prompt"],
+            "filter_expression": {
+                "groups": [{"tags": ["shared-tag"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+
+    # Also need content for the tag to appear (filters alone don't show with content_types)
+    await client.post(
+        "/prompts/",
+        json={"name": "test-prompt", "content": "Hello", "tags": ["shared-tag"]},
+    )
+
+    # Without content_types: filter_count = 2
+    response = await client.get("/tags/")
+    tags_dict = {t["name"]: t for t in response.json()["tags"]}
+    assert tags_dict["shared-tag"]["filter_count"] == 2
+
+    # With content_types=prompt: filter_count = 1 (only prompt filter counts)
+    response = await client.get("/tags/?content_types=prompt")
+    tags_dict = {t["name"]: t for t in response.json()["tags"]}
+    assert tags_dict["shared-tag"]["filter_count"] == 1
+
+
+async def test__list_tags__content_types_includes_filter_only_tags(
+    client: AsyncClient,
+) -> None:
+    """Test that filter-only tags appear when filter matches content_types."""
+    # Create a prompt filter with a tag (no actual prompts with this tag)
+    await client.post(
+        "/filters/",
+        json={
+            "name": "Prompt Filter",
+            "content_types": ["prompt"],
+            "filter_expression": {
+                "groups": [{"tags": ["filter-only-tag"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+
+    # Tag should appear with content_types=prompt (filter is prompt-compatible)
+    response = await client.get("/tags/?content_types=prompt")
+    tags = {t["name"] for t in response.json()["tags"]}
+    assert "filter-only-tag" in tags
+
+    # Verify counts
+    tags_dict = {t["name"]: t for t in response.json()["tags"]}
+    assert tags_dict["filter-only-tag"]["content_count"] == 0
+    assert tags_dict["filter-only-tag"]["filter_count"] == 1
+
+
+async def test__list_tags__content_types_excludes_incompatible_filter_only_tags(
+    client: AsyncClient,
+) -> None:
+    """Test that filter-only tags don't appear if filter doesn't match content_types."""
+    # Create a bookmark filter with a tag (no prompts)
+    await client.post(
+        "/filters/",
+        json={
+            "name": "Bookmark Filter",
+            "content_types": ["bookmark"],
+            "filter_expression": {
+                "groups": [{"tags": ["bookmark-filter-tag"], "operator": "AND"}],
+                "group_operator": "OR",
+            },
+        },
+    )
+
+    # Tag should NOT appear with content_types=prompt
+    response = await client.get("/tags/?content_types=prompt")
+    tags = {t["name"] for t in response.json()["tags"]}
+    assert "bookmark-filter-tag" not in tags
+
+
+async def test__list_tags__content_types_invalid_type_rejected(
+    client: AsyncClient,
+) -> None:
+    """Test that invalid content_types values are rejected."""
+    response = await client.get("/tags/?content_types=invalid")
+    assert response.status_code == 422
+
+
+async def test__list_tags__content_types_empty_result_when_no_matching_content(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types returns empty list when no matching content exists."""
+    # Create only bookmarks
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["bookmark-tag"]},
+    )
+
+    # Request prompt tags - should be empty
+    response = await client.get("/tags/?content_types=prompt")
+    assert response.status_code == 200
+    assert response.json()["tags"] == []
+
+
+async def test__list_tags__content_types_note_only_returns_note_tags(
+    client: AsyncClient,
+) -> None:
+    """Test that content_types=note only returns tags associated with notes."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://example.com", "tags": ["bookmark-tag"]},
+    )
+    await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Content", "tags": ["note-tag"]},
+    )
+    await client.post(
+        "/prompts/",
+        json={"name": "test-prompt", "content": "Hello", "tags": ["prompt-tag"]},
+    )
+
+    response = await client.get("/tags/?content_types=note")
+    assert response.status_code == 200
+    tags = {t["name"] for t in response.json()["tags"]}
+    assert tags == {"note-tag"}
