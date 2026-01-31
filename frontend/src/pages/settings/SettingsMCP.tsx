@@ -1,10 +1,12 @@
 /**
  * Settings page for MCP (Model Context Protocol) and Skills setup instructions.
  */
-import { useState } from 'react'
-import type { ReactNode } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import type { ReactNode, KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { config } from '../../config'
+import { api } from '../../services/api'
+import type { TagCount, TagListResponse } from '../../types'
 
 const CONFIG_PATH_MAC = '~/Library/Application\\ Support/Claude/claude_desktop_config.json'
 const CONFIG_PATH_WINDOWS = '%APPDATA%\\Claude\\claude_desktop_config.json'
@@ -777,6 +779,503 @@ function AvailableTools({ server }: AvailableToolsProps): ReactNode {
   )
 }
 
+// =============================================================================
+// Skills Export Components
+// =============================================================================
+
+// Client type for skills export (subset that supports skills)
+type SkillsClientType = 'claude-code' | 'claude-desktop' | 'codex'
+
+/**
+ * Multi-select tag dropdown for filtering which prompts to export as skills.
+ */
+interface SkillsTagSelectorProps {
+  availableTags: TagCount[]
+  selectedTags: string[]
+  onChange: (tags: string[]) => void
+}
+
+function SkillsTagSelector({
+  availableTags,
+  selectedTags,
+  onChange,
+}: SkillsTagSelectorProps): ReactNode {
+  const [isOpen, setIsOpen] = useState(false)
+  const [inputValue, setInputValue] = useState('')
+  const containerRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Filter suggestions based on input
+  const filteredTags = availableTags.filter(
+    (tag) => tag.name.toLowerCase().includes(inputValue.toLowerCase())
+  )
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent): void {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const toggleTag = (tagName: string): void => {
+    if (selectedTags.includes(tagName)) {
+      onChange(selectedTags.filter((t) => t !== tagName))
+    } else {
+      onChange([...selectedTags, tagName])
+    }
+  }
+
+  const removeTag = (tagName: string): void => {
+    onChange(selectedTags.filter((t) => t !== tagName))
+  }
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Escape') {
+      setIsOpen(false)
+      inputRef.current?.blur()
+    }
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      {/* Selected tags display */}
+      <div
+        className="min-h-[42px] p-2 border border-gray-200 rounded-lg bg-white cursor-text flex flex-wrap gap-1.5 items-center"
+        onClick={() => {
+          setIsOpen(true)
+          inputRef.current?.focus()
+        }}
+      >
+        {selectedTags.length === 0 && !isOpen && (
+          <span className="text-gray-400 text-sm">All prompts (click to filter by tags)</span>
+        )}
+        {selectedTags.map((tag) => (
+          <span
+            key={tag}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700"
+          >
+            {tag}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                removeTag(tag)
+              }}
+              className="hover:text-orange-900"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </span>
+        ))}
+        {isOpen && (
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={selectedTags.length > 0 ? 'Add more...' : 'Type to filter...'}
+            className="flex-1 min-w-[100px] outline-none text-sm"
+            autoFocus
+          />
+        )}
+      </div>
+
+      {/* Dropdown */}
+      {isOpen && (
+        <div className="absolute z-10 mt-1 w-full max-h-60 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+          {filteredTags.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-gray-400">
+              {inputValue ? 'No matching tags' : 'No tags available'}
+            </div>
+          ) : (
+            filteredTags.map((tag) => {
+              const isSelected = selectedTags.includes(tag.name)
+              return (
+                <button
+                  key={tag.name}
+                  type="button"
+                  onClick={() => toggleTag(tag.name)}
+                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors ${
+                    isSelected
+                      ? 'bg-orange-50 text-orange-700'
+                      : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    {isSelected && (
+                      <svg className="w-4 h-4 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                    {tag.name}
+                  </span>
+                  <span className="text-xs text-gray-400">{tag.content_count}</span>
+                </button>
+              )
+            })
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Build the export URL for skills API endpoint.
+ */
+function buildSkillsExportUrl(client: SkillsClientType, selectedTags: string[]): string {
+  const params = new URLSearchParams()
+  params.append('client', client)
+  selectedTags.forEach((tag) => params.append('tags', tag))
+  return `${config.apiUrl}/prompts/export/skills?${params.toString()}`
+}
+
+/**
+ * Claude Code skills sync instructions.
+ */
+interface ClaudeCodeSkillsInstructionsProps {
+  exportUrl: string
+}
+
+function ClaudeCodeSkillsInstructions({ exportUrl }: ClaudeCodeSkillsInstructionsProps): ReactNode {
+  const [copiedCommand, setCopiedCommand] = useState(false)
+
+  const syncCommand = `mkdir -p ~/.claude/skills && curl -sH "Authorization: Bearer $PROMPTS_TOKEN" "${exportUrl}" | tar -xzf - -C ~/.claude/skills/`
+
+  const handleCopyCommand = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(syncCommand)
+      setCopiedCommand(true)
+      setTimeout(() => setCopiedCommand(false), 2000)
+    } catch {
+      // Silent fail
+    }
+  }
+
+  return (
+    <>
+      {/* Step 3: Sync Command */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 3: Sync Skills
+        </h3>
+        <p className="text-gray-600 mb-3">
+          Run this command to download and install your skills:
+        </p>
+        <div className="relative">
+          <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 whitespace-pre-wrap overflow-x-auto">
+            <code>{syncCommand}</code>
+          </pre>
+          <button
+            onClick={handleCopyCommand}
+            className={`absolute top-2 right-2 rounded px-2 py-1 text-xs transition-colors ${
+              copiedCommand
+                ? 'bg-green-600 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+          >
+            {copiedCommand ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+      </div>
+
+      {/* Step 4: Use Your Skills */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 4: Use Your Skills
+        </h3>
+        <p className="text-gray-600 mb-2">
+          After syncing, skills are available as <code className="bg-gray-100 px-1 rounded">/skill-name</code> slash commands.
+          Claude will also auto-invoke them when relevant to your task.
+        </p>
+        <p className="text-sm text-gray-500">
+          Tip: Add this command to a cron job or shell alias for regular syncing.
+        </p>
+      </div>
+
+      {/* Sync behavior note */}
+      <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
+        <h3 className="text-sm font-semibold text-gray-900 mb-2">Sync Behavior</h3>
+        <p className="text-sm text-gray-600">
+          Syncing is <strong>additive</strong>: new skills are added and existing skills are updated,
+          but skills are not deleted. To remove a skill, manually delete its folder from{' '}
+          <code className="bg-gray-200 px-1 rounded text-xs">~/.claude/skills/</code>.
+        </p>
+      </div>
+    </>
+  )
+}
+
+/**
+ * Codex skills sync instructions.
+ */
+interface CodexSkillsInstructionsProps {
+  exportUrl: string
+}
+
+function CodexSkillsInstructions({ exportUrl }: CodexSkillsInstructionsProps): ReactNode {
+  const [copiedCommand, setCopiedCommand] = useState(false)
+
+  const syncCommand = `mkdir -p ~/.codex/skills && curl -sH "Authorization: Bearer $PROMPTS_TOKEN" "${exportUrl}" | tar -xzf - -C ~/.codex/skills/`
+
+  const handleCopyCommand = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(syncCommand)
+      setCopiedCommand(true)
+      setTimeout(() => setCopiedCommand(false), 2000)
+    } catch {
+      // Silent fail
+    }
+  }
+
+  return (
+    <>
+      {/* Step 3: Sync Command */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 3: Sync Skills
+        </h3>
+        <p className="text-gray-600 mb-3">
+          Run this command to download and install your skills:
+        </p>
+        <div className="relative">
+          <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 whitespace-pre-wrap overflow-x-auto">
+            <code>{syncCommand}</code>
+          </pre>
+          <button
+            onClick={handleCopyCommand}
+            className={`absolute top-2 right-2 rounded px-2 py-1 text-xs transition-colors ${
+              copiedCommand
+                ? 'bg-green-600 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+          >
+            {copiedCommand ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+      </div>
+
+      {/* Step 4: Use Your Skills */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 4: Use Your Skills
+        </h3>
+        <p className="text-gray-600">
+          After syncing, invoke skills by typing <code className="bg-gray-100 px-1 rounded">$skill-name</code> in your prompt.
+          Codex will also auto-select skills based on your task context.
+        </p>
+      </div>
+
+      {/* Sync behavior note */}
+      <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
+        <h3 className="text-sm font-semibold text-gray-900 mb-2">Sync Behavior</h3>
+        <p className="text-sm text-gray-600">
+          Syncing is <strong>additive</strong>: new skills are added and existing skills are updated,
+          but skills are not deleted. To remove a skill, manually delete its folder from{' '}
+          <code className="bg-gray-200 px-1 rounded text-xs">~/.codex/skills/</code>.
+        </p>
+      </div>
+    </>
+  )
+}
+
+/**
+ * Claude Desktop skills download instructions.
+ */
+interface ClaudeDesktopSkillsInstructionsProps {
+  exportUrl: string
+}
+
+function ClaudeDesktopSkillsInstructions({ exportUrl }: ClaudeDesktopSkillsInstructionsProps): ReactNode {
+  const [copiedCommand, setCopiedCommand] = useState(false)
+
+  const downloadCommand = `curl -sH "Authorization: Bearer YOUR_PAT" "${exportUrl}" -o skills.zip`
+
+  const handleCopyCommand = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(downloadCommand)
+      setCopiedCommand(true)
+      setTimeout(() => setCopiedCommand(false), 2000)
+    } catch {
+      // Silent fail
+    }
+  }
+
+  return (
+    <>
+      {/* Step 3: Download */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 3: Download Zip File
+        </h3>
+        <p className="text-gray-600 mb-3">
+          Run this command to download your skills:
+        </p>
+        <div className="relative">
+          <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 whitespace-pre-wrap overflow-x-auto">
+            <code>{downloadCommand}</code>
+          </pre>
+          <button
+            onClick={handleCopyCommand}
+            className={`absolute top-2 right-2 rounded px-2 py-1 text-xs transition-colors ${
+              copiedCommand
+                ? 'bg-green-600 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+          >
+            {copiedCommand ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+        <p className="mt-2 text-sm text-gray-500">
+          Replace <code className="bg-gray-100 px-1 rounded">YOUR_PAT</code> with your Personal Access Token from Step 1.
+        </p>
+      </div>
+
+      {/* Step 4: Upload */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 4: Upload to Claude Desktop
+        </h3>
+        <ol className="list-decimal list-inside text-gray-600 space-y-2">
+          <li>Open Claude Desktop</li>
+          <li>Go to <strong>Settings → Capabilities → Skills</strong></li>
+          <li>Click &quot;Upload skill&quot; and select the downloaded <code className="bg-gray-100 px-1 rounded">skills.zip</code> file</li>
+        </ol>
+      </div>
+
+      {/* Step 5: Use Your Skills */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 5: Use Your Skills
+        </h3>
+        <p className="text-gray-600">
+          Skills are invoked via natural language (e.g., &quot;use my code review skill&quot;).
+          Claude will also auto-invoke them when relevant to your conversation.
+        </p>
+      </div>
+    </>
+  )
+}
+
+/**
+ * Main skills export section component.
+ */
+interface SkillsExportSectionProps {
+  client: SkillsClientType
+}
+
+/**
+ * Compute default tags based on available tags.
+ * Returns ['skill'] if 'skill' tag exists, ['skills'] if 'skills' tag exists, otherwise [].
+ */
+function getDefaultSkillTags(availableTags: TagCount[]): string[] {
+  const tagNames = availableTags.map((t) => t.name)
+  if (tagNames.includes('skill')) return ['skill']
+  if (tagNames.includes('skills')) return ['skills']
+  return []
+}
+
+function SkillsExportSection({ client }: SkillsExportSectionProps): ReactNode {
+  // Local state for prompt-only tags (don't use global store which has all tags)
+  const [promptTags, setPromptTags] = useState<TagCount[]>([])
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+
+  // Fetch prompt tags on mount and apply default selection
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchPromptTags = async (): Promise<void> => {
+      try {
+        const response = await api.get<TagListResponse>('/tags/?content_types=prompt')
+        if (!cancelled) {
+          const tags = response.data.tags
+          setPromptTags(tags)
+          // Apply default tag selection
+          const defaultTags = getDefaultSkillTags(tags)
+          if (defaultTags.length > 0) {
+            setSelectedTags(defaultTags)
+          }
+        }
+      } catch {
+        // Silent fail - tags are optional
+      }
+    }
+    fetchPromptTags()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const exportUrl = buildSkillsExportUrl(client, selectedTags)
+
+  return (
+    <>
+      {/* Client-specific notes */}
+      {(client === 'claude-code' || client === 'claude-desktop') && (
+        <div className="mb-6 rounded-lg bg-amber-50 border border-amber-200 p-4">
+          <p className="text-sm text-amber-800">
+            <strong>Note:</strong> Prompt names longer than 64 characters will be truncated for {client === 'claude-code' ? 'Claude Code' : 'Claude Desktop'}.
+          </p>
+        </div>
+      )}
+      {client === 'codex' && (
+        <div className="mb-6 rounded-lg bg-amber-50 border border-amber-200 p-4">
+          <p className="text-sm text-amber-800">
+            <strong>Note:</strong> Multi-line descriptions will be collapsed to a single line for Codex compatibility.
+          </p>
+        </div>
+      )}
+
+      {/* Step 1: Create PAT */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 1: Create a Personal Access Token
+        </h3>
+        <p className="text-gray-600 mb-3">
+          Create a PAT and set it as the <code className="bg-gray-100 px-1 rounded">PROMPTS_TOKEN</code> environment variable.
+        </p>
+        <Link
+          to="/app/settings/tokens"
+          className="btn-primary inline-flex items-center gap-2"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Create Token
+        </Link>
+      </div>
+
+      {/* Step 2: Filter by Tags */}
+      <div className="mb-8">
+        <h3 className="text-base font-semibold text-gray-900 mb-2">
+          Step 2: Filter by Tags (Optional)
+        </h3>
+        <p className="text-gray-600 mb-3">
+          Select which prompts to export. If no tags are selected, all prompts will be exported.
+        </p>
+        <SkillsTagSelector
+          availableTags={promptTags}
+          selectedTags={selectedTags}
+          onChange={setSelectedTags}
+        />
+      </div>
+
+      {/* Client-specific instructions */}
+      {client === 'claude-code' && <ClaudeCodeSkillsInstructions exportUrl={exportUrl} />}
+      {client === 'codex' && <CodexSkillsInstructions exportUrl={exportUrl} />}
+      {client === 'claude-desktop' && <ClaudeDesktopSkillsInstructions exportUrl={exportUrl} />}
+    </>
+  )
+}
+
 /**
  * MCP & Skills setup instructions settings page.
  */
@@ -787,33 +1286,50 @@ export function SettingsMCP(): ReactNode {
   const [auth, setAuth] = useState<AuthType>('bearer')
   const [integration, setIntegration] = useState<IntegrationType>('mcp')
 
-  // Determine what content to show
-  const isSupported = auth === 'bearer' && integration === 'mcp' && (client === 'claude-desktop' || client === 'claude-code' || client === 'codex')
+  // Helper flags
+  const isSkills = integration === 'skills'
+  const isSkillsClient = client === 'claude-desktop' || client === 'claude-code' || client === 'codex'
 
-  // Coming soon scenarios
+  // Determine what content to show for MCP mode
+  const isMcpSupported = auth === 'bearer' && integration === 'mcp' && isSkillsClient
+
+  // Determine if skills export is supported (skills only work with prompts and certain clients)
+  const isSkillsSupported = isSkills && isSkillsClient && server === 'prompts'
+
+  // Coming soon / not applicable scenarios
   const getComingSoonContent = (): { title: string; description: string } | null => {
-    if (integration === 'skills') {
-      return {
-        title: 'Skills Coming Soon',
-        description: 'Skills are pre-built agent capabilities that can be invoked directly from AI assistants without MCP configuration. Instructions coming soon.',
+    if (integration === 'mcp') {
+      if (client === 'chatgpt') {
+        return {
+          title: 'ChatGPT Integration Coming Soon',
+          description: 'ChatGPT requires OAuth authentication. OAuth implementation is coming soon.',
+        }
+      }
+      if (client === 'gemini-cli') {
+        return {
+          title: 'Gemini CLI Integration Coming Soon',
+          description: 'Gemini CLI MCP integration instructions are coming soon.',
+        }
+      }
+      if (auth === 'oauth') {
+        return {
+          title: 'OAuth Coming Soon',
+          description: 'OAuth authentication will allow secure browser-based login without needing to manage tokens manually. Coming soon.',
+        }
       }
     }
-    if (client === 'chatgpt') {
+    // Skills mode: Bookmarks & Notes not applicable
+    if (isSkills && server === 'content') {
       return {
-        title: 'ChatGPT Integration Coming Soon',
-        description: 'ChatGPT requires OAuth authentication. OAuth implementation is coming soon.',
+        title: 'Skills Only Apply to Prompts',
+        description: 'Skills are exported from your prompt templates. Select "Prompts" to export your prompt templates as skills.',
       }
     }
-    if (client === 'gemini-cli') {
+    // Skills mode: unsupported clients
+    if (isSkills && !isSkillsClient) {
       return {
-        title: 'Gemini CLI Integration Coming Soon',
-        description: 'Gemini CLI MCP integration instructions are coming soon.',
-      }
-    }
-    if (auth === 'oauth') {
-      return {
-        title: 'OAuth Coming Soon',
-        description: 'OAuth authentication will allow secure browser-based login without needing to manage tokens manually. Coming soon.',
+        title: `${client === 'chatgpt' ? 'ChatGPT' : 'Gemini CLI'} Skills Coming Soon`,
+        description: `Skills export for ${client === 'chatgpt' ? 'ChatGPT' : 'Gemini CLI'} is not yet supported.`,
       }
     }
     return null
@@ -821,25 +1337,30 @@ export function SettingsMCP(): ReactNode {
 
   const comingSoonContent = getComingSoonContent()
 
-  // When Skills is selected, everything below is coming soon
-  const isSkills = integration === 'skills'
-
-  // Server options
+  // Server options - Bookmarks & Notes grayed out for skills (only prompts can be exported as skills)
   const serverOptions: SelectorOption<ServerType>[] = [
     { value: 'content', label: 'Bookmarks & Notes', comingSoon: isSkills },
-    { value: 'prompts', label: 'Prompts', comingSoon: isSkills },
+    { value: 'prompts', label: 'Prompts' },
   ]
 
-  // Client options - ChatGPT requires OAuth (coming soon for MCP), Gemini CLI coming soon
+  // When switching to Skills mode, auto-select Prompts
+  const handleIntegrationChange = (newIntegration: IntegrationType): void => {
+    setIntegration(newIntegration)
+    if (newIntegration === 'skills') {
+      setServer('prompts')
+    }
+  }
+
+  // Client options - different coming soon logic for MCP vs Skills
   const clientOptions: SelectorOption<ClientType>[] = [
-    { value: 'claude-desktop', label: 'Claude Desktop', comingSoon: isSkills },
-    { value: 'claude-code', label: 'Claude Code', comingSoon: isSkills },
-    { value: 'chatgpt', label: 'ChatGPT', comingSoon: isSkills || integration === 'mcp' },
-    { value: 'codex', label: 'Codex', comingSoon: isSkills },
+    { value: 'claude-desktop', label: 'Claude Desktop' },
+    { value: 'claude-code', label: 'Claude Code' },
+    { value: 'chatgpt', label: 'ChatGPT', comingSoon: true },
+    { value: 'codex', label: 'Codex' },
     { value: 'gemini-cli', label: 'Gemini CLI', comingSoon: true },
   ]
 
-  // Auth options - ChatGPT only supports OAuth, not Bearer
+  // Auth options - ChatGPT only supports OAuth, not Bearer (only relevant for MCP)
   const authOptions: SelectorOption<AuthType>[] = [
     { value: 'bearer', label: 'Bearer Token', comingSoon: client === 'chatgpt' },
     { value: 'oauth', label: 'OAuth', comingSoon: true },
@@ -848,7 +1369,7 @@ export function SettingsMCP(): ReactNode {
   // Integration options
   const integrationOptions: SelectorOption<IntegrationType>[] = [
     { value: 'mcp', label: 'MCP Server' },
-    { value: 'skills', label: 'Skills', comingSoon: true },
+    { value: 'skills', label: 'Skills' },
   ]
 
   return (
@@ -861,6 +1382,14 @@ export function SettingsMCP(): ReactNode {
       <div className="mb-8">
         <h2 className="text-xl font-bold text-gray-900 mb-4">Select Integration</h2>
         <div className="md:border-l-4 md:border-l-orange-500 bg-white py-1.5 flex flex-col gap-4 md:gap-1.5">
+          {/* Integration row first - controls visibility of other rows */}
+          <SelectorRow
+            label="Integration"
+            options={integrationOptions}
+            value={integration}
+            onChange={handleIntegrationChange}
+          />
+          {/* Content row - Bookmarks & Notes disabled for skills mode */}
           <SelectorRow
             label="Content"
             options={serverOptions}
@@ -868,24 +1397,20 @@ export function SettingsMCP(): ReactNode {
             onChange={setServer}
           />
           <SelectorRow
-            label="Integration"
-            options={integrationOptions}
-            value={integration}
-            onChange={setIntegration}
-          />
-          <SelectorRow
             label="Client"
             options={clientOptions}
             value={client}
             onChange={setClient}
           />
-          <SelectorRow
-            label="Auth"
-            options={authOptions}
-            value={auth}
-            onChange={setAuth}
-            disabled={isSkills}
-          />
+          {/* Auth row - only show for MCP mode (skills use PAT via curl) */}
+          {!isSkills && (
+            <SelectorRow
+              label="Auth"
+              options={authOptions}
+              value={auth}
+              onChange={setAuth}
+            />
+          )}
         </div>
       </div>
 
@@ -905,9 +1430,9 @@ export function SettingsMCP(): ReactNode {
         <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
           <h2 className="text-sm font-semibold text-gray-900 mb-2">What are Skills?</h2>
           <p className="text-sm text-gray-600">
-            Skills are pre-built agent capabilities that can be invoked directly from AI assistants
-            without any configuration. Simply mention your content in a conversation and the AI
-            can automatically access your bookmarks, notes, and prompts.
+            Skills are reusable instructions (SKILL.md files) that AI assistants can auto-invoke based on context
+            or invoke manually via slash commands. Export your prompts as skills and sync them to your AI client.
+            Skills follow the <a href="https://agentskills.io/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Agent Skills Standard</a>.
           </p>
         </div>
       )}
@@ -921,21 +1446,23 @@ export function SettingsMCP(): ReactNode {
       {comingSoonContent && (
         <ComingSoon title={comingSoonContent.title} description={comingSoonContent.description} />
       )}
-      {isSupported && client === 'claude-desktop' && (
+
+      {/* MCP Instructions */}
+      {isMcpSupported && client === 'claude-desktop' && (
         <ClaudeDesktopInstructions
           server={server}
           mcpUrl={config.mcpUrl}
           promptMcpUrl={config.promptMcpUrl}
         />
       )}
-      {isSupported && client === 'claude-code' && (
+      {isMcpSupported && client === 'claude-code' && (
         <ClaudeCodeInstructions
           server={server}
           mcpUrl={config.mcpUrl}
           promptMcpUrl={config.promptMcpUrl}
         />
       )}
-      {isSupported && client === 'codex' && (
+      {isMcpSupported && client === 'codex' && (
         <CodexInstructions
           server={server}
           mcpUrl={config.mcpUrl}
@@ -943,8 +1470,13 @@ export function SettingsMCP(): ReactNode {
         />
       )}
 
-      {/* Available Tools - show when setup is supported */}
-      {isSupported && <AvailableTools server={server} />}
+      {/* Skills Export Instructions */}
+      {isSkillsSupported && (
+        <SkillsExportSection client={client as SkillsClientType} />
+      )}
+
+      {/* Available Tools - show when MCP setup is supported */}
+      {isMcpSupported && <AvailableTools server={server} />}
     </div>
   )
 }

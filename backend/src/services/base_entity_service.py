@@ -244,12 +244,13 @@ class BaseEntityService(ABC, Generic[T]):
         limit: int = 50,
         view: Literal["active", "archived", "deleted"] = "active",
         filter_expression: dict | None = None,
+        include_content: bool = False,
     ) -> tuple[list[T], int]:
         """
         Search and filter entities for a user with pagination.
 
         Returns entities with content_length and content_preview (computed in SQL).
-        The full content is NOT loaded to reduce bandwidth.
+        By default, full content is NOT loaded to reduce bandwidth.
 
         Args:
             db: Database session.
@@ -263,23 +264,28 @@ class BaseEntityService(ABC, Generic[T]):
             limit: Pagination limit.
             view: "active", "archived", or "deleted".
             filter_expression: Optional ContentList filter expression.
+            include_content: If True, load full content. If False (default), defer
+                content loading and only compute content_length/content_preview.
 
         Returns:
             Tuple of (list of entities with content metrics, total count).
         """
         # Base query scoped to user with content metrics computed in SQL.
-        # Use defer() to exclude full content from SELECT (saves bandwidth).
         # Tags are eagerly loaded via selectinload.
+        # Build options based on whether content is needed.
+        if include_content:
+            options = [selectinload(self.model.tag_objects)]
+        else:
+            # Use defer() to exclude full content from SELECT (saves bandwidth).
+            options = [defer(self.model.content), selectinload(self.model.tag_objects)]
+
         base_query = (
             select(
                 self.model,
                 func.length(self.model.content).label("content_length"),
                 func.left(self.model.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
             )
-            .options(
-                defer(self.model.content),  # Exclude content from SELECT
-                selectinload(self.model.tag_objects),
-            )
+            .options(*options)
             .where(self.model.user_id == user_id)
         )
 

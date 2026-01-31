@@ -12,9 +12,31 @@ import { SettingsMCP } from './SettingsMCP'
 // Mock config
 vi.mock('../../config', () => ({
   config: {
+    apiUrl: 'http://localhost:8000',
     mcpUrl: 'http://localhost:8001',
     promptMcpUrl: 'http://localhost:8002',
   },
+}))
+
+// Mock API service for tags endpoint
+const mockApiGet = vi.fn()
+vi.mock('../../services/api', () => ({
+  api: {
+    get: (...args: unknown[]) => mockApiGet(...args),
+  },
+}))
+
+// Mock tags store (still needed for other parts of the app)
+vi.mock('../../stores/tagsStore', () => ({
+  useTagsStore: () => ({
+    tags: [
+      { name: 'skill', content_count: 5, filter_count: 0 },
+      { name: 'coding', content_count: 3, filter_count: 0 },
+    ],
+    fetchTags: vi.fn(),
+    isLoading: false,
+    error: null,
+  }),
 }))
 
 // Mock clipboard API
@@ -42,6 +64,15 @@ function renderWithRouter(): void {
 describe('SettingsMCP', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default mock for tags API - returns tags including 'skill'
+    mockApiGet.mockResolvedValue({
+      data: {
+        tags: [
+          { name: 'skill', content_count: 5, filter_count: 0 },
+          { name: 'coding', content_count: 3, filter_count: 0 },
+        ],
+      },
+    })
   })
 
   describe('page rendering', () => {
@@ -210,13 +241,29 @@ describe('SettingsMCP', () => {
   })
 
   describe('coming soon features', () => {
-    it('should show coming soon message for Skills', async () => {
+    it('should show skills export section when Skills is selected (auto-selects Prompts)', async () => {
       const user = userEvent.setup()
       renderWithRouter()
 
       await user.click(screen.getByRole('button', { name: 'Skills' }))
+      // Skills auto-selects Prompts, so skills export section should be visible
 
-      expect(screen.getByText('Skills Coming Soon')).toBeInTheDocument()
+      // Skills export section should be visible with tag selector
+      expect(screen.getByText('Step 2: Filter by Tags (Optional)')).toBeInTheDocument()
+      // Should show the warning about name truncation for Claude Desktop (default client)
+      expect(screen.getByText(/Prompt names longer than 64 characters/)).toBeInTheDocument()
+    })
+
+    it('should show not applicable message when Skills and Bookmarks & Notes are selected', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Skills' }))
+      // Skills auto-selects Prompts, so we need to click Bookmarks & Notes
+      await user.click(screen.getByRole('button', { name: 'Bookmarks & Notes' }))
+
+      expect(screen.getByText('Skills Only Apply to Prompts')).toBeInTheDocument()
+      expect(screen.getByText(/Skills are exported from your prompt templates/)).toBeInTheDocument()
     })
 
     it('should show coming soon message for OAuth', async () => {
@@ -247,6 +294,95 @@ describe('SettingsMCP', () => {
       const preElement = document.querySelector('pre code')
       expect(preElement?.textContent).toContain('[mcp_servers.bookmarks]')
       expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
+    })
+  })
+
+  describe('skills export tag selection', () => {
+    it('should fetch prompt-only tags when Skills is selected', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Skills' }))
+
+      await waitFor(() => {
+        expect(mockApiGet).toHaveBeenCalledWith('/tags/?content_types=prompt')
+      })
+    })
+
+    it('should auto-select "skill" tag when it exists in available tags', async () => {
+      mockApiGet.mockResolvedValue({
+        data: {
+          tags: [
+            { name: 'skill', content_count: 5, filter_count: 0 },
+            { name: 'other', content_count: 3, filter_count: 0 },
+          ],
+        },
+      })
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Skills' }))
+
+      // Wait for tags to load and default selection to be applied
+      await waitFor(() => {
+        // The "skill" tag should be shown as selected (in the tag chips area)
+        expect(screen.getByText('skill')).toBeInTheDocument()
+      })
+    })
+
+    it('should auto-select "skills" tag when "skill" does not exist', async () => {
+      mockApiGet.mockResolvedValue({
+        data: {
+          tags: [
+            { name: 'skills', content_count: 5, filter_count: 0 },
+            { name: 'other', content_count: 3, filter_count: 0 },
+          ],
+        },
+      })
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Skills' }))
+
+      await waitFor(() => {
+        expect(screen.getByText('skills')).toBeInTheDocument()
+      })
+    })
+
+    it('should not auto-select any tag when neither "skill" nor "skills" exists', async () => {
+      mockApiGet.mockResolvedValue({
+        data: {
+          tags: [
+            { name: 'coding', content_count: 5, filter_count: 0 },
+            { name: 'other', content_count: 3, filter_count: 0 },
+          ],
+        },
+      })
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Skills' }))
+
+      await waitFor(() => {
+        expect(mockApiGet).toHaveBeenCalled()
+      })
+
+      // Tag selector should be present but no tags auto-selected
+      // (no 'coding' or 'other' tag chips should be visible as selected)
+      expect(screen.getByText('Step 2: Filter by Tags (Optional)')).toBeInTheDocument()
+    })
+
+    it('should handle API error gracefully', async () => {
+      mockApiGet.mockRejectedValue(new Error('Network error'))
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Skills' }))
+
+      // Should still render the tag selector section (with no tags)
+      await waitFor(() => {
+        expect(screen.getByText('Step 2: Filter by Tags (Optional)')).toBeInTheDocument()
+      })
     })
   })
 
