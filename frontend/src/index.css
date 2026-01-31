@@ -28,7 +28,7 @@ body {
   }
 
   .btn-danger {
-    @apply rounded-md bg-red-600 px-3 py-1 text-sm font-medium text-white transition-all hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300 disabled:hover:bg-red-300;
+    @apply rounded-md bg-red-500 px-3 py-1 text-sm font-medium text-white transition-all hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-red-500/50 disabled:hover:bg-red-500/50;
   }
 
   .btn-ghost {
@@ -41,7 +41,7 @@ body {
   }
 
   .btn-icon-danger {
-    @apply rounded-lg p-2 text-gray-400 transition-all hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply rounded-lg p-2 text-gray-400 transition-all hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   /* Smaller icon buttons on desktop where precision pointing is easier */
@@ -436,4 +436,30 @@ body {
 /* Focus state for editor */
 .milkdown-wrapper .milkdown .ProseMirror:focus {
   @apply outline-none;
+}
+
+/* Brand color utilities - in utilities layer to override component defaults */
+@layer utilities {
+  .text-brand-bookmark { color: #6b9fd4; }
+  .text-brand-note { color: #7dcec4; }
+  .text-brand-prompt { color: #e2a66b; }
+  .text-brand-all { color: #6855aa; }
+
+  .bg-brand-bookmark { background-color: #6b9fd4; }
+  .bg-brand-note { background-color: #7dcec4; }
+  .bg-brand-prompt { background-color: #e2a66b; }
+  .bg-brand-all { background-color: #6855aa; }
+
+  .bg-brand-bookmark-light { background-color: rgba(107, 159, 212, 0.1); }
+  .bg-brand-note-light { background-color: rgba(125, 206, 196, 0.1); }
+  .bg-brand-prompt-light { background-color: rgba(226, 166, 107, 0.1); }
+  .bg-brand-all-light { background-color: rgba(104, 85, 170, 0.1); }
+
+  .hover\:text-brand-bookmark:hover { color: #5a8ec3; }
+  .hover\:text-brand-note:hover { color: #6cbdb3; }
+  .hover\:text-brand-prompt:hover { color: #d1955a; }
+
+  .hover\:bg-brand-bookmark-light:hover { background-color: rgba(107, 159, 212, 0.1); }
+  .hover\:bg-brand-note-light:hover { background-color: rgba(125, 206, 196, 0.1); }
+  .hover\:bg-brand-prompt-light:hover { background-color: rgba(226, 166, 107, 0.1); }
 }

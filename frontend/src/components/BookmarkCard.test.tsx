@@ -32,7 +32,7 @@ describe('BookmarkCard', () => {
       const { container } = render(<BookmarkCard bookmark={mockBookmark} onDelete={vi.fn()} />)
 
       // BookmarkIcon should be rendered (it's in a span with the blue color class)
-      const bookmarkIconSpan = container.querySelector('.text-blue-500')
+      const bookmarkIconSpan = container.querySelector('.text-brand-bookmark')
       expect(bookmarkIconSpan).toBeInTheDocument()
 
       // There should be one favicon image (between title and URL)
@@ -50,7 +50,7 @@ describe('BookmarkCard', () => {
       )
 
       // BookmarkIcon should be rendered
-      const bookmarkIconSpan = container.querySelector('.text-blue-500')
+      const bookmarkIconSpan = container.querySelector('.text-brand-bookmark')
       expect(bookmarkIconSpan).toBeInTheDocument()
     })
 
@@ -64,7 +64,7 @@ describe('BookmarkCard', () => {
       )
 
       // BookmarkIcon should NOT be rendered
-      const bookmarkIconSpan = container.querySelector('.text-blue-500')
+      const bookmarkIconSpan = container.querySelector('.text-brand-bookmark')
       expect(bookmarkIconSpan).not.toBeInTheDocument()
 
       // Favicon should still be visible (now in left position)

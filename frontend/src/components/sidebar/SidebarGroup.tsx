@@ -159,7 +159,7 @@ export function SidebarGroup({
                 className={`p-1 rounded transition-colors ${
                   isConfirmingDelete
                     ? 'bg-red-100 text-red-600 hover:bg-red-200 px-2'
-                    : 'text-gray-400 hover:text-red-500 hover:bg-gray-100'
+                    : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
                 }`}
                 aria-label={isConfirmingDelete ? 'Click again to confirm' : onEdit ? 'Delete collection' : 'Delete group'}
               >

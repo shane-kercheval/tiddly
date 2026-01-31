@@ -54,7 +54,7 @@ export function SettingsGeneral(): ReactNode {
             <button
               onClick={toggleFullWidthLayout}
               className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-                fullWidthLayout ? 'bg-blue-600' : 'bg-gray-200'
+                fullWidthLayout ? 'bg-brand-bookmark' : 'bg-gray-200'
               }`}
               role="switch"
               aria-checked={fullWidthLayout}

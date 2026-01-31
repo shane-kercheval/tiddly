@@ -561,7 +561,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           <Tooltip content="New Bookmark" compact>
             <button
               onClick={handleQuickAddBookmark}
-              className="p-1.5 rounded-md text-blue-500 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+              className="p-1.5 rounded-md text-brand-bookmark hover:bg-brand-bookmark-light hover:text-brand-bookmark transition-colors"
               aria-label="New Bookmark"
             >
               <BookmarkIcon className="h-4 w-4" />
@@ -570,7 +570,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           <Tooltip content="New Note" compact>
             <button
               onClick={handleQuickAddNote}
-              className="p-1.5 rounded-md text-green-500 hover:bg-green-50 hover:text-green-600 transition-colors"
+              className="p-1.5 rounded-md text-brand-note hover:bg-brand-note-light hover:text-brand-note transition-colors"
               aria-label="New Note"
             >
               <NoteIcon className="h-4 w-4" />
@@ -579,7 +579,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
           <Tooltip content="New Prompt" compact>
             <button
               onClick={handleQuickAddPrompt}
-              className="p-1.5 rounded-md text-orange-500 hover:bg-orange-50 hover:text-orange-600 transition-colors"
+              className="p-1.5 rounded-md text-brand-prompt hover:bg-brand-prompt-light hover:text-brand-prompt transition-colors"
               aria-label="New Prompt"
             >
               <PromptIcon className="h-4 w-4" />
