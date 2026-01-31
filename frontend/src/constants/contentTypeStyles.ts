@@ -6,7 +6,7 @@
  *
  * Brand color palette (defined in index.css):
  * - Bookmark: #6b9fd4 (muted blue)
- * - Note: #7dcec4 (muted teal)
+ * - Note: #85c48b (muted green)
  * - Prompt: #e2a66b (muted orange)
  * - All Content: #6855aa (muted purple)
  *

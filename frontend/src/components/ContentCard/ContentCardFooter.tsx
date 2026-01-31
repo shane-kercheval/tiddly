@@ -1,8 +1,8 @@
 /**
- * Footer wrapper for ContentCard that handles responsive layout.
+ * Footer/metadata container for ContentCard.
  *
- * On mobile: stacks children vertically with gap
- * On desktop: uses `md:contents` so children flow directly into parent flex
+ * Positioned on the right side of the card, showing date and actions.
+ * Actions are hidden by default and appear on hover.
  */
 import type { ReactNode } from 'react'
 
@@ -11,10 +11,8 @@ interface ContentCardFooterProps {
 }
 
 export function ContentCardFooter({ children }: ContentCardFooterProps): ReactNode {
-  // md:contents makes this wrapper "disappear" on desktop,
-  // so children flow directly into the parent flex container
   return (
-    <div className="flex flex-col gap-2 md:contents">
+    <div className="flex flex-col items-end gap-0.5 shrink-0 ml-auto">
       {children}
     </div>
   )

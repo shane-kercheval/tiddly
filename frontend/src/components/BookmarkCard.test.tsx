@@ -1,6 +1,9 @@
 /**
  * Tests for BookmarkCard component.
  * Focused on copy button and click tracking behavior.
+ *
+ * Note: BookmarkCard renders both mobile and desktop layouts (hidden via CSS).
+ * Tests use getAllByRole and take the first match for elements that appear twice.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
@@ -35,9 +38,9 @@ describe('BookmarkCard', () => {
       const bookmarkIconSpan = container.querySelector('.text-brand-bookmark')
       expect(bookmarkIconSpan).toBeInTheDocument()
 
-      // There should be one favicon image (between title and URL)
+      // There should be multiple favicon images (mobile + desktop layouts)
       const faviconImages = container.querySelectorAll('img')
-      expect(faviconImages).toHaveLength(1)
+      expect(faviconImages.length).toBeGreaterThan(0)
     })
 
     it('test__BookmarkCard__shows_bookmark_icon_when_showContentTypeIcon_true', () => {
@@ -69,7 +72,7 @@ describe('BookmarkCard', () => {
 
       // Favicon should still be visible (now in left position)
       const faviconImages = container.querySelectorAll('img')
-      expect(faviconImages).toHaveLength(1)
+      expect(faviconImages.length).toBeGreaterThan(0)
     })
   })
 
@@ -82,8 +85,9 @@ describe('BookmarkCard', () => {
 
       render(<BookmarkCard bookmark={mockBookmark} onDelete={vi.fn()} />)
 
-      const copyButton = screen.getByRole('button', { name: /copy url/i })
-      await userEvent.click(copyButton)
+      // Multiple copy buttons exist (mobile + desktop), click the first one
+      const copyButtons = screen.getAllByRole('button', { name: /copy url/i })
+      await userEvent.click(copyButtons[0])
 
       expect(writeText).toHaveBeenCalledWith('https://example.com/article')
     })
@@ -103,8 +107,8 @@ describe('BookmarkCard', () => {
         />
       )
 
-      const copyButton = screen.getByRole('button', { name: /copy url/i })
-      await userEvent.click(copyButton)
+      const copyButtons = screen.getAllByRole('button', { name: /copy url/i })
+      await userEvent.click(copyButtons[0])
 
       expect(onLinkClick).toHaveBeenCalledWith(mockBookmark)
     })
@@ -117,19 +121,21 @@ describe('BookmarkCard', () => {
 
       render(<BookmarkCard bookmark={mockBookmark} onDelete={vi.fn()} />)
 
-      const copyButton = screen.getByRole('button', { name: /copy url/i })
-      await userEvent.click(copyButton)
+      const copyButtons = screen.getAllByRole('button', { name: /copy url/i })
+      await userEvent.click(copyButtons[0])
 
       // Button should now show "Copied!" title
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument()
+        expect(screen.getAllByRole('button', { name: /copied/i }).length).toBeGreaterThan(0)
       })
     })
   })
 
-  describe('link click tracking', () => {
-    it('calls onLinkClick when link is clicked normally', async () => {
+  describe('URL click tracking', () => {
+    it('calls onLinkClick when URL line is clicked', async () => {
       const onLinkClick = vi.fn()
+      // Mock window.open
+      const windowOpen = vi.spyOn(window, 'open').mockImplementation(() => null)
 
       render(
         <BookmarkCard
@@ -139,15 +145,23 @@ describe('BookmarkCard', () => {
         />
       )
 
-      // Click the title link
-      const link = screen.getByRole('link', { name: /example article/i })
-      fireEvent.click(link)
+      // Click the URL button (multiple exist for mobile/desktop)
+      const urlButtons = screen.getAllByTitle('https://example.com/article')
+      fireEvent.click(urlButtons[0])
 
       expect(onLinkClick).toHaveBeenCalledWith(mockBookmark)
+      expect(windowOpen).toHaveBeenCalledWith(
+        'https://example.com/article',
+        '_blank',
+        'noopener,noreferrer'
+      )
+
+      windowOpen.mockRestore()
     })
 
-    it('does NOT call onLinkClick when shift+cmd+clicking (silent mode)', () => {
+    it('does NOT call onLinkClick when shift+cmd+clicking URL (silent mode)', () => {
       const onLinkClick = vi.fn()
+      const windowOpen = vi.spyOn(window, 'open').mockImplementation(() => null)
 
       render(
         <BookmarkCard
@@ -157,14 +171,40 @@ describe('BookmarkCard', () => {
         />
       )
 
-      const link = screen.getByRole('link', { name: /example article/i })
-      fireEvent.click(link, { shiftKey: true, metaKey: true })
+      const urlButtons = screen.getAllByTitle('https://example.com/article')
+      fireEvent.click(urlButtons[0], { shiftKey: true, metaKey: true })
+
+      // Silent mode should not track
+      expect(onLinkClick).not.toHaveBeenCalled()
+      // But should still open the URL
+      expect(windowOpen).toHaveBeenCalled()
+
+      windowOpen.mockRestore()
+    })
+
+    it('does NOT call onLinkClick when shift+ctrl+clicking URL (silent mode on Windows)', () => {
+      const onLinkClick = vi.fn()
+      const windowOpen = vi.spyOn(window, 'open').mockImplementation(() => null)
+
+      render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          onDelete={vi.fn()}
+          onLinkClick={onLinkClick}
+        />
+      )
+
+      const urlButtons = screen.getAllByTitle('https://example.com/article')
+      fireEvent.click(urlButtons[0], { shiftKey: true, ctrlKey: true })
 
       expect(onLinkClick).not.toHaveBeenCalled()
+
+      windowOpen.mockRestore()
     })
 
-    it('does NOT call onLinkClick when shift+ctrl+clicking (silent mode on Windows)', () => {
+    it('DOES call onLinkClick when only cmd+clicking URL (not silent mode)', () => {
       const onLinkClick = vi.fn()
+      const windowOpen = vi.spyOn(window, 'open').mockImplementation(() => null)
 
       render(
         <BookmarkCard
@@ -174,28 +214,51 @@ describe('BookmarkCard', () => {
         />
       )
 
-      const link = screen.getByRole('link', { name: /example article/i })
-      fireEvent.click(link, { shiftKey: true, ctrlKey: true })
-
-      expect(onLinkClick).not.toHaveBeenCalled()
-    })
-
-    it('DOES call onLinkClick when only cmd+clicking (not silent mode)', () => {
-      const onLinkClick = vi.fn()
-
-      render(
-        <BookmarkCard
-          bookmark={mockBookmark}
-          onDelete={vi.fn()}
-          onLinkClick={onLinkClick}
-        />
-      )
-
-      const link = screen.getByRole('link', { name: /example article/i })
-      fireEvent.click(link, { metaKey: true })
+      const urlButtons = screen.getAllByTitle('https://example.com/article')
+      fireEvent.click(urlButtons[0], { metaKey: true })
 
       // cmd+click without shift should still track
       expect(onLinkClick).toHaveBeenCalledWith(mockBookmark)
+
+      windowOpen.mockRestore()
+    })
+  })
+
+  describe('card click behavior', () => {
+    it('calls onEdit when card is clicked (not on URL)', () => {
+      const onEdit = vi.fn()
+
+      render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          onDelete={vi.fn()}
+          onEdit={onEdit}
+        />
+      )
+
+      // Click on the title (multiple exist for mobile/desktop)
+      const titles = screen.getAllByText('Example Article')
+      fireEvent.click(titles[0])
+
+      expect(onEdit).toHaveBeenCalledWith(mockBookmark)
+    })
+
+    it('does not call onEdit when card is clicked in deleted view', () => {
+      const onEdit = vi.fn()
+
+      render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          view="deleted"
+          onDelete={vi.fn()}
+          onEdit={onEdit}
+        />
+      )
+
+      const titles = screen.getAllByText('Example Article')
+      fireEvent.click(titles[0])
+
+      expect(onEdit).not.toHaveBeenCalled()
     })
   })
 
@@ -211,9 +274,9 @@ describe('BookmarkCard', () => {
         />
       )
 
-      // Tag buttons have the tag name as their accessible name
-      const tagButton = screen.getByRole('button', { name: 'test' })
-      await userEvent.click(tagButton)
+      // Tag buttons appear in both mobile and desktop layouts
+      const tagButtons = screen.getAllByRole('button', { name: 'test' })
+      await userEvent.click(tagButtons[0])
 
       expect(onTagClick).toHaveBeenCalledWith('test')
     })
@@ -231,9 +294,9 @@ describe('BookmarkCard', () => {
         />
       )
 
-      // Hover to reveal remove button, then click
-      const removeButton = screen.getByRole('button', { name: /remove tag test/i })
-      await userEvent.click(removeButton)
+      // Multiple remove buttons exist (mobile + desktop)
+      const removeButtons = screen.getAllByRole('button', { name: /remove tag test/i })
+      await userEvent.click(removeButtons[0])
 
       expect(onTagRemove).toHaveBeenCalledWith(mockBookmark, 'test')
     })
@@ -255,7 +318,9 @@ describe('BookmarkCard', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: 'Add tag' })).toBeInTheDocument()
+      // Multiple add tag buttons exist (mobile + desktop)
+      const addButtons = screen.getAllByRole('button', { name: 'Add tag' })
+      expect(addButtons.length).toBeGreaterThan(0)
     })
 
     it('should not show add tag button when onTagAdd is not provided', () => {
@@ -281,7 +346,8 @@ describe('BookmarkCard', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: 'Add tag' })).toBeInTheDocument()
+      const addButtons = screen.getAllByRole('button', { name: 'Add tag' })
+      expect(addButtons.length).toBeGreaterThan(0)
     })
 
     it('should not show add tag button when tagSuggestions is not provided', () => {

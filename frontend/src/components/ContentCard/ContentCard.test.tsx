@@ -189,18 +189,7 @@ describe('ContentCardFooter', () => {
     expect(screen.getByText('Footer Content')).toBeInTheDocument()
   })
 
-  it('should have md:contents class for responsive behavior', () => {
-    const { container } = render(
-      <ContentCardFooter>
-        <span>Content</span>
-      </ContentCardFooter>
-    )
-
-    const wrapper = container.firstChild
-    expect(wrapper).toHaveClass('md:contents')
-  })
-
-  it('should have flex column layout on mobile', () => {
+  it('should have correct layout classes', () => {
     const { container } = render(
       <ContentCardFooter>
         <span>Content</span>
@@ -210,7 +199,9 @@ describe('ContentCardFooter', () => {
     const wrapper = container.firstChild
     expect(wrapper).toHaveClass('flex')
     expect(wrapper).toHaveClass('flex-col')
-    expect(wrapper).toHaveClass('gap-2')
+    expect(wrapper).toHaveClass('items-end')
+    expect(wrapper).toHaveClass('shrink-0')
+    expect(wrapper).toHaveClass('ml-auto')
   })
 })
 
@@ -250,68 +241,70 @@ describe('ContentCardTags', () => {
     expect(onTagRemove).toHaveBeenCalledWith('react')
   })
 
-  it('should have correct responsive classes', () => {
+  it('should have correct layout classes', () => {
     const { container } = render(<ContentCardTags tags={['react']} />)
 
     const wrapper = container.firstChild
-    expect(wrapper).toHaveClass('flex')
+    expect(wrapper).toHaveClass('inline-flex')
     expect(wrapper).toHaveClass('flex-wrap')
+    expect(wrapper).toHaveClass('items-center')
     expect(wrapper).toHaveClass('gap-1')
-    expect(wrapper).toHaveClass('md:justify-end')
-    expect(wrapper).toHaveClass('md:w-32')
-    expect(wrapper).toHaveClass('md:shrink-0')
   })
 })
 
 describe('ContentCardDateDisplay', () => {
+  // Use noon UTC to avoid timezone edge cases
   const baseDates = {
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-02T00:00:00Z',
-    lastUsedAt: '2024-01-03T00:00:00Z',
-    archivedAt: '2024-01-04T00:00:00Z',
-    deletedAt: '2024-01-05T00:00:00Z',
+    createdAt: '2024-01-15T12:00:00Z',
+    updatedAt: '2024-01-16T12:00:00Z',
+    lastUsedAt: '2024-01-17T12:00:00Z',
+    archivedAt: '2024-01-18T12:00:00Z',
+    deletedAt: '2024-01-19T12:00:00Z',
   }
 
-  it('should show created date by default', () => {
+  it('should show short date for created_at sortBy', () => {
     render(<ContentCardDateDisplay sortBy="created_at" {...baseDates} />)
 
-    expect(screen.getByText(/Created:/)).toBeInTheDocument()
+    // Should show date without label (label is in tooltip)
+    expect(screen.getByText('Jan 15, 2024')).toBeInTheDocument()
   })
 
   it('should show created date for title sort', () => {
     render(<ContentCardDateDisplay sortBy="title" {...baseDates} />)
 
-    expect(screen.getByText(/Created:/)).toBeInTheDocument()
+    expect(screen.getByText('Jan 15, 2024')).toBeInTheDocument()
   })
 
-  it('should show modified date when sortBy is updated_at', () => {
+  it('should show updated date when sortBy is updated_at', () => {
     render(<ContentCardDateDisplay sortBy="updated_at" {...baseDates} />)
 
-    expect(screen.getByText(/Modified:/)).toBeInTheDocument()
+    expect(screen.getByText('Jan 16, 2024')).toBeInTheDocument()
   })
 
-  it('should show used date when sortBy is last_used_at', () => {
+  it('should show last used date when sortBy is last_used_at', () => {
     render(<ContentCardDateDisplay sortBy="last_used_at" {...baseDates} />)
 
-    expect(screen.getByText(/Used:/)).toBeInTheDocument()
+    expect(screen.getByText('Jan 17, 2024')).toBeInTheDocument()
   })
 
   it('should show archived date when sortBy is archived_at', () => {
     render(<ContentCardDateDisplay sortBy="archived_at" {...baseDates} />)
 
-    expect(screen.getByText(/Archived:/)).toBeInTheDocument()
+    expect(screen.getByText('Jan 18, 2024')).toBeInTheDocument()
   })
 
   it('should show deleted date when sortBy is deleted_at', () => {
     render(<ContentCardDateDisplay sortBy="deleted_at" {...baseDates} />)
 
-    expect(screen.getByText(/Deleted:/)).toBeInTheDocument()
+    expect(screen.getByText('Jan 19, 2024')).toBeInTheDocument()
   })
 
   it('should apply correct styling', () => {
     const { container } = render(<ContentCardDateDisplay sortBy="created_at" {...baseDates} />)
 
-    const span = container.firstChild
+    // The span is inside the Tooltip trigger div
+    const span = container.querySelector('.text-gray-400')
+    expect(span).toBeInTheDocument()
     expect(span).toHaveClass('text-xs')
     expect(span).toHaveClass('text-gray-400')
   })
@@ -328,44 +321,17 @@ describe('ContentCardActions', () => {
     expect(screen.getByRole('button', { name: 'Action' })).toBeInTheDocument()
   })
 
-  it('should render meta when provided', () => {
-    render(
-      <ContentCardActions meta={<span>Meta content</span>}>
-        <button>Action</button>
-      </ContentCardActions>
-    )
-
-    expect(screen.getByText('Meta content')).toBeInTheDocument()
-  })
-
-  it('should not render meta container when meta is not provided', () => {
+  it('should render desktop actions with hover visibility classes', () => {
     const { container } = render(
       <ContentCardActions>
         <button>Action</button>
       </ContentCardActions>
     )
 
-    // Should only have one child div (the actions container)
-    const wrapper = container.firstChild as HTMLElement
-    expect(wrapper.children).toHaveLength(1)
-  })
-
-  it('should have correct responsive classes', () => {
-    const { container } = render(
-      <ContentCardActions>
-        <button>Action</button>
-      </ContentCardActions>
-    )
-
-    const wrapper = container.firstChild
-    expect(wrapper).toHaveClass('flex')
-    expect(wrapper).toHaveClass('items-center')
-    expect(wrapper).toHaveClass('justify-between')
-    expect(wrapper).toHaveClass('w-full')
-    expect(wrapper).toHaveClass('md:w-auto')
-    expect(wrapper).toHaveClass('md:flex-col')
-    expect(wrapper).toHaveClass('md:items-end')
-    expect(wrapper).toHaveClass('md:shrink-0')
+    // The desktop actions div should have invisible/visible hover classes
+    const desktopActions = container.querySelector('.md\\:flex')
+    expect(desktopActions).toHaveClass('invisible')
+    expect(desktopActions).toHaveClass('group-hover:visible')
   })
 })
 
@@ -567,53 +533,63 @@ describe('ContentCardScheduledArchive', () => {
   }
 
   it('should render when archivedAt is in the future and view is active', () => {
-    render(
+    const { container } = render(
       <ContentCard view="active">
         <ContentCardScheduledArchive archivedAt={getFutureDate()} />
       </ContentCard>
     )
 
-    expect(screen.getByText(/Archiving:/)).toBeInTheDocument()
+    // Should render with archive icon (SVG) and muted gray styling
+    const wrapper = container.querySelector('.text-gray-400')
+    expect(wrapper).toBeInTheDocument()
   })
 
   it('should not render when archivedAt is null', () => {
-    render(
+    const { container } = render(
       <ContentCard view="active">
         <ContentCardScheduledArchive archivedAt={null} />
       </ContentCard>
     )
 
-    expect(screen.queryByText(/Archiving:/)).not.toBeInTheDocument()
+    // Should not render the scheduled archive indicator
+    const wrapper = container.querySelector('.text-gray-400 svg')
+    expect(wrapper).not.toBeInTheDocument()
   })
 
   it('should not render when archivedAt is in the past', () => {
-    render(
+    const { container } = render(
       <ContentCard view="active">
         <ContentCardScheduledArchive archivedAt={getPastDate()} />
       </ContentCard>
     )
 
-    expect(screen.queryByText(/Archiving:/)).not.toBeInTheDocument()
+    // Should not render the scheduled archive indicator
+    const wrapper = container.querySelector('.flex.items-center.gap-1.text-gray-400')
+    expect(wrapper).not.toBeInTheDocument()
   })
 
   it('should not render in archived view', () => {
-    render(
+    const { container } = render(
       <ContentCard view="archived">
         <ContentCardScheduledArchive archivedAt={getFutureDate()} />
       </ContentCard>
     )
 
-    expect(screen.queryByText(/Archiving:/)).not.toBeInTheDocument()
+    // Should not render the scheduled archive indicator
+    const wrapper = container.querySelector('.flex.items-center.gap-1.text-gray-400')
+    expect(wrapper).not.toBeInTheDocument()
   })
 
   it('should not render in deleted view', () => {
-    render(
+    const { container } = render(
       <ContentCard view="deleted">
         <ContentCardScheduledArchive archivedAt={getFutureDate()} />
       </ContentCard>
     )
 
-    expect(screen.queryByText(/Archiving:/)).not.toBeInTheDocument()
+    // Should not render the scheduled archive indicator
+    const wrapper = container.querySelector('.flex.items-center.gap-1.text-gray-400')
+    expect(wrapper).not.toBeInTheDocument()
   })
 
   it('should show cancel button when onCancel is provided', () => {
@@ -651,14 +627,14 @@ describe('ContentCardScheduledArchive', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
-  it('should have amber warning styling', () => {
+  it('should have muted gray styling', () => {
     const { container } = render(
       <ContentCard view="active">
         <ContentCardScheduledArchive archivedAt={getFutureDate()} />
       </ContentCard>
     )
 
-    const wrapper = container.querySelector('.text-amber-600')
+    const wrapper = container.querySelector('.text-gray-400')
     expect(wrapper).toBeInTheDocument()
   })
 })

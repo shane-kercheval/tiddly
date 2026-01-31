@@ -103,7 +103,7 @@ body {
   }
 
   .badge-secondary {
-    @apply inline-flex items-center rounded-md bg-gray-50 px-2 py-0.5 text-xs font-normal text-gray-600 border border-gray-200;
+    @apply inline-flex items-center rounded-md bg-gray-50 px-1.5 py-px text-xs font-normal text-gray-600 border border-gray-200;
   }
 
   /* Modal backdrop with safe area support for notched devices */
@@ -441,25 +441,25 @@ body {
 /* Brand color utilities - in utilities layer to override component defaults */
 @layer utilities {
   .text-brand-bookmark { color: #6b9fd4; }
-  .text-brand-note { color: #7dcec4; }
+  .text-brand-note { color: #85c48b; }
   .text-brand-prompt { color: #e2a66b; }
   .text-brand-all { color: #6855aa; }
 
   .bg-brand-bookmark { background-color: #6b9fd4; }
-  .bg-brand-note { background-color: #7dcec4; }
+  .bg-brand-note { background-color: #85c48b; }
   .bg-brand-prompt { background-color: #e2a66b; }
   .bg-brand-all { background-color: #6855aa; }
 
   .bg-brand-bookmark-light { background-color: rgba(107, 159, 212, 0.1); }
-  .bg-brand-note-light { background-color: rgba(125, 206, 196, 0.1); }
+  .bg-brand-note-light { background-color: rgba(133, 196, 139, 0.1); }
   .bg-brand-prompt-light { background-color: rgba(226, 166, 107, 0.1); }
   .bg-brand-all-light { background-color: rgba(104, 85, 170, 0.1); }
 
   .hover\:text-brand-bookmark:hover { color: #5a8ec3; }
-  .hover\:text-brand-note:hover { color: #6cbdb3; }
+  .hover\:text-brand-note:hover { color: #74b37a; }
   .hover\:text-brand-prompt:hover { color: #d1955a; }
 
   .hover\:bg-brand-bookmark-light:hover { background-color: rgba(107, 159, 212, 0.1); }
-  .hover\:bg-brand-note-light:hover { background-color: rgba(125, 206, 196, 0.1); }
+  .hover\:bg-brand-note-light:hover { background-color: rgba(133, 196, 139, 0.1); }
   .hover\:bg-brand-prompt-light:hover { background-color: rgba(226, 166, 107, 0.1); }
 }

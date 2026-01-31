@@ -7,8 +7,9 @@
  */
 import type { ReactNode } from 'react'
 import { useContentCardContext } from './ContentCardContext'
-import { CloseIcon } from '../icons'
-import { formatDate } from '../../utils'
+import { CloseIcon, ArchiveIcon } from '../icons'
+import { formatShortDate } from '../../utils'
+import { Tooltip } from '../ui'
 
 interface ContentCardScheduledArchiveProps {
   /** ISO date string for when the item will be archived (can be null) */
@@ -30,18 +31,27 @@ export function ContentCardScheduledArchive({
 
   if (!hasScheduledArchive) return null
 
+  const shortDate = formatShortDate(archivedAt)
+  const tooltipText = `Archiving: ${shortDate}`
+
   return (
-    <span className="flex items-center gap-1 text-xs text-amber-600">
-      <span>Archiving: {formatDate(archivedAt)}</span>
+    <span className="flex items-center gap-1 text-xs text-gray-400">
+      <Tooltip content={tooltipText} compact position="left">
+        <span className="flex items-center gap-1">
+          <ArchiveIcon className="w-3 h-3" />
+          <span>{shortDate}</span>
+        </span>
+      </Tooltip>
       {onCancel && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onCancel() }}
-          className="text-amber-500 hover:text-amber-700 transition-colors p-0.5 -m-0.5"
-          title="Cancel scheduled archive"
-          aria-label="Cancel scheduled archive"
-        >
-          <CloseIcon className="w-3 h-3" />
-        </button>
+        <Tooltip content="Cancel" compact>
+          <button
+            onClick={(e) => { e.stopPropagation(); onCancel() }}
+            className="text-gray-400 hover:text-red-500 transition-colors p-0.5 -m-0.5"
+            aria-label="Cancel scheduled archive"
+          >
+            <CloseIcon className="w-3 h-3" />
+          </button>
+        </Tooltip>
       )}
     </span>
   )

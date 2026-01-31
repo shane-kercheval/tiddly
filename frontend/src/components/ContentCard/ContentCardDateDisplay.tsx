@@ -1,15 +1,16 @@
 /**
  * Date display for ContentCard.
  *
- * Shows a formatted date with a label that changes based on the current
- * sort option (e.g., "Created:", "Modified:", "Used:").
+ * Shows a short formatted date, with label shown on hover via tooltip.
+ * The date shown depends on the current sort option.
  */
 import type { ReactNode } from 'react'
 import type { SortByOption } from '../../constants/sortOptions'
-import { formatDate } from '../../utils'
+import { formatShortDate } from '../../utils'
+import { Tooltip } from '../ui'
 
 interface ContentCardDateDisplayProps {
-  /** Current sort option - determines which date and label to show */
+  /** Current sort option - determines which date to show */
   sortBy: SortByOption
   /** ISO date string for when the item was created */
   createdAt: string
@@ -21,6 +22,8 @@ interface ContentCardDateDisplayProps {
   archivedAt: string | null
   /** ISO date string for when the item was deleted (can be null) */
   deletedAt: string | null
+  /** Show label inline (e.g., "Modified: Jan 31") instead of in tooltip. Useful for mobile. */
+  showLabel?: boolean
 }
 
 export function ContentCardDateDisplay({
@@ -30,27 +33,44 @@ export function ContentCardDateDisplay({
   lastUsedAt,
   archivedAt,
   deletedAt,
+  showLabel = false,
 }: ContentCardDateDisplayProps): ReactNode {
-  const getDateDisplay = (): string => {
+  // Get the date and label based on sort option
+  const getDateInfo = (): { date: string; label: string } => {
     switch (sortBy) {
       case 'updated_at':
-        return `Modified: ${formatDate(updatedAt)}`
+        return { date: updatedAt, label: 'Modified' }
       case 'last_used_at':
-        return `Used: ${formatDate(lastUsedAt!)}`
+        return { date: lastUsedAt!, label: 'Used' }
       case 'archived_at':
-        return `Archived: ${formatDate(archivedAt!)}`
+        return { date: archivedAt!, label: 'Archived' }
       case 'deleted_at':
-        return `Deleted: ${formatDate(deletedAt!)}`
+        return { date: deletedAt!, label: 'Deleted' }
       case 'created_at':
       case 'title':
       default:
-        return `Created: ${formatDate(createdAt)}`
+        return { date: createdAt, label: 'Created' }
     }
   }
 
+  const { date, label } = getDateInfo()
+  const shortDate = formatShortDate(date)
+  const tooltipText = `${label}: ${shortDate}`
+
+  // On mobile (showLabel=true), show label inline. On desktop, use tooltip.
+  if (showLabel) {
+    return (
+      <span className="text-xs text-gray-400">
+        {label}: {shortDate}
+      </span>
+    )
+  }
+
   return (
-    <span className="text-xs text-gray-400">
-      {getDateDisplay()}
-    </span>
+    <Tooltip content={tooltipText} compact position="left">
+      <span className="text-xs text-gray-400">
+        {shortDate}
+      </span>
+    </Tooltip>
   )
 }
