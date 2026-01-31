@@ -90,13 +90,14 @@ export function BookmarkCard({
     }
   }
 
+  // Handle URL link click - track usage unless in silent mode (shift+cmd/ctrl)
+  // Note: Does not preventDefault, allowing native link behavior (middle-click, right-click menu)
   const handleUrlClick = (e: React.MouseEvent): void => {
     e.stopPropagation()
     // Silent mode: shift+cmd/ctrl click doesn't track usage
     if (!(e.shiftKey && (e.metaKey || e.ctrlKey))) {
       onLinkClick?.(bookmark)
     }
-    window.open(bookmark.url, '_blank', 'noopener,noreferrer')
   }
 
   const handleCopyUrl = async (): Promise<void> => {
@@ -137,19 +138,35 @@ export function BookmarkCard({
       <div className="min-w-0 flex-1">
         {/* Mobile layout - stacked vertically */}
         <div className="md:hidden flex flex-col gap-1.5">
-          {/* Title row */}
-          <span
-            className="text-base font-medium text-gray-900 truncate"
-            title={bookmark.title || bookmark.url}
-          >
-            {displayTitle}
-          </span>
+          {/* Title row - clickable as link when no title (shows domain) */}
+          {hasTitle ? (
+            <span
+              className="text-base font-medium text-gray-900 truncate"
+              title={bookmark.title}
+            >
+              {displayTitle}
+            </span>
+          ) : (
+            <a
+              href={bookmark.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleUrlClick}
+              className="text-base font-medium text-gray-900 truncate hover:text-blue-600 hover:underline transition-colors"
+              title={bookmark.url}
+            >
+              {displayTitle}
+            </a>
+          )}
 
           {/* URL row (if has title) - always show as link on mobile (no hover) */}
           {hasTitle && (
-            <button
+            <a
+              href={bookmark.url}
+              target="_blank"
+              rel="noopener noreferrer"
               onClick={handleUrlClick}
-              className="flex items-center gap-1.5 text-left"
+              className="flex items-center gap-1.5"
             >
               {showContentTypeIcon && (
                 <img
@@ -165,7 +182,7 @@ export function BookmarkCard({
               <span className="text-xs text-blue-500 underline truncate" title={bookmark.url}>
                 {displayUrl}
               </span>
-            </button>
+            </a>
           )}
 
           {/* Description */}
@@ -218,7 +235,7 @@ export function BookmarkCard({
                   )}
                 </button>
               </Tooltip>
-              {onArchive && view === 'active' && (
+              {onArchive && (
                 <ContentCard.ArchiveAction
                   onArchive={() => onArchive(bookmark)}
                   entityName="bookmark"
@@ -267,14 +284,27 @@ export function BookmarkCard({
         <div className="hidden md:block">
           {/* Row 1: Title + favicon + tags + date */}
           <div className="flex items-start gap-2">
-            {/* Left: Title and tags */}
+            {/* Left: Title and tags - title is clickable as link when no title (shows domain) */}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0 flex-1">
-              <span
-                className="text-base font-medium text-gray-900 truncate"
-                title={bookmark.title || bookmark.url}
-              >
-                {displayTitle}
-              </span>
+              {hasTitle ? (
+                <span
+                  className="text-base font-medium text-gray-900 truncate"
+                  title={bookmark.title}
+                >
+                  {displayTitle}
+                </span>
+              ) : (
+                <a
+                  href={bookmark.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={handleUrlClick}
+                  className="text-base font-medium text-gray-900 truncate hover:text-blue-600 hover:underline transition-colors"
+                  title={bookmark.url}
+                >
+                  {displayTitle}
+                </a>
+              )}
               <ContentCard.Tags
                 tags={bookmark.tags}
                 onTagClick={onTagClick}
@@ -298,9 +328,12 @@ export function BookmarkCard({
           {/* Row 2: URL line with favicon/external-link icon swap on hover + Archiving indicator */}
           <div className="flex items-center gap-2 mt-0.5">
             {hasTitle && (
-              <button
+              <a
+                href={bookmark.url}
+                target="_blank"
+                rel="noopener noreferrer"
                 onClick={handleUrlClick}
-                className="group/url flex items-center gap-1.5 text-left min-w-0 flex-1"
+                className="group/url flex items-center gap-1.5 min-w-0 flex-1"
               >
                 {/* Icon container with crossfade transition */}
                 {showContentTypeIcon && (
@@ -326,7 +359,7 @@ export function BookmarkCard({
                 >
                   {displayUrl}
                 </span>
-              </button>
+              </a>
             )}
             {!hasTitle && <div className="flex-1" />}
             {/* Archiving indicator on the right, between date and actions */}
@@ -349,6 +382,12 @@ export function BookmarkCard({
             <div className="absolute right-0 top-0">
               <ContentCard.Actions
                 overflowItems={[
+                  {
+                    key: 'open',
+                    label: 'Open link',
+                    icon: <ExternalLinkIcon className="h-4 w-4" />,
+                    onClick: () => { onLinkClick?.(bookmark); window.open(bookmark.url, '_blank', 'noopener,noreferrer') },
+                  },
                   {
                     key: 'edit',
                     label: 'Edit',

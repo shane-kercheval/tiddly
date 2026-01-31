@@ -132,10 +132,11 @@ describe('BookmarkCard', () => {
   })
 
   describe('URL click tracking', () => {
+    // Note: URL display now uses native anchor tags for proper link semantics
+    // (middle-click, right-click menu, etc). Navigation is handled by the browser.
+
     it('calls onLinkClick when URL line is clicked', async () => {
       const onLinkClick = vi.fn()
-      // Mock window.open
-      const windowOpen = vi.spyOn(window, 'open').mockImplementation(() => null)
 
       render(
         <BookmarkCard
@@ -145,23 +146,21 @@ describe('BookmarkCard', () => {
         />
       )
 
-      // Click the URL button (multiple exist for mobile/desktop)
-      const urlButtons = screen.getAllByTitle('https://example.com/article')
-      fireEvent.click(urlButtons[0])
+      // URL text has title attribute, but it's inside an anchor
+      // (multiple exist for mobile/desktop)
+      const urlSpans = screen.getAllByTitle('https://example.com/article')
+
+      // Verify the parent anchor has correct href for native link behavior
+      const urlAnchor = urlSpans[0].closest('a')
+      expect(urlAnchor).toHaveAttribute('href', 'https://example.com/article')
+
+      fireEvent.click(urlSpans[0])
 
       expect(onLinkClick).toHaveBeenCalledWith(mockBookmark)
-      expect(windowOpen).toHaveBeenCalledWith(
-        'https://example.com/article',
-        '_blank',
-        'noopener,noreferrer'
-      )
-
-      windowOpen.mockRestore()
     })
 
     it('does NOT call onLinkClick when shift+cmd+clicking URL (silent mode)', () => {
       const onLinkClick = vi.fn()
-      const windowOpen = vi.spyOn(window, 'open').mockImplementation(() => null)
 
       render(
         <BookmarkCard
@@ -171,20 +170,16 @@ describe('BookmarkCard', () => {
         />
       )
 
-      const urlButtons = screen.getAllByTitle('https://example.com/article')
-      fireEvent.click(urlButtons[0], { shiftKey: true, metaKey: true })
+      const urlAnchors = screen.getAllByTitle('https://example.com/article')
+      fireEvent.click(urlAnchors[0], { shiftKey: true, metaKey: true })
 
       // Silent mode should not track
       expect(onLinkClick).not.toHaveBeenCalled()
-      // But should still open the URL
-      expect(windowOpen).toHaveBeenCalled()
-
-      windowOpen.mockRestore()
+      // Navigation still happens via native anchor behavior (not tested here)
     })
 
     it('does NOT call onLinkClick when shift+ctrl+clicking URL (silent mode on Windows)', () => {
       const onLinkClick = vi.fn()
-      const windowOpen = vi.spyOn(window, 'open').mockImplementation(() => null)
 
       render(
         <BookmarkCard
@@ -194,17 +189,14 @@ describe('BookmarkCard', () => {
         />
       )
 
-      const urlButtons = screen.getAllByTitle('https://example.com/article')
-      fireEvent.click(urlButtons[0], { shiftKey: true, ctrlKey: true })
+      const urlAnchors = screen.getAllByTitle('https://example.com/article')
+      fireEvent.click(urlAnchors[0], { shiftKey: true, ctrlKey: true })
 
       expect(onLinkClick).not.toHaveBeenCalled()
-
-      windowOpen.mockRestore()
     })
 
     it('DOES call onLinkClick when only cmd+clicking URL (not silent mode)', () => {
       const onLinkClick = vi.fn()
-      const windowOpen = vi.spyOn(window, 'open').mockImplementation(() => null)
 
       render(
         <BookmarkCard
@@ -214,13 +206,36 @@ describe('BookmarkCard', () => {
         />
       )
 
-      const urlButtons = screen.getAllByTitle('https://example.com/article')
-      fireEvent.click(urlButtons[0], { metaKey: true })
+      const urlAnchors = screen.getAllByTitle('https://example.com/article')
+      fireEvent.click(urlAnchors[0], { metaKey: true })
 
       // cmd+click without shift should still track
       expect(onLinkClick).toHaveBeenCalledWith(mockBookmark)
+    })
 
-      windowOpen.mockRestore()
+    it('makes domain clickable when bookmark has no title', () => {
+      const bookmarkWithoutTitle = { ...mockBookmark, title: '' }
+      const onLinkClick = vi.fn()
+
+      render(
+        <BookmarkCard
+          bookmark={bookmarkWithoutTitle}
+          onDelete={vi.fn()}
+          onLinkClick={onLinkClick}
+        />
+      )
+
+      // When no title, the domain is displayed as a clickable link
+      // (multiple exist for mobile/desktop layouts)
+      const domainLinks = screen.getAllByText('example.com')
+
+      // Verify domain is rendered as an anchor with correct href
+      expect(domainLinks[0].tagName).toBe('A')
+      expect(domainLinks[0]).toHaveAttribute('href', 'https://example.com/article')
+
+      // Clicking should track usage
+      fireEvent.click(domainLinks[0])
+      expect(onLinkClick).toHaveBeenCalledWith(bookmarkWithoutTitle)
     })
   })
 

@@ -109,7 +109,7 @@ export function NoteCard({
               {view !== 'deleted' && (
                 <CopyContentButton contentType="note" id={note.id} />
               )}
-              {onArchive && view === 'active' && (
+              {onArchive && (
                 <ContentCard.ArchiveAction
                   onArchive={() => onArchive(note)}
                   entityName="note"

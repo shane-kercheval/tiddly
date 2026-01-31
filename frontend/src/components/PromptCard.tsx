@@ -115,7 +115,7 @@ export function PromptCard({
               {view !== 'deleted' && (
                 <CopyContentButton contentType="prompt" id={prompt.id} />
               )}
-              {onArchive && view === 'active' && (
+              {onArchive && (
                 <ContentCard.ArchiveAction
                   onArchive={() => onArchive(prompt)}
                   entityName="prompt"

@@ -35,17 +35,24 @@ export function ContentCardDateDisplay({
   deletedAt,
   showLabel = false,
 }: ContentCardDateDisplayProps): ReactNode {
-  // Get the date and label based on sort option
+  // Get the date and label based on sort option.
+  // For nullable dates, fall back to createdAt with adjusted label.
   const getDateInfo = (): { date: string; label: string } => {
     switch (sortBy) {
       case 'updated_at':
         return { date: updatedAt, label: 'Modified' }
       case 'last_used_at':
-        return { date: lastUsedAt!, label: 'Used' }
+        return lastUsedAt
+          ? { date: lastUsedAt, label: 'Used' }
+          : { date: createdAt, label: 'Created' }
       case 'archived_at':
-        return { date: archivedAt!, label: 'Archived' }
+        return archivedAt
+          ? { date: archivedAt, label: 'Archived' }
+          : { date: createdAt, label: 'Created' }
       case 'deleted_at':
-        return { date: deletedAt!, label: 'Deleted' }
+        return deletedAt
+          ? { date: deletedAt, label: 'Deleted' }
+          : { date: createdAt, label: 'Created' }
       case 'created_at':
       case 'title':
       default:
