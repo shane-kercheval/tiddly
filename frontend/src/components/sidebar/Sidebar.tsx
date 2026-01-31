@@ -596,7 +596,7 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-2 pt-2">
+        <nav className="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-2 pt-2">
           <SortableContext items={rootItemIds} strategy={verticalListSortingStrategy}>
             {sidebar?.items.map(renderItem)}
           </SortableContext>

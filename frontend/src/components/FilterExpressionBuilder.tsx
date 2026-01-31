@@ -146,7 +146,7 @@ function GroupEditor({
                 key={tag.name}
                 type="button"
                 onClick={() => addTag(tag.name)}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center justify-between"
+                className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between"
               >
                 <span>{tag.name}</span>
                 <span className="text-xs text-gray-400">{tag.content_count}</span>

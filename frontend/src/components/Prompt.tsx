@@ -742,7 +742,7 @@ export function Prompt({
 
       {/* Sticky header - outer div extends wider to hide scrolling content borders */}
       <div className="sticky top-0 z-10 shrink-0 bg-white -ml-2 pl-2 -mr-2 pr-2">
-        <div className="flex items-center justify-between pt-4 pb-4 border-b border-gray-200">
+        <div className="flex items-center justify-between pt-3 pb-3 border-b border-gray-200">
           <div className="flex items-center gap-2">
           {/* Close button */}
           <button

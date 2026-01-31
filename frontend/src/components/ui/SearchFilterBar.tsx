@@ -58,9 +58,9 @@ export function SearchFilterBar({
   leftSlot,
 }: SearchFilterBarProps): ReactNode {
   return (
-    <div className="flex flex-col gap-2 md:flex-row md:flex-nowrap md:items-center md:gap-3">
+    <div className="flex flex-col gap-1.5 md:flex-row md:flex-nowrap md:items-center md:gap-2">
       {/* Row 1 on mobile: Add button + search input */}
-      <div className="flex items-center gap-2 w-full md:w-auto md:contents">
+      <div className="flex items-center gap-1.5 w-full md:w-auto md:contents">
         {leftSlot}
         <div className="relative flex-1 min-w-0 md:min-w-[200px]">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
@@ -77,7 +77,7 @@ export function SearchFilterBar({
         </div>
       </div>
       {/* Row 2 on mobile: Tag filter + sort dropdown */}
-      <div className="flex items-center gap-2 w-full md:w-auto md:contents">
+      <div className="flex items-center gap-1.5 w-full md:w-auto md:contents">
         <div className="flex-1 md:flex-initial">
           <TagFilterInput
             suggestions={tagSuggestions}
@@ -89,7 +89,7 @@ export function SearchFilterBar({
         <select
           value={sortValue}
           onChange={onSortChange}
-          className="appearance-none cursor-pointer rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2 pr-8 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.5rem_center] bg-no-repeat"
+          className="appearance-none cursor-pointer rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-1.5 pr-8 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.5rem_center] bg-no-repeat"
         >
           {availableSortOptions.map((option) => (
             <optgroup key={option} label={SORT_LABELS[option]}>
