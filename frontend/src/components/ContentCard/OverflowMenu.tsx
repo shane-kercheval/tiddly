@@ -75,7 +75,7 @@ export function OverflowMenu({ items, className = '' }: OverflowMenuProps): Reac
     item.onClick()
   }
 
-  const visibleItems = items.filter(item => !item.disabled || item.disabled === false)
+  const visibleItems = items.filter(item => !item.disabled)
 
   if (visibleItems.length === 0) return null
 

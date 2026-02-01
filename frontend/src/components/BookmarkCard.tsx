@@ -142,7 +142,7 @@ export function BookmarkCard({
           {hasTitle ? (
             <span
               className="text-base font-medium text-gray-900 truncate"
-              title={bookmark.title}
+              title={bookmark.title ?? undefined}
             >
               {displayTitle}
             </span>
@@ -289,7 +289,7 @@ export function BookmarkCard({
               {hasTitle ? (
                 <span
                   className="text-base font-medium text-gray-900 truncate"
-                  title={bookmark.title}
+                  title={bookmark.title ?? undefined}
                 >
                   {displayTitle}
                 </span>

@@ -33,6 +33,7 @@ const mockBookmark: ContentListItem = {
   last_used_at: '2024-01-01T00:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 const mockNote: ContentListItem = {
@@ -50,6 +51,7 @@ const mockNote: ContentListItem = {
   last_used_at: '2024-01-02T00:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 const mockArchivedBookmark: ContentListItem = {
@@ -81,6 +83,7 @@ const mockPrompt: ContentListItem = {
   last_used_at: '2024-01-03T00:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 // Mock response builders
