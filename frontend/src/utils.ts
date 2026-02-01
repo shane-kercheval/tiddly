@@ -56,6 +56,30 @@ export function formatDate(dateString: string): string {
 }
 
 /**
+ * Format a date string to a short format without labels.
+ * Omits year if the date is in the current year.
+ * @param dateString - ISO date string
+ * @returns Formatted date like "Jan 28" or "Jan 28, 2024" if different year
+ */
+export function formatShortDate(dateString: string): string {
+  const date = new Date(dateString)
+  const currentYear = new Date().getFullYear()
+  const dateYear = date.getFullYear()
+
+  if (dateYear === currentYear) {
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    })
+  }
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+/**
  * Format a date string to a relative time (e.g., "2 days ago", "in 3 hours").
  * @param dateString - ISO date string
  * @returns Relative time string

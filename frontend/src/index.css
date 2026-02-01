@@ -20,19 +20,19 @@ body {
 @layer components {
   /* Button variants - compact sizing */
   .btn-primary {
-    @apply rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white transition-all hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:hover:bg-gray-300;
+    @apply rounded-md bg-gray-900 px-3 py-1 text-sm font-medium text-white transition-all hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:hover:bg-gray-300;
   }
 
   .btn-secondary {
-    @apply rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50 hover:border-gray-300 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply rounded-md border border-gray-200 bg-white px-3 py-1 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50 hover:border-gray-300 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-danger {
-    @apply rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition-all hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300 disabled:hover:bg-red-300;
+    @apply rounded-md bg-red-500 px-3 py-1 text-sm font-medium text-white transition-all hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-red-500/50 disabled:hover:bg-red-500/50;
   }
 
   .btn-ghost {
-    @apply rounded-md bg-transparent px-3 py-1.5 text-sm font-medium text-gray-600 transition-all hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply rounded-md bg-transparent px-3 py-1 text-sm font-medium text-gray-600 transition-all hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   /* Icon buttons with touch-friendly sizing on mobile (44px min target) */
@@ -41,7 +41,7 @@ body {
   }
 
   .btn-icon-danger {
-    @apply rounded-lg p-2 text-gray-400 transition-all hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply rounded-lg p-2 text-gray-400 transition-all hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   /* Smaller icon buttons on desktop where precision pointing is easier */
@@ -56,12 +56,12 @@ body {
 
   /* Form inputs */
   .input {
-    @apply w-full rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2 text-sm transition-all placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900/5 disabled:bg-gray-100 disabled:text-gray-500;
+    @apply w-full rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-1.5 text-sm transition-all placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900/5 disabled:bg-gray-100 disabled:text-gray-500;
   }
 
   /* Select dropdowns - Safari-compatible with custom arrow */
   .select {
-    @apply w-full rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-2 pr-8 text-sm transition-all focus:border-gray-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900/5 disabled:bg-gray-100 disabled:text-gray-500 appearance-none cursor-pointer bg-no-repeat;
+    @apply w-full rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-1.5 pr-8 text-sm transition-all focus:border-gray-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900/5 disabled:bg-gray-100 disabled:text-gray-500 appearance-none cursor-pointer bg-no-repeat;
     background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
     background-size: 1.25rem 1.25rem;
     background-position: right 0.5rem center;
@@ -103,7 +103,7 @@ body {
   }
 
   .badge-secondary {
-    @apply inline-flex items-center rounded-md bg-gray-50 px-2 py-0.5 text-xs font-normal text-gray-600 border border-gray-200;
+    @apply inline-flex items-baseline rounded-md bg-gray-50 px-1.5 py-px text-xs font-normal text-gray-600 border border-gray-200;
   }
 
   /* Modal backdrop with safe area support for notched devices */
@@ -436,4 +436,30 @@ body {
 /* Focus state for editor */
 .milkdown-wrapper .milkdown .ProseMirror:focus {
   @apply outline-none;
+}
+
+/* Brand color utilities - in utilities layer to override component defaults */
+@layer utilities {
+  .text-brand-bookmark { color: #6b9fd4; }
+  .text-brand-note { color: #85c48b; }
+  .text-brand-prompt { color: #e2a66b; }
+  .text-brand-all { color: #6855aa; }
+
+  .bg-brand-bookmark { background-color: #6b9fd4; }
+  .bg-brand-note { background-color: #85c48b; }
+  .bg-brand-prompt { background-color: #e2a66b; }
+  .bg-brand-all { background-color: #6855aa; }
+
+  .bg-brand-bookmark-light { background-color: rgba(107, 159, 212, 0.1); }
+  .bg-brand-note-light { background-color: rgba(133, 196, 139, 0.1); }
+  .bg-brand-prompt-light { background-color: rgba(226, 166, 107, 0.1); }
+  .bg-brand-all-light { background-color: rgba(104, 85, 170, 0.1); }
+
+  .hover\:text-brand-bookmark:hover { color: #5a8ec3; }
+  .hover\:text-brand-note:hover { color: #74b37a; }
+  .hover\:text-brand-prompt:hover { color: #d1955a; }
+
+  .hover\:bg-brand-bookmark-light:hover { background-color: rgba(107, 159, 212, 0.1); }
+  .hover\:bg-brand-note-light:hover { background-color: rgba(133, 196, 139, 0.1); }
+  .hover\:bg-brand-prompt-light:hover { background-color: rgba(226, 166, 107, 0.1); }
 }

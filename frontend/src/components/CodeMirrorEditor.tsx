@@ -676,8 +676,8 @@ export function CodeMirrorEditor({
       </div>
       {/* Editor area - overflow-hidden for content clipping (rounded corners handled by parent) */}
       <div className="overflow-hidden">
-        {/* Show CodeMirror for editing, Milkdown for reading */}
-        {effectiveReadingMode ? (
+        {/* Reading mode: show Milkdown preview */}
+        {effectiveReadingMode && (
           <MilkdownEditor
             value={value}
             onChange={() => {}} // Read-only: ignore changes
@@ -687,7 +687,10 @@ export function CodeMirrorEditor({
             placeholder={placeholder}
             noPadding={noPadding}
           />
-        ) : (
+        )}
+        {/* CodeMirror: always mounted to preserve state, hidden when in reading mode */}
+        {/* This prevents loss of edits when toggling modes (initialValue pattern) */}
+        <div className={effectiveReadingMode ? 'hidden' : ''}>
           <CodeMirror
             ref={editorRef}
             value={initialValue}
@@ -704,7 +707,7 @@ export function CodeMirrorEditor({
             }}
             className="text-sm"
           />
-        )}
+        </div>
       </div>
     </div>
   )

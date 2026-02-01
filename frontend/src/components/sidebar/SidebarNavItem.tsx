@@ -43,7 +43,7 @@ export function SidebarNavItem({
         end
         onClick={onClick}
         className={({ isActive }) =>
-          `flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+          `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ${
             isActive
               ? 'bg-gray-200 font-medium text-gray-900'
               : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
@@ -80,7 +80,7 @@ export function SidebarNavItem({
               className={`p-1 rounded transition-colors ${
                 isConfirmingDelete
                   ? 'bg-red-100 text-red-600 hover:bg-red-200 px-2'
-                  : 'text-gray-400 hover:text-red-500 hover:bg-gray-100'
+                  : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
               }`}
               aria-label={isConfirmingDelete ? 'Click again to confirm' : 'Delete filter'}
             >

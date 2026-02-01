@@ -50,7 +50,7 @@ function SelectorRow<T extends string>({
   return (
     <div className="flex flex-col md:flex-row md:items-center gap-1.5">
       {/* Label - on mobile shows above options with orange border, on desktop shows inline */}
-      <div className="border-l-4 border-l-orange-500 pl-3 md:border-l-0 md:pl-4 md:w-32 md:flex-shrink-0">
+      <div className="border-l-4 border-l-[#f09040] pl-3 md:border-l-0 md:pl-4 md:w-32 md:flex-shrink-0">
         <span className={`text-sm font-medium ${disabled ? 'text-gray-400' : 'text-gray-700'}`}>{label}</span>
       </div>
       {/* Options - stack vertically on mobile, horizontal on desktop */}
@@ -81,8 +81,8 @@ function SelectorRow<T extends string>({
                       ? 'bg-gray-300 text-gray-700'
                       : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                     : isSelected
-                    ? 'bg-orange-500 text-white'
-                    : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                    ? 'bg-[#f09040] text-white'
+                    : 'bg-[#fff0e5] text-[#d97b3d] hover:bg-[#ffe4d1]'
                 }
               `}
             >
@@ -844,7 +844,7 @@ function SkillsTagSelector({
     <div ref={containerRef} className="relative">
       {/* Selected tags display */}
       <div
-        className="min-h-[42px] p-2 border border-gray-200 rounded-lg bg-white cursor-text flex flex-wrap gap-1.5 items-center"
+        className="min-h-[34px] p-1.5 border border-gray-200 rounded-lg bg-white cursor-text flex flex-wrap gap-1.5 items-center"
         onClick={() => {
           setIsOpen(true)
           inputRef.current?.focus()
@@ -856,7 +856,7 @@ function SkillsTagSelector({
         {selectedTags.map((tag) => (
           <span
             key={tag}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[#fff0e5] text-[#d97b3d]"
           >
             {tag}
             <button
@@ -891,7 +891,7 @@ function SkillsTagSelector({
       {isOpen && (
         <div className="absolute z-10 mt-1 w-full max-h-60 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg">
           {filteredTags.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-gray-400">
+            <div className="px-3 py-1.5 text-sm text-gray-400">
               {inputValue ? 'No matching tags' : 'No tags available'}
             </div>
           ) : (
@@ -902,9 +902,9 @@ function SkillsTagSelector({
                   key={tag.name}
                   type="button"
                   onClick={() => toggleTag(tag.name)}
-                  className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors ${
+                  className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-sm transition-colors ${
                     isSelected
-                      ? 'bg-orange-50 text-orange-700'
+                      ? 'bg-[#fff7f0] text-[#d97b3d]'
                       : 'text-gray-600 hover:bg-gray-50'
                   }`}
                 >
@@ -1381,7 +1381,7 @@ export function SettingsMCP(): ReactNode {
       {/* Config Selector */}
       <div className="mb-8">
         <h2 className="text-xl font-bold text-gray-900 mb-4">Select Integration</h2>
-        <div className="md:border-l-4 md:border-l-orange-500 bg-white py-1.5 flex flex-col gap-4 md:gap-1.5">
+        <div className="md:border-l-4 md:border-l-[#f09040] bg-white py-1.5 flex flex-col gap-4 md:gap-1.5">
           {/* Integration row first - controls visibility of other rows */}
           <SelectorRow
             label="Integration"

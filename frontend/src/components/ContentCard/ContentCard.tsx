@@ -1,22 +1,15 @@
 /**
  * ContentCard - Composable card container for content items.
  *
- * Uses the compound component pattern to provide reusable subcomponents
- * for tags, actions, date display, etc. that can be composed by
- * BookmarkCard, NoteCard, PromptCard, and future content type cards.
+ * Uses CSS Grid with two columns:
+ * - Icon column: Fixed width for content type icon
+ * - Content column: Flexible width for all other content
  *
- * Usage:
- * ```tsx
- * <ContentCard view="active" onClick={handleClick}>
- *   <Header>...</Header>
- *   <ContentCard.Footer>
- *     <ContentCard.Tags tags={tags} onTagClick={onTagClick} />
- *     <ContentCard.Actions meta={<ContentCard.DateDisplay ... />}>
- *       <ContentCard.ArchiveAction onArchive={onArchive} entityName="note" />
- *       <ContentCard.DeleteAction onDelete={onDelete} entityName="note" />
- *     </ContentCard.Actions>
- *   </ContentCard.Footer>
- * </ContentCard>
+ * Layout structure:
+ * ```
+ * [icon] [Title] [favicon?] [tags]                    [date]
+ *        [domain/subtitle]                     [actions on hover]
+ *        [description]
  * ```
  */
 import type { ReactNode } from 'react'
@@ -34,7 +27,7 @@ interface ContentCardProps {
   view?: ContentCardView
   /** Click handler for the card */
   onClick?: () => void
-  /** Card content (header + ContentCard.Footer) */
+  /** Card content */
   children: ReactNode
   /** Additional CSS classes */
   className?: string
@@ -52,7 +45,7 @@ function ContentCardBase({
         className={`card card-interactive group ${onClick ? 'cursor-pointer' : ''} ${className}`.trim()}
         onClick={onClick}
       >
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
+        <div className="grid grid-cols-[auto_1fr] gap-x-2 items-start">
           {children}
         </div>
       </div>

@@ -20,6 +20,7 @@ export interface BookmarkListItem {
   last_used_at: string
   deleted_at: string | null
   archived_at: string | null
+  content_preview: string | null  // First 500 chars of content (whitespace normalized)
 }
 
 /**
@@ -92,6 +93,7 @@ export interface NoteListItem {
   deleted_at: string | null
   archived_at: string | null
   version: number
+  content_preview: string | null  // First 500 chars of content (whitespace normalized)
 }
 
 /**
@@ -203,6 +205,7 @@ export interface ContentListItem {
   last_used_at: string
   deleted_at: string | null
   archived_at: string | null
+  content_preview: string | null  // First 500 chars of content (whitespace normalized)
   // Bookmark-specific (null for notes/prompts)
   url: string | null
   // Note-specific (null for bookmarks/prompts)
@@ -408,6 +411,7 @@ export interface PromptListItem {
   last_used_at: string
   deleted_at: string | null
   archived_at: string | null
+  content_preview: string | null  // First 500 chars of content (whitespace normalized)
 }
 
 /**

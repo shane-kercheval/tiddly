@@ -156,14 +156,14 @@ describe('SettingsMCP', () => {
       renderWithRouter()
 
       const contentButton = screen.getByRole('button', { name: 'Bookmarks & Notes' })
-      expect(contentButton).toHaveClass('bg-orange-500')
+      expect(contentButton).toHaveClass('bg-[#f09040]')
     })
 
     it('should have Claude Desktop selected by default', () => {
       renderWithRouter()
 
       const claudeDesktopButton = screen.getByRole('button', { name: 'Claude Desktop' })
-      expect(claudeDesktopButton).toHaveClass('bg-orange-500')
+      expect(claudeDesktopButton).toHaveClass('bg-[#f09040]')
     })
   })
 
@@ -175,7 +175,7 @@ describe('SettingsMCP', () => {
       await user.click(screen.getByRole('button', { name: 'Prompts' }))
 
       const promptsButton = screen.getByRole('button', { name: 'Prompts' })
-      expect(promptsButton).toHaveClass('bg-orange-500')
+      expect(promptsButton).toHaveClass('bg-[#f09040]')
     })
 
     it('should show content server config when Content is selected', () => {

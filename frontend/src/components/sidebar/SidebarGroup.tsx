@@ -84,14 +84,14 @@ export function SidebarGroup({
     }
   }
 
-  const baseClassName = `flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 ${
+  const baseClassName = `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-700 ${
     isCollapsed ? 'justify-center' : ''
   }`
 
   // If sidebar is collapsed, render minimal version
   if (isCollapsed) {
     return (
-      <div className="mb-2">
+      <div>
         <button
           onClick={onToggle}
           type="button"
@@ -105,7 +105,7 @@ export function SidebarGroup({
   }
 
   return (
-    <div className="mb-2">
+    <div>
       {/* Group header with relative positioning for absolute icons */}
       <div className="group/section relative w-full">
         <button
@@ -159,7 +159,7 @@ export function SidebarGroup({
                 className={`p-1 rounded transition-colors ${
                   isConfirmingDelete
                     ? 'bg-red-100 text-red-600 hover:bg-red-200 px-2'
-                    : 'text-gray-400 hover:text-red-500 hover:bg-gray-100'
+                    : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
                 }`}
                 aria-label={isConfirmingDelete ? 'Click again to confirm' : onEdit ? 'Delete collection' : 'Delete group'}
               >
@@ -175,7 +175,7 @@ export function SidebarGroup({
       </div>
 
       {isExpanded && (
-        <div className="ml-4 mt-1 space-y-1 border-l border-gray-200 pl-2">
+        <div className="ml-4 mt-0.5 space-y-0.5 border-l border-gray-200 pl-2">
           {children}
         </div>
       )}

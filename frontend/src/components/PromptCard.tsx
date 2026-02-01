@@ -1,16 +1,16 @@
 /**
  * Component for displaying a single prompt card in list view.
  *
- * Uses ContentCard composition for shared layout, tags, actions, and date display.
- * Prompt-specific header (icon, title/name display, description) stays here.
+ * Responsive layout:
+ * - Mobile: Vertical stacking with always-visible actions
+ * - Desktop: Horizontal compact layout with hover-revealed actions
  */
 import type { ReactNode } from 'react'
 import type { PromptListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
-import { truncate } from '../utils'
 import { CopyContentButton } from './ui'
-import { PromptIcon } from './icons'
+import { PromptIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
 import { ContentCard } from './ContentCard'
 
 interface PromptCardProps {
@@ -26,22 +26,9 @@ interface PromptCardProps {
   onTagRemove?: (prompt: PromptListItem, tag: string) => void
   onTagAdd?: (prompt: PromptListItem, tag: string) => void
   tagSuggestions?: TagCount[]
-  /** Called when user cancels a scheduled auto-archive */
   onCancelScheduledArchive?: (prompt: PromptListItem) => void
 }
 
-/**
- * PromptCard displays a single prompt with its metadata.
- *
- * Features:
- * - Clickable card opens prompt view/edit (unified component)
- * - Context-aware action buttons based on view:
- *   - active: archive, delete
- *   - archived: restore, delete
- *   - deleted: restore, permanent delete
- * - Clickable tags for filtering
- * - Shows name (unique identifier) and title (display name)
- */
 export function PromptCard({
   prompt,
   view = 'active',
@@ -59,11 +46,12 @@ export function PromptCard({
 }: PromptCardProps): ReactNode {
   // Display title if present, otherwise use name
   const displayName = prompt.title || prompt.name
-  // Show description if present
-  const previewText = prompt.description || ''
+  const previewText = prompt.description || prompt.content_preview || ''
+  // Show name below title if they differ
+  const showName = prompt.title && prompt.title !== prompt.name
 
   const handleTitleClick = (e: React.MouseEvent): void => {
-    e.stopPropagation() // Prevent card click from triggering edit
+    e.stopPropagation()
     onView?.(prompt)
   }
 
@@ -72,49 +60,128 @@ export function PromptCard({
       view={view}
       onClick={onView ? () => onView(prompt) : undefined}
     >
-      {/* Header stays in PromptCard - prompt-specific */}
-      <div className="min-w-0 flex-1 overflow-hidden">
-        {/* Title row */}
-        <div className="flex items-center gap-2 md:flex-wrap">
-          <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.prompt}`}>
-            <PromptIcon className="w-4 h-4" />
-          </span>
-          <button
-            onClick={handleTitleClick}
-            className="text-base font-medium text-gray-900 text-left cursor-pointer truncate min-w-0 md:shrink-0"
-            title="View prompt"
-          >
-            {truncate(displayName, 60)}
-          </button>
-          {/* Show name inline on desktop */}
-          {prompt.title && prompt.title !== prompt.name && (
-            <span className="hidden md:inline text-xs text-gray-400 font-mono">{prompt.name}</span>
+      {/* Column 1: Icon */}
+      <span className={`w-4 h-4 mt-1 ${CONTENT_TYPE_ICON_COLORS.prompt}`}>
+        <PromptIcon className="w-4 h-4" />
+      </span>
+
+      {/* Column 2: Content - responsive layout */}
+      <div className="min-w-0 flex-1">
+        {/* Mobile layout - stacked vertically */}
+        <div className="md:hidden flex flex-col gap-1.5">
+          {/* Title row */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleTitleClick}
+              className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
+              title="View prompt"
+            >
+              {displayName}
+            </button>
+          </div>
+
+          {/* Name (if different from title) */}
+          {showName && (
+            <span className="text-xs text-gray-400 font-mono truncate">{prompt.name}</span>
           )}
+
+          {/* Description */}
+          {previewText && (
+            <p className="text-sm text-gray-500 line-clamp-2">
+              {previewText}
+            </p>
+          )}
+
+          {/* Tags row */}
+          {prompt.tags.length > 0 && (
+            <ContentCard.Tags
+              tags={prompt.tags}
+              onTagClick={onTagClick}
+              onTagRemove={onTagRemove ? (tag) => onTagRemove(prompt, tag) : undefined}
+            />
+          )}
+
+          {/* Actions and date row */}
+          <div className="flex items-center justify-between">
+            {/* Actions - always visible on mobile */}
+            <div className="flex items-center gap-0.5">
+              {onTagAdd && tagSuggestions && (
+                <ContentCard.AddTagAction
+                  existingTags={prompt.tags}
+                  suggestions={tagSuggestions}
+                  onAdd={(tag) => onTagAdd(prompt, tag)}
+                />
+              )}
+              {view !== 'deleted' && (
+                <CopyContentButton contentType="prompt" id={prompt.id} />
+              )}
+              {onArchive && (
+                <ContentCard.ArchiveAction
+                  onArchive={() => onArchive(prompt)}
+                  entityName="prompt"
+                />
+              )}
+              {view === 'archived' && onUnarchive && (
+                <ContentCard.RestoreAction
+                  onRestore={() => onUnarchive(prompt)}
+                  entityName="prompt"
+                />
+              )}
+              {view === 'deleted' && onRestore && (
+                <ContentCard.RestoreAction
+                  onRestore={() => onRestore(prompt)}
+                  entityName="prompt"
+                />
+              )}
+              <ContentCard.DeleteAction
+                onDelete={() => onDelete(prompt)}
+                entityName="prompt"
+              />
+            </div>
+
+            {/* Date and archiving indicator */}
+            <div className="flex flex-col items-end gap-0.5">
+              <ContentCard.DateDisplay
+                sortBy={sortBy}
+                createdAt={prompt.created_at}
+                updatedAt={prompt.updated_at}
+                lastUsedAt={prompt.last_used_at}
+                archivedAt={prompt.archived_at}
+                deletedAt={prompt.deleted_at}
+                showLabel
+              />
+              {onCancelScheduledArchive && (
+                <ContentCard.ScheduledArchive
+                  archivedAt={prompt.archived_at}
+                  onCancel={() => onCancelScheduledArchive(prompt)}
+                />
+              )}
+            </div>
+          </div>
         </div>
-        {/* Name on separate line - mobile only */}
-        {prompt.title && prompt.title !== prompt.name && (
-          <span className="block md:hidden mt-0.5 text-xs text-gray-400 font-mono">{prompt.name}</span>
-        )}
 
-        {/* Description - 2 lines on mobile, 1 line on desktop */}
-        {previewText && (
-          <p className="mt-1 text-sm text-gray-500 line-clamp-2 md:line-clamp-1">
-            {previewText}
-          </p>
-        )}
-      </div>
+        {/* Desktop layout - horizontal with hover actions */}
+        <div className="hidden md:block">
+          {/* Row 1: Title + tags + date */}
+          <div className="flex items-start gap-2">
+            {/* Left: Title and tags */}
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0 flex-1">
+              <button
+                onClick={handleTitleClick}
+                className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
+                title="View prompt"
+              >
+                {displayName}
+              </button>
+              <ContentCard.Tags
+                tags={prompt.tags}
+                onTagClick={onTagClick}
+                onTagRemove={onTagRemove ? (tag) => onTagRemove(prompt, tag) : undefined}
+              />
+            </div>
 
-      {/* Footer wraps tags + actions for responsive layout (md:contents) */}
-      <ContentCard.Footer>
-        <ContentCard.Tags
-          tags={prompt.tags}
-          onTagClick={onTagClick}
-          onTagRemove={onTagRemove ? (tag) => onTagRemove(prompt, tag) : undefined}
-        />
-
-        <ContentCard.Actions
-          meta={
-            <>
+            {/* Right: Date */}
+            <div className="shrink-0">
               <ContentCard.DateDisplay
                 sortBy={sortBy}
                 createdAt={prompt.created_at}
@@ -123,60 +190,101 @@ export function PromptCard({
                 archivedAt={prompt.archived_at}
                 deletedAt={prompt.deleted_at}
               />
-              {onCancelScheduledArchive && (
-                <ContentCard.ScheduledArchive
-                  archivedAt={prompt.archived_at}
-                  onCancel={() => onCancelScheduledArchive(prompt)}
+            </div>
+          </div>
+
+          {/* Row 2: Name (if different from title) + Archiving indicator */}
+          <div className="flex items-center gap-2 mt-0.5">
+            {showName && (
+              <span className="text-xs text-gray-400 font-mono truncate">{prompt.name}</span>
+            )}
+            <div className="flex-1" />
+            {onCancelScheduledArchive && (
+              <ContentCard.ScheduledArchive
+                archivedAt={prompt.archived_at}
+                onCancel={() => onCancelScheduledArchive(prompt)}
+              />
+            )}
+          </div>
+
+          {/* Row 3: Description + actions (actions overlay on hover) */}
+          <div className="relative mt-1 min-h-[20px]">
+            {/* Description fills full width */}
+            <p className="text-sm text-gray-500 truncate pr-0 group-hover:pr-32 transition-[padding] duration-150">
+              {previewText || '\u00A0'}
+            </p>
+
+            {/* Actions absolutely positioned, appear on hover */}
+            <div className="absolute right-0 top-0">
+              <ContentCard.Actions
+                overflowItems={[
+                  {
+                    key: 'archive',
+                    label: 'Archive',
+                    icon: <ArchiveIcon className="h-4 w-4" />,
+                    onClick: () => onArchive?.(prompt),
+                    hidden: !onArchive || view !== 'active',
+                  },
+                  {
+                    key: 'unarchive',
+                    label: 'Restore',
+                    icon: <RestoreIcon className="h-4 w-4" />,
+                    onClick: () => onUnarchive?.(prompt),
+                    hidden: view !== 'archived' || !onUnarchive,
+                  },
+                  {
+                    key: 'restore',
+                    label: 'Restore',
+                    icon: <RestoreIcon className="h-4 w-4" />,
+                    onClick: () => onRestore?.(prompt),
+                    hidden: view !== 'deleted' || !onRestore,
+                  },
+                  {
+                    key: 'delete',
+                    label: view === 'deleted' ? 'Delete Permanently' : 'Delete',
+                    icon: <TrashIcon className="h-4 w-4" />,
+                    onClick: () => onDelete(prompt),
+                    danger: true,
+                  },
+                ]}
+              >
+                {onTagAdd && tagSuggestions && (
+                  <ContentCard.AddTagAction
+                    existingTags={prompt.tags}
+                    suggestions={tagSuggestions}
+                    onAdd={(tag) => onTagAdd(prompt, tag)}
+                  />
+                )}
+                {view !== 'deleted' && (
+                  <CopyContentButton contentType="prompt" id={prompt.id} />
+                )}
+                {onArchive && (
+                  <ContentCard.ArchiveAction
+                    onArchive={() => onArchive(prompt)}
+                    entityName="prompt"
+                  />
+                )}
+                {view === 'archived' && onUnarchive && (
+                  <ContentCard.RestoreAction
+                    onRestore={() => onUnarchive(prompt)}
+                    entityName="prompt"
+                  />
+                )}
+                {view === 'deleted' && onRestore && (
+                  <ContentCard.RestoreAction
+                    onRestore={() => onRestore(prompt)}
+                    entityName="prompt"
+                  />
+                )}
+                <ContentCard.DeleteAction
+                  onDelete={() => onDelete(prompt)}
+                  entityName="prompt"
                 />
-              )}
-            </>
-          }
-        >
-          {/* Add tag button */}
-          {onTagAdd && tagSuggestions && (
-            <ContentCard.AddTagAction
-              existingTags={prompt.tags}
-              suggestions={tagSuggestions}
-              onAdd={(tag) => onTagAdd(prompt, tag)}
-            />
-          )}
-
-          {/* Copy button - shown in active and archived views */}
-          {view !== 'deleted' && (
-            <CopyContentButton contentType="prompt" id={prompt.id} />
-          )}
-
-          {/* Archive button - shown in active view only (via context) */}
-          {onArchive && (
-            <ContentCard.ArchiveAction
-              onArchive={() => onArchive(prompt)}
-              entityName="prompt"
-            />
-          )}
-
-          {/* Restore button - shown in archived view (unarchive action) */}
-          {view === 'archived' && onUnarchive && (
-            <ContentCard.RestoreAction
-              onRestore={() => onUnarchive(prompt)}
-              entityName="prompt"
-            />
-          )}
-
-          {/* Restore button - shown in deleted view */}
-          {view === 'deleted' && onRestore && (
-            <ContentCard.RestoreAction
-              onRestore={() => onRestore(prompt)}
-              entityName="prompt"
-            />
-          )}
-
-          {/* Delete button - shown in all views */}
-          <ContentCard.DeleteAction
-            onDelete={() => onDelete(prompt)}
-            entityName="prompt"
-          />
-        </ContentCard.Actions>
-      </ContentCard.Footer>
+              </ContentCard.Actions>
+            </div>
+          </div>
+        </div>
+      </div>
     </ContentCard>
   )
 }

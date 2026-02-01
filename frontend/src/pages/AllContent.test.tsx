@@ -33,6 +33,7 @@ const mockBookmark: ContentListItem = {
   last_used_at: '2024-01-01T00:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 const mockNote: ContentListItem = {
@@ -50,6 +51,7 @@ const mockNote: ContentListItem = {
   last_used_at: '2024-01-02T00:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 const mockArchivedBookmark: ContentListItem = {
@@ -81,6 +83,7 @@ const mockPrompt: ContentListItem = {
   last_used_at: '2024-01-03T00:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 // Mock response builders
@@ -438,10 +441,11 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
-      // Bookmark should have URL displayed (mobile and desktop views)
-      const urls = screen.getAllByText('example.com')
+      // Bookmark should have URL displayed (full URL without query params)
+      const urls = screen.getAllByText('https://example.com')
       expect(urls.length).toBeGreaterThan(0)
     })
 
@@ -450,7 +454,8 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
     })
 
@@ -459,8 +464,9 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Titles appear in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
     })
   })
@@ -472,11 +478,12 @@ describe('AllContent', () => {
         renderAtRoute('/app/content')
 
         await waitFor(() => {
-          expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+          // Title appears in both mobile and desktop layouts
+          expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
         })
 
-        // Archive button should be present
-        expect(screen.getByLabelText('Archive bookmark')).toBeInTheDocument()
+        // Archive button appears in both layouts
+        expect(screen.getAllByLabelText('Archive bookmark').length).toBeGreaterThan(0)
       })
 
       it('shows Archive button for notes', async () => {
@@ -484,10 +491,12 @@ describe('AllContent', () => {
         renderAtRoute('/app/content')
 
         await waitFor(() => {
-          expect(screen.getByText('Test Note')).toBeInTheDocument()
+          // Title appears in both mobile and desktop layouts
+          expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
         })
 
-        expect(screen.getByLabelText('Archive note')).toBeInTheDocument()
+        // Archive button appears in both layouts
+        expect(screen.getAllByLabelText('Archive note').length).toBeGreaterThan(0)
       })
     })
 
@@ -497,11 +506,12 @@ describe('AllContent', () => {
         renderAtRoute('/app/content/archived')
 
         await waitFor(() => {
-          expect(screen.getByText('Archived Bookmark')).toBeInTheDocument()
+          // Title appears in both mobile and desktop layouts
+          expect(screen.getAllByText('Archived Bookmark').length).toBeGreaterThan(0)
         })
 
         // In archived view, the button says "Restore" (for unarchive action)
-        expect(screen.getByLabelText('Restore bookmark')).toBeInTheDocument()
+        expect(screen.getAllByLabelText('Restore bookmark').length).toBeGreaterThan(0)
       })
     })
 
@@ -511,10 +521,12 @@ describe('AllContent', () => {
         renderAtRoute('/app/content/trash')
 
         await waitFor(() => {
-          expect(screen.getByText('Deleted Note')).toBeInTheDocument()
+          // Title appears in both mobile and desktop layouts
+          expect(screen.getAllByText('Deleted Note').length).toBeGreaterThan(0)
         })
 
-        expect(screen.getByLabelText('Restore note')).toBeInTheDocument()
+        // Restore button appears in both layouts
+        expect(screen.getAllByLabelText('Restore note').length).toBeGreaterThan(0)
       })
 
       it('allows card click to view in deleted view', async () => {
@@ -523,7 +535,8 @@ describe('AllContent', () => {
         const { container } = renderAtRoute('/app/content/trash')
 
         await waitFor(() => {
-          expect(screen.getByText('Deleted Note')).toBeInTheDocument()
+          // Title appears in both mobile and desktop layouts
+          expect(screen.getAllByText('Deleted Note').length).toBeGreaterThan(0)
         })
 
         // Card should have cursor-pointer class - deleted items are still viewable
@@ -551,11 +564,12 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
 
-      // Click on the note title/card to view it
-      await user.click(screen.getByText('Test Note'))
+      // Click on the note title/card to view it (click first match)
+      await user.click(screen.getAllByText('Test Note')[0])
 
       expect(mockNavigate).toHaveBeenCalledWith(
         '/app/notes/2',
@@ -573,7 +587,8 @@ describe('AllContent', () => {
       const { container } = renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
 
       // Click on the note card to view it (card click now goes to view, not edit)
@@ -596,10 +611,12 @@ describe('AllContent', () => {
       renderAtRoute('/app/content?q=test')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
 
-      await user.click(screen.getByText('Test Note'))
+      // Click first match
+      await user.click(screen.getAllByText('Test Note')[0])
 
       expect(mockNavigate).toHaveBeenCalledWith(
         '/app/notes/2',
@@ -629,7 +646,8 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Bookmark 1')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Bookmark 1').length).toBeGreaterThan(0)
       })
 
       // Should show page indicator and navigation buttons
@@ -649,7 +667,8 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
 
       expect(screen.getByText('Page 1 of 2')).toBeInTheDocument()
@@ -663,12 +682,13 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
 
-      // Click on a tag
-      const tagButton = screen.getByRole('button', { name: 'test' })
-      await user.click(tagButton)
+      // Click on a tag (appears in both layouts, click first)
+      const tagButtons = screen.getAllByRole('button', { name: 'test' })
+      await user.click(tagButtons[0])
 
       expect(mockAddTag).toHaveBeenCalledWith('test')
     })
@@ -727,7 +747,8 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
 
       // Should show filter chips
@@ -741,7 +762,8 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
 
       // Click the bookmarks chip to toggle it
@@ -807,11 +829,13 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
 
-      const archiveButton = screen.getByLabelText('Archive bookmark')
-      await user.click(archiveButton)
+      // Archive button appears in both layouts, click first
+      const archiveButtons = screen.getAllByLabelText('Archive bookmark')
+      await user.click(archiveButtons[0])
 
       expect(mockArchiveBookmark).toHaveBeenCalledWith('1')
     })
@@ -823,12 +847,13 @@ describe('AllContent', () => {
       renderAtRoute('/app/content/archived')
 
       await waitFor(() => {
-        expect(screen.getByText('Archived Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Archived Bookmark').length).toBeGreaterThan(0)
       })
 
-      // In archived view, the button label is "Restore bookmark"
-      const restoreButton = screen.getByLabelText('Restore bookmark')
-      await user.click(restoreButton)
+      // In archived view, the button label is "Restore bookmark" (appears in both layouts)
+      const restoreButtons = screen.getAllByLabelText('Restore bookmark')
+      await user.click(restoreButtons[0])
 
       expect(mockUnarchiveBookmark).toHaveBeenCalledWith('3')
     })
@@ -842,11 +867,13 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
 
-      const archiveButton = screen.getByLabelText('Archive note')
-      await user.click(archiveButton)
+      // Archive button appears in both layouts, click first
+      const archiveButtons = screen.getAllByLabelText('Archive note')
+      await user.click(archiveButtons[0])
 
       expect(mockArchiveNote).toHaveBeenCalledWith('2')
     })
@@ -858,11 +885,13 @@ describe('AllContent', () => {
       renderAtRoute('/app/content/trash')
 
       await waitFor(() => {
-        expect(screen.getByText('Deleted Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Deleted Note').length).toBeGreaterThan(0)
       })
 
-      const restoreButton = screen.getByLabelText('Restore note')
-      await user.click(restoreButton)
+      // Restore button appears in both layouts, click first
+      const restoreButtons = screen.getAllByLabelText('Restore note')
+      await user.click(restoreButtons[0])
 
       expect(mockRestoreNote).toHaveBeenCalledWith('4')
     })
@@ -876,12 +905,13 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
 
-      // Click add tag button to open dropdown
-      const addTagButton = screen.getByRole('button', { name: 'Add tag' })
-      await user.click(addTagButton)
+      // Click add tag button to open dropdown (appears in both layouts, click first)
+      const addTagButtons = screen.getAllByRole('button', { name: 'Add tag' })
+      await user.click(addTagButtons[0])
 
       // Wait for dropdown to open (input appears)
       await screen.findByPlaceholderText('Add tag...')
@@ -903,12 +933,13 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
 
-      // Click add tag button to open dropdown
-      const addTagButton = screen.getByRole('button', { name: 'Add tag' })
-      await user.click(addTagButton)
+      // Click add tag button to open dropdown (appears in both layouts, click first)
+      const addTagButtons = screen.getAllByRole('button', { name: 'Add tag' })
+      await user.click(addTagButtons[0])
 
       // Wait for dropdown to open (input appears)
       await screen.findByPlaceholderText('Add tag...')
@@ -930,12 +961,13 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Prompt')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Prompt').length).toBeGreaterThan(0)
       })
 
-      // Click add tag button to open dropdown
-      const addTagButton = screen.getByRole('button', { name: 'Add tag' })
-      await user.click(addTagButton)
+      // Click add tag button to open dropdown (appears in both layouts, click first)
+      const addTagButtons = screen.getAllByRole('button', { name: 'Add tag' })
+      await user.click(addTagButtons[0])
 
       // Wait for dropdown to open (input appears)
       await screen.findByPlaceholderText('Add tag...')
@@ -955,7 +987,8 @@ describe('AllContent', () => {
       renderAtRoute('/app/content/trash')
 
       await waitFor(() => {
-        expect(screen.getByText('Deleted Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Deleted Note').length).toBeGreaterThan(0)
       })
 
       expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
@@ -970,12 +1003,13 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
 
-      // Click remove button on 'test' tag
-      const removeButton = screen.getByRole('button', { name: /remove tag test/i })
-      await user.click(removeButton)
+      // Click remove button on 'test' tag (appears in both layouts, click first)
+      const removeButtons = screen.getAllByRole('button', { name: /remove tag test/i })
+      await user.click(removeButtons[0])
 
       expect(mockUpdateBookmark).toHaveBeenCalledWith({
         id: '1',
@@ -990,12 +1024,13 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
 
-      // Click remove button on 'test' tag
-      const removeButton = screen.getByRole('button', { name: /remove tag test/i })
-      await user.click(removeButton)
+      // Click remove button on 'test' tag (appears in both layouts, click first)
+      const removeButtons = screen.getAllByRole('button', { name: /remove tag test/i })
+      await user.click(removeButtons[0])
 
       expect(mockUpdateNote).toHaveBeenCalledWith({
         id: '2',
@@ -1010,12 +1045,13 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Prompt')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Prompt').length).toBeGreaterThan(0)
       })
 
-      // Click remove button on 'test' tag
-      const removeButton = screen.getByRole('button', { name: /remove tag test/i })
-      await user.click(removeButton)
+      // Click remove button on 'test' tag (appears in both layouts, click first)
+      const removeButtons = screen.getAllByRole('button', { name: /remove tag test/i })
+      await user.click(removeButtons[0])
 
       expect(mockUpdatePrompt).toHaveBeenCalledWith({
         id: '5',

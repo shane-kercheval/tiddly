@@ -307,3 +307,21 @@ export const HelpIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
     />
   </svg>
 )
+
+/** More options icon (three vertical dots) */
+export const MoreIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
+  <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+    <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+  </svg>
+)
+
+/** External link icon (arrow pointing up-right) */
+export const ExternalLinkIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+    />
+  </svg>
+)

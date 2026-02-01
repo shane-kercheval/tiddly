@@ -35,6 +35,7 @@ const mockPrompt: Prompt = {
   last_used_at: '2024-01-01T00:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 // Mock hooks

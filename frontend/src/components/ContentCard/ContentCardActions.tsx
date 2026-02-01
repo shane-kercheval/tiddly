@@ -1,30 +1,45 @@
 /**
  * Actions container for ContentCard.
  *
- * Handles the layout for action buttons and metadata (date display, scheduled archive).
- * On mobile: buttons left, meta right in a row
- * On desktop: buttons on top, meta below, aligned right
+ * Desktop (md+): Shows actions on hover, absolutely positioned to not affect layout
+ * Mobile: Shows overflow menu ("•••" button)
  */
 import type { ReactNode } from 'react'
+import { OverflowMenu } from './OverflowMenu'
 
-interface ContentCardActionsProps {
-  /** Action buttons (AddTag, Archive, Restore, Delete, etc.) */
-  children: ReactNode
-  /** Metadata elements (DateDisplay, ScheduledArchive) */
-  meta?: ReactNode
+interface OverflowMenuItem {
+  key: string
+  label: string
+  icon: ReactNode
+  onClick: () => void
+  danger?: boolean
+  hidden?: boolean
 }
 
-export function ContentCardActions({ children, meta }: ContentCardActionsProps): ReactNode {
+interface ContentCardActionsProps {
+  /** Action buttons for desktop (hidden until hover) */
+  children: ReactNode
+  /** Items for the mobile overflow menu */
+  overflowItems?: OverflowMenuItem[]
+}
+
+export function ContentCardActions({ children, overflowItems }: ContentCardActionsProps): ReactNode {
+  // Filter out hidden items for overflow menu
+  const visibleOverflowItems = overflowItems?.filter(item => !item.hidden) ?? []
+
   return (
-    <div className="flex items-center justify-between w-full md:w-auto md:flex-col md:items-end md:shrink-0">
-      <div className="flex items-center">
+    <>
+      {/* Desktop: Hover-revealed actions - use invisible/visible to not affect layout when hidden */}
+      <div className="hidden md:flex items-center invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-150">
         {children}
       </div>
-      {meta && (
-        <div className="flex flex-col items-end gap-0.5">
-          {meta}
+
+      {/* Mobile: Overflow menu */}
+      {visibleOverflowItems.length > 0 && (
+        <div className="md:hidden">
+          <OverflowMenu items={visibleOverflowItems} />
         </div>
       )}
-    </div>
+    </>
   )
 }

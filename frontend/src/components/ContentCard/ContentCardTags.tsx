@@ -1,8 +1,7 @@
 /**
  * Tags section for ContentCard.
  *
- * Renders a list of Tag components with optional click and remove handlers.
- * Returns null when there are no tags to display.
+ * Renders tags inline with the title.
  */
 import type { ReactNode } from 'react'
 import { Tag } from '../Tag'
@@ -24,7 +23,7 @@ export function ContentCardTags({
   if (tags.length === 0) return null
 
   return (
-    <div className="flex flex-wrap gap-1 md:justify-end md:w-32 md:shrink-0">
+    <div className="inline-flex flex-wrap items-baseline gap-1 md:-translate-y-0.5">
       {tags.map((tag) => (
         <Tag
           key={tag}
