@@ -128,8 +128,8 @@ Rationale:
 | Layer | Role |
 |-------|------|
 | **Database** | Safety ceiling only (existing constraints sufficient) |
-| **API/Pydantic** | Ceiling validation (catches extreme values) |
-| **API/Services** | Tier-specific limit enforcement |
+| **API/Pydantic** | Structure and type validation only (no length limits) |
+| **API/Services** | All tier-specific limit enforcement (item counts + field lengths) |
 | **Frontend** | UX enforcement (prevents over-typing, shows errors) |
 
 ### Error Response Contract
@@ -680,41 +680,21 @@ async def create_bookmark(
 
 **Key Changes:**
 
-The validation happens in two layers:
-1. **Schema validators (ceiling)**: Catch obviously invalid input early with generous limits
-2. **Service validators (tier-specific)**: Enforce user's actual tier limits
+**Design Decision: Service-layer validation only (no Pydantic ceilings)**
 
-1. **Update `backend/src/schemas/validators.py` with ceiling values:**
+All field length validation happens in the service layer, not in Pydantic schemas. Rationale:
 
-```python
-# Ceiling values - generous limits that exceed any tier
-# Tier-specific limits are enforced in services
-MAX_TITLE_CEILING = 500  # DB column is String(500)
-MAX_CONTENT_CEILING = 500_000  # Safety ceiling
-MAX_URL_CEILING = 8192  # Safety ceiling
-MAX_TAG_NAME_CEILING = 100  # DB column is String(100)
-MAX_ARG_DESC_CEILING = 1000  # Safety ceiling
+1. **Helpful error messages**: Service layer can return tier-aware errors ("Your limit is 100 chars, you sent 150"). Pydantic returns generic "String should have at most X characters" with no context about the user's tier or what to do.
 
-def validate_url_length(url: str) -> str:
-    """Validate URL doesn't exceed ceiling."""
-    if len(str(url)) > MAX_URL_CEILING:
-        raise ValueError(f"URL exceeds maximum length of {MAX_URL_CEILING}")
-    return url
+2. **Simplicity**: One validation layer instead of two. No confusion about which layer enforces what. Service layer is the single source of truth for business logic.
 
-def validate_tag_name_length(tag: str) -> str:
-    """Validate tag name doesn't exceed ceiling."""
-    if len(tag) > MAX_TAG_NAME_CEILING:
-        raise ValueError(f"Tag name exceeds maximum length of {MAX_TAG_NAME_CEILING}")
-    return tag
+3. **DoS protection is handled elsewhere**: FastAPI/Starlette already has request body size limits at the server level. Pydantic doesn't need to duplicate this.
 
-def validate_argument_description_length(desc: str | None) -> str | None:
-    """Validate argument description doesn't exceed ceiling."""
-    if desc is not None and len(desc) > MAX_ARG_DESC_CEILING:
-        raise ValueError(f"Argument description exceeds maximum length of {MAX_ARG_DESC_CEILING}")
-    return desc
-```
+4. **Ceiling would never be meaningfully reached**: If we set Pydantic ceiling high enough to pass all tier limits (e.g., 5MB), it becomes noise - just complexity without value.
 
-2. **Add shared validation helper to `BaseEntityService`:**
+Pydantic schemas remain responsible for structure and type validation (is it a string? is it valid JSON? is it a valid URL format?). Field *length* limits are entirely service-layer concerns.
+
+1. **Add shared validation helper to `BaseEntityService`:**
 
 ```python
 def _validate_common_field_limits(self, data: dict, limits: TierLimits) -> None:
@@ -847,12 +827,10 @@ def test_title_exceeds_tier_limit(low_limits, ...):
 ```
 
 **Test cases:**
-- Test ceiling validation catches extreme values (e.g., title > 500 chars)
 - Test tier-specific validation with mocked low limits (e.g., title > 10 chars with `max_title_length=10`)
 - Test each field type: title, description, content, URL, tag name, argument description
 - Test tag name validation happens before `get_or_create_tags()` is called
-- Test error response structure matches contract
-- Test that ceiling and service errors have consistent shape
+- Test error response structure matches contract (429, `FIELD_LIMIT_EXCEEDED`, field name, current, limit)
 - Test str-replace that would grow content past limit returns 429 with `FIELD_LIMIT_EXCEEDED`
 - Test str-replace that keeps content under limit succeeds
 - Test prompt str-replace with argument descriptions exceeding limit returns 429
@@ -860,7 +838,6 @@ def test_title_exceeds_tier_limit(low_limits, ...):
 **Dependencies:** Milestone 1
 
 **Risk Factors:**
-- Two-layer validation adds complexity - ensure error messages are clear about which limit was hit
 - Tag validation touches shared validator used across all entities
 
 ---
@@ -1091,9 +1068,6 @@ if (error.response?.status === 429) {
 | `schemas/cached_user.py` | Add `tier: str` field |
 | `core/auth_cache.py` | Include `tier` in cached data, bump `CACHE_SCHEMA_VERSION` to 3 |
 | `schemas/` (new or existing) | Add `UserLimitsResponse` |
-| `schemas/validators.py` | Add ceiling validators for URL, tag name, arg description |
-| `schemas/bookmark.py` | Add URL length validation (ceiling) |
-| `schemas/prompt.py` | Add argument description validation |
 | `api/main.py` | Add global exception handlers for `QuotaExceededError`, `FieldLimitExceededError` |
 | `api/routers/users.py` | Add `/me/limits` endpoint |
 | `services/exceptions.py` | Add `QuotaExceededError`, `FieldLimitExceededError` |
@@ -1158,3 +1132,77 @@ Consider adding a dashboard showing:
 - Current usage vs limits (e.g., "75/100 bookmarks")
 - Visual progress bars
 - Warnings when approaching limits (e.g., 80%, 90%, 100%)
+
+---
+
+## Appendix A: Tier Limits Enforcement Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              FRONTEND                                        │
+│  • Fetches limits from /users/me/limits on app load                         │
+│  • UI validation: character counters, "limit reached" states                │
+│  • Prevents bad UX, but NOT a security boundary                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           API ROUTER LAYER                                   │
+│  • Extracts current_user from auth (includes tier field)                    │
+│  • Converts tier string → Tier enum: Tier(current_user.tier)                │
+│  • Passes tier to service methods                                           │
+│  • Global exception handlers convert errors → HTTP responses (429)          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         PYDANTIC SCHEMA LAYER                                │
+│  • Structure and type validation only                                       │
+│  • Example: Is it a string? Valid URL format? Valid JSON structure?         │
+│  • NO field length limits (handled by service layer)                        │
+│  • Returns 422 Unprocessable Entity for malformed requests                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           SERVICE LAYER                                      │
+│  • AUTHORITATIVE enforcement layer for all business limits                  │
+│  • Looks up tier-specific limits: TIER_LIMITS[tier]                         │
+│                                                                             │
+│  Item counts (create/restore):                                              │
+│    count = SELECT COUNT(*) WHERE user_id = ?                                │
+│    if count >= limits.max_bookmarks: raise QuotaExceededError               │
+│                                                                             │
+│  Field lengths (create/update/str-replace):                                 │
+│    if len(content) > limits.max_content_length:                             │
+│        raise FieldLimitExceededError("content", len, limit)                 │
+│                                                                             │
+│  → Returns helpful, tier-aware error messages                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              DATABASE                                        │
+│  • No tier limit enforcement (business logic lives in service layer)        │
+│  • Existing constraints: unique URLs, foreign keys, NOT NULL                │
+│  • Column constraints (e.g., String(500)) as safety ceilings only           │
+│  • Tier stored as column on User table (default: 'free')                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Enforcement Summary
+
+| Layer | Enforcement Type | Failure Response |
+|-------|------------------|------------------|
+| Frontend | Soft (UX only) | Disabled buttons, warnings |
+| Pydantic | Structure/type only | 422 Unprocessable Entity |
+| Service | **All tier limits** (counts + lengths) | 429 with structured error |
+| Database | Safety ceilings only | Constraint violation (should never hit) |
+
+### Why Service Layer Only?
+
+Pydantic ceiling validation was removed because:
+1. **Helpful errors**: Service layer returns tier-aware messages with `error_code`, `field`, `current`, `limit`
+2. **Simplicity**: Single validation layer, single source of truth
+3. **DoS protection elsewhere**: FastAPI/Starlette handles request body size limits
+4. **Meaningless ceiling**: A ceiling high enough to pass all tiers adds complexity without value
