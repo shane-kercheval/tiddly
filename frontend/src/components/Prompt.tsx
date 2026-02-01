@@ -883,7 +883,7 @@ export function Prompt({
             placeholder="Display title (optional)"
             disabled={isSaving || isReadOnly}
             error={errors.title}
-            className="text-lg text-gray-600"
+            className="text-lg text-gray-600 placeholder:!text-[#b5bac2]"
           />
 
           {/* Description */}
