@@ -1,0 +1,61 @@
+# Backend CI Workflow
+#
+# Runs backend tests on push to main and PRs when backend files change.
+# Railway deploys automatically after CI passes (when "Wait for CI" is enabled).
+
+name: backend-tests
+
+on:
+  push:
+    branches:
+      - "main"
+      - "staging"
+    paths:
+      - 'backend/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'Makefile'
+      - 'Dockerfile.api'
+      - '.github/workflows/backend-tests.yaml'
+  pull_request:
+    branches:
+      - "main"
+      - "staging"
+    paths:
+      - 'backend/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'Makefile'
+      - 'Dockerfile.api'
+      - '.github/workflows/backend-tests.yaml'
+  workflow_dispatch:  # Allow manual trigger from GitHub Actions UI
+
+jobs:
+  backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    env:
+      SKIP_CI_TESTS: "true"
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Display Python version
+        run: python -c "import sys; print(sys.version)"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+          make build
+
+      - name: linting
+        run: make backend-lint
+
+      - name: tests_only
+        run: make backend-tests
