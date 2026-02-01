@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Deploy the Bookmarks application to Railway using Railpack (Railway's auto-build system).
+Deploy Tiddly services to Railway using Railpack (Railway's auto-build system).
 
 ## Architecture
 
