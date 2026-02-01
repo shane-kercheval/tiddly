@@ -344,10 +344,15 @@ class FieldLimitExceededError(Exception):
 
 3. **Update service `create()` methods to accept `tier: Tier` parameter:**
 
+**Files to modify:**
+- `services/bookmark_service.py` - `BookmarkService.create()` → check `limits.max_bookmarks`
+- `services/note_service.py` - `NoteService.create()` → check `limits.max_notes`
+- `services/prompt_service.py` - `PromptService.create()` → check `limits.max_prompts`
+
 ```python
 from core.tier_limits import Tier, get_tier_limits
 
-# In BookmarkService.create()
+# Example: BookmarkService.create() - apply same pattern to NoteService and PromptService
 async def create(
     self,
     db: AsyncSession,
@@ -385,10 +390,15 @@ Note: The `entity_name` to limit attribute mapping needs care. Consider adding a
 
 5. **Update routers to convert tier string to enum and handle exceptions:**
 
+**Files to modify:**
+- `api/routers/bookmarks.py` - `create_bookmark()`, `restore_bookmark()`
+- `api/routers/notes.py` - `create_note()`, `restore_note()`
+- `api/routers/prompts.py` - `create_prompt()`, `restore_prompt()`
+
 ```python
 from core.tier_limits import Tier
 
-# In routers/bookmarks.py
+# Example: routers/bookmarks.py - apply same pattern to notes.py and prompts.py
 @router.post("/", response_model=BookmarkResponse, status_code=201)
 async def create_bookmark(
     data: BookmarkCreate,
@@ -520,8 +530,13 @@ def _validate_common_field_limits(self, data: dict, limits: TierLimits) -> None:
 
 3. **Add entity-specific validation in services:**
 
+**Files to modify:**
+- `services/bookmark_service.py` - `_validate_field_limits()` with URL validation
+- `services/note_service.py` - `_validate_field_limits()` (common fields only)
+- `services/prompt_service.py` - `_validate_field_limits()` with argument description validation
+
 ```python
-# In BookmarkService
+# Example: BookmarkService - adds URL validation
 def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
     self._validate_common_field_limits(data, limits)
     if "url" in data and data["url"]:
