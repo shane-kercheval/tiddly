@@ -50,6 +50,13 @@ Before implementing any milestone, review:
 ### Tier Limits (defined in code)
 
 ```python
+from dataclasses import dataclass
+from enum import StrEnum
+
+class Tier(StrEnum):
+    FREE = "free"
+    # PRO = "pro"  # future
+
 @dataclass(frozen=True)
 class TierLimits:
     # Item counts (separate for future tier differentiation)
@@ -64,8 +71,8 @@ class TierLimits:
     max_tag_name_length: int
     max_argument_description_length: int
 
-TIER_LIMITS = {
-    "free": TierLimits(
+TIER_LIMITS: dict[Tier, TierLimits] = {
+    Tier.FREE: TierLimits(
         max_bookmarks=100,
         max_notes=100,
         max_prompts=100,
@@ -77,7 +84,17 @@ TIER_LIMITS = {
     ),
     # Future tiers will have different values
 }
+
+def get_tier_limits(tier: Tier) -> TierLimits:
+    """Get limits for a tier."""
+    return TIER_LIMITS[tier]
 ```
+
+**Type safety pattern:**
+- DB stores tier as string (`user.tier` column)
+- Conversion happens at API boundary (in routers): `Tier(current_user.tier)`
+- Services and internal functions use `Tier` enum for type safety
+- Invalid tier strings raise `ValueError` at conversion (fail-fast)
 
 ### Item Counting Policy
 
@@ -179,7 +196,7 @@ class TierLimits:
     max_tag_name_length: int
     max_argument_description_length: int
 
-TIER_LIMITS: dict[str, TierLimits] = {
+TIER_LIMITS: dict[Tier, TierLimits] = {
     Tier.FREE: TierLimits(
         max_bookmarks=100,
         max_notes=100,
@@ -192,21 +209,30 @@ TIER_LIMITS: dict[str, TierLimits] = {
     ),
 }
 
-def get_tier_limits(tier: str) -> TierLimits:
-    """Get limits for a tier, defaulting to FREE if unknown."""
-    return TIER_LIMITS.get(tier, TIER_LIMITS[Tier.FREE])
+def get_tier_limits(tier: Tier) -> TierLimits:
+    """Get limits for a tier."""
+    return TIER_LIMITS[tier]
 ```
+
+**Type safety note:** The `Tier` enum is used consistently throughout the codebase:
+- DB stores string (`user.tier` column)
+- Conversion happens at API boundary: `Tier(current_user.tier)`
+- Services and internal functions use `Tier` enum
+- Invalid tier strings in DB will raise `ValueError` at conversion (fail-fast)
 
 2. **Update `backend/src/models/user.py`:**
    - Add `tier: Mapped[str] = mapped_column(String(50), default="free", server_default="free")`
 
 3. **Create migration:**
    - `make migration message="add tier column to users"`
+   - Always use `make migration` command to ensure consistency; NEVER CREATE MIGRATIONS MANUALLY.
 
 **Testing Strategy:**
-- Unit tests for `get_tier_limits()` with valid tier, unknown tier (falls back to FREE)
+- Unit tests for `get_tier_limits()` with valid `Tier` enum value
+- Test that `Tier("invalid")` raises `ValueError` (fail-fast for invalid tier strings)
 - Test that `TierLimits` dataclass is immutable (frozen)
 - Integration test that new users get default "free" tier
+- Test that `Tier(user.tier)` conversion works for valid DB values
 
 **Dependencies:** None
 
@@ -242,10 +268,12 @@ class UserLimitsResponse(BaseModel):
 2. **Add endpoint in `backend/src/api/routers/users.py`:**
 ```python
 from dataclasses import asdict
+from core.tier_limits import Tier, get_tier_limits
 
 @router.get("/me/limits", response_model=UserLimitsResponse)
 async def get_my_limits(current_user: User = Depends(get_current_user)) -> UserLimitsResponse:
-    limits = get_tier_limits(current_user.tier)
+    tier = Tier(current_user.tier)  # Convert string from DB to enum
+    limits = get_tier_limits(tier)
     return UserLimitsResponse(
         tier=current_user.tier,
         **asdict(limits),
@@ -314,15 +342,17 @@ class FieldLimitExceededError(Exception):
         super().__init__(f"{field.capitalize()} exceeds limit of {limit} characters")
 ```
 
-3. **Update service `create()` methods to accept `tier: str` parameter:**
+3. **Update service `create()` methods to accept `tier: Tier` parameter:**
 
 ```python
+from core.tier_limits import Tier, get_tier_limits
+
 # In BookmarkService.create()
 async def create(
     self,
     db: AsyncSession,
     user_id: UUID,
-    tier: str,
+    tier: Tier,
     data: BookmarkCreate,
 ) -> Bookmark:
     limits = get_tier_limits(tier)
@@ -339,7 +369,7 @@ async def restore(
     self,
     db: AsyncSession,
     user_id: UUID,
-    tier: str,  # Add this parameter
+    tier: Tier,  # Add this parameter
     entity_id: UUID,
 ) -> T | None:
     # Check limit before restoring
@@ -353,9 +383,11 @@ async def restore(
 
 Note: The `entity_name` to limit attribute mapping needs care. Consider adding a class attribute `limit_attr_name` to each service for cleaner lookup.
 
-5. **Update routers to pass `tier` and handle exceptions:**
+5. **Update routers to convert tier string to enum and handle exceptions:**
 
 ```python
+from core.tier_limits import Tier
+
 # In routers/bookmarks.py
 @router.post("/", response_model=BookmarkResponse, status_code=201)
 async def create_bookmark(
@@ -364,8 +396,9 @@ async def create_bookmark(
     db: AsyncSession = Depends(get_async_session),
 ) -> BookmarkResponse:
     try:
+        tier = Tier(current_user.tier)  # Convert string from DB to enum at boundary
         bookmark = await bookmark_service.create(
-            db, current_user.id, current_user.tier, data
+            db, current_user.id, tier, data
         )
         # ...
     except QuotaExceededError as e:
@@ -641,13 +674,13 @@ if (error.response?.status === 429) {
 | `schemas/prompt.py` | Add argument description validation |
 | `api/routers/users.py` | Add `/me/limits` endpoint |
 | `services/exceptions.py` | Add `QuotaExceededError`, `FieldLimitExceededError` |
-| `services/base_entity_service.py` | Add `count_user_items()`, `_validate_common_field_limits()`, update `restore()` |
-| `services/bookmark_service.py` | Add tier param to `create()`, add field validation |
-| `services/note_service.py` | Add tier param to `create()`, add field validation |
-| `services/prompt_service.py` | Add tier param to `create()`, add field validation |
-| `api/routers/bookmarks.py` | Pass tier to service, handle quota/field errors |
-| `api/routers/notes.py` | Pass tier to service, handle quota/field errors |
-| `api/routers/prompts.py` | Pass tier to service, handle quota/field errors |
+| `services/base_entity_service.py` | Add `count_user_items()`, `_validate_common_field_limits()`, update `restore()` with `Tier` param |
+| `services/bookmark_service.py` | Add `Tier` param to `create()`, add field validation |
+| `services/note_service.py` | Add `Tier` param to `create()`, add field validation |
+| `services/prompt_service.py` | Add `Tier` param to `create()`, add field validation |
+| `api/routers/bookmarks.py` | Convert `current_user.tier` string to `Tier` enum, pass to service, handle quota/field errors |
+| `api/routers/notes.py` | Convert `current_user.tier` string to `Tier` enum, pass to service, handle quota/field errors |
+| `api/routers/prompts.py` | Convert `current_user.tier` string to `Tier` enum, pass to service, handle quota/field errors |
 | `core/config.py` | Remove legacy limit settings |
 
 ### Frontend
