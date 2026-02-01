@@ -258,12 +258,51 @@ def get_tier_limits(tier: Tier) -> TierLimits:
    - `make migration message="add tier column to users"`
    - Always use `make migration` command to ensure consistency; NEVER CREATE MIGRATIONS MANUALLY.
 
+4. **Add `tier` to `CachedUser`:**
+
+This is **required for correctness**. `get_current_user` returns `User | CachedUser`. On cache hit, it returns `CachedUser` directly. Without `tier` on `CachedUser`, the code `Tier(current_user.tier)` will raise `AttributeError` on every cache hit.
+
+**Files to modify:**
+
+- `schemas/cached_user.py` - Add `tier: str` field:
+```python
+@dataclass
+class CachedUser:
+    id: UUID
+    auth0_id: str
+    email: str | None
+    consent_privacy_version: str | None
+    consent_tos_version: str | None
+    tier: str  # Add this
+```
+
+- `core/auth_cache.py` - Update `AuthCache.set()` to include tier:
+```python
+cached = CachedUser(
+    id=user.id,
+    auth0_id=user.auth0_id,
+    email=user.email,
+    consent_privacy_version=(...),
+    consent_tos_version=(...),
+    tier=user.tier,  # Add this
+)
+```
+
+- `core/auth_cache.py` - Bump `CACHE_SCHEMA_VERSION` from 2 to 3:
+```python
+CACHE_SCHEMA_VERSION = 3  # Added tier field
+```
+
+**Security note:** The `tier` column must NOT be updateable via any user-facing endpoint. Verify that no `PATCH /users/me` or similar endpoint accepts the `tier` field. Tier changes should only happen through admin operations or payment system integrations (future).
+
 **Testing Strategy:**
 - Unit tests for `get_tier_limits()` with valid `Tier` enum value
 - Test that `Tier("invalid")` raises `ValueError` (fail-fast for invalid tier strings)
 - Test that `TierLimits` dataclass is immutable (frozen)
 - Integration test that new users get default "free" tier
 - Test that `Tier(user.tier)` conversion works for valid DB values
+- Test that `current_user.tier` works on both cache hit and cache miss scenarios
+- Test that attempting to update tier via user endpoints is rejected/ignored
 
 **Dependencies:** None
 
@@ -539,11 +578,91 @@ def low_limits(monkeypatch):
 - Verify error response structure (error_code, resource, current, limit, retry_after)
 - Test each content type (bookmarks, notes, prompts)
 
+**Note on concurrent requests:** The app-level count check has a small race window under concurrent creation. Two simultaneous `POST` requests from the same user may both pass the check, briefly exceeding the limit by 1 item. This is acceptable for soft enforcement - the next request will fail. Database-level enforcement (triggers, advisory locks) would add significant complexity without meaningful benefit for abuse prevention.
+
 **Dependencies:** Milestone 1
 
 **Risk Factors:**
 - Service method signatures change - update all callers (routers, tests)
 - MCP servers call API via HTTP, so they're unaffected by service signature changes
+
+---
+
+### Milestone 3.5: Global Exception Handlers
+
+**Goal:** Add global exception handlers to reduce boilerplate and ensure consistent error responses.
+
+**Success Criteria:**
+- `QuotaExceededError` and `FieldLimitExceededError` are handled globally
+- All endpoints return consistent 429 response format
+- Router code is simplified (no repetitive try/catch blocks)
+
+**Key Changes:**
+
+1. **Add exception handlers in `backend/src/api/main.py`:**
+
+```python
+from services.exceptions import QuotaExceededError, FieldLimitExceededError
+
+@app.exception_handler(QuotaExceededError)
+async def quota_exceeded_handler(request: Request, exc: QuotaExceededError) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": str(exc),
+            "error_code": "QUOTA_EXCEEDED",
+            "resource": exc.resource,
+            "current": exc.current,
+            "limit": exc.limit,
+            "retry_after": None,
+        },
+    )
+
+@app.exception_handler(FieldLimitExceededError)
+async def field_limit_handler(request: Request, exc: FieldLimitExceededError) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": str(exc),
+            "error_code": "FIELD_LIMIT_EXCEEDED",
+            "field": exc.field,
+            "current": exc.current,
+            "limit": exc.limit,
+            "retry_after": None,
+        },
+    )
+```
+
+2. **Simplify router code:**
+
+The global handlers remove try/catch boilerplate, but routers still need the tier conversion at the API boundary:
+
+```python
+# Example: routers/bookmarks.py - simplified (no try/catch for quota errors)
+@router.post("/", response_model=BookmarkResponse, status_code=201)
+async def create_bookmark(
+    data: BookmarkCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> BookmarkResponse:
+    tier = Tier(current_user.tier)  # Still needed - API boundary conversion
+    bookmark = await bookmark_service.create(db, current_user.id, tier, data)
+    # No try/catch - QuotaExceededError propagates to global handler
+    return BookmarkResponse.model_validate(bookmark)
+```
+
+**What global handlers remove:** The repetitive `try/except QuotaExceededError` and `try/except FieldLimitExceededError` blocks in every endpoint.
+
+**What routers still need:** The `Tier(current_user.tier)` conversion at the API boundary before calling services.
+
+**Testing Strategy:**
+- Test that `QuotaExceededError` raised anywhere results in correct 429 response
+- Test that `FieldLimitExceededError` raised anywhere results in correct 429 response
+- Test response structure matches the error contract
+
+**Dependencies:** Milestone 3
+
+**Risk Factors:** None
 
 ---
 
@@ -671,22 +790,49 @@ def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
 
 6. **Update tag validation** in `validate_and_normalize_tag()` to check name length
 
-7. **Handle `FieldLimitExceededError` in routers:**
+7. **Add validation to str-replace endpoints:**
+
+The str-replace endpoints directly modify content without going through `update()`, so they need explicit validation. Without this, users could grow content past their tier limit.
+
+**Files to modify:**
+- `api/routers/bookmarks.py` - `str_replace_bookmark()`
+- `api/routers/notes.py` - `str_replace_note()`
+- `api/routers/prompts.py` - `str_replace_prompt()` and `str_replace_prompt_by_name()`
 
 ```python
-except FieldLimitExceededError as e:
-    raise HTTPException(
-        status_code=429,
-        detail={
-            "detail": str(e),
-            "error_code": "FIELD_LIMIT_EXCEEDED",
-            "field": e.field,
-            "current": e.current,
-            "limit": e.limit,
-            "retry_after": None,
-        },
+# Example: bookmarks.py str-replace endpoint
+# After: result = str_replace(bookmark.content, data.old_str, data.new_str)
+# Before: bookmark.content = result.new_content
+
+# Validate new content length against tier limits
+tier = Tier(current_user.tier)
+limits = get_tier_limits(tier)
+if len(result.new_content) > limits.max_bookmark_content_length:
+    raise FieldLimitExceededError(
+        "content", len(result.new_content), limits.max_bookmark_content_length
     )
+
+bookmark.content = result.new_content
 ```
+
+For **prompts str-replace**, also validate argument descriptions when `data.arguments` is provided:
+
+```python
+# In prompts.py str-replace endpoint, when arguments are being updated
+if data.arguments is not None:
+    for arg in data.arguments:
+        if arg.description and len(arg.description) > limits.max_argument_description_length:
+            raise FieldLimitExceededError(
+                "argument_description",
+                len(arg.description),
+                limits.max_argument_description_length,
+            )
+    prompt.arguments = [arg.model_dump() for arg in data.arguments]
+```
+
+8. **Handle `FieldLimitExceededError` in routers:**
+
+With global exception handlers (Milestone 3.5), no explicit try/catch is needed - errors propagate to the global handler automatically.
 
 **Testing Strategy:**
 
@@ -707,6 +853,9 @@ def test_title_exceeds_tier_limit(low_limits, ...):
 - Test tag name validation happens before `get_or_create_tags()` is called
 - Test error response structure matches contract
 - Test that ceiling and service errors have consistent shape
+- Test str-replace that would grow content past limit returns 429 with `FIELD_LIMIT_EXCEEDED`
+- Test str-replace that keeps content under limit succeeds
+- Test prompt str-replace with argument descriptions exceeding limit returns 429
 
 **Dependencies:** Milestone 1
 
@@ -832,6 +981,31 @@ Each component should:
 - Show loading state while `isLoading` is true
 - Pass fetched limits to child components (`ContentEditor`, `InlineEditableText`)
 
+**Explicit loading guard pattern:**
+
+Components must guard against rendering forms before limits are loaded:
+
+```typescript
+// In each component that uses limits for form validation
+const { limits, isLoading } = useLimits()
+
+// Guard: don't render form until limits are available
+if (isLoading || !limits) {
+    return <LoadingSpinner />  // Or skeleton UI
+}
+
+// Now limits is guaranteed to be defined - safe to render form
+return (
+    <BookmarkForm
+        maxTitleLength={limits.max_title_length}
+        maxContentLength={limits.max_bookmark_content_length}
+        // ...
+    />
+)
+```
+
+This prevents forms from rendering with undefined limits, which would cause validation errors or allow invalid input.
+
 5. **Add tier and limits display in Settings:**
 
 Update `pages/settings/SettingsGeneral.tsx` to show account tier and limits:
@@ -914,19 +1088,22 @@ if (error.response?.status === 429) {
 |------|---------|
 | `core/tier_limits.py` | New file - tier definitions and lookup |
 | `models/user.py` | Add `tier` column |
+| `schemas/cached_user.py` | Add `tier: str` field |
+| `core/auth_cache.py` | Include `tier` in cached data, bump `CACHE_SCHEMA_VERSION` to 3 |
 | `schemas/` (new or existing) | Add `UserLimitsResponse` |
 | `schemas/validators.py` | Add ceiling validators for URL, tag name, arg description |
 | `schemas/bookmark.py` | Add URL length validation (ceiling) |
 | `schemas/prompt.py` | Add argument description validation |
+| `api/main.py` | Add global exception handlers for `QuotaExceededError`, `FieldLimitExceededError` |
 | `api/routers/users.py` | Add `/me/limits` endpoint |
 | `services/exceptions.py` | Add `QuotaExceededError`, `FieldLimitExceededError` |
 | `services/base_entity_service.py` | Add `count_user_items()`, `_validate_common_field_limits()`, update `restore()` with `Tier` param |
 | `services/bookmark_service.py` | Add `limit_attr`, add `Tier` param to `create()` and `update()`, add `_validate_field_limits()` |
 | `services/note_service.py` | Add `limit_attr`, add `Tier` param to `create()` and `update()`, add `_validate_field_limits()` |
 | `services/prompt_service.py` | Add `limit_attr`, add `Tier` param to `create()` and `update()`, add `_validate_field_limits()` |
-| `api/routers/bookmarks.py` | Update `create`, `update`, `restore` to convert tier and pass to service, handle quota/field errors |
-| `api/routers/notes.py` | Update `create`, `update`, `restore` to convert tier and pass to service, handle quota/field errors |
-| `api/routers/prompts.py` | Update `create`, `update`, `restore` to convert tier and pass to service, handle quota/field errors |
+| `api/routers/bookmarks.py` | Update `create`, `update`, `restore`, `str-replace` - convert tier, validate limits |
+| `api/routers/notes.py` | Update `create`, `update`, `restore`, `str-replace` - convert tier, validate limits |
+| `api/routers/prompts.py` | Update `create`, `update`, `restore`, `str-replace` (both endpoints) - convert tier, validate limits |
 | `core/config.py` | Remove legacy limit settings |
 
 ### Frontend
@@ -953,3 +1130,31 @@ if (error.response?.status === 429) {
 ## Removed from Original Plan
 
 **Milestone 7 (DB Column Adjustments)** - Removed. Current DB constraints already exceed tier limits and serve as adequate safety ceilings. No migration needed.
+
+---
+
+## Future Considerations
+
+These items are out of scope for the initial free-tier implementation but should be addressed when implementing paid tiers:
+
+### Tier Downgrade Handling
+
+When users downgrade from a paid tier (e.g., PRO → FREE) while over the new tier's limits, define behavior:
+
+- **Option A: Read-only mode** - Allow read, search, delete. Block create, update, restore until under limit.
+- **Option B: Grace period** - 30 days to delete items before enforcement kicks in.
+- **Option C: Soft enforcement** - Show warnings but allow continued use with degraded features.
+
+### Tier Cache Invalidation
+
+Currently, `tier` is cached in Redis with 5-minute TTL. When tier changes are possible (via payment system), consider:
+
+- Explicit cache invalidation on tier change (call `auth_cache.invalidate()`)
+- Or accept that tier changes take up to 5 minutes to propagate (users can refresh)
+
+### Usage Tracking Dashboard
+
+Consider adding a dashboard showing:
+- Current usage vs limits (e.g., "75/100 bookmarks")
+- Visual progress bars
+- Warnings when approaching limits (e.g., 80%, 90%, 100%)
