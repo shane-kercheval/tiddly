@@ -26,6 +26,7 @@ const mockPrompt: PromptListItem = {
   last_used_at: '2024-01-03T12:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 describe('PromptCard', () => {
@@ -65,6 +66,33 @@ describe('PromptCard', () => {
       // Description appears in both mobile and desktop views
       const descriptions = screen.getAllByText('A prompt for reviewing code')
       expect(descriptions.length).toBeGreaterThan(0)
+    })
+
+    it('should render content_preview when description is null', () => {
+      const promptWithPreview = { ...mockPrompt, description: null, content_preview: 'Preview of prompt template' }
+      render(<PromptCard prompt={promptWithPreview} onDelete={vi.fn()} />)
+
+      // Preview appears in both mobile and desktop views
+      const previews = screen.getAllByText('Preview of prompt template')
+      expect(previews.length).toBeGreaterThan(0)
+    })
+
+    it('should prefer description over content_preview when both exist', () => {
+      const promptWithBoth = { ...mockPrompt, description: 'The description', content_preview: 'The preview' }
+      render(<PromptCard prompt={promptWithBoth} onDelete={vi.fn()} />)
+
+      // Description should be shown
+      const descriptions = screen.getAllByText('The description')
+      expect(descriptions.length).toBeGreaterThan(0)
+      // Preview should not be shown
+      expect(screen.queryByText('The preview')).not.toBeInTheDocument()
+    })
+
+    it('should not render preview section when both description and content_preview are null', () => {
+      const promptWithNeither = { ...mockPrompt, description: null, content_preview: null }
+      render(<PromptCard prompt={promptWithNeither} onDelete={vi.fn()} />)
+
+      expect(screen.queryByText('A prompt for reviewing code')).not.toBeInTheDocument()
     })
 
     it('should render tags', () => {

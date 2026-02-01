@@ -22,6 +22,7 @@ const mockNote: NoteListItem = {
   deleted_at: null,
   archived_at: null,
   version: 1,
+  content_preview: null,
 }
 
 describe('NoteCard', () => {
@@ -84,6 +85,34 @@ describe('NoteCard', () => {
       render(<NoteCard note={noteWithoutDesc} onDelete={vi.fn()} />)
 
       // Description paragraph should not exist
+      expect(screen.queryByText('A test note description')).not.toBeInTheDocument()
+    })
+
+    it('should render content_preview when description is null', () => {
+      const noteWithPreview = { ...mockNote, description: null, content_preview: 'Preview of note content' }
+      render(<NoteCard note={noteWithPreview} onDelete={vi.fn()} />)
+
+      // Preview appears in both mobile and desktop views
+      const previews = screen.getAllByText('Preview of note content')
+      expect(previews.length).toBeGreaterThan(0)
+    })
+
+    it('should prefer description over content_preview when both exist', () => {
+      const noteWithBoth = { ...mockNote, description: 'The description', content_preview: 'The preview' }
+      render(<NoteCard note={noteWithBoth} onDelete={vi.fn()} />)
+
+      // Description should be shown
+      const descriptions = screen.getAllByText('The description')
+      expect(descriptions.length).toBeGreaterThan(0)
+      // Preview should not be shown
+      expect(screen.queryByText('The preview')).not.toBeInTheDocument()
+    })
+
+    it('should not render preview section when both description and content_preview are null', () => {
+      const noteWithNeither = { ...mockNote, description: null, content_preview: null }
+      render(<NoteCard note={noteWithNeither} onDelete={vi.fn()} />)
+
+      // No preview text should be rendered (checking for non-breaking space used as placeholder)
       expect(screen.queryByText('A test note description')).not.toBeInTheDocument()
     })
   })

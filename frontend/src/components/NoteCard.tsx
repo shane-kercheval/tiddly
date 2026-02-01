@@ -44,7 +44,7 @@ export function NoteCard({
   tagSuggestions,
   onCancelScheduledArchive,
 }: NoteCardProps): ReactNode {
-  const previewText = note.description || ''
+  const previewText = note.description || note.content_preview || ''
 
   const handleTitleClick = (e: React.MouseEvent): void => {
     e.stopPropagation()

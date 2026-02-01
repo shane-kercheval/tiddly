@@ -247,7 +247,7 @@ describe('ContentCardTags', () => {
     const wrapper = container.firstChild
     expect(wrapper).toHaveClass('inline-flex')
     expect(wrapper).toHaveClass('flex-wrap')
-    expect(wrapper).toHaveClass('items-center')
+    expect(wrapper).toHaveClass('items-baseline')
     expect(wrapper).toHaveClass('gap-1')
   })
 })

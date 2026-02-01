@@ -46,7 +46,7 @@ export function PromptCard({
 }: PromptCardProps): ReactNode {
   // Display title if present, otherwise use name
   const displayName = prompt.title || prompt.name
-  const previewText = prompt.description || ''
+  const previewText = prompt.description || prompt.content_preview || ''
   // Show name below title if they differ
   const showName = prompt.title && prompt.title !== prompt.name
 

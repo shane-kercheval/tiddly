@@ -185,10 +185,10 @@ export function BookmarkCard({
             </a>
           )}
 
-          {/* Description */}
-          {bookmark.description && (
+          {/* Description or content preview */}
+          {(bookmark.description || bookmark.content_preview) && (
             <p className="text-sm text-gray-500 line-clamp-2">
-              {bookmark.description}
+              {bookmark.description || bookmark.content_preview}
             </p>
           )}
 
@@ -371,11 +371,11 @@ export function BookmarkCard({
             )}
           </div>
 
-          {/* Row 3: Description + actions */}
+          {/* Row 3: Description/preview + actions */}
           <div className="relative mt-1 min-h-[20px]">
-            {/* Description fills available width */}
+            {/* Description or content preview fills available width */}
             <p className="text-sm text-gray-500 truncate pr-0 group-hover:pr-40 transition-[padding] duration-150">
-              {bookmark.description || '\u00A0'}
+              {bookmark.description || bookmark.content_preview || '\u00A0'}
             </p>
 
             {/* Actions absolutely positioned, appear on hover */}

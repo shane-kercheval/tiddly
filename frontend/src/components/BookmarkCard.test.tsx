@@ -23,6 +23,7 @@ const mockBookmark: BookmarkListItem = {
   last_used_at: '2024-01-01T00:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 describe('BookmarkCard', () => {
@@ -73,6 +74,44 @@ describe('BookmarkCard', () => {
       // Favicon should still be visible (now in left position)
       const faviconImages = container.querySelectorAll('img')
       expect(faviconImages.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('description and content_preview', () => {
+    it('renders description when present', () => {
+      render(<BookmarkCard bookmark={mockBookmark} onDelete={vi.fn()} />)
+
+      // Description appears in both mobile and desktop views
+      const descriptions = screen.getAllByText('A test bookmark')
+      expect(descriptions.length).toBeGreaterThan(0)
+    })
+
+    it('renders content_preview when description is null', () => {
+      const bookmarkWithPreview = { ...mockBookmark, description: null, content_preview: 'Preview of bookmark content' }
+      render(<BookmarkCard bookmark={bookmarkWithPreview} onDelete={vi.fn()} />)
+
+      // Preview appears in both mobile and desktop views
+      const previews = screen.getAllByText('Preview of bookmark content')
+      expect(previews.length).toBeGreaterThan(0)
+    })
+
+    it('prefers description over content_preview when both exist', () => {
+      const bookmarkWithBoth = { ...mockBookmark, description: 'The description', content_preview: 'The preview' }
+      render(<BookmarkCard bookmark={bookmarkWithBoth} onDelete={vi.fn()} />)
+
+      // Description should be shown
+      const descriptions = screen.getAllByText('The description')
+      expect(descriptions.length).toBeGreaterThan(0)
+      // Preview should not be shown
+      expect(screen.queryByText('The preview')).not.toBeInTheDocument()
+    })
+
+    it('does not render preview section when both description and content_preview are null', () => {
+      const bookmarkWithNeither = { ...mockBookmark, description: null, content_preview: null }
+      render(<BookmarkCard bookmark={bookmarkWithNeither} onDelete={vi.fn()} />)
+
+      expect(screen.queryByText('A test bookmark')).not.toBeInTheDocument()
+      expect(screen.queryByText('Preview')).not.toBeInTheDocument()
     })
   })
 
