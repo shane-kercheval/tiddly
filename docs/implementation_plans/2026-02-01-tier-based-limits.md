@@ -403,7 +403,51 @@ async def create(
     # ... rest of create logic
 ```
 
-4. **Update `restore()` method in `BaseEntityService`:**
+4. **Update service `update()` methods to accept `tier: Tier` parameter:**
+
+`update()` methods also need tier for field validation (users can exceed limits via update).
+
+**Files to modify:**
+- `services/bookmark_service.py` - `BookmarkService.update()`
+- `services/note_service.py` - `NoteService.update()`
+- `services/prompt_service.py` - `PromptService.update()`
+
+```python
+# Example: BookmarkService.update() - apply same pattern to NoteService and PromptService
+async def update(
+    self,
+    db: AsyncSession,
+    user_id: UUID,
+    tier: Tier,  # Add this parameter
+    bookmark_id: UUID,
+    data: BookmarkUpdate,
+) -> Bookmark | None:
+    limits = get_tier_limits(tier)
+    self._validate_field_limits(data.model_dump(exclude_unset=True), limits)
+    # ... rest of update logic
+```
+
+5. **Add `limit_attr` class attribute to each service:**
+
+```python
+# Each service declares its limit attribute explicitly
+class BookmarkService(BaseEntityService[Bookmark]):
+    model = Bookmark
+    entity_name = "Bookmark"
+    limit_attr = "max_bookmarks"  # Explicit mapping to TierLimits attribute
+
+class NoteService(BaseEntityService[Note]):
+    model = Note
+    entity_name = "Note"
+    limit_attr = "max_notes"
+
+class PromptService(BaseEntityService[Prompt]):
+    model = Prompt
+    entity_name = "Prompt"
+    limit_attr = "max_prompts"
+```
+
+6. **Update `restore()` method in `BaseEntityService`:**
 
 ```python
 async def restore(
@@ -416,20 +460,18 @@ async def restore(
     # Check limit before restoring
     limits = get_tier_limits(tier)
     count = await self.count_user_items(db, user_id)
-    max_items = getattr(limits, f"max_{self.entity_name.lower()}s")  # e.g., max_bookmarks
+    max_items = getattr(limits, self.limit_attr)  # Uses explicit class attribute
     if count >= max_items:
         raise QuotaExceededError(f"{self.entity_name.lower()}s", count, max_items)
     # ... rest of restore logic
 ```
 
-Note: The `entity_name` to limit attribute mapping needs care. Consider adding a class attribute `limit_attr_name` to each service for cleaner lookup.
-
-5. **Update routers to convert tier string to enum and handle exceptions:**
+7. **Update routers to convert tier string to enum and handle exceptions:**
 
 **Files to modify:**
-- `api/routers/bookmarks.py` - `create_bookmark()`, `restore_bookmark()`
-- `api/routers/notes.py` - `create_note()`, `restore_note()`
-- `api/routers/prompts.py` - `create_prompt()`, `restore_prompt()`
+- `api/routers/bookmarks.py` - `create_bookmark()`, `update_bookmark()`, `restore_bookmark()`
+- `api/routers/notes.py` - `create_note()`, `update_note()`, `restore_note()`
+- `api/routers/prompts.py` - `create_prompt()`, `update_prompt()`, `restore_prompt()`
 
 ```python
 from core.tier_limits import Tier
@@ -565,6 +607,9 @@ def _validate_common_field_limits(self, data: dict, limits: TierLimits) -> None:
     if "title" in data and data["title"]:
         if len(data["title"]) > limits.max_title_length:
             raise FieldLimitExceededError("title", len(data["title"]), limits.max_title_length)
+    if "description" in data and data["description"]:
+        if len(data["description"]) > limits.max_description_length:
+            raise FieldLimitExceededError("description", len(data["description"]), limits.max_description_length)
 ```
 
 Note: Content length validation is entity-specific (each has different limit), so it belongs in the entity service's `_validate_field_limits()` method.
@@ -572,9 +617,11 @@ Note: Content length validation is entity-specific (each has different limit), s
 3. **Add entity-specific validation in services:**
 
 **Files to modify:**
-- `services/bookmark_service.py` - `_validate_field_limits()` with URL + content validation
-- `services/note_service.py` - `_validate_field_limits()` with content validation
-- `services/prompt_service.py` - `_validate_field_limits()` with content + argument description validation
+- `services/bookmark_service.py` - `_validate_field_limits()` with URL + content + tag validation
+- `services/note_service.py` - `_validate_field_limits()` with content + tag validation
+- `services/prompt_service.py` - `_validate_field_limits()` with content + argument description + tag validation
+
+**Tag name validation:** Validate tag names in the calling service's `_validate_field_limits()` method *before* passing to `get_or_create_tags()`. This keeps `tag_service.py` focused on get/create logic and avoids changing its signature.
 
 ```python
 # BookmarkService
@@ -586,6 +633,11 @@ def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
     if "url" in data and data["url"]:
         if len(str(data["url"])) > limits.max_url_length:
             raise FieldLimitExceededError("url", len(str(data["url"])), limits.max_url_length)
+    # Validate tag names before passing to get_or_create_tags()
+    if "tags" in data and data["tags"]:
+        for tag in data["tags"]:
+            if len(tag) > limits.max_tag_name_length:
+                raise FieldLimitExceededError("tag", len(tag), limits.max_tag_name_length)
 
 # NoteService
 def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
@@ -593,6 +645,11 @@ def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
     if "content" in data and data["content"]:
         if len(data["content"]) > limits.max_note_content_length:
             raise FieldLimitExceededError("content", len(data["content"]), limits.max_note_content_length)
+    # Validate tag names before passing to get_or_create_tags()
+    if "tags" in data and data["tags"]:
+        for tag in data["tags"]:
+            if len(tag) > limits.max_tag_name_length:
+                raise FieldLimitExceededError("tag", len(tag), limits.max_tag_name_length)
 
 # PromptService
 def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
@@ -600,6 +657,11 @@ def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
     if "content" in data and data["content"]:
         if len(data["content"]) > limits.max_prompt_content_length:
             raise FieldLimitExceededError("content", len(data["content"]), limits.max_prompt_content_length)
+    # Validate tag names before passing to get_or_create_tags()
+    if "tags" in data and data["tags"]:
+        for tag in data["tags"]:
+            if len(tag) > limits.max_tag_name_length:
+                raise FieldLimitExceededError("tag", len(tag), limits.max_tag_name_length)
     # Also validate argument descriptions...
 ```
 
@@ -641,7 +703,8 @@ def test_title_exceeds_tier_limit(low_limits, ...):
 **Test cases:**
 - Test ceiling validation catches extreme values (e.g., title > 500 chars)
 - Test tier-specific validation with mocked low limits (e.g., title > 10 chars with `max_title_length=10`)
-- Test each field type: title, content, URL, tag name, argument description
+- Test each field type: title, description, content, URL, tag name, argument description
+- Test tag name validation happens before `get_or_create_tags()` is called
 - Test error response structure matches contract
 - Test that ceiling and service errors have consistent shape
 
@@ -858,12 +921,12 @@ if (error.response?.status === 429) {
 | `api/routers/users.py` | Add `/me/limits` endpoint |
 | `services/exceptions.py` | Add `QuotaExceededError`, `FieldLimitExceededError` |
 | `services/base_entity_service.py` | Add `count_user_items()`, `_validate_common_field_limits()`, update `restore()` with `Tier` param |
-| `services/bookmark_service.py` | Add `Tier` param to `create()`, add field validation |
-| `services/note_service.py` | Add `Tier` param to `create()`, add field validation |
-| `services/prompt_service.py` | Add `Tier` param to `create()`, add field validation |
-| `api/routers/bookmarks.py` | Convert `current_user.tier` string to `Tier` enum, pass to service, handle quota/field errors |
-| `api/routers/notes.py` | Convert `current_user.tier` string to `Tier` enum, pass to service, handle quota/field errors |
-| `api/routers/prompts.py` | Convert `current_user.tier` string to `Tier` enum, pass to service, handle quota/field errors |
+| `services/bookmark_service.py` | Add `limit_attr`, add `Tier` param to `create()` and `update()`, add `_validate_field_limits()` |
+| `services/note_service.py` | Add `limit_attr`, add `Tier` param to `create()` and `update()`, add `_validate_field_limits()` |
+| `services/prompt_service.py` | Add `limit_attr`, add `Tier` param to `create()` and `update()`, add `_validate_field_limits()` |
+| `api/routers/bookmarks.py` | Update `create`, `update`, `restore` to convert tier and pass to service, handle quota/field errors |
+| `api/routers/notes.py` | Update `create`, `update`, `restore` to convert tier and pass to service, handle quota/field errors |
+| `api/routers/prompts.py` | Update `create`, `update`, `restore` to convert tier and pass to service, handle quota/field errors |
 | `core/config.py` | Remove legacy limit settings |
 
 ### Frontend
