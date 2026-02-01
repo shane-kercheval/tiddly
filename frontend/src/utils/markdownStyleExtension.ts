@@ -502,9 +502,12 @@ function buildDecorations(view: EditorView): DecorationSet {
 
     // Add line decoration if we have line-level styling
     if (info) {
-      const lineClass = `cm-md-${info.type}`
+      let lineClass = `cm-md-${info.type}`
+      // Add checked class for completed tasks
+      if (info.type === 'task' && info.checked) {
+        lineClass += ' cm-md-task-checked'
+      }
       builder.add(line.from, line.from, Decoration.line({ class: lineClass }))
-
     }
 
     // Add inline decorations (only outside of code blocks)
@@ -813,9 +816,16 @@ const markdownBaseTheme = EditorView.baseTheme({
     paddingLeft: '0.5em',
   },
 
-  // Task items - dim completed tasks
+  // Task items
   '.cm-md-task': {
     position: 'relative',
+  },
+
+  // Completed tasks - strikethrough and dimmed
+  '.cm-md-task-checked': {
+    textDecoration: 'line-through',
+    textDecorationColor: '#6b7280',
+    color: '#6b7280',
   },
 
   // Blockquotes
