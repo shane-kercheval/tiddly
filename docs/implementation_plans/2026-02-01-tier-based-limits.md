@@ -59,17 +59,26 @@ class Tier(StrEnum):
 
 @dataclass(frozen=True)
 class TierLimits:
-    # Item counts (separate for future tier differentiation)
+    # Item counts
     max_bookmarks: int
     max_notes: int
     max_prompts: int
 
-    # Field lengths
+    # Field lengths (common)
     max_title_length: int
-    max_content_length: int  # applies to all content types
-    max_url_length: int
+    max_description_length: int
     max_tag_name_length: int
-    max_argument_description_length: int
+
+    # Field lengths (content - per entity type)
+    max_bookmark_content_length: int
+    max_note_content_length: int
+    max_prompt_content_length: int
+
+    # Field lengths (entity-specific)
+    max_url_length: int  # bookmarks only
+    max_prompt_name_length: int  # prompts only
+    max_argument_name_length: int  # prompt arguments
+    max_argument_description_length: int  # prompt arguments
 
 TIER_LIMITS: dict[Tier, TierLimits] = {
     Tier.FREE: TierLimits(
@@ -77,9 +86,14 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         max_notes=100,
         max_prompts=100,
         max_title_length=100,
-        max_content_length=100_000,
-        max_url_length=2048,
+        max_description_length=1000,
         max_tag_name_length=50,
+        max_bookmark_content_length=100_000,
+        max_note_content_length=100_000,
+        max_prompt_content_length=100_000,
+        max_url_length=2048,
+        max_prompt_name_length=100,
+        max_argument_name_length=100,
         max_argument_description_length=500,
     ),
     # Future tiers will have different values
@@ -187,14 +201,26 @@ class Tier(StrEnum):
 
 @dataclass(frozen=True)
 class TierLimits:
+    # Item counts
     max_bookmarks: int
     max_notes: int
     max_prompts: int
+
+    # Field lengths (common)
     max_title_length: int
-    max_content_length: int
-    max_url_length: int
+    max_description_length: int
     max_tag_name_length: int
-    max_argument_description_length: int
+
+    # Field lengths (content - per entity type)
+    max_bookmark_content_length: int
+    max_note_content_length: int
+    max_prompt_content_length: int
+
+    # Field lengths (entity-specific)
+    max_url_length: int  # bookmarks only
+    max_prompt_name_length: int  # prompts only
+    max_argument_name_length: int  # prompt arguments
+    max_argument_description_length: int  # prompt arguments
 
 TIER_LIMITS: dict[Tier, TierLimits] = {
     Tier.FREE: TierLimits(
@@ -202,9 +228,14 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         max_notes=100,
         max_prompts=100,
         max_title_length=100,
-        max_content_length=100_000,
-        max_url_length=2048,
+        max_description_length=1000,
         max_tag_name_length=50,
+        max_bookmark_content_length=100_000,
+        max_note_content_length=100_000,
+        max_prompt_content_length=100_000,
+        max_url_length=2048,
+        max_prompt_name_length=100,
+        max_argument_name_length=100,
         max_argument_description_length=500,
     ),
 }
@@ -259,9 +290,14 @@ class UserLimitsResponse(BaseModel):
     max_notes: int
     max_prompts: int
     max_title_length: int
-    max_content_length: int
-    max_url_length: int
+    max_description_length: int
     max_tag_name_length: int
+    max_bookmark_content_length: int
+    max_note_content_length: int
+    max_prompt_content_length: int
+    max_url_length: int
+    max_prompt_name_length: int
+    max_argument_name_length: int
     max_argument_description_length: int
 ```
 
@@ -438,8 +474,15 @@ def low_limits(monkeypatch):
         max_notes=2,
         max_prompts=2,
         max_title_length=10,
-        max_content_length=100,
-        # ... etc
+        max_description_length=50,
+        max_tag_name_length=10,
+        max_bookmark_content_length=100,
+        max_note_content_length=100,
+        max_prompt_content_length=100,
+        max_url_length=100,
+        max_prompt_name_length=10,
+        max_argument_name_length=10,
+        max_argument_description_length=20,
     )
     monkeypatch.setattr("core.tier_limits.TIER_LIMITS", {Tier.FREE: test_limits})
     return test_limits
@@ -517,32 +560,47 @@ def _validate_common_field_limits(self, data: dict, limits: TierLimits) -> None:
     """
     Validate common fields against tier limits.
 
-    Subclasses should call this and add entity-specific validation.
+    Subclasses should call this and add entity-specific validation (including content length).
     """
     if "title" in data and data["title"]:
         if len(data["title"]) > limits.max_title_length:
             raise FieldLimitExceededError("title", len(data["title"]), limits.max_title_length)
-
-    if "content" in data and data["content"]:
-        if len(data["content"]) > limits.max_content_length:
-            raise FieldLimitExceededError("content", len(data["content"]), limits.max_content_length)
 ```
+
+Note: Content length validation is entity-specific (each has different limit), so it belongs in the entity service's `_validate_field_limits()` method.
 
 3. **Add entity-specific validation in services:**
 
 **Files to modify:**
-- `services/bookmark_service.py` - `_validate_field_limits()` with URL validation
-- `services/note_service.py` - `_validate_field_limits()` (common fields only)
-- `services/prompt_service.py` - `_validate_field_limits()` with argument description validation
+- `services/bookmark_service.py` - `_validate_field_limits()` with URL + content validation
+- `services/note_service.py` - `_validate_field_limits()` with content validation
+- `services/prompt_service.py` - `_validate_field_limits()` with content + argument description validation
 
 ```python
-# Example: BookmarkService - adds URL validation
+# BookmarkService
 def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
     self._validate_common_field_limits(data, limits)
+    if "content" in data and data["content"]:
+        if len(data["content"]) > limits.max_bookmark_content_length:
+            raise FieldLimitExceededError("content", len(data["content"]), limits.max_bookmark_content_length)
     if "url" in data and data["url"]:
-        url_str = str(data["url"])
-        if len(url_str) > limits.max_url_length:
-            raise FieldLimitExceededError("url", len(url_str), limits.max_url_length)
+        if len(str(data["url"])) > limits.max_url_length:
+            raise FieldLimitExceededError("url", len(str(data["url"])), limits.max_url_length)
+
+# NoteService
+def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
+    self._validate_common_field_limits(data, limits)
+    if "content" in data and data["content"]:
+        if len(data["content"]) > limits.max_note_content_length:
+            raise FieldLimitExceededError("content", len(data["content"]), limits.max_note_content_length)
+
+# PromptService
+def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
+    self._validate_common_field_limits(data, limits)
+    if "content" in data and data["content"]:
+        if len(data["content"]) > limits.max_prompt_content_length:
+            raise FieldLimitExceededError("content", len(data["content"]), limits.max_prompt_content_length)
+    # Also validate argument descriptions...
 ```
 
 4. **Update `PromptArgument` schema** to validate description length
@@ -600,9 +658,7 @@ def test_title_exceeds_tier_limit(low_limits, ...):
 **Goal:** Clean up old config settings that are now replaced by tier limits.
 
 **Success Criteria:**
-- Remove from `config.py`: `max_title_length`, `max_content_length`, `max_note_content_length`, `max_prompt_content_length`
-- Keep `max_description_length` (not tier-based per discussion)
-- Keep `max_prompt_name_length`, `max_argument_name_length` (not tier-based)
+- Remove from `config.py`: `max_title_length`, `max_description_length`, `max_content_length`, `max_note_content_length`, `max_prompt_content_length`, `max_prompt_name_length`, `max_argument_name_length`
 - Update any code still referencing old settings
 - Update frontend `config.ts` to remove corresponding values
 
@@ -610,19 +666,25 @@ def test_title_exceeds_tier_limit(low_limits, ...):
 
 1. **Update `backend/src/core/config.py`:**
    - Remove `max_title_length`
+   - Remove `max_description_length`
    - Remove `max_content_length`
    - Remove `max_note_content_length`
    - Remove `max_prompt_content_length`
+   - Remove `max_prompt_name_length`
+   - Remove `max_argument_name_length`
 
 2. **Update `frontend/src/config.ts`:**
    - Remove `maxTitleLength`
+   - Remove `maxDescriptionLength`
    - Remove `maxContentLength`
    - Remove `maxNoteContentLength`
    - Remove `maxPromptContentLength`
-   - Frontend will fetch limits from API instead
+   - Remove `maxPromptNameLength`
+   - Remove `maxArgumentNameLength`
+   - Frontend will fetch all limits from API instead
 
 3. **Search codebase** for any remaining references to these settings:
-   - `grep -r "max_title_length\|max_content_length\|max_note_content_length\|max_prompt_content_length"`
+   - `grep -r "max_title_length\|max_description_length\|max_content_length\|max_note_content_length\|max_prompt_content_length\|max_prompt_name_length\|max_argument_name_length"`
    - Update validators that reference `get_settings()` for these values
 
 **Testing Strategy:**
@@ -643,10 +705,11 @@ def test_title_exceeds_tier_limit(low_limits, ...):
 **Goal:** Frontend fetches and uses tier limits, with improved UX for limit violations.
 
 **Success Criteria:**
-- Frontend fetches limits from `/users/me/limits` on auth (parallel with user query)
+- Frontend fetches limits from `/users/me/limits` on auth
+- All components use API-fetched limits instead of hardcoded `config.limits.*`
 - Forms are disabled until limits are loaded
-- Title inputs have `maxLength` attribute (prevents over-typing)
-- Character counters shown for title fields
+- Character counters use fetched limits
+- Settings page displays tier and limits
 - Clear error messages when limits exceeded
 - Distinguish quota errors from rate limit errors (check `retry_after`)
 
@@ -659,26 +722,97 @@ export function useLimits() {
     const { data: limits, isLoading } = useQuery({
         queryKey: ['user-limits'],
         queryFn: () => api.get('/users/me/limits'),
-        staleTime: 5 * 60 * 1000, // 5 min cache
+        staleTime: Infinity,  // Limits rarely change, cache until page refresh
+        gcTime: Infinity,     // Keep in cache indefinitely
     })
     return { limits, isLoading }
 }
 ```
 
+**Caching strategy:**
+- `staleTime: Infinity` - limits don't change during normal usage
+- Page refresh clears React Query's in-memory cache, fetching fresh limits
+- If user upgrades tier (future feature), they refresh the page to see new limits
+- No need for manual cache invalidation or "refresh limits" button
+
 2. **Fetch limits alongside user on auth:**
    - In the auth initialization, trigger both `/users/me` and `/users/me/limits` queries
    - Both should complete before app considers user "ready"
 
-3. **Update title inputs:**
-   - `InlineEditableTitle` - add `maxLength` prop, pass from limits
-   - Add character counter showing "X/100" as user types
-   - Forms should be disabled while `isLoading` is true
+3. **Remove hardcoded limits from `config.ts`:**
 
-4. **Update content editors:**
-   - Pass `maxLength` to `MilkdownEditor` and `CodeMirrorEditor`
-   - Show character count in editor toolbar or footer
+Remove all limit settings from `frontend/src/config.ts`:
+- `maxContentLength`
+- `maxNoteContentLength`
+- `maxPromptContentLength`
+- `maxTitleLength`
+- `maxDescriptionLength`
+- `maxPromptNameLength`
+- `maxArgumentNameLength`
 
-5. **Handle 429 errors with `error_code` distinction:**
+All limits are now fetched from `/users/me/limits` API.
+
+4. **Update components to use fetched limits:**
+
+**Files to modify:**
+
+| File | Current Usage | Change |
+|------|---------------|--------|
+| `components/Bookmark.tsx` | `config.limits.maxTitleLength`, `maxDescriptionLength`, `maxContentLength` | Use corresponding limits from `useLimits()` |
+| `components/Note.tsx` | `config.limits.maxTitleLength`, `maxDescriptionLength`, `maxNoteContentLength` | Use corresponding limits from `useLimits()` |
+| `components/Prompt.tsx` | `config.limits.maxTitleLength`, `maxPromptContentLength`, `maxPromptNameLength`, `maxArgumentNameLength` | Use corresponding limits from `useLimits()` |
+| `components/ContentEditor.tsx` | Receives `maxLength` prop | No change needed (already prop-based) |
+| `components/InlineEditableText.tsx` | Receives `maxLength` prop | No change needed (already prop-based) |
+
+Each component should:
+- Call `useLimits()` hook
+- Show loading state while `isLoading` is true
+- Pass fetched limits to child components (`ContentEditor`, `InlineEditableText`)
+
+5. **Add tier and limits display in Settings:**
+
+Update `pages/settings/SettingsGeneral.tsx` to show account tier and limits:
+
+```typescript
+// In SettingsGeneral.tsx
+const { limits, isLoading } = useLimits()
+
+// In the Account section, add:
+<div className="border-t pt-6">
+  <h3 className="text-lg font-medium text-gray-900">Plan & Limits</h3>
+  <div className="mt-4">
+    <div className="mb-4">
+      <span className="text-sm text-gray-500">Current Plan:</span>
+      <span className="ml-2 font-medium capitalize">{limits?.tier}</span>
+    </div>
+    <table className="min-w-full text-sm">
+      <thead>
+        <tr className="border-b">
+          <th className="text-left py-2">Resource</th>
+          <th className="text-right py-2">Limit</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Bookmarks</td><td className="text-right">{limits?.max_bookmarks}</td></tr>
+        <tr><td>Notes</td><td className="text-right">{limits?.max_notes}</td></tr>
+        <tr><td>Prompts</td><td className="text-right">{limits?.max_prompts}</td></tr>
+        <tr><td>Title length</td><td className="text-right">{limits?.max_title_length} chars</td></tr>
+        <tr><td>Description length</td><td className="text-right">{limits?.max_description_length?.toLocaleString()} chars</td></tr>
+        <tr><td>Bookmark content</td><td className="text-right">{limits?.max_bookmark_content_length?.toLocaleString()} chars</td></tr>
+        <tr><td>Note content</td><td className="text-right">{limits?.max_note_content_length?.toLocaleString()} chars</td></tr>
+        <tr><td>Prompt content</td><td className="text-right">{limits?.max_prompt_content_length?.toLocaleString()} chars</td></tr>
+        <tr><td>Prompt name</td><td className="text-right">{limits?.max_prompt_name_length} chars</td></tr>
+        <tr><td>URL length</td><td className="text-right">{limits?.max_url_length?.toLocaleString()} chars</td></tr>
+        <tr><td>Tag name</td><td className="text-right">{limits?.max_tag_name_length} chars</td></tr>
+        <tr><td>Argument name</td><td className="text-right">{limits?.max_argument_name_length} chars</td></tr>
+        <tr><td>Argument description</td><td className="text-right">{limits?.max_argument_description_length} chars</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+```
+
+6. **Handle 429 errors with `error_code` distinction:**
 ```typescript
 if (error.response?.status === 429) {
     const data = error.response.data
@@ -696,14 +830,16 @@ if (error.response?.status === 429) {
 - Test limits are fetched on login
 - Test forms are disabled while limits are loading
 - Test title input stops accepting chars at limit (`maxLength`)
-- Test character counters display correctly
+- Test character counters display correct limit values from API
 - Test error handling distinguishes quota from rate limit errors
+- Test Settings page displays tier and limits table
+- Test page refresh fetches fresh limits
 
 **Dependencies:** Milestone 2
 
 **Risk Factors:**
 - Need to ensure limits are loaded before forms render - use loading states
-- Character counter UX needs design consideration
+- Components need graceful handling when `limits` is undefined during initial load
 
 ---
 
@@ -734,11 +870,12 @@ if (error.response?.status === 429) {
 
 | File | Changes |
 |------|---------|
-| `hooks/useLimits.ts` | New hook to fetch/cache limits |
-| `config.ts` | Remove legacy limit settings |
-| `components/InlineEditableTitle.tsx` | Add `maxLength`, character counter |
-| `components/MilkdownEditor.tsx` | Add character count display |
-| `components/CodeMirrorEditor.tsx` | Add character count display |
+| `hooks/useLimits.ts` | New hook to fetch/cache limits (`staleTime: Infinity`) |
+| `config.ts` | Remove all limit settings (now fetched from API) |
+| `components/Bookmark.tsx` | Use `useLimits()` instead of `config.limits.*` |
+| `components/Note.tsx` | Use `useLimits()` instead of `config.limits.*` |
+| `components/Prompt.tsx` | Use `useLimits()` instead of `config.limits.*` |
+| `pages/settings/SettingsGeneral.tsx` | Add "Plan & Limits" section with tier and limits table |
 | Auth initialization | Fetch limits alongside user query |
 | Error handling | Distinguish QUOTA_EXCEEDED from RATE_LIMITED |
 
