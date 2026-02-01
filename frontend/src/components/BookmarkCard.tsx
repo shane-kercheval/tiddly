@@ -179,7 +179,7 @@ export function BookmarkCard({
                   }}
                 />
               )}
-              <span className="text-xs text-blue-500 underline truncate" title={bookmark.url}>
+              <span className="text-[13px] text-blue-500 underline truncate" title={bookmark.url}>
                 {displayUrl}
               </span>
             </a>
@@ -208,7 +208,7 @@ export function BookmarkCard({
               {/* External link as first action on mobile */}
               <Tooltip content="Open link" compact>
                 <button
-                  onClick={handleUrlClick}
+                  onClick={(e) => { e.stopPropagation(); onLinkClick?.(bookmark); window.open(bookmark.url, '_blank', 'noopener,noreferrer') }}
                   className="btn-icon"
                   aria-label="Open link"
                 >
@@ -354,7 +354,7 @@ export function BookmarkCard({
                 )}
                 {/* URL text - plain by default, styled as link on hover */}
                 <span
-                  className="text-xs text-gray-400 truncate group-hover/url:text-blue-500 group-hover/url:underline transition-colors duration-150"
+                  className="text-[13px] text-gray-400 truncate group-hover/url:text-blue-500 group-hover/url:underline transition-colors duration-150"
                   title={bookmark.url}
                 >
                   {displayUrl}
