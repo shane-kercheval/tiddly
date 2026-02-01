@@ -416,7 +416,27 @@ async def create_bookmark(
 ```
 
 **Testing Strategy:**
-- Create items up to limit, verify next create fails with 429
+
+**Mock the limits** - Patch `TIER_LIMITS` or `get_tier_limits()` to return small limits (e.g., 2-3 items) for faster tests that don't break when limits change:
+
+```python
+@pytest.fixture
+def low_limits(monkeypatch):
+    """Patch tier limits to small values for testing."""
+    test_limits = TierLimits(
+        max_bookmarks=2,
+        max_notes=2,
+        max_prompts=2,
+        max_title_length=10,
+        max_content_length=100,
+        # ... etc
+    )
+    monkeypatch.setattr("core.tier_limits.TIER_LIMITS", {Tier.FREE: test_limits})
+    return test_limits
+```
+
+**Test cases:**
+- Create items up to mocked limit (2-3), verify next create fails with 429
 - Verify soft-deleted items count toward limit
 - Verify archived items count toward limit
 - Verify restore fails with 429 when at limit
@@ -534,8 +554,20 @@ except FieldLimitExceededError as e:
 ```
 
 **Testing Strategy:**
-- Test ceiling validation catches extreme values (e.g., 10K char title)
-- Test tier-specific validation in services (e.g., 101 char title fails for free tier)
+
+**Mock the limits** - Use the same `low_limits` fixture from Milestone 3 to test field validation without depending on actual limit values:
+
+```python
+# With low_limits fixture setting max_title_length=10
+def test_title_exceeds_tier_limit(low_limits, ...):
+    response = await client.post("/bookmarks/", json={"url": "...", "title": "A" * 11})
+    assert response.status_code == 429
+    assert response.json()["error_code"] == "FIELD_LIMIT_EXCEEDED"
+```
+
+**Test cases:**
+- Test ceiling validation catches extreme values (e.g., title > 500 chars)
+- Test tier-specific validation with mocked low limits (e.g., title > 10 chars with `max_title_length=10`)
 - Test each field type: title, content, URL, tag name, argument description
 - Test error response structure matches contract
 - Test that ceiling and service errors have consistent shape
