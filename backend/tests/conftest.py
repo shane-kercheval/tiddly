@@ -232,6 +232,13 @@ LOW_TIER_LIMITS = TierLimits(
     max_prompt_name_length=10,
     max_argument_name_length=10,
     max_argument_description_length=20,
+    # Rate limits - low values for testing
+    rate_read_per_minute=5,
+    rate_read_per_day=20,
+    rate_write_per_minute=3,
+    rate_write_per_day=10,
+    rate_sensitive_per_minute=2,
+    rate_sensitive_per_day=5,
 )
 
 

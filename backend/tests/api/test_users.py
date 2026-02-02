@@ -82,6 +82,14 @@ class TestGetMyLimits:
         assert data["max_notes"] == 100
         assert data["max_prompts"] == 100
 
+        # Rate limits should match free tier
+        assert data["rate_read_per_minute"] == 180
+        assert data["rate_read_per_day"] == 4000
+        assert data["rate_write_per_minute"] == 120
+        assert data["rate_write_per_day"] == 4000
+        assert data["rate_sensitive_per_minute"] == 30
+        assert data["rate_sensitive_per_day"] == 250
+
     async def test__get_my_limits__returns_all_limit_fields(
         self,
         client: AsyncClient,
@@ -115,6 +123,14 @@ class TestGetMyLimits:
         assert "max_prompt_name_length" in data
         assert "max_argument_name_length" in data
         assert "max_argument_description_length" in data
+
+        # Rate limits
+        assert "rate_read_per_minute" in data
+        assert "rate_read_per_day" in data
+        assert "rate_write_per_minute" in data
+        assert "rate_write_per_day" in data
+        assert "rate_sensitive_per_minute" in data
+        assert "rate_sensitive_per_day" in data
 
     @pytest.mark.usefixtures("low_limits")
     async def test__get_my_limits__uses_low_limits_fixture(

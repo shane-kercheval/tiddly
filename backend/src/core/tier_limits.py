@@ -38,6 +38,14 @@ class TierLimits:
     max_argument_name_length: int  # prompt arguments
     max_argument_description_length: int  # prompt arguments
 
+    # Rate limits (requests per time window)
+    rate_read_per_minute: int
+    rate_read_per_day: int
+    rate_write_per_minute: int
+    rate_write_per_day: int
+    rate_sensitive_per_minute: int
+    rate_sensitive_per_day: int
+
 
 TIER_LIMITS: dict[Tier, TierLimits] = {
     Tier.FREE: TierLimits(
@@ -54,6 +62,12 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         max_prompt_name_length=100,
         max_argument_name_length=100,
         max_argument_description_length=500,
+        rate_read_per_minute=180,
+        rate_read_per_day=4000,
+        rate_write_per_minute=120,
+        rate_write_per_day=4000,
+        rate_sensitive_per_minute=30,
+        rate_sensitive_per_day=250,
     ),
 }
 

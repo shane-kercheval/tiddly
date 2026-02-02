@@ -1,21 +1,15 @@
 """
 Rate limiting configuration and types.
 
-This module contains the policy configuration for rate limiting - the "what" limits
-to apply, separate from the "how" (enforcement logic in rate_limiter.py).
+This module contains types and utilities for rate limiting.
+Rate limit values are defined in TierLimits (tier_limits.py).
+Enforcement logic is in rate_limiter.py.
 
-To adjust rate limits, modify RATE_LIMITS below.
-To add new sensitive endpoints, add them to SENSITIVE_ENDPOINTS.
+To adjust rate limits, modify TierLimits in tier_limits.py.
+To add new sensitive endpoints, add them to SENSITIVE_ENDPOINTS below.
 """
 from dataclasses import dataclass
 from enum import Enum
-
-
-class AuthType(Enum):
-    """Authentication type for rate limiting."""
-
-    PAT = "pat"
-    AUTH0 = "auth0"
 
 
 class OperationType(Enum):
@@ -28,7 +22,7 @@ class OperationType(Enum):
 
 @dataclass
 class RateLimitConfig:
-    """Rate limit configuration for a specific auth/operation combination."""
+    """Rate limit configuration for an operation type."""
 
     requests_per_minute: int
     requests_per_day: int
@@ -51,25 +45,6 @@ class RateLimitExceededError(Exception):
     def __init__(self, result: RateLimitResult) -> None:
         self.result = result
         super().__init__("Rate limit exceeded")
-
-
-# ---------------------------------------------------------------------------
-# Rate Limit Policy Configuration
-# ---------------------------------------------------------------------------
-# Modify these values to adjust rate limits.
-# Daily caps: general (read/write) vs sensitive are tracked separately.
-
-RATE_LIMITS: dict[tuple[AuthType, OperationType], RateLimitConfig] = {
-    # PAT limits
-    (AuthType.PAT, OperationType.READ): RateLimitConfig(requests_per_minute=240, requests_per_day=4000),  # noqa
-    (AuthType.PAT, OperationType.WRITE): RateLimitConfig(requests_per_minute=120, requests_per_day=4000),  # noqa
-    # PAT + SENSITIVE = not allowed (handled by auth dependency, returns 403)
-
-    # Auth0 limits (probably originated from browser end-users)
-    (AuthType.AUTH0, OperationType.READ): RateLimitConfig(requests_per_minute=180, requests_per_day=4000),  # noqa
-    (AuthType.AUTH0, OperationType.WRITE): RateLimitConfig(requests_per_minute=120, requests_per_day=4000),  # noqa
-    (AuthType.AUTH0, OperationType.SENSITIVE): RateLimitConfig(requests_per_minute=30, requests_per_day=250),  # noqa
-}
 
 
 # ---------------------------------------------------------------------------

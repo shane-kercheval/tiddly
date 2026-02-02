@@ -27,3 +27,11 @@ class UserLimitsResponse(BaseModel):
     max_prompt_name_length: int
     max_argument_name_length: int
     max_argument_description_length: int
+
+    # Rate limits
+    rate_read_per_minute: int
+    rate_read_per_day: int
+    rate_write_per_minute: int
+    rate_write_per_day: int
+    rate_sensitive_per_minute: int
+    rate_sensitive_per_day: int

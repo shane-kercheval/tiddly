@@ -1529,7 +1529,7 @@ async def test_fetch_metadata_rate_limited(rate_limit_client: AsyncClient) -> No
 
     # Mock the rate limiter to simulate rate limit exceeded
     async def mock_check(
-        _user_id: object, _auth_type: object, _operation_type: object,
+        _user_id: object, _operation_type: object, _tier: object,
     ) -> RateLimitResult:
         return RateLimitResult(
             allowed=False,

@@ -57,6 +57,14 @@ class TestTierLimits:
         assert hasattr(limits, "max_argument_name_length")
         assert hasattr(limits, "max_argument_description_length")
 
+        # Rate limits
+        assert hasattr(limits, "rate_read_per_minute")
+        assert hasattr(limits, "rate_read_per_day")
+        assert hasattr(limits, "rate_write_per_minute")
+        assert hasattr(limits, "rate_write_per_day")
+        assert hasattr(limits, "rate_sensitive_per_minute")
+        assert hasattr(limits, "rate_sensitive_per_day")
+
 
 class TestGetTierLimits:
     """Tests for the get_tier_limits function."""
@@ -79,6 +87,13 @@ class TestGetTierLimits:
         assert limits.max_prompt_name_length == 100
         assert limits.max_argument_name_length == 100
         assert limits.max_argument_description_length == 500
+        # Rate limits
+        assert limits.rate_read_per_minute == 180
+        assert limits.rate_read_per_day == 4000
+        assert limits.rate_write_per_minute == 120
+        assert limits.rate_write_per_day == 4000
+        assert limits.rate_sensitive_per_minute == 30
+        assert limits.rate_sensitive_per_day == 250
 
     def test__get_tier_limits__same_as_tier_limits_dict(self) -> None:
         """get_tier_limits should return same object as TIER_LIMITS dict."""
@@ -119,3 +134,21 @@ class TestFreeTierDefaults:
         assert limits.max_prompt_name_length == 100
         assert limits.max_argument_name_length == 100
         assert limits.max_argument_description_length == 500
+
+    def test__free_tier__rate_limits_are_reasonable(self) -> None:
+        """FREE tier should have reasonable rate limits."""
+        limits = get_tier_limits(Tier.FREE)
+
+        # Per-minute limits (allow ~3 requests/second for READ)
+        assert limits.rate_read_per_minute == 180
+        assert limits.rate_write_per_minute == 120
+        assert limits.rate_sensitive_per_minute == 30
+
+        # Per-day limits
+        assert limits.rate_read_per_day == 4000
+        assert limits.rate_write_per_day == 4000
+        assert limits.rate_sensitive_per_day == 250
+
+        # Sensitive should be strictest
+        assert limits.rate_sensitive_per_minute < limits.rate_write_per_minute
+        assert limits.rate_sensitive_per_day < limits.rate_write_per_day

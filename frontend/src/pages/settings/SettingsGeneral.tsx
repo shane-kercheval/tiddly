@@ -135,6 +135,11 @@ export function SettingsGeneral(): ReactNode {
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     <tr>
+                      <td colSpan={2} className="pt-2 pb-2 text-center">
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Item Limits</span>
+                      </td>
+                    </tr>
+                    <tr>
                       <td className="py-2 text-gray-600">Bookmarks</td>
                       <td className="py-2 text-right text-gray-900">{limits.max_bookmarks.toLocaleString()}</td>
                     </tr>
@@ -147,6 +152,11 @@ export function SettingsGeneral(): ReactNode {
                       <td className="py-2 text-right text-gray-900">{limits.max_prompts.toLocaleString()}</td>
                     </tr>
                     <tr>
+                      <td colSpan={2} className="pt-4 pb-2 text-center">
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Content Limits</span>
+                      </td>
+                    </tr>
+                    <tr>
                       <td className="py-2 text-gray-600">Bookmark content</td>
                       <td className="py-2 text-right text-gray-900">{limits.max_bookmark_content_length.toLocaleString()} chars</td>
                     </tr>
@@ -157,6 +167,23 @@ export function SettingsGeneral(): ReactNode {
                     <tr>
                       <td className="py-2 text-gray-600">Prompt content</td>
                       <td className="py-2 text-right text-gray-900">{limits.max_prompt_content_length.toLocaleString()} chars</td>
+                    </tr>
+                    <tr>
+                      <td colSpan={2} className="pt-4 pb-2 text-center">
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Rate Limits</span>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 text-gray-600">Read requests</td>
+                      <td className="py-2 text-right text-gray-900">{limits.rate_read_per_minute.toLocaleString()}/min, {limits.rate_read_per_day.toLocaleString()}/day</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 text-gray-600">Write requests</td>
+                      <td className="py-2 text-right text-gray-900">{limits.rate_write_per_minute.toLocaleString()}/min, {limits.rate_write_per_day.toLocaleString()}/day</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 text-gray-600">URL fetch requests</td>
+                      <td className="py-2 text-right text-gray-900">{limits.rate_sensitive_per_minute.toLocaleString()}/min, {limits.rate_sensitive_per_day.toLocaleString()}/day</td>
                     </tr>
                   </tbody>
                 </table>
