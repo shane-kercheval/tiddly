@@ -248,6 +248,42 @@ Without this setting, users will be logged out every ~24 hours when their access
 
 **Why this matters:** The frontend requests the `offline_access` scope to get refresh tokens. Without "Allow Offline Access" enabled on the API, Auth0 silently ignores this scope and users get logged out when their access token expires (~24 hours). With refresh tokens, users stay logged in based on the Application's refresh token expiration settings.
 
+#### 6d. Google Social Connection (Optional)
+
+To enable "Sign in with Google":
+
+**Step 1: Create Google OAuth Credentials**
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Select your project (or create one)
+3. Navigate to **Branding** (configure consent screen first):
+   - App name, support email, developer contact (required fields)
+   - **Authorized domains**: Add `auth0.com`
+4. Navigate to **Audience**:
+   - User Type: **External** (unless you have Google Workspace)
+   - If in testing mode, add your email as a test user
+5. Navigate to **Clients**
+6. Click **+ Create client**:
+   - Application type: **Web application**
+   - Name: e.g., "Tiddly"
+   - **Authorized JavaScript origins**: Leave empty (not required for Auth0)
+   - **Authorized redirect URIs**: Add your Auth0 callback URL:
+     ```
+     https://YOUR-AUTH0-TENANT.us.auth0.com/login/callback
+     ```
+
+7. Click **Create** and copy the **Client ID** and **Client Secret**
+
+**Note:** Changes to Google OAuth credentials may take 5 minutes to a few hours to propagate.
+
+**Step 2: Configure Auth0**
+
+1. Go to [Auth0 Dashboard](https://manage.auth0.com/) → **Authentication** → **Social**
+2. Click **+ Create Connection** → **Google / Gmail**
+3. Paste your **Client ID** and **Client Secret** from Google
+4. Click **Create**
+5. Go to the **Applications** tab and enable the connection for your SPA application
+
 ### Step 7: Configure Pre-Deploy Command (Migrations)
 
 Set up automatic database migrations for the **api** service:
