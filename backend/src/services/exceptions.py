@@ -15,6 +15,38 @@ class InvalidStateError(Exception):
         super().__init__(message)
 
 
+class QuotaExceededError(Exception):
+    """
+    Raised when user has reached their item limit for a content type.
+
+    All rows count toward limits (including archived and soft-deleted).
+    Users can permanently delete items to free quota.
+    """
+
+    def __init__(self, resource: str, current: int, limit: int) -> None:
+        self.resource = resource
+        self.current = current
+        self.limit = limit
+        super().__init__(
+            f"{resource.capitalize()} limit reached ({limit}). "
+            "Permanently delete items from trash to free space, or upgrade.",
+        )
+
+
+class FieldLimitExceededError(Exception):
+    """
+    Raised when a field exceeds tier-specific length limit.
+
+    Used for title, description, content, URL, tag name, and argument fields.
+    """
+
+    def __init__(self, field: str, current: int, limit: int) -> None:
+        self.field = field
+        self.current = current
+        self.limit = limit
+        super().__init__(f"{field.capitalize()} exceeds limit of {limit} characters")
+
+
 class SidebarValidationError(Exception):
     """
     Base exception for sidebar validation errors.

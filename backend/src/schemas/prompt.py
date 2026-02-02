@@ -5,30 +5,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from core.config import get_settings
 from schemas.content_metadata import ContentMetadata
 from schemas.validators import (
     check_duplicate_argument_names,
     normalize_preview,
     validate_and_normalize_tags,
     validate_argument_name,
-    validate_description_length,
     validate_prompt_name,
-    validate_title_length,
 )
-
-
-def validate_prompt_content_length(content: str | None) -> str | None:
-    """Validate that prompt content doesn't exceed maximum length (100KB)."""
-    settings = get_settings()
-    if content is None:
-        return content
-    if len(content) > settings.max_prompt_content_length:
-        raise ValueError(
-            f"Content exceeds maximum length of {settings.max_prompt_content_length:,} characters "
-            f"(got {len(content):,} characters).",
-        )
-    return content
 
 
 class PromptArgument(BaseModel):
@@ -66,24 +50,6 @@ class PromptCreate(BaseModel):
     def check_name_format(cls, v: str) -> str:
         """Validate prompt name format."""
         return validate_prompt_name(v)
-
-    @field_validator("title")
-    @classmethod
-    def check_title_length(cls, v: str | None) -> str | None:
-        """Validate title length."""
-        return validate_title_length(v)
-
-    @field_validator("description")
-    @classmethod
-    def check_description_length(cls, v: str | None) -> str | None:
-        """Validate description length."""
-        return validate_description_length(v)
-
-    @field_validator("content")
-    @classmethod
-    def check_content_length(cls, v: str | None) -> str | None:
-        """Validate content length."""
-        return validate_prompt_content_length(v)
 
     @field_validator("tags", mode="before")
     @classmethod
@@ -129,24 +95,6 @@ class PromptUpdate(BaseModel):
         if v is not None:
             return validate_prompt_name(v)
         return v
-
-    @field_validator("title")
-    @classmethod
-    def check_title_length(cls, v: str | None) -> str | None:
-        """Validate title length."""
-        return validate_title_length(v)
-
-    @field_validator("description")
-    @classmethod
-    def check_description_length(cls, v: str | None) -> str | None:
-        """Validate description length."""
-        return validate_description_length(v)
-
-    @field_validator("content")
-    @classmethod
-    def check_content_length(cls, v: str | None) -> str | None:
-        """Validate content length."""
-        return validate_prompt_content_length(v)
 
     @field_validator("tags", mode="before")
     @classmethod

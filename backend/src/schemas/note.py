@@ -5,25 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from core.config import get_settings
 from schemas.content_metadata import ContentMetadata
-from schemas.validators import (
-    normalize_preview,
-    validate_and_normalize_tags,
-    validate_description_length,
-    validate_title_length,
-)
-
-
-def validate_note_content_length(content: str | None) -> str | None:
-    """Validate that note content doesn't exceed maximum length (2MB)."""
-    settings = get_settings()
-    if content is not None and len(content) > settings.max_note_content_length:
-        raise ValueError(
-            f"Content exceeds maximum length of {settings.max_note_content_length:,} characters "
-            f"(got {len(content):,} characters).",
-        )
-    return content
+from schemas.validators import normalize_preview, validate_and_normalize_tags
 
 
 class NoteCreate(BaseModel):
@@ -50,25 +33,11 @@ class NoteCreate(BaseModel):
 
     @field_validator("title")
     @classmethod
-    def check_title_length(cls, v: str) -> str:
-        """Validate title is not empty and doesn't exceed max length."""
+    def check_title_not_empty(cls, v: str) -> str:
+        """Validate title is not empty."""
         if not v or not v.strip():
             raise ValueError("Title cannot be empty")
-        # validate_title_length only returns None if input is None,
-        # but we've already validated v is non-empty above
-        return validate_title_length(v)  # type: ignore[return-value]
-
-    @field_validator("description")
-    @classmethod
-    def check_description_length(cls, v: str | None) -> str | None:
-        """Validate description length."""
-        return validate_description_length(v)
-
-    @field_validator("content")
-    @classmethod
-    def check_content_length(cls, v: str | None) -> str | None:
-        """Validate content length."""
-        return validate_note_content_length(v)
+        return v
 
 
 class NoteUpdate(BaseModel):
@@ -101,25 +70,11 @@ class NoteUpdate(BaseModel):
 
     @field_validator("title")
     @classmethod
-    def check_title_length(cls, v: str | None) -> str | None:
-        """Validate title is not empty (if provided) and doesn't exceed max length."""
-        if v is not None:
-            if not v.strip():
-                raise ValueError("Title cannot be empty")
-            return validate_title_length(v)
+    def check_title_not_empty(cls, v: str | None) -> str | None:
+        """Validate title is not empty (if provided)."""
+        if v is not None and not v.strip():
+            raise ValueError("Title cannot be empty")
         return v
-
-    @field_validator("description")
-    @classmethod
-    def check_description_length(cls, v: str | None) -> str | None:
-        """Validate description length."""
-        return validate_description_length(v)
-
-    @field_validator("content")
-    @classmethod
-    def check_content_length(cls, v: str | None) -> str | None:
-        """Validate content length."""
-        return validate_note_content_length(v)
 
 
 class NoteListItem(BaseModel):

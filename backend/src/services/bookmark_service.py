@@ -8,11 +8,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from core.tier_limits import TierLimits
 from models.bookmark import Bookmark
 from models.tag import bookmark_tags
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate
 from services.base_entity_service import BaseEntityService
-from services.exceptions import InvalidStateError
+from services.exceptions import FieldLimitExceededError, InvalidStateError, QuotaExceededError
 from services.tag_service import get_or_create_tags, update_bookmark_tags
 
 logger = logging.getLogger(__name__)
@@ -88,11 +89,75 @@ class BookmarkService(BaseEntityService[Bookmark]):
         )
         return result.scalar_one_or_none()
 
+    def _validate_field_limits(
+        self,
+        limits: TierLimits,
+        url: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        content: str | None = None,
+        tags: list[str] | None = None,
+    ) -> None:
+        """
+        Validate field lengths against tier limits.
+
+        Args:
+            limits: User's tier limits.
+            url: URL to validate.
+            title: Title to validate.
+            description: Description to validate.
+            content: Content to validate.
+            tags: Tags to validate (each tag name is checked).
+
+        Raises:
+            FieldLimitExceededError: If any field exceeds its limit.
+        """
+        if url is not None and len(url) > limits.max_url_length:
+            raise FieldLimitExceededError("url", len(url), limits.max_url_length)
+        if title is not None and len(title) > limits.max_title_length:
+            raise FieldLimitExceededError("title", len(title), limits.max_title_length)
+        if description is not None and len(description) > limits.max_description_length:
+            raise FieldLimitExceededError(
+                "description", len(description), limits.max_description_length,
+            )
+        if content is not None and len(content) > limits.max_bookmark_content_length:
+            raise FieldLimitExceededError(
+                "content", len(content), limits.max_bookmark_content_length,
+            )
+        if tags is not None:
+            for tag in tags:
+                if len(tag) > limits.max_tag_name_length:
+                    raise FieldLimitExceededError(
+                        "tag", len(tag), limits.max_tag_name_length,
+                    )
+
+    async def check_quota(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        limits: TierLimits,
+    ) -> None:
+        """
+        Check if user has quota to create a new bookmark.
+
+        Args:
+            db: Database session.
+            user_id: User ID to check quota for.
+            limits: User's tier limits.
+
+        Raises:
+            QuotaExceededError: If user is at or over their bookmark limit.
+        """
+        current = await self.count_user_items(db, user_id)
+        if current >= limits.max_bookmarks:
+            raise QuotaExceededError("bookmark", current, limits.max_bookmarks)
+
     async def create(
         self,
         db: AsyncSession,
         user_id: UUID,
         data: BookmarkCreate,
+        limits: TierLimits,
     ) -> Bookmark:
         """
         Create a new bookmark for a user.
@@ -101,15 +166,31 @@ class BookmarkService(BaseEntityService[Bookmark]):
             db: Database session.
             user_id: User ID to create the bookmark for.
             data: Bookmark creation data.
+            limits: User's tier limits for quota and field validation.
 
         Returns:
             The created bookmark.
 
         Raises:
+            QuotaExceededError: If user has reached their bookmark limit.
+            FieldLimitExceededError: If any field exceeds tier limits.
             DuplicateUrlError: If URL exists as an active bookmark.
             ArchivedUrlExistsError: If URL exists as an archived bookmark.
         """
         url_str = str(data.url)
+
+        # Check quota before creating
+        await self.check_quota(db, user_id, limits)
+
+        # Validate field lengths
+        self._validate_field_limits(
+            limits,
+            url=url_str,
+            title=data.title,
+            description=data.description,
+            content=data.content,
+            tags=data.tags,
+        )
 
         # Check if URL already exists for this user (non-deleted)
         existing = await self._check_url_exists(db, user_id, url_str)
@@ -150,6 +231,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
         user_id: UUID,
         bookmark_id: UUID,
         data: BookmarkUpdate,
+        limits: TierLimits,
     ) -> Bookmark | None:
         """
         Update a bookmark.
@@ -159,11 +241,13 @@ class BookmarkService(BaseEntityService[Bookmark]):
             user_id: User ID to scope the bookmark.
             bookmark_id: ID of the bookmark to update.
             data: Update data.
+            limits: User's tier limits for field validation.
 
         Returns:
             The updated bookmark, or None if not found.
 
         Raises:
+            FieldLimitExceededError: If any field exceeds tier limits.
             DuplicateUrlError: If the new URL already exists.
         """
         bookmark = await self.get(db, user_id, bookmark_id, include_archived=True)
@@ -178,6 +262,16 @@ class BookmarkService(BaseEntityService[Bookmark]):
 
         # Handle tag updates separately
         new_tags = update_data.pop("tags", None)
+
+        # Validate field lengths for fields being updated
+        self._validate_field_limits(
+            limits,
+            url=update_data.get("url"),
+            title=update_data.get("title"),
+            description=update_data.get("description"),
+            content=update_data.get("content"),
+            tags=new_tags,
+        )
 
         for field, value in update_data.items():
             setattr(bookmark, field, value)
@@ -207,6 +301,9 @@ class BookmarkService(BaseEntityService[Bookmark]):
         Restore a soft-deleted bookmark.
 
         Overrides base to add URL uniqueness check.
+
+        Note: No quota check is needed because soft-deleted items already
+        count toward the user's quota. Restoring just changes state.
 
         Args:
             db: Database session.

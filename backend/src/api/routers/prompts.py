@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import (
     get_async_session,
+    get_current_limits,
     get_current_user,
 )
 from api.helpers import (
@@ -26,7 +27,9 @@ from api.helpers import (
     resolve_filter_and_sorting,
 )
 from core.http_cache import check_not_modified, format_http_date
+from core.tier_limits import TierLimits
 from models.user import User
+from services.exceptions import FieldLimitExceededError
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
 from schemas.errors import (
     ContentEmptyError,
@@ -73,6 +76,7 @@ async def _perform_str_replace(
     prompt: "Prompt",  # Forward reference to avoid circular import
     data: PromptStrReplaceRequest,
     include_updated_entity: bool,
+    limits: TierLimits,
 ) -> StrReplaceResponse:
     """
     Core str-replace logic shared by ID and name-based endpoints.
@@ -86,12 +90,14 @@ async def _perform_str_replace(
         prompt: The prompt to edit (must have content).
         data: The str-replace request with old_str, new_str, and optional arguments.
         include_updated_entity: If True, return full entity; otherwise minimal data.
+        limits: User's tier limits for field validation.
 
     Returns:
         StrReplaceSuccess with full entity or minimal data.
 
     Raises:
         HTTPException: On validation errors, no match, or multiple matches.
+        FieldLimitExceededError: If new content exceeds tier limits.
     """
     # Check if content exists
     if prompt.content is None:
@@ -139,6 +145,12 @@ async def _perform_str_replace(
             detail=f"Replacement would create invalid template: {e}",
         )
 
+    # Validate new content length against tier limits
+    if len(result.new_content) > limits.max_prompt_content_length:
+        raise FieldLimitExceededError(
+            "content", len(result.new_content), limits.max_prompt_content_length,
+        )
+
     # Update the prompt with new content
     prompt.content = result.new_content
 
@@ -172,10 +184,11 @@ async def create_prompt(
     data: PromptCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> PromptResponse:
     """Create a new prompt."""
     try:
-        prompt = await prompt_service.create(db, current_user.id, data)
+        prompt = await prompt_service.create(db, current_user.id, data, limits)
     except NameConflictError as e:
         raise HTTPException(
             status_code=409,
@@ -360,6 +373,7 @@ async def update_prompt_by_name(
     data: PromptUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> PromptResponse:
     """
     Update a prompt by name.
@@ -381,7 +395,7 @@ async def update_prompt_by_name(
 
     try:
         updated_prompt = await prompt_service.update(
-            db, current_user.id, prompt.id, data,
+            db, current_user.id, prompt.id, data, limits,
         )
     except NameConflictError as e:
         raise HTTPException(
@@ -410,6 +424,7 @@ async def str_replace_prompt_by_name(
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> StrReplaceSuccess[PromptResponse] | StrReplaceSuccessMinimal:
     r"""
     Replace text in a prompt's content by name using string matching.
@@ -437,7 +452,7 @@ async def str_replace_prompt_by_name(
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
 
-    return await _perform_str_replace(db, prompt, data, include_updated_entity)
+    return await _perform_str_replace(db, prompt, data, include_updated_entity, limits)
 
 
 def _build_skills_dict(
@@ -742,6 +757,7 @@ async def update_prompt(
     data: PromptUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> PromptResponse:
     """Update a prompt."""
     # Check for conflicts before updating
@@ -752,7 +768,7 @@ async def update_prompt(
 
     try:
         prompt = await prompt_service.update(
-            db, current_user.id, prompt_id, data,
+            db, current_user.id, prompt_id, data, limits,
         )
     except NameConflictError as e:
         raise HTTPException(
@@ -781,6 +797,7 @@ async def str_replace_prompt(
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> StrReplaceSuccess[PromptResponse] | StrReplaceSuccessMinimal:
     r"""
     Replace text in a prompt's content (Jinja2 template) using string matching.
@@ -841,7 +858,7 @@ async def str_replace_prompt(
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
 
-    return await _perform_str_replace(db, prompt, data, include_updated_entity)
+    return await _perform_str_replace(db, prompt, data, include_updated_entity, limits)
 
 
 @router.delete("/{prompt_id}", status_code=204)

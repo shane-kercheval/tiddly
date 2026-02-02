@@ -26,6 +26,7 @@ from core.config import get_settings
 from core.http_cache import ETagMiddleware
 from core.rate_limit_config import RateLimitExceededError
 from core.redis import RedisClient, set_redis_client
+from services.exceptions import FieldLimitExceededError, QuotaExceededError
 
 
 @asynccontextmanager
@@ -116,6 +117,40 @@ async def rate_limit_exception_handler(
             "X-RateLimit-Limit": str(exc.result.limit),
             "X-RateLimit-Remaining": "0",
             "X-RateLimit-Reset": str(exc.result.reset),
+        },
+    )
+
+
+@app.exception_handler(QuotaExceededError)
+async def quota_exceeded_exception_handler(
+    _request: Request, exc: QuotaExceededError,
+) -> JSONResponse:
+    """Handle quota exceeded errors with structured response."""
+    return JSONResponse(
+        status_code=402,
+        content={
+            "detail": str(exc),
+            "error_code": "QUOTA_EXCEEDED",
+            "resource": exc.resource,
+            "current": exc.current,
+            "limit": exc.limit,
+        },
+    )
+
+
+@app.exception_handler(FieldLimitExceededError)
+async def field_limit_exceeded_exception_handler(
+    _request: Request, exc: FieldLimitExceededError,
+) -> JSONResponse:
+    """Handle field length limit exceeded errors."""
+    return JSONResponse(
+        status_code=400,
+        content={
+            "detail": str(exc),
+            "error_code": "FIELD_LIMIT_EXCEEDED",
+            "field": exc.field,
+            "current": exc.current,
+            "limit": exc.limit,
         },
     )
 

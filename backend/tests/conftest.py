@@ -1,6 +1,7 @@
 """Pytest fixtures for testing."""
 import os
 from collections.abc import AsyncGenerator, Generator
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -17,6 +18,7 @@ from testcontainers.redis import RedisContainer
 from core.auth_cache import AuthCache, set_auth_cache
 from core.config import Settings
 from core.redis import RedisClient, set_redis_client
+from core.tier_limits import Tier, TierLimits, get_tier_limits
 from models.base import Base
 
 
@@ -213,3 +215,47 @@ async def rate_limit_client(
     finally:
         # Restore original
         auth._apply_rate_limit = original_apply_rate_limit
+
+
+# Low limits for testing tier-based limits with small values
+LOW_TIER_LIMITS = TierLimits(
+    max_bookmarks=2,
+    max_notes=2,
+    max_prompts=2,
+    max_title_length=10,
+    max_description_length=50,
+    max_tag_name_length=10,
+    max_bookmark_content_length=100,
+    max_note_content_length=100,
+    max_prompt_content_length=100,
+    max_url_length=100,
+    max_prompt_name_length=10,
+    max_argument_name_length=10,
+    max_argument_description_length=20,
+)
+
+
+@pytest.fixture
+def default_limits() -> TierLimits:
+    """
+    Get the default tier limits for testing.
+
+    Use this fixture when calling service methods that require a limits parameter
+    but you don't need to test limit enforcement.
+    """
+    return get_tier_limits(Tier.FREE)
+
+
+@pytest.fixture
+def low_limits() -> Generator[TierLimits]:
+    """
+    Override TIER_LIMITS with restrictive limits for testing.
+
+    Use this fixture to test quota and field limit enforcement without
+    depending on actual production limit values.
+    """
+    with patch.dict(
+        "core.tier_limits.TIER_LIMITS",
+        {Tier.FREE: LOW_TIER_LIMITS},
+    ):
+        yield LOW_TIER_LIMITS
