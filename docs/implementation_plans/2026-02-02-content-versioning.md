@@ -32,6 +32,8 @@ A single polymorphic `content_history` table for all content types (bookmarks, n
 
 **Trade-off:** Larger table at scale, but acceptable for this use case.
 
+**Note:** The existing `note_versions` table and `Note.version` column were designed for this purpose but never used. This plan supersedes them - Milestone 2 includes a migration to drop the unused schema.
+
 ---
 
 ## Diff Strategy: diff-match-patch
@@ -45,6 +47,13 @@ Use Google's diff-match-patch algorithm for text diffing:
 - `content_diff`: Full text (snapshot) OR diff-match-patch delta string (diff)
 - `metadata_snapshot`: JSONB of non-content fields (title, description, tags, etc.) - always stored as snapshot since these are small
 
+**Snapshot rules (when to store full content instead of diff):**
+- CREATE actions (version 1)
+- Every Nth version (default: 10)
+- When `previous_content` is None
+- When `current_content` is None
+- When content is unchanged (metadata-only update)
+
 ---
 
 ## Request Source Tracking
@@ -53,6 +62,8 @@ Currently missing from codebase. Need to track:
 - **Source:** "web" | "api" | "mcp-content" | "mcp-prompt"
 - **Auth type:** "auth0" | "pat" | "dev"
 - **Token ID:** UUID of PAT if used (for audit trail)
+
+**MCP Source Detection:** MCP servers make HTTP calls to the API. They will include an `X-Request-Source` header (e.g., `X-Request-Source: mcp-content`) when calling API endpoints. The API reads this header and sets the source accordingly. This is spoofable but acceptable - source tracking is for audit/telemetry, not access control.
 
 ---
 
@@ -64,6 +75,7 @@ Add request source and auth type tracking to request context so history records 
 ### Success Criteria
 - All authenticated requests have `source` and `auth_type` available in request state
 - PAT requests also have `token_id` available
+- MCP requests with `X-Request-Source` header are correctly identified
 - Existing functionality unchanged
 - Unit tests verify context is set correctly for all auth paths
 
@@ -97,47 +109,93 @@ Add request source and auth type tracking to request context so history records 
        token_id: UUID | None = None  # Only set for PAT auth
    ```
 
-3. **Update auth dependencies to set request context:**
+3. **Update `validate_pat()` to return token_id:**
 
-   In `get_current_user()` and variants, after successful auth:
+   Currently `validate_pat()` returns only the User, discarding the `api_token` object. Modify to preserve the token ID:
    ```python
-   # Determine auth type
-   if DEV_MODE:
-       auth_type = AuthType.DEV
-       token_id = None
-   elif token.startswith("bm_"):
-       auth_type = AuthType.PAT
-       token_id = api_token.id  # From token lookup
-   else:
-       auth_type = AuthType.AUTH0
-       token_id = None
+   async def validate_pat(db: AsyncSession, token: str) -> tuple[User, UUID]:
+       """
+       Validate a PAT and return the associated user AND token ID.
 
-   # Source defaults to API - routers can override for MCP
-   request.state.request_context = RequestContext(
-       source=RequestSource.API,
-       auth_type=auth_type,
-       token_id=token_id,
-   )
+       Returns:
+           Tuple of (User, token_id) for audit trail purposes.
+       """
+       api_token = await token_service.validate_token(db, token)
+       if api_token is None:
+           raise HTTPException(...)
+
+       # ... load user ...
+
+       return user, api_token.id  # Return both
    ```
 
-4. **Add helper to get context from request:**
+4. **Update auth dependencies to set request context:**
+
+   In `_authenticate_user()`, set context on `request.state`:
+   ```python
+   async def _authenticate_user(
+       request: Request,  # Add request parameter
+       credentials: HTTPAuthorizationCredentials | None,
+       db: AsyncSession,
+       settings: Settings,
+       *,
+       allow_pat: bool = True,
+   ) -> User | CachedUser:
+       token_id = None
+
+       if settings.dev_mode:
+           auth_type = AuthType.DEV
+           user = await get_or_create_dev_user(db)
+       elif token.startswith("bm_"):
+           if not allow_pat:
+               raise HTTPException(status_code=403, ...)
+           user, token_id = await validate_pat(db, token)  # Now returns tuple
+           auth_type = AuthType.PAT
+       else:
+           auth_type = AuthType.AUTH0
+           # ... existing JWT validation ...
+
+       # Determine source from header (MCP sets this)
+       source_header = request.headers.get("x-request-source", "").lower()
+       if source_header == "mcp-content":
+           source = RequestSource.MCP_CONTENT
+       elif source_header == "mcp-prompt":
+           source = RequestSource.MCP_PROMPT
+       else:
+           source = RequestSource.API  # Default
+
+       request.state.request_context = RequestContext(
+           source=source,
+           auth_type=auth_type,
+           token_id=token_id,
+       )
+
+       return user
+   ```
+
+5. **Add helper to get context from request:**
    ```python
    def get_request_context(request: Request) -> RequestContext | None:
        return getattr(request.state, "request_context", None)
    ```
 
-5. **MCP servers set their source:**
+6. **Update MCP server api_client.py to include source header:**
 
-   In MCP server auth, after calling API with token:
+   In `backend/src/mcp_server/api_client.py`:
    ```python
-   # MCP content server
-   request.state.request_context.source = RequestSource.MCP_CONTENT
-
-   # MCP prompt server
-   request.state.request_context.source = RequestSource.MCP_PROMPT
+   async def api_get(client, path, token, params=None):
+       response = await client.get(
+           path,
+           params=params,
+           headers={
+               "Authorization": f"Bearer {token}",
+               "X-Request-Source": "mcp-content",
+           },
+       )
+       # ...
    ```
 
-   **Note:** The MCP servers call the main API, so the API's auth sets the initial context. The MCP server code would need to pass the source as a header, or the API needs to detect MCP calls differently. **Clarify with user:** Should MCP be detected via a custom header (e.g., `X-Request-Source: mcp-content`)?
+   Similarly for `api_post`, `api_patch`, and the prompt MCP server's `api_client.py`.
 
 ### Testing Strategy
 
@@ -145,42 +203,46 @@ Add request source and auth type tracking to request context so history records 
    - Auth0 JWT sets `auth_type=AUTH0`, `token_id=None`
    - PAT auth sets `auth_type=PAT`, `token_id=<uuid>`
    - DEV_MODE sets `auth_type=DEV`, `token_id=None`
-   - `source` defaults to `API`
+   - `source` defaults to `API` without header
+   - `X-Request-Source: mcp-content` sets `source=MCP_CONTENT`
+   - `X-Request-Source: mcp-prompt` sets `source=MCP_PROMPT`
+   - Invalid/unknown header values default to `API`
 
 2. **Integration tests:**
    - Request to API endpoint has request_context in state
    - Different auth methods produce correct auth_type
+   - MCP header correctly sets source
 
 ### Dependencies
 None
 
 ### Risk Factors
-- **MCP source detection:** MCP servers proxy to API - need mechanism to identify these requests. Consider custom header approach.
-- **CachedUser handling:** Request context needs to work with both User ORM and CachedUser objects.
+- **CachedUser handling:** Request context works with both User ORM and CachedUser objects since it's attached to request.state, not the user.
 
 ---
 
 ## Milestone 2: ContentHistory Model and Migration
 
 ### Goal
-Create the `content_history` table to store all history records.
+Create the `content_history` table to store all history records, and clean up unused legacy schema.
 
 ### Success Criteria
-- Migration creates table with proper indexes
-- Model supports all required fields
-- Composite indexes optimize common queries
+- Migration creates table with proper indexes and unique constraint
+- Migration drops unused `note_versions` table and `Note.version` column
+- Model uses modern SQLAlchemy 2.0 style (`Mapped`/`mapped_column`)
 - Tests verify model behavior
 
 ### Key Changes
 
 1. **Create `backend/src/models/content_history.py`:**
    ```python
-   from sqlalchemy import (
-       Column, DateTime, Enum, ForeignKey, Index, Text, UUID as PGUUID,
-       func,
-   )
+   from datetime import datetime
+   from enum import Enum
+   from uuid import UUID
+
+   from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint, func
    from sqlalchemy.dialects.postgresql import JSONB
-   from sqlalchemy.orm import relationship
+   from sqlalchemy.orm import Mapped, mapped_column, relationship
 
    from models.base import Base, UUIDv7Mixin
 
@@ -204,49 +266,78 @@ Create the `content_history` table to store all history records.
    class ContentHistory(Base, UUIDv7Mixin):
        __tablename__ = "content_history"
 
-       user_id: UUID = Column(PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-       entity_type: str = Column(Enum(EntityType), nullable=False)
-       entity_id: UUID = Column(PGUUID(as_uuid=True), nullable=False)  # No FK - entity may be deleted
-       action: str = Column(Enum(ActionType), nullable=False)
+       user_id: Mapped[UUID] = mapped_column(
+           ForeignKey("users.id", ondelete="CASCADE"),
+           nullable=False,
+       )
+       entity_type: Mapped[str] = mapped_column(String(20), nullable=False)
+       entity_id: Mapped[UUID] = mapped_column(nullable=False)  # No FK - entity may be deleted
+       action: Mapped[str] = mapped_column(String(20), nullable=False)
 
        # Version tracking
-       version: int = Column(Integer, nullable=False)  # Sequential per entity
-       diff_type: str = Column(Enum(DiffType), nullable=False)
-       content_diff: str | None = Column(Text, nullable=True)  # Full content or diff delta
-       metadata_snapshot: dict = Column(JSONB, nullable=True)  # title, description, tags, etc.
+       version: Mapped[int] = mapped_column(nullable=False)  # Sequential per entity
+       diff_type: Mapped[str] = mapped_column(String(20), nullable=False)
+       content_diff: Mapped[str | None] = mapped_column(Text, nullable=True)
+       metadata_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
        # Source tracking
-       source: str = Column(String(20), nullable=False)  # "web", "api", "mcp-content", "mcp-prompt"
-       auth_type: str = Column(String(10), nullable=False)  # "auth0", "pat", "dev"
-       token_id: UUID | None = Column(PGUUID(as_uuid=True), ForeignKey("api_tokens.id"), nullable=True)
+       source: Mapped[str] = mapped_column(String(20), nullable=False)
+       auth_type: Mapped[str] = mapped_column(String(10), nullable=False)
+       token_id: Mapped[UUID | None] = mapped_column(
+           ForeignKey("api_tokens.id", ondelete="SET NULL"),
+           nullable=True,
+       )
 
        # Timestamps
-       created_at: datetime = Column(DateTime(timezone=True), server_default=func.clock_timestamp(), nullable=False)
+       created_at: Mapped[datetime] = mapped_column(
+           DateTime(timezone=True),
+           server_default=func.clock_timestamp(),
+           nullable=False,
+       )
 
        # Relationships
-       user = relationship("User", back_populates="content_history")
-       token = relationship("ApiToken")
+       user: Mapped["User"] = relationship(back_populates="content_history")
+       token: Mapped["ApiToken | None"] = relationship()
 
        __table_args__ = (
+           # Unique constraint prevents duplicate versions from race conditions
+           UniqueConstraint(
+               "user_id", "entity_type", "entity_id", "version",
+               name="uq_content_history_version",
+           ),
            # Primary query: user's history for an entity
            Index("ix_content_history_user_entity", "user_id", "entity_type", "entity_id", "version"),
            # All user's recent activity
            Index("ix_content_history_user_created", "user_id", "created_at"),
            # Retention cleanup
            Index("ix_content_history_created", "created_at"),
+           # Efficient snapshot lookup for reconstruction
+           Index(
+               "ix_content_history_snapshots",
+               "user_id", "entity_type", "entity_id", "version",
+               postgresql_where=text("diff_type = 'snapshot'"),
+           ),
        )
    ```
 
 2. **Update `backend/src/models/__init__.py`:**
    - Export ContentHistory, ActionType, EntityType, DiffType
+   - Remove NoteVersion export
 
 3. **Update User model:**
-   - Add relationship: `content_history = relationship("ContentHistory", back_populates="user")`
+   - Add relationship: `content_history: Mapped[list["ContentHistory"]] = relationship(back_populates="user")`
 
-4. **Create migration:**
+4. **Delete `backend/src/models/note_version.py`**
+
+5. **Create migration:**
    ```bash
-   make migration message="add content_history table"
+   make migration message="add content_history table and drop note_versions"
    ```
+
+   The migration should:
+   - Create `content_history` table with all columns, indexes, and unique constraint
+   - Drop `note_versions` table
+   - Drop `version` column from `notes` table
 
 ### Testing Strategy
 
@@ -255,18 +346,20 @@ Create the `content_history` table to store all history records.
    - Verify enum values work correctly
    - Verify JSONB metadata stores and retrieves correctly
    - Verify relationships work (user, token)
+   - Verify unique constraint prevents duplicate (user_id, entity_type, entity_id, version)
 
 2. **Migration tests:**
    - Migration applies cleanly
    - Rollback works
    - Indexes exist
+   - `note_versions` table is dropped
+   - `notes.version` column is dropped
 
 ### Dependencies
 Milestone 1 (for source/auth_type enums)
 
 ### Risk Factors
 - **No FK on entity_id:** Intentional - allows history to persist after permanent delete. Verify queries handle missing entities gracefully.
-- **Enum vs String:** Using Enum for action/entity_type provides validation, but strings for source/auth_type for flexibility. Consistent choice needed.
 
 ---
 
@@ -278,8 +371,9 @@ Create service layer for recording and retrieving history, including diff-match-
 ### Success Criteria
 - History is recorded on create/update/delete/restore/archive/unarchive
 - Diffs are computed and stored correctly
-- Content can be reconstructed from snapshot + diffs
-- Version numbers increment correctly
+- Content can be reconstructed efficiently from nearest snapshot + diffs
+- Version numbers increment correctly with race condition handling
+- Metadata-only changes are recorded as snapshots
 
 ### Key Changes
 
@@ -291,6 +385,7 @@ Create service layer for recording and retrieving history, including diff-match-
 2. **Create `backend/src/services/history_service.py`:**
    ```python
    from diff_match_patch import diff_match_patch
+   from sqlalchemy.exc import IntegrityError
 
    SNAPSHOT_INTERVAL = 10  # Full snapshot every N versions
 
@@ -311,7 +406,33 @@ Create service layer for recording and retrieving history, including diff-match-
            context: RequestContext,
        ) -> ContentHistory:
            """Record a history entry for an action."""
-           # Get next version number
+           # Retry loop for race condition on version allocation
+           max_retries = 3
+           for attempt in range(max_retries):
+               try:
+                   return await self._record_action_impl(
+                       db, user_id, entity_type, entity_id, action,
+                       current_content, previous_content, metadata, context,
+                   )
+               except IntegrityError:
+                   await db.rollback()
+                   if attempt == max_retries - 1:
+                       raise
+                   # Retry with new version number
+
+       async def _record_action_impl(
+           self,
+           db: AsyncSession,
+           user_id: UUID,
+           entity_type: EntityType,
+           entity_id: UUID,
+           action: ActionType,
+           current_content: str | None,
+           previous_content: str | None,
+           metadata: dict,
+           context: RequestContext,
+       ) -> ContentHistory:
+           """Internal implementation of record_action."""
            version = await self._get_next_version(db, user_id, entity_type, entity_id)
 
            # Determine if this should be a snapshot
@@ -319,6 +440,8 @@ Create service layer for recording and retrieving history, including diff-match-
                action == ActionType.CREATE
                or version % SNAPSHOT_INTERVAL == 0
                or previous_content is None
+               or current_content is None
+               or previous_content == current_content  # Metadata-only change
            )
 
            if is_snapshot:
@@ -327,19 +450,16 @@ Create service layer for recording and retrieving history, including diff-match-
            else:
                # Compute diff from previous to current
                diff_type = DiffType.DIFF
-               if previous_content and current_content:
-                   patches = self.dmp.patch_make(previous_content, current_content)
-                   content_diff = self.dmp.patch_toText(patches)
-               else:
-                   content_diff = None
+               patches = self.dmp.patch_make(previous_content, current_content)
+               content_diff = self.dmp.patch_toText(patches)
 
            history = ContentHistory(
                user_id=user_id,
-               entity_type=entity_type,
+               entity_type=entity_type.value if isinstance(entity_type, EntityType) else entity_type,
                entity_id=entity_id,
-               action=action,
+               action=action.value if isinstance(action, ActionType) else action,
                version=version,
-               diff_type=diff_type,
+               diff_type=diff_type.value if isinstance(diff_type, DiffType) else diff_type,
                content_diff=content_diff,
                metadata_snapshot=metadata,
                source=context.source.value,
@@ -354,17 +474,32 @@ Create service layer for recording and retrieving history, including diff-match-
            self,
            db: AsyncSession,
            user_id: UUID,
-           entity_type: EntityType,
+           entity_type: EntityType | str,
            entity_id: UUID,
            limit: int = 50,
            offset: int = 0,
-       ) -> list[ContentHistory]:
-           """Get history for a specific entity."""
+       ) -> tuple[list[ContentHistory], int]:
+           """Get history for a specific entity. Returns (items, total_count)."""
+           entity_type_value = entity_type.value if isinstance(entity_type, EntityType) else entity_type
+
+           # Count query
+           count_stmt = (
+               select(func.count())
+               .select_from(ContentHistory)
+               .where(
+                   ContentHistory.user_id == user_id,
+                   ContentHistory.entity_type == entity_type_value,
+                   ContentHistory.entity_id == entity_id,
+               )
+           )
+           total = (await db.execute(count_stmt)).scalar_one()
+
+           # Data query
            stmt = (
                select(ContentHistory)
                .where(
                    ContentHistory.user_id == user_id,
-                   ContentHistory.entity_type == entity_type,
+                   ContentHistory.entity_type == entity_type_value,
                    ContentHistory.entity_id == entity_id,
                )
                .order_by(ContentHistory.version.desc())
@@ -372,84 +507,143 @@ Create service layer for recording and retrieving history, including diff-match-
                .limit(limit)
            )
            result = await db.execute(stmt)
-           return list(result.scalars().all())
+           return list(result.scalars().all()), total
 
        async def get_user_history(
            self,
            db: AsyncSession,
            user_id: UUID,
-           entity_type: EntityType | None = None,
+           entity_type: EntityType | str | None = None,
            limit: int = 50,
            offset: int = 0,
-       ) -> list[ContentHistory]:
-           """Get all history for a user, optionally filtered by entity type."""
-           stmt = select(ContentHistory).where(ContentHistory.user_id == user_id)
+       ) -> tuple[list[ContentHistory], int]:
+           """Get all history for a user. Returns (items, total_count)."""
+           # Build base conditions
+           conditions = [ContentHistory.user_id == user_id]
            if entity_type:
-               stmt = stmt.where(ContentHistory.entity_type == entity_type)
-           stmt = stmt.order_by(ContentHistory.created_at.desc()).offset(offset).limit(limit)
+               entity_type_value = entity_type.value if isinstance(entity_type, EntityType) else entity_type
+               conditions.append(ContentHistory.entity_type == entity_type_value)
+
+           # Count query
+           count_stmt = select(func.count()).select_from(ContentHistory).where(*conditions)
+           total = (await db.execute(count_stmt)).scalar_one()
+
+           # Data query
+           stmt = (
+               select(ContentHistory)
+               .where(*conditions)
+               .order_by(ContentHistory.created_at.desc())
+               .offset(offset)
+               .limit(limit)
+           )
            result = await db.execute(stmt)
-           return list(result.scalars().all())
+           return list(result.scalars().all()), total
 
        async def reconstruct_content_at_version(
            self,
            db: AsyncSession,
            user_id: UUID,
-           entity_type: EntityType,
+           entity_type: EntityType | str,
            entity_id: UUID,
            target_version: int,
        ) -> str | None:
-           """Reconstruct content at a specific version by applying diffs."""
-           # Get all history up to target version
-           stmt = (
+           """
+           Reconstruct content at a specific version by applying diffs.
+
+           Optimized to only load records from nearest snapshot to target version.
+           """
+           entity_type_value = entity_type.value if isinstance(entity_type, EntityType) else entity_type
+
+           # Step 1: Find the nearest snapshot at or before target version
+           snapshot_stmt = (
                select(ContentHistory)
                .where(
                    ContentHistory.user_id == user_id,
-                   ContentHistory.entity_type == entity_type,
+                   ContentHistory.entity_type == entity_type_value,
                    ContentHistory.entity_id == entity_id,
+                   ContentHistory.version <= target_version,
+                   ContentHistory.diff_type == DiffType.SNAPSHOT.value,
+               )
+               .order_by(ContentHistory.version.desc())
+               .limit(1)
+           )
+           snapshot_result = await db.execute(snapshot_stmt)
+           snapshot = snapshot_result.scalar_one_or_none()
+
+           if snapshot is None:
+               return None
+
+           # If target is the snapshot itself, return directly
+           if snapshot.version == target_version:
+               return snapshot.content_diff
+
+           # Step 2: Get diffs from snapshot to target
+           diffs_stmt = (
+               select(ContentHistory)
+               .where(
+                   ContentHistory.user_id == user_id,
+                   ContentHistory.entity_type == entity_type_value,
+                   ContentHistory.entity_id == entity_id,
+                   ContentHistory.version > snapshot.version,
                    ContentHistory.version <= target_version,
                )
                .order_by(ContentHistory.version.asc())
            )
-           result = await db.execute(stmt)
-           records = list(result.scalars().all())
+           diffs_result = await db.execute(diffs_stmt)
+           diffs = list(diffs_result.scalars().all())
 
-           if not records:
-               return None
-
-           # Find most recent snapshot at or before target
-           content = None
-           for record in records:
-               if record.diff_type == DiffType.SNAPSHOT:
+           # Step 3: Apply diffs to snapshot
+           content = snapshot.content_diff
+           for record in diffs:
+               if record.diff_type == DiffType.SNAPSHOT.value:
                    content = record.content_diff
-               elif record.diff_type == DiffType.DIFF and content is not None:
+               elif record.diff_type == DiffType.DIFF.value and record.content_diff:
                    patches = self.dmp.patch_fromText(record.content_diff)
                    content, _ = self.dmp.patch_apply(patches, content)
 
            return content
 
+       async def get_history_at_version(
+           self,
+           db: AsyncSession,
+           user_id: UUID,
+           entity_type: EntityType | str,
+           entity_id: UUID,
+           version: int,
+       ) -> ContentHistory | None:
+           """Get the history record at a specific version."""
+           entity_type_value = entity_type.value if isinstance(entity_type, EntityType) else entity_type
+           stmt = select(ContentHistory).where(
+               ContentHistory.user_id == user_id,
+               ContentHistory.entity_type == entity_type_value,
+               ContentHistory.entity_id == entity_id,
+               ContentHistory.version == version,
+           )
+           result = await db.execute(stmt)
+           return result.scalar_one_or_none()
+
        async def _get_next_version(
            self,
            db: AsyncSession,
            user_id: UUID,
-           entity_type: EntityType,
+           entity_type: EntityType | str,
            entity_id: UUID,
        ) -> int:
            """Get the next version number for an entity."""
+           entity_type_value = entity_type.value if isinstance(entity_type, EntityType) else entity_type
            stmt = (
                select(func.max(ContentHistory.version))
                .where(
                    ContentHistory.user_id == user_id,
-                   ContentHistory.entity_type == entity_type,
+                   ContentHistory.entity_type == entity_type_value,
                    ContentHistory.entity_id == entity_id,
                )
            )
            result = await db.execute(stmt)
            max_version = result.scalar_one_or_none()
            return (max_version or 0) + 1
-   ```
 
-3. **Create singleton instance:**
-   ```python
+
    history_service = HistoryService()
    ```
 
@@ -458,31 +652,39 @@ Create service layer for recording and retrieving history, including diff-match-
 1. **Diff computation tests:**
    - Simple text change produces valid diff
    - Applying diff to original produces new text
-   - Empty content handled correctly
+   - Empty/None content handled correctly (stores snapshot)
    - Large content changes work
+   - Metadata-only change (content unchanged) stores snapshot
 
 2. **Snapshot interval tests:**
-   - Version 1 is always a snapshot
+   - Version 1 is always a snapshot (CREATE action)
    - Every 10th version is a snapshot
    - Versions between are diffs
+   - None content forces snapshot
 
 3. **Content reconstruction tests:**
    - Reconstruct version 1 (snapshot only)
    - Reconstruct version 5 (snapshot + 4 diffs)
-   - Reconstruct version 15 (2 snapshots, apply from nearest)
+   - Reconstruct version 15 (queries from nearest snapshot, not all history)
    - Non-existent version returns None
+   - Verify only necessary records are queried (not full history)
 
-4. **History retrieval tests:**
-   - Get entity history returns correct records
+4. **Race condition tests:**
+   - Concurrent history writes to same entity produce sequential versions
+   - IntegrityError triggers retry and succeeds
+   - Max retries exceeded raises error
+
+5. **History retrieval tests:**
+   - Get entity history returns correct records and total count
    - Get user history filters by entity type
-   - Pagination works correctly
+   - Pagination works correctly with accurate totals
 
 ### Dependencies
 Milestone 2 (ContentHistory model)
 
 ### Risk Factors
-- **Diff corruption:** If a diff is corrupted, all subsequent versions are broken. Snapshot interval mitigates this.
-- **Large diffs:** For complete rewrites, diff may be larger than full content. Consider storing snapshot if diff > content length.
+- **Diff corruption:** If a diff is corrupted, all subsequent versions until next snapshot are broken. Snapshot interval mitigates this.
+- **Large diffs:** For complete rewrites, diff may be larger than full content. Consider storing snapshot if diff > content length (future optimization).
 
 ---
 
@@ -495,6 +697,7 @@ Hook history recording into existing service CRUD operations.
 - All create/update/delete/restore/archive/unarchive operations record history
 - Previous content is fetched before update for diff computation
 - Request context is passed through from routers
+- Metadata-only changes (e.g., tag updates) create history records
 
 ### Key Changes
 
@@ -557,7 +760,25 @@ Hook history recording into existing service CRUD operations.
        return base
    ```
 
-   Similar for `NoteService` and `PromptService`.
+   In `PromptService`:
+   ```python
+   @property
+   def entity_type(self) -> EntityType:
+       return EntityType.PROMPT
+
+   def _get_metadata_snapshot(self, entity) -> dict:
+       base = super()._get_metadata_snapshot(entity)
+       base["name"] = entity.name
+       base["arguments"] = entity.arguments
+       return base
+   ```
+
+   In `NoteService`:
+   ```python
+   @property
+   def entity_type(self) -> EntityType:
+       return EntityType.NOTE
+   ```
 
 3. **Update routers to pass context:**
 
@@ -623,11 +844,17 @@ Hook history recording into existing service CRUD operations.
 2. **Context propagation tests:**
    - History records have correct source and auth_type
    - PAT requests have token_id in history
+   - MCP requests have correct source (mcp-content or mcp-prompt)
 
 3. **Diff verification:**
    - Update with content change produces valid diff
-   - Update with metadata-only change has null content_diff
+   - Update with metadata-only change (e.g., tags only) stores snapshot with content_diff=current_content
    - Multiple updates produce correct version sequence
+
+4. **Metadata-only changes:**
+   - Tag-only change creates history record
+   - Title-only change creates history record
+   - History record has content_diff (as snapshot) even when content unchanged
 
 ### Dependencies
 Milestone 3 (HistoryService)
@@ -647,7 +874,7 @@ Expose history data via API endpoints.
 - Users can view history for all their content
 - Users can view history for specific entities
 - Users can view content at a specific version
-- Proper pagination support
+- Proper pagination support with accurate total counts
 
 ### Key Changes
 
@@ -693,11 +920,10 @@ Expose history data via API endpoints.
        db: AsyncSession = Depends(get_async_session),
    ) -> HistoryListResponse:
        """Get history of all user's content."""
-       items = await history_service.get_user_history(
+       items, total = await history_service.get_user_history(
            db, current_user.id, entity_type, limit, offset
        )
-       # TODO: Add total count query
-       return HistoryListResponse(items=items, total=len(items), offset=offset, limit=limit)
+       return HistoryListResponse(items=items, total=total, offset=offset, limit=limit)
 
    @router.get("/{entity_type}/{entity_id}", response_model=HistoryListResponse)
    async def get_entity_history(
@@ -709,10 +935,10 @@ Expose history data via API endpoints.
        db: AsyncSession = Depends(get_async_session),
    ) -> HistoryListResponse:
        """Get history for a specific entity."""
-       items = await history_service.get_entity_history(
+       items, total = await history_service.get_entity_history(
            db, current_user.id, entity_type, entity_id, limit, offset
        )
-       return HistoryListResponse(items=items, total=len(items), offset=offset, limit=limit)
+       return HistoryListResponse(items=items, total=total, offset=offset, limit=limit)
 
    @router.get("/{entity_type}/{entity_id}/version/{version}", response_model=ContentAtVersionResponse)
    async def get_content_at_version(
@@ -760,16 +986,16 @@ Expose history data via API endpoints.
        if bookmark is None:
            raise HTTPException(status_code=404, detail="Bookmark not found")
 
-       items = await history_service.get_entity_history(
+       items, total = await history_service.get_entity_history(
            db, current_user.id, EntityType.BOOKMARK, bookmark_id, limit, offset
        )
-       return HistoryListResponse(items=items, total=len(items), offset=offset, limit=limit)
+       return HistoryListResponse(items=items, total=total, offset=offset, limit=limit)
    ```
 
 ### Testing Strategy
 
 1. **Endpoint tests:**
-   - Get user history returns all history records
+   - Get user history returns all history records with correct total
    - Filter by entity_type works
    - Get entity history returns only that entity's records
    - Get content at version returns reconstructed content
@@ -781,7 +1007,8 @@ Expose history data via API endpoints.
 
 3. **Pagination tests:**
    - Limit and offset work correctly
-   - Total count is accurate
+   - Total count reflects all matching records, not just current page
+   - Edge cases: offset beyond total, empty results
 
 ### Dependencies
 Milestone 4 (history recording integrated)
@@ -801,6 +1028,7 @@ Allow users to revert content to a previous version.
 - Users can revert content to any previous version
 - Revert creates a new history entry (not deletion of history)
 - Edge cases handled (deleted items, URL conflicts)
+- Revert delegates to entity-specific services for validation
 
 ### Key Changes
 
@@ -816,7 +1044,14 @@ Allow users to revert content to a previous version.
        limits: TierLimits = Depends(get_current_limits),
        db: AsyncSession = Depends(get_async_session),
    ):
-       """Revert entity to a previous version."""
+       """
+       Revert entity to a previous version.
+
+       This creates a new UPDATE history entry with the restored content.
+       The revert operation delegates to the entity-specific service,
+       which handles validation (URL uniqueness for bookmarks, name
+       uniqueness for prompts, etc.).
+       """
        context = get_request_context(request)
 
        # Reconstruct content at target version
@@ -851,59 +1086,81 @@ Allow users to revert content to a previous version.
 
        # Update entity with restored content
        # This will record a new UPDATE history entry
+       # Service handles validation (URL/name uniqueness, etc.)
        update_data = _build_update_from_history(entity_type, content, history.metadata_snapshot)
-       await service.update(db, current_user.id, entity_id, update_data, limits, context)
+       try:
+           await service.update(db, current_user.id, entity_id, update_data, limits, context)
+       except DuplicateUrlError:
+           raise HTTPException(
+               status_code=409,
+               detail="Cannot revert: URL already exists on another bookmark",
+           )
+       except DuplicateNameError:
+           raise HTTPException(
+               status_code=409,
+               detail="Cannot revert: name already exists on another prompt",
+           )
 
        return {"message": "Reverted successfully", "version": version}
    ```
 
 2. **Handle edge cases:**
    - **Deleted item:** If soft-deleted, restore first then update
-   - **URL conflict (bookmarks):** If restoring a URL that now exists on another bookmark, reject with clear error
+   - **URL conflict (bookmarks):** If restoring a URL that now exists on another bookmark, reject with 409
    - **Prompt name conflict:** Similar to URL
+   - **Tag restoration:** Tags in metadata_snapshot are names; service creates missing tags as needed
 
-3. **Add service method to get history at specific version:**
+3. **Helper functions:**
    ```python
-   async def get_history_at_version(
-       self,
-       db: AsyncSession,
-       user_id: UUID,
+   def _get_service_for_entity_type(entity_type: EntityType):
+       """Get the appropriate service for an entity type."""
+       from services.bookmark_service import bookmark_service
+       from services.note_service import note_service
+       from services.prompt_service import prompt_service
+
+       services = {
+           EntityType.BOOKMARK: bookmark_service,
+           EntityType.NOTE: note_service,
+           EntityType.PROMPT: prompt_service,
+       }
+       return services[entity_type]
+
+   def _build_update_from_history(
        entity_type: EntityType,
-       entity_id: UUID,
-       version: int,
-   ) -> ContentHistory | None:
-       stmt = select(ContentHistory).where(
-           ContentHistory.user_id == user_id,
-           ContentHistory.entity_type == entity_type,
-           ContentHistory.entity_id == entity_id,
-           ContentHistory.version == version,
-       )
-       result = await db.execute(stmt)
-       return result.scalar_one_or_none()
+       content: str | None,
+       metadata: dict,
+   ):
+       """Build an update schema from history data."""
+       # Import appropriate schema based on entity type
+       # Return populated update object
+       ...
    ```
 
 ### Testing Strategy
 
 1. **Basic revert tests:**
    - Revert to version 1 restores original content
-   - Revert creates new history entry
+   - Revert creates new history entry (UPDATE action)
    - Reverted content matches target version
+   - Reverted metadata matches target version
 
 2. **Edge case tests:**
    - Revert soft-deleted item (should restore + update)
-   - Revert to version with URL that now conflicts (should error)
+   - Revert to version with URL that now conflicts (should 409)
+   - Revert to version with name that now conflicts (should 409)
    - Revert permanently deleted item (should 404)
    - Revert to non-existent version (should 404)
 
 3. **Tag restoration:**
    - Tags from target version are restored
    - Current tags are replaced
+   - Missing tags are created
 
 ### Dependencies
 Milestone 5 (history endpoints)
 
 ### Risk Factors
-- **Conflict handling:** URL/name uniqueness constraints may prevent restoration. Need clear error messages.
+- **Conflict handling:** URL/name uniqueness constraints may prevent restoration. Clear error messages provided.
 - **Tag restoration:** Tags in metadata_snapshot are names, need to resolve to tag objects (or create if missing).
 
 ---
@@ -911,67 +1168,98 @@ Milestone 5 (history endpoints)
 ## Milestone 7: Tier-Based Retention
 
 ### Goal
-Implement retention limits based on user tier.
+Implement retention limits based on user tier using lazy cleanup.
 
 ### Success Criteria
 - History is pruned based on tier limits
 - Snapshots needed for reconstruction are preserved
-- Background job handles cleanup
-- Tier limits configurable
+- Cleanup is triggered on user actions (lazy cleanup)
+- Tier limits configurable in TierLimits dataclass
 
 ### Key Changes
 
-1. **Add to `TierLimits` dataclass:**
+1. **Add to `TierLimits` dataclass in `backend/src/core/tier_limits.py`:**
    ```python
    history_retention_days: int = 30  # How long to keep history
    max_history_per_entity: int = 100  # Max versions per entity
    ```
 
-2. **Fetch from API (like other tier limits):**
-   - Update tier limits endpoint to include history limits
-
-3. **Create retention service:**
+2. **Create retention cleanup in history service:**
    ```python
    async def cleanup_old_history(
+       self,
        db: AsyncSession,
        user_id: UUID,
        limits: TierLimits,
    ) -> int:
-       """Remove old history records while preserving needed snapshots."""
+       """
+       Remove old history records while preserving needed snapshots.
+
+       Called lazily when user views history or makes changes.
+
+       Preservation rules:
+       1. Keep records newer than retention_days
+       2. Keep latest max_history_per_entity records per entity
+       3. Always keep the most recent snapshot for each entity
+       4. Keep snapshots needed to reconstruct any preserved version
+
+       Returns number of records deleted.
+       """
        cutoff_date = datetime.utcnow() - timedelta(days=limits.history_retention_days)
 
-       # Find records to delete, but preserve:
-       # 1. Records newer than cutoff
-       # 2. Most recent snapshot for each entity (for reconstruction)
-       # 3. Latest N records per entity
+       # This is a complex query - outline:
+       # 1. For each entity, identify records to keep:
+       #    - All records newer than cutoff_date
+       #    - Latest max_history_per_entity records
+       #    - Most recent snapshot
+       # 2. Delete everything else for this user
 
-       # This is complex - need to identify which snapshots are still needed
-       # for reconstructing versions within retention window
+       # Implementation approach:
+       # Use a CTE to identify records to delete, ensuring we preserve
+       # required snapshots for reconstruction
        ...
    ```
 
-4. **Background cleanup:**
-   - Could be triggered on user actions (lazy cleanup)
-   - Or scheduled background job (if infrastructure exists)
-   - **Clarify with user:** Is there existing background job infrastructure?
+3. **Trigger cleanup lazily:**
+   - Call `cleanup_old_history()` when user views history (in `get_user_history` endpoint)
+   - Call infrequently (e.g., 1% of requests) to avoid performance impact
+   - Or call when history count exceeds threshold
+
+   ```python
+   @router.get("/", response_model=HistoryListResponse)
+   async def get_user_history(...):
+       # Lazy cleanup - run occasionally
+       import random
+       if random.random() < 0.01:  # 1% of requests
+           await history_service.cleanup_old_history(db, current_user.id, limits)
+
+       items, total = await history_service.get_user_history(...)
+       return HistoryListResponse(...)
+   ```
 
 ### Testing Strategy
 
 1. **Retention logic tests:**
    - Old history is deleted after retention period
+   - Latest N records per entity are preserved
    - Snapshots needed for reconstruction are preserved
-   - max_history_per_entity is enforced
+   - Most recent snapshot is never deleted
 
 2. **Tier limit tests:**
-   - Different tiers have different limits
-   - Limits are fetched correctly
+   - Different tiers have different retention limits
+   - Limits are read from TierLimits dataclass
+
+3. **Edge cases:**
+   - Entity with only snapshots (no diffs) - all kept within limits
+   - Entity at exactly max_history_per_entity - no deletion
+   - Cleanup with no records to delete - no errors
 
 ### Dependencies
 Milestone 4 (history recording)
 
 ### Risk Factors
-- **Snapshot preservation:** Must not delete snapshots needed to reconstruct in-retention versions. Algorithm needs careful design.
-- **Background jobs:** If no infrastructure exists, may need to implement lazy cleanup instead.
+- **Snapshot preservation:** Algorithm must not delete snapshots needed to reconstruct in-retention versions. Careful design required.
+- **Performance:** Cleanup query could be slow for users with lots of history. Run infrequently.
 
 ---
 
@@ -1015,6 +1303,7 @@ Document the versioning system for developers and update CLAUDE.md.
 
    **Retention:**
    - Tier-based: `history_retention_days`, `max_history_per_entity`
+   - Lazy cleanup when viewing history
    - Snapshots preserved for reconstruction of in-retention versions
    ```
 
@@ -1039,10 +1328,14 @@ None
 - `backend/tests/api/test_history.py` - History API tests
 - `backend/src/db/migrations/versions/<hash>_add_content_history.py` - Migration
 
+### Deleted Files
+- `backend/src/models/note_version.py` - Superseded by ContentHistory
+
 ### Modified Files
-- `backend/src/core/auth.py` - Add RequestContext, source/auth enums
-- `backend/src/models/__init__.py` - Export new models
+- `backend/src/core/auth.py` - Add RequestContext, source/auth enums, update validate_pat
+- `backend/src/models/__init__.py` - Export new models, remove NoteVersion
 - `backend/src/models/user.py` - Add content_history relationship
+- `backend/src/models/note.py` - Remove version column (via migration)
 - `backend/src/services/base_entity_service.py` - Add history hooks
 - `backend/src/services/bookmark_service.py` - Add entity_type property
 - `backend/src/services/note_service.py` - Add entity_type property
@@ -1052,17 +1345,15 @@ None
 - `backend/src/api/routers/prompts.py` - Pass context, add history endpoint
 - `backend/src/api/main.py` - Register history router
 - `backend/src/core/tier_limits.py` - Add history retention limits
-- `pyproject.toml` or `requirements.txt` - Add diff-match-patch dependency
+- `backend/src/mcp_server/api_client.py` - Add X-Request-Source header
+- `backend/src/prompt_mcp_server/api_client.py` - Add X-Request-Source header
+- `pyproject.toml` - Add diff-match-patch dependency
 - `CLAUDE.md` - Document versioning system
 
 ---
 
 ## Open Questions for User
 
-1. **MCP source detection:** Should MCP servers pass a custom header (e.g., `X-Request-Source: mcp-content`) to identify themselves to the API? Or is there a better approach?
+1. **Frontend:** Should this plan include frontend components for viewing history? Or is that a separate task?
 
-2. **Background cleanup:** Is there existing background job infrastructure (e.g., Celery, cron) for history retention cleanup? Or should we use lazy cleanup on user actions?
-
-3. **Frontend:** Should this plan include frontend components for viewing history? Or is that a separate task?
-
-4. **Retention defaults:** Are `history_retention_days=30` and `max_history_per_entity=100` reasonable defaults for the free tier?
+2. **Retention defaults:** Are `history_retention_days=30` and `max_history_per_entity=100` reasonable defaults for the free tier?
