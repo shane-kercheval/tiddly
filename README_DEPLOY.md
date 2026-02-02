@@ -196,7 +196,7 @@ VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
 
 After generating your frontend domain (Step 4), configure Auth0 for authentication and refresh tokens.
 
-#### 6a. Create Auth0 Tenant (skip if using existing tenant)
+#### 6a. Create Auth0 Tenant
 
 1. Go to [Auth0 Dashboard](https://manage.auth0.com/)
 2. Click your tenant name (top-left) → **+ Create tenant**
