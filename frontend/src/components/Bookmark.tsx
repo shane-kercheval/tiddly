@@ -27,7 +27,7 @@ import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from
 import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
-import { config } from '../config'
+import { useLimits } from '../hooks/useLimits'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
@@ -138,6 +138,9 @@ export function Bookmark({
 }: BookmarkProps): ReactNode {
   const isCreate = !bookmark
 
+  // Fetch tier limits
+  const { limits, isLoading: isLoadingLimits, error: limitsError } = useLimits()
+
   // Stale check hook
   const { fetchBookmarkMetadataNoCache } = useBookmarks()
   const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
@@ -233,14 +236,15 @@ export function Bookmark({
 
   // Compute validity for save button
   const isValid = useMemo(() => {
+    if (!limits) return false // Limits not loaded yet
     // URL is required for new bookmarks
     if (isCreate && !current.url.trim()) return false
     if (current.url.trim() && !isValidUrl(current.url)) return false
-    if (current.title.length > config.limits.maxTitleLength) return false
-    if (current.description.length > config.limits.maxDescriptionLength) return false
-    if (current.content.length > config.limits.maxContentLength) return false
+    if (current.title.length > limits.max_title_length) return false
+    if (current.description.length > limits.max_description_length) return false
+    if (current.content.length > limits.max_bookmark_content_length) return false
     return true
-  }, [isCreate, current.url, current.title, current.description, current.content])
+  }, [isCreate, current.url, current.title, current.description, current.content, limits])
 
   // Can save when form is dirty and valid
   const canSave = isDirty && isValid
@@ -494,8 +498,10 @@ export function Bookmark({
     }
   }, [current.url, onFetchMetadata])
 
-  // Validation
+  // Validation (only called after loading guard, so limits is guaranteed to exist)
   const validate = (): boolean => {
+    if (!limits) return false // Type guard, should never happen in practice
+
     const newErrors: FormErrors = {}
 
     if (isCreate) {
@@ -508,16 +514,16 @@ export function Bookmark({
       newErrors.url = 'Please enter a valid URL'
     }
 
-    if (current.title.length > config.limits.maxTitleLength) {
-      newErrors.title = `Title exceeds ${config.limits.maxTitleLength.toLocaleString()} characters`
+    if (current.title.length > limits.max_title_length) {
+      newErrors.title = `Title exceeds ${limits.max_title_length.toLocaleString()} characters`
     }
 
-    if (current.description.length > config.limits.maxDescriptionLength) {
-      newErrors.description = `Description exceeds ${config.limits.maxDescriptionLength.toLocaleString()} characters`
+    if (current.description.length > limits.max_description_length) {
+      newErrors.description = `Description exceeds ${limits.max_description_length.toLocaleString()} characters`
     }
 
-    if (current.content.length > config.limits.maxContentLength) {
-      newErrors.content = `Content exceeds ${config.limits.maxContentLength.toLocaleString()} characters`
+    if (current.content.length > limits.max_bookmark_content_length) {
+      newErrors.content = `Content exceeds ${limits.max_bookmark_content_length.toLocaleString()} characters`
     }
 
     setErrors(newErrors)
@@ -685,6 +691,27 @@ export function Bookmark({
     }
   }
 
+  // Error state: show message if limits fetch failed
+  if (limitsError) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center p-4">
+          <p className="text-red-600 font-medium">Failed to load configuration</p>
+          <p className="text-sm text-gray-500 mt-1">Please refresh the page to try again.</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Loading guard: don't render form until limits are available
+  if (isLoadingLimits || !limits) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+      </div>
+    )
+  }
+
   return (
     <form
       ref={formRef}
@@ -839,7 +866,7 @@ export function Bookmark({
             onChange={handleDescriptionChange}
             placeholder="Short summary displayed in lists and used in search results."
             disabled={isSaving || isReadOnly}
-            maxLength={config.limits.maxDescriptionLength}
+            maxLength={limits.max_description_length}
             error={errors.description}
           />
 
@@ -887,7 +914,7 @@ export function Bookmark({
           hasError={!!errors.content}
           minHeight="200px"
           placeholder="Content can be either auto-filled from public URLs or manually entered for private pages or custom notes. Content is used in search results."
-          maxLength={config.limits.maxContentLength}
+          maxLength={limits.max_bookmark_content_length}
           errorMessage={errors.content}
           label=""
           showBorder={true}

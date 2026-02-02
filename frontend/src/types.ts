@@ -476,3 +476,33 @@ export interface PromptRenderRequest {
 export interface PromptRenderResponse {
   rendered_content: string
 }
+
+// =============================================================================
+// User Limits Types
+// =============================================================================
+
+/** User tier limits returned from GET /users/me/limits */
+export interface UserLimits {
+  tier: string
+
+  // Item counts
+  max_bookmarks: number
+  max_notes: number
+  max_prompts: number
+
+  // Field lengths (common)
+  max_title_length: number
+  max_description_length: number
+  max_tag_name_length: number
+
+  // Field lengths (content - per entity type)
+  max_bookmark_content_length: number
+  max_note_content_length: number
+  max_prompt_content_length: number
+
+  // Field lengths (entity-specific)
+  max_url_length: number
+  max_prompt_name_length: number
+  max_argument_name_length: number
+  max_argument_description_length: number
+}
