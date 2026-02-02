@@ -99,14 +99,15 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
     Tier.FREE: TierLimits(
         # ... existing limits unchanged ...
 
-        # Rate limits - match current RATE_LIMITS for Auth0 users
-        # (PAT users will use same limits as Auth0 in tier-based system)
-        rate_read_per_minute=180,
-        rate_read_per_day=4000,
-        rate_write_per_minute=120,
-        rate_write_per_day=4000,
-        rate_sensitive_per_minute=30,
-        rate_sensitive_per_day=250,
+        # Rate limits - use Auth0's current limits (more restrictive than PAT)
+        # Current PAT READ is 240 rpm, Auth0 READ is 180 rpm - use 180 to avoid
+        # accidentally increasing abuse surface when collapsing the distinction
+        rate_read_per_minute=180,   # Auth0 READ (PAT was 240)
+        rate_read_per_day=4000,     # Same for both
+        rate_write_per_minute=120,  # Same for both
+        rate_write_per_day=4000,    # Same for both
+        rate_sensitive_per_minute=30,   # Auth0 only (PAT blocked from SENSITIVE)
+        rate_sensitive_per_day=250,     # Auth0 only
     ),
 }
 ```
@@ -119,6 +120,8 @@ Currently, PAT and Auth0 have different rate limits. With tier-based limits, we 
 - **Option B:** Keep auth type distinction - 12 fields per tier (6 for PAT, 6 for Auth0) - more complex
 
 Recommendation: Option A. The original PAT/Auth0 distinction was about trust level (PATs can be automated, Auth0 is likely interactive). With tier-based billing, the tier itself represents the trust/value level. PAT abuse is better addressed by having PAT-specific endpoints blocked entirely (already done via `_auth0_only` dependencies) rather than rate limits.
+
+**Policy Decision:** Use the **more restrictive** Auth0 limits (180/120/30 rpm) as the baseline for free tier, not the more generous PAT limits (240/120 rpm). This avoids accidentally increasing abuse surface when collapsing the distinction.
 
 **Testing Strategy:**
 - Verify `TierLimits` includes all rate limit fields
@@ -258,9 +261,47 @@ async def _apply_rate_limit(
    - Keep `AuthType`, `OperationType`, `RateLimitConfig`, `RateLimitResult`, `RateLimitExceededError`
    - Keep `SENSITIVE_ENDPOINTS` and `get_operation_type()`
 
-2. **Update tests:**
-   - Tests that monkeypatch `RATE_LIMITS` should instead mock `get_tier_limits()`
-   - Use `low_limits` fixture pattern from tier limits tests
+2. **Update tests with new mocking patterns:**
+
+**Before (current pattern):**
+```python
+from core.rate_limit_config import RATE_LIMITS, AuthType, OperationType
+
+PAT_READ_CONFIG = RATE_LIMITS[(AuthType.PAT, OperationType.READ)]
+
+# Monkeypatching
+monkeypatch.setattr(rate_limit_config, "RATE_LIMITS", test_limits)
+```
+
+**After (new pattern):**
+```python
+from core.tier_limits import Tier, get_tier_limits
+
+# For assertions about limit values
+limits = get_tier_limits(Tier.FREE)
+assert result.limit == limits.rate_read_per_minute
+
+# For overriding limits in tests, mock get_tier_limits or use low_limits fixture
+@pytest.fixture
+def low_rate_limits(monkeypatch):
+    """Override tier limits with restrictive rate limits for testing."""
+    test_limits = TierLimits(
+        # ... existing fields ...
+        rate_read_per_minute=3,  # Low for testing
+        rate_read_per_day=10,
+        # ...
+    )
+    monkeypatch.setattr(
+        "core.tier_limits.TIER_LIMITS",
+        {Tier.FREE: test_limits}
+    )
+    return test_limits
+```
+
+**Files requiring test updates:**
+- `tests/core/test_rate_limiter.py` - Update `PAT_READ_CONFIG`, `AUTH0_READ_CONFIG` references
+- `tests/integration/test_rate_limit_all_endpoints.py` - Update monkeypatch target
+- `tests/integration/test_rate_limit_integration.py` - Update `AUTH0_SENSITIVE_CONFIG`
 
 **Testing Strategy:**
 - Grep for `RATE_LIMITS` references - ensure none remain
@@ -270,7 +311,7 @@ async def _apply_rate_limit(
 **Dependencies:** Milestone 3
 
 **Risk Factors:**
-- Tests may rely on monkeypatching `RATE_LIMITS` - need to update mocking strategy
+- Tests rely on monkeypatching `RATE_LIMITS` - migration path documented above
 
 ---
 
@@ -305,6 +346,9 @@ class UserLimitsResponse(BaseModel):
 2. **Update `frontend/src/types.ts`:** Add rate limit fields to `UserLimits`
 
 3. **Update Settings page (optional):** Display rate limits in the limits table
+   - Unlike content limits ("50/100 bookmarks"), rate limits aren't directly actionable for users
+   - Consider skipping UI display unless there's a specific requirement
+   - API exposure is still valuable for programmatic clients (MCP tools, scripts)
 
 **Testing Strategy:**
 - Test API endpoint returns rate limit fields
@@ -345,6 +389,30 @@ class UserLimitsResponse(BaseModel):
 | `tests/core/test_tier_limits.py` | Test rate limit fields |
 | `tests/core/test_rate_limiter.py` | Update to mock `get_tier_limits()` instead of `RATE_LIMITS` |
 | Integration tests | Verify rate limiting with tier parameter |
+
+---
+
+## Tier Change Behavior
+
+**How rate limiting works:**
+- Redis stores **request counts** (e.g., "user made 150 READ requests this minute")
+- **Limits are looked up fresh** from `TierLimits` on each request based on user's current tier
+- Redis keys do NOT include tier: `rate:{user_id}:{auth_type}:{operation_type}:min`
+
+**What happens when tier changes mid-session:**
+
+| Scenario | Behavior | Example |
+|----------|----------|---------|
+| **Upgrade** | Immediate headroom | Count=150, old limit=180, new limit=500 → 150/500 allowed |
+| **Downgrade** | May be immediately blocked | Count=200, old limit=500, new limit=180 → 200/180 blocked |
+
+**Why tier-agnostic Redis keys are correct:**
+1. Counts represent actual usage regardless of tier
+2. Prevents gaming via tier switching (can't downgrade→upgrade to reset counters)
+3. Upgrades are user-friendly (immediate benefit)
+4. Downgrades enforce limits fairly (no grace period for abuse)
+
+No special handling needed - the design naturally handles tier changes correctly.
 
 ---
 
