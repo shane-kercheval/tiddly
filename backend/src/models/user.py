@@ -30,6 +30,12 @@ class User(Base, UUIDv7Mixin, TimestampMixin):
         comment="Auth0 'sub' claim - unique identifier from Auth0",
     )
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tier: Mapped[str] = mapped_column(
+        String(50),
+        default="free",
+        server_default="free",
+        comment="User subscription tier (e.g., 'free', 'pro')",
+    )
 
     bookmarks: Mapped[list["Bookmark"]] = relationship(
         back_populates="user",

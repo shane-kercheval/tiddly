@@ -26,7 +26,7 @@ import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
-import { config } from '../config'
+import { useLimits } from '../hooks/useLimits'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
@@ -110,6 +110,9 @@ export function Note({
   onRefresh,
 }: NoteProps): ReactNode {
   const isCreate = !note
+
+  // Fetch tier limits
+  const { limits, isLoading: isLoadingLimits, error: limitsError } = useLimits()
 
   // Stale check hook
   const { fetchNoteMetadataNoCache } = useNotes()
@@ -208,10 +211,10 @@ export function Note({
   const isValid = useMemo(
     () =>
       current.title.trim().length > 0 &&
-      current.title.length <= config.limits.maxTitleLength &&
-      current.description.length <= config.limits.maxDescriptionLength &&
-      current.content.length <= config.limits.maxNoteContentLength,
-    [current.title, current.description, current.content]
+      current.title.length <= (limits?.max_title_length ?? Infinity) &&
+      current.description.length <= (limits?.max_description_length ?? Infinity) &&
+      current.content.length <= (limits?.max_note_content_length ?? Infinity),
+    [current.title, current.description, current.content, limits]
   )
 
   // Can save when form is dirty and valid
@@ -355,22 +358,24 @@ export function Note({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, confirmLeave, requestSaveAndClose])
 
-  // Validation
+  // Validation (only called after loading guard, so limits is guaranteed to exist)
   const validate = (): boolean => {
+    if (!limits) return false // Type guard, should never happen in practice
+
     const newErrors: FormErrors = {}
 
     if (!current.title.trim()) {
       newErrors.title = 'Title is required'
-    } else if (current.title.length > config.limits.maxTitleLength) {
-      newErrors.title = `Title exceeds ${config.limits.maxTitleLength.toLocaleString()} characters`
+    } else if (current.title.length > limits.max_title_length) {
+      newErrors.title = `Title exceeds ${limits.max_title_length.toLocaleString()} characters`
     }
 
-    if (current.description.length > config.limits.maxDescriptionLength) {
-      newErrors.description = `Description exceeds ${config.limits.maxDescriptionLength.toLocaleString()} characters`
+    if (current.description.length > limits.max_description_length) {
+      newErrors.description = `Description exceeds ${limits.max_description_length.toLocaleString()} characters`
     }
 
-    if (current.content.length > config.limits.maxNoteContentLength) {
-      newErrors.content = `Content exceeds ${config.limits.maxNoteContentLength.toLocaleString()} characters`
+    if (current.content.length > limits.max_note_content_length) {
+      newErrors.content = `Content exceeds ${limits.max_note_content_length.toLocaleString()} characters`
     }
 
     setErrors(newErrors)
@@ -535,6 +540,27 @@ export function Note({
     }
   }
 
+  // Error state: show message if limits fetch failed
+  if (limitsError) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center p-4">
+          <p className="text-red-600 font-medium">Failed to load configuration</p>
+          <p className="text-sm text-gray-500 mt-1">Please refresh the page to try again.</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Loading guard: don't render form until limits are available
+  if (isLoadingLimits || !limits) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+      </div>
+    )
+  }
+
   return (
     <form
       ref={formRef}
@@ -670,7 +696,7 @@ export function Note({
             onChange={handleDescriptionChange}
             placeholder="Add a description..."
             disabled={isSaving || isReadOnly}
-            maxLength={config.limits.maxDescriptionLength}
+            maxLength={limits.max_description_length}
             error={errors.description}
           />
 
@@ -718,7 +744,7 @@ export function Note({
           hasError={!!errors.content}
           minHeight="200px"
           placeholder="Write your note in markdown..."
-          maxLength={config.limits.maxNoteContentLength}
+          maxLength={limits.max_note_content_length}
           errorMessage={errors.content}
           label=""
           showBorder={true}

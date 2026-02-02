@@ -5,25 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
-from core.config import get_settings
 from schemas.content_metadata import ContentMetadata
-from schemas.validators import (
-    normalize_preview,
-    validate_and_normalize_tags,
-    validate_description_length,
-    validate_title_length,
-)
-
-
-def validate_content_length(content: str | None) -> str | None:
-    """Validate that bookmark content doesn't exceed maximum length."""
-    settings = get_settings()
-    if content is not None and len(content) > settings.max_content_length:
-        raise ValueError(
-            f"Content exceeds maximum length of {settings.max_content_length:,} characters "
-            f"(got {len(content):,} characters). Consider summarizing the content.",
-        )
-    return content
+from schemas.validators import normalize_preview, validate_and_normalize_tags
 
 
 class BookmarkCreate(BaseModel):
@@ -50,24 +33,6 @@ class BookmarkCreate(BaseModel):
         if v is None:
             return []
         return validate_and_normalize_tags(v)
-
-    @field_validator("title")
-    @classmethod
-    def check_title_length(cls, v: str | None) -> str | None:
-        """Validate title length."""
-        return validate_title_length(v)
-
-    @field_validator("description")
-    @classmethod
-    def check_description_length(cls, v: str | None) -> str | None:
-        """Validate description length."""
-        return validate_description_length(v)
-
-    @field_validator("content")
-    @classmethod
-    def check_content_length(cls, v: str | None) -> str | None:
-        """Validate content length."""
-        return validate_content_length(v)
 
 
 class BookmarkUpdate(BaseModel):
@@ -99,24 +64,6 @@ class BookmarkUpdate(BaseModel):
         if v is None:
             return None
         return validate_and_normalize_tags(v)
-
-    @field_validator("title")
-    @classmethod
-    def check_title_length(cls, v: str | None) -> str | None:
-        """Validate title length."""
-        return validate_title_length(v)
-
-    @field_validator("description")
-    @classmethod
-    def check_description_length(cls, v: str | None) -> str | None:
-        """Validate description length."""
-        return validate_description_length(v)
-
-    @field_validator("content")
-    @classmethod
-    def check_content_length(cls, v: str | None) -> str | None:
-        """Validate content length."""
-        return validate_content_length(v)
 
 
 class BookmarkListItem(BaseModel):

@@ -33,3 +33,4 @@ class CachedUser:
     email: str | None
     consent_privacy_version: str | None
     consent_tos_version: str | None
+    tier: str

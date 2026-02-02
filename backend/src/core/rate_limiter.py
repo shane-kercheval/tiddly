@@ -9,40 +9,43 @@ import time
 import uuid
 
 from core.rate_limit_config import (
-    AuthType,
     OperationType,
+    RateLimitConfig,
     RateLimitResult,
 )
 from core.redis import get_redis_client
+from core.tier_limits import Tier, get_tier_limits
 
 logger = logging.getLogger(__name__)
 
 
 async def check_rate_limit(
     user_id: int,
-    auth_type: AuthType,
     operation_type: OperationType,
+    tier: Tier,
 ) -> RateLimitResult:
     """
     Check if request is allowed and return full rate limit info.
 
+    Limits are tier-based. All auth types (PAT, Auth0) share the same
+    rate limit bucket per user.
+
     Returns RateLimitResult with allowed status and header values.
     Falls back to allowing requests if Redis is unavailable.
     """
-    # Import at call time so tests can monkeypatch rate_limit_config.RATE_LIMITS
-    from core.rate_limit_config import RATE_LIMITS
+    limits = get_tier_limits(tier)
 
-    config = RATE_LIMITS.get((auth_type, operation_type))
-    if not config:
-        # No limit configured (e.g., PAT + SENSITIVE) - return permissive result
-        # The auth layer should have already blocked this, but be defensive
-        return RateLimitResult(
-            allowed=True, limit=0, remaining=0, reset=0, retry_after=0,
-        )
+    if operation_type == OperationType.READ:
+        config = RateLimitConfig(limits.rate_read_per_minute, limits.rate_read_per_day)
+    elif operation_type == OperationType.WRITE:
+        config = RateLimitConfig(limits.rate_write_per_minute, limits.rate_write_per_day)
+    elif operation_type == OperationType.SENSITIVE:
+        config = RateLimitConfig(limits.rate_sensitive_per_minute, limits.rate_sensitive_per_day)
+    else:
+        raise ValueError(f"Unknown operation type: {operation_type}")
 
     redis_client = get_redis_client()
     if redis_client is None or not redis_client.is_connected:
-        # Redis unavailable - fail open
         logger.warning("redis_unavailable", extra={"operation": "rate_limit"})
         return RateLimitResult(
             allowed=True,
@@ -55,7 +58,7 @@ async def check_rate_limit(
     now = int(time.time())
 
     # Check minute limit (sliding window for precision)
-    minute_key = f"rate:{user_id}:{auth_type.value}:{operation_type.value}:min"
+    minute_key = f"rate:{user_id}:{operation_type.value}:min"
     minute_result = await _check_sliding_window(
         minute_key, config.requests_per_minute, 60, now,
     )
@@ -65,7 +68,7 @@ async def check_rate_limit(
             extra={
                 "user_id": user_id,
                 "operation": operation_type.value,
-                "auth_type": auth_type.value,
+                "tier": tier.value,
                 "limit_type": "per_minute",
             },
         )
@@ -83,7 +86,7 @@ async def check_rate_limit(
             extra={
                 "user_id": user_id,
                 "operation": operation_type.value,
-                "auth_type": auth_type.value,
+                "tier": tier.value,
                 "limit_type": "daily",
             },
         )

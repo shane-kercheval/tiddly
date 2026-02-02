@@ -9,18 +9,32 @@ import { LoadingSpinnerCentered } from '../components/ui'
 /**
  * Landing page content shown to unauthenticated users.
  */
-function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
+function LandingContent({
+  onLogin,
+  onSignup,
+}: {
+  onLogin: () => void
+  onSignup: () => void
+}): ReactNode {
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 sm:px-8 lg:px-12">
         <BookmarkIcon className="h-8 w-8 text-gray-900" />
-        <button
-          onClick={onLogin}
-          className="rounded-lg border border-gray-300 px-5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
-        >
-          Log In
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onLogin}
+            className="rounded-lg px-5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+          >
+            Log In
+          </button>
+          <button
+            onClick={onSignup}
+            className="rounded-lg bg-[#6b9fd4] px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-[#5a8ec3] focus:outline-none focus:ring-2 focus:ring-[#5a8ec3] focus:ring-offset-2"
+          >
+            Sign Up
+          </button>
+        </div>
       </header>
 
       {/* Hero Section */}
@@ -41,8 +55,8 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
             Currently in beta.
           </p>
           <button
-            onClick={onLogin}
-            className="rounded-full bg-gray-900 px-10 py-4 text-lg font-medium text-white transition-all hover:bg-gray-800 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+            onClick={onSignup}
+            className="rounded-full bg-[#6b9fd4] px-10 py-4 text-lg font-medium text-white transition-all hover:bg-[#5a8ec3] hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#5a8ec3] focus:ring-offset-2"
           >
             Get Started
           </button>
@@ -285,8 +299,8 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
             Free while in beta. Pricing to be determined.
           </p>
           <button
-            onClick={onLogin}
-            className="rounded-full bg-gray-900 px-10 py-4 text-lg font-medium text-white transition-all hover:bg-gray-800 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+            onClick={onSignup}
+            className="rounded-full bg-[#6b9fd4] px-10 py-4 text-lg font-medium text-white transition-all hover:bg-[#5a8ec3] hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#5a8ec3] focus:ring-offset-2"
           >
             Get Started
           </button>
@@ -313,7 +327,12 @@ function AuthenticatedLandingPage(): ReactNode {
     return <Navigate to="/app/content" replace />
   }
 
-  return <LandingContent onLogin={() => loginWithRedirect()} />
+  return (
+    <LandingContent
+      onLogin={() => loginWithRedirect({ authorizationParams: { screen_hint: 'login' } })}
+      onSignup={() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } })}
+    />
+  )
 }
 
 /**

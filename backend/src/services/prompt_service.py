@@ -10,10 +10,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 
+from core.tier_limits import TierLimits
 from models.prompt import Prompt
 from models.tag import prompt_tags
 from schemas.prompt import PromptCreate, PromptUpdate
 from services.base_entity_service import CONTENT_PREVIEW_LENGTH, BaseEntityService
+from services.exceptions import FieldLimitExceededError, QuotaExceededError
 from services.tag_service import get_or_create_tags, update_prompt_tags
 
 logger = logging.getLogger(__name__)
@@ -121,11 +123,91 @@ class PromptService(BaseEntityService[Prompt]):
             "deleted_at": Prompt.deleted_at,
         }
 
+    def _validate_field_limits(
+        self,
+        limits: TierLimits,
+        name: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        content: str | None = None,
+        tags: list[str] | None = None,
+        arguments: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """
+        Validate field lengths against tier limits.
+
+        Args:
+            limits: User's tier limits.
+            name: Prompt name to validate.
+            title: Title to validate.
+            description: Description to validate.
+            content: Content to validate.
+            tags: Tags to validate (each tag name is checked).
+            arguments: Arguments to validate (name and description of each).
+
+        Raises:
+            FieldLimitExceededError: If any field exceeds its limit.
+        """
+        if name is not None and len(name) > limits.max_prompt_name_length:
+            raise FieldLimitExceededError("name", len(name), limits.max_prompt_name_length)
+        if title is not None and len(title) > limits.max_title_length:
+            raise FieldLimitExceededError("title", len(title), limits.max_title_length)
+        if description is not None and len(description) > limits.max_description_length:
+            raise FieldLimitExceededError(
+                "description", len(description), limits.max_description_length,
+            )
+        if content is not None and len(content) > limits.max_prompt_content_length:
+            raise FieldLimitExceededError(
+                "content", len(content), limits.max_prompt_content_length,
+            )
+        if tags is not None:
+            for tag in tags:
+                if len(tag) > limits.max_tag_name_length:
+                    raise FieldLimitExceededError(
+                        "tag", len(tag), limits.max_tag_name_length,
+                    )
+        if arguments is not None:
+            for arg in arguments:
+                arg_name = arg.get("name", "")
+                if len(arg_name) > limits.max_argument_name_length:
+                    raise FieldLimitExceededError(
+                        "argument name", len(arg_name), limits.max_argument_name_length,
+                    )
+                arg_desc = arg.get("description", "")
+                if arg_desc and len(arg_desc) > limits.max_argument_description_length:
+                    raise FieldLimitExceededError(
+                        "argument description",
+                        len(arg_desc),
+                        limits.max_argument_description_length,
+                    )
+
+    async def check_quota(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        limits: TierLimits,
+    ) -> None:
+        """
+        Check if user has quota to create a new prompt.
+
+        Args:
+            db: Database session.
+            user_id: User ID to check quota for.
+            limits: User's tier limits.
+
+        Raises:
+            QuotaExceededError: If user is at or over their prompt limit.
+        """
+        current = await self.count_user_items(db, user_id)
+        if current >= limits.max_prompts:
+            raise QuotaExceededError("prompt", current, limits.max_prompts)
+
     async def create(
         self,
         db: AsyncSession,
         user_id: UUID,
         data: PromptCreate,
+        limits: TierLimits,
     ) -> Prompt:
         """
         Create a new prompt for a user.
@@ -134,16 +216,33 @@ class PromptService(BaseEntityService[Prompt]):
             db: Database session.
             user_id: User ID to create the prompt for.
             data: Prompt creation data.
+            limits: User's tier limits for quota and field validation.
 
         Returns:
             The created prompt.
 
         Raises:
+            QuotaExceededError: If user has reached their prompt limit.
+            FieldLimitExceededError: If any field exceeds tier limits.
             NameConflictError: If a prompt with the same name already exists for this user.
             ValueError: If template validation fails.
         """
         # Convert arguments to list of dicts for validation and storage
         arguments_list = [arg.model_dump() for arg in data.arguments]
+
+        # Check quota before creating
+        await self.check_quota(db, user_id, limits)
+
+        # Validate field lengths
+        self._validate_field_limits(
+            limits,
+            name=data.name,
+            title=data.title,
+            description=data.description,
+            content=data.content,
+            tags=data.tags,
+            arguments=arguments_list,
+        )
 
         # Validate template
         validate_template(data.content, arguments_list)
@@ -187,6 +286,7 @@ class PromptService(BaseEntityService[Prompt]):
         user_id: UUID,
         prompt_id: UUID,
         data: PromptUpdate,
+        limits: TierLimits,
     ) -> Prompt | None:
         """
         Update a prompt.
@@ -196,11 +296,13 @@ class PromptService(BaseEntityService[Prompt]):
             user_id: User ID to scope the prompt.
             prompt_id: ID of the prompt to update.
             data: Update data.
+            limits: User's tier limits for field validation.
 
         Returns:
             The updated prompt, or None if not found.
 
         Raises:
+            FieldLimitExceededError: If any field exceeds tier limits.
             NameConflictError: If name change conflicts with existing prompt.
             ValueError: If template validation fails.
         """
@@ -223,6 +325,17 @@ class PromptService(BaseEntityService[Prompt]):
                     arg.model_dump() if hasattr(arg, "model_dump") else arg
                     for arg in update_data["arguments"]
                 ]
+
+        # Validate field lengths for fields being updated
+        self._validate_field_limits(
+            limits,
+            name=update_data.get("name"),
+            title=update_data.get("title"),
+            description=update_data.get("description"),
+            content=update_data.get("content"),
+            tags=new_tags,
+            arguments=update_data.get("arguments"),
+        )
 
         # Determine final content and arguments for validation
         # Use updated values if provided, otherwise use existing values

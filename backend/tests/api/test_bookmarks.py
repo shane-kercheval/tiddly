@@ -584,53 +584,53 @@ async def test_create_bookmark_invalid_url(client: AsyncClient) -> None:
 
 
 async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
-    """Test that title exceeding max length returns 422."""
-    from core.config import get_settings
+    """Test that title exceeding max length returns 400."""
+    from core.tier_limits import Tier, get_tier_limits
 
-    settings = get_settings()
-    long_title = "a" * (settings.max_title_length + 1)
+    limits = get_tier_limits(Tier.FREE)
+    long_title = "a" * (limits.max_title_length + 1)
 
     response = await client.post(
         "/bookmarks/",
         json={"url": "https://example.com", "title": long_title},
     )
-    assert response.status_code == 422
-    assert "exceeds maximum length" in response.text.lower()
+    assert response.status_code == 400
+    assert "exceeds limit" in response.text.lower()
 
 
 async def test_create_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
-    """Test that description exceeding max length returns 422."""
-    from core.config import get_settings
+    """Test that description exceeding max length returns 400."""
+    from core.tier_limits import Tier, get_tier_limits
 
-    settings = get_settings()
-    long_description = "a" * (settings.max_description_length + 1)
+    limits = get_tier_limits(Tier.FREE)
+    long_description = "a" * (limits.max_description_length + 1)
 
     response = await client.post(
         "/bookmarks/",
         json={"url": "https://example.com", "description": long_description},
     )
-    assert response.status_code == 422
-    assert "exceeds maximum length" in response.text.lower()
+    assert response.status_code == 400
+    assert "exceeds limit" in response.text.lower()
 
 
 async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
-    """Test that content exceeding max length returns 422."""
-    from core.config import get_settings
+    """Test that content exceeding max length returns 400."""
+    from core.tier_limits import Tier, get_tier_limits
 
-    settings = get_settings()
-    long_content = "a" * (settings.max_content_length + 1)
+    limits = get_tier_limits(Tier.FREE)
+    long_content = "a" * (limits.max_bookmark_content_length + 1)
 
     response = await client.post(
         "/bookmarks/",
         json={"url": "https://example.com", "content": long_content},
     )
-    assert response.status_code == 422
-    assert "exceeds maximum length" in response.text.lower()
+    assert response.status_code == 400
+    assert "exceeds limit" in response.text.lower()
 
 
 async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
-    """Test that updating with title exceeding max length returns 422."""
-    from core.config import get_settings
+    """Test that updating with title exceeding max length returns 400."""
+    from core.tier_limits import Tier, get_tier_limits
 
     # Create a valid bookmark first
     create_response = await client.post(
@@ -641,20 +641,20 @@ async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
     bookmark_id = create_response.json()["id"]
 
     # Try to update with oversized title
-    settings = get_settings()
-    long_title = "a" * (settings.max_title_length + 1)
+    limits = get_tier_limits(Tier.FREE)
+    long_title = "a" * (limits.max_title_length + 1)
 
     response = await client.patch(
         f"/bookmarks/{bookmark_id}",
         json={"title": long_title},
     )
-    assert response.status_code == 422
-    assert "exceeds maximum length" in response.text.lower()
+    assert response.status_code == 400
+    assert "exceeds limit" in response.text.lower()
 
 
 async def test_update_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
-    """Test that updating with description exceeding max length returns 422."""
-    from core.config import get_settings
+    """Test that updating with description exceeding max length returns 400."""
+    from core.tier_limits import Tier, get_tier_limits
 
     # Create a valid bookmark first
     create_response = await client.post(
@@ -665,20 +665,20 @@ async def test_update_bookmark_description_exceeds_max_length(client: AsyncClien
     bookmark_id = create_response.json()["id"]
 
     # Try to update with oversized description
-    settings = get_settings()
-    long_description = "a" * (settings.max_description_length + 1)
+    limits = get_tier_limits(Tier.FREE)
+    long_description = "a" * (limits.max_description_length + 1)
 
     response = await client.patch(
         f"/bookmarks/{bookmark_id}",
         json={"description": long_description},
     )
-    assert response.status_code == 422
-    assert "exceeds maximum length" in response.text.lower()
+    assert response.status_code == 400
+    assert "exceeds limit" in response.text.lower()
 
 
 async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
-    """Test that updating with content exceeding max length returns 422."""
-    from core.config import get_settings
+    """Test that updating with content exceeding max length returns 400."""
+    from core.tier_limits import Tier, get_tier_limits
 
     # Create a valid bookmark first
     create_response = await client.post(
@@ -689,36 +689,36 @@ async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -
     bookmark_id = create_response.json()["id"]
 
     # Try to update with oversized content
-    settings = get_settings()
-    long_content = "a" * (settings.max_content_length + 1)
+    limits = get_tier_limits(Tier.FREE)
+    long_content = "a" * (limits.max_bookmark_content_length + 1)
 
     response = await client.patch(
         f"/bookmarks/{bookmark_id}",
         json={"content": long_content},
     )
-    assert response.status_code == 422
-    assert "exceeds maximum length" in response.text.lower()
+    assert response.status_code == 400
+    assert "exceeds limit" in response.text.lower()
 
 
 async def test_create_bookmark_fields_at_max_length_succeeds(client: AsyncClient) -> None:
     """Test that fields exactly at max length are accepted."""
-    from core.config import get_settings
+    from core.tier_limits import Tier, get_tier_limits
 
-    settings = get_settings()
+    limits = get_tier_limits(Tier.FREE)
 
     response = await client.post(
         "/bookmarks/",
         json={
             "url": "https://example.com",
-            "title": "a" * settings.max_title_length,
-            "description": "b" * settings.max_description_length,
+            "title": "a" * limits.max_title_length,
+            "description": "b" * limits.max_description_length,
             # Note: not testing max content length here as it's 512KB
         },
     )
     assert response.status_code == 201
     data = response.json()
-    assert len(data["title"]) == settings.max_title_length
-    assert len(data["description"]) == settings.max_description_length
+    assert len(data["title"]) == limits.max_title_length
+    assert len(data["description"]) == limits.max_description_length
 
 
 # =============================================================================
@@ -1529,7 +1529,7 @@ async def test_fetch_metadata_rate_limited(rate_limit_client: AsyncClient) -> No
 
     # Mock the rate limiter to simulate rate limit exceeded
     async def mock_check(
-        _user_id: object, _auth_type: object, _operation_type: object,
+        _user_id: object, _operation_type: object, _tier: object,
     ) -> RateLimitResult:
         return RateLimitResult(
             allowed=False,

@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 # Version history:
 #   v1: Initial version with id: int
 #   v2: Changed id from int to UUID (UUIDv7 migration)
-CACHE_SCHEMA_VERSION = 2
+#   v3: Added tier field for tier-based limits
+CACHE_SCHEMA_VERSION = 3
 
 
 class AuthCache:
@@ -105,6 +106,7 @@ class AuthCache:
             consent_tos_version=(
                 user.consent.terms_of_service_version if user.consent else None
             ),
+            tier=user.tier,
         )
         # Convert UUID to string for JSON serialization
         cache_dict = cached.__dict__.copy()

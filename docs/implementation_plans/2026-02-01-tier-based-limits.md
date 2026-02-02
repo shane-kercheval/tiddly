@@ -10,6 +10,14 @@ Add tier-based usage limits to prevent abuse and prepare for future pricing tier
 - User tier assignment stored in database
 - Limits enforced at API layer, with frontend UX improvements
 
+## Important: Review Before Implementing
+
+Before implementing any milestone, review:
+- Existing service method signatures in `services/bookmark_service.py`, `services/note_service.py`, `services/prompt_service.py`
+- Exception handling patterns in `api/routers/*.py`
+- Validator conventions in `schemas/validators.py`
+- Existing error response patterns for 4xx responses
+
 ## Current State
 
 **Existing limits (in `config.py` as env vars):**
@@ -27,58 +35,142 @@ Add tier-based usage limits to prevent abuse and prepare for future pricing tier
 - Tag name length
 - Prompt argument description length
 
-**Database columns:**
-- Title: `String(500)` - hard DB constraint
-- Content: `Text` - no constraint
-- URL: `Text` - no constraint
+**Database columns (keeping as safety ceilings - no changes needed):**
+
+| Field | DB Constraint | Tier Limit | Notes |
+|-------|---------------|------------|-------|
+| title | String(500) | 100 | DB ceiling exceeds tier limit ✓ |
+| tag.name | String(100) | 50 | DB ceiling exceeds tier limit ✓ |
+| url | Text (none) | 2048 | API-only enforcement |
+| content | Text (none) | 100K | API-only enforcement |
+| description | Text (none) | 1000 (unchanged) | API-only enforcement |
 
 ## Target State
 
 ### Tier Limits (defined in code)
 
 ```python
+from dataclasses import dataclass
+from enum import StrEnum
+
+class Tier(StrEnum):
+    FREE = "free"
+    # PRO = "pro"  # future
+
 @dataclass(frozen=True)
 class TierLimits:
-    # Item counts (separate for future tier differentiation)
+    # Item counts
     max_bookmarks: int
     max_notes: int
     max_prompts: int
 
-    # Field lengths
+    # Field lengths (common)
     max_title_length: int
-    max_content_length: int  # applies to all content types
-    max_url_length: int
+    max_description_length: int
     max_tag_name_length: int
-    max_argument_description_length: int
 
-TIER_LIMITS = {
-    "free": TierLimits(
+    # Field lengths (content - per entity type)
+    max_bookmark_content_length: int
+    max_note_content_length: int
+    max_prompt_content_length: int
+
+    # Field lengths (entity-specific)
+    max_url_length: int  # bookmarks only
+    max_prompt_name_length: int  # prompts only
+    max_argument_name_length: int  # prompt arguments
+    max_argument_description_length: int  # prompt arguments
+
+TIER_LIMITS: dict[Tier, TierLimits] = {
+    Tier.FREE: TierLimits(
         max_bookmarks=100,
         max_notes=100,
         max_prompts=100,
         max_title_length=100,
-        max_content_length=100_000,
-        max_url_length=2048,
+        max_description_length=1000,
         max_tag_name_length=50,
+        max_bookmark_content_length=100_000,
+        max_note_content_length=100_000,
+        max_prompt_content_length=100_000,
+        max_url_length=2048,
+        max_prompt_name_length=100,
+        max_argument_name_length=100,
         max_argument_description_length=500,
     ),
     # Future tiers will have different values
 }
+
+def get_tier_limits(tier: Tier) -> TierLimits:
+    """Get limits for a tier."""
+    return TIER_LIMITS[tier]
 ```
 
-### Database Changes
+**Type safety pattern:**
+- DB stores tier as string (`user.tier` column)
+- Conversion happens at API boundary (in routers): `Tier(current_user.tier)`
+- Services and internal functions use `Tier` enum for type safety
+- Invalid tier strings raise `ValueError` at conversion (fail-fast)
 
-- Add `tier` column to `User` model (default: "free")
-- Keep title column as `String(255)` (ceiling for future tiers, not enforcement)
-- Content/URL remain as `Text` (enforcement at API layer only)
+### Item Counting Policy
+
+**All rows count toward limits** - including archived and soft-deleted items.
+
+Rationale:
+- **Storage abuse prevention**: Users could soft-delete items, create new ones with large content, keep deleted items until auto-purge
+- **Simpler implementation**: `COUNT(*) WHERE user_id = ?` - no state filtering
+- **Consistent mental model**: Rows = cost
+
+**UX implication**: User deletes something, immediately tries to create → hits limit. This is acceptable because:
+1. Permanent delete from trash frees quota (`DELETE /bookmarks/{id}?permanent=true`)
+2. Error message guides them: "You're at your limit. Permanently delete items from trash to free space, or upgrade."
 
 ### Enforcement Layers
 
 | Layer | Role |
 |-------|------|
-| **Database** | Safety ceiling only (max any tier could have) |
-| **API/Pydantic** | Enforces tier-specific limits |
+| **Database** | Safety ceiling only (existing constraints sufficient) |
+| **API/Pydantic** | Structure and type validation only (no length limits) |
+| **API/Services** | All tier-specific limit enforcement (item counts + field lengths) |
 | **Frontend** | UX enforcement (prevents over-typing, shows errors) |
+
+### Error Response Contract
+
+All limit violations return **HTTP 429** with a structured body to distinguish from rate limiting:
+
+**Quota exceeded (item limits):**
+```json
+{
+    "detail": "Bookmark limit reached (100). Permanently delete items from trash to free space, or upgrade.",
+    "error_code": "QUOTA_EXCEEDED",
+    "resource": "bookmarks",
+    "current": 100,
+    "limit": 100,
+    "retry_after": null
+}
+```
+
+**Quota exceeded (field limits):**
+```json
+{
+    "detail": "Title exceeds limit of 100 characters",
+    "error_code": "FIELD_LIMIT_EXCEEDED",
+    "field": "title",
+    "current": 150,
+    "limit": 100,
+    "retry_after": null
+}
+```
+
+**Rate limiting (for comparison - existing behavior):**
+```json
+{
+    "detail": "Rate limit exceeded",
+    "error_code": "RATE_LIMITED",
+    "retry_after": 30
+}
+```
+
+`retry_after: null` signals "this won't resolve by waiting" → frontend shows upgrade prompt.
+`retry_after: <seconds>` signals "retry later" → implement backoff.
 
 ---
 
@@ -91,7 +183,7 @@ TIER_LIMITS = {
 **Success Criteria:**
 - `TierLimits` dataclass defined with all limits
 - `TIER_LIMITS` dict with "free" tier configured
-- `get_user_limits(user)` function returns appropriate limits
+- `get_tier_limits(tier)` function returns appropriate limits
 - User model has `tier` column with default "free"
 - Migration creates the column
 - Tests verify limit retrieval
@@ -109,43 +201,108 @@ class Tier(StrEnum):
 
 @dataclass(frozen=True)
 class TierLimits:
+    # Item counts
     max_bookmarks: int
     max_notes: int
     max_prompts: int
-    max_title_length: int
-    max_content_length: int
-    max_url_length: int
-    max_tag_name_length: int
-    max_argument_description_length: int
 
-TIER_LIMITS: dict[str, TierLimits] = {
+    # Field lengths (common)
+    max_title_length: int
+    max_description_length: int
+    max_tag_name_length: int
+
+    # Field lengths (content - per entity type)
+    max_bookmark_content_length: int
+    max_note_content_length: int
+    max_prompt_content_length: int
+
+    # Field lengths (entity-specific)
+    max_url_length: int  # bookmarks only
+    max_prompt_name_length: int  # prompts only
+    max_argument_name_length: int  # prompt arguments
+    max_argument_description_length: int  # prompt arguments
+
+TIER_LIMITS: dict[Tier, TierLimits] = {
     Tier.FREE: TierLimits(
         max_bookmarks=100,
         max_notes=100,
         max_prompts=100,
         max_title_length=100,
-        max_content_length=100_000,
-        max_url_length=2048,
+        max_description_length=1000,
         max_tag_name_length=50,
+        max_bookmark_content_length=100_000,
+        max_note_content_length=100_000,
+        max_prompt_content_length=100_000,
+        max_url_length=2048,
+        max_prompt_name_length=100,
+        max_argument_name_length=100,
         max_argument_description_length=500,
     ),
 }
 
-def get_tier_limits(tier: str) -> TierLimits:
-    """Get limits for a tier, defaulting to FREE if unknown."""
-    return TIER_LIMITS.get(tier, TIER_LIMITS[Tier.FREE])
+def get_tier_limits(tier: Tier) -> TierLimits:
+    """Get limits for a tier."""
+    return TIER_LIMITS[tier]
 ```
+
+**Type safety note:** The `Tier` enum is used consistently throughout the codebase:
+- DB stores string (`user.tier` column)
+- Conversion happens at API boundary: `Tier(current_user.tier)`
+- Services and internal functions use `Tier` enum
+- Invalid tier strings in DB will raise `ValueError` at conversion (fail-fast)
 
 2. **Update `backend/src/models/user.py`:**
    - Add `tier: Mapped[str] = mapped_column(String(50), default="free", server_default="free")`
 
 3. **Create migration:**
    - `make migration message="add tier column to users"`
+   - Always use `make migration` command to ensure consistency; NEVER CREATE MIGRATIONS MANUALLY.
+
+4. **Add `tier` to `CachedUser`:**
+
+This is **required for correctness**. `get_current_user` returns `User | CachedUser`. On cache hit, it returns `CachedUser` directly. Without `tier` on `CachedUser`, the code `Tier(current_user.tier)` will raise `AttributeError` on every cache hit.
+
+**Files to modify:**
+
+- `schemas/cached_user.py` - Add `tier: str` field:
+```python
+@dataclass
+class CachedUser:
+    id: UUID
+    auth0_id: str
+    email: str | None
+    consent_privacy_version: str | None
+    consent_tos_version: str | None
+    tier: str  # Add this
+```
+
+- `core/auth_cache.py` - Update `AuthCache.set()` to include tier:
+```python
+cached = CachedUser(
+    id=user.id,
+    auth0_id=user.auth0_id,
+    email=user.email,
+    consent_privacy_version=(...),
+    consent_tos_version=(...),
+    tier=user.tier,  # Add this
+)
+```
+
+- `core/auth_cache.py` - Bump `CACHE_SCHEMA_VERSION` from 2 to 3:
+```python
+CACHE_SCHEMA_VERSION = 3  # Added tier field
+```
+
+**Security note:** The `tier` column must NOT be updateable via any user-facing endpoint. Verify that no `PATCH /users/me` or similar endpoint accepts the `tier` field. Tier changes should only happen through admin operations or payment system integrations (future).
 
 **Testing Strategy:**
-- Unit tests for `get_tier_limits()` with valid tier, unknown tier
+- Unit tests for `get_tier_limits()` with valid `Tier` enum value
+- Test that `Tier("invalid")` raises `ValueError` (fail-fast for invalid tier strings)
 - Test that `TierLimits` dataclass is immutable (frozen)
 - Integration test that new users get default "free" tier
+- Test that `Tier(user.tier)` conversion works for valid DB values
+- Test that `current_user.tier` works on both cache hit and cache miss scenarios
+- Test that attempting to update tier via user endpoints is rejected/ignored
 
 **Dependencies:** None
 
@@ -164,7 +321,7 @@ def get_tier_limits(tier: str) -> TierLimits:
 
 **Key Changes:**
 
-1. **Create schema in `backend/src/schemas/user.py`:**
+1. **Create schema in `backend/src/schemas/` (new file or add to existing):**
 ```python
 class UserLimitsResponse(BaseModel):
     tier: str
@@ -172,17 +329,26 @@ class UserLimitsResponse(BaseModel):
     max_notes: int
     max_prompts: int
     max_title_length: int
-    max_content_length: int
-    max_url_length: int
+    max_description_length: int
     max_tag_name_length: int
+    max_bookmark_content_length: int
+    max_note_content_length: int
+    max_prompt_content_length: int
+    max_url_length: int
+    max_prompt_name_length: int
+    max_argument_name_length: int
     max_argument_description_length: int
 ```
 
 2. **Add endpoint in `backend/src/api/routers/users.py`:**
 ```python
+from dataclasses import asdict
+from core.tier_limits import Tier, get_tier_limits
+
 @router.get("/me/limits", response_model=UserLimitsResponse)
-async def get_my_limits(current_user: User = Depends(get_current_user)):
-    limits = get_tier_limits(current_user.tier)
+async def get_my_limits(current_user: User = Depends(get_current_user)) -> UserLimitsResponse:
+    tier = Tier(current_user.tier)  # Convert string from DB to enum
+    limits = get_tier_limits(tier)
     return UserLimitsResponse(
         tier=current_user.tier,
         **asdict(limits),
@@ -191,7 +357,7 @@ async def get_my_limits(current_user: User = Depends(get_current_user)):
 
 **Testing Strategy:**
 - Test endpoint returns correct limits for user's tier
-- Test with different tiers (when we have them)
+- Test response schema matches expected fields
 
 **Dependencies:** Milestone 1
 
@@ -201,152 +367,478 @@ async def get_my_limits(current_user: User = Depends(get_current_user)):
 
 ### Milestone 3: Item Count Limits in Services
 
-**Goal:** Enforce maximum items per content type when creating new items.
+**Goal:** Enforce maximum items per content type when creating or restoring items.
 
 **Success Criteria:**
-- Creating bookmark/note/prompt fails with 403 when at limit
-- Error message clearly states the limit
-- Existing items are not affected
+- Creating bookmark/note/prompt fails with 429 when at limit
+- Restoring soft-deleted item fails with 429 when at limit
+- Error response includes `error_code: "QUOTA_EXCEEDED"`, resource type, current count, and limit
+- All rows count (including archived and soft-deleted)
 
 **Key Changes:**
 
 1. **Add count method to `BaseEntityService`:**
 ```python
 async def count_user_items(self, db: AsyncSession, user_id: UUID) -> int:
-    """Count non-deleted items for a user."""
+    """
+    Count ALL items for a user (including archived and soft-deleted).
+
+    All rows count toward limits to prevent storage abuse.
+    Users can permanently delete items to free quota.
+    """
     result = await db.execute(
         select(func.count(self.model.id))
         .where(self.model.user_id == user_id)
-        .where(self.model.deleted_at.is_(None))
     )
     return result.scalar() or 0
 ```
 
-2. **Add limit check in each service's `create()` method:**
+2. **Create exceptions in `backend/src/services/exceptions.py`:**
 ```python
-# In BookmarkService.create()
-limits = get_tier_limits(user.tier)  # Need to pass user to create()
-count = await self.count_user_items(db, user_id)
-if count >= limits.max_bookmarks:
-    raise ItemLimitExceededError(
-        f"Bookmark limit reached ({limits.max_bookmarks}). "
-        "Delete some bookmarks or upgrade your plan."
-    )
-```
-
-3. **Create exception in `backend/src/services/exceptions.py`:**
-```python
-class ItemLimitExceededError(Exception):
+class QuotaExceededError(Exception):
     """Raised when user has reached their item limit for a content type."""
-    pass
+
+    def __init__(self, resource: str, current: int, limit: int) -> None:
+        self.resource = resource
+        self.current = current
+        self.limit = limit
+        super().__init__(
+            f"{resource.capitalize()} limit reached ({limit}). "
+            "Permanently delete items from trash to free space, or upgrade."
+        )
+
+class FieldLimitExceededError(Exception):
+    """Raised when a field exceeds tier-specific length limit."""
+
+    def __init__(self, field: str, current: int, limit: int) -> None:
+        self.field = field
+        self.current = current
+        self.limit = limit
+        super().__init__(f"{field.capitalize()} exceeds limit of {limit} characters")
 ```
 
-4. **Handle exception in routers** - return 403 with detail message
+3. **Update service `create()` methods to accept `tier: Tier` parameter:**
 
-**Note:** The `create()` methods will need access to the user object (not just `user_id`) to get the tier. Review current signatures and adjust as needed.
+**Files to modify:**
+- `services/bookmark_service.py` - `BookmarkService.create()` → check `limits.max_bookmarks`
+- `services/note_service.py` - `NoteService.create()` → check `limits.max_notes`
+- `services/prompt_service.py` - `PromptService.create()` → check `limits.max_prompts`
+
+```python
+from core.tier_limits import Tier, get_tier_limits
+
+# Example: BookmarkService.create() - apply same pattern to NoteService and PromptService
+async def create(
+    self,
+    db: AsyncSession,
+    user_id: UUID,
+    tier: Tier,
+    data: BookmarkCreate,
+) -> Bookmark:
+    limits = get_tier_limits(tier)
+    count = await self.count_user_items(db, user_id)
+    if count >= limits.max_bookmarks:
+        raise QuotaExceededError("bookmarks", count, limits.max_bookmarks)
+    # ... rest of create logic
+```
+
+4. **Update service `update()` methods to accept `tier: Tier` parameter:**
+
+`update()` methods also need tier for field validation (users can exceed limits via update).
+
+**Files to modify:**
+- `services/bookmark_service.py` - `BookmarkService.update()`
+- `services/note_service.py` - `NoteService.update()`
+- `services/prompt_service.py` - `PromptService.update()`
+
+```python
+# Example: BookmarkService.update() - apply same pattern to NoteService and PromptService
+async def update(
+    self,
+    db: AsyncSession,
+    user_id: UUID,
+    tier: Tier,  # Add this parameter
+    bookmark_id: UUID,
+    data: BookmarkUpdate,
+) -> Bookmark | None:
+    limits = get_tier_limits(tier)
+    self._validate_field_limits(data.model_dump(exclude_unset=True), limits)
+    # ... rest of update logic
+```
+
+5. **Add `limit_attr` class attribute to each service:**
+
+```python
+# Each service declares its limit attribute explicitly
+class BookmarkService(BaseEntityService[Bookmark]):
+    model = Bookmark
+    entity_name = "Bookmark"
+    limit_attr = "max_bookmarks"  # Explicit mapping to TierLimits attribute
+
+class NoteService(BaseEntityService[Note]):
+    model = Note
+    entity_name = "Note"
+    limit_attr = "max_notes"
+
+class PromptService(BaseEntityService[Prompt]):
+    model = Prompt
+    entity_name = "Prompt"
+    limit_attr = "max_prompts"
+```
+
+6. **Update `restore()` method in `BaseEntityService`:**
+
+```python
+async def restore(
+    self,
+    db: AsyncSession,
+    user_id: UUID,
+    tier: Tier,  # Add this parameter
+    entity_id: UUID,
+) -> T | None:
+    # Check limit before restoring
+    limits = get_tier_limits(tier)
+    count = await self.count_user_items(db, user_id)
+    max_items = getattr(limits, self.limit_attr)  # Uses explicit class attribute
+    if count >= max_items:
+        raise QuotaExceededError(f"{self.entity_name.lower()}s", count, max_items)
+    # ... rest of restore logic
+```
+
+7. **Update routers to convert tier string to enum and handle exceptions:**
+
+**Files to modify:**
+- `api/routers/bookmarks.py` - `create_bookmark()`, `update_bookmark()`, `restore_bookmark()`
+- `api/routers/notes.py` - `create_note()`, `update_note()`, `restore_note()`
+- `api/routers/prompts.py` - `create_prompt()`, `update_prompt()`, `restore_prompt()`
+
+```python
+from core.tier_limits import Tier
+
+# Example: routers/bookmarks.py - apply same pattern to notes.py and prompts.py
+@router.post("/", response_model=BookmarkResponse, status_code=201)
+async def create_bookmark(
+    data: BookmarkCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> BookmarkResponse:
+    try:
+        tier = Tier(current_user.tier)  # Convert string from DB to enum at boundary
+        bookmark = await bookmark_service.create(
+            db, current_user.id, tier, data
+        )
+        # ...
+    except QuotaExceededError as e:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "detail": str(e),
+                "error_code": "QUOTA_EXCEEDED",
+                "resource": e.resource,
+                "current": e.current,
+                "limit": e.limit,
+                "retry_after": None,
+            },
+        )
+```
 
 **Testing Strategy:**
-- Create items up to limit, verify next create fails with 403
-- Verify soft-deleted items don't count toward limit
-- Verify error message includes the limit number
+
+**Mock the limits** - Patch `TIER_LIMITS` or `get_tier_limits()` to return small limits (e.g., 2-3 items) for faster tests that don't break when limits change:
+
+```python
+@pytest.fixture
+def low_limits(monkeypatch):
+    """Patch tier limits to small values for testing."""
+    test_limits = TierLimits(
+        max_bookmarks=2,
+        max_notes=2,
+        max_prompts=2,
+        max_title_length=10,
+        max_description_length=50,
+        max_tag_name_length=10,
+        max_bookmark_content_length=100,
+        max_note_content_length=100,
+        max_prompt_content_length=100,
+        max_url_length=100,
+        max_prompt_name_length=10,
+        max_argument_name_length=10,
+        max_argument_description_length=20,
+    )
+    monkeypatch.setattr("core.tier_limits.TIER_LIMITS", {Tier.FREE: test_limits})
+    return test_limits
+```
+
+**Test cases:**
+- Create items up to mocked limit (2-3), verify next create fails with 429
+- Verify soft-deleted items count toward limit
+- Verify archived items count toward limit
+- Verify restore fails with 429 when at limit
+- Verify permanent delete frees quota (create succeeds after permanent delete)
+- Verify error response structure (error_code, resource, current, limit, retry_after)
 - Test each content type (bookmarks, notes, prompts)
+
+**Note on concurrent requests:** The app-level count check has a small race window under concurrent creation. Two simultaneous `POST` requests from the same user may both pass the check, briefly exceeding the limit by 1 item. This is acceptable for soft enforcement - the next request will fail. Database-level enforcement (triggers, advisory locks) would add significant complexity without meaningful benefit for abuse prevention.
 
 **Dependencies:** Milestone 1
 
 **Risk Factors:**
-- `create()` method signatures may need to change to accept `User` instead of just `user_id`
-- Consider whether to check limit in router vs service (service is cleaner but needs user object)
+- Service method signatures change - update all callers (routers, tests)
+- MCP servers call API via HTTP, so they're unaffected by service signature changes
+
+---
+
+### Milestone 3.5: Global Exception Handlers
+
+**Goal:** Add global exception handlers to reduce boilerplate and ensure consistent error responses.
+
+**Success Criteria:**
+- `QuotaExceededError` and `FieldLimitExceededError` are handled globally
+- All endpoints return consistent 429 response format
+- Router code is simplified (no repetitive try/catch blocks)
+
+**Key Changes:**
+
+1. **Add exception handlers in `backend/src/api/main.py`:**
+
+```python
+from services.exceptions import QuotaExceededError, FieldLimitExceededError
+
+@app.exception_handler(QuotaExceededError)
+async def quota_exceeded_handler(request: Request, exc: QuotaExceededError) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": str(exc),
+            "error_code": "QUOTA_EXCEEDED",
+            "resource": exc.resource,
+            "current": exc.current,
+            "limit": exc.limit,
+            "retry_after": None,
+        },
+    )
+
+@app.exception_handler(FieldLimitExceededError)
+async def field_limit_handler(request: Request, exc: FieldLimitExceededError) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": str(exc),
+            "error_code": "FIELD_LIMIT_EXCEEDED",
+            "field": exc.field,
+            "current": exc.current,
+            "limit": exc.limit,
+            "retry_after": None,
+        },
+    )
+```
+
+2. **Simplify router code:**
+
+The global handlers remove try/catch boilerplate, but routers still need the tier conversion at the API boundary:
+
+```python
+# Example: routers/bookmarks.py - simplified (no try/catch for quota errors)
+@router.post("/", response_model=BookmarkResponse, status_code=201)
+async def create_bookmark(
+    data: BookmarkCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> BookmarkResponse:
+    tier = Tier(current_user.tier)  # Still needed - API boundary conversion
+    bookmark = await bookmark_service.create(db, current_user.id, tier, data)
+    # No try/catch - QuotaExceededError propagates to global handler
+    return BookmarkResponse.model_validate(bookmark)
+```
+
+**What global handlers remove:** The repetitive `try/except QuotaExceededError` and `try/except FieldLimitExceededError` blocks in every endpoint.
+
+**What routers still need:** The `Tier(current_user.tier)` conversion at the API boundary before calling services.
+
+**Testing Strategy:**
+- Test that `QuotaExceededError` raised anywhere results in correct 429 response
+- Test that `FieldLimitExceededError` raised anywhere results in correct 429 response
+- Test response structure matches the error contract
+
+**Dependencies:** Milestone 3
+
+**Risk Factors:** None
 
 ---
 
 ### Milestone 4: Field Length Validation Updates
 
-**Goal:** Update validators to use tier-based limits instead of config settings.
+**Goal:** Update validators to use tier-based limits for field lengths.
 
 **Success Criteria:**
-- Title validation uses `max_title_length` from tier (100 chars for free)
-- Content validation uses unified `max_content_length` (100K for all types)
-- URL validation added with `max_url_length` (2048)
-- Tag name validation added with `max_tag_name_length` (50)
-- Argument description validation added with `max_argument_description_length` (500)
+- Title validation enforced at tier limit (100 chars for free)
+- Content validation unified at tier limit (100K for all types)
+- URL validation added (2048 chars)
+- Tag name validation added (50 chars)
+- Argument description validation added (500 chars)
+- Consistent error response shape for all field limit violations
 
 **Key Changes:**
 
-1. **Update `backend/src/schemas/validators.py`:**
+**Design Decision: Service-layer validation only (no Pydantic ceilings)**
 
-The challenge here is that Pydantic validators don't have access to the user's tier. Two approaches:
+All field length validation happens in the service layer, not in Pydantic schemas. Rationale:
 
-**Option A (Recommended): Use maximum possible limit in validators, enforce tier limit in service**
-- Validators use a generous ceiling (e.g., 255 for title)
-- Service layer checks tier-specific limit before saving
-- Simpler, keeps validation logic in one place
+1. **Helpful error messages**: Service layer can return tier-aware errors ("Your limit is 100 chars, you sent 150"). Pydantic returns generic "String should have at most X characters" with no context about the user's tier or what to do.
 
-**Option B: Pass limits into schema via context**
-- More complex, requires Pydantic validation context
-- Tighter validation at schema level
+2. **Simplicity**: One validation layer instead of two. No confusion about which layer enforces what. Service layer is the single source of truth for business logic.
 
-Recommend **Option A** for simplicity. The flow becomes:
-1. Pydantic validates against ceiling (catches obviously invalid input)
-2. Service validates against tier limit (enforces user-specific limit)
+3. **DoS protection is handled elsewhere**: FastAPI/Starlette already has request body size limits at the server level. Pydantic doesn't need to duplicate this.
+
+4. **Ceiling would never be meaningfully reached**: If we set Pydantic ceiling high enough to pass all tier limits (e.g., 5MB), it becomes noise - just complexity without value.
+
+Pydantic schemas remain responsible for structure and type validation (is it a string? is it valid JSON? is it a valid URL format?). Field *length* limits are entirely service-layer concerns.
+
+1. **Add shared validation helper to `BaseEntityService`:**
 
 ```python
-# validators.py - use ceiling values
-MAX_TITLE_CEILING = 255  # Safety ceiling, tier limits are lower
-MAX_CONTENT_CEILING = 500_000  # Safety ceiling
-MAX_URL_CEILING = 8192  # Safety ceiling
-MAX_TAG_NAME_CEILING = 100  # Safety ceiling
-MAX_ARG_DESC_CEILING = 1000  # Safety ceiling
+def _validate_common_field_limits(self, data: dict, limits: TierLimits) -> None:
+    """
+    Validate common fields against tier limits.
 
-def validate_title_length(title: str | None) -> str | None:
-    if title is not None and len(title) > MAX_TITLE_CEILING:
-        raise ValueError(f"Title exceeds maximum length of {MAX_TITLE_CEILING}")
-    return title
-
-# Add new validators
-def validate_url_length(url: str) -> str:
-    if len(str(url)) > MAX_URL_CEILING:
-        raise ValueError(f"URL exceeds maximum length of {MAX_URL_CEILING}")
-    return url
-
-def validate_tag_name_length(tag: str) -> str:
-    if len(tag) > MAX_TAG_NAME_CEILING:
-        raise ValueError(f"Tag name exceeds maximum length of {MAX_TAG_NAME_CEILING}")
-    return tag
-
-def validate_argument_description_length(desc: str | None) -> str | None:
-    if desc is not None and len(desc) > MAX_ARG_DESC_CEILING:
-        raise ValueError(f"Argument description exceeds maximum length of {MAX_ARG_DESC_CEILING}")
-    return desc
+    Subclasses should call this and add entity-specific validation (including content length).
+    """
+    if "title" in data and data["title"]:
+        if len(data["title"]) > limits.max_title_length:
+            raise FieldLimitExceededError("title", len(data["title"]), limits.max_title_length)
+    if "description" in data and data["description"]:
+        if len(data["description"]) > limits.max_description_length:
+            raise FieldLimitExceededError("description", len(data["description"]), limits.max_description_length)
 ```
 
-2. **Add tier-specific validation in services:**
+Note: Content length validation is entity-specific (each has different limit), so it belongs in the entity service's `_validate_field_limits()` method.
+
+3. **Add entity-specific validation in services:**
+
+**Files to modify:**
+- `services/bookmark_service.py` - `_validate_field_limits()` with URL + content + tag validation
+- `services/note_service.py` - `_validate_field_limits()` with content + tag validation
+- `services/prompt_service.py` - `_validate_field_limits()` with content + argument description + tag validation
+
+**Tag name validation:** Validate tag names in the calling service's `_validate_field_limits()` method *before* passing to `get_or_create_tags()`. This keeps `tag_service.py` focused on get/create logic and avoids changing its signature.
+
 ```python
-# In service create/update methods
+# BookmarkService
 def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
-    if data.get("title") and len(data["title"]) > limits.max_title_length:
-        raise FieldLimitExceededError(
-            f"Title exceeds your plan's limit of {limits.max_title_length} characters"
-        )
-    # Similar for content, etc.
+    self._validate_common_field_limits(data, limits)
+    if "content" in data and data["content"]:
+        if len(data["content"]) > limits.max_bookmark_content_length:
+            raise FieldLimitExceededError("content", len(data["content"]), limits.max_bookmark_content_length)
+    if "url" in data and data["url"]:
+        if len(str(data["url"])) > limits.max_url_length:
+            raise FieldLimitExceededError("url", len(str(data["url"])), limits.max_url_length)
+    # Validate tag names before passing to get_or_create_tags()
+    if "tags" in data and data["tags"]:
+        for tag in data["tags"]:
+            if len(tag) > limits.max_tag_name_length:
+                raise FieldLimitExceededError("tag", len(tag), limits.max_tag_name_length)
+
+# NoteService
+def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
+    self._validate_common_field_limits(data, limits)
+    if "content" in data and data["content"]:
+        if len(data["content"]) > limits.max_note_content_length:
+            raise FieldLimitExceededError("content", len(data["content"]), limits.max_note_content_length)
+    # Validate tag names before passing to get_or_create_tags()
+    if "tags" in data and data["tags"]:
+        for tag in data["tags"]:
+            if len(tag) > limits.max_tag_name_length:
+                raise FieldLimitExceededError("tag", len(tag), limits.max_tag_name_length)
+
+# PromptService
+def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
+    self._validate_common_field_limits(data, limits)
+    if "content" in data and data["content"]:
+        if len(data["content"]) > limits.max_prompt_content_length:
+            raise FieldLimitExceededError("content", len(data["content"]), limits.max_prompt_content_length)
+    # Validate tag names before passing to get_or_create_tags()
+    if "tags" in data and data["tags"]:
+        for tag in data["tags"]:
+            if len(tag) > limits.max_tag_name_length:
+                raise FieldLimitExceededError("tag", len(tag), limits.max_tag_name_length)
+    # Also validate argument descriptions...
 ```
 
-3. **Update `PromptArgument` schema** to validate description length
+4. **Update `PromptArgument` schema** to validate description length
 
-4. **Update bookmark schema** to validate URL length
+5. **Update bookmark schema** to validate URL length (ceiling)
 
-5. **Update tag validators** to check name length
+6. **Update tag validation** in `validate_and_normalize_tag()` to check name length
+
+7. **Add validation to str-replace endpoints:**
+
+The str-replace endpoints directly modify content without going through `update()`, so they need explicit validation. Without this, users could grow content past their tier limit.
+
+**Files to modify:**
+- `api/routers/bookmarks.py` - `str_replace_bookmark()`
+- `api/routers/notes.py` - `str_replace_note()`
+- `api/routers/prompts.py` - `str_replace_prompt()` and `str_replace_prompt_by_name()`
+
+```python
+# Example: bookmarks.py str-replace endpoint
+# After: result = str_replace(bookmark.content, data.old_str, data.new_str)
+# Before: bookmark.content = result.new_content
+
+# Validate new content length against tier limits
+tier = Tier(current_user.tier)
+limits = get_tier_limits(tier)
+if len(result.new_content) > limits.max_bookmark_content_length:
+    raise FieldLimitExceededError(
+        "content", len(result.new_content), limits.max_bookmark_content_length
+    )
+
+bookmark.content = result.new_content
+```
+
+For **prompts str-replace**, also validate argument descriptions when `data.arguments` is provided:
+
+```python
+# In prompts.py str-replace endpoint, when arguments are being updated
+if data.arguments is not None:
+    for arg in data.arguments:
+        if arg.description and len(arg.description) > limits.max_argument_description_length:
+            raise FieldLimitExceededError(
+                "argument_description",
+                len(arg.description),
+                limits.max_argument_description_length,
+            )
+    prompt.arguments = [arg.model_dump() for arg in data.arguments]
+```
+
+8. **Handle `FieldLimitExceededError` in routers:**
+
+With global exception handlers (Milestone 3.5), no explicit try/catch is needed - errors propagate to the global handler automatically.
 
 **Testing Strategy:**
-- Test ceiling validation catches extreme values
-- Test tier-specific validation in services
-- Test each field type (title, content, URL, tag name, arg description)
-- Test error messages include the limit
+
+**Mock the limits** - Use the same `low_limits` fixture from Milestone 3 to test field validation without depending on actual limit values:
+
+```python
+# With low_limits fixture setting max_title_length=10
+def test_title_exceeds_tier_limit(low_limits, ...):
+    response = await client.post("/bookmarks/", json={"url": "...", "title": "A" * 11})
+    assert response.status_code == 429
+    assert response.json()["error_code"] == "FIELD_LIMIT_EXCEEDED"
+```
+
+**Test cases:**
+- Test tier-specific validation with mocked low limits (e.g., title > 10 chars with `max_title_length=10`)
+- Test each field type: title, description, content, URL, tag name, argument description
+- Test tag name validation happens before `get_or_create_tags()` is called
+- Test error response structure matches contract (429, `FIELD_LIMIT_EXCEEDED`, field name, current, limit)
+- Test str-replace that would grow content past limit returns 429 with `FIELD_LIMIT_EXCEEDED`
+- Test str-replace that keeps content under limit succeeds
+- Test prompt str-replace with argument descriptions exceeding limit returns 429
 
 **Dependencies:** Milestone 1
 
 **Risk Factors:**
-- Two-layer validation (schema ceiling + service tier limit) adds complexity
-- Need to ensure consistent error messages between layers
+- Tag validation touches shared validator used across all entities
 
 ---
 
@@ -355,9 +847,7 @@ def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
 **Goal:** Clean up old config settings that are now replaced by tier limits.
 
 **Success Criteria:**
-- Remove from `config.py`: `max_title_length`, `max_content_length`, `max_note_content_length`, `max_prompt_content_length`
-- Keep `max_description_length` (not tier-based per discussion)
-- Keep `max_prompt_name_length`, `max_argument_name_length` (not tier-based)
+- Remove from `config.py`: `max_title_length`, `max_description_length`, `max_content_length`, `max_note_content_length`, `max_prompt_content_length`, `max_prompt_name_length`, `max_argument_name_length`
 - Update any code still referencing old settings
 - Update frontend `config.ts` to remove corresponding values
 
@@ -365,27 +855,37 @@ def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
 
 1. **Update `backend/src/core/config.py`:**
    - Remove `max_title_length`
+   - Remove `max_description_length`
    - Remove `max_content_length`
    - Remove `max_note_content_length`
    - Remove `max_prompt_content_length`
+   - Remove `max_prompt_name_length`
+   - Remove `max_argument_name_length`
 
 2. **Update `frontend/src/config.ts`:**
    - Remove `maxTitleLength`
+   - Remove `maxDescriptionLength`
    - Remove `maxContentLength`
    - Remove `maxNoteContentLength`
    - Remove `maxPromptContentLength`
-   - Frontend will fetch limits from API instead
+   - Remove `maxPromptNameLength`
+   - Remove `maxArgumentNameLength`
+   - Frontend will fetch all limits from API instead
 
-3. **Search codebase** for any remaining references to these settings
+3. **Search codebase** for any remaining references to these settings:
+   - `grep -r "max_title_length\|max_description_length\|max_content_length\|max_note_content_length\|max_prompt_content_length\|max_prompt_name_length\|max_argument_name_length"`
+   - Update validators that reference `get_settings()` for these values
 
 **Testing Strategy:**
 - Verify application starts without old settings
 - Verify no runtime errors from missing settings
+- Run full test suite to catch any missed references
 
 **Dependencies:** Milestones 1-4
 
 **Risk Factors:**
 - May miss some references - thorough grep needed
+- Some tests may reference old settings
 
 ---
 
@@ -395,88 +895,165 @@ def _validate_field_limits(self, data: dict, limits: TierLimits) -> None:
 
 **Success Criteria:**
 - Frontend fetches limits from `/users/me/limits` on auth
-- Title inputs have `maxLength` attribute (prevents over-typing)
-- Character counters shown for title/content fields
+- All components use API-fetched limits instead of hardcoded `config.limits.*`
+- Forms are disabled until limits are loaded
+- Character counters use fetched limits
+- Settings page displays tier and limits
 - Clear error messages when limits exceeded
-- Limits cached and available throughout app
+- Distinguish quota errors from rate limit errors (check `retry_after`)
 
 **Key Changes:**
 
-1. **Create limits hook/context:**
+1. **Create limits hook:**
 ```typescript
 // hooks/useLimits.ts
 export function useLimits() {
-  const { data: limits } = useQuery({
-    queryKey: ['user-limits'],
-    queryFn: () => api.get('/users/me/limits'),
-    staleTime: 5 * 60 * 1000, // 5 min cache
-  })
-  return limits
+    const { data: limits, isLoading } = useQuery({
+        queryKey: ['user-limits'],
+        queryFn: () => api.get('/users/me/limits'),
+        staleTime: Infinity,  // Limits rarely change, cache until page refresh
+        gcTime: Infinity,     // Keep in cache indefinitely
+    })
+    return { limits, isLoading }
 }
 ```
 
-2. **Update title inputs:**
-   - `InlineEditableTitle` - add `maxLength` prop, pass from limits
-   - Add character counter component
-   - Show "X/100" as user types
+**Caching strategy:**
+- `staleTime: Infinity` - limits don't change during normal usage
+- Page refresh clears React Query's in-memory cache, fetching fresh limits
+- If user upgrades tier (future feature), they refresh the page to see new limits
+- No need for manual cache invalidation or "refresh limits" button
 
-3. **Update content editors:**
-   - Pass `maxLength` to `MilkdownEditor` and `CodeMirrorEditor`
-   - Show character count in editor toolbar
+2. **Fetch limits alongside user on auth:**
+   - In the auth initialization, trigger both `/users/me` and `/users/me/limits` queries
+   - Both should complete before app considers user "ready"
 
-4. **Update create/edit forms:**
-   - Bookmark, Note, Prompt forms use limits for validation
-   - Show inline errors before submit when limits exceeded
+3. **Remove hardcoded limits from `config.ts`:**
+
+Remove all limit settings from `frontend/src/config.ts`:
+- `maxContentLength`
+- `maxNoteContentLength`
+- `maxPromptContentLength`
+- `maxTitleLength`
+- `maxDescriptionLength`
+- `maxPromptNameLength`
+- `maxArgumentNameLength`
+
+All limits are now fetched from `/users/me/limits` API.
+
+4. **Update components to use fetched limits:**
+
+**Files to modify:**
+
+| File | Current Usage | Change |
+|------|---------------|--------|
+| `components/Bookmark.tsx` | `config.limits.maxTitleLength`, `maxDescriptionLength`, `maxContentLength` | Use corresponding limits from `useLimits()` |
+| `components/Note.tsx` | `config.limits.maxTitleLength`, `maxDescriptionLength`, `maxNoteContentLength` | Use corresponding limits from `useLimits()` |
+| `components/Prompt.tsx` | `config.limits.maxTitleLength`, `maxPromptContentLength`, `maxPromptNameLength`, `maxArgumentNameLength` | Use corresponding limits from `useLimits()` |
+| `components/ContentEditor.tsx` | Receives `maxLength` prop | No change needed (already prop-based) |
+| `components/InlineEditableText.tsx` | Receives `maxLength` prop | No change needed (already prop-based) |
+
+Each component should:
+- Call `useLimits()` hook
+- Show loading state while `isLoading` is true
+- Pass fetched limits to child components (`ContentEditor`, `InlineEditableText`)
+
+**Explicit loading guard pattern:**
+
+Components must guard against rendering forms before limits are loaded:
+
+```typescript
+// In each component that uses limits for form validation
+const { limits, isLoading } = useLimits()
+
+// Guard: don't render form until limits are available
+if (isLoading || !limits) {
+    return <LoadingSpinner />  // Or skeleton UI
+}
+
+// Now limits is guaranteed to be defined - safe to render form
+return (
+    <BookmarkForm
+        maxTitleLength={limits.max_title_length}
+        maxContentLength={limits.max_bookmark_content_length}
+        // ...
+    />
+)
+```
+
+This prevents forms from rendering with undefined limits, which would cause validation errors or allow invalid input.
+
+5. **Add tier and limits display in Settings:**
+
+Update `pages/settings/SettingsGeneral.tsx` to show account tier and limits:
+
+```typescript
+// In SettingsGeneral.tsx
+const { limits, isLoading } = useLimits()
+
+// In the Account section, add:
+<div className="border-t pt-6">
+  <h3 className="text-lg font-medium text-gray-900">Plan & Limits</h3>
+  <div className="mt-4">
+    <div className="mb-4">
+      <span className="text-sm text-gray-500">Current Plan:</span>
+      <span className="ml-2 font-medium capitalize">{limits?.tier}</span>
+    </div>
+    <table className="min-w-full text-sm">
+      <thead>
+        <tr className="border-b">
+          <th className="text-left py-2">Resource</th>
+          <th className="text-right py-2">Limit</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Bookmarks</td><td className="text-right">{limits?.max_bookmarks}</td></tr>
+        <tr><td>Notes</td><td className="text-right">{limits?.max_notes}</td></tr>
+        <tr><td>Prompts</td><td className="text-right">{limits?.max_prompts}</td></tr>
+        <tr><td>Title length</td><td className="text-right">{limits?.max_title_length} chars</td></tr>
+        <tr><td>Description length</td><td className="text-right">{limits?.max_description_length?.toLocaleString()} chars</td></tr>
+        <tr><td>Bookmark content</td><td className="text-right">{limits?.max_bookmark_content_length?.toLocaleString()} chars</td></tr>
+        <tr><td>Note content</td><td className="text-right">{limits?.max_note_content_length?.toLocaleString()} chars</td></tr>
+        <tr><td>Prompt content</td><td className="text-right">{limits?.max_prompt_content_length?.toLocaleString()} chars</td></tr>
+        <tr><td>Prompt name</td><td className="text-right">{limits?.max_prompt_name_length} chars</td></tr>
+        <tr><td>URL length</td><td className="text-right">{limits?.max_url_length?.toLocaleString()} chars</td></tr>
+        <tr><td>Tag name</td><td className="text-right">{limits?.max_tag_name_length} chars</td></tr>
+        <tr><td>Argument name</td><td className="text-right">{limits?.max_argument_name_length} chars</td></tr>
+        <tr><td>Argument description</td><td className="text-right">{limits?.max_argument_description_length} chars</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+```
+
+6. **Handle 429 errors with `error_code` distinction:**
+```typescript
+if (error.response?.status === 429) {
+    const data = error.response.data
+    if (data.error_code === 'QUOTA_EXCEEDED') {
+        // Show upgrade prompt, don't retry
+        showQuotaError(data)
+    } else if (data.error_code === 'RATE_LIMITED') {
+        // Implement backoff based on retry_after
+        scheduleRetry(data.retry_after)
+    }
+}
+```
 
 **Testing Strategy:**
 - Test limits are fetched on login
-- Test title input stops accepting chars at limit
-- Test character counters display correctly
-- Test error states when approaching/at limits
+- Test forms are disabled while limits are loading
+- Test title input stops accepting chars at limit (`maxLength`)
+- Test character counters display correct limit values from API
+- Test error handling distinguishes quota from rate limit errors
+- Test Settings page displays tier and limits table
+- Test page refresh fetches fresh limits
 
 **Dependencies:** Milestone 2
 
 **Risk Factors:**
-- Need to ensure limits are loaded before forms render
-- Handle loading state gracefully
-
----
-
-### Milestone 7: Database Column Adjustments
-
-**Goal:** Adjust database column sizes to be safety ceilings (not enforcement).
-
-**Success Criteria:**
-- Title columns changed to `String(255)` (ceiling, not enforcement)
-- Migration handles existing data gracefully
-- No data truncation (current max is 500, new ceiling is 255, so must verify no titles > 255 exist or handle them)
-
-**Key Changes:**
-
-1. **Check existing data:**
-```sql
-SELECT MAX(LENGTH(title)) FROM bookmarks;
-SELECT MAX(LENGTH(title)) FROM notes;
-SELECT MAX(LENGTH(title)) FROM prompts;
-```
-
-2. **If any titles > 255 chars exist:**
-   - Either keep ceiling at 500
-   - Or truncate in migration (with user notification)
-
-3. **Create migration** to alter columns if safe
-
-**Note:** This milestone may be skipped if we decide to keep `String(500)` as the ceiling. The tier limit (100) will be enforced at API layer regardless. The DB column size only matters as a safety net.
-
-**Testing Strategy:**
-- Verify migration runs without data loss
-- Verify existing items still accessible
-
-**Dependencies:** Milestones 1-4 (enforcement in place first)
-
-**Risk Factors:**
-- Data truncation if titles exceed new ceiling
-- May decide to skip this milestone entirely
+- Need to ensure limits are loaded before forms render - use loading states
+- Components need graceful handling when `limits` is undefined during initial load
 
 ---
 
@@ -488,48 +1065,144 @@ SELECT MAX(LENGTH(title)) FROM prompts;
 |------|---------|
 | `core/tier_limits.py` | New file - tier definitions and lookup |
 | `models/user.py` | Add `tier` column |
-| `schemas/user.py` | Add `UserLimitsResponse` |
-| `schemas/validators.py` | Add ceiling validators, tag name length, arg desc length |
-| `schemas/bookmark.py` | Add URL length validation |
-| `schemas/prompt.py` | Add argument description validation |
+| `schemas/cached_user.py` | Add `tier: str` field |
+| `core/auth_cache.py` | Include `tier` in cached data, bump `CACHE_SCHEMA_VERSION` to 3 |
+| `schemas/` (new or existing) | Add `UserLimitsResponse` |
+| `api/main.py` | Add global exception handlers for `QuotaExceededError`, `FieldLimitExceededError` |
 | `api/routers/users.py` | Add `/me/limits` endpoint |
-| `services/base_entity_service.py` | Add `count_user_items()` method |
-| `services/bookmark_service.py` | Add item count check in `create()` |
-| `services/note_service.py` | Add item count check in `create()` |
-| `services/prompt_service.py` | Add item count check in `create()` |
-| `services/exceptions.py` | Add `ItemLimitExceededError`, `FieldLimitExceededError` |
+| `services/exceptions.py` | Add `QuotaExceededError`, `FieldLimitExceededError` |
+| `services/base_entity_service.py` | Add `count_user_items()`, `_validate_common_field_limits()`, update `restore()` with `Tier` param |
+| `services/bookmark_service.py` | Add `limit_attr`, add `Tier` param to `create()` and `update()`, add `_validate_field_limits()` |
+| `services/note_service.py` | Add `limit_attr`, add `Tier` param to `create()` and `update()`, add `_validate_field_limits()` |
+| `services/prompt_service.py` | Add `limit_attr`, add `Tier` param to `create()` and `update()`, add `_validate_field_limits()` |
+| `api/routers/bookmarks.py` | Update `create`, `update`, `restore`, `str-replace` - convert tier, validate limits |
+| `api/routers/notes.py` | Update `create`, `update`, `restore`, `str-replace` - convert tier, validate limits |
+| `api/routers/prompts.py` | Update `create`, `update`, `restore`, `str-replace` (both endpoints) - convert tier, validate limits |
 | `core/config.py` | Remove legacy limit settings |
 
 ### Frontend
 
 | File | Changes |
 |------|---------|
-| `hooks/useLimits.ts` | New hook to fetch/cache limits |
-| `config.ts` | Remove legacy limit settings |
-| `components/InlineEditableTitle.tsx` | Add `maxLength`, character counter |
-| `components/InlineEditableText.tsx` | Already has `maxLength` support |
-| `components/MilkdownEditor.tsx` | Add character count display |
-| `components/CodeMirrorEditor.tsx` | Add character count display |
-| Various forms | Use limits from hook for validation |
+| `hooks/useLimits.ts` | New hook to fetch/cache limits (`staleTime: Infinity`) |
+| `config.ts` | Remove all limit settings (now fetched from API) |
+| `components/Bookmark.tsx` | Use `useLimits()` instead of `config.limits.*` |
+| `components/Note.tsx` | Use `useLimits()` instead of `config.limits.*` |
+| `components/Prompt.tsx` | Use `useLimits()` instead of `config.limits.*` |
+| `pages/settings/SettingsGeneral.tsx` | Add "Plan & Limits" section with tier and limits table |
+| Auth initialization | Fetch limits alongside user query |
+| Error handling | Distinguish QUOTA_EXCEEDED from RATE_LIMITED |
 
 ### Database
 
 | Migration | Changes |
 |-----------|---------|
 | Add tier column | `ALTER TABLE users ADD COLUMN tier VARCHAR(50) DEFAULT 'free'` |
-| (Optional) Adjust title columns | `ALTER TABLE bookmarks/notes/prompts ALTER COLUMN title TYPE VARCHAR(255)` |
 
 ---
 
-## Open Questions
+## Removed from Original Plan
 
-1. **Service method signatures:** Currently `create()` takes `user_id: UUID`. To get tier, we need the full `User` object. Options:
-   - Pass `User` object instead of `user_id`
-   - Look up user in service (extra DB query)
-   - Pass tier as separate parameter
+**Milestone 7 (DB Column Adjustments)** - Removed. Current DB constraints already exceed tier limits and serve as adequate safety ceilings. No migration needed.
 
-2. **DB column ceiling:** Keep at 500 or reduce to 255? If any existing titles are >255, keeping at 500 is safer.
+---
 
-3. **Description limit:** Currently 1,000 chars via config. Should this also move to tier limits, or stay as global config? (Current plan: keep as global config per discussion)
+## Future Considerations
 
-The implementing agent should ask for clarification on these points before proceeding.
+These items are out of scope for the initial free-tier implementation but should be addressed when implementing paid tiers:
+
+### Tier Downgrade Handling
+
+When users downgrade from a paid tier (e.g., PRO → FREE) while over the new tier's limits, define behavior:
+
+- **Option A: Read-only mode** - Allow read, search, delete. Block create, update, restore until under limit.
+- **Option B: Grace period** - 30 days to delete items before enforcement kicks in.
+- **Option C: Soft enforcement** - Show warnings but allow continued use with degraded features.
+
+### Tier Cache Invalidation
+
+Currently, `tier` is cached in Redis with 5-minute TTL. When tier changes are possible (via payment system), consider:
+
+- Explicit cache invalidation on tier change (call `auth_cache.invalidate()`)
+- Or accept that tier changes take up to 5 minutes to propagate (users can refresh)
+
+### Usage Tracking Dashboard
+
+Consider adding a dashboard showing:
+- Current usage vs limits (e.g., "75/100 bookmarks")
+- Visual progress bars
+- Warnings when approaching limits (e.g., 80%, 90%, 100%)
+
+---
+
+## Appendix A: Tier Limits Enforcement Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              FRONTEND                                        │
+│  • Fetches limits from /users/me/limits on app load                         │
+│  • UI validation: character counters, "limit reached" states                │
+│  • Prevents bad UX, but NOT a security boundary                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           API ROUTER LAYER                                   │
+│  • Extracts current_user from auth (includes tier field)                    │
+│  • Converts tier string → Tier enum: Tier(current_user.tier)                │
+│  • Passes tier to service methods                                           │
+│  • Global exception handlers convert errors → HTTP responses (429)          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         PYDANTIC SCHEMA LAYER                                │
+│  • Structure and type validation only                                       │
+│  • Example: Is it a string? Valid URL format? Valid JSON structure?         │
+│  • NO field length limits (handled by service layer)                        │
+│  • Returns 422 Unprocessable Entity for malformed requests                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           SERVICE LAYER                                      │
+│  • AUTHORITATIVE enforcement layer for all business limits                  │
+│  • Looks up tier-specific limits: TIER_LIMITS[tier]                         │
+│                                                                             │
+│  Item counts (create/restore):                                              │
+│    count = SELECT COUNT(*) WHERE user_id = ?                                │
+│    if count >= limits.max_bookmarks: raise QuotaExceededError               │
+│                                                                             │
+│  Field lengths (create/update/str-replace):                                 │
+│    if len(content) > limits.max_content_length:                             │
+│        raise FieldLimitExceededError("content", len, limit)                 │
+│                                                                             │
+│  → Returns helpful, tier-aware error messages                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              DATABASE                                        │
+│  • No tier limit enforcement (business logic lives in service layer)        │
+│  • Existing constraints: unique URLs, foreign keys, NOT NULL                │
+│  • Column constraints (e.g., String(500)) as safety ceilings only           │
+│  • Tier stored as column on User table (default: 'free')                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Enforcement Summary
+
+| Layer | Enforcement Type | Failure Response |
+|-------|------------------|------------------|
+| Frontend | Soft (UX only) | Disabled buttons, warnings |
+| Pydantic | Structure/type only | 422 Unprocessable Entity |
+| Service | **All tier limits** (counts + lengths) | 429 with structured error |
+| Database | Safety ceilings only | Constraint violation (should never hit) |
+
+### Why Service Layer Only?
+
+Pydantic ceiling validation was removed because:
+1. **Helpful errors**: Service layer returns tier-aware messages with `error_code`, `field`, `current`, `limit`
+2. **Simplicity**: Single validation layer, single source of truth
+3. **DoS protection elsewhere**: FastAPI/Starlette handles request body size limits
+4. **Meaningless ceiling**: A ceiling high enough to pass all tiers adds complexity without value

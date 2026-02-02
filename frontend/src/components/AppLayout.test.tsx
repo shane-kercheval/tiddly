@@ -54,6 +54,7 @@ describe('AppLayout', () => {
       isAuthenticated: true,
       isLoading: false,
       error: null,
+      userId: 'test-user-id',
     })
   })
 
@@ -94,6 +95,7 @@ describe('AppLayout', () => {
         isAuthenticated: false,
         isLoading: true,
         error: null,
+        userId: null,
       })
 
       renderAppLayout()
@@ -113,6 +115,7 @@ describe('AppLayout', () => {
         isAuthenticated: false,
         isLoading: false,
         error: null,
+        userId: null,
       })
 
       renderAppLayout()

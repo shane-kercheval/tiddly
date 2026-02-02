@@ -14,6 +14,7 @@ from sqlalchemy.sql import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 
+from core.tier_limits import TierLimits
 from models.tag import Tag
 from schemas.validators import validate_and_normalize_tags
 from services.exceptions import InvalidStateError
@@ -116,6 +117,29 @@ class BaseEntityService(ABC, Generic[T]):
                 "title": func.lower(func.coalesce(Bookmark.title, Bookmark.url)),
                 ...
             }
+        """
+        ...
+
+    @abstractmethod
+    async def check_quota(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        limits: TierLimits,
+    ) -> None:
+        """
+        Check if user has quota to create a new item.
+
+        Each subclass implements this with the appropriate limit attribute
+        (max_bookmarks, max_notes, max_prompts).
+
+        Args:
+            db: Database session.
+            user_id: User ID to check quota for.
+            limits: User's tier limits.
+
+        Raises:
+            QuotaExceededError: If user is at or over their item limit.
         """
         ...
 
@@ -386,6 +410,10 @@ class BaseEntityService(ABC, Generic[T]):
 
         Clears both deleted_at AND archived_at timestamps.
 
+        Note: No quota check is needed because soft-deleted items already
+        count toward the user's quota. Restoring just changes state, it
+        doesn't add a new item.
+
         Args:
             db: Database session.
             user_id: User ID to scope the entity.
@@ -557,6 +585,28 @@ class BaseEntityService(ABC, Generic[T]):
             stmt = stmt.where(self.model.deleted_at.is_(None))
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def count_user_items(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+    ) -> int:
+        """
+        Count ALL items for a user (active + archived + soft-deleted).
+
+        Used for quota enforcement - all rows count toward limits.
+        Users can only free quota by permanently deleting items.
+
+        Args:
+            db: Database session.
+            user_id: User ID to count items for.
+
+        Returns:
+            Total count of all items for the user.
+        """
+        stmt = select(func.count()).where(self.model.user_id == user_id)
+        result = await db.execute(stmt)
+        return result.scalar() or 0
 
     # --- Private Helper Methods ---
 

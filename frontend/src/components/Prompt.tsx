@@ -29,7 +29,7 @@ import { PreviewPromptModal } from './PreviewPromptModal'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
-import { config } from '../config'
+import { useLimits } from '../hooks/useLimits'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
@@ -178,6 +178,9 @@ export function Prompt({
 }: PromptProps): ReactNode {
   const isCreate = !prompt
 
+  // Fetch tier limits
+  const { limits, isLoading: isLoadingLimits, error: limitsError } = useLimits()
+
   // Stale check hook
   const { fetchPromptMetadataNoCache } = usePrompts()
   const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
@@ -282,16 +285,16 @@ export function Prompt({
   const isValid = useMemo(() => {
     const nameValid =
       current.name.trim().length > 0 &&
-      current.name.length <= config.limits.maxPromptNameLength &&
+      current.name.length <= (limits?.max_prompt_name_length ?? Infinity) &&
       PROMPT_NAME_PATTERN.test(current.name)
-    const titleValid = current.title.length <= config.limits.maxTitleLength
-    const descriptionValid = current.description.length <= config.limits.maxDescriptionLength
+    const titleValid = current.title.length <= (limits?.max_title_length ?? Infinity)
+    const descriptionValid = current.description.length <= (limits?.max_description_length ?? Infinity)
     const contentValid =
       current.content.trim().length > 0 &&
-      current.content.length <= config.limits.maxPromptContentLength
+      current.content.length <= (limits?.max_prompt_content_length ?? Infinity)
 
     return nameValid && titleValid && descriptionValid && contentValid
-  }, [current.name, current.title, current.description, current.content])
+  }, [current.name, current.title, current.description, current.content, limits])
 
   // Can save when form is dirty and valid
   const canSave = isDirty && isValid
@@ -446,35 +449,37 @@ export function Prompt({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, confirmLeave, requestSaveAndClose])
 
-  // Validation
+  // Validation (only called after loading guard, so limits is guaranteed to exist)
   const validate = (): boolean => {
+    if (!limits) return false // Type guard, should never happen in practice
+
     const newErrors: FormErrors = {}
 
     // Name validation
     if (!current.name.trim()) {
       newErrors.name = 'Name is required'
-    } else if (current.name.length > config.limits.maxPromptNameLength) {
-      newErrors.name = `Name must be ${config.limits.maxPromptNameLength} characters or less`
+    } else if (current.name.length > limits.max_prompt_name_length) {
+      newErrors.name = `Name must be ${limits.max_prompt_name_length} characters or less`
     } else if (!PROMPT_NAME_PATTERN.test(current.name)) {
       newErrors.name =
         'Name must use lowercase letters, numbers, and hyphens only. Must start and end with a letter or number (e.g., code-review)'
     }
 
     // Title validation
-    if (current.title && current.title.length > config.limits.maxTitleLength) {
-      newErrors.title = `Title exceeds ${config.limits.maxTitleLength.toLocaleString()} characters`
+    if (current.title && current.title.length > limits.max_title_length) {
+      newErrors.title = `Title exceeds ${limits.max_title_length.toLocaleString()} characters`
     }
 
     // Description validation
-    if (current.description.length > config.limits.maxDescriptionLength) {
-      newErrors.description = `Description exceeds ${config.limits.maxDescriptionLength.toLocaleString()} characters`
+    if (current.description.length > limits.max_description_length) {
+      newErrors.description = `Description exceeds ${limits.max_description_length.toLocaleString()} characters`
     }
 
     // Content validation
     if (!current.content.trim()) {
       newErrors.content = 'Template content is required'
-    } else if (current.content.length > config.limits.maxPromptContentLength) {
-      newErrors.content = `Content exceeds ${config.limits.maxPromptContentLength.toLocaleString()} characters`
+    } else if (current.content.length > limits.max_prompt_content_length) {
+      newErrors.content = `Content exceeds ${limits.max_prompt_content_length.toLocaleString()} characters`
     }
 
     // Arguments validation
@@ -485,8 +490,8 @@ export function Prompt({
         newErrors.arguments = `Argument ${i + 1} name is required`
         break
       }
-      if (arg.name.length > config.limits.maxArgumentNameLength) {
-        newErrors.arguments = `Argument "${arg.name}" exceeds ${config.limits.maxArgumentNameLength} characters`
+      if (arg.name.length > limits.max_argument_name_length) {
+        newErrors.arguments = `Argument "${arg.name}" exceeds ${limits.max_argument_name_length} characters`
         break
       }
       if (!ARG_NAME_PATTERN.test(arg.name)) {
@@ -731,6 +736,27 @@ export function Prompt({
     }
   }
 
+  // Error state: show message if limits fetch failed
+  if (limitsError) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center p-4">
+          <p className="text-red-600 font-medium">Failed to load configuration</p>
+          <p className="text-sm text-gray-500 mt-1">Please refresh the page to try again.</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Loading guard: don't render form until limits are available
+  if (isLoadingLimits || !limits) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
+      </div>
+    )
+  }
+
   return (
     <form
       ref={formRef}
@@ -892,7 +918,7 @@ export function Prompt({
             onChange={handleDescriptionChange}
             placeholder="Add a description. This description helps users/agents understand the purpose of the prompt and how to use it."
             disabled={isSaving || isReadOnly}
-            maxLength={config.limits.maxDescriptionLength}
+            maxLength={limits.max_description_length}
             error={errors.description}
           />
 
@@ -951,7 +977,7 @@ export function Prompt({
             hasError={!!errors.content}
             minHeight="300px"
             placeholder="Write your template in markdown with Jinja2 syntax..."
-            maxLength={config.limits.maxPromptContentLength}
+            maxLength={limits.max_prompt_content_length}
             errorMessage={errors.content}
             label=""
             showBorder={true}

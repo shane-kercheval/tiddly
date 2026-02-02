@@ -162,9 +162,11 @@ class TestInputLengthLimits:
         self,
         client_as_user_a: AsyncClient,
     ) -> None:
-        """Title at maximum database column length is accepted."""
-        # Database has VARCHAR(500) limit for title
-        max_title = "A" * 500
+        """Title at maximum tier limit length is accepted."""
+        from core.tier_limits import Tier, get_tier_limits
+
+        limits = get_tier_limits(Tier.FREE)
+        max_title = "A" * limits.max_title_length
 
         response = await client_as_user_a.post(
             "/bookmarks/",
@@ -183,13 +185,15 @@ class TestInputLengthLimits:
         client_as_user_a: AsyncClient,
     ) -> None:
         """
-        Title over maximum length is rejected by Pydantic validation.
+        Title over maximum length is rejected by service layer validation.
 
-        The schema validates title length before it reaches the database,
-        returning a 422 Unprocessable Entity response.
+        The service layer validates field lengths based on user tier limits,
+        returning a 400 Bad Request response.
         """
-        # Default max_title_length is 500 - over this should fail
-        over_limit_title = "A" * 501
+        from core.tier_limits import Tier, get_tier_limits
+
+        limits = get_tier_limits(Tier.FREE)
+        over_limit_title = "A" * (limits.max_title_length + 1)
 
         response = await client_as_user_a.post(
             "/bookmarks/",
@@ -199,8 +203,8 @@ class TestInputLengthLimits:
             },
         )
 
-        assert response.status_code == 422
-        assert "Title exceeds maximum length" in response.text
+        assert response.status_code == 400
+        assert "exceeds limit" in response.text.lower()
 
 
 class TestSpecialCharacterHandling:

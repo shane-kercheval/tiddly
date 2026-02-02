@@ -7,28 +7,36 @@ rate limiting is properly integrated into each endpoint via the auth dependencie
 import pytest
 from httpx import AsyncClient
 
-from core.rate_limit_config import AuthType, OperationType, RateLimitConfig
-
-
-# Very low limit for testing - 2 requests per minute
-TEST_RATE_LIMIT = RateLimitConfig(requests_per_minute=2, requests_per_day=100)
+from core.tier_limits import Tier, TierLimits
 
 
 @pytest.fixture
 def low_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Monkeypatch rate limits to be very low for testing."""
-    from core import rate_limit_config
+    """Monkeypatch tier limits to have very low rate limits for testing."""
+    from core import tier_limits
 
-    # Create test limits with 2 requests per minute
-    test_limits = {
-        (AuthType.PAT, OperationType.READ): TEST_RATE_LIMIT,
-        (AuthType.PAT, OperationType.WRITE): TEST_RATE_LIMIT,
-        (AuthType.AUTH0, OperationType.READ): TEST_RATE_LIMIT,
-        (AuthType.AUTH0, OperationType.WRITE): TEST_RATE_LIMIT,
-        (AuthType.AUTH0, OperationType.SENSITIVE): TEST_RATE_LIMIT,
-    }
-    # Only need to patch once - rate_limiter imports RATE_LIMITS at call time
-    monkeypatch.setattr(rate_limit_config, "RATE_LIMITS", test_limits)
+    test_limits = TierLimits(
+        max_bookmarks=100,
+        max_notes=100,
+        max_prompts=100,
+        max_title_length=100,
+        max_description_length=1000,
+        max_tag_name_length=50,
+        max_bookmark_content_length=100_000,
+        max_note_content_length=100_000,
+        max_prompt_content_length=100_000,
+        max_url_length=2048,
+        max_prompt_name_length=100,
+        max_argument_name_length=100,
+        max_argument_description_length=500,
+        rate_read_per_minute=2,
+        rate_read_per_day=100,
+        rate_write_per_minute=2,
+        rate_write_per_day=100,
+        rate_sensitive_per_minute=2,
+        rate_sensitive_per_day=100,
+    )
+    monkeypatch.setattr(tier_limits, "TIER_LIMITS", {Tier.FREE: test_limits})
 
 
 class TestRateLimitAppliedToAllEndpoints:

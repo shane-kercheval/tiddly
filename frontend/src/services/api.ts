@@ -142,6 +142,18 @@ export function setupAuthInterceptor(
           onAuthError()
         }
       }
+      if (error.response?.status === 402) {
+        // Quota exceeded - show resource-specific message
+        const data = error.response.data as { resource?: string; limit?: number; error_code?: string }
+        if (data?.error_code === 'QUOTA_EXCEEDED') {
+          const resource = data.resource ?? 'items'
+          const limit = data.limit ?? 0
+          toast.error(
+            `You've reached the limit of ${limit.toLocaleString()} ${resource}. Delete some existing items to create new ones.`,
+            { id: 'quota-exceeded' }
+          )
+        }
+      }
       if (error.response?.status === 429) {
         // Rate limit exceeded - show user-friendly message
         const retryAfter = error.response.headers['retry-after']

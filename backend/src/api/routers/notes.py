@@ -9,11 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import (
     get_async_session,
+    get_current_limits,
     get_current_user,
 )
 from api.helpers import check_optimistic_lock, resolve_filter_and_sorting
 from core.http_cache import check_not_modified, format_http_date
+from core.tier_limits import TierLimits
 from models.user import User
+from services.exceptions import FieldLimitExceededError
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
 from schemas.errors import (
     ContentEmptyError,
@@ -51,9 +54,10 @@ async def create_note(
     data: NoteCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> NoteResponse:
     """Create a new note."""
-    note = await note_service.create(db, current_user.id, data)
+    note = await note_service.create(db, current_user.id, data, limits)
     return NoteResponse.model_validate(note)
 
 
@@ -312,6 +316,7 @@ async def update_note(
     data: NoteUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> NoteResponse:
     """Update a note."""
     # Check for conflicts before updating
@@ -321,7 +326,7 @@ async def update_note(
     )
 
     note = await note_service.update(
-        db, current_user.id, note_id, data,
+        db, current_user.id, note_id, data, limits,
     )
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -342,6 +347,7 @@ async def str_replace_note(
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> StrReplaceSuccess[NoteResponse] | StrReplaceSuccessMinimal:
     r"""
     Replace text in a note's content using string matching.
@@ -405,6 +411,12 @@ async def str_replace_note(
                     for line, ctx in e.matches
                 ],
             ).model_dump(),
+        )
+
+    # Validate new content length against tier limits
+    if len(result.new_content) > limits.max_note_content_length:
+        raise FieldLimitExceededError(
+            "content", len(result.new_content), limits.max_note_content_length,
         )
 
     # Update the note with new content

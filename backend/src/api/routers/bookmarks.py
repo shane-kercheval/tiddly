@@ -10,12 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import (
     get_async_session,
+    get_current_limits,
     get_current_user,
     get_current_user_auth0_only,
 )
 from api.helpers import check_optimistic_lock, resolve_filter_and_sorting
 from core.http_cache import check_not_modified, format_http_date
+from core.tier_limits import TierLimits
 from models.user import User
+from services.exceptions import FieldLimitExceededError
 from schemas.bookmark import (
     BookmarkCreate,
     BookmarkListItem,
@@ -100,10 +103,11 @@ async def create_bookmark(
     data: BookmarkCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> BookmarkResponse:
     """Create a new bookmark."""
     try:
-        bookmark = await bookmark_service.create(db, current_user.id, data)
+        bookmark = await bookmark_service.create(db, current_user.id, data, limits)
     except ArchivedUrlExistsError as e:
         raise HTTPException(
             status_code=409,
@@ -373,6 +377,7 @@ async def update_bookmark(
     data: BookmarkUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> BookmarkResponse:
     """Update a bookmark."""
     # Check for conflicts before updating
@@ -380,10 +385,9 @@ async def update_bookmark(
         db, bookmark_service, current_user.id, bookmark_id,
         data.expected_updated_at, BookmarkResponse,
     )
-
     try:
         bookmark = await bookmark_service.update(
-            db, current_user.id, bookmark_id, data,
+            db, current_user.id, bookmark_id, data, limits,
         )
     except DuplicateUrlError as e:
         raise HTTPException(
@@ -412,6 +416,7 @@ async def str_replace_bookmark(
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> StrReplaceSuccess[BookmarkResponse] | StrReplaceSuccessMinimal:
     r"""
     Replace text in a bookmark's content using string matching.
@@ -475,6 +480,12 @@ async def str_replace_bookmark(
                     for line, ctx in e.matches
                 ],
             ).model_dump(),
+        )
+
+    # Validate new content length against tier limits
+    if len(result.new_content) > limits.max_bookmark_content_length:
+        raise FieldLimitExceededError(
+            "content", len(result.new_content), limits.max_bookmark_content_length,
         )
 
     # Update the bookmark with new content

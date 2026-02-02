@@ -48,28 +48,7 @@ class Settings(BaseSettings):
     redis_enabled: bool = Field(default=True, validation_alias="REDIS_ENABLED")
     redis_pool_size: int = Field(default=20, validation_alias="REDIS_POOL_SIZE")
 
-    # Field length limits - shared with frontend (VITE_ prefix for Vite exposure)
-    max_content_length: int = Field(
-        default=512_000, validation_alias="VITE_MAX_CONTENT_LENGTH",
-    )
-    max_note_content_length: int = Field(
-        default=500_000, validation_alias="VITE_MAX_NOTE_CONTENT_LENGTH",
-    )
-    max_prompt_content_length: int = Field(
-        default=100_000, validation_alias="VITE_MAX_PROMPT_CONTENT_LENGTH",
-    )
-    max_prompt_name_length: int = Field(
-        default=100, validation_alias="VITE_MAX_PROMPT_NAME_LENGTH",
-    )
-    max_argument_name_length: int = Field(
-        default=100, validation_alias="VITE_MAX_ARGUMENT_NAME_LENGTH",
-    )
-    max_description_length: int = Field(
-        default=1000, validation_alias="VITE_MAX_DESCRIPTION_LENGTH",
-    )
-    max_title_length: int = Field(
-        default=500, validation_alias="VITE_MAX_TITLE_LENGTH",
-    )
+    # Note: Field length limits moved to core/tier_limits.py (tier-based)
 
     @model_validator(mode="after")
     def validate_dev_mode_security(self) -> "Settings":
