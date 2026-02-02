@@ -123,6 +123,8 @@ Recommendation: Option A. The original PAT/Auth0 distinction was about trust lev
 
 **Policy Decision:** Use the **more restrictive** Auth0 limits (180/120/30 rpm) as the baseline for free tier, not the more generous PAT limits (240/120 rpm). This avoids accidentally increasing abuse surface when collapsing the distinction.
 
+**Breaking Change:** PAT READ requests will be reduced from 240 rpm to 180 rpm. This is intentional - 180 rpm (3 requests/second) is still very generous, and the original PAT/Auth0 distinction was about trust levels that are now represented by tiers instead.
+
 **Testing Strategy:**
 - Verify `TierLimits` includes all rate limit fields
 - Verify free tier has expected values
@@ -142,9 +144,10 @@ Recommendation: Option A. The original PAT/Auth0 distinction was about trust lev
 
 **Success Criteria:**
 - `check_rate_limit()` accepts `tier: Tier` parameter
+- `check_rate_limit()` no longer requires `auth_type` parameter (removed from signature)
 - Limits are retrieved from `TierLimits` dataclass
-- Auth type still affects Redis key (for separate tracking)
-- Behavior unchanged for free tier users
+- Redis keys use unified format: `rate:{user_id}:{operation_type}:min`
+- Behavior unchanged for free tier users (using Auth0 limits as baseline)
 
 **Key Changes:**
 
@@ -155,15 +158,14 @@ from core.tier_limits import Tier, get_tier_limits
 
 async def check_rate_limit(
     user_id: int,
-    auth_type: AuthType,
     operation_type: OperationType,
-    tier: Tier,  # NEW parameter
+    tier: Tier,
 ) -> RateLimitResult:
     """
     Check if request is allowed and return full rate limit info.
 
-    Limits are tier-based, not auth-type-based. Auth type is still used
-    for Redis key separation (PAT vs Auth0 tracked separately).
+    Limits are tier-based. All auth types (PAT, Auth0) share the same
+    rate limit bucket per user.
     """
     limits = get_tier_limits(tier)
 
@@ -172,20 +174,25 @@ async def check_rate_limit(
         config = RateLimitConfig(limits.rate_read_per_minute, limits.rate_read_per_day)
     elif operation_type == OperationType.WRITE:
         config = RateLimitConfig(limits.rate_write_per_minute, limits.rate_write_per_day)
-    else:  # SENSITIVE
+    elif operation_type == OperationType.SENSITIVE:
         config = RateLimitConfig(limits.rate_sensitive_per_minute, limits.rate_sensitive_per_day)
+    else:
+        raise ValueError(f"Unknown operation type: {operation_type}")
 
+    # Redis keys no longer include auth_type - unified counting
+    minute_key = f"rate:{user_id}:{operation_type.value}:min"
     # ... rest of enforcement logic unchanged ...
 ```
 
-2. **Update Redis key structure (optional but recommended):**
+2. **Update Redis key structure:**
 
 Current: `rate:{user_id}:{auth_type}:{operation_type}:min`
 
-Option A: Keep as-is - PAT and Auth0 requests counted separately
-Option B: Remove auth_type - `rate:{user_id}:{operation_type}:min` - unified counting
+New: `rate:{user_id}:{operation_type}:min` (remove auth_type)
 
-Recommendation: Option A (keep auth_type in key). This maintains backward compatibility and allows future flexibility if we want different tracking per auth type.
+**Rationale:** With tier-based limits (not auth-type-based), keeping auth_type in the key creates a loophole where users making requests via both PAT and Auth0 get 2x the rate limit (180 PAT + 180 Auth0 = 360 total). Removing auth_type gives unified counting that matches the "your tier allows X requests" mental model.
+
+**Migration:** Existing keys expire naturally (1 minute for per-minute, 1 day for daily), so no explicit migration needed.
 
 **Testing Strategy:**
 - Test `check_rate_limit()` with tier parameter
@@ -207,6 +214,7 @@ Recommendation: Option A (keep auth_type in key). This maintains backward compat
 **Success Criteria:**
 - `_apply_rate_limit()` extracts tier from user object
 - Passes tier to `check_rate_limit()`
+- No longer passes `auth_type` to `check_rate_limit()` (unified counting)
 - Works with both `User` ORM and `CachedUser` objects (tier is on both)
 
 **Key Changes:**
@@ -214,7 +222,7 @@ Recommendation: Option A (keep auth_type in key). This maintains backward compat
 1. **Update `backend/src/core/auth.py`:**
 
 ```python
-from core.tier_limits import Tier, get_tier_safely
+from core.tier_limits import get_tier_safely
 
 async def _apply_rate_limit(
     user: User | CachedUser,
@@ -225,14 +233,18 @@ async def _apply_rate_limit(
     if settings.dev_mode:
         return
 
-    auth_type = getattr(request.state, "auth_type", AuthType.AUTH0)
     operation_type = get_operation_type(request.method, request.url.path)
     tier = get_tier_safely(user.tier)  # Convert string to enum safely
 
-    result = await check_rate_limit(user.id, auth_type, operation_type, tier)
+    # Note: auth_type no longer passed - unified rate limit buckets
+    result = await check_rate_limit(user.id, operation_type, tier)
 
     # ... rest unchanged ...
 ```
+
+2. **Clean up unused auth_type extraction:**
+
+The line `auth_type = getattr(request.state, "auth_type", AuthType.AUTH0)` can be removed from `_apply_rate_limit()` since it's no longer needed for rate limiting. However, `request.state.auth_type` is still set during authentication for potential future use (logging, analytics).
 
 **Testing Strategy:**
 - Test rate limiting with different tiers (mock `get_tier_limits`)
@@ -299,9 +311,16 @@ def low_rate_limits(monkeypatch):
 ```
 
 **Files requiring test updates:**
-- `tests/core/test_rate_limiter.py` - Update `PAT_READ_CONFIG`, `AUTH0_READ_CONFIG` references
+- `tests/core/test_rate_limiter.py`:
+  - Update `PAT_READ_CONFIG`, `AUTH0_READ_CONFIG` references
+  - Remove or update `test__check__pat_and_auth0_use_configured_limits` - PAT and Auth0 now share limits
+  - Update tests to not pass `auth_type` parameter (signature change)
 - `tests/integration/test_rate_limit_all_endpoints.py` - Update monkeypatch target
 - `tests/integration/test_rate_limit_integration.py` - Update `AUTH0_SENSITIVE_CONFIG`
+
+**Behavioral test changes:**
+- Tests verifying separate PAT vs Auth0 limits should be removed (they now share tier limits)
+- Tests verifying separate PAT vs Auth0 buckets should be removed (unified counting)
 
 **Testing Strategy:**
 - Grep for `RATE_LIMITS` references - ensure none remain
@@ -369,8 +388,8 @@ class UserLimitsResponse(BaseModel):
 | File | Changes |
 |------|---------|
 | `core/tier_limits.py` | Add 6 rate limit fields to `TierLimits`, update `TIER_LIMITS` |
-| `core/rate_limiter.py` | Add `tier` parameter to `check_rate_limit()`, look up limits from `TierLimits` |
-| `core/auth.py` | Extract tier from user, pass to `check_rate_limit()` |
+| `core/rate_limiter.py` | Add `tier` parameter to `check_rate_limit()`, look up limits from `TierLimits`, remove `auth_type` from Redis keys |
+| `core/auth.py` | Extract tier from user, pass to `check_rate_limit()`, remove `auth_type` from call |
 | `core/rate_limit_config.py` | Remove `RATE_LIMITS` dict (keep enums, types, sensitive endpoints) |
 | `schemas/user_limits.py` | Add rate limit fields (Milestone 5) |
 | `api/routers/users.py` | Include rate limits in response (Milestone 5) |
@@ -397,7 +416,7 @@ class UserLimitsResponse(BaseModel):
 **How rate limiting works:**
 - Redis stores **request counts** (e.g., "user made 150 READ requests this minute")
 - **Limits are looked up fresh** from `TierLimits` on each request based on user's current tier
-- Redis keys do NOT include tier: `rate:{user_id}:{auth_type}:{operation_type}:min`
+- Redis keys: `rate:{user_id}:{operation_type}:min` (no tier, no auth_type)
 
 **What happens when tier changes mid-session:**
 
