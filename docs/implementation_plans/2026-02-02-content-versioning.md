@@ -1263,7 +1263,454 @@ Milestone 4 (history recording)
 
 ---
 
-## Milestone 8: Documentation and CLAUDE.md Update
+## Milestone 8: Frontend History UI
+
+### Goal
+Add frontend components for viewing history globally and per-item, with diff visualization and restore functionality.
+
+### Success Criteria
+- Users can view all content history in Settings → Version History
+- Users can view per-item history via right sidebar
+- GitHub-style diff visualization between versions
+- Restore with inline confirmation pattern
+- Responsive design for sidebar
+
+### Key Changes
+
+#### 1. Install diff viewer library
+
+```bash
+cd frontend && npm install react-diff-viewer-continued
+```
+
+#### 2. Create history API hooks in `frontend/src/hooks/useHistory.ts`
+
+```typescript
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
+interface HistoryEntry {
+  id: string;
+  entity_type: 'bookmark' | 'note' | 'prompt';
+  entity_id: string;
+  action: 'create' | 'update' | 'delete' | 'restore' | 'archive' | 'unarchive';
+  version: number;
+  diff_type: 'snapshot' | 'diff';
+  metadata_snapshot: Record<string, unknown> | null;
+  source: string;
+  auth_type: string;
+  created_at: string;
+}
+
+interface HistoryListResponse {
+  items: HistoryEntry[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+interface ContentAtVersion {
+  entity_id: string;
+  version: number;
+  content: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+// Fetch all user history (for Settings page)
+export function useUserHistory(params: {
+  entityType?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  return useQuery<HistoryListResponse>({
+    queryKey: ['history', params],
+    queryFn: () => api.get('/history', { params }),
+  });
+}
+
+// Fetch history for a specific entity (for sidebar)
+export function useEntityHistory(
+  entityType: string,
+  entityId: string,
+  params: { limit?: number; offset?: number }
+) {
+  return useQuery<HistoryListResponse>({
+    queryKey: ['history', entityType, entityId, params],
+    queryFn: () => api.get(`/history/${entityType}/${entityId}`, { params }),
+    enabled: !!entityId,
+  });
+}
+
+// Fetch content at a specific version (for diff view)
+export function useContentAtVersion(
+  entityType: string,
+  entityId: string,
+  version: number
+) {
+  return useQuery<ContentAtVersion>({
+    queryKey: ['history', entityType, entityId, 'version', version],
+    queryFn: () => api.get(`/history/${entityType}/${entityId}/version/${version}`),
+    enabled: !!entityId && version > 0,
+  });
+}
+
+// Revert to a specific version
+export function useRevertToVersion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ entityType, entityId, version }: {
+      entityType: string;
+      entityId: string;
+      version: number;
+    }) => api.post(`/history/${entityType}/${entityId}/revert/${version}`),
+    onSuccess: (_, { entityType, entityId }) => {
+      // Invalidate entity and history queries
+      queryClient.invalidateQueries({ queryKey: [entityType] });
+      queryClient.invalidateQueries({ queryKey: ['history', entityType, entityId] });
+    },
+  });
+}
+```
+
+#### 3. Create HistorySidebar component in `frontend/src/components/HistorySidebar.tsx`
+
+```typescript
+import { useState } from 'react';
+import ReactDiffViewer from 'react-diff-viewer-continued';
+import { useEntityHistory, useContentAtVersion, useRevertToVersion } from '../hooks/useHistory';
+
+interface HistorySidebarProps {
+  entityType: 'bookmark' | 'note' | 'prompt';
+  entityId: string;
+  currentContent: string;
+  onClose: () => void;
+}
+
+export function HistorySidebar({ entityType, entityId, currentContent, onClose }: HistorySidebarProps) {
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  const [confirmingRevert, setConfirmingRevert] = useState<number | null>(null);
+
+  const { data: history, isLoading } = useEntityHistory(entityType, entityId, { limit: 50 });
+  const { data: versionContent } = useContentAtVersion(
+    entityType,
+    entityId,
+    selectedVersion ?? 0
+  );
+  const revertMutation = useRevertToVersion();
+
+  const handleRevertClick = (version: number) => {
+    if (confirmingRevert === version) {
+      // Second click - execute revert
+      revertMutation.mutate(
+        { entityType, entityId, version },
+        { onSuccess: () => setConfirmingRevert(null) }
+      );
+    } else {
+      // First click - show confirm
+      setConfirmingRevert(version);
+    }
+  };
+
+  const formatAction = (action: string) => {
+    const labels: Record<string, string> = {
+      create: 'Created',
+      update: 'Updated',
+      delete: 'Deleted',
+      restore: 'Restored',
+      archive: 'Archived',
+      unarchive: 'Unarchived',
+    };
+    return labels[action] || action;
+  };
+
+  return (
+    <div className="fixed right-0 top-0 h-full w-96 bg-white dark:bg-gray-800 shadow-lg border-l border-gray-200 dark:border-gray-700 flex flex-col z-50">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+        <h2 className="text-lg font-semibold">Version History</h2>
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+          <XIcon className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Version list */}
+      <div className="flex-1 overflow-y-auto">
+        {isLoading ? (
+          <div className="p-4">Loading...</div>
+        ) : (
+          <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+            {history?.items.map((entry) => (
+              <li
+                key={entry.id}
+                className={`p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 ${
+                  selectedVersion === entry.version ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                }`}
+                onClick={() => setSelectedVersion(entry.version)}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-medium">v{entry.version}</span>
+                    <span className="ml-2 text-sm text-gray-500">
+                      {formatAction(entry.action)}
+                    </span>
+                  </div>
+                  {entry.version < (history?.items[0]?.version ?? 0) && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRevertClick(entry.version);
+                      }}
+                      className={`px-3 py-1 text-sm rounded ${
+                        confirmingRevert === entry.version
+                          ? 'bg-red-600 text-white'
+                          : 'bg-gray-200 dark:bg-gray-600 hover:bg-gray-300'
+                      }`}
+                    >
+                      {confirmingRevert === entry.version ? 'Confirm' : 'Restore'}
+                    </button>
+                  )}
+                </div>
+                <div className="text-xs text-gray-400 mt-1">
+                  {new Date(entry.created_at).toLocaleString()}
+                  {' · '}
+                  {entry.source} · {entry.auth_type}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Diff view */}
+      {selectedVersion && versionContent && (
+        <div className="border-t border-gray-200 dark:border-gray-700 h-1/2 overflow-auto">
+          <div className="p-2 bg-gray-100 dark:bg-gray-700 text-sm font-medium">
+            Changes in v{selectedVersion}
+          </div>
+          <ReactDiffViewer
+            oldValue={versionContent.content ?? ''}
+            newValue={currentContent}
+            splitView={false}
+            useDarkTheme={document.documentElement.classList.contains('dark')}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+#### 4. Add history toggle button to item headers
+
+In each item detail component (BookmarkDetail, NoteDetail, PromptDetail), add a history icon button:
+
+```typescript
+// In the header actions area, left of Archive|Delete
+<button
+  onClick={() => setShowHistory(!showHistory)}
+  className="p-2 text-gray-500 hover:text-gray-700"
+  title="Version history"
+>
+  <HistoryIcon className="w-5 h-5" />
+</button>
+
+// Render sidebar when open
+{showHistory && (
+  <HistorySidebar
+    entityType="bookmark" // or "note" / "prompt"
+    entityId={item.id}
+    currentContent={item.content}
+    onClose={() => setShowHistory(false)}
+  />
+)}
+```
+
+#### 5. Create Settings Version History page
+
+Create `frontend/src/pages/Settings/VersionHistory.tsx`:
+
+```typescript
+import { useState } from 'react';
+import { useUserHistory } from '../../hooks/useHistory';
+
+export function VersionHistoryPage() {
+  const [entityTypeFilter, setEntityTypeFilter] = useState<string | undefined>();
+  const [page, setPage] = useState(0);
+  const limit = 50;
+
+  const { data: history, isLoading } = useUserHistory({
+    entityType: entityTypeFilter,
+    limit,
+    offset: page * limit,
+  });
+
+  const formatAction = (action: string) => {
+    const labels: Record<string, string> = {
+      create: 'Created',
+      update: 'Updated',
+      delete: 'Deleted',
+      restore: 'Restored',
+      archive: 'Archived',
+      unarchive: 'Unarchived',
+    };
+    return labels[action] || action;
+  };
+
+  const getEntityIcon = (type: string) => {
+    switch (type) {
+      case 'bookmark': return <BookmarkIcon className="w-4 h-4" />;
+      case 'note': return <NoteIcon className="w-4 h-4" />;
+      case 'prompt': return <PromptIcon className="w-4 h-4" />;
+      default: return null;
+    }
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-6">Version History</h1>
+
+      {/* Filters */}
+      <div className="mb-4 flex gap-2">
+        <button
+          onClick={() => setEntityTypeFilter(undefined)}
+          className={`px-3 py-1 rounded ${!entityTypeFilter ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+        >
+          All
+        </button>
+        {['bookmark', 'note', 'prompt'].map((type) => (
+          <button
+            key={type}
+            onClick={() => setEntityTypeFilter(type)}
+            className={`px-3 py-1 rounded capitalize ${
+              entityTypeFilter === type ? 'bg-blue-600 text-white' : 'bg-gray-200'
+            }`}
+          >
+            {type}s
+          </button>
+        ))}
+      </div>
+
+      {/* History list */}
+      {isLoading ? (
+        <div>Loading...</div>
+      ) : (
+        <>
+          <table className="w-full">
+            <thead>
+              <tr className="text-left text-sm text-gray-500 border-b">
+                <th className="pb-2">Type</th>
+                <th className="pb-2">Item</th>
+                <th className="pb-2">Action</th>
+                <th className="pb-2">Source</th>
+                <th className="pb-2">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history?.items.map((entry) => (
+                <tr key={entry.id} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <td className="py-3">
+                    <span className="flex items-center gap-1">
+                      {getEntityIcon(entry.entity_type)}
+                      <span className="capitalize">{entry.entity_type}</span>
+                    </span>
+                  </td>
+                  <td className="py-3">
+                    <a
+                      href={`/${entry.entity_type}s/${entry.entity_id}`}
+                      className="text-blue-600 hover:underline"
+                    >
+                      {entry.metadata_snapshot?.title || entry.metadata_snapshot?.name || 'Untitled'}
+                    </a>
+                  </td>
+                  <td className="py-3">{formatAction(entry.action)}</td>
+                  <td className="py-3 text-sm text-gray-500">
+                    {entry.source} · {entry.auth_type}
+                  </td>
+                  <td className="py-3 text-sm text-gray-500">
+                    {new Date(entry.created_at).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* Pagination */}
+          <div className="mt-4 flex items-center justify-between">
+            <span className="text-sm text-gray-500">
+              Showing {page * limit + 1}-{Math.min((page + 1) * limit, history?.total ?? 0)} of {history?.total ?? 0}
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage(Math.max(0, page - 1))}
+                disabled={page === 0}
+                className="px-3 py-1 rounded bg-gray-200 disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPage(page + 1)}
+                disabled={(page + 1) * limit >= (history?.total ?? 0)}
+                className="px-3 py-1 rounded bg-gray-200 disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+```
+
+#### 6. Add route and navigation
+
+In `frontend/src/App.tsx` or router config:
+```typescript
+<Route path="/settings/history" element={<VersionHistoryPage />} />
+```
+
+In Settings navigation:
+```typescript
+<NavLink to="/settings/history">Version History</NavLink>
+```
+
+### Testing Strategy
+
+1. **Hook tests:**
+   - `useUserHistory` fetches and caches correctly
+   - `useEntityHistory` fetches entity-specific history
+   - `useContentAtVersion` fetches version content
+   - `useRevertToVersion` calls API and invalidates cache
+
+2. **HistorySidebar tests:**
+   - Renders version list
+   - Clicking version shows diff
+   - Restore button shows confirm state on first click
+   - Confirm executes revert mutation
+   - Close button calls onClose
+
+3. **VersionHistoryPage tests:**
+   - Renders history table
+   - Filter buttons work
+   - Pagination works
+   - Links to entity detail pages
+
+4. **Integration tests:**
+   - Full flow: make edit → open sidebar → see new version → restore old version
+   - Settings page shows all content types
+
+### Dependencies
+Milestone 5 (History API endpoints)
+
+### Risk Factors
+- **Sidebar width:** 384px (w-96) may need adjustment on smaller screens. Consider responsive breakpoints.
+- **Diff performance:** Very large content may slow diff rendering. Consider truncating or lazy loading for huge documents.
+- **Dark mode:** `react-diff-viewer-continued` has dark theme support but may need CSS tweaks to match app theme.
+
+---
+
+## Milestone 9: Documentation and CLAUDE.md Update
 
 ### Goal
 Document the versioning system for developers and update CLAUDE.md.
@@ -1320,6 +1767,8 @@ None
 ## Summary of Files Changed
 
 ### New Files
+
+**Backend:**
 - `backend/src/models/content_history.py` - ContentHistory model
 - `backend/src/services/history_service.py` - History service
 - `backend/src/schemas/history.py` - History Pydantic schemas
@@ -1328,10 +1777,17 @@ None
 - `backend/tests/api/test_history.py` - History API tests
 - `backend/src/db/migrations/versions/<hash>_add_content_history.py` - Migration
 
+**Frontend:**
+- `frontend/src/hooks/useHistory.ts` - API hooks for history queries and mutations
+- `frontend/src/components/HistorySidebar.tsx` - Per-item history sidebar with diff viewer
+- `frontend/src/pages/Settings/VersionHistory.tsx` - Global history page
+
 ### Deleted Files
 - `backend/src/models/note_version.py` - Superseded by ContentHistory
 
 ### Modified Files
+
+**Backend:**
 - `backend/src/core/auth.py` - Add RequestContext, source/auth enums, update validate_pat
 - `backend/src/models/__init__.py` - Export new models, remove NoteVersion
 - `backend/src/models/user.py` - Add content_history relationship
@@ -1347,13 +1803,21 @@ None
 - `backend/src/core/tier_limits.py` - Add history retention limits
 - `backend/src/mcp_server/api_client.py` - Add X-Request-Source header
 - `backend/src/prompt_mcp_server/api_client.py` - Add X-Request-Source header
-- `pyproject.toml` - Add diff-match-patch dependency
+- `backend/pyproject.toml` - Add diff-match-patch dependency
+
+**Frontend:**
+- `frontend/src/components/BookmarkDetail.tsx` - Add history toggle button, render sidebar
+- `frontend/src/components/NoteDetail.tsx` - Add history toggle button, render sidebar
+- `frontend/src/components/PromptDetail.tsx` - Add history toggle button, render sidebar
+- `frontend/src/pages/Settings/index.tsx` - Add Version History nav link
+- `frontend/src/App.tsx` (or router config) - Add /settings/history route
+- `frontend/package.json` - Add react-diff-viewer-continued dependency
+
+**Documentation:**
 - `CLAUDE.md` - Document versioning system
 
 ---
 
 ## Open Questions for User
 
-1. **Frontend:** Should this plan include frontend components for viewing history? Or is that a separate task?
-
-2. **Retention defaults:** Are `history_retention_days=30` and `max_history_per_entity=100` reasonable defaults for the free tier?
+1. **Retention defaults:** Are `history_retention_days=30` and `max_history_per_entity=100` reasonable defaults for the free tier?
