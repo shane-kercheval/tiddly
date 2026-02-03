@@ -15,8 +15,9 @@ Implement content versioning and history tracking for bookmarks, notes, and prom
 6. Tier-based retention limits (last N days or N edits)
 
 **Documentation - Read before implementing:**
-- diff-match-patch: https://github.com/google/diff-match-patch (Python port: `diff-match-patch` on PyPI)
-- diff-match-patch API: https://github.com/google/diff-match-patch/wiki/API
+- diff-match-patch: https://github.com/diff-match-patch-python/diff-match-patch (maintained fork, Python 3.8-3.13)
+- diff-match-patch on PyPI: https://pypi.org/project/diff-match-patch/ (same package, now tracks the maintained fork)
+- Original Google repo (archived Aug 2024): https://github.com/google/diff-match-patch/wiki/API (API docs still valid)
 
 ---
 
@@ -402,6 +403,7 @@ Create service layer for recording and retrieving history, including diff-match-
    ```bash
    uv add diff-match-patch
    ```
+   Note: This installs the community-maintained fork (tested on Python 3.8-3.13). The original Google repo was archived in Aug 2024, but the PyPI package now tracks the maintained fork at https://github.com/diff-match-patch-python/diff-match-patch.
 
 2. **Create `backend/src/services/history_service.py`:**
    ```python
