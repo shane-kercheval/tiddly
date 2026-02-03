@@ -63,7 +63,7 @@ Use Google's diff-match-patch algorithm for text diffing:
 Currently missing from codebase. Need to track:
 - **Source:** "web" | "api" | "mcp-content" | "mcp-prompt" | "unknown"
 - **Auth type:** "auth0" | "pat" | "dev"
-- **Token ID:** UUID of PAT if used (for audit trail)
+- **Token prefix:** e.g., "bm_a3f8..." if PAT used (for audit trail, safe to log/display)
 
 **Source Detection via `X-Request-Source` Header:**
 - Frontend sends `X-Request-Source: web`
@@ -415,7 +415,7 @@ Add request source and auth type tracking to request context so history records 
 
 ### Success Criteria
 - All authenticated requests have `source` and `auth_type` available in request state
-- PAT requests also have `token_id` available
+- PAT requests also have `token_prefix` available (e.g., "bm_a3f8...")
 - MCP requests with `X-Request-Source` header are correctly identified
 - Existing functionality unchanged
 - Unit tests verify context is set correctly for all auth paths
@@ -448,19 +448,20 @@ Add request source and auth type tracking to request context so history records 
    class RequestContext:
        source: RequestSource
        auth_type: AuthType
-       token_id: UUID | None = None  # Only set for PAT auth
+       token_prefix: str | None = None  # Only set for PAT auth, e.g. "bm_a3f8..."
    ```
 
-3. **Update `validate_pat()` to return token_id:**
+3. **Update `validate_pat()` to return token_prefix:**
 
-   Currently `validate_pat()` returns only the User, discarding the `api_token` object. Modify to preserve the token ID:
+   Currently `validate_pat()` returns only the User, discarding the `api_token` object. Modify to preserve the token prefix for audit trails:
    ```python
-   async def validate_pat(db: AsyncSession, token: str) -> tuple[User, UUID]:
+   async def validate_pat(db: AsyncSession, token: str) -> tuple[User, str]:
        """
-       Validate a PAT and return the associated user AND token ID.
+       Validate a PAT and return the associated user AND token prefix.
 
        Returns:
-           Tuple of (User, token_id) for audit trail purposes.
+           Tuple of (User, token_prefix) for audit trail purposes.
+           Token prefix is safe to log/display (e.g., "bm_a3f8...").
        """
        api_token = await token_service.validate_token(db, token)
        if api_token is None:
@@ -468,7 +469,7 @@ Add request source and auth type tracking to request context so history records 
 
        # ... load user ...
 
-       return user, api_token.id  # Return both
+       return user, api_token.token_prefix  # Return both
    ```
 
 4. **Update auth dependencies to set request context:**
@@ -483,7 +484,7 @@ Add request source and auth type tracking to request context so history records 
        *,
        allow_pat: bool = True,
    ) -> User | CachedUser:
-       token_id = None
+       token_prefix = None
 
        if settings.dev_mode:
            auth_type = AuthType.DEV
@@ -491,7 +492,7 @@ Add request source and auth type tracking to request context so history records 
        elif token.startswith("bm_"):
            if not allow_pat:
                raise HTTPException(status_code=403, ...)
-           user, token_id = await validate_pat(db, token)  # Now returns tuple
+           user, token_prefix = await validate_pat(db, token)  # Now returns tuple
            auth_type = AuthType.PAT
        else:
            auth_type = AuthType.AUTH0
@@ -510,7 +511,7 @@ Add request source and auth type tracking to request context so history records 
        request.state.request_context = RequestContext(
            source=source,
            auth_type=auth_type,
-           token_id=token_id,
+           token_prefix=token_prefix,
        )
 
        return user
@@ -543,9 +544,9 @@ Add request source and auth type tracking to request context so history records 
 ### Testing Strategy
 
 1. **Unit tests for auth dependency:**
-   - Auth0 JWT sets `auth_type=AUTH0`, `token_id=None`
-   - PAT auth sets `auth_type=PAT`, `token_id=<uuid>`
-   - DEV_MODE sets `auth_type=DEV`, `token_id=None`
+   - Auth0 JWT sets `auth_type=AUTH0`, `token_prefix=None`
+   - PAT auth sets `auth_type=PAT`, `token_prefix="bm_..."`
+   - DEV_MODE sets `auth_type=DEV`, `token_prefix=None`
    - `source` defaults to `UNKNOWN` without header
    - `X-Request-Source: web` sets `source=WEB`
    - `X-Request-Source: api` sets `source=API`
@@ -629,10 +630,8 @@ Create the `content_history` table to store all history records, and clean up un
        # Source tracking
        source: Mapped[str] = mapped_column(String(20), nullable=False)
        auth_type: Mapped[str] = mapped_column(String(10), nullable=False)
-       token_id: Mapped[UUID | None] = mapped_column(
-           ForeignKey("api_tokens.id", ondelete="SET NULL"),
-           nullable=True,
-       )
+       # Token prefix for PAT audit trail (e.g., "bm_a3f8...") - safe to display/log
+       token_prefix: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
        # Timestamps
        created_at: Mapped[datetime] = mapped_column(
@@ -643,7 +642,6 @@ Create the `content_history` table to store all history records, and clean up un
 
        # Relationships
        user: Mapped["User"] = relationship(back_populates="content_history")
-       token: Mapped["ApiToken | None"] = relationship()
 
        __table_args__ = (
            # Unique constraint prevents duplicate versions from race conditions
@@ -684,6 +682,8 @@ Create the `content_history` table to store all history records, and clean up un
    ```bash
    make migration message="add content_history table and drop note_versions"
    ```
+
+   **NOTE**: ALWAY add migrations using `make migration` to ensure proper versioning; NEVER create migrations manually.
 
    The migration should:
    - Create `content_history` table with all columns, indexes, and unique constraint
@@ -839,7 +839,7 @@ Create service layer for recording and retrieving history, including diff-match-
                metadata_snapshot=metadata,
                source=context.source.value,
                auth_type=context.auth_type.value,
-               token_id=context.token_id,
+               token_prefix=context.token_prefix,
            )
            db.add(history)
            await db.flush()
@@ -1253,7 +1253,7 @@ Hook history recording into existing service CRUD operations.
 ### Context Parameter Documentation
 
 The `context: RequestContext | None` parameter controls whether history is recorded:
-- **When provided:** History is recorded with source/auth_type/token_id tracking
+- **When provided:** History is recorded with source/auth_type/token_prefix tracking
 - **When None:** History recording is skipped (silent operation)
 
 **Intentional uses of `context=None`:**
@@ -1283,7 +1283,7 @@ This is not blocking for V1 but should be considered if bulk endpoints are added
 
 2. **Context propagation tests:**
    - History records have correct source and auth_type
-   - PAT requests have token_id in history
+   - PAT requests have token_prefix in history
    - MCP requests have correct source (mcp-content or mcp-prompt)
 
 3. **Diff verification:**
@@ -2272,7 +2272,7 @@ Document the versioning system for developers and update CLAUDE.md.
    **Source Tracking:**
    - Request source: web, api, mcp-content, mcp-prompt
    - Auth type: auth0, pat, dev
-   - Token ID for PAT requests (audit trail)
+   - Token prefix for PAT requests (audit trail, e.g., "bm_a3f8...")
 
    **Diff Storage:**
    - Full snapshots every 10 versions
