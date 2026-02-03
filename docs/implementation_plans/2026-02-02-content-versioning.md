@@ -40,9 +40,10 @@ A single polymorphic `content_history` table for all content types (bookmarks, n
 ## Diff Strategy: diff-match-patch
 
 Use Google's diff-match-patch algorithm for text diffing:
-- Store full snapshot every N versions (default: 10)
+- Store full snapshot every N versions (default: 10, may adjust based on Milestone 0 benchmarks)
 - Store character-level diffs between snapshots
 - Reconstruct any version by: find nearest prior snapshot, apply diffs forward
+- **Note:** Milestone 0 benchmarks will validate these defaults and determine if thread pool is needed
 
 **Storage approach:**
 - `content_diff`: Full text (snapshot) OR diff-match-patch delta string (diff)
@@ -72,6 +73,338 @@ Currently missing from codebase. Need to track:
 - Missing or unrecognized header defaults to `unknown` (not `api`)
 
 This is spoofable but acceptable - source tracking is for audit/telemetry, not access control.
+
+---
+
+## Milestone 0: Diff Performance Benchmarking
+
+### Goal
+Validate diff-match-patch performance characteristics before building the history service. Establish thresholds and make informed decisions about implementation approach (sync vs thread pool, snapshot intervals, size limits).
+
+### Success Criteria
+- Benchmark results documented for various content sizes and change patterns
+- Decision made: sync implementation vs thread pool from start
+- Snapshot interval validated or adjusted based on reconstruction performance
+- Content size threshold established for forced snapshots (if needed)
+
+### Benchmark Script
+
+Create `backend/scripts/benchmark_diff.py`:
+
+```python
+"""
+Benchmark diff-match-patch performance for content versioning.
+
+Run with: uv run python backend/scripts/benchmark_diff.py
+"""
+import asyncio
+import statistics
+import time
+from dataclasses import dataclass
+
+from diff_match_patch import diff_match_patch
+
+
+@dataclass
+class BenchmarkResult:
+    operation: str
+    content_size: str
+    change_type: str
+    iterations: int
+    p50_ms: float
+    p95_ms: float
+    p99_ms: float
+    max_ms: float
+
+
+def generate_content(size_kb: int) -> str:
+    """Generate realistic text content of approximately size_kb."""
+    # Mix of paragraphs, code-like content, and lists
+    base = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. " * 20
+    return (base * ((size_kb * 1024) // len(base) + 1))[:size_kb * 1024]
+
+
+def apply_small_change(content: str) -> str:
+    """Simulate small edit - change ~1% of content."""
+    mid = len(content) // 2
+    return content[:mid] + " [EDITED] " + content[mid + 10:]
+
+
+def apply_medium_change(content: str) -> str:
+    """Simulate medium edit - change ~10% of content."""
+    chunk_size = len(content) // 10
+    return content[:chunk_size] + generate_content(1)[:chunk_size] + content[chunk_size * 2:]
+
+
+def apply_large_change(content: str) -> str:
+    """Simulate large edit - change ~50% of content."""
+    half = len(content) // 2
+    return content[:half // 2] + generate_content(half // 1024 + 1)[:half] + content[-half // 2:]
+
+
+def benchmark_diff_computation(
+    dmp: diff_match_patch,
+    size_kb: int,
+    change_fn: callable,
+    change_name: str,
+    iterations: int = 100,
+) -> BenchmarkResult:
+    """Benchmark patch_make performance."""
+    original = generate_content(size_kb)
+    modified = change_fn(original)
+
+    times = []
+    for _ in range(iterations):
+        start = time.perf_counter()
+        patches = dmp.patch_make(original, modified)
+        elapsed = (time.perf_counter() - start) * 1000  # ms
+        times.append(elapsed)
+
+    times.sort()
+    return BenchmarkResult(
+        operation="patch_make",
+        content_size=f"{size_kb}KB",
+        change_type=change_name,
+        iterations=iterations,
+        p50_ms=round(statistics.median(times), 3),
+        p95_ms=round(times[int(len(times) * 0.95)], 3),
+        p99_ms=round(times[int(len(times) * 0.99)], 3),
+        max_ms=round(max(times), 3),
+    )
+
+
+def benchmark_reconstruction(
+    dmp: diff_match_patch,
+    size_kb: int,
+    num_diffs: int,
+    iterations: int = 50,
+) -> BenchmarkResult:
+    """Benchmark applying N sequential diffs (reconstruction scenario)."""
+    content = generate_content(size_kb)
+
+    # Pre-generate diffs
+    diffs = []
+    current = content
+    for i in range(num_diffs):
+        modified = apply_small_change(current)
+        patches = dmp.patch_make(current, modified)
+        diffs.append(dmp.patch_toText(patches))
+        current = modified
+
+    # Benchmark reconstruction
+    times = []
+    for _ in range(iterations):
+        reconstructed = content
+        start = time.perf_counter()
+        for diff_text in diffs:
+            patches = dmp.patch_fromText(diff_text)
+            reconstructed, _ = dmp.patch_apply(patches, reconstructed)
+        elapsed = (time.perf_counter() - start) * 1000  # ms
+        times.append(elapsed)
+
+    times.sort()
+    return BenchmarkResult(
+        operation="reconstruct",
+        content_size=f"{size_kb}KB",
+        change_type=f"{num_diffs}_diffs",
+        iterations=iterations,
+        p50_ms=round(statistics.median(times), 3),
+        p95_ms=round(times[int(len(times) * 0.95)], 3),
+        p99_ms=round(times[int(len(times) * 0.99)], 3),
+        max_ms=round(max(times), 3),
+    )
+
+
+async def benchmark_event_loop_impact(
+    dmp: diff_match_patch,
+    size_kb: int,
+) -> dict:
+    """Test how diff computation affects concurrent async operations."""
+    original = generate_content(size_kb)
+    modified = apply_medium_change(original)
+
+    async def simulated_request():
+        """Simulate an async request that should complete quickly."""
+        start = time.perf_counter()
+        await asyncio.sleep(0.001)  # 1ms simulated I/O
+        return (time.perf_counter() - start) * 1000
+
+    # Baseline: concurrent requests without diff
+    baseline_tasks = [simulated_request() for _ in range(10)]
+    baseline_times = await asyncio.gather(*baseline_tasks)
+
+    # With diff: run diff computation alongside async requests
+    async def diff_and_requests():
+        # Start concurrent requests
+        request_tasks = [simulated_request() for _ in range(10)]
+
+        # Run blocking diff (simulating what happens without thread pool)
+        dmp.patch_make(original, modified)
+
+        return await asyncio.gather(*request_tasks)
+
+    impacted_times = await diff_and_requests()
+
+    return {
+        "content_size": f"{size_kb}KB",
+        "baseline_p95_ms": round(sorted(baseline_times)[int(len(baseline_times) * 0.95)], 3),
+        "impacted_p95_ms": round(sorted(impacted_times)[int(len(impacted_times) * 0.95)], 3),
+        "degradation_factor": round(
+            statistics.mean(impacted_times) / statistics.mean(baseline_times), 2
+        ),
+    }
+
+
+def main():
+    dmp = diff_match_patch()
+
+    print("=" * 80)
+    print("DIFF-MATCH-PATCH PERFORMANCE BENCHMARKS")
+    print("=" * 80)
+
+    # 1. Diff computation benchmarks
+    print("\n## Diff Computation (patch_make)\n")
+    print(f"{'Size':<10} {'Change':<12} {'P50 (ms)':<12} {'P95 (ms)':<12} {'P99 (ms)':<12} {'Max (ms)':<12}")
+    print("-" * 70)
+
+    sizes = [1, 10, 50, 100, 500, 1000]  # KB
+    changes = [
+        (apply_small_change, "small"),
+        (apply_medium_change, "medium"),
+        (apply_large_change, "large"),
+    ]
+
+    diff_results = []
+    for size in sizes:
+        for change_fn, change_name in changes:
+            result = benchmark_diff_computation(dmp, size, change_fn, change_name)
+            diff_results.append(result)
+            print(f"{result.content_size:<10} {result.change_type:<12} {result.p50_ms:<12} {result.p95_ms:<12} {result.p99_ms:<12} {result.max_ms:<12}")
+
+    # 2. Reconstruction benchmarks
+    print("\n## Reconstruction (applying sequential diffs)\n")
+    print(f"{'Size':<10} {'Diffs':<12} {'P50 (ms)':<12} {'P95 (ms)':<12} {'P99 (ms)':<12} {'Max (ms)':<12}")
+    print("-" * 70)
+
+    recon_sizes = [10, 100]  # KB
+    diff_counts = [1, 5, 10, 20, 50]
+
+    for size in recon_sizes:
+        for num_diffs in diff_counts:
+            result = benchmark_reconstruction(dmp, size, num_diffs)
+            print(f"{result.content_size:<10} {result.change_type:<12} {result.p50_ms:<12} {result.p95_ms:<12} {result.p99_ms:<12} {result.max_ms:<12}")
+
+    # 3. Event loop impact
+    print("\n## Event Loop Impact (async degradation)\n")
+    print(f"{'Size':<10} {'Baseline P95':<15} {'Impacted P95':<15} {'Degradation':<12}")
+    print("-" * 55)
+
+    for size in [10, 100, 500]:
+        impact = asyncio.run(benchmark_event_loop_impact(dmp, size))
+        print(f"{impact['content_size']:<10} {impact['baseline_p95_ms']:<15} {impact['impacted_p95_ms']:<15} {impact['degradation_factor']:<12}x")
+
+    # 4. Recommendations
+    print("\n" + "=" * 80)
+    print("RECOMMENDATIONS")
+    print("=" * 80)
+
+    # Find threshold where P95 > 10ms
+    threshold_size = None
+    for result in diff_results:
+        if result.p95_ms > 10 and threshold_size is None:
+            threshold_size = result.content_size
+            break
+
+    if threshold_size:
+        print(f"\n⚠️  P95 exceeds 10ms at {threshold_size} - consider thread pool for large content")
+    else:
+        print("\n✅ P95 under 10ms for all tested sizes - sync implementation acceptable")
+
+    print("\nDecision points:")
+    print("- [ ] Use sync implementation (if P95 < 10ms for typical content)")
+    print("- [ ] Use thread pool from start (if P95 > 50ms for common sizes)")
+    print("- [ ] Adjust snapshot interval (if reconstruction > 20ms)")
+    print("- [ ] Add content size limit (if large content causes issues)")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### Running the Benchmark
+
+```bash
+# Install diff-match-patch first
+uv add diff-match-patch
+
+# Run benchmark
+uv run python backend/scripts/benchmark_diff.py
+```
+
+### Expected Output Format
+
+```
+================================================================================
+DIFF-MATCH-PATCH PERFORMANCE BENCHMARKS
+================================================================================
+
+## Diff Computation (patch_make)
+
+Size       Change       P50 (ms)     P95 (ms)     P99 (ms)     Max (ms)
+----------------------------------------------------------------------
+1KB        small        0.1          0.2          0.3          0.5
+1KB        medium       0.2          0.3          0.4          0.6
+...
+
+## Reconstruction (applying sequential diffs)
+
+Size       Diffs        P50 (ms)     P95 (ms)     P99 (ms)     Max (ms)
+----------------------------------------------------------------------
+10KB       5_diffs      0.5          0.8          1.0          1.2
+...
+
+## Event Loop Impact (async degradation)
+
+Size       Baseline P95    Impacted P95    Degradation
+-------------------------------------------------------
+10KB       1.1             1.2             1.1x
+100KB      1.1             5.5             5.0x
+...
+
+================================================================================
+RECOMMENDATIONS
+================================================================================
+
+⚠️  P95 exceeds 10ms at 500KB - consider thread pool for large content
+```
+
+### Decision Matrix
+
+After running benchmarks, fill in:
+
+| Metric | Threshold | Result | Decision |
+|--------|-----------|--------|----------|
+| P95 diff time for 50KB | < 10ms | ___ ms | Sync OK / Need thread pool |
+| P95 reconstruction (10 diffs, 50KB) | < 20ms | ___ ms | Interval 10 OK / Reduce to 5 |
+| Event loop degradation at 100KB | < 2x | ___x | Acceptable / Need thread pool |
+| Content size for P95 > 50ms | Note size | ___ KB | Set as forced-snapshot threshold |
+
+### Deliverables
+
+1. Benchmark script committed to `backend/scripts/benchmark_diff.py`
+2. Results documented in this plan (update after running)
+3. Implementation decision recorded:
+   - [ ] Proceed with sync implementation
+   - [ ] Implement thread pool from start
+   - [ ] Adjust snapshot interval to: ___
+   - [ ] Add forced-snapshot threshold at: ___ KB
+
+### Dependencies
+None - can run before any other milestones
+
+### Risk Factors
+- Benchmark results may vary by machine; run on production-similar hardware if possible
+- Real-world content patterns may differ from synthetic benchmarks
 
 ---
 
@@ -390,6 +723,11 @@ Milestone 1 (for source/auth_type enums)
 ### Goal
 Create service layer for recording and retrieving history, including diff-match-patch integration.
 
+**Prerequisites:** Review Milestone 0 benchmark results to determine:
+- Sync vs thread pool implementation
+- Snapshot interval (default 10, adjust if reconstruction is slow)
+- Content size threshold for forced snapshots (if any)
+
 ### Success Criteria
 - History is recorded on create/update/delete/restore/archive/unarchive
 - Diffs are computed and stored correctly
@@ -485,6 +823,8 @@ Create service layer for recording and retrieving history, including diff-match-
            else:
                # Compute diff from previous to current
                diff_type = DiffType.DIFF
+               # NOTE: If Milestone 0 benchmarks indicate thread pool needed,
+               # wrap this in: await loop.run_in_executor(executor, lambda: ...)
                patches = self.dmp.patch_make(previous_content, current_content)
                content_diff = self.dmp.patch_toText(patches)
 
@@ -638,6 +978,7 @@ Create service layer for recording and retrieving history, including diff-match-
                    content = record.content_diff
                elif record.diff_type == DiffType.DIFF.value and record.content_diff:
                    patches = self.dmp.patch_fromText(record.content_diff)
+                   # NOTE: If thread pool needed per Milestone 0, offload patch_apply too
                    new_content, results = self.dmp.patch_apply(patches, content or "")
                    if not all(results):
                        # Some patches failed - log but continue with partial result
@@ -738,6 +1079,7 @@ Milestone 2 (ContentHistory model)
 - **Diff corruption:** If a diff is corrupted, all subsequent versions until next snapshot are broken. Snapshot interval mitigates this. Partial failures are logged but don't fail the request.
 - **Large diffs:** For complete rewrites, diff may be larger than full content. Consider storing snapshot if diff > content length (future optimization).
 - **Savepoint overhead:** Using `begin_nested()` has slight overhead vs plain insert, but ensures parent transaction integrity on retry.
+- **Event loop blocking:** Diff computation is CPU-bound. Milestone 0 benchmarks determine if thread pool is needed. If yes, wrap `patch_make` and `patch_apply` calls with `run_in_executor()`.
 
 ---
 
