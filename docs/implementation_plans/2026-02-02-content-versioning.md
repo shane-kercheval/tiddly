@@ -74,6 +74,12 @@ Currently missing from codebase. Need to track:
 
 This is spoofable but acceptable - source tracking is for audit/telemetry, not access control.
 
+**MCP Server Restrictions:** Both MCP servers explicitly block delete operations:
+- Content MCP: "Delete/archive operations are only available via web UI"
+- Prompt MCP: "There is no delete tool. Prompts can only be deleted via the web UI"
+
+This ensures AI agents via MCP can only read, create, and update - not delete (soft or hard). Delete operations require web UI (Auth0 authentication).
+
 ---
 
 ## Milestone 0: Diff Performance Benchmarking
@@ -617,7 +623,8 @@ Create the `content_history` table to store all history records, and clean up un
            nullable=False,
        )
        entity_type: Mapped[str] = mapped_column(String(20), nullable=False)
-       # No FK on entity_id - intentionally allows history to persist after permanent delete
+       # No DB-level FK (polymorphic reference to bookmarks/notes/prompts)
+       # History is deleted via application-level cascade when entity is hard-deleted
        entity_id: Mapped[UUID] = mapped_column(nullable=False)
        action: Mapped[str] = mapped_column(String(20), nullable=False)
 
@@ -714,7 +721,7 @@ Create the `content_history` table to store all history records, and clean up un
 Milestone 1 (for source/auth_type enums)
 
 ### Risk Factors
-- **No FK on entity_id:** Intentional - allows history to persist after permanent delete. Verify queries handle missing entities gracefully.
+- **No DB-level FK on entity_id:** Polymorphic reference to bookmarks/notes/prompts tables. History cleanup on hard-delete is handled at application level (see Milestone 4).
 
 ---
 
@@ -1225,7 +1232,63 @@ Hook history recording into existing service CRUD operations.
 
 5. **Handle delete/restore/archive/unarchive:**
 
-   Each operation records appropriate action type. Delete captures final state before deletion.
+   Each operation records appropriate action type.
+
+   **Soft delete:** Records DELETE action with final state, history preserved for potential restore.
+
+   **Hard delete:** Delete all history for the entity, then delete the entity. No history record for the hard delete itself (entity and history are gone).
+
+   ```python
+   async def delete(self, db, user_id, entity_id, permanent: bool, context: RequestContext | None = None):
+       entity = await self.get(db, user_id, entity_id, include_deleted=True)
+       if entity is None:
+           return None
+
+       if permanent:
+           # Hard delete: cascade-delete history first (application-level cascade)
+           await history_service.delete_entity_history(
+               db, user_id, self.entity_type, entity_id
+           )
+           await db.delete(entity)
+       else:
+           # Soft delete: record history, then mark deleted
+           if context:
+               await history_service.record_action(
+                   db=db,
+                   user_id=user_id,
+                   entity_type=self.entity_type,
+                   entity_id=entity.id,
+                   action=ActionType.DELETE,
+                   current_content=None,  # Content is "gone"
+                   previous_content=entity.content,
+                   metadata=self._get_metadata_snapshot(entity),
+                   context=context,
+               )
+           entity.deleted_at = func.clock_timestamp()
+
+       await db.flush()
+       return entity
+   ```
+
+   Add to `HistoryService`:
+   ```python
+   async def delete_entity_history(
+       self,
+       db: AsyncSession,
+       user_id: UUID,
+       entity_type: EntityType | str,
+       entity_id: UUID,
+   ) -> int:
+       """Delete all history for an entity. Called during hard delete."""
+       entity_type_value = entity_type.value if isinstance(entity_type, EntityType) else entity_type
+       stmt = delete(ContentHistory).where(
+           ContentHistory.user_id == user_id,
+           ContentHistory.entity_type == entity_type_value,
+           ContentHistory.entity_id == entity_id,
+       )
+       result = await db.execute(stmt)
+       return result.rowcount
+   ```
 
 6. **Add history recording to str-replace endpoints:**
 
@@ -1277,7 +1340,8 @@ This is not blocking for V1 but should be considered if bulk endpoints are added
 1. **Integration tests per operation:**
    - Create bookmark → history record exists with CREATE action
    - Update bookmark → history record with UPDATE action and diff
-   - Delete bookmark → history record with DELETE action
+   - Soft delete bookmark → history record with DELETE action (history preserved)
+   - Hard delete bookmark → history cascade-deleted (no history remains)
    - Restore bookmark → history record with RESTORE action
    - Archive/unarchive → appropriate history records
 
@@ -1418,7 +1482,7 @@ Expose history data via API endpoints.
 
 4. **Add per-entity history endpoints to existing routers:**
 
-   **Important:** Do NOT check if the entity exists. History should be accessible even for permanently deleted entities (history survives deletion). Query ContentHistory directly by entity_id.
+   **Note:** History is cascade-deleted when an entity is hard-deleted, so these endpoints will return empty results for hard-deleted entities. Soft-deleted entities retain their history.
 
    ```python
    # In bookmarks.py
@@ -1433,8 +1497,8 @@ Expose history data via API endpoints.
        """
        Get history for a specific bookmark.
 
-       History is available even for permanently deleted bookmarks.
-       Returns empty list if no history exists for this entity_id.
+       Returns empty list if entity was hard-deleted (history cascade-deleted)
+       or if no history exists for this entity_id.
        """
        # Query history directly - don't check entity existence
        # This allows viewing history of deleted items
@@ -1464,16 +1528,16 @@ Expose history data via API endpoints.
    - Edge cases: offset beyond total, empty results
 
 4. **Deleted entity tests:**
-   - Get history for permanently deleted entity returns history records
+   - Get history for soft-deleted entity returns history records (history preserved)
+   - Get history for hard-deleted entity returns empty list (history cascade-deleted)
    - Get history for entity that never existed returns empty list (not 404)
-   - Per-entity history endpoint does NOT check entity existence
 
 ### Dependencies
 Milestone 4 (history recording integrated)
 
 ### Risk Factors
 - **Large history:** Users with many changes may have slow queries. Indexes should help.
-- **Deleted entities:** History for deleted entities is accessible by design (no FK on entity_id).
+- **Hard-deleted entities:** History is cascade-deleted at application level, so no orphaned history exists.
 
 ---
 
