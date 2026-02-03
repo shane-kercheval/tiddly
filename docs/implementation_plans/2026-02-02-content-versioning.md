@@ -59,11 +59,18 @@ Use Google's diff-match-patch algorithm for text diffing:
 ## Request Source Tracking
 
 Currently missing from codebase. Need to track:
-- **Source:** "web" | "api" | "mcp-content" | "mcp-prompt"
+- **Source:** "web" | "api" | "mcp-content" | "mcp-prompt" | "unknown"
 - **Auth type:** "auth0" | "pat" | "dev"
 - **Token ID:** UUID of PAT if used (for audit trail)
 
-**MCP Source Detection:** MCP servers make HTTP calls to the API. They will include an `X-Request-Source` header (e.g., `X-Request-Source: mcp-content`) when calling API endpoints. The API reads this header and sets the source accordingly. This is spoofable but acceptable - source tracking is for audit/telemetry, not access control.
+**Source Detection via `X-Request-Source` Header:**
+- Frontend sends `X-Request-Source: web`
+- MCP Content server sends `X-Request-Source: mcp-content`
+- MCP Prompt server sends `X-Request-Source: mcp-prompt`
+- CLI/scripts using PATs can send `X-Request-Source: api` (optional)
+- Missing or unrecognized header defaults to `unknown` (not `api`)
+
+This is spoofable but acceptable - source tracking is for audit/telemetry, not access control.
 
 ---
 
@@ -90,6 +97,7 @@ Add request source and auth type tracking to request context so history records 
        API = "api"
        MCP_CONTENT = "mcp-content"
        MCP_PROMPT = "mcp-prompt"
+       UNKNOWN = "unknown"  # Default when header missing/unrecognized
 
    class AuthType(str, Enum):
        AUTH0 = "auth0"
@@ -155,14 +163,15 @@ Add request source and auth type tracking to request context so history records 
            auth_type = AuthType.AUTH0
            # ... existing JWT validation ...
 
-       # Determine source from header (MCP sets this)
+       # Determine source from header (frontend and MCP servers set this)
        source_header = request.headers.get("x-request-source", "").lower()
-       if source_header == "mcp-content":
-           source = RequestSource.MCP_CONTENT
-       elif source_header == "mcp-prompt":
-           source = RequestSource.MCP_PROMPT
-       else:
-           source = RequestSource.API  # Default
+       source_map = {
+           "web": RequestSource.WEB,
+           "api": RequestSource.API,
+           "mcp-content": RequestSource.MCP_CONTENT,
+           "mcp-prompt": RequestSource.MCP_PROMPT,
+       }
+       source = source_map.get(source_header, RequestSource.UNKNOWN)
 
        request.state.request_context = RequestContext(
            source=source,
@@ -203,15 +212,17 @@ Add request source and auth type tracking to request context so history records 
    - Auth0 JWT sets `auth_type=AUTH0`, `token_id=None`
    - PAT auth sets `auth_type=PAT`, `token_id=<uuid>`
    - DEV_MODE sets `auth_type=DEV`, `token_id=None`
-   - `source` defaults to `API` without header
+   - `source` defaults to `UNKNOWN` without header
+   - `X-Request-Source: web` sets `source=WEB`
+   - `X-Request-Source: api` sets `source=API`
    - `X-Request-Source: mcp-content` sets `source=MCP_CONTENT`
    - `X-Request-Source: mcp-prompt` sets `source=MCP_PROMPT`
-   - Invalid/unknown header values default to `API`
+   - Invalid/unrecognized header values default to `UNKNOWN`
 
 2. **Integration tests:**
    - Request to API endpoint has request_context in state
    - Different auth methods produce correct auth_type
-   - MCP header correctly sets source
+   - Source headers correctly set source
 
 ### Dependencies
 None
@@ -271,7 +282,8 @@ Create the `content_history` table to store all history records, and clean up un
            nullable=False,
        )
        entity_type: Mapped[str] = mapped_column(String(20), nullable=False)
-       entity_id: Mapped[UUID] = mapped_column(nullable=False)  # No FK - entity may be deleted
+       # No FK on entity_id - intentionally allows history to persist after permanent delete
+       entity_id: Mapped[UUID] = mapped_column(nullable=False)
        action: Mapped[str] = mapped_column(String(20), nullable=False)
 
        # Version tracking
@@ -322,14 +334,19 @@ Create the `content_history` table to store all history records, and clean up un
 
 2. **Update `backend/src/models/__init__.py`:**
    - Export ContentHistory, ActionType, EntityType, DiffType
-   - Remove NoteVersion export
+   - Remove NoteVersion import and export from `__all__`
 
 3. **Update User model:**
    - Add relationship: `content_history: Mapped[list["ContentHistory"]] = relationship(back_populates="user")`
 
 4. **Delete `backend/src/models/note_version.py`**
 
-5. **Create migration:**
+5. **Update tests referencing NoteVersion:**
+   - `backend/tests/services/test_user_cascade.py`: Remove NoteVersion import and test code (lines 14, 100-108)
+   - Search for other references: `grep -r "NoteVersion" backend/`
+   - Update or remove any other files that import NoteVersion
+
+7. **Create migration:**
    ```bash
    make migration message="add content_history table and drop note_versions"
    ```
@@ -354,6 +371,10 @@ Create the `content_history` table to store all history records, and clean up un
    - Indexes exist
    - `note_versions` table is dropped
    - `notes.version` column is dropped
+
+3. **Code cleanup verification:**
+   - `make tests` passes (no import errors from removed NoteVersion)
+   - No remaining references to NoteVersion in codebase
 
 ### Dependencies
 Milestone 1 (for source/auth_type enums)
@@ -384,10 +405,20 @@ Create service layer for recording and retrieving history, including diff-match-
 
 2. **Create `backend/src/services/history_service.py`:**
    ```python
+   import logging
+   from dataclasses import dataclass
    from diff_match_patch import diff_match_patch
    from sqlalchemy.exc import IntegrityError
 
+   logger = logging.getLogger(__name__)
+
    SNAPSHOT_INTERVAL = 10  # Full snapshot every N versions
+
+   @dataclass
+   class ReconstructionResult:
+       """Result of content reconstruction at a version."""
+       found: bool  # Whether the version exists
+       content: str | None  # Content at that version (None is valid for some actions)
 
    class HistoryService:
        def __init__(self):
@@ -407,15 +438,17 @@ Create service layer for recording and retrieving history, including diff-match-
        ) -> ContentHistory:
            """Record a history entry for an action."""
            # Retry loop for race condition on version allocation
+           # Uses savepoint to avoid rolling back the parent entity change
            max_retries = 3
            for attempt in range(max_retries):
                try:
-                   return await self._record_action_impl(
-                       db, user_id, entity_type, entity_id, action,
-                       current_content, previous_content, metadata, context,
-                   )
+                   async with db.begin_nested():  # Creates savepoint
+                       return await self._record_action_impl(
+                           db, user_id, entity_type, entity_id, action,
+                           current_content, previous_content, metadata, context,
+                       )
                except IntegrityError:
-                   await db.rollback()
+                   # Savepoint automatically rolled back, parent transaction intact
                    if attempt == max_retries - 1:
                        raise
                    # Retry with new version number
@@ -546,9 +579,13 @@ Create service layer for recording and retrieving history, including diff-match-
            entity_type: EntityType | str,
            entity_id: UUID,
            target_version: int,
-       ) -> str | None:
+       ) -> ReconstructionResult:
            """
            Reconstruct content at a specific version by applying diffs.
+
+           Returns ReconstructionResult with:
+           - found=False if version doesn't exist
+           - found=True with content (which may be None for delete actions)
 
            Optimized to only load records from nearest snapshot to target version.
            """
@@ -571,11 +608,11 @@ Create service layer for recording and retrieving history, including diff-match-
            snapshot = snapshot_result.scalar_one_or_none()
 
            if snapshot is None:
-               return None
+               return ReconstructionResult(found=False, content=None)
 
            # If target is the snapshot itself, return directly
            if snapshot.version == target_version:
-               return snapshot.content_diff
+               return ReconstructionResult(found=True, content=snapshot.content_diff)
 
            # Step 2: Get diffs from snapshot to target
            diffs_stmt = (
@@ -599,9 +636,16 @@ Create service layer for recording and retrieving history, including diff-match-
                    content = record.content_diff
                elif record.diff_type == DiffType.DIFF.value and record.content_diff:
                    patches = self.dmp.patch_fromText(record.content_diff)
-                   content, _ = self.dmp.patch_apply(patches, content)
+                   new_content, results = self.dmp.patch_apply(patches, content or "")
+                   if not all(results):
+                       # Some patches failed - log but continue with partial result
+                       logger.warning(
+                           "Diff application partial failure for %s/%s v%d: %s",
+                           entity_type_value, entity_id, record.version, results,
+                       )
+                   content = new_content
 
-           return content
+           return ReconstructionResult(found=True, content=content)
 
        async def get_history_at_version(
            self,
@@ -663,16 +707,22 @@ Create service layer for recording and retrieving history, including diff-match-
    - None content forces snapshot
 
 3. **Content reconstruction tests:**
-   - Reconstruct version 1 (snapshot only)
-   - Reconstruct version 5 (snapshot + 4 diffs)
+   - Reconstruct version 1 (snapshot only) returns `found=True`
+   - Reconstruct version 5 (snapshot + 4 diffs) returns `found=True`
    - Reconstruct version 15 (queries from nearest snapshot, not all history)
-   - Non-existent version returns None
+   - Non-existent version returns `found=False`
+   - Version with None content (delete action) returns `found=True, content=None`
    - Verify only necessary records are queried (not full history)
 
 4. **Race condition tests:**
    - Concurrent history writes to same entity produce sequential versions
-   - IntegrityError triggers retry and succeeds
+   - IntegrityError triggers retry with savepoint (parent transaction intact)
    - Max retries exceeded raises error
+   - Parent entity change is NOT rolled back when history insert fails
+
+5. **Diff failure handling tests:**
+   - Corrupted diff logs warning but returns partial result
+   - Reconstruction continues after partial patch failure
 
 5. **History retrieval tests:**
    - Get entity history returns correct records and total count
@@ -683,8 +733,9 @@ Create service layer for recording and retrieving history, including diff-match-
 Milestone 2 (ContentHistory model)
 
 ### Risk Factors
-- **Diff corruption:** If a diff is corrupted, all subsequent versions until next snapshot are broken. Snapshot interval mitigates this.
+- **Diff corruption:** If a diff is corrupted, all subsequent versions until next snapshot are broken. Snapshot interval mitigates this. Partial failures are logged but don't fail the request.
 - **Large diffs:** For complete rewrites, diff may be larger than full content. Consider storing snapshot if diff > content length (future optimization).
+- **Savepoint overhead:** Using `begin_nested()` has slight overhead vs plain insert, but ensures parent transaction integrity on retry.
 
 ---
 
@@ -832,6 +883,51 @@ Hook history recording into existing service CRUD operations.
 
    Each operation records appropriate action type. Delete captures final state before deletion.
 
+6. **Add history recording to str-replace endpoints:**
+
+   The `str-replace` endpoints in `bookmarks.py`, `notes.py`, and `prompts.py` mutate content directly in the router, bypassing the service layer. Add history recording directly in these endpoints:
+
+   ```python
+   # In each str-replace endpoint, after the content update:
+   context = get_request_context(request)
+   if context:
+       await history_service.record_action(
+           db=db,
+           user_id=current_user.id,
+           entity_type=EntityType.BOOKMARK,  # or NOTE/PROMPT
+           entity_id=bookmark.id,
+           action=ActionType.UPDATE,
+           current_content=result.new_content,
+           previous_content=bookmark.content,  # Captured before modification
+           metadata=bookmark_service._get_metadata_snapshot(bookmark),
+           context=context,
+       )
+   ```
+
+   Note: Capture `previous_content = entity.content` BEFORE setting `entity.content = result.new_content`.
+
+### Context Parameter Documentation
+
+The `context: RequestContext | None` parameter controls whether history is recorded:
+- **When provided:** History is recorded with source/auth_type/token_id tracking
+- **When None:** History recording is skipped (silent operation)
+
+**Intentional uses of `context=None`:**
+- Internal/system operations (e.g., future auto-archive cron jobs)
+- Data migrations or cleanup scripts
+- Operations where audit trail is not required
+
+**Important:** For all user-initiated actions from routers, context MUST be provided. The router is responsible for calling `get_request_context(request)` and passing it to the service.
+
+### Future Consideration: Bulk Operations
+
+If bulk operations are added (e.g., "delete 100 notes"), consider:
+- Whether to create N individual history records (accurate but slow)
+- Whether to create a single "bulk delete" record with affected IDs in metadata
+- Performance implications of large transactions
+
+This is not blocking for V1 but should be considered if bulk endpoints are added later.
+
 ### Testing Strategy
 
 1. **Integration tests per operation:**
@@ -855,6 +951,13 @@ Hook history recording into existing service CRUD operations.
    - Tag-only change creates history record
    - Title-only change creates history record
    - History record has content_diff (as snapshot) even when content unchanged
+
+5. **str-replace history tests:**
+   - str-replace on bookmark creates history record with UPDATE action
+   - str-replace on note creates history record
+   - str-replace on prompt creates history record
+   - History has correct previous_content and current_content
+   - History has correct source from request context
 
 ### Dependencies
 Milestone 3 (HistoryService)
@@ -949,10 +1052,10 @@ Expose history data via API endpoints.
        db: AsyncSession = Depends(get_async_session),
    ) -> ContentAtVersionResponse:
        """Reconstruct content at a specific version."""
-       content = await history_service.reconstruct_content_at_version(
+       result = await history_service.reconstruct_content_at_version(
            db, current_user.id, entity_type, entity_id, version
        )
-       if content is None:
+       if not result.found:
            raise HTTPException(status_code=404, detail="Version not found")
 
        # Get metadata from that version
@@ -962,7 +1065,7 @@ Expose history data via API endpoints.
        return ContentAtVersionResponse(
            entity_id=entity_id,
            version=version,
-           content=content,
+           content=result.content,  # May be None for delete actions - that's valid
            metadata=history.metadata_snapshot if history else None,
        )
    ```
@@ -970,6 +1073,9 @@ Expose history data via API endpoints.
 3. **Register router in `main.py`**
 
 4. **Add per-entity history endpoints to existing routers:**
+
+   **Important:** Do NOT check if the entity exists. History should be accessible even for permanently deleted entities (history survives deletion). Query ContentHistory directly by entity_id.
+
    ```python
    # In bookmarks.py
    @router.get("/{bookmark_id}/history", response_model=HistoryListResponse)
@@ -980,12 +1086,14 @@ Expose history data via API endpoints.
        current_user: User = Depends(get_current_user),
        db: AsyncSession = Depends(get_async_session),
    ) -> HistoryListResponse:
-       """Get history for a specific bookmark."""
-       # Verify bookmark exists and belongs to user
-       bookmark = await bookmark_service.get(db, current_user.id, bookmark_id, include_deleted=True)
-       if bookmark is None:
-           raise HTTPException(status_code=404, detail="Bookmark not found")
+       """
+       Get history for a specific bookmark.
 
+       History is available even for permanently deleted bookmarks.
+       Returns empty list if no history exists for this entity_id.
+       """
+       # Query history directly - don't check entity existence
+       # This allows viewing history of deleted items
        items, total = await history_service.get_entity_history(
            db, current_user.id, EntityType.BOOKMARK, bookmark_id, limit, offset
        )
@@ -998,8 +1106,9 @@ Expose history data via API endpoints.
    - Get user history returns all history records with correct total
    - Filter by entity_type works
    - Get entity history returns only that entity's records
-   - Get content at version returns reconstructed content
-   - 404 for non-existent entity/version
+   - Get content at version returns reconstructed content with `found=True`
+   - Get content at version with None content (delete) returns `found=True, content=None`
+   - 404 only for non-existent version (`found=False`), not for None content
 
 2. **Authorization tests:**
    - Cannot access another user's history
@@ -1010,12 +1119,17 @@ Expose history data via API endpoints.
    - Total count reflects all matching records, not just current page
    - Edge cases: offset beyond total, empty results
 
+4. **Deleted entity tests:**
+   - Get history for permanently deleted entity returns history records
+   - Get history for entity that never existed returns empty list (not 404)
+   - Per-entity history endpoint does NOT check entity existence
+
 ### Dependencies
 Milestone 4 (history recording integrated)
 
 ### Risk Factors
 - **Large history:** Users with many changes may have slow queries. Indexes should help.
-- **Deleted entities:** History for deleted entities should still be accessible. Verify no FK issues.
+- **Deleted entities:** History for deleted entities is accessible by design (no FK on entity_id).
 
 ---
 
@@ -1027,6 +1141,7 @@ Allow users to revert content to a previous version.
 ### Success Criteria
 - Users can revert content to any previous version
 - Revert creates a new history entry (not deletion of history)
+- **Version 0 = "undo create" = soft-delete the entity**
 - Edge cases handled (deleted items, URL conflicts)
 - Revert delegates to entity-specific services for validation
 
@@ -1038,7 +1153,7 @@ Allow users to revert content to a previous version.
    async def revert_to_version(
        entity_type: EntityType,
        entity_id: UUID,
-       version: int,
+       version: int = Path(..., ge=0),  # version >= 0; 0 means "undo create"
        request: Request,
        current_user: User = Depends(get_current_user),
        limits: TierLimits = Depends(get_current_limits),
@@ -1047,28 +1162,13 @@ Allow users to revert content to a previous version.
        """
        Revert entity to a previous version.
 
-       This creates a new UPDATE history entry with the restored content.
-       The revert operation delegates to the entity-specific service,
-       which handles validation (URL uniqueness for bookmarks, name
-       uniqueness for prompts, etc.).
+       - version > 0: Restore content/metadata from that version (creates UPDATE)
+       - version = 0: "Undo create" - soft-delete the entity (creates DELETE)
+
+       For version > 0, this creates a new UPDATE history entry with restored content.
+       The revert operation delegates to the entity-specific service for validation.
        """
        context = get_request_context(request)
-
-       # Reconstruct content at target version
-       content = await history_service.reconstruct_content_at_version(
-           db, current_user.id, entity_type, entity_id, version
-       )
-       if content is None:
-           raise HTTPException(status_code=404, detail="Version not found")
-
-       # Get metadata from that version
-       history = await history_service.get_history_at_version(
-           db, current_user.id, entity_type, entity_id, version
-       )
-       if history is None:
-           raise HTTPException(status_code=404, detail="Version not found")
-
-       # Get the appropriate service
        service = _get_service_for_entity_type(entity_type)
 
        # Check if entity exists (may be deleted)
@@ -1080,14 +1180,39 @@ Allow users to revert content to a previous version.
            # Entity was permanently deleted - cannot restore
            raise HTTPException(status_code=404, detail="Entity not found")
 
+       # Handle version=0 specially: "undo create" means soft-delete
+       if version == 0:
+           if entity.deleted_at is not None:
+               raise HTTPException(
+                   status_code=400,
+                   detail="Entity is already deleted",
+               )
+           # Soft-delete the entity (this records a DELETE history entry)
+           await service.delete(db, current_user.id, entity_id, permanent=False, context=context)
+           return {"message": "Entity deleted (undo create)", "version": 0}
+
+       # For version > 0: restore to that version
+       result = await history_service.reconstruct_content_at_version(
+           db, current_user.id, entity_type, entity_id, version
+       )
+       if not result.found:
+           raise HTTPException(status_code=404, detail="Version not found")
+
+       # Get metadata from that version
+       history = await history_service.get_history_at_version(
+           db, current_user.id, entity_type, entity_id, version
+       )
+       if history is None:
+           raise HTTPException(status_code=404, detail="Version not found")
+
        if entity.deleted_at is not None:
            # Entity is soft-deleted - restore it first
-           await service.restore(db, current_user.id, entity_id)
+           await service.restore(db, current_user.id, entity_id, context=context)
 
        # Update entity with restored content
        # This will record a new UPDATE history entry
        # Service handles validation (URL/name uniqueness, etc.)
-       update_data = _build_update_from_history(entity_type, content, history.metadata_snapshot)
+       update_data = _build_update_from_history(entity_type, result.content, history.metadata_snapshot)
        try:
            await service.update(db, current_user.id, entity_id, update_data, limits, context)
        except DuplicateUrlError:
@@ -1105,7 +1230,8 @@ Allow users to revert content to a previous version.
    ```
 
 2. **Handle edge cases:**
-   - **Deleted item:** If soft-deleted, restore first then update
+   - **Version 0 (undo create):** Soft-delete the entity, return 400 if already deleted
+   - **Deleted item:** If soft-deleted, restore first then update (for version > 0)
    - **URL conflict (bookmarks):** If restoring a URL that now exists on another bookmark, reject with 409
    - **Prompt name conflict:** Similar to URL
    - **Tag restoration:** Tags in metadata_snapshot are names; service creates missing tags as needed
@@ -1144,14 +1270,21 @@ Allow users to revert content to a previous version.
    - Reverted content matches target version
    - Reverted metadata matches target version
 
-2. **Edge case tests:**
+2. **Version 0 (undo create) tests:**
+   - Revert to version 0 soft-deletes the entity
+   - Revert to version 0 creates DELETE history entry
+   - Revert to version 0 on already-deleted entity returns 400
+   - Revert to version 0 on permanently deleted entity returns 404
+
+3. **Edge case tests:**
    - Revert soft-deleted item (should restore + update)
    - Revert to version with URL that now conflicts (should 409)
    - Revert to version with name that now conflicts (should 409)
    - Revert permanently deleted item (should 404)
    - Revert to non-existent version (should 404)
+   - Revert to version with None content (e.g., delete snapshot) handles gracefully
 
-3. **Tag restoration:**
+4. **Tag restoration:**
    - Tags from target version are restored
    - Current tags are replaced
    - Missing tags are created
@@ -1283,7 +1416,20 @@ Add frontend components for viewing history globally and per-item, with diff vis
 cd frontend && npm install react-diff-viewer-continued
 ```
 
-#### 2. Create history API hooks in `frontend/src/hooks/useHistory.ts`
+#### 2. Add X-Request-Source header to Axios instance
+
+In `frontend/src/services/api.ts`, add the source header to all requests:
+
+```typescript
+export const api = axios.create({
+  baseURL: config.apiUrl,
+  headers: {
+    'X-Request-Source': 'web',  // Identifies requests from the web UI
+  },
+})
+```
+
+#### 3. Create history API hooks in `frontend/src/hooks/useHistory.ts`
 
 ```typescript
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -1323,7 +1469,10 @@ export function useUserHistory(params: {
 }) {
   return useQuery<HistoryListResponse>({
     queryKey: ['history', params],
-    queryFn: () => api.get('/history', { params }),
+    queryFn: async () => {
+      const response = await api.get<HistoryListResponse>('/history', { params });
+      return response.data;
+    },
   });
 }
 
@@ -1335,7 +1484,10 @@ export function useEntityHistory(
 ) {
   return useQuery<HistoryListResponse>({
     queryKey: ['history', entityType, entityId, params],
-    queryFn: () => api.get(`/history/${entityType}/${entityId}`, { params }),
+    queryFn: async () => {
+      const response = await api.get<HistoryListResponse>(`/history/${entityType}/${entityId}`, { params });
+      return response.data;
+    },
     enabled: !!entityId,
   });
 }
@@ -1348,21 +1500,27 @@ export function useContentAtVersion(
 ) {
   return useQuery<ContentAtVersion>({
     queryKey: ['history', entityType, entityId, 'version', version],
-    queryFn: () => api.get(`/history/${entityType}/${entityId}/version/${version}`),
-    enabled: !!entityId && version > 0,
+    queryFn: async () => {
+      const response = await api.get<ContentAtVersion>(`/history/${entityType}/${entityId}/version/${version}`);
+      return response.data;
+    },
+    enabled: !!entityId && version >= 0,  // Allow version 0 for undo create
   });
 }
 
-// Revert to a specific version
+// Revert to a specific version (including version 0 for undo create)
 export function useRevertToVersion() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ entityType, entityId, version }: {
+    mutationFn: async ({ entityType, entityId, version }: {
       entityType: string;
       entityId: string;
       version: number;
-    }) => api.post(`/history/${entityType}/${entityId}/revert/${version}`),
+    }) => {
+      const response = await api.post(`/history/${entityType}/${entityId}/revert/${version}`);
+      return response.data;
+    },
     onSuccess: (_, { entityType, entityId }) => {
       // Invalidate entity and history queries
       queryClient.invalidateQueries({ queryKey: [entityType] });
@@ -1372,7 +1530,7 @@ export function useRevertToVersion() {
 }
 ```
 
-#### 3. Create HistorySidebar component in `frontend/src/components/HistorySidebar.tsx`
+#### 4. Create HistorySidebar component in `frontend/src/components/HistorySidebar.tsx`
 
 ```typescript
 import { useState } from 'react';
@@ -1408,6 +1566,19 @@ export function HistorySidebar({ entityType, entityId, currentContent, onClose }
     } else {
       // First click - show confirm
       setConfirmingRevert(version);
+    }
+  };
+
+  // Handler for "Undo creation" (version 0 = soft-delete)
+  const handleUndoCreate = () => {
+    if (confirmingRevert === 0) {
+      // Second click - execute delete
+      revertMutation.mutate(
+        { entityType, entityId, version: 0 },
+        { onSuccess: () => onClose() }  // Close sidebar after delete
+      );
+    } else {
+      setConfirmingRevert(0);
     }
   };
 
@@ -1454,21 +1625,40 @@ export function HistorySidebar({ entityType, entityId, currentContent, onClose }
                       {formatAction(entry.action)}
                     </span>
                   </div>
-                  {entry.version < (history?.items[0]?.version ?? 0) && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRevertClick(entry.version);
-                      }}
-                      className={`px-3 py-1 text-sm rounded ${
-                        confirmingRevert === entry.version
-                          ? 'bg-red-600 text-white'
-                          : 'bg-gray-200 dark:bg-gray-600 hover:bg-gray-300'
-                      }`}
-                    >
-                      {confirmingRevert === entry.version ? 'Confirm' : 'Restore'}
-                    </button>
-                  )}
+                  <div className="flex gap-2">
+                    {/* Show "Undo creation" button on v1 (CREATE action) */}
+                    {entry.version === 1 && entry.action === 'create' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleUndoCreate();
+                        }}
+                        className={`px-3 py-1 text-sm rounded ${
+                          confirmingRevert === 0
+                            ? 'bg-red-600 text-white'
+                            : 'bg-gray-200 dark:bg-gray-600 hover:bg-gray-300'
+                        }`}
+                      >
+                        {confirmingRevert === 0 ? 'Confirm Delete' : 'Undo Creation'}
+                      </button>
+                    )}
+                    {/* Show "Restore" button on older versions */}
+                    {entry.version < (history?.items[0]?.version ?? 0) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRevertClick(entry.version);
+                        }}
+                        className={`px-3 py-1 text-sm rounded ${
+                          confirmingRevert === entry.version
+                            ? 'bg-red-600 text-white'
+                            : 'bg-gray-200 dark:bg-gray-600 hover:bg-gray-300'
+                        }`}
+                      >
+                        {confirmingRevert === entry.version ? 'Confirm' : 'Restore'}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="text-xs text-gray-400 mt-1">
                   {new Date(entry.created_at).toLocaleString()}
@@ -1500,7 +1690,7 @@ export function HistorySidebar({ entityType, entityId, currentContent, onClose }
 }
 ```
 
-#### 4. Add history toggle button to item headers
+#### 5. Add history toggle button to item headers
 
 In each item detail component (BookmarkDetail, NoteDetail, PromptDetail), add a history icon button:
 
@@ -1525,12 +1715,13 @@ In each item detail component (BookmarkDetail, NoteDetail, PromptDetail), add a 
 )}
 ```
 
-#### 5. Create Settings Version History page
+#### 6. Create Settings Version History page
 
 Create `frontend/src/pages/Settings/VersionHistory.tsx`:
 
 ```typescript
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useUserHistory } from '../../hooks/useHistory';
 
 export function VersionHistoryPage() {
@@ -1615,12 +1806,12 @@ export function VersionHistoryPage() {
                     </span>
                   </td>
                   <td className="py-3">
-                    <a
-                      href={`/${entry.entity_type}s/${entry.entity_id}`}
+                    <Link
+                      to={`/app/${entry.entity_type}s/${entry.entity_id}`}
                       className="text-blue-600 hover:underline"
                     >
                       {entry.metadata_snapshot?.title || entry.metadata_snapshot?.name || 'Untitled'}
-                    </a>
+                    </Link>
                   </td>
                   <td className="py-3">{formatAction(entry.action)}</td>
                   <td className="py-3 text-sm text-gray-500">
@@ -1663,16 +1854,17 @@ export function VersionHistoryPage() {
 }
 ```
 
-#### 6. Add route and navigation
+#### 7. Add route and navigation
 
-In `frontend/src/App.tsx` or router config:
+In `frontend/src/App.tsx` router config (note the `/app` prefix to match existing routes):
 ```typescript
-<Route path="/settings/history" element={<VersionHistoryPage />} />
+// Inside the /app/settings/* route group
+{ path: '/app/settings/history', element: <VersionHistoryPage /> },
 ```
 
-In Settings navigation:
+In Settings navigation (`frontend/src/pages/Settings/index.tsx`):
 ```typescript
-<NavLink to="/settings/history">Version History</NavLink>
+<NavLink to="/app/settings/history">Version History</NavLink>
 ```
 
 ### Testing Strategy
@@ -1689,6 +1881,8 @@ In Settings navigation:
    - Restore button shows confirm state on first click
    - Confirm executes revert mutation
    - Close button calls onClose
+   - "Undo Creation" button appears on v1 (CREATE action)
+   - "Undo Creation" → "Confirm Delete" on click → executes revert with version=0
 
 3. **VersionHistoryPage tests:**
    - Renders history table
@@ -1806,11 +2000,12 @@ None
 - `backend/pyproject.toml` - Add diff-match-patch dependency
 
 **Frontend:**
+- `frontend/src/services/api.ts` - Add X-Request-Source: web header
 - `frontend/src/components/BookmarkDetail.tsx` - Add history toggle button, render sidebar
 - `frontend/src/components/NoteDetail.tsx` - Add history toggle button, render sidebar
 - `frontend/src/components/PromptDetail.tsx` - Add history toggle button, render sidebar
 - `frontend/src/pages/Settings/index.tsx` - Add Version History nav link
-- `frontend/src/App.tsx` (or router config) - Add /settings/history route
+- `frontend/src/App.tsx` - Add /app/settings/history route
 - `frontend/package.json` - Add react-diff-viewer-continued dependency
 
 **Documentation:**
