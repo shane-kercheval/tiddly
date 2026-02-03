@@ -216,7 +216,7 @@ describe('SettingsMCP', () => {
       expect(screen.getByText('Step 2: Add MCP Server')).toBeInTheDocument()
       // Check for the main command in the pre block
       const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('claude mcp add --transport http bookmarks')
+      expect(preElement?.textContent).toContain('claude mcp add --transport http bookmarks_notes')
     })
 
     it('should show coming soon for ChatGPT (requires OAuth)', async () => {
@@ -292,7 +292,7 @@ describe('SettingsMCP', () => {
       await user.click(screen.getByRole('button', { name: 'Codex' }))
 
       const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('[mcp_servers.bookmarks]')
+      expect(preElement?.textContent).toContain('[mcp_servers.bookmarks_notes]')
       expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
     })
   })
@@ -433,7 +433,7 @@ describe('SettingsMCP', () => {
       await user.click(screen.getByRole('button', { name: 'Claude Code' }))
 
       const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('claude mcp add --transport http bookmarks')
+      expect(preElement?.textContent).toContain('claude mcp add --transport http bookmarks_notes')
       expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
     })
 
@@ -468,7 +468,7 @@ describe('SettingsMCP', () => {
       await user.click(screen.getByRole('button', { name: 'Codex' }))
 
       const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('[mcp_servers.bookmarks]')
+      expect(preElement?.textContent).toContain('[mcp_servers.bookmarks_notes]')
       expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
     })
 

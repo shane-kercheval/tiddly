@@ -430,6 +430,9 @@ const italicContentMark = Decoration.mark({ class: 'cm-md-italic-content' })
 // Decoration for task syntax
 const taskSyntaxMark = Decoration.mark({ class: 'cm-md-task-syntax' })
 
+// Decoration for checked task content (strikethrough)
+const taskCheckedContentMark = Decoration.mark({ class: 'cm-md-task-checked-content' })
+
 // Decoration for header syntax
 const headerSyntaxMark = Decoration.mark({ class: 'cm-md-header-syntax' })
 
@@ -515,24 +518,37 @@ function buildDecorations(view: EditorView): DecorationSet {
       // Collect all inline decorations with their positions
       const inlineDecorations: Array<{ from: number; to: number; decoration: Decoration }> = []
 
-      // Checkbox widget for task items (added here so it sorts with other decorations)
-      if (info?.type === 'task' && info.checkboxPos !== undefined && info.bracketPos !== undefined) {
-        const widgetPos = line.from + info.checkboxPos   // Where to place the widget
+      // Task syntax and checkbox widget for task items
+      const taskSyntax = findTaskSyntax(line.text)
+      if (taskSyntax && info?.type === 'task' && info.bracketPos !== undefined) {
         const bracketPos = line.from + info.bracketPos   // Where [ is for editing
+        const bracketEnd = bracketPos + 4                // After ] and space (covers [x]  or [ ] )
+
+        // Style "- " before the checkbox
+        if (info.bracketPos > taskSyntax.from) {
+          inlineDecorations.push({
+            from: line.from + taskSyntax.from,
+            to: bracketPos,
+            decoration: taskSyntaxMark,
+          })
+        }
+
+        // Replace [x]  or [ ]  (including trailing space) with checkbox widget
         inlineDecorations.push({
-          from: widgetPos,
-          to: widgetPos,
-          decoration: Decoration.widget({
+          from: bracketPos,
+          to: bracketEnd,
+          decoration: Decoration.replace({
             widget: new CheckboxWidget(info.checked ?? false, bracketPos),
-            side: -1,
           }),
         })
-      }
-
-      // Task syntax (- [ ] or - [x])
-      const taskSyntax = findTaskSyntax(line.text)
-      if (taskSyntax) {
-        inlineDecorations.push({ from: line.from + taskSyntax.from, to: line.from + taskSyntax.to, decoration: taskSyntaxMark })
+        // Apply strikethrough to content after checkbox when checked
+        if (info?.type === 'task' && info.checked && taskSyntax.to < line.text.length) {
+          inlineDecorations.push({
+            from: line.from + taskSyntax.to,
+            to: line.to,
+            decoration: taskCheckedContentMark,
+          })
+        }
       }
 
       // Header syntax (# or ## etc)
@@ -746,6 +762,7 @@ const markdownBaseTheme = EditorView.baseTheme({
   },
   '.cm-line': {
     fontFamily: 'inherit',
+    lineHeight: '1.5 !important',
   },
 
   // Remove underlines from default markdown heading syntax highlighting
@@ -821,11 +838,15 @@ const markdownBaseTheme = EditorView.baseTheme({
     position: 'relative',
   },
 
-  // Completed tasks - strikethrough and dimmed
+  // Completed tasks - dimmed color (strikethrough applied to content only)
   '.cm-md-task-checked': {
+    color: '#6b7280',
+  },
+
+  // Completed task content - strikethrough only on text, not full line
+  '.cm-md-task-checked-content': {
     textDecoration: 'line-through',
     textDecorationColor: '#6b7280',
-    color: '#6b7280',
   },
 
   // Blockquotes
