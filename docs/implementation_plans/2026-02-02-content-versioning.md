@@ -209,40 +209,6 @@ else:
 - Extra DB write for history record (~5-10ms estimated)
 - Fetching previous content for diff (already loaded in update flow)
 
-### Performance Validation (After Milestone 4)
-
-After integrating history recording into services (Milestone 4), re-run the API benchmark to measure actual overhead and compare against the baseline above.
-
-**Steps:**
-1. Temporarily increase tier limits in `backend/src/core/tier_limits.py` (see `performance/api/README.md`)
-2. Run API benchmark at 1KB and 50KB content sizes:
-   ```bash
-   uv run python performance/api/benchmark.py --content-size 1
-   uv run python performance/api/benchmark.py --content-size 50
-   ```
-3. Compare results against baseline in this document
-4. Revert tier limit changes
-
-**Acceptance Criteria:**
-
-| Metric | Baseline | Acceptable Overhead |
-|--------|----------|---------------------|
-| Create Note P95 (1KB, conc=10) | 41ms | < 60ms (+50%) |
-| Update Note P95 (1KB, conc=10) | 42ms | < 65ms (+55%) |
-| Create Note P95 (50KB, conc=10) | 40ms | < 60ms (+50%) |
-| Update Note P95 (50KB, conc=10) | 119ms | < 180ms (+50%) |
-
-**Rationale:** The overhead comes from:
-- Extra DB write for history record (~5-15ms)
-- Diff computation (~0.2ms for typical edits, negligible)
-
-A 50% overhead at P95 is acceptable given the value of content versioning. If overhead exceeds these thresholds, investigate:
-- Index efficiency on `content_history` table
-- Whether history insert is blocking the response
-- Connection pool saturation
-
-**Results:** _(To be filled in after Milestone 4)_
-
 ---
 
 ## Milestone 1: Request Context Infrastructure
@@ -921,7 +887,7 @@ Milestone 2 (ContentHistory model)
 
 ---
 
-## Milestone 4: Integrate History Recording into Services
+## Milestone 4a: Integrate History Recording into Services
 
 ### Goal
 Hook history recording into existing service CRUD operations.
@@ -1204,6 +1170,84 @@ Milestone 3 (HistoryService)
 ### Risk Factors
 - **Transaction boundaries:** History must be recorded in same transaction as entity change. Using `db.flush()` (not commit) ensures atomicity.
 - **Performance:** Extra query for previous content on updates. Consider if this is acceptable.
+
+---
+
+## Milestone 4b: Performance Validation
+
+### Goal
+Validate that content versioning does not unacceptably degrade API performance by comparing benchmarks before and after implementation.
+
+### Success Criteria
+- API benchmark run at 1KB and 50KB content sizes
+- Results compared against Milestone 0 baseline
+- Overhead within acceptable thresholds (see table below)
+- Results documented in this milestone
+
+### Key Changes
+
+1. **Run API benchmarks:**
+   ```bash
+   # Temporarily increase tier limits (see performance/api/README.md)
+   uv run python performance/api/benchmark.py --content-size 1
+   uv run python performance/api/benchmark.py --content-size 50
+   # Revert tier limit changes
+   ```
+
+2. **Compare against baseline and document results below**
+
+### Acceptance Criteria
+
+| Metric | Baseline | Acceptable Overhead |
+|--------|----------|---------------------|
+| Create Note P95 (1KB, conc=10) | 41ms | < 60ms (+50%) |
+| Update Note P95 (1KB, conc=10) | 42ms | < 65ms (+55%) |
+| Create Note P95 (50KB, conc=10) | 40ms | < 60ms (+50%) |
+| Update Note P95 (50KB, conc=10) | 119ms | < 180ms (+50%) |
+
+**Rationale:** The overhead comes from:
+- Extra DB write for history record (~5-15ms)
+- Diff computation (~0.2ms for typical edits, negligible)
+
+A 50% overhead at P95 is acceptable given the value of content versioning.
+
+### Troubleshooting
+
+If overhead exceeds thresholds, investigate:
+- Index efficiency on `content_history` table
+- Whether history insert is blocking the response
+- Connection pool saturation
+
+### Results
+
+_(To be filled in after running benchmarks)_
+
+**1KB Content Results:**
+```
+TBD
+```
+
+**50KB Content Results:**
+```
+TBD
+```
+
+**Comparison:**
+
+| Metric | Baseline | After | Overhead |
+|--------|----------|-------|----------|
+| Create Note P95 (1KB, conc=10) | 41ms | TBD | TBD |
+| Update Note P95 (1KB, conc=10) | 42ms | TBD | TBD |
+| Create Note P95 (50KB, conc=10) | 40ms | TBD | TBD |
+| Update Note P95 (50KB, conc=10) | 119ms | TBD | TBD |
+
+**Conclusion:** _(Pass/Fail + notes)_
+
+### Dependencies
+Milestone 4a (history recording integrated)
+
+### Risk Factors
+- If overhead is too high, may need to optimize history insert (e.g., background task, batch writes)
 
 ---
 
