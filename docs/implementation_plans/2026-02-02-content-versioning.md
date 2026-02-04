@@ -49,12 +49,17 @@ Use Google's diff-match-patch algorithm for text diffing:
 - `content_diff`: Full text (snapshot) OR diff-match-patch delta string (diff)
 - `metadata_snapshot`: JSONB of non-content fields (title, description, tags, etc.) - always stored as snapshot since these are small
 
-**Snapshot rules (when to store full content instead of diff):**
-- CREATE actions (version 1)
-- Every Nth version (default: 10)
-- When `previous_content` is None
-- When `current_content` is None
-- When content is unchanged (metadata-only update)
+**Diff type rules:**
+- `SNAPSHOT`: Full content stored in `content_diff`
+  - CREATE actions (version 1)
+  - Every Nth version (default: 10)
+  - When `previous_content` is None
+  - When `current_content` is None
+- `DIFF`: diff-match-patch delta string stored in `content_diff`
+  - Normal updates between snapshots
+- `METADATA`: No content stored (`content_diff` is None)
+  - When content is unchanged (metadata-only update like tag/title changes)
+  - Reconstruction carries forward content from previous version
 
 ---
 
@@ -409,8 +414,13 @@ Create the `content_history` table to store all history records, and clean up un
        PROMPT = "prompt"
 
    class DiffType(str, Enum):
-       SNAPSHOT = "snapshot"
-       DIFF = "diff"
+       """
+       Describes how content_diff is stored. Note: metadata_snapshot is ALWAYS
+       stored as a full snapshot in every record, regardless of DiffType.
+       """
+       SNAPSHOT = "snapshot"  # content_diff = full content text
+       DIFF = "diff"          # content_diff = diff-match-patch delta string
+       METADATA = "metadata"  # content_diff = None (content unchanged, only metadata changed)
 
    class ContentHistory(Base, UUIDv7Mixin):
        __tablename__ = "content_history"
@@ -520,6 +530,10 @@ Milestone 1 (for source/auth_type enums)
 ### Risk Factors
 - **No DB-level FK on entity_id:** Polymorphic reference to bookmarks/notes/prompts tables. History cleanup on hard-delete is handled at application level (see Milestone 4).
 
+### Migration Notes
+- **Pre-existing content:** Existing bookmarks, notes, and prompts will have no history records after migration. This is expected - the versioning feature is new. The first edit after migration creates version 1 for that entity.
+- **No synthetic records:** We intentionally do not create synthetic "CREATE" records for existing content, as this would have misleading timestamps and metadata.
+
 ---
 
 ## Milestone 3: History Service with Diff Support
@@ -591,7 +605,10 @@ Create service layer for recording and retrieving history, including diff-match-
                            db, user_id, entity_type, entity_id, action,
                            current_content, previous_content, metadata, context,
                        )
-               except IntegrityError:
+               except IntegrityError as e:
+                   # Only retry on version uniqueness violations
+                   if "uq_content_history_version" not in str(e):
+                       raise  # Re-raise other integrity errors immediately
                    # Savepoint automatically rolled back, parent transaction intact
                    if attempt == max_retries - 1:
                        raise
@@ -612,16 +629,18 @@ Create service layer for recording and retrieving history, including diff-match-
            """Internal implementation of record_action."""
            version = await self._get_next_version(db, user_id, entity_type, entity_id)
 
-           # Determine if this should be a snapshot
-           is_snapshot = (
+           # Determine diff type and content_diff value
+           if previous_content == current_content:
+               # Content unchanged - metadata-only change
+               diff_type = DiffType.METADATA
+               content_diff = None
+           elif (
                action == ActionType.CREATE
                or version % SNAPSHOT_INTERVAL == 0
                or previous_content is None
                or current_content is None
-               or previous_content == current_content  # Metadata-only change
-           )
-
-           if is_snapshot:
+           ):
+               # Store full snapshot
                diff_type = DiffType.SNAPSHOT
                content_diff = current_content
            else:
@@ -777,9 +796,14 @@ Create service layer for recording and retrieving history, including diff-match-
 
            # Step 3: Apply diffs to snapshot
            content = snapshot.content_diff
+           last_version_seen = snapshot.version
            for record in diffs:
+               last_version_seen = record.version
                if record.diff_type == DiffType.SNAPSHOT.value:
                    content = record.content_diff
+               elif record.diff_type == DiffType.METADATA.value:
+                   # Content unchanged, carry forward
+                   pass
                elif record.diff_type == DiffType.DIFF.value and record.content_diff:
                    patches = self.dmp.patch_fromText(record.content_diff)
                    # NOTE: If thread pool needed per Milestone 0, offload patch_apply too
@@ -791,6 +815,11 @@ Create service layer for recording and retrieving history, including diff-match-
                            entity_type_value, entity_id, record.version, results,
                        )
                    content = new_content
+
+           # Verify we actually reached the target version
+           # (handles case where target_version doesn't exist but earlier versions do)
+           if last_version_seen != target_version:
+               return ReconstructionResult(found=False, content=None)
 
            return ReconstructionResult(found=True, content=content)
 
@@ -845,25 +874,29 @@ Create service layer for recording and retrieving history, including diff-match-
    - Applying diff to original produces new text
    - Empty/None content handled correctly (stores snapshot)
    - Large content changes work
-   - Metadata-only change (content unchanged) stores snapshot
 
-2. **Snapshot interval tests:**
+2. **Diff type tests:**
    - Version 1 is always a snapshot (CREATE action)
    - Every 10th version is a snapshot
    - Versions between are diffs
    - None content forces snapshot
+   - Metadata-only change (content unchanged) stores METADATA type with `content_diff=None`
+   - METADATA type preserves `metadata_snapshot` with updated values
 
 3. **Content reconstruction tests:**
    - Reconstruct version 1 (snapshot only) returns `found=True`
    - Reconstruct version 5 (snapshot + 4 diffs) returns `found=True`
    - Reconstruct version 15 (queries from nearest snapshot, not all history)
    - Non-existent version returns `found=False`
+   - Version beyond latest returns `found=False` (missing-version bug fix)
    - Version with None content (delete action) returns `found=True, content=None`
    - Verify only necessary records are queried (not full history)
+   - Reconstruct version with METADATA records correctly carries forward content
 
 4. **Race condition tests:**
    - Concurrent history writes to same entity produce sequential versions
-   - IntegrityError triggers retry with savepoint (parent transaction intact)
+   - Version-unique IntegrityError triggers retry with savepoint (parent transaction intact)
+   - Other IntegrityErrors are raised immediately (not retried)
    - Max retries exceeded raises error
    - Parent entity change is NOT rolled back when history insert fails
 
@@ -871,7 +904,7 @@ Create service layer for recording and retrieving history, including diff-match-
    - Corrupted diff logs warning but returns partial result
    - Reconstruction continues after partial patch failure
 
-5. **History retrieval tests:**
+6. **History retrieval tests:**
    - Get entity history returns correct records and total count
    - Get user history filters by entity type
    - Pagination works correctly with accurate totals
@@ -1000,18 +1033,25 @@ Hook history recording into existing service CRUD operations.
 
 4. **Handle update operations:**
 
-   For updates, fetch previous content before modification:
+   For updates, fetch previous content and metadata before modification. Skip history recording for no-op updates (when nothing actually changed):
    ```python
    async def update(self, db, user_id, entity_id, data, limits, context: RequestContext | None = None):
        entity = await self.get(db, user_id, entity_id, include_archived=True)
        if entity is None:
            return None
 
-       previous_content = entity.content  # Capture before modification
+       # Capture state before modification for diff and no-op detection
+       previous_content = entity.content
+       previous_metadata = self._get_metadata_snapshot(entity)
 
        # ... existing update logic ...
 
-       if context:
+       # Only record history if something actually changed
+       current_metadata = self._get_metadata_snapshot(entity)
+       content_changed = entity.content != previous_content
+       metadata_changed = current_metadata != previous_metadata
+
+       if context and (content_changed or metadata_changed):
            await history_service.record_action(
                db=db,
                user_id=user_id,
@@ -1020,7 +1060,7 @@ Hook history recording into existing service CRUD operations.
                action=ActionType.UPDATE,
                current_content=entity.content,
                previous_content=previous_content,
-               metadata=self._get_metadata_snapshot(entity),
+               metadata=current_metadata,
                context=context,
            )
 
@@ -1036,10 +1076,18 @@ Hook history recording into existing service CRUD operations.
    **Hard delete:** Delete all history for the entity, then delete the entity. No history record for the hard delete itself (entity and history are gone).
 
    ```python
-   async def delete(self, db, user_id, entity_id, permanent: bool, context: RequestContext | None = None):
-       entity = await self.get(db, user_id, entity_id, include_deleted=True)
+   async def delete(
+       self, db, user_id, entity_id, permanent: bool = False, context: RequestContext | None = None
+   ) -> bool:
+       """
+       Delete an entity (soft or permanent). Returns True if deleted, False if not found.
+       Maintains existing return type for backwards compatibility with routers.
+       """
+       entity = await self.get(
+           db, user_id, entity_id, include_deleted=permanent, include_archived=True
+       )
        if entity is None:
-           return None
+           return False
 
        if permanent:
            # Hard delete: cascade-delete history first (application-level cascade)
@@ -1064,7 +1112,7 @@ Hook history recording into existing service CRUD operations.
            entity.deleted_at = func.clock_timestamp()
 
        await db.flush()
-       return entity
+       return True
    ```
 
    Add to `HistoryService`:
@@ -1149,15 +1197,20 @@ This is not blocking for V1 but should be considered if bulk endpoints are added
 
 3. **Diff verification:**
    - Update with content change produces valid diff
-   - Update with metadata-only change (e.g., tags only) stores snapshot with content_diff=current_content
+   - Update with metadata-only change (e.g., tags only) stores METADATA type with `content_diff=None`
    - Multiple updates produce correct version sequence
 
 4. **Metadata-only changes:**
-   - Tag-only change creates history record
-   - Title-only change creates history record
-   - History record has content_diff (as snapshot) even when content unchanged
+   - Tag-only change creates history record with METADATA diff type
+   - Title-only change creates history record with METADATA diff type
+   - History record has `content_diff=None` when content unchanged
 
-5. **str-replace history tests:**
+5. **No-op update handling:**
+   - Update with identical data (no changes) creates NO history entry
+   - Update with only whitespace-equivalent changes (if normalized) creates NO history entry
+   - Verify no-op detection compares both content AND metadata
+
+6. **str-replace history tests:**
    - str-replace on bookmark creates history record with UPDATE action
    - str-replace on note creates history record
    - str-replace on prompt creates history record
@@ -1169,7 +1222,7 @@ Milestone 3 (HistoryService)
 
 ### Risk Factors
 - **Transaction boundaries:** History must be recorded in same transaction as entity change. Using `db.flush()` (not commit) ensures atomicity.
-- **Performance:** Extra query for previous content on updates. Consider if this is acceptable.
+- **Performance:** Extra comparison for no-op detection is negligible.
 
 ---
 
@@ -1539,11 +1592,50 @@ Allow users to revert content to a previous version.
        content: str | None,
        metadata: dict,
    ):
-       """Build an update schema from history data."""
-       # Import appropriate schema based on entity type
-       # Return populated update object
-       ...
+       """
+       Build an update schema from history data.
+
+       Handles schema evolution gracefully:
+       - Unknown fields in metadata (from newer schema): ignored
+       - Missing fields in metadata (from older schema): omitted from update,
+         preserving the entity's current value for that field
+
+       Tags are restored by name. The service layer creates missing tags
+       automatically (existing behavior).
+       """
+       from schemas.bookmark import BookmarkUpdate
+       from schemas.note import NoteUpdate
+       from schemas.prompt import PromptUpdate
+
+       # Common fields across all entity types
+       common_fields = {
+           "content": content,
+           "title": metadata.get("title"),
+           "description": metadata.get("description"),
+           "tags": metadata.get("tags", []),  # List of tag names
+       }
+
+       if entity_type == EntityType.BOOKMARK:
+           return BookmarkUpdate(
+               **common_fields,
+               url=metadata.get("url"),  # Bookmark-specific
+           )
+       elif entity_type == EntityType.NOTE:
+           return NoteUpdate(**common_fields)
+       elif entity_type == EntityType.PROMPT:
+           return PromptUpdate(
+               **common_fields,
+               name=metadata.get("name"),        # Prompt-specific
+               arguments=metadata.get("arguments", []),
+           )
+       else:
+           raise ValueError(f"Unknown entity type: {entity_type}")
    ```
+
+   **Schema evolution handling:**
+   - If `metadata_snapshot` from an old version lacks a field that exists in the current schema (e.g., a new `favicon_url` field added to bookmarks), that field is simply not included in the update. The entity retains its current value for that field.
+   - If `metadata_snapshot` contains a field that no longer exists in the schema, it's ignored (dict.get() returns None, and Pydantic ignores extra fields or the field is simply not used).
+   - Tags are stored as names (strings). When restoring, if a tag name no longer exists, the service layer creates it automatically (this is existing behavior in tag handling).
 
 ### Testing Strategy
 
@@ -1570,27 +1662,48 @@ Allow users to revert content to a previous version.
 4. **Tag restoration:**
    - Tags from target version are restored
    - Current tags are replaced
-   - Missing tags are created
+   - Missing tags are created automatically
+
+5. **Schema evolution tests:**
+   - Revert to version with fewer metadata fields than current schema (missing fields preserved from current entity)
+   - Revert to version with extra metadata fields (unknown fields ignored)
+   - `_build_update_from_history` handles missing optional fields gracefully
 
 ### Dependencies
 Milestone 5 (history endpoints)
 
 ### Risk Factors
 - **Conflict handling:** URL/name uniqueness constraints may prevent restoration. Clear error messages provided.
-- **Tag restoration:** Tags in metadata_snapshot are names, need to resolve to tag objects (or create if missing).
+- **Tag restoration:** Tags in metadata_snapshot are names; service creates missing tags automatically.
 
 ---
 
 ## Milestone 7: Tier-Based Retention
 
 ### Goal
-Implement retention limits based on user tier using lazy cleanup.
+Implement retention limits based on user tier with appropriate cleanup strategies for each limit type.
 
 ### Success Criteria
-- History is pruned based on tier limits
+- Count limits enforced inline on write (predictable, immediate)
+- Time limits enforced via scheduled cron job (appropriate for aged data)
 - Snapshots needed for reconstruction are preserved
-- Cleanup is triggered on user actions (lazy cleanup)
 - Tier limits configurable in TierLimits dataclass
+
+### Retention Strategy
+
+Different cleanup types warrant different strategies:
+
+| Cleanup Type | Trigger | Rationale |
+|--------------|---------|-----------|
+| Count limit (`max_history_per_entity`) | Inline on write | Predictable, matches user expectations |
+| Time limit (`history_retention_days`) | Scheduled cron | Appropriate for aged data, handles inactive users |
+| Soft-delete expiry | Scheduled cron | User already deleted, expects eventual removal |
+
+**Why NOT random cleanup on GET requests:**
+- Violates REST semantics (GET should not have write side effects)
+- Unpredictable latency spikes
+- Inactive users never cleaned
+- Poor UX for count limits (records suddenly disappear)
 
 ### Key Changes
 
@@ -1600,82 +1713,310 @@ Implement retention limits based on user tier using lazy cleanup.
    max_history_per_entity: int = 100  # Max versions per entity
    ```
 
-2. **Create retention cleanup in history service:**
+2. **Inline count-based cleanup with hysteresis in `record_action()`:**
+
+   Enforce count limits at write time using a high-water mark to avoid per-write overhead:
    ```python
-   async def cleanup_old_history(
+   BUFFER_PERCENT = 0.1  # 10% buffer
+
+   async def record_action(
        self,
        db: AsyncSession,
        user_id: UUID,
-       limits: TierLimits,
+       entity_type: EntityType,
+       entity_id: UUID,
+       action: ActionType,
+       current_content: str | None,
+       previous_content: str | None,
+       metadata: dict,
+       context: RequestContext,
+       limits: TierLimits,  # Add limits parameter
+   ) -> ContentHistory:
+       """Record a history entry for an action."""
+       # ... existing retry loop and _record_action_impl call ...
+
+       # After successful insert, check if pruning needed
+       # Prune if 10% over limit (triggers every ~10 writes at capacity)
+       high_water = int(limits.max_history_per_entity * (1 + BUFFER_PERCENT))
+       if history.version > high_water:
+           await self._prune_to_limit(
+               db, user_id, entity_type, entity_id,
+               target=limits.max_history_per_entity,
+           )
+
+       return history
+
+   async def _prune_to_limit(
+       self,
+       db: AsyncSession,
+       user_id: UUID,
+       entity_type: EntityType | str,
+       entity_id: UUID,
+       target: int,
    ) -> int:
        """
-       Remove old history records while preserving needed snapshots.
-
-       Called lazily when user views history or makes changes.
-
-       Preservation rules:
-       1. Keep records newer than retention_days
-       2. Keep latest max_history_per_entity records per entity
-       3. Always keep the most recent snapshot for each entity
-       4. Keep snapshots needed to reconstruct any preserved version
+       Prune oldest history records to reach target count.
+       Preserves snapshots needed for reconstruction of remaining versions.
 
        Returns number of records deleted.
        """
-       cutoff_date = datetime.utcnow() - timedelta(days=limits.history_retention_days)
+       entity_type_value = entity_type.value if isinstance(entity_type, EntityType) else entity_type
 
-       # This is a complex query - outline:
-       # 1. For each entity, identify records to keep:
-       #    - All records newer than cutoff_date
-       #    - Latest max_history_per_entity records
-       #    - Most recent snapshot
-       # 2. Delete everything else for this user
+       # Find the version number at the cutoff point
+       cutoff_stmt = (
+           select(ContentHistory.version)
+           .where(
+               ContentHistory.user_id == user_id,
+               ContentHistory.entity_type == entity_type_value,
+               ContentHistory.entity_id == entity_id,
+           )
+           .order_by(ContentHistory.version.desc())
+           .offset(target - 1)  # Keep 'target' most recent
+           .limit(1)
+       )
+       result = await db.execute(cutoff_stmt)
+       cutoff_version = result.scalar_one_or_none()
 
-       # Implementation approach:
-       # Use a CTE to identify records to delete, ensuring we preserve
-       # required snapshots for reconstruction
-       ...
+       if cutoff_version is None:
+           return 0  # Not enough records to prune
+
+       # Find the most recent snapshot at or before cutoff (needed for reconstruction)
+       snapshot_stmt = (
+           select(ContentHistory.version)
+           .where(
+               ContentHistory.user_id == user_id,
+               ContentHistory.entity_type == entity_type_value,
+               ContentHistory.entity_id == entity_id,
+               ContentHistory.version <= cutoff_version,
+               ContentHistory.diff_type == DiffType.SNAPSHOT.value,
+           )
+           .order_by(ContentHistory.version.desc())
+           .limit(1)
+       )
+       snapshot_result = await db.execute(snapshot_stmt)
+       preserved_snapshot_version = snapshot_result.scalar_one_or_none()
+
+       # Delete records older than cutoff, but preserve the snapshot
+       delete_stmt = delete(ContentHistory).where(
+           ContentHistory.user_id == user_id,
+           ContentHistory.entity_type == entity_type_value,
+           ContentHistory.entity_id == entity_id,
+           ContentHistory.version < cutoff_version,
+       )
+       if preserved_snapshot_version:
+           delete_stmt = delete_stmt.where(
+               ContentHistory.version != preserved_snapshot_version
+           )
+
+       result = await db.execute(delete_stmt)
+       return result.rowcount
    ```
 
-3. **Trigger cleanup lazily:**
-   - Call `cleanup_old_history()` when user views history (in `get_user_history` endpoint)
-   - Call infrequently (e.g., 1% of requests) to avoid performance impact
-   - Or call when history count exceeds threshold
+   **Why inline over background tasks:**
+   - The operation is trivial (~3ms for 10-row delete by indexed columns)
+   - Same transaction ensures atomicity
+   - No async complexity or failure handling
+   - Version number is already computed—zero extra queries to check threshold
 
+   **Why hysteresis:**
+   - Avoids pruning on every write once at capacity
+   - Prune of ~10 records happens once per ~10 writes instead of 1 record per write
+   - Standard pattern used by memory allocators, caches, and GC systems
+
+3. **Scheduled cron job for time-based cleanup:**
+
+   Railway supports cron jobs on all plans. Create a separate service in the same project:
+
+   **Project structure:**
+   ```
+   Railway Project
+   ├── api (web service, always running)
+   ├── cleanup (cron service, runs daily)  ← Same codebase, different entrypoint
+   ├── postgres
+   └── redis
+   ```
+
+   **Configuration in `railway.toml` (for cleanup service):**
+   ```toml
+   [deploy]
+   startCommand = "uv run python -m tasks.cleanup"
+   cronSchedule = "0 3 * * *"  # 3 AM UTC daily
+   ```
+
+   **Create `backend/src/tasks/cleanup.py`:**
    ```python
-   @router.get("/", response_model=HistoryListResponse)
-   async def get_user_history(...):
-       # Lazy cleanup - run occasionally
-       import random
-       if random.random() < 0.01:  # 1% of requests
-           await history_service.cleanup_old_history(db, current_user.id, limits)
+   import asyncio
+   import logging
+   from datetime import datetime, timedelta
 
-       items, total = await history_service.get_user_history(...)
-       return HistoryListResponse(...)
+   from sqlalchemy import delete, select
+
+   from db.session import async_session_factory
+   from models.content_history import ContentHistory, DiffType
+   from models.bookmark import Bookmark
+   from models.note import Note
+   from models.prompt import Prompt
+   from core.tier_limits import get_tier_limits
+
+   logger = logging.getLogger(__name__)
+
+   async def cleanup_expired_history(db, retention_days: int = 30) -> int:
+       """
+       Delete history records older than retention_days.
+
+       Retention applies uniformly to all entities regardless of state
+       (active, archived, or soft-deleted).
+       """
+       cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+
+       stmt = delete(ContentHistory).where(
+           ContentHistory.created_at < cutoff_date,
+       )
+       result = await db.execute(stmt)
+       return result.rowcount
+
+   async def cleanup_soft_deleted_items(db, expiry_days: int = 30) -> dict:
+       """
+       Permanently delete soft-deleted items older than expiry_days.
+       History is cascade-deleted at application level.
+       """
+       cutoff_date = datetime.utcnow() - timedelta(days=expiry_days)
+       deleted_counts = {"bookmarks": 0, "notes": 0, "prompts": 0}
+
+       for model, key in [(Bookmark, "bookmarks"), (Note, "notes"), (Prompt, "prompts")]:
+           # Find expired soft-deleted items
+           stmt = select(model).where(
+               model.deleted_at.is_not(None),
+               model.deleted_at < cutoff_date,
+           )
+           result = await db.execute(stmt)
+           items = result.scalars().all()
+
+           for item in items:
+               # Delete history first (application-level cascade)
+               from services.history_service import history_service
+               entity_type = key[:-1]  # "bookmarks" -> "bookmark"
+               await history_service.delete_entity_history(
+                   db, item.user_id, entity_type, item.id
+               )
+               await db.delete(item)
+               deleted_counts[key] += 1
+
+       return deleted_counts
+
+   async def main():
+       """Nightly cleanup for time-based retention policies."""
+       logger.info("Starting scheduled cleanup")
+
+       async with async_session_factory() as db:
+           # 1. Permanently delete soft-deleted items older than 30 days
+           deleted = await cleanup_soft_deleted_items(db)
+           logger.info(f"Deleted expired soft-deleted items: {deleted}")
+
+           # 2. Prune history older than retention_days
+           # Note: This is a simplified version. Production may need
+           # per-user retention based on tier.
+           history_deleted = await cleanup_expired_history(db)
+           logger.info(f"Deleted expired history records: {history_deleted}")
+
+           await db.commit()
+
+       logger.info("Scheduled cleanup complete")
+
+   if __name__ == "__main__":
+       logging.basicConfig(level=logging.INFO)
+       asyncio.run(main())
    ```
+
+4. **Update `record_action` callers to pass `limits`:**
+
+   Service methods already have access to `limits` parameter. Pass it through to `record_action()`.
+
+   Example update in `BaseEntityService.update()`:
+   ```python
+   async def update(self, db, user_id, entity_id, data, limits, context: RequestContext | None = None):
+       # ... existing code ...
+
+       if context and (content_changed or metadata_changed):
+           await history_service.record_action(
+               db=db,
+               user_id=user_id,
+               entity_type=self.entity_type,
+               entity_id=entity.id,
+               action=ActionType.UPDATE,
+               current_content=entity.content,
+               previous_content=previous_content,
+               metadata=current_metadata,
+               context=context,
+               limits=limits,  # Pass limits for count-based pruning
+           )
+   ```
+
+   Similarly update `create()` in each concrete service and `delete()`/`restore()`/`archive()`/`unarchive()` in `BaseEntityService`.
+
+### Orphan History Cleanup (Defense-in-Depth)
+
+Although application-level cascade should prevent orphaned history, edge cases may occur (direct SQL, failed transactions, etc.). The nightly cron job can include an orphan cleanup query:
+
+```python
+async def cleanup_orphaned_history(db) -> int:
+    """
+    Delete history records whose entities no longer exist.
+    Defense-in-depth for edge cases where application-level cascade failed.
+    """
+    # This query finds history records with no matching entity
+    # Run periodically (e.g., weekly) as a maintenance task
+    orphan_stmt = """
+    DELETE FROM content_history h
+    WHERE NOT EXISTS (
+        SELECT 1 FROM bookmarks WHERE id = h.entity_id AND h.entity_type = 'bookmark'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM notes WHERE id = h.entity_id AND h.entity_type = 'note'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM prompts WHERE id = h.entity_id AND h.entity_type = 'prompt'
+    )
+    """
+    result = await db.execute(text(orphan_stmt))
+    return result.rowcount
+```
 
 ### Testing Strategy
 
-1. **Retention logic tests:**
-   - Old history is deleted after retention period
-   - Latest N records per entity are preserved
-   - Snapshots needed for reconstruction are preserved
-   - Most recent snapshot is never deleted
+1. **Count-based limit tests (inline):**
+   - At limit, no prune triggered
+   - At limit + 10%, prune triggers and removes oldest records
+   - Snapshot needed for reconstruction is preserved during prune
+   - Hysteresis: prune happens once per ~10 writes at capacity, not every write
 
-2. **Tier limit tests:**
+2. **Time-based limit tests (cron):**
+   - Records older than retention_days are deleted
+   - Records newer than retention_days are preserved
+   - Retention applies uniformly to active, archived, and soft-deleted entities
+
+3. **Soft-delete expiry tests:**
+   - Soft-deleted items older than expiry are permanently deleted
+   - History is cascade-deleted with the entity
+   - Items not yet expired are preserved
+
+4. **Tier limit tests:**
    - Different tiers have different retention limits
    - Limits are read from TierLimits dataclass
 
-3. **Edge cases:**
+5. **Orphan cleanup tests:**
+   - Orphaned history records are identified and deleted
+   - Valid history records are preserved
+
+6. **Edge cases:**
    - Entity with only snapshots (no diffs) - all kept within limits
-   - Entity at exactly max_history_per_entity - no deletion
    - Cleanup with no records to delete - no errors
+   - Concurrent writes during prune handled correctly
 
 ### Dependencies
 Milestone 4 (history recording)
 
 ### Risk Factors
-- **Snapshot preservation:** Algorithm must not delete snapshots needed to reconstruct in-retention versions. Careful design required.
-- **Performance:** Cleanup query could be slow for users with lots of history. Run infrequently.
+- **Snapshot preservation:** Prune algorithm must preserve snapshots needed to reconstruct in-retention versions.
+- **Cron job reliability:** Railway cron should be reliable, but monitor for failures.
 
 ---
 
@@ -2000,14 +2341,14 @@ In each item detail component (BookmarkDetail, NoteDetail, PromptDetail), add a 
 
 #### 6. Create Settings Version History page
 
-Create `frontend/src/pages/Settings/VersionHistory.tsx`:
+Create `frontend/src/pages/settings/SettingsVersionHistory.tsx` (following existing naming convention):
 
 ```typescript
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useUserHistory } from '../../hooks/useHistory';
 
-export function VersionHistoryPage() {
+export function SettingsVersionHistory() {
   const [entityTypeFilter, setEntityTypeFilter] = useState<string | undefined>();
   const [page, setPage] = useState(0);
   const limit = 50;
@@ -2141,11 +2482,14 @@ export function VersionHistoryPage() {
 
 In `frontend/src/App.tsx` router config (note the `/app` prefix to match existing routes):
 ```typescript
+// In App.tsx, add import:
+import { SettingsVersionHistory } from './pages/settings/SettingsVersionHistory'
+
 // Inside the /app/settings/* route group
-{ path: '/app/settings/history', element: <VersionHistoryPage /> },
+{ path: '/app/settings/history', element: <SettingsVersionHistory /> },
 ```
 
-In Settings navigation (`frontend/src/pages/Settings/index.tsx`):
+In Settings sidebar navigation (likely in `frontend/src/components/AppLayout.tsx` or similar):
 ```typescript
 <NavLink to="/app/settings/history">Version History</NavLink>
 ```
@@ -2167,7 +2511,7 @@ In Settings navigation (`frontend/src/pages/Settings/index.tsx`):
    - "Undo Creation" button appears on v1 (CREATE action)
    - "Undo Creation" → "Confirm Delete" on click → executes revert with version=0
 
-3. **VersionHistoryPage tests:**
+3. **SettingsVersionHistory tests:**
    - Renders history table
    - Filter buttons work
    - Pagination works
@@ -2187,13 +2531,15 @@ Milestone 5 (History API endpoints)
 
 ---
 
-## Milestone 9: Documentation and CLAUDE.md Update
+## Milestone 9: Documentation Update
 
 ### Goal
-Document the versioning system for developers and update CLAUDE.md.
+Document the versioning system for developers and users across all relevant documentation.
 
 ### Success Criteria
 - CLAUDE.md has clear section on content versioning
+- README.md mentions the feature
+- Landing page includes version history in feature list (if applicable)
 - API endpoints are documented
 - Diff algorithm and retention are explained
 
@@ -2214,7 +2560,7 @@ Document the versioning system for developers and update CLAUDE.md.
    - Token prefix for PAT requests (audit trail, e.g., "bm_a3f8...")
 
    **Diff Storage:**
-   - Full snapshots every 10 versions
+   - Full snapshots every 10 versions (or METADATA type for metadata-only changes)
    - Character-level diffs between snapshots (diff-match-patch)
    - Reconstruct any version by applying diffs from nearest snapshot
 
@@ -2227,11 +2573,41 @@ Document the versioning system for developers and update CLAUDE.md.
 
    **Retention:**
    - Tier-based: `history_retention_days`, `max_history_per_entity`
-   - Lazy cleanup when viewing history
+   - Count limits: enforced inline on write with hysteresis
+   - Time limits: enforced via nightly cron job
    - Snapshots preserved for reconstruction of in-retention versions
    ```
 
-2. **Add API documentation comments to endpoints**
+2. **Update README.md:**
+
+   Add to Features section:
+   ```markdown
+   ## Features
+   - **Content Versioning** — Full edit history for bookmarks, notes, and prompts.
+     View diffs, see who made changes, and restore any previous version.
+   ```
+
+3. **Update landing page (if feature list exists):**
+
+   Add to feature highlights:
+   ```
+   Version History — Every edit is tracked. See what changed, when, and restore
+   any previous version with one click. Your work is never lost.
+   ```
+
+4. **Add API documentation comments to endpoints**
+
+5. **Create changelog entry (or release notes):**
+   ```markdown
+   ## [Version X.X.X] - YYYY-MM-DD
+
+   ### Added
+   - **Content Versioning**: Full edit history for all content types
+     - View history for bookmarks, notes, and prompts
+     - See what changed with diff visualization
+     - Restore any previous version with one click
+     - Track who/what made changes (web, API, MCP)
+   ```
 
 ### Dependencies
 All previous milestones
@@ -2257,7 +2633,7 @@ None
 **Frontend:**
 - `frontend/src/hooks/useHistory.ts` - API hooks for history queries and mutations
 - `frontend/src/components/HistorySidebar.tsx` - Per-item history sidebar with diff viewer
-- `frontend/src/pages/Settings/VersionHistory.tsx` - Global history page
+- `frontend/src/pages/settings/SettingsVersionHistory.tsx` - Global history page
 
 ### Deleted Files
 - `backend/src/models/note_version.py` - Superseded by ContentHistory
@@ -2284,10 +2660,10 @@ None
 
 **Frontend:**
 - `frontend/src/services/api.ts` - Add X-Request-Source: web header
-- `frontend/src/components/BookmarkDetail.tsx` - Add history toggle button, render sidebar
-- `frontend/src/components/NoteDetail.tsx` - Add history toggle button, render sidebar
-- `frontend/src/components/PromptDetail.tsx` - Add history toggle button, render sidebar
-- `frontend/src/pages/Settings/index.tsx` - Add Version History nav link
+- `frontend/src/pages/BookmarkDetail.tsx` - Add history toggle button, render sidebar
+- `frontend/src/pages/NoteDetail.tsx` - Add history toggle button, render sidebar
+- `frontend/src/pages/PromptDetail.tsx` - Add history toggle button, render sidebar
+- `frontend/src/components/AppLayout.tsx` - Add Version History nav link (or wherever settings nav is)
 - `frontend/src/App.tsx` - Add /app/settings/history route
 - `frontend/package.json` - Add react-diff-viewer-continued dependency
 
