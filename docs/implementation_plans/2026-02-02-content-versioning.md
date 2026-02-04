@@ -1725,11 +1725,11 @@ Different cleanup types warrant different strategies:
    max_history_per_entity: int = 100  # Max versions per entity
    ```
 
-2. **Inline count-based cleanup with hysteresis in `record_action()`:**
+2. **Inline count-based cleanup with modulo check in `record_action()`:**
 
-   Enforce count limits at write time using a high-water mark to avoid per-write overhead:
+   Enforce count limits at write time using modulo-based checking to avoid per-write overhead:
    ```python
-   BUFFER_PERCENT = 0.1  # 10% buffer
+   PRUNE_CHECK_INTERVAL = 10  # Check every 10th write
 
    async def record_action(
        self,
@@ -1747,18 +1747,15 @@ Different cleanup types warrant different strategies:
        """Record a history entry for an action."""
        # ... existing retry loop and _record_action_impl call ...
 
-       # After successful insert, check if pruning needed
-       # Use COUNT-based check (not version-based, since version is monotonic and never resets)
-       # Prune if 10% over limit (triggers every ~10 writes at capacity)
-       high_water = int(limits.max_history_per_entity * (1 + BUFFER_PERCENT))
-
-       # Count actual records (not version number!)
-       count = await self._get_entity_history_count(db, user_id, entity_type, entity_id)
-       if count > high_water:
-           await self._prune_to_limit(
-               db, user_id, entity_type, entity_id,
-               target=limits.max_history_per_entity,
-           )
+       # After successful insert, check if pruning needed (every 10th write)
+       # This avoids COUNT query overhead on every write while keeping overage bounded
+       if history.version % PRUNE_CHECK_INTERVAL == 0:
+           count = await self._get_entity_history_count(db, user_id, entity_type, entity_id)
+           if count > limits.max_history_per_entity:
+               await self._prune_to_limit(
+                   db, user_id, entity_type, entity_id,
+                   target=limits.max_history_per_entity,
+               )
 
        return history
 
@@ -1837,17 +1834,13 @@ Different cleanup types warrant different strategies:
    - The operation is trivial (~3ms for 10-row delete by indexed columns)
    - Same transaction ensures atomicity
    - No async complexity or failure handling
-   - One extra COUNT query per write, but it's fast (indexed columns, tight WHERE clause)
 
-   **Why count-based (not version-based):**
-   - Version numbers are monotonic—they never reset after pruning
-   - Using `version > high_water` would trigger prune on every write once crossed
-   - COUNT reflects actual record count, so prune only triggers when truly over limit
-
-   **Why hysteresis:**
-   - Avoids pruning on every write once at capacity
-   - Prune of ~10 records happens once per ~10 writes instead of 1 record per write
-   - Standard pattern used by memory allocators, caches, and GC systems
+   **Why modulo-based checking (every 10th write):**
+   - Avoids COUNT query on every write (90% reduction in overhead)
+   - Achieves same goal as hysteresis: prune every ~10 writes at capacity, not every write
+   - Simpler than high-water mark calculation
+   - Deterministic and easy to test
+   - Max overage bounded to ~10 records (same as hysteresis approach)
 
 3. **Scheduled cron job for time-based cleanup:**
 
@@ -2024,11 +2017,12 @@ async def cleanup_orphaned_history(db) -> int:
 
 ### Testing Strategy
 
-1. **Count-based limit tests (inline):**
-   - At limit, no prune triggered
-   - At limit + 10%, prune triggers and removes oldest records
+1. **Count-based limit tests (inline with modulo check):**
+   - At version % 10 != 0, no COUNT query executed
+   - At version % 10 == 0, COUNT query checks if over limit
+   - When over limit, prune triggers and removes oldest records
    - With reverse diffs, no special snapshot preservation needed—just delete oldest
-   - Hysteresis: prune happens once per ~10 writes at capacity, not every write
+   - Prune happens every 10 writes at capacity, not every write
 
 2. **Time-based limit tests (cron):**
    - Records older than retention_days are deleted
@@ -2063,7 +2057,7 @@ Milestone 4 (history recording)
 ### Tier Downgrade Behavior
 
 When a user downgrades to a tier with lower retention limits:
-- **Count limits:** Over-limit history is pruned on the user's next write (inline hysteresis triggers)
+- **Count limits:** Over-limit history is pruned on the user's next 10th-version write (modulo check triggers)
 - **Time limits:** Over-limit history is pruned at the next cron run (nightly)
 
 There is no immediate mass-deletion on downgrade—history is cleaned up lazily through the normal mechanisms. This means users may temporarily retain more history than their tier allows.
@@ -2590,7 +2584,7 @@ Document the versioning system for developers and users across all relevant docu
 
    **Retention:**
    - Tier-based: `history_retention_days`, `max_history_per_entity`
-   - Count limits: enforced inline on write with hysteresis
+   - Count limits: enforced inline every 10th write (modulo check)
    - Time limits: enforced via nightly cron job
    - Cleanup is simple with reverse diffs: just delete oldest records, keep latest snapshot
    ```
