@@ -267,30 +267,10 @@ Add request source and auth type tracking to request context so history records 
        token_prefix: str | None = None  # Only set for PAT auth, e.g. "bm_a3f8..."
    ```
 
-3. **Update `validate_pat()` to return token_prefix:**
+3. **Update auth dependencies to set request context:**
 
-   Currently `validate_pat()` returns only the User, discarding the `api_token` object. Modify to preserve the token prefix for audit trails:
-   ```python
-   async def validate_pat(db: AsyncSession, token: str) -> tuple[User, str]:
-       """
-       Validate a PAT and return the associated user AND token prefix.
-
-       Returns:
-           Tuple of (User, token_prefix) for audit trail purposes.
-           Token prefix is safe to log/display (e.g., "bm_a3f8...").
-       """
-       api_token = await token_service.validate_token(db, token)
-       if api_token is None:
-           raise HTTPException(...)
-
-       # ... load user ...
-
-       return user, api_token.token_prefix  # Return both
-   ```
-
-4. **Update auth dependencies to set request context:**
-
-   In `_authenticate_user()`, set context on `request.state`:
+   In `_authenticate_user()`, set context on `request.state`. The token_prefix is computed directly
+   from the token string (no need to change `validate_pat()` since the caller already has the token):
    ```python
    async def _authenticate_user(
        request: Request,  # Add request parameter
@@ -308,8 +288,10 @@ Add request source and auth type tracking to request context so history records 
        elif token.startswith("bm_"):
            if not allow_pat:
                raise HTTPException(status_code=403, ...)
-           user, token_prefix = await validate_pat(db, token)  # Now returns tuple
+           user = await validate_pat(db, token)
            auth_type = AuthType.PAT
+           # Compute token_prefix directly from token (e.g., "bm_a3f8...")
+           token_prefix = token[:15] if len(token) > 15 else token
        else:
            auth_type = AuthType.AUTH0
            # ... existing JWT validation ...
@@ -324,6 +306,10 @@ Add request source and auth type tracking to request context so history records 
        }
        source = source_map.get(source_header, RequestSource.UNKNOWN)
 
+       # Log unrecognized source values for monitoring (helps detect misconfigurations)
+       if source_header and source == RequestSource.UNKNOWN:
+           logger.debug(f"Unrecognized X-Request-Source header: {source_header}")
+
        request.state.request_context = RequestContext(
            source=source,
            auth_type=auth_type,
@@ -333,13 +319,13 @@ Add request source and auth type tracking to request context so history records 
        return user
    ```
 
-5. **Add helper to get context from request:**
+4. **Add helper to get context from request:**
    ```python
    def get_request_context(request: Request) -> RequestContext | None:
        return getattr(request.state, "request_context", None)
    ```
 
-6. **Update MCP server api_client.py to include source header:**
+5. **Update MCP server api_client.py to include source header:**
 
    In `backend/src/mcp_server/api_client.py`:
    ```python
@@ -402,7 +388,7 @@ Create the `content_history` table to store all history records, and clean up un
    from enum import Enum
    from uuid import UUID
 
-   from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint, func
+   from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint, func, text
    from sqlalchemy.dialects.postgresql import JSONB
    from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -500,6 +486,19 @@ Create the `content_history` table to store all history records, and clean up un
    - Search for other references: `grep -r "NoteVersion" backend/`
    - Update or remove any other files that import NoteVersion
 
+6. **Update /content endpoint to remove Note.version references:**
+
+   The `/content` unified search endpoint currently includes `Note.version` which will be dropped.
+
+   In `backend/src/services/content_service.py`:
+   - Remove `Note.version.label("version")` from the notes subquery (around line 295)
+   - Remove `version=row.version if row.type == "note" else None` from `_row_to_content_list_item` (around line 160)
+
+   In `backend/src/schemas/content.py`:
+   - Remove `version: int | None = None` from `ContentListItem` class (around line 51)
+
+   **Note:** This field was never used meaningfully (always 1 for notes). Removing it is a minor breaking change to the API response schema, but since the field was always 1, no clients should depend on it.
+
 7. **Create migration:**
    ```bash
    make migration message="add content_history table and drop note_versions"
@@ -585,6 +584,7 @@ Create service layer for recording and retrieving history, including diff-match-
        """Result of content reconstruction at a version."""
        found: bool  # Whether the version exists
        content: str | None  # Content at that version (None is valid for some actions)
+       warnings: list[str] | None = None  # Warnings if reconstruction had issues (e.g., partial patch failure)
 
    class HistoryService:
        def __init__(self):
@@ -812,6 +812,7 @@ Create service layer for recording and retrieving history, including diff-match-
            # Step 3: Apply reverse diffs from snapshot backwards to target
            content = snapshot.content_diff
            current_version = snapshot.version
+           warnings: list[str] = []
 
            for record in records:
                # Each record's diff transforms record.version content → (record.version - 1) content
@@ -827,6 +828,8 @@ Create service layer for recording and retrieving history, including diff-match-
                    new_content, results = self.dmp.patch_apply(patches, content or "")
                    if not all(results):
                        # Some patches failed - log but continue with partial result
+                       warning_msg = f"Partial patch failure at v{record.version}"
+                       warnings.append(warning_msg)
                        logger.warning(
                            "Diff application partial failure for %s/%s v%d: %s",
                            entity_type_value, entity_id, record.version, results,
@@ -839,7 +842,11 @@ Create service layer for recording and retrieving history, including diff-match-
            if current_version != target_version:
                return ReconstructionResult(found=False, content=None)
 
-           return ReconstructionResult(found=True, content=content)
+           return ReconstructionResult(
+               found=True,
+               content=content,
+               warnings=warnings if warnings else None,
+           )
 
        async def get_history_at_version(
            self,
@@ -910,6 +917,7 @@ Create service layer for recording and retrieving history, including diff-match-
    - Version with None content (delete action) returns `found=True, content=None`
    - Verify only necessary records are queried (snapshot to target, not full history)
    - Reconstruct version with METADATA records correctly skips content transformation
+   - **METADATA version returns same content as next version** (since content was unchanged at that version)
    - Reverse diff application: verify v10 content + reverse diffs = v5 content
 
 4. **Race condition tests:**
@@ -1494,11 +1502,11 @@ Milestone 4 (history recording integrated)
 Allow users to revert content to a previous version.
 
 ### Success Criteria
-- Users can revert content to any previous version
+- Users can revert content to any previous version (v1+)
 - Revert creates a new history entry (not deletion of history)
-- **Version 0 = "undo create" = soft-delete the entity**
-- Edge cases handled (deleted items, URL conflicts)
+- Edge cases handled (deleted items, URL conflicts, archived items)
 - Revert delegates to entity-specific services for validation
+- **Note:** "Undo create" is not a revert operation—use the existing DELETE endpoint instead
 
 ### Key Changes
 
@@ -1508,7 +1516,7 @@ Allow users to revert content to a previous version.
    async def revert_to_version(
        entity_type: EntityType,
        entity_id: UUID,
-       version: int = Path(..., ge=0),  # version >= 0; 0 means "undo create"
+       version: int = Path(..., ge=1),  # version >= 1 (use DELETE endpoint for "undo create")
        request: Request,
        current_user: User = Depends(get_current_user),
        limits: TierLimits = Depends(get_current_limits),
@@ -1517,11 +1525,11 @@ Allow users to revert content to a previous version.
        """
        Revert entity to a previous version.
 
-       - version > 0: Restore content/metadata from that version (creates UPDATE)
-       - version = 0: "Undo create" - soft-delete the entity (creates DELETE)
-
-       For version > 0, this creates a new UPDATE history entry with restored content.
+       Restores content/metadata from the specified version (creates new UPDATE history entry).
        The revert operation delegates to the entity-specific service for validation.
+
+       Note: To "undo create" (delete the entity), use the DELETE endpoint instead.
+       Revert is specifically for restoring to a previous content state.
        """
        context = get_request_context(request)
        service = _get_service_for_entity_type(entity_type)
@@ -1535,18 +1543,7 @@ Allow users to revert content to a previous version.
            # Entity was permanently deleted - cannot restore
            raise HTTPException(status_code=404, detail="Entity not found")
 
-       # Handle version=0 specially: "undo create" means soft-delete
-       if version == 0:
-           if entity.deleted_at is not None:
-               raise HTTPException(
-                   status_code=400,
-                   detail="Entity is already deleted",
-               )
-           # Soft-delete the entity (this records a DELETE history entry)
-           await service.delete(db, current_user.id, entity_id, permanent=False, context=context)
-           return {"message": "Entity deleted (undo create)", "version": 0}
-
-       # For version > 0: restore to that version
+       # Restore to the specified version
        result = await history_service.reconstruct_content_at_version(
            db, current_user.id, entity_type, entity_id, version
        )
@@ -1585,8 +1582,8 @@ Allow users to revert content to a previous version.
    ```
 
 2. **Handle edge cases:**
-   - **Version 0 (undo create):** Soft-delete the entity, return 400 if already deleted
-   - **Deleted item:** If soft-deleted, restore first then update (for version > 0)
+   - **Deleted item:** If soft-deleted, restore first then update
+   - **Archived item:** Revert preserves archive state (content is restored but item stays archived)
    - **URL conflict (bookmarks):** If restoring a URL that now exists on another bookmark, reject with 409
    - **Prompt name conflict:** Similar to URL
    - **Tag restoration:** Tags in metadata_snapshot are names; service creates missing tags as needed
@@ -1664,24 +1661,20 @@ Allow users to revert content to a previous version.
    - Reverted content matches target version
    - Reverted metadata matches target version
 
-2. **Version 0 (undo create) tests:**
-   - Revert to version 0 soft-deletes the entity
-   - Revert to version 0 creates DELETE history entry
-   - Revert to version 0 on already-deleted entity returns 400
-   - Revert to version 0 on permanently deleted entity returns 404
-
-3. **Edge case tests:**
+2. **Edge case tests:**
    - Revert soft-deleted item (should restore + update)
+   - Revert archived item preserves archived_at (content restored, stays archived)
    - Revert to version with URL that now conflicts (should 409)
    - Revert to version with name that now conflicts (should 409)
    - Revert permanently deleted item (should 404)
    - Revert to non-existent version (should 404)
    - Revert to version with None content (e.g., delete snapshot) handles gracefully
 
-4. **Tag restoration:**
+3. **Tag restoration:**
    - Tags from target version are restored
    - Current tags are replaced
    - Missing tags are created automatically
+   - **Note:** Reverting restores the exact tag set from that version, including tags that were subsequently deleted
 
 5. **Schema evolution tests:**
    - Revert to version with fewer metadata fields than current schema (missing fields preserved from current entity)
@@ -1755,15 +1748,39 @@ Different cleanup types warrant different strategies:
        # ... existing retry loop and _record_action_impl call ...
 
        # After successful insert, check if pruning needed
+       # Use COUNT-based check (not version-based, since version is monotonic and never resets)
        # Prune if 10% over limit (triggers every ~10 writes at capacity)
        high_water = int(limits.max_history_per_entity * (1 + BUFFER_PERCENT))
-       if history.version > high_water:
+
+       # Count actual records (not version number!)
+       count = await self._get_entity_history_count(db, user_id, entity_type, entity_id)
+       if count > high_water:
            await self._prune_to_limit(
                db, user_id, entity_type, entity_id,
                target=limits.max_history_per_entity,
            )
 
        return history
+
+   async def _get_entity_history_count(
+       self,
+       db: AsyncSession,
+       user_id: UUID,
+       entity_type: EntityType | str,
+       entity_id: UUID,
+   ) -> int:
+       """Count history records for an entity."""
+       entity_type_value = entity_type.value if isinstance(entity_type, EntityType) else entity_type
+       stmt = (
+           select(func.count())
+           .select_from(ContentHistory)
+           .where(
+               ContentHistory.user_id == user_id,
+               ContentHistory.entity_type == entity_type_value,
+               ContentHistory.entity_id == entity_id,
+           )
+       )
+       return (await db.execute(stmt)).scalar_one()
 
    async def _prune_to_limit(
        self,
@@ -1820,7 +1837,12 @@ Different cleanup types warrant different strategies:
    - The operation is trivial (~3ms for 10-row delete by indexed columns)
    - Same transaction ensures atomicity
    - No async complexity or failure handling
-   - Version number is already computed—zero extra queries to check threshold
+   - One extra COUNT query per write, but it's fast (indexed columns, tight WHERE clause)
+
+   **Why count-based (not version-based):**
+   - Version numbers are monotonic—they never reset after pruning
+   - Using `version > high_water` would trigger prune on every write once crossed
+   - COUNT reflects actual record count, so prune only triggers when truly over limit
 
    **Why hysteresis:**
    - Avoids pruning on every write once at capacity
@@ -1864,20 +1886,38 @@ Different cleanup types warrant different strategies:
 
    logger = logging.getLogger(__name__)
 
-   async def cleanup_expired_history(db, retention_days: int = 30) -> int:
+   async def cleanup_expired_history(db) -> dict:
        """
-       Delete history records older than retention_days.
+       Delete history records based on per-user tier retention limits.
 
-       Retention applies uniformly to all entities regardless of state
+       Each user's tier determines their history_retention_days.
+       Retention applies uniformly to all of a user's entities regardless of state
        (active, archived, or soft-deleted).
-       """
-       cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
 
-       stmt = delete(ContentHistory).where(
-           ContentHistory.created_at < cutoff_date,
-       )
-       result = await db.execute(stmt)
-       return result.rowcount
+       Returns dict with counts per tier for logging.
+       """
+       from models.user import User
+
+       deleted_by_tier: dict[str, int] = {}
+
+       # Get all users with their tiers
+       users_result = await db.execute(select(User))
+       users = users_result.scalars().all()
+
+       for user in users:
+           limits = get_tier_limits(user.tier)
+           cutoff_date = datetime.utcnow() - timedelta(days=limits.history_retention_days)
+
+           stmt = delete(ContentHistory).where(
+               ContentHistory.user_id == user.id,
+               ContentHistory.created_at < cutoff_date,
+           )
+           result = await db.execute(stmt)
+
+           tier_name = user.tier or "free"
+           deleted_by_tier[tier_name] = deleted_by_tier.get(tier_name, 0) + result.rowcount
+
+       return deleted_by_tier
 
    async def cleanup_soft_deleted_items(db, expiry_days: int = 30) -> dict:
        """
@@ -1917,11 +1957,9 @@ Different cleanup types warrant different strategies:
            deleted = await cleanup_soft_deleted_items(db)
            logger.info(f"Deleted expired soft-deleted items: {deleted}")
 
-           # 2. Prune history older than retention_days
-           # Note: This is a simplified version. Production may need
-           # per-user retention based on tier.
+           # 2. Prune history based on per-user tier retention limits
            history_deleted = await cleanup_expired_history(db)
-           logger.info(f"Deleted expired history records: {history_deleted}")
+           logger.info(f"Deleted expired history records by tier: {history_deleted}")
 
            await db.commit()
 
@@ -2021,6 +2059,14 @@ Milestone 4 (history recording)
 ### Risk Factors
 - **Reverse diff simplicity:** With reverse diffs, cleanup is straightforward—just delete oldest records. The latest snapshot is always preserved and that's all we need for reconstruction.
 - **Cron job reliability:** Railway cron should be reliable, but monitor for failures.
+
+### Tier Downgrade Behavior
+
+When a user downgrades to a tier with lower retention limits:
+- **Count limits:** Over-limit history is pruned on the user's next write (inline hysteresis triggers)
+- **Time limits:** Over-limit history is pruned at the next cron run (nightly)
+
+There is no immediate mass-deletion on downgrade—history is cleaned up lazily through the normal mechanisms. This means users may temporarily retain more history than their tier allows.
 
 ---
 
@@ -2132,11 +2178,11 @@ export function useContentAtVersion(
       const response = await api.get<ContentAtVersion>(`/history/${entityType}/${entityId}/version/${version}`);
       return response.data;
     },
-    enabled: !!entityId && version >= 0,  // Allow version 0 for undo create
+    enabled: !!entityId && version >= 1,
   });
 }
 
-// Revert to a specific version (including version 0 for undo create)
+// Revert to a specific version
 export function useRevertToVersion() {
   const queryClient = useQueryClient();
 
@@ -2180,7 +2226,7 @@ export function HistorySidebar({ entityType, entityId, currentContent, onClose }
   const { data: versionContent } = useContentAtVersion(
     entityType,
     entityId,
-    selectedVersion ?? 0
+    selectedVersion ?? 1
   );
   const revertMutation = useRevertToVersion();
 
@@ -2194,19 +2240,6 @@ export function HistorySidebar({ entityType, entityId, currentContent, onClose }
     } else {
       // First click - show confirm
       setConfirmingRevert(version);
-    }
-  };
-
-  // Handler for "Undo creation" (version 0 = soft-delete)
-  const handleUndoCreate = () => {
-    if (confirmingRevert === 0) {
-      // Second click - execute delete
-      revertMutation.mutate(
-        { entityType, entityId, version: 0 },
-        { onSuccess: () => onClose() }  // Close sidebar after delete
-      );
-    } else {
-      setConfirmingRevert(0);
     }
   };
 
@@ -2254,24 +2287,8 @@ export function HistorySidebar({ entityType, entityId, currentContent, onClose }
                     </span>
                   </div>
                   <div className="flex gap-2">
-                    {/* Show "Undo creation" button on v1 (CREATE action) */}
-                    {entry.version === 1 && entry.action === 'create' && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleUndoCreate();
-                        }}
-                        className={`px-3 py-1 text-sm rounded ${
-                          confirmingRevert === 0
-                            ? 'bg-red-600 text-white'
-                            : 'bg-gray-200 dark:bg-gray-600 hover:bg-gray-300'
-                        }`}
-                      >
-                        {confirmingRevert === 0 ? 'Confirm Delete' : 'Undo Creation'}
-                      </button>
-                    )}
-                    {/* Show "Restore" button on older versions */}
-                    {entry.version < (history?.items[0]?.version ?? 0) && (
+                    {/* Show "Restore" button on older versions (not the latest) */}
+                    {entry.version < (history?.items[0]?.version ?? 1) && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -2309,7 +2326,6 @@ export function HistorySidebar({ entityType, entityId, currentContent, onClose }
             oldValue={versionContent.content ?? ''}
             newValue={currentContent}
             splitView={false}
-            useDarkTheme={document.documentElement.classList.contains('dark')}
           />
         </div>
       )}
@@ -2512,8 +2528,6 @@ In Settings sidebar navigation (likely in `frontend/src/components/AppLayout.tsx
    - Restore button shows confirm state on first click
    - Confirm executes revert mutation
    - Close button calls onClose
-   - "Undo Creation" button appears on v1 (CREATE action)
-   - "Undo Creation" → "Confirm Delete" on click → executes revert with version=0
 
 3. **SettingsVersionHistory tests:**
    - Renders history table
@@ -2531,7 +2545,6 @@ Milestone 5 (History API endpoints)
 ### Risk Factors
 - **Sidebar width:** 384px (w-96) may need adjustment on smaller screens. Consider responsive breakpoints.
 - **Diff performance:** Very large content may slow diff rendering. Consider truncating or lazy loading for huge documents.
-- **Dark mode:** `react-diff-viewer-continued` has dark theme support but may need CSS tweaks to match app theme.
 
 ---
 
