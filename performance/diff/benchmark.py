@@ -158,13 +158,14 @@ async def benchmark_event_loop_impact(
 
     # With diff: run diff computation alongside async requests
     async def diff_and_requests() -> list[float]:
-        # Start concurrent requests
-        request_tasks = [simulated_request() for _ in range(10)]
+        # Start concurrent requests BEFORE the blocking diff
+        # Using create_task() actually schedules them on the event loop
+        request_tasks = [asyncio.create_task(simulated_request()) for _ in range(10)]
 
-        # Run blocking diff (simulating what happens without thread pool)
+        # Run blocking diff - this blocks the event loop and delays the tasks above
         dmp.patch_make(original, modified)
 
-        return await asyncio.gather(*request_tasks)
+        return list(await asyncio.gather(*request_tasks))
 
     impacted_times = await diff_and_requests()
 

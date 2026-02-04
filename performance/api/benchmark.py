@@ -205,12 +205,15 @@ class ApiBenchmark:
             for _ in range(max_concurrency)
         ])
 
-        # Also warm up an API endpoint that uses more code paths
-        for _ in range(5):
-            await client.get(
-                f"{self.base_url}/notes/",
-                params={"limit": 1},
-            )
+        # Warm up all entity endpoints to initialize ORM models
+        # Without this, the first request to each entity type includes ORM
+        # initialization overhead (~20-30ms) that skews benchmark results
+        for endpoint in ["/notes/", "/bookmarks/", "/prompts/"]:
+            for _ in range(3):
+                await client.get(
+                    f"{self.base_url}{endpoint}",
+                    params={"limit": 1},
+                )
 
         print("done")
 

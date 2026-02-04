@@ -336,8 +336,14 @@ async def main(content_size_kb: int, entity: str | None) -> None:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         try:
-            # Warmup request (to initialize ORM)
+            # Warmup: initialize ORM models for all entity types
+            # Without this, the first profiled operation includes ORM initialization
+            # overhead (~20-30ms) that skews results
+            print("\nWarming up ORM models...", end=" ", flush=True)
             await client.get("/health")
+            for endpoint in ["/notes/", "/bookmarks/", "/prompts/"]:
+                await client.get(endpoint, params={"limit": 1})
+            print("done")
 
             # Profile each entity type
             if entity is None or entity == "notes":
