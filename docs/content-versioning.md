@@ -1,0 +1,331 @@
+# Content Versioning System Specification
+
+## Overview
+
+The content versioning system tracks all changes to bookmarks, notes, and prompts. It enables users to view history, see what changed, understand who/what initiated changes, and restore previous versions.
+
+### Design Goals
+
+1. **Complete audit trail** — Every create, update, delete, restore, archive, and unarchive is recorded
+2. **Efficient storage** — Use diffs instead of full snapshots where possible
+3. **Source attribution** — Track whether changes came from web UI, API, or MCP servers
+4. **Tier-based retention** — Different user tiers get different history retention limits
+5. **Simple cleanup** — Pruning old history should be straightforward without orphaning data
+
+---
+
+## Core Concepts
+
+### Reverse Diffs
+
+The system uses **reverse diffs** — each diff record stores how to transform the current version's content into the previous version's content (going backwards in time).
+
+**Why reverse diffs:**
+- Cleanup is trivial: delete old records freely, reconstruction always anchors on current content
+- No need to preserve old snapshots for correctness
+- Standard pattern used by backup systems
+
+**How reconstruction works:**
+1. Start with the entity's current content (from the entity table, e.g., `Note.content`)
+2. Get all history records from the latest version down to the target version
+3. Apply each reverse diff sequentially to walk backwards through time
+4. The result is the content at the target version
+
+### Diff Types and Dual Storage
+
+Each history record has one of three diff types. To maintain an unbroken reconstruction chain, **SNAPSHOT records store both the full content AND the diff to the previous version** (where applicable).
+
+| Type | `content_snapshot` | `content_diff` | When Used |
+|------|-------------------|----------------|-----------|
+| `SNAPSHOT` (CREATE) | Full content | None | First version of an entity (no previous) |
+| `SNAPSHOT` (periodic) | Full content | Diff to previous | Every Nth version (default: 10) |
+| `SNAPSHOT` (DELETE) | Pre-delete content | None | Soft delete (content unchanged) |
+| `DIFF` | None | Diff to previous | Normal updates between snapshots |
+| `METADATA` | None | None | Content unchanged, only metadata changed |
+
+**Note:** Metadata is stored as a full snapshot in every record.
+
+**Why dual storage for snapshots?**
+
+With reverse diffs, each record must provide a way to get to the previous version. If a SNAPSHOT only stored full content (no diff), the reconstruction chain would break at that point—there would be no way to traverse backwards through the snapshot.
+
+By storing both `content_snapshot` (for starting reconstruction) and `content_diff` (for chain continuity), snapshots serve as efficient starting points without breaking the chain.
+
+**Storage impact:** Minimal (~5% increase). For every 10 versions with ~10KB content, dual storage adds only ~1KB (one extra diff per snapshot interval).
+
+### Snapshots
+
+Snapshots serve as:
+1. **Error recovery points** — If a diff is corrupted, snapshots provide known-good content
+2. **Interval markers** — Force full content capture periodically (default: every 10 versions)
+
+Snapshots are **not required for reconstruction correctness** — the entity's current content is always the anchor. However, they provide resilience against diff corruption.
+
+---
+
+## Data Model
+
+### History Record Fields
+
+Each history record contains:
+
+| Field | Description |
+|-------|-------------|
+| `id` | Unique identifier (UUIDv7) |
+| `user_id` | Owner of the content |
+| `entity_type` | "bookmark", "note", or "prompt" |
+| `entity_id` | ID of the bookmark/note/prompt |
+| `action` | What happened (see Actions below) |
+| `version` | Sequential version number per entity (1, 2, 3, ...) |
+| `diff_type` | "snapshot", "diff", or "metadata" |
+| `content_snapshot` | Full content text (only for SNAPSHOT records, otherwise None) |
+| `content_diff` | Diff-match-patch delta string to previous version (None for CREATE, DELETE, METADATA) |
+| `metadata_snapshot` | JSON object of non-content fields at this version |
+| `source` | Request origin (see Source Tracking) |
+| `auth_type` | Authentication method used |
+| `token_prefix` | First 15 chars of PAT if used (for audit trail) |
+| `created_at` | When this version was created |
+
+### Metadata Snapshot Contents
+
+The `metadata_snapshot` captures non-content fields at each version:
+
+**All entity types:**
+- `title`
+- `description`
+- `tags` (list of tag names)
+
+**Bookmarks additionally:**
+- `url`
+
+**Prompts additionally:**
+- `name`
+- `arguments`
+
+---
+
+## Actions Tracked
+
+| Action | Trigger | Content Stored |
+|--------|---------|----------------|
+| `CREATE` | New entity created | Full content (SNAPSHOT) |
+| `UPDATE` | Entity modified | Diff or snapshot depending on rules |
+| `DELETE` | Soft delete | Previous content (SNAPSHOT) — preserves what was deleted |
+| `RESTORE` | Soft delete reversed | Current content after restore |
+| `ARCHIVE` | Entity archived | Current content |
+| `UNARCHIVE` | Archive reversed | Current content |
+
+### DELETE Action Behavior
+
+When an entity is soft-deleted, the DELETE history record stores the **pre-delete content** in `content_snapshot` as a SNAPSHOT. The `content_diff` is None because the content itself doesn't change during a soft delete (only `deleted_at` is set). This ensures:
+- Users can see what content looked like before deletion
+- Restoration has access to the deleted content
+- The audit trail shows what was removed
+- The reconstruction chain remains valid (no diff needed since content unchanged)
+
+When an entity is **hard-deleted** (permanently removed), all associated history records are cascade-deleted at the application level. No history survives a hard delete—this supports GDPR "right to erasure" requirements.
+
+### No-Op Updates
+
+If an update request results in no actual changes (identical content and metadata), **no history record is created**. This prevents cluttering history with meaningless entries.
+
+---
+
+## Source Tracking
+
+Every history record captures where the change originated.
+
+### Request Source
+
+Determined by the `X-Request-Source` header:
+
+| Header Value | Source | Description |
+|--------------|--------|-------------|
+| `web` | `WEB` | Web UI (claude.ai or similar) |
+| `api` | `API` | Direct API calls |
+| `mcp-content` | `MCP_CONTENT` | Content MCP server |
+| `mcp-prompt` | `MCP_PROMPT` | Prompt MCP server |
+| (missing/invalid) | `UNKNOWN` | Header not provided or unrecognized |
+
+### Authentication Type
+
+| Auth Type | Description |
+|-----------|-------------|
+| `AUTH0` | Standard web authentication |
+| `PAT` | Personal Access Token |
+| `DEV` | Development mode |
+
+### Token Prefix
+
+For PAT authentication, the first 15 characters of the token are stored (e.g., `bm_a3f8...`). This allows auditing which token made changes without exposing the full token.
+
+### MCP Server Restrictions
+
+MCP servers explicitly block delete operations. Attempts to delete via MCP return a descriptive error: "Delete operations are only available via the web UI for safety."
+
+---
+
+## Version Numbering
+
+- Versions are sequential integers starting at 1 for each entity
+- Version numbers are monotonic — they never reset, even after pruning
+- Concurrent writes to the same entity use a retry mechanism with database savepoints to allocate unique versions
+- The unique constraint on `(user_id, entity_type, entity_id, version)` prevents duplicates
+
+---
+
+## Reconstruction Algorithm
+
+To reconstruct content at a specific version:
+
+1. **Validate target** — Return not found if version doesn't exist or exceeds latest
+2. **Get current content** — Fetch from entity table (including soft-deleted entities) as fallback anchor
+3. **Get history chain** — Fetch all records from latest version down to target version (ordered by version descending)
+4. **Find nearest snapshot** — Scan fetched records for the snapshot closest to the target version (lowest version number in the set). This avoids applying unnecessary diffs.
+5. **Choose starting point:**
+   - If snapshot found: start from that snapshot's `content_snapshot`
+   - If no snapshot found: start from entity's current content
+6. **Apply reverse diffs** — Starting from the chosen anchor, iterate through records from the snapshot (or start) down to target:
+   - `SNAPSHOT`: If this is the starting snapshot, we already have its content. Apply its `content_diff` if present (periodic snapshots have diffs to continue the chain; CREATE and DELETE have None).
+   - `DIFF`: Apply the `content_diff` delta to get the previous version's content
+   - `METADATA`: Skip (content unchanged at this version)
+7. **Return result** — Content at target version, plus any warnings
+
+### Why Find the Nearest Snapshot?
+
+Records are fetched from latest to target (e.g., v50 down to v25). If a snapshot exists at v30, starting from entity content would require applying 20 diffs (v50→v49→...→v30→...→v25). By finding the nearest snapshot first, we start from v30's `content_snapshot` and apply only 5 diffs (including v30's own `content_diff`). This optimization avoids wasted computation, especially as snapshot intervals increase.
+
+**Note:** Metadata is stored as a full snapshot in every record, so only content reconstruction uses this algorithm. The target version's metadata is retrieved directly from its history record.
+
+### Partial Patch Failures
+
+If a diff fails to apply cleanly (some hunks fail), the system:
+- Continues with the partial result
+- Logs a warning server-side
+- Returns the content with a `warnings` array in the response
+
+**For viewing history:** Partial content with a warning is better than blocking access entirely.
+
+**For restoring:** The warnings are included in the response so the frontend can inform the user before or after the restoration.
+
+### Reconstruction of Deleted Entities
+
+Soft-deleted entities retain their content in the entity table (only `deleted_at` is set). Reconstruction works normally — anchor on `entity.content`, apply diffs.
+
+Hard-deleted entities have no content to anchor on and no history (cascade-deleted). Reconstruction returns not found.
+
+---
+
+## Retention and Cleanup
+
+### Tier-Based Limits
+
+Each user tier defines:
+- `history_retention_days` — How long to keep history records
+- `max_history_per_entity` — Maximum versions to retain per entity
+
+### Count-Based Pruning (Inline)
+
+Enforced at write time using modulo-based checking:
+
+1. After recording a history entry, check if `version % 10 == 0`
+2. If so, count total history records for this entity
+3. If count exceeds `max_history_per_entity`, delete oldest records to reach the limit
+
+**Behavior:**
+- Only the oldest records are deleted
+- With reverse diffs, no special snapshot preservation is needed
+- Check runs every 10 writes to avoid per-write overhead
+
+### Time-Based Pruning (Scheduled)
+
+A nightly cron job:
+1. Groups users by tier
+2. Deletes history records older than each tier's `history_retention_days`
+3. Also permanently deletes soft-deleted entities older than 30 days (with their history)
+
+### Hard Delete Cascade
+
+When an entity is permanently deleted:
+1. All history records for that entity are deleted first (application-level cascade)
+2. Then the entity is deleted
+3. No history record is created for the hard delete itself
+
+This supports GDPR "right to erasure" — permanent deletion is truly permanent.
+
+---
+
+## API Operations
+
+### View All User History
+
+Returns paginated history across all user's content, optionally filtered by entity type.
+
+### View Entity History
+
+Returns paginated history for a specific entity. Returns empty list (not 404) if entity doesn't exist or was hard-deleted.
+
+### View Content at Version
+
+Reconstructs and returns the content at a specific version. Returns the content (which may be None for DELETE actions) and any reconstruction warnings.
+
+### Revert to Version
+
+Restores an entity to a previous version's content and metadata:
+
+1. Reconstruct content at target version
+2. If entity is soft-deleted, restore it first
+3. Update entity with reconstructed content and metadata
+4. A new UPDATE history record is created (revert is recorded as a normal update)
+5. Response includes any reconstruction warnings
+
+**Conflict handling:**
+- If restored URL conflicts with another bookmark: 409 error
+- If restored prompt name conflicts: 409 error
+
+**Tag handling:**
+- Tags are restored by name
+- Missing tags are created automatically
+- This matches existing tag behavior throughout the application
+
+---
+
+## Edge Cases and Behaviors
+
+### Schema Evolution
+
+When reverting to an old version:
+- **Removed fields**: If the old metadata contains fields that no longer exist in the current schema, they are ignored
+- **New fields**: If the old metadata is missing fields that were added after that version was created, the entity retains its current values for those fields
+
+### Metadata-Only Changes
+
+When only metadata changes (tags, title, description) but content is identical:
+- History record created with `diff_type = METADATA`
+- `content_diff` is None
+- Reconstruction skips these records (content same as next newer version)
+
+### Archived Entity Revert
+
+Reverting an archived entity:
+- Content and metadata are restored to the target version
+- Archive status is preserved (entity remains archived)
+
+### Concurrent Edits
+
+The system uses last-write-wins for entity content. If two users edit simultaneously:
+- User A saves → creates version N
+- User B saves → creates version N+1
+- User A's changes are preserved in version N's history
+- No data is lost, but User A's changes are not in the current content
+
+Optimistic concurrency control (ETags/If-Match) is a separate feature that may be added independently.
+
+### Inactive Entities and Time-Based Cleanup
+
+If an entity hasn't been edited for longer than `history_retention_days`:
+- All history records may be deleted by time-based cleanup
+- The entity itself remains (with current content)
+- History simply starts fresh if the entity is edited again
+
+---
