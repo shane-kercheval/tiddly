@@ -86,16 +86,113 @@ This ensures AI agents via MCP can only read, create, and update - not delete (s
 
 **Purpose:** Validate diff-match-patch performance before building the history service. Determine whether sync implementation is acceptable or if thread pool is needed, and establish appropriate snapshot intervals.
 
-**Approach:** Benchmark script tested diff computation and reconstruction across content sizes (1KB-500KB), change patterns (1%/10%/50% modifications), and async event loop impact. 30 iterations per scenario measuring P50/P95/P99 latencies.
+**Approach:** Benchmark scripts tested:
+1. **Diff benchmark** (`performance/diff/benchmark.py`): Diff computation and reconstruction across content sizes (1KB-500KB), change patterns (1%/10%/50%), and event loop impact. 30 iterations per scenario.
+2. **API benchmark** (`performance/api/benchmark.py`): Full API endpoint performance at different content sizes (1KB, 50KB) and concurrency levels (10, 50, 100). 100 iterations per scenario.
+3. **Profiling** (`performance/profiling/profile.py`): Detailed pyinstrument profiles for individual operations.
 
 **System context:** Current content limit is 100KB. Sizes 250KB-500KB included for future planning.
 
-### Results Summary
+### Diff Computation Results
 
+Time to compute diff between original and modified content:
+
+| Size | Change | P50 (ms) | P95 (ms) | Notes |
+|------|--------|----------|----------|-------|
+| 1KB | 1% | 0.07 | 0.10 | |
+| 1KB | 10% | 0.02 | 0.03 | |
+| 10KB | 1% | 0.04 | 0.05 | |
+| 10KB | 10% | 0.07 | 0.07 | |
+| 10KB | 50% | 0.72 | 0.78 | |
+| 50KB | 1% | 0.07 | 0.08 | |
+| 50KB | 10% | 0.08 | 0.10 | Sub-millisecond at content limit |
+| 50KB | 50% | 14.2 | 14.7 | |
+| **100KB** | **1%** | **0.12** | **0.17** | **Current limit** |
+| **100KB** | **10%** | **0.13** | **0.14** | **Typical edit at max size** |
+| **100KB** | **50%** | **56.5** | **57.4** | **Rare: major rewrite** |
+| 250KB | 50% | 343 | 346 | Future planning only |
+| 500KB | 50% | 1338 | 1349 | Future planning only |
+
+### Reconstruction Results
+
+Time to apply N sequential diffs from a snapshot (for version retrieval):
+
+| Size | Diffs | P50 (ms) | P95 (ms) |
+|------|-------|----------|----------|
+| 50KB | 10 | 0.023 | 0.027 |
+| 100KB | 10 | 0.031 | 0.043 |
+| 100KB | 50 | 0.034 | 0.044 |
+
+**Conclusion:** Reconstruction is negligible (<0.1ms) even for 50 diffs at 100KB.
+
+### Event Loop Impact
+
+Tested how diff computation affects concurrent async operations:
+
+| Size | Degradation |
+|------|-------------|
+| 10KB | 1.01x |
+| 100KB | 0.99x |
+| 250KB | 1.00x |
+| 500KB | 1.00x |
+
+**Conclusion:** No measurable impact on event loop for typical operations (1-10% changes). The test uses 10% changes, which complete in <1ms and don't block.
+
+### API Baseline Performance
+
+Current API performance without versioning (for comparison after implementation):
+
+**At 1KB content, concurrency 10 (typical usage):**
+
+| Operation | P50 (ms) | P95 (ms) |
+|-----------|----------|----------|
+| Create Note | 25 | 41 |
+| Update Note | 29 | 42 |
+| Read Note | 17 | 28 |
+| List Notes | 26 | 39 |
+
+**At 50KB content, concurrency 10:**
+
+| Operation | P50 (ms) | P95 (ms) |
+|-----------|----------|----------|
+| Create Note | 28 | 40 |
+| Update Note | 36 | 119 |
+| Read Note | 20 | 28 |
+| List Notes | 26 | 37 |
+
+**Key observations:**
+- Content size has minimal impact on API latency (serialization is fast)
+- Prompts are ~2x slower than notes/bookmarks (Jinja2 template validation)
+- P95 scaling is ~8-12x from concurrency 10 to 100 (expected)
+- 0% error rate at all concurrency levels
+
+### Key Conclusions
+
+| Decision | Threshold | Result | Recommendation |
+|----------|-----------|--------|----------------|
+| Sync vs thread pool | P95 < 10ms for typical | 0.14ms at 100KB/10% | **Sync OK** |
+| Snapshot interval | Reconstruction < 20ms | 0.027ms for 10 diffs | **Interval 10 OK** |
+| Event loop blocking | Degradation < 2x | 1.0x | **Acceptable** |
+| 50% change handling | Note when slow | 57ms at 100KB | **Store snapshot when diff > 50% content** |
+
+### Summary
+
+1. **Sync implementation is fine** - Typical edits (1-10% changes) complete in <1ms even at the 100KB content limit. No thread pool needed.
+
+2. **Snapshot interval of 10 is appropriate** - Reconstruction from 10 diffs takes <0.05ms. Could increase to 20 without noticeable impact.
+
+3. **No event loop blocking concern** - Diff computation for typical edits doesn't block async operations.
+
+4. **50% rewrites are the edge case** - At 100KB, 50% changes take ~57ms. This is:
+   - Rare (most edits are small/incremental)
+   - Still acceptable (57ms won't cause timeouts)
+   - Above the 100KB limit, performance degrades significantly (350ms at 250KB, 1.3s at 500KB)
+
+5. **Content size limit provides protection** - The 100KB limit bounds worst-case diff computation at ~57ms.
 
 ### Implementation Notes for Milestone 3
 
-**Large-diff detection** - store snapshot when diff is large. Note: this saves storage and simplifies reconstruction, but does NOT avoid the slow diff computation (we must compute the diff to know its size).
+**Large-diff detection** - Store snapshot when diff is large. This saves storage and simplifies reconstruction, but does NOT avoid the slow diff computation (we must compute the diff to know its size).
 
 ```python
 patches = dmp.patch_make(previous, current)  # Still runs (can be slow for 50% rewrites)
@@ -106,7 +203,45 @@ else:
     diff_type, content_diff = DiffType.DIFF, diff_text
 ```
 
-**Why this is acceptable:** 50% rewrites are rare, and 57ms at 100KB is tolerable. If content limits increase to 250KB+, consider thread pool offloading.
+**Why this is acceptable:** 50% rewrites are rare in practice (users typically make incremental edits), and 57ms at 100KB is tolerable. If content limits increase to 250KB+, revisit with thread pool offloading (`run_in_executor()`).
+
+**Performance budget for versioning:** Current API P95 for note updates is ~40ms at concurrency 10. Adding ~0.2ms for diff computation is negligible. The overhead will primarily come from:
+- Extra DB write for history record (~5-10ms estimated)
+- Fetching previous content for diff (already loaded in update flow)
+
+### Performance Validation (After Milestone 4)
+
+After integrating history recording into services (Milestone 4), re-run the API benchmark to measure actual overhead and compare against the baseline above.
+
+**Steps:**
+1. Temporarily increase tier limits in `backend/src/core/tier_limits.py` (see `performance/api/README.md`)
+2. Run API benchmark at 1KB and 50KB content sizes:
+   ```bash
+   uv run python performance/api/benchmark.py --content-size 1
+   uv run python performance/api/benchmark.py --content-size 50
+   ```
+3. Compare results against baseline in this document
+4. Revert tier limit changes
+
+**Acceptance Criteria:**
+
+| Metric | Baseline | Acceptable Overhead |
+|--------|----------|---------------------|
+| Create Note P95 (1KB, conc=10) | 41ms | < 60ms (+50%) |
+| Update Note P95 (1KB, conc=10) | 42ms | < 65ms (+55%) |
+| Create Note P95 (50KB, conc=10) | 40ms | < 60ms (+50%) |
+| Update Note P95 (50KB, conc=10) | 119ms | < 180ms (+50%) |
+
+**Rationale:** The overhead comes from:
+- Extra DB write for history record (~5-15ms)
+- Diff computation (~0.2ms for typical edits, negligible)
+
+A 50% overhead at P95 is acceptable given the value of content versioning. If overhead exceeds these thresholds, investigate:
+- Index efficiency on `content_history` table
+- Whether history insert is blocking the response
+- Connection pool saturation
+
+**Results:** _(To be filled in after Milestone 4)_
 
 ---
 
