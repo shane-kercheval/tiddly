@@ -39,17 +39,17 @@ A single polymorphic `content_history` table for all content types (bookmarks, n
 
 ## Diff Strategy: Reverse Diffs with diff-match-patch
 
-Use Google's diff-match-patch algorithm with **reverse diffs** (storing how to get from current version to previous version). This makes cleanup trivial—only the latest snapshot is needed for reconstruction.
+Use Google's diff-match-patch algorithm with **reverse diffs** (storing how to get from current version to previous version). Combined with entity-anchored reconstruction, cleanup is trivial—just delete old records.
 
-**Why reverse diffs:**
-- Cleanup is simple: delete old records freely, just keep the latest snapshot
-- No need to preserve old snapshots for reconstruction
+**Why reverse diffs + entity-anchored reconstruction:**
+- Cleanup is simple: delete old records freely, entity.content is always the reconstruction anchor
+- No dependency on snapshots in history for reconstruction (though we still store them periodically for error recovery)
 - Standard pattern used by backup systems (most recent = full, older = reverse deltas)
 
 **How it works:**
 - Each DIFF record stores: "how to transform version N's content into version N-1's content"
-- To reconstruct an old version: start from latest snapshot, apply reverse diffs backwards
-- Example: To get v3 from v10 (snapshot), apply v10→v9, v9→v8, ..., v4→v3 diffs
+- To reconstruct an old version: start from entity.content (current), apply reverse diffs backwards
+- Example: To get v3 from current (v10), apply v10→v9, v9→v8, ..., v4→v3 diffs
 
 **Storage approach:**
 - `content_diff`: Full text (snapshot) OR reverse diff-match-patch delta string (diff)
@@ -91,6 +91,16 @@ This is spoofable but acceptable - source tracking is for audit/telemetry, not a
 - Prompt MCP: "There is no delete tool. Prompts can only be deleted via the web UI"
 
 This ensures AI agents via MCP can only read, create, and update - not delete (soft or hard). Delete operations require web UI (Auth0 authentication).
+
+**MCP Delete Error Messages:** When users attempt delete operations via MCP (if tools were inadvertently exposed or called directly), return a clear, helpful error message:
+```python
+# Example error response for MCP delete attempts
+{
+    "error": "delete_not_available",
+    "message": "Delete operations are only available via the web interface for safety. "
+               "AI agents cannot delete content. Please use the web UI at {app_url} to delete items.",
+}
+```
 
 ---
 
@@ -556,7 +566,7 @@ Create service layer for recording and retrieving history, including diff-match-
 ### Success Criteria
 - History is recorded on create/update/delete/restore/archive/unarchive
 - Diffs are computed and stored correctly
-- Content can be reconstructed by applying reverse diffs from latest snapshot
+- Content can be reconstructed using entity-anchored approach (start from entity.content, apply reverse diffs)
 - Version numbers increment correctly with race condition handling
 - Metadata-only changes are recorded as snapshots
 
@@ -756,45 +766,52 @@ Create service layer for recording and retrieving history, including diff-match-
            """
            Reconstruct content at a specific version by applying reverse diffs.
 
-           Uses REVERSE diff strategy:
-           - Find nearest snapshot AT OR AFTER target version
-           - Apply reverse diffs backwards from snapshot to target
+           Uses ENTITY-ANCHORED reconstruction:
+           - Get current content from the entity table as the starting anchor
+           - Apply reverse diffs backwards from current to target version
            - Each diff transforms version N content into version N-1 content
 
-           Returns ReconstructionResult with:
-           - found=False if version doesn't exist
-           - found=True with content (which may be None for delete actions)
+           This approach means:
+           - No dependency on SNAPSHOT records in history for reconstruction anchor
+           - Snapshots are still stored periodically for error recovery (optional)
+           - Time-based pruning cannot break reconstruction (entity.content is always available)
 
-           Optimized to only load records from target version to nearest snapshot.
+           Returns ReconstructionResult with:
+           - found=False if version doesn't exist or entity is hard-deleted
+           - found=True with content (which may be None for delete actions)
            """
            entity_type_value = entity_type.value if isinstance(entity_type, EntityType) else entity_type
 
-           # Step 1: Find the nearest snapshot at or after target version
-           snapshot_stmt = (
-               select(ContentHistory)
-               .where(
-                   ContentHistory.user_id == user_id,
-                   ContentHistory.entity_type == entity_type_value,
-                   ContentHistory.entity_id == entity_id,
-                   ContentHistory.version >= target_version,
-                   ContentHistory.diff_type == DiffType.SNAPSHOT.value,
-               )
-               .order_by(ContentHistory.version.asc())  # Nearest snapshot AFTER target
-               .limit(1)
+           # Step 1: Get current content from the entity as our reconstruction anchor
+           entity = await self._get_entity(
+               db, user_id, entity_type_value, entity_id, include_deleted=True
            )
-           snapshot_result = await db.execute(snapshot_stmt)
-           snapshot = snapshot_result.scalar_one_or_none()
-
-           if snapshot is None:
+           if entity is None:
+               # Entity was hard-deleted - no reconstruction possible
                return ReconstructionResult(found=False, content=None)
 
-           # If target is the snapshot itself, return directly
-           if snapshot.version == target_version:
-               return ReconstructionResult(found=True, content=snapshot.content_diff)
+           # Step 2: Get the latest version number
+           latest_version = await self._get_latest_version(
+               db, user_id, entity_type_value, entity_id
+           )
+           if latest_version is None or target_version > latest_version:
+               # No history exists or target is beyond latest version
+               return ReconstructionResult(found=False, content=None)
 
-           # Step 2: Get records from snapshot down to target (to apply reverse diffs)
-           # We need versions: snapshot, snapshot-1, ..., target+1
-           # Each record's diff transforms its content into the previous version's content
+           # If target is the current version, return entity content directly
+           if target_version == latest_version:
+               # For the latest version, get the content from history record
+               # (could be a DELETE where content is None)
+               latest_record = await self.get_history_at_version(
+                   db, user_id, entity_type_value, entity_id, target_version
+               )
+               if latest_record and latest_record.action == ActionType.DELETE.value:
+                   # DELETE records store the pre-delete content in content_diff (as SNAPSHOT)
+                   return ReconstructionResult(found=True, content=latest_record.content_diff)
+               return ReconstructionResult(found=True, content=entity.content)
+
+           # Step 3: Get all history records from latest down to target (to apply reverse diffs)
+           # We need versions: latest, latest-1, ..., target+1
            records_stmt = (
                select(ContentHistory)
                .where(
@@ -802,21 +819,24 @@ Create service layer for recording and retrieving history, including diff-match-
                    ContentHistory.entity_type == entity_type_value,
                    ContentHistory.entity_id == entity_id,
                    ContentHistory.version > target_version,
-                   ContentHistory.version <= snapshot.version,
+                   ContentHistory.version <= latest_version,
                )
-               .order_by(ContentHistory.version.desc())  # Start from snapshot, go backwards
+               .order_by(ContentHistory.version.desc())  # Start from latest, go backwards
            )
            records_result = await db.execute(records_stmt)
            records = list(records_result.scalars().all())
 
-           # Step 3: Apply reverse diffs from snapshot backwards to target
-           content = snapshot.content_diff
-           current_version = snapshot.version
+           # Step 4: Apply reverse diffs from current content backwards to target
+           content = entity.content
+           current_version = latest_version
            warnings: list[str] = []
 
            for record in records:
                # Each record's diff transforms record.version content → (record.version - 1) content
                if record.diff_type == DiffType.SNAPSHOT.value:
+                   # Snapshot contains the actual content at this version
+                   # For reverse reconstruction, this IS the content at this version
+                   # The diff to previous version is implicit (we continue from here)
                    content = record.content_diff
                elif record.diff_type == DiffType.METADATA.value:
                    # Content unchanged at this version, continue with same content
@@ -847,6 +867,60 @@ Create service layer for recording and retrieving history, including diff-match-
                content=content,
                warnings=warnings if warnings else None,
            )
+
+       async def _get_entity(
+           self,
+           db: AsyncSession,
+           user_id: UUID,
+           entity_type: str,
+           entity_id: UUID,
+           include_deleted: bool = False,
+       ):
+           """
+           Get entity by type and ID for reconstruction anchor.
+
+           Args:
+               include_deleted: If True, returns soft-deleted entities too.
+           """
+           from models.bookmark import Bookmark
+           from models.note import Note
+           from models.prompt import Prompt
+
+           model_map = {
+               "bookmark": Bookmark,
+               "note": Note,
+               "prompt": Prompt,
+           }
+           model = model_map.get(entity_type)
+           if model is None:
+               return None
+
+           filters = [model.user_id == user_id, model.id == entity_id]
+           if not include_deleted:
+               filters.append(model.deleted_at.is_(None))
+
+           stmt = select(model).where(*filters)
+           result = await db.execute(stmt)
+           return result.scalar_one_or_none()
+
+       async def _get_latest_version(
+           self,
+           db: AsyncSession,
+           user_id: UUID,
+           entity_type: str,
+           entity_id: UUID,
+       ) -> int | None:
+           """Get the latest version number for an entity."""
+           stmt = (
+               select(func.max(ContentHistory.version))
+               .where(
+                   ContentHistory.user_id == user_id,
+                   ContentHistory.entity_type == entity_type,
+                   ContentHistory.entity_id == entity_id,
+               )
+           )
+           result = await db.execute(stmt)
+           return result.scalar_one_or_none()
 
        async def get_history_at_version(
            self,
@@ -1098,7 +1172,7 @@ Hook history recording into existing service CRUD operations.
 
    Each operation records appropriate action type.
 
-   **Soft delete:** Records DELETE action with final state, history preserved for potential restore.
+   **Soft delete:** Records DELETE action with pre-delete content as SNAPSHOT, history preserved for potential restore. The snapshot enables "view what was deleted" and proper reconstruction.
 
    **Hard delete:** Delete all history for the entity, then delete the entity. No history record for the hard delete itself (entity and history are gone).
 
@@ -1125,14 +1199,17 @@ Hook history recording into existing service CRUD operations.
        else:
            # Soft delete: record history, then mark deleted
            if context:
+               # Store the pre-delete content as a SNAPSHOT so we can:
+               # 1. See "what was deleted" in history
+               # 2. Enable reconstruction of content at the DELETE version
                await history_service.record_action(
                    db=db,
                    user_id=user_id,
                    entity_type=self.entity_type,
                    entity_id=entity.id,
                    action=ActionType.DELETE,
-                   current_content=None,  # Content is "gone"
-                   previous_content=entity.content,
+                   current_content=entity.content,  # Store pre-delete content (becomes SNAPSHOT)
+                   previous_content=entity.content,  # Same as current for DELETE
                    metadata=self._get_metadata_snapshot(entity),
                    context=context,
                )
@@ -1578,7 +1655,12 @@ Allow users to revert content to a previous version.
                detail="Cannot revert: name already exists on another prompt",
            )
 
-       return {"message": "Reverted successfully", "version": version}
+       # Include warnings in response so frontend can show confirmation if needed
+       return {
+           "message": "Reverted successfully",
+           "version": version,
+           "warnings": result.warnings,  # None if no issues, list of strings otherwise
+       }
    ```
 
 2. **Handle edge cases:**
@@ -1669,8 +1751,15 @@ Allow users to revert content to a previous version.
    - Revert permanently deleted item (should 404)
    - Revert to non-existent version (should 404)
    - Revert to version with None content (e.g., delete snapshot) handles gracefully
+   - Revert with reconstruction warnings returns warnings in response (frontend can show confirmation)
 
-3. **Tag restoration:**
+3. **DELETE + reconstruction tests:**
+   - Reconstruct version at DELETE returns the pre-delete content (stored in snapshot)
+   - Reconstruct version before DELETE returns the content that existed then
+   - Reconstruct version after DELETE (if entity restored and edited) works correctly
+   - Entity-anchored reconstruction works for soft-deleted entities (uses entity.content as anchor)
+
+4. **Tag restoration:**
    - Tags from target version are restored
    - Current tags are replaced
    - Missing tags are created automatically
@@ -1698,7 +1787,7 @@ Implement retention limits based on user tier with appropriate cleanup strategie
 ### Success Criteria
 - Count limits enforced inline on write (predictable, immediate)
 - Time limits enforced via scheduled cron job (appropriate for aged data)
-- Latest snapshot always preserved (reverse diffs make cleanup simple)
+- Entity-anchored reconstruction means no special snapshot preservation needed
 - Tier limits configurable in TierLimits dataclass
 
 ### Retention Strategy
@@ -1790,10 +1879,10 @@ Different cleanup types warrant different strategies:
        """
        Prune oldest history records to reach target count.
 
-       With REVERSE diffs, cleanup is simple:
-       - We only need the LATEST snapshot for reconstruction (not old ones)
+       With REVERSE diffs and entity-anchored reconstruction, cleanup is simple:
+       - We use entity.content as the reconstruction anchor (not snapshots in history)
        - Just delete the oldest records beyond the target count
-       - No need to preserve old snapshots
+       - No need to preserve any specific snapshots
 
        Returns number of records deleted.
        """
@@ -1881,34 +1970,33 @@ Different cleanup types warrant different strategies:
 
    async def cleanup_expired_history(db) -> dict:
        """
-       Delete history records based on per-user tier retention limits.
+       Delete history records based on tier retention limits.
 
-       Each user's tier determines their history_retention_days.
-       Retention applies uniformly to all of a user's entities regardless of state
-       (active, archived, or soft-deleted).
+       Batches deletions by tier for efficiency (single DELETE per tier)
+       instead of iterating per-user. Each tier has its own retention_days.
 
        Returns dict with counts per tier for logging.
        """
        from models.user import User
+       from core.tier_limits import TIER_LIMITS
 
        deleted_by_tier: dict[str, int] = {}
 
-       # Get all users with their tiers
-       users_result = await db.execute(select(User))
-       users = users_result.scalars().all()
-
-       for user in users:
-           limits = get_tier_limits(user.tier)
+       # Batch by tier: single DELETE per tier (more efficient than per-user)
+       for tier_name, limits in TIER_LIMITS.items():
            cutoff_date = datetime.utcnow() - timedelta(days=limits.history_retention_days)
 
+           # Delete history for all users in this tier with aged records
            stmt = delete(ContentHistory).where(
-               ContentHistory.user_id == user.id,
+               ContentHistory.user_id.in_(
+                   select(User.id).where(
+                       func.coalesce(User.tier, "free") == tier_name
+                   )
+               ),
                ContentHistory.created_at < cutoff_date,
            )
            result = await db.execute(stmt)
-
-           tier_name = user.tier or "free"
-           deleted_by_tier[tier_name] = deleted_by_tier.get(tier_name, 0) + result.rowcount
+           deleted_by_tier[tier_name] = result.rowcount
 
        return deleted_by_tier
 
@@ -2051,8 +2139,18 @@ async def cleanup_orphaned_history(db) -> int:
 Milestone 4 (history recording)
 
 ### Risk Factors
-- **Reverse diff simplicity:** With reverse diffs, cleanup is straightforward—just delete oldest records. The latest snapshot is always preserved and that's all we need for reconstruction.
+- **Reverse diff simplicity:** With reverse diffs, cleanup is straightforward—just delete oldest records. Entity-anchored reconstruction uses `entity.content` as the starting point, so no special snapshot preservation needed.
 - **Cron job reliability:** Railway cron should be reliable, but monitor for failures.
+
+### Recommended Monitoring Metrics
+
+Track these metrics for operational visibility:
+- `content_history_rows_total` - Total rows in content_history table (gauge, by entity_type)
+- `history_prune_operations_total` - Count of prune operations triggered (counter, by trigger: inline/cron)
+- `history_records_pruned_total` - Records deleted by pruning (counter, by tier)
+- `reconstruction_warnings_total` - Reconstruction operations with warnings (counter)
+- `cron_cleanup_duration_seconds` - Duration of nightly cleanup job (histogram)
+- `cron_cleanup_records_deleted` - Records deleted per cron run (gauge, by tier)
 
 ### Tier Downgrade Behavior
 
@@ -2538,7 +2636,11 @@ Milestone 5 (History API endpoints)
 
 ### Risk Factors
 - **Sidebar width:** 384px (w-96) may need adjustment on smaller screens. Consider responsive breakpoints.
-- **Diff performance:** Very large content may slow diff rendering. Consider truncating or lazy loading for huge documents.
+- **Diff performance:** Very large content may slow diff rendering. `react-diff-viewer-continued` can struggle with content approaching 100KB. Mitigation strategies:
+  - Truncate diff view to first 50KB with "Show full diff" expansion button
+  - Show character count warning: "Large content (X chars) - diff may be slow"
+  - Consider virtualized rendering for very long diffs
+  - For content over 100KB, show summary only with option to download raw content
 
 ---
 
@@ -2573,20 +2675,21 @@ Document the versioning system for developers and users across all relevant docu
    **Diff Storage (Reverse Diffs):**
    - Full snapshots every 10 versions (or METADATA type for metadata-only changes)
    - Character-level reverse diffs using diff-match-patch (stores how to go backwards)
-   - Reconstruct any version by starting from latest snapshot, applying reverse diffs backwards
+   - Entity-anchored reconstruction: starts from `entity.content`, applies reverse diffs backwards
+   - No dependency on snapshots in history for reconstruction (entity is the anchor)
 
    **API Endpoints:**
    - `GET /history` - All user history
    - `GET /history/{type}/{id}` - Entity history
    - `GET /history/{type}/{id}/version/{v}` - Content at version
-   - `POST /history/{type}/{id}/revert/{v}` - Revert to version
+   - `POST /history/{type}/{id}/revert/{v}` - Revert to version (includes warnings field)
    - `GET /bookmarks/{id}/history` - Bookmark history (etc. for notes/prompts)
 
    **Retention:**
    - Tier-based: `history_retention_days`, `max_history_per_entity`
    - Count limits: enforced inline every 10th write (modulo check)
-   - Time limits: enforced via nightly cron job
-   - Cleanup is simple with reverse diffs: just delete oldest records, keep latest snapshot
+   - Time limits: enforced via nightly cron job (batched by tier)
+   - Cleanup is simple with reverse diffs: just delete oldest records
    ```
 
 2. **Update README.md:**
