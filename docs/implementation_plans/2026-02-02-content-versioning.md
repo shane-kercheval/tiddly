@@ -37,36 +37,38 @@ A single polymorphic `content_history` table for all content types (bookmarks, n
 
 ---
 
-## Diff Strategy: Reverse Diffs with diff-match-patch
+## Diff Strategy: Reverse Diffs with Dual Storage
 
-Use Google's diff-match-patch algorithm with **reverse diffs** (storing how to get from current version to previous version). Combined with entity-anchored reconstruction, cleanup is trivial—just delete old records.
+Use Google's diff-match-patch algorithm with **reverse diffs** (storing how to get from current version to previous version). Uses **dual storage** for SNAPSHOTs to enable reconstruction optimization.
 
-**Why reverse diffs + entity-anchored reconstruction:**
-- Cleanup is simple: delete old records freely, entity.content is always the reconstruction anchor
-- No dependency on snapshots in history for reconstruction (though we still store them periodically for error recovery)
+**Why reverse diffs + dual storage:**
+- Cleanup is simple: delete old records freely, entity.content is the fallback anchor
+- Reconstruction optimization: start from nearest snapshot instead of always from entity.content
+- Error recovery: snapshots serve as recovery points if diffs get corrupted
 - Standard pattern used by backup systems (most recent = full, older = reverse deltas)
 
 **How it works:**
-- Each DIFF record stores: "how to transform version N's content into version N-1's content"
-- To reconstruct an old version: start from entity.content (current), apply reverse diffs backwards
-- Example: To get v3 from current (v10), apply v10→v9, v9→v8, ..., v4→v3 diffs
+- Each record stores `content_diff`: the diff to transform version N content → version N-1 content
+- SNAPSHOT records also store `content_snapshot`: the full content at that version
+- To reconstruct: find nearest snapshot, start from `content_snapshot`, apply `content_diff` backwards
+- Fallback: if no snapshot found, start from entity.content
 
-**Storage approach:**
-- `content_diff`: Full text (snapshot) OR reverse diff-match-patch delta string (diff)
-- `metadata_snapshot`: JSONB of non-content fields (title, description, tags, etc.) - always stored as snapshot since these are small
+**Dual storage columns:**
+- `content_snapshot`: Full text at this version (SNAPSHOTs only, None for DIFF/METADATA)
+- `content_diff`: Reverse diff to previous version (None for CREATE/DELETE/METADATA)
+- `metadata_snapshot`: JSONB of non-content fields - always stored as full snapshot
 
 **Diff type rules:**
-- `SNAPSHOT`: Full content stored in `content_diff`
-  - CREATE actions (version 1)
-  - Every Nth version (default: 10) — ensures bounded reconstruction cost
-  - When `previous_content` is None
-  - When `current_content` is None
-- `DIFF`: Reverse diff-match-patch delta string stored in `content_diff`
-  - Stores transformation from current → previous (reverse direction)
+- `SNAPSHOT`: Stores `content_snapshot` (full content) + `content_diff` (diff, if applicable)
+  - CREATE: snapshot only, no diff (no previous version)
+  - Periodic (every 10th): snapshot + diff (enables optimization + chain traversal)
+  - DELETE: snapshot only, no diff (content unchanged, stores "what was deleted")
+- `DIFF`: Stores `content_diff` only (no snapshot)
   - Normal updates between snapshots
-- `METADATA`: No content stored (`content_diff` is None)
-  - When content is unchanged (metadata-only update like tag/title changes)
-  - Reconstruction skips these (content same as next newer version)
+  - Transformation from current → previous (reverse direction)
+- `METADATA`: No content stored (both fields None)
+  - Content unchanged (metadata-only update like tag/title/archive changes)
+  - Includes RESTORE, ARCHIVE, UNARCHIVE actions
 
 ---
 
@@ -221,9 +223,15 @@ Current API performance without versioning (for comparison after implementation)
 patches = dmp.patch_make(current, previous)  # Still runs (can be slow for 50% rewrites)
 diff_text = dmp.patch_toText(patches)
 if len(diff_text) > len(current) * 0.5:
-    diff_type, content_diff = DiffType.SNAPSHOT, current  # Save storage
+    # Large diff - force SNAPSHOT for storage efficiency
+    # With dual storage: content_snapshot = current, content_diff = diff_text (still stored for chain traversal)
+    diff_type = DiffType.SNAPSHOT
+    content_snapshot = current
+    content_diff = diff_text
 else:
-    diff_type, content_diff = DiffType.DIFF, diff_text
+    diff_type = DiffType.DIFF
+    content_snapshot = None
+    content_diff = diff_text
 ```
 
 **Why this is acceptable:** 50% rewrites are rare in practice (users typically make incremental edits), and 57ms at 100KB is tolerable. If content limits increase to 250KB+, revisit with thread pool offloading (`run_in_executor()`).
@@ -419,13 +427,31 @@ Create the `content_history` table to store all history records, and clean up un
 
    class DiffType(str, Enum):
        """
-       Describes how content_diff is stored. Note: metadata_snapshot is ALWAYS
-       stored as a full snapshot in every record, regardless of DiffType.
-       """
-       SNAPSHOT = "snapshot"  # content_diff = full content text
-       DIFF = "diff"          # content_diff = diff-match-patch delta string
-       METADATA = "metadata"  # content_diff = None (content unchanged, only metadata changed)
+       Describes how content is stored. Uses dual-storage for SNAPSHOTs:
+       - content_snapshot: Full content at this version (for starting reconstruction)
+       - content_diff: Diff to previous version (for chain traversal)
 
+       Note: metadata_snapshot is ALWAYS stored as a full snapshot in every record.
+       """
+       SNAPSHOT = "snapshot"  # content_snapshot = full content, content_diff = diff (or None for CREATE/DELETE)
+       DIFF = "diff"          # content_snapshot = None, content_diff = diff-match-patch delta
+       METADATA = "metadata"  # content_snapshot = None, content_diff = None (content unchanged)
+   ```
+
+   **Dual Storage Summary:**
+
+   | Action/Type | `content_snapshot` | `content_diff` | Notes |
+   |-------------|-------------------|----------------|-------|
+   | CREATE | Full content | None | No previous version |
+   | UPDATE (periodic, v % 10 == 0) | Full content | Diff to previous | Enables optimization |
+   | UPDATE (normal) | None | Diff to previous | Standard diff storage |
+   | DELETE | Pre-delete content | None | Audit trail for "what was deleted" |
+   | RESTORE | None | None | METADATA type (content unchanged) |
+   | ARCHIVE | None | None | METADATA type (content unchanged) |
+   | UNARCHIVE | None | None | METADATA type (content unchanged) |
+   | Metadata-only change | None | None | METADATA type (e.g., tags only) |
+
+   ```python
    class ContentHistory(Base, UUIDv7Mixin):
        __tablename__ = "content_history"
 
@@ -442,7 +468,14 @@ Create the `content_history` table to store all history records, and clean up un
        # Version tracking
        version: Mapped[int] = mapped_column(nullable=False)  # Sequential per entity
        diff_type: Mapped[str] = mapped_column(String(20), nullable=False)
+
+       # Dual storage for content (see DiffType enum for what each type stores):
+       # - content_snapshot: Full content at this version (SNAPSHOTs only)
+       # - content_diff: Diff to previous version (for chain traversal)
+       content_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
        content_diff: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+       # Metadata is always stored as full snapshot (tags, title, etc.)
        metadata_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
        # Source tracking
@@ -473,7 +506,10 @@ Create the `content_history` table to store all history records, and clean up un
            Index("ix_content_history_user_created", "user_id", "created_at"),
            # Retention cleanup
            Index("ix_content_history_created", "created_at"),
-           # Efficient snapshot lookup for reconstruction
+           # Snapshot lookup index (partial index, low storage cost)
+           # Note: Entity-anchored reconstruction doesn't query for snapshots,
+           # but this index is useful for: future optimization to find nearest
+           # snapshot, analytics/debugging queries, potential error recovery.
            Index(
                "ix_content_history_snapshots",
                "user_id", "entity_type", "entity_id", "version",
@@ -647,25 +683,42 @@ Create service layer for recording and retrieving history, including diff-match-
            """Internal implementation of record_action."""
            version = await self._get_next_version(db, user_id, entity_type, entity_id)
 
-           # Determine diff type and content_diff value
-           if previous_content == current_content:
-               # Content unchanged - metadata-only change
-               diff_type = DiffType.METADATA
-               content_diff = None
-           elif (
-               action == ActionType.CREATE
-               or version % SNAPSHOT_INTERVAL == 0
-               or previous_content is None
-               or current_content is None
-           ):
-               # Store full snapshot
+           # Determine diff_type, content_snapshot, and content_diff
+           # Uses dual storage: SNAPSHOTs store both full content AND diff (when applicable)
+           content_snapshot: str | None = None
+           content_diff: str | None = None
+
+           if action == ActionType.DELETE:
+               # DELETE: Store pre-delete content as snapshot for audit trail
+               # No diff because content doesn't change (just deleted_at is set)
                diff_type = DiffType.SNAPSHOT
-               content_diff = current_content
-           else:
-               # Compute REVERSE diff: current → previous (how to go backwards)
-               diff_type = DiffType.DIFF
+               content_snapshot = current_content
+               content_diff = None
+           elif action == ActionType.CREATE or previous_content is None:
+               # CREATE: Store initial content as snapshot, no diff (no previous version)
+               diff_type = DiffType.SNAPSHOT
+               content_snapshot = current_content
+               content_diff = None
+           elif previous_content == current_content:
+               # Content unchanged - metadata-only change (tags, title, etc.)
+               # Also covers RESTORE, ARCHIVE, UNARCHIVE which don't change content
+               diff_type = DiffType.METADATA
+               content_snapshot = None
+               content_diff = None
+           elif version % SNAPSHOT_INTERVAL == 0:
+               # Periodic snapshot: Store BOTH full content AND diff
+               # This enables reconstruction optimization (start from nearest snapshot)
+               # while maintaining chain traversal (can still apply diff to continue)
+               diff_type = DiffType.SNAPSHOT
+               content_snapshot = current_content
                # NOTE: If Milestone 0 benchmarks indicate thread pool needed,
                # wrap this in: await loop.run_in_executor(executor, lambda: ...)
+               patches = self.dmp.patch_make(current_content, previous_content)
+               content_diff = self.dmp.patch_toText(patches)
+           else:
+               # Normal update: Store diff only (no snapshot)
+               diff_type = DiffType.DIFF
+               content_snapshot = None
                patches = self.dmp.patch_make(current_content, previous_content)
                content_diff = self.dmp.patch_toText(patches)
 
@@ -676,6 +729,7 @@ Create service layer for recording and retrieving history, including diff-match-
                action=action.value if isinstance(action, ActionType) else action,
                version=version,
                diff_type=diff_type.value if isinstance(diff_type, DiffType) else diff_type,
+               content_snapshot=content_snapshot,
                content_diff=content_diff,
                metadata_snapshot=metadata,
                source=context.source.value,
@@ -766,23 +820,25 @@ Create service layer for recording and retrieving history, including diff-match-
            """
            Reconstruct content at a specific version by applying reverse diffs.
 
-           Uses ENTITY-ANCHORED reconstruction:
-           - Get current content from the entity table as the starting anchor
-           - Apply reverse diffs backwards from current to target version
-           - Each diff transforms version N content into version N-1 content
+           Uses OPTIMIZED ENTITY-ANCHORED reconstruction:
+           1. Get current content from entity table as fallback anchor
+           2. Fetch all history records from latest down to target+1
+           3. Find the nearest snapshot to target (lowest version in fetched records)
+           4. Start from snapshot's content_snapshot (or entity.content if no snapshot)
+           5. Apply content_diff from each record to traverse backwards
+           6. Return content when we reach target version
 
-           This approach means:
-           - No dependency on SNAPSHOT records in history for reconstruction anchor
-           - Snapshots are still stored periodically for error recovery (optional)
-           - Time-based pruning cannot break reconstruction (entity.content is always available)
+           With dual-storage SNAPSHOTs (content_snapshot + content_diff), we can:
+           - Start from any snapshot (using content_snapshot)
+           - Traverse through snapshots (using content_diff)
 
            Returns ReconstructionResult with:
            - found=False if version doesn't exist or entity is hard-deleted
-           - found=True with content (which may be None for delete actions)
+           - found=True with content (may be None for some edge cases)
            """
            entity_type_value = entity_type.value if isinstance(entity_type, EntityType) else entity_type
 
-           # Step 1: Get current content from the entity as our reconstruction anchor
+           # Step 1: Get current content from the entity as fallback anchor
            entity = await self._get_entity(
                db, user_id, entity_type_value, entity_id, include_deleted=True
            )
@@ -798,20 +854,18 @@ Create service layer for recording and retrieving history, including diff-match-
                # No history exists or target is beyond latest version
                return ReconstructionResult(found=False, content=None)
 
-           # If target is the current version, return entity content directly
+           # Step 3: Handle target == latest (common case, no reconstruction needed)
            if target_version == latest_version:
-               # For the latest version, get the content from history record
-               # (could be a DELETE where content is None)
                latest_record = await self.get_history_at_version(
                    db, user_id, entity_type_value, entity_id, target_version
                )
-               if latest_record and latest_record.action == ActionType.DELETE.value:
-                   # DELETE records store the pre-delete content in content_diff (as SNAPSHOT)
-                   return ReconstructionResult(found=True, content=latest_record.content_diff)
+               if latest_record and latest_record.content_snapshot is not None:
+                   # SNAPSHOT record (CREATE/DELETE/periodic) - use stored snapshot
+                   return ReconstructionResult(found=True, content=latest_record.content_snapshot)
+               # DIFF or METADATA record - entity.content is current
                return ReconstructionResult(found=True, content=entity.content)
 
-           # Step 3: Get all history records from latest down to target (to apply reverse diffs)
-           # We need versions: latest, latest-1, ..., target+1
+           # Step 4: Fetch all history records from latest down to target+1
            records_stmt = (
                select(ContentHistory)
                .where(
@@ -821,33 +875,39 @@ Create service layer for recording and retrieving history, including diff-match-
                    ContentHistory.version > target_version,
                    ContentHistory.version <= latest_version,
                )
-               .order_by(ContentHistory.version.desc())  # Start from latest, go backwards
+               .order_by(ContentHistory.version.desc())  # Descending: latest first
            )
            records_result = await db.execute(records_stmt)
            records = list(records_result.scalars().all())
 
-           # Step 4: Apply reverse diffs from current content backwards to target
-           content = entity.content
-           current_version = latest_version
+           # Step 5: Find nearest snapshot (lowest version = closest to target)
+           # Records are DESC, so "last" snapshot in iteration = lowest version
+           snapshot_indices = [
+               i for i, r in enumerate(records)
+               if r.diff_type == DiffType.SNAPSHOT.value and r.content_snapshot is not None
+           ]
+
+           if snapshot_indices:
+               # Start from nearest snapshot (lowest version, last in DESC order)
+               last_snapshot_idx = snapshot_indices[-1]
+               content = records[last_snapshot_idx].content_snapshot
+               # Only process records AFTER the snapshot (lower versions)
+               records_to_process = records[last_snapshot_idx:]
+           else:
+               # No snapshot found - start from entity.content
+               content = entity.content
+               records_to_process = records
+
+           # Step 6: Apply reverse diffs to reach target version
            warnings: list[str] = []
 
-           for record in records:
-               # Each record's diff transforms record.version content → (record.version - 1) content
-               if record.diff_type == DiffType.SNAPSHOT.value:
-                   # Snapshot contains the actual content at this version
-                   # For reverse reconstruction, this IS the content at this version
-                   # The diff to previous version is implicit (we continue from here)
-                   content = record.content_diff
-               elif record.diff_type == DiffType.METADATA.value:
-                   # Content unchanged at this version, continue with same content
-                   pass
-               elif record.diff_type == DiffType.DIFF.value and record.content_diff:
-                   # Apply reverse diff to get previous version's content
+           for record in records_to_process:
+               # Apply content_diff to traverse backwards
+               # content_diff transforms version N content → version N-1 content
+               if record.content_diff:
                    patches = self.dmp.patch_fromText(record.content_diff)
-                   # NOTE: If thread pool needed per Milestone 0, offload patch_apply too
                    new_content, results = self.dmp.patch_apply(patches, content or "")
                    if not all(results):
-                       # Some patches failed - log but continue with partial result
                        warning_msg = f"Partial patch failure at v{record.version}"
                        warnings.append(warning_msg)
                        logger.warning(
@@ -855,12 +915,8 @@ Create service layer for recording and retrieving history, including diff-match-
                            entity_type_value, entity_id, record.version, results,
                        )
                    content = new_content
-               current_version = record.version - 1
-
-           # Verify we reached the target version
-           # After processing all records, current_version should equal target_version
-           if current_version != target_version:
-               return ReconstructionResult(found=False, content=None)
+               # If content_diff is None (CREATE, DELETE, METADATA), no transformation needed
+               # Content passes through unchanged
 
            return ReconstructionResult(
                found=True,
@@ -1287,34 +1343,46 @@ This is not blocking for V1 but should be considered if bulk endpoints are added
 ### Testing Strategy
 
 1. **Integration tests per operation:**
-   - Create bookmark → history record exists with CREATE action
-   - Update bookmark → history record with UPDATE action and diff
-   - Soft delete bookmark → history record with DELETE action (history preserved)
+   - Create bookmark → history record with CREATE action, `content_snapshot=content`, `content_diff=None`
+   - Update bookmark → history record with UPDATE action, `content_snapshot=None`, `content_diff=diff`
+   - Soft delete bookmark → history record with DELETE action, `content_snapshot=pre-delete content`, `content_diff=None`
    - Hard delete bookmark → history cascade-deleted (no history remains)
-   - Restore bookmark → history record with RESTORE action
-   - Archive/unarchive → appropriate history records
+   - Restore bookmark → history record with RESTORE action, METADATA type (both fields None)
+   - Archive/unarchive → METADATA type history records (both fields None)
 
-2. **Context propagation tests:**
+2. **Dual storage tests:**
+   - DELETE action stores `content_snapshot` (pre-delete content), `content_diff=None`
+   - CREATE action stores `content_snapshot` (initial content), `content_diff=None`
+   - Periodic snapshot (v % 10 == 0) stores BOTH `content_snapshot` AND `content_diff`
+   - Normal DIFF stores `content_snapshot=None`, `content_diff=diff`
+   - METADATA stores both fields as None
+
+3. **DELETE content storage test (regression prevention):**
+   - DELETE action stores pre-delete content in `content_snapshot` even when previous_content == current_content
+   - Verifies the action type check comes before equality check in `_record_action_impl`
+   - Direct assertion: `history.diff_type == "snapshot" and history.content_snapshot == original_content`
+
+4. **Context propagation tests:**
    - History records have correct source and auth_type
    - PAT requests have token_prefix in history
    - MCP requests have correct source (mcp-content or mcp-prompt)
 
-3. **Diff verification:**
-   - Update with content change produces valid diff
-   - Update with metadata-only change (e.g., tags only) stores METADATA type with `content_diff=None`
+5. **Diff verification:**
+   - Update with content change produces valid diff in `content_diff`
+   - Update with metadata-only change (e.g., tags only) stores METADATA type with both fields None
    - Multiple updates produce correct version sequence
 
-4. **Metadata-only changes:**
+6. **Metadata-only changes:**
    - Tag-only change creates history record with METADATA diff type
    - Title-only change creates history record with METADATA diff type
-   - History record has `content_diff=None` when content unchanged
+   - History record has `content_snapshot=None` and `content_diff=None` when content unchanged
 
-5. **No-op update handling:**
+7. **No-op update handling:**
    - Update with identical data (no changes) creates NO history entry
    - Update with only whitespace-equivalent changes (if normalized) creates NO history entry
    - Verify no-op detection compares both content AND metadata
 
-6. **str-replace history tests:**
+8. **str-replace history tests:**
    - str-replace on bookmark creates history record with UPDATE action
    - str-replace on note creates history record
    - str-replace on prompt creates history record
@@ -2672,11 +2740,12 @@ Document the versioning system for developers and users across all relevant docu
    - Auth type: auth0, pat, dev
    - Token prefix for PAT requests (audit trail, e.g., "bm_a3f8...")
 
-   **Diff Storage (Reverse Diffs):**
-   - Full snapshots every 10 versions (or METADATA type for metadata-only changes)
-   - Character-level reverse diffs using diff-match-patch (stores how to go backwards)
-   - Entity-anchored reconstruction: starts from `entity.content`, applies reverse diffs backwards
-   - No dependency on snapshots in history for reconstruction (entity is the anchor)
+   **Diff Storage (Reverse Diffs with Dual Storage):**
+   - SNAPSHOTs store both `content_snapshot` (full content) and `content_diff` (diff to previous)
+   - DIFFs store only `content_diff` (reverse diff-match-patch delta)
+   - METADATA stores neither (content unchanged, e.g., tag/archive changes)
+   - Reconstruction optimization: find nearest snapshot, start from `content_snapshot`, apply diffs
+   - Fallback: if no snapshot found, start from `entity.content`
 
    **API Endpoints:**
    - `GET /history` - All user history
