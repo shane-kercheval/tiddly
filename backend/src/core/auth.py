@@ -1,7 +1,5 @@
 """Authentication module for Auth0 JWT validation and PAT support."""
 import logging
-from dataclasses import dataclass
-from enum import StrEnum
 
 import httpx
 import jwt
@@ -21,6 +19,8 @@ from core.rate_limit_config import (
     get_operation_type,
 )
 from core.rate_limiter import check_rate_limit
+# Import and re-export for backward compatibility
+from core.request_context import AuthType, RequestContext, RequestSource
 from core.tier_limits import get_tier_safely
 from db.session import get_async_session
 from models.user import User
@@ -29,36 +29,17 @@ from services import token_service, user_service
 
 logger = logging.getLogger(__name__)
 
-
-class RequestSource(StrEnum):
-    """Source of the API request, determined by X-Request-Source header."""
-
-    WEB = "web"
-    API = "api"
-    MCP_CONTENT = "mcp-content"
-    MCP_PROMPT = "mcp-prompt"
-    UNKNOWN = "unknown"  # Default when header missing/unrecognized
-
-
-class AuthType(StrEnum):
-    """Authentication method used for the request."""
-
-    AUTH0 = "auth0"
-    PAT = "pat"
-    DEV = "dev"
-
-
-@dataclass
-class RequestContext:
-    """
-    Context about the current request for audit trail purposes.
-
-    Used by content versioning to track who/what initiated changes.
-    """
-
-    source: RequestSource
-    auth_type: AuthType
-    token_prefix: str | None = None  # Only set for PAT auth, e.g. "bm_a3f8..."
+# Re-export for backward compatibility
+__all__ = [
+    "AuthType",
+    "RequestContext",
+    "RequestSource",
+    "get_current_user",
+    "get_current_user_auth0_only",
+    "get_current_user_auth0_only_without_consent",
+    "get_current_user_without_consent",
+    "get_request_context",
+]
 
 
 def get_request_context(request: Request) -> RequestContext | None:
