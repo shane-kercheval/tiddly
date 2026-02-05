@@ -1044,27 +1044,106 @@ Create service layer for recording and retrieving history, including diff-match-
    - Reconstruct version 1 from nearest snapshot >= v1 (e.g., v10) returns `found=True`
    - Non-existent version returns `found=False`
    - Version beyond latest returns `found=False`
-   - Version with None content (delete action) returns `found=True, content=None`
    - Verify only necessary records are queried (snapshot to target, not full history)
    - Reconstruct version with METADATA records correctly skips content transformation
    - **METADATA version returns same content as next version** (since content was unchanged at that version)
    - Reverse diff application: verify v10 content + reverse diffs = v5 content
 
-4. **Race condition tests:**
-   - Concurrent history writes to same entity produce sequential versions
-   - Version-unique IntegrityError triggers retry with savepoint (parent transaction intact)
-   - Other IntegrityErrors are raised immediately (not retried)
-   - Max retries exceeded raises error
-   - Parent entity change is NOT rolled back when history insert fails
+4. **[P0] Reconstruction chain integrity (end-to-end):**
+   Create a realistic chain and verify every version reconstructs correctly:
+   ```
+   v1:  CREATE (SNAPSHOT)          content = "A"
+   v2:  UPDATE (DIFF)              content = "AB"
+   v3:  UPDATE (DIFF)              content = "ABC"
+   ...
+   v10: UPDATE (SNAPSHOT + DIFF)   content = "ABCDEFGHIJ"
+   v11: UPDATE (DIFF)              content = "ABCDEFGHIJK"
+   ...
+   v15: ARCHIVE (METADATA)         content = "ABCDEFGHIJKLMNO" (unchanged)
+   v16: UNARCHIVE (METADATA)       content = "ABCDEFGHIJKLMNO" (unchanged)
+   ...
+   v20: UPDATE (SNAPSHOT + DIFF)   content = "ABCDEFGHIJKLMNOPQRST"
+   v21: DELETE (SNAPSHOT)          content = "ABCDEFGHIJKLMNOPQRSTU"
+   ```
+   Reconstruct v1, v5, v10, v15, v20, v21 and verify each returns exact expected content.
 
-5. **Diff failure handling tests:**
-   - Corrupted diff logs warning but returns partial result
-   - Reconstruction continues after partial patch failure
+5. **[P0] Periodic snapshot dual-storage traversal:**
+   Explicitly verify that periodic snapshots (v10, v20, etc.) store BOTH `content_snapshot` AND `content_diff`:
+   - Verify v10 has non-null `content_snapshot` (for optimization start point)
+   - Verify v10 has non-null `content_diff` (for chain traversal through it)
+   - Reconstruction starting from v10's snapshot correctly applies v10's diff to reach v9
 
-6. **History retrieval tests:**
-   - Get entity history returns correct records and total count
-   - Get user history filters by entity type
-   - Pagination works correctly with accurate totals
+6. **[P0] DELETE version reconstruction (regression test):**
+   ```python
+   def test__reconstruct__delete_version_returns_pre_delete_content():
+       """
+       Regression test: DELETE action must return pre-delete content, not None.
+
+       Bug: DELETE stored content_snapshot=None due to condition ordering.
+       Fix: DELETE explicitly stores current_content in content_snapshot.
+       """
+       # Create note with content "Hello World"
+       # Delete note (creates v2 with action=DELETE)
+       # Reconstruct v2
+       assert result.found is True
+       assert result.content == "Hello World"  # NOT None
+   ```
+
+7. **[P1] Nearest snapshot selection (optimization correctness):**
+   Verify reconstruction picks the closest snapshot to target, not the first encountered:
+   ```
+   v1-v50 exist, with SNAPSHOTs at v10, v20, v30, v40
+   Target: v25
+
+   Should start from v30's content_snapshot (nearest to v25)
+   NOT v40's content_snapshot (first encountered in DESC order)
+   ```
+   Verify by checking number of diffs applied (should be 5 from v30, not 15 from v40).
+
+8. **[P1] METADATA record traversal:**
+   Explicitly verify METADATA records pass content through unchanged:
+   ```
+   v5: UPDATE content = "Hello"
+   v6: ARCHIVE (METADATA) - content_diff=None
+   v7: UPDATE (DIFF) content = "Hello World"
+
+   Reconstruct v5: should traverse v7→v6→target, correctly skip v6's None diff
+   Result: "Hello" (not "Hello World")
+   ```
+
+9. **[P1] Reconstruction starting AT a snapshot:**
+   When target version IS a periodic snapshot, should return `content_snapshot` directly:
+   ```python
+   # v10 is a periodic SNAPSHOT with content_snapshot="ABCDEFGHIJ"
+   result = await reconstruct_content_at_version(..., target_version=10)
+   assert result.content == "ABCDEFGHIJ"
+   # Verify no diff application occurred (optimization)
+   ```
+
+10. **[P2] Empty diff vs None diff handling:**
+    - `content_diff = ""` (empty string) should behave same as `content_diff = None`
+    - Neither should cause errors during reconstruction
+
+11. **Race condition tests:**
+    - Concurrent history writes to same entity produce sequential versions
+    - Version-unique IntegrityError triggers retry with savepoint (parent transaction intact)
+    - Other IntegrityErrors are raised immediately (not retried)
+    - Max retries exceeded raises error
+    - Parent entity change is NOT rolled back when history insert fails
+
+12. **Diff failure handling tests:**
+    - Corrupted diff logs warning but returns partial result
+    - Reconstruction continues after partial patch failure
+
+13. **History retrieval tests:**
+    - Get entity history returns correct records and total count
+    - Get user history filters by entity type
+    - Pagination works correctly with accurate totals
+
+14. **[P2] Boundary tests:**
+    - Content at exactly 100KB limit
+    - Very long tag lists in metadata snapshot
+    - Unicode/emoji in content and diffs
 
 ### Dependencies
 Milestone 2 (ContentHistory model)
@@ -1388,6 +1467,37 @@ This is not blocking for V1 but should be considered if bulk endpoints are added
    - str-replace on prompt creates history record
    - History has correct previous_content and current_content
    - History has correct source from request context
+
+9. **[P0] Transaction rollback safety:**
+   Critical test ensuring atomicity between entity changes and history recording:
+   ```python
+   def test__update__entity_failure_rolls_back_history():
+       """
+       If entity update fails AFTER history is recorded, history must also roll back.
+
+       Simulates DB failure after history.flush() but before entity.flush().
+       Verifies no orphaned history record exists.
+       """
+       # Create entity
+       # Mock db to fail on entity update after history insert
+       # Attempt update (should fail)
+       # Verify NO history record was created (atomic rollback)
+   ```
+
+10. **[P2] Content + metadata change together:**
+    - Update that changes BOTH content AND tags creates single history record
+    - History record has correct `content_diff` AND correct `metadata_snapshot` with new tags
+    - Version increments by 1 (not 2)
+
+11. **[P2] Update that results in same content:**
+    - If update logic transforms content but results in identical value, creates METADATA type
+    - Example: `entity.content = entity.content.strip()` when content has no whitespace
+    - Verifies content comparison, not just "was the field touched"
+
+12. **[P2] Rapid sequential updates:**
+    - 10 rapid updates in quick succession all create correct sequential versions
+    - No version gaps or duplicates
+    - All history records have correct timestamps (may be same second)
 
 ### Dependencies
 Milestone 3 (HistoryService)
@@ -1838,6 +1948,42 @@ Allow users to revert content to a previous version.
    - Revert to version with extra metadata fields (unknown fields ignored)
    - `_build_update_from_history` handles missing optional fields gracefully
 
+6. **[P1] Sequential reverts:**
+   Verify the version chain remains valid after multiple reverts:
+   ```
+   v1: "A"
+   v2: "B"
+   v3: "C" (current)
+
+   Revert to v1 → creates v4: "A"
+   Revert to v2 → creates v5: "B"
+   Revert to v4 → creates v6: "A"
+
+   Verify:
+   - Each revert creates correct history record
+   - All 6 versions are independently reconstructable
+   - Chain integrity maintained throughout
+   ```
+
+7. **[P1] Revert creates proper history entry:**
+   When reverting to v5, the new UPDATE history entry must have:
+   - Correct `content_diff` (diff from current content to v5's content)
+   - Correct `content_snapshot` if it's a periodic version (e.g., v10, v20)
+   - Correct `metadata_snapshot` with restored metadata values
+   - `action = UPDATE` (revert is implemented as an update)
+
+8. **[P2] Revert to current version:**
+   Define and test behavior when user reverts to the latest version:
+   - Should return 400 error: "Cannot revert to current version"
+   - Alternative: Return success with no-op (no new history entry)
+   - Document chosen behavior in API response
+
+9. **[P2] Revert with warnings behavior:**
+   When reconstruction produces warnings (partial patch failure):
+   - Revert should still proceed (best-effort restoration)
+   - Response includes `warnings` array
+   - Frontend can display warnings to user for review
+
 ### Dependencies
 Milestone 5 (history endpoints)
 
@@ -2202,6 +2348,31 @@ async def cleanup_orphaned_history(db) -> int:
    - Entity with only snapshots (no diffs) - all kept within limits
    - Cleanup with no records to delete - no errors
    - Concurrent writes during prune handled correctly
+
+7. **[P1] Pruning preserves reconstruction:**
+   Critical safety test ensuring pruning doesn't break the system:
+   ```
+   v1-v100 exist, with SNAPSHOTs at v10, v20, ..., v100
+   Prune to keep v90-v100 (count limit = 10)
+
+   Verify:
+   - Reconstruct v95 → works (uses entity.content or snapshot in range)
+   - Reconstruct v85 → returns found=False (version deleted)
+   - Entity content is still accessible (entity.content is anchor)
+   - No dangling references or broken chains
+   ```
+
+8. **[P2] Concurrent writes during prune:**
+   - User writes while cron job is pruning same user's history
+   - No deadlocks occur (prune uses DELETE with WHERE conditions)
+   - New version is created successfully
+   - Prune completes without errors
+   - Final state is consistent (some overlap in deleted records is acceptable)
+
+9. **[P2] Idempotency of prune:**
+   - Running prune twice in quick succession produces same result
+   - Second run deletes 0 records (already pruned)
+   - No errors on empty result set
 
 ### Dependencies
 Milestone 4 (history recording)
