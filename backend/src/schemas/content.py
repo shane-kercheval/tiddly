@@ -47,9 +47,6 @@ class ContentListItem(BaseModel):
     # Bookmark-specific (None for notes/prompts)
     url: str | None = None
 
-    # Note-specific (None for bookmarks/prompts)
-    version: int | None = None
-
     # Prompt-specific (None for bookmarks/notes)
     name: str | None = None
     arguments: list[dict[str, Any]] | None = None

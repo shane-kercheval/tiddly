@@ -27,7 +27,6 @@ class Note(Base, UUIDv7Mixin, TimestampMixin, ArchivableMixin):
     title: Mapped[str] = mapped_column(String(500), nullable=False)  # Required
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)  # Markdown, up to 2MB
-    version: Mapped[int] = mapped_column(default=1)  # For future version history
 
     # Usage tracking timestamp (defaults to current time on creation)
     last_used_at: Mapped[datetime] = mapped_column(
