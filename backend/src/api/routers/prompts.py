@@ -32,6 +32,7 @@ from core.tier_limits import TierLimits
 from models.user import User
 from services.exceptions import FieldLimitExceededError
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
+from schemas.history import HistoryListResponse, HistoryResponse
 from schemas.errors import (
     ContentEmptyError,
     MinimalEntityData,
@@ -1060,3 +1061,33 @@ async def render_prompt(
         raise HTTPException(status_code=400, detail=str(e))
 
     return PromptRenderResponse(rendered_content=rendered)
+
+
+@router.get("/{prompt_id}/history", response_model=HistoryListResponse)
+async def get_prompt_history(
+    prompt_id: UUID,
+    limit: int = Query(default=50, ge=1, le=100, description="Number of records to return"),
+    offset: int = Query(default=0, ge=0, description="Number of records to skip"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> HistoryListResponse:
+    """
+    Get history for a specific prompt.
+
+    Returns paginated history records for this prompt,
+    sorted by version descending (most recent first).
+
+    Returns empty list (not 404) if:
+    - Prompt was hard-deleted (history cascade-deleted)
+    - No history exists for this prompt_id
+    """
+    items, total = await history_service.get_entity_history(
+        db, current_user.id, EntityType.PROMPT, prompt_id, limit, offset,
+    )
+    return HistoryListResponse(
+        items=[HistoryResponse.model_validate(item) for item in items],
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + len(items) < total,
+    )

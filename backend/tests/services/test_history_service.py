@@ -1697,3 +1697,294 @@ class TestVersionNumbering:
         )
 
         assert history.version == 1
+
+
+class TestRaceConditionHandling:
+    """Tests for race condition handling in version allocation."""
+
+    @pytest.mark.asyncio
+    async def test__record_action__retries_on_version_uniqueness_violation(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Version uniqueness violation triggers retry with savepoint."""
+        from unittest.mock import patch
+
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        # Mock _record_action_impl to fail on first call, succeed on second
+        original_impl = history_service._record_action_impl
+        call_count = 0
+
+        async def mock_impl(*args, **kwargs):  # noqa
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Simulate version conflict on first attempt
+                from sqlalchemy.exc import IntegrityError
+
+                raise IntegrityError(
+                    "duplicate key",
+                    params={},
+                    orig=Exception("uq_content_history_version"),
+                )
+            return await original_impl(*args, **kwargs)
+
+        with patch.object(history_service, "_record_action_impl", side_effect=mock_impl):
+            history = await history_service.record_action(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=ActionType.CREATE,
+                current_content="Content",
+                previous_content=None,
+                metadata=metadata,
+                context=request_context,
+            )
+
+        # Should succeed on retry
+        assert history.version == 1
+        assert call_count == 2  # First failed, second succeeded
+
+    @pytest.mark.asyncio
+    async def test__record_action__raises_other_integrity_errors_immediately(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Non-version IntegrityErrors are raised immediately without retry."""
+        from unittest.mock import patch
+
+        from sqlalchemy.exc import IntegrityError
+
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+        call_count = 0
+
+        async def mock_impl(*args, **kwargs):  # noqa
+            nonlocal call_count
+            call_count += 1
+            # Simulate a different integrity error (not version-related)
+            raise IntegrityError(
+                "foreign key violation",
+                params={},
+                orig=Exception("fk_user_id"),
+            )
+
+        with patch.object(history_service, "_record_action_impl", side_effect=mock_impl):
+            with pytest.raises(IntegrityError) as exc_info:
+                await history_service.record_action(
+                    db=db_session,
+                    user_id=test_user.id,
+                    entity_type=EntityType.NOTE,
+                    entity_id=entity_id,
+                    action=ActionType.CREATE,
+                    current_content="Content",
+                    previous_content=None,
+                    metadata=metadata,
+                    context=request_context,
+                )
+
+        # Should raise immediately without retry
+        assert call_count == 1
+        assert "fk_user_id" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test__record_action__raises_after_max_retries_exceeded(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Max retries exceeded raises the IntegrityError."""
+        from unittest.mock import patch
+
+        from sqlalchemy.exc import IntegrityError
+
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+        call_count = 0
+
+        async def mock_impl(*args, **kwargs):  # noqa
+            nonlocal call_count
+            call_count += 1
+            # Always fail with version conflict
+            raise IntegrityError(
+                "duplicate key",
+                params={},
+                orig=Exception("uq_content_history_version"),
+            )
+
+        with patch.object(history_service, "_record_action_impl", side_effect=mock_impl):
+            with pytest.raises(IntegrityError) as exc_info:
+                await history_service.record_action(
+                    db=db_session,
+                    user_id=test_user.id,
+                    entity_type=EntityType.NOTE,
+                    entity_id=entity_id,
+                    action=ActionType.CREATE,
+                    current_content="Content",
+                    previous_content=None,
+                    metadata=metadata,
+                    context=request_context,
+                )
+
+        # Should try 3 times then raise
+        assert call_count == 3
+        assert "uq_content_history_version" in str(exc_info.value)
+
+
+class TestBoundaryConditions:
+    """Tests for boundary conditions in content and metadata."""
+
+    @pytest.mark.asyncio
+    async def test__diff__100kb_content_handled_correctly(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Content at exactly 100KB limit is handled correctly."""
+        entity_id = uuid4()
+        metadata = {"title": "Large Content Test"}
+
+        # Create 100KB of content (100 * 1024 = 102400 bytes)
+        original_100kb = "A" * 102400
+        modified_100kb = original_100kb[:50000] + "B" * 2400 + original_100kb[52400:]
+
+        # Create v1 with 100KB content
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content=original_100kb,
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # Update v2 with modified 100KB content
+        history = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content=modified_100kb,
+            previous_content=original_100kb,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        assert history.version == 2
+        assert history.content_diff is not None
+
+        # Verify reverse diff works correctly
+        dmp = history_service.dmp
+        patches = dmp.patch_fromText(history.content_diff)
+        result, success = dmp.patch_apply(patches, modified_100kb)
+        assert all(success)
+        assert result == original_100kb
+
+    @pytest.mark.asyncio
+    async def test__metadata__long_tag_list_handled_correctly(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Very long tag lists in metadata are stored and retrieved correctly."""
+        entity_id = uuid4()
+
+        # Create metadata with many tags (50 tags with varying lengths)
+        tags = [f"tag-{i}-{'x' * (i % 20)}" for i in range(50)]
+        metadata = {
+            "title": "Many Tags Test",
+            "description": "Testing long tag lists",
+            "tags": tags,
+        }
+
+        history = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.BOOKMARK,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="http://example.com",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # Verify metadata was stored correctly
+        assert history.metadata_snapshot is not None
+        assert history.metadata_snapshot["tags"] == tags
+        assert len(history.metadata_snapshot["tags"]) == 50
+
+        # Retrieve and verify
+        retrieved = await history_service.get_history_at_version(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.BOOKMARK,
+            entity_id=entity_id,
+            version=1,
+        )
+        assert retrieved is not None
+        assert retrieved.metadata_snapshot["tags"] == tags
+
+    @pytest.mark.asyncio
+    async def test__metadata__deeply_nested_structure_handled_correctly(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Complex nested metadata structures are stored and retrieved correctly."""
+        entity_id = uuid4()
+
+        # Create metadata with nested structure (simulating prompt arguments)
+        metadata = {
+            "name": "complex-prompt",
+            "title": "Complex Prompt",
+            "arguments": [
+                {
+                    "name": "code_to_review",
+                    "description": "The code to review",
+                    "required": True,
+                },
+                {
+                    "name": "language",
+                    "description": "Programming language",
+                    "required": False,
+                },
+                {
+                    "name": "options",
+                    "description": "Review options",
+                    "required": False,
+                },
+            ],
+            "tags": ["code", "review", "development"],
+        }
+
+        history = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.PROMPT,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Review this {{ code_to_review }}",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        assert history.metadata_snapshot == metadata
+        assert len(history.metadata_snapshot["arguments"]) == 3
+        assert history.metadata_snapshot["arguments"][0]["name"] == "code_to_review"

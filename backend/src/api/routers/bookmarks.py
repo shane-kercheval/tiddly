@@ -28,6 +28,7 @@ from schemas.bookmark import (
     BookmarkUpdate,
     MetadataPreviewResponse,
 )
+from schemas.history import HistoryListResponse, HistoryResponse
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
 from schemas.errors import (
     ContentEmptyError,
@@ -664,3 +665,33 @@ async def track_bookmark_usage(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Bookmark not found")
+
+
+@router.get("/{bookmark_id}/history", response_model=HistoryListResponse)
+async def get_bookmark_history(
+    bookmark_id: UUID,
+    limit: int = Query(default=50, ge=1, le=100, description="Number of records to return"),
+    offset: int = Query(default=0, ge=0, description="Number of records to skip"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> HistoryListResponse:
+    """
+    Get history for a specific bookmark.
+
+    Returns paginated history records for this bookmark,
+    sorted by version descending (most recent first).
+
+    Returns empty list (not 404) if:
+    - Bookmark was hard-deleted (history cascade-deleted)
+    - No history exists for this bookmark_id
+    """
+    items, total = await history_service.get_entity_history(
+        db, current_user.id, EntityType.BOOKMARK, bookmark_id, limit, offset,
+    )
+    return HistoryListResponse(
+        items=[HistoryResponse.model_validate(item) for item in items],
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + len(items) < total,
+    )

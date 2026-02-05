@@ -2,6 +2,7 @@
 import pytest
 from uuid import UUID
 
+from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +12,7 @@ from models.content_history import ActionType, ContentHistory, DiffType, EntityT
 from models.user import User
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate
 from schemas.note import NoteCreate, NoteUpdate
-from schemas.prompt import PromptArgument, PromptCreate
+from schemas.prompt import PromptArgument, PromptCreate, PromptUpdate
 from services.bookmark_service import BookmarkService
 from services.note_service import NoteService
 from services.prompt_service import PromptService
@@ -421,7 +422,7 @@ class TestNoteHistoryIntegration:
         return make_context()
 
     @pytest.mark.asyncio
-    async def test__create_and_update__records_history(
+    async def test__create__records_history(
         self,
         db_session: AsyncSession,
         test_user: User,
@@ -429,20 +430,226 @@ class TestNoteHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Note create and update both record history."""
-        # Create
-        create_data = NoteCreate(title="Test Note", content="Initial")
+        """Create note records CREATE action in history."""
+        data = NoteCreate(
+            title="Test Note",
+            content="Initial content",
+            tags=["test"],
+        )
+
+        note = await service.create(db_session, test_user.id, data, limits, context)
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+
+        assert len(history) == 1
+        record = history[0]
+        assert record.version == 1
+        assert record.action == ActionType.CREATE.value
+        assert record.diff_type == DiffType.SNAPSHOT.value
+        assert record.content_snapshot == "Initial content"
+        assert record.content_diff is None
+        assert record.metadata_snapshot["title"] == "Test Note"
+        assert record.metadata_snapshot["tags"] == ["test"]
+        assert record.source == RequestSource.WEB.value
+        assert record.auth_type == AuthType.AUTH0.value
+
+    @pytest.mark.asyncio
+    async def test__update__records_history_on_content_change(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: NoteService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Update note records UPDATE action when content changes."""
+        create_data = NoteCreate(title="Test Note", content="Original content")
         note = await service.create(db_session, test_user.id, create_data, limits, context)
 
-        # Update
-        update_data = NoteUpdate(content="Updated")
+        update_data = NoteUpdate(content="Updated content")
         await service.update(db_session, test_user.id, note.id, update_data, limits, context)
 
         history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
 
         assert len(history) == 2
+        update_record = history[1]
+        assert update_record.version == 2
+        assert update_record.action == ActionType.UPDATE.value
+        assert update_record.diff_type == DiffType.DIFF.value
+        assert update_record.content_snapshot is None
+        assert update_record.content_diff is not None
+
+    @pytest.mark.asyncio
+    async def test__update__records_history_on_metadata_change(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: NoteService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Update note records UPDATE action when metadata changes."""
+        create_data = NoteCreate(title="Original Title", content="Content")
+        note = await service.create(db_session, test_user.id, create_data, limits, context)
+
+        update_data = NoteUpdate(title="New Title")
+        await service.update(db_session, test_user.id, note.id, update_data, limits, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+
+        assert len(history) == 2
+        update_record = history[1]
+        assert update_record.action == ActionType.UPDATE.value
+        assert update_record.diff_type == DiffType.METADATA.value
+        assert update_record.metadata_snapshot["title"] == "New Title"
+
+    @pytest.mark.asyncio
+    async def test__update__skips_history_on_no_change(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: NoteService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """No-op update does not record history."""
+        create_data = NoteCreate(title="Title", content="Content")
+        note = await service.create(db_session, test_user.id, create_data, limits, context)
+
+        update_data = NoteUpdate(title="Title")
+        await service.update(db_session, test_user.id, note.id, update_data, limits, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+
+        assert len(history) == 1
         assert history[0].action == ActionType.CREATE.value
-        assert history[1].action == ActionType.UPDATE.value
+
+    @pytest.mark.asyncio
+    async def test__delete__records_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: NoteService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Soft delete records DELETE action with content snapshot."""
+        create_data = NoteCreate(title="Test Note", content="Content to preserve")
+        note = await service.create(db_session, test_user.id, create_data, limits, context)
+
+        await service.delete(db_session, test_user.id, note.id, permanent=False, context=context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+
+        assert len(history) == 2
+        delete_record = history[1]
+        assert delete_record.action == ActionType.DELETE.value
+        assert delete_record.diff_type == DiffType.SNAPSHOT.value
+        assert delete_record.content_snapshot == "Content to preserve"
+
+    @pytest.mark.asyncio
+    async def test__hard_delete__cascades_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: NoteService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Hard delete removes all history for the entity."""
+        create_data = NoteCreate(title="Test Note", content="Content")
+        note = await service.create(db_session, test_user.id, create_data, limits, context)
+        await service.delete(db_session, test_user.id, note.id, permanent=False, context=context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+        assert len(history) == 2
+
+        await service.delete(db_session, test_user.id, note.id, permanent=True)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+        assert len(history) == 0
+
+    @pytest.mark.asyncio
+    async def test__restore__records_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: NoteService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Restore records RESTORE action."""
+        create_data = NoteCreate(title="Test Note", content="Content")
+        note = await service.create(db_session, test_user.id, create_data, limits, context)
+        await service.delete(db_session, test_user.id, note.id, permanent=False, context=context)
+        await service.restore(db_session, test_user.id, note.id, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+
+        assert len(history) == 3
+        restore_record = history[2]
+        assert restore_record.action == ActionType.RESTORE.value
+        assert restore_record.diff_type == DiffType.METADATA.value
+
+    @pytest.mark.asyncio
+    async def test__archive__records_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: NoteService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Archive records ARCHIVE action."""
+        create_data = NoteCreate(title="Test Note", content="Content")
+        note = await service.create(db_session, test_user.id, create_data, limits, context)
+        await service.archive(db_session, test_user.id, note.id, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+
+        assert len(history) == 2
+        archive_record = history[1]
+        assert archive_record.action == ActionType.ARCHIVE.value
+        assert archive_record.diff_type == DiffType.METADATA.value
+
+    @pytest.mark.asyncio
+    async def test__archive__idempotent_no_duplicate_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: NoteService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Archiving already-archived note does not record duplicate history."""
+        create_data = NoteCreate(title="Test Note", content="Content")
+        note = await service.create(db_session, test_user.id, create_data, limits, context)
+        await service.archive(db_session, test_user.id, note.id, context)
+        await service.archive(db_session, test_user.id, note.id, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+
+        assert len(history) == 2
+
+    @pytest.mark.asyncio
+    async def test__unarchive__records_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: NoteService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Unarchive records UNARCHIVE action."""
+        create_data = NoteCreate(title="Test Note", content="Content")
+        note = await service.create(db_session, test_user.id, create_data, limits, context)
+        await service.archive(db_session, test_user.id, note.id, context)
+        await service.unarchive(db_session, test_user.id, note.id, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+
+        assert len(history) == 3
+        unarchive_record = history[2]
+        assert unarchive_record.action == ActionType.UNARCHIVE.value
 
 
 class TestPromptHistoryIntegration:
@@ -481,10 +688,217 @@ class TestPromptHistoryIntegration:
 
         assert len(history) == 1
         record = history[0]
+        assert record.version == 1
+        assert record.action == ActionType.CREATE.value
+        assert record.diff_type == DiffType.SNAPSHOT.value
+        assert record.content_snapshot == "Hello {{ name }}"
         assert record.metadata_snapshot["name"] == "test-prompt"
         assert record.metadata_snapshot["arguments"] == [
             {"name": "name", "description": "User name", "required": None},
         ]
+
+    @pytest.mark.asyncio
+    async def test__update__records_history_on_content_change(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: PromptService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Update prompt records UPDATE action when content changes."""
+        create_data = PromptCreate(name="test-prompt-update", content="Original content")
+        prompt = await service.create(db_session, test_user.id, create_data, limits, context)
+
+        update_data = PromptUpdate(content="Updated content")
+        await service.update(db_session, test_user.id, prompt.id, update_data, limits, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+
+        assert len(history) == 2
+        update_record = history[1]
+        assert update_record.version == 2
+        assert update_record.action == ActionType.UPDATE.value
+        assert update_record.diff_type == DiffType.DIFF.value
+        assert update_record.content_snapshot is None
+        assert update_record.content_diff is not None
+
+    @pytest.mark.asyncio
+    async def test__update__records_history_on_metadata_change(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: PromptService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Update prompt records UPDATE action when metadata changes."""
+        create_data = PromptCreate(
+            name="test-prompt-meta",
+            title="Original Title",
+            content="Content",
+        )
+        prompt = await service.create(db_session, test_user.id, create_data, limits, context)
+
+        update_data = PromptUpdate(title="New Title")
+        await service.update(db_session, test_user.id, prompt.id, update_data, limits, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+
+        assert len(history) == 2
+        update_record = history[1]
+        assert update_record.action == ActionType.UPDATE.value
+        assert update_record.diff_type == DiffType.METADATA.value
+        assert update_record.metadata_snapshot["title"] == "New Title"
+
+    @pytest.mark.asyncio
+    async def test__update__skips_history_on_no_change(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: PromptService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """No-op update does not record history."""
+        create_data = PromptCreate(name="test-prompt-noop", title="Title", content="Content")
+        prompt = await service.create(db_session, test_user.id, create_data, limits, context)
+
+        update_data = PromptUpdate(title="Title")
+        await service.update(db_session, test_user.id, prompt.id, update_data, limits, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+
+        assert len(history) == 1
+        assert history[0].action == ActionType.CREATE.value
+
+    @pytest.mark.asyncio
+    async def test__delete__records_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: PromptService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Soft delete records DELETE action with content snapshot."""
+        create_data = PromptCreate(name="test-prompt-delete", content="Content to preserve")
+        prompt = await service.create(db_session, test_user.id, create_data, limits, context)
+
+        await service.delete(db_session, test_user.id, prompt.id, permanent=False, context=context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+
+        assert len(history) == 2
+        delete_record = history[1]
+        assert delete_record.action == ActionType.DELETE.value
+        assert delete_record.diff_type == DiffType.SNAPSHOT.value
+        assert delete_record.content_snapshot == "Content to preserve"
+
+    @pytest.mark.asyncio
+    async def test__hard_delete__cascades_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: PromptService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Hard delete removes all history for the entity."""
+        create_data = PromptCreate(name="test-prompt-hard-delete", content="Content")
+        prompt = await service.create(db_session, test_user.id, create_data, limits, context)
+        await service.delete(db_session, test_user.id, prompt.id, permanent=False, context=context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+        assert len(history) == 2
+
+        await service.delete(db_session, test_user.id, prompt.id, permanent=True)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+        assert len(history) == 0
+
+    @pytest.mark.asyncio
+    async def test__restore__records_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: PromptService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Restore records RESTORE action."""
+        create_data = PromptCreate(name="test-prompt-restore", content="Content")
+        prompt = await service.create(db_session, test_user.id, create_data, limits, context)
+        await service.delete(db_session, test_user.id, prompt.id, permanent=False, context=context)
+        await service.restore(db_session, test_user.id, prompt.id, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+
+        assert len(history) == 3
+        restore_record = history[2]
+        assert restore_record.action == ActionType.RESTORE.value
+        assert restore_record.diff_type == DiffType.METADATA.value
+
+    @pytest.mark.asyncio
+    async def test__archive__records_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: PromptService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Archive records ARCHIVE action."""
+        create_data = PromptCreate(name="test-prompt-archive", content="Content")
+        prompt = await service.create(db_session, test_user.id, create_data, limits, context)
+        await service.archive(db_session, test_user.id, prompt.id, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+
+        assert len(history) == 2
+        archive_record = history[1]
+        assert archive_record.action == ActionType.ARCHIVE.value
+        assert archive_record.diff_type == DiffType.METADATA.value
+
+    @pytest.mark.asyncio
+    async def test__archive__idempotent_no_duplicate_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: PromptService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Archiving already-archived prompt does not record duplicate history."""
+        create_data = PromptCreate(name="test-prompt-idempotent", content="Content")
+        prompt = await service.create(db_session, test_user.id, create_data, limits, context)
+        await service.archive(db_session, test_user.id, prompt.id, context)
+        await service.archive(db_session, test_user.id, prompt.id, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+
+        assert len(history) == 2
+
+    @pytest.mark.asyncio
+    async def test__unarchive__records_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        service: PromptService,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Unarchive records UNARCHIVE action."""
+        create_data = PromptCreate(name="test-prompt-unarchive", content="Content")
+        prompt = await service.create(db_session, test_user.id, create_data, limits, context)
+        await service.archive(db_session, test_user.id, prompt.id, context)
+        await service.unarchive(db_session, test_user.id, prompt.id, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+
+        assert len(history) == 3
+        unarchive_record = history[2]
+        assert unarchive_record.action == ActionType.UNARCHIVE.value
 
 
 class TestTransactionRollbackSafety:
@@ -614,3 +1028,201 @@ class TestRestoreUrlConflict:
         # Clean up: bookmark2 should still exist
         active = await service.get(db_session, test_user.id, bookmark2.id)
         assert active is not None
+
+
+class TestStrReplaceHistory:
+    """Tests for history recording in str-replace endpoints."""
+
+    @pytest.fixture
+    async def dev_user_id(self, client: AsyncClient) -> UUID:
+        """Get the dev user ID from the API."""
+        response = await client.get("/users/me")
+        assert response.status_code == 200
+        return UUID(response.json()["id"])
+
+    @pytest.mark.asyncio
+    async def test__str_replace_bookmark__records_history(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        dev_user_id: UUID,
+    ) -> None:
+        """str-replace on bookmark creates history record with UPDATE action."""
+        # Create bookmark via API
+        response = await client.post(
+            "/bookmarks/",
+            json={"url": "https://str-replace-history.com", "content": "Original content"},
+        )
+        assert response.status_code == 201
+        bookmark_id = response.json()["id"]
+
+        # Perform str-replace via API
+        response = await client.patch(
+            f"/bookmarks/{bookmark_id}/str-replace",
+            json={"old_str": "Original", "new_str": "Updated"},
+        )
+        assert response.status_code == 200
+
+        # Query history from database
+        history = await get_entity_history(
+            db_session, dev_user_id, EntityType.BOOKMARK, UUID(bookmark_id),
+        )
+
+        # Should have CREATE + UPDATE from str-replace
+        assert len(history) == 2
+        update_record = history[1]
+        assert update_record.action == ActionType.UPDATE.value
+        assert update_record.diff_type == DiffType.DIFF.value
+        assert update_record.content_diff is not None
+        # Source is recorded (actual value depends on test client headers)
+        assert update_record.source is not None
+
+    @pytest.mark.asyncio
+    async def test__str_replace_note__records_history(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        dev_user_id: UUID,
+    ) -> None:
+        """str-replace on note creates history record with UPDATE action."""
+        # Create note via API
+        response = await client.post(
+            "/notes/",
+            json={"title": "Test Note", "content": "Hello world"},
+        )
+        assert response.status_code == 201
+        note_id = response.json()["id"]
+
+        # Perform str-replace via API
+        response = await client.patch(
+            f"/notes/{note_id}/str-replace",
+            json={"old_str": "world", "new_str": "universe"},
+        )
+        assert response.status_code == 200
+
+        # Query history from database
+        history = await get_entity_history(
+            db_session, dev_user_id, EntityType.NOTE, UUID(note_id),
+        )
+
+        # Should have CREATE + UPDATE from str-replace
+        assert len(history) == 2
+        update_record = history[1]
+        assert update_record.action == ActionType.UPDATE.value
+        assert update_record.diff_type == DiffType.DIFF.value
+        assert update_record.content_diff is not None
+
+    @pytest.mark.asyncio
+    async def test__str_replace_prompt__records_history(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        dev_user_id: UUID,
+    ) -> None:
+        """str-replace on prompt creates history record with UPDATE action."""
+        from uuid import uuid4
+
+        # Use unique name to avoid conflicts with other tests
+        unique_name = f"str-replace-test-{uuid4().hex[:8]}"
+
+        # Create prompt via API (include argument definition for Jinja2 validation)
+        response = await client.post(
+            "/prompts/",
+            json={
+                "name": unique_name,
+                "content": "Say hello to {{ name }}",
+                "arguments": [{"name": "name", "description": "User name"}],
+            },
+        )
+        assert response.status_code == 201
+        prompt_id = response.json()["id"]
+
+        # Perform str-replace via API
+        response = await client.patch(
+            f"/prompts/{prompt_id}/str-replace",
+            json={"old_str": "hello", "new_str": "goodbye"},
+        )
+        assert response.status_code == 200
+
+        # Query history from database
+        history = await get_entity_history(
+            db_session, dev_user_id, EntityType.PROMPT, UUID(prompt_id),
+        )
+
+        # Should have CREATE + UPDATE from str-replace
+        assert len(history) == 2
+        update_record = history[1]
+        assert update_record.action == ActionType.UPDATE.value
+        assert update_record.diff_type == DiffType.DIFF.value
+        assert update_record.content_diff is not None
+
+    @pytest.mark.asyncio
+    async def test__str_replace__history_has_correct_content(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        dev_user_id: UUID,
+    ) -> None:
+        """str-replace history has correct previous and current content captured."""
+        from services.history_service import history_service
+
+        # Create note via API
+        response = await client.post(
+            "/notes/",
+            json={"title": "Test", "content": "First line\nSecond line\nThird line"},
+        )
+        assert response.status_code == 201
+        note_id = response.json()["id"]
+
+        # Perform str-replace via API
+        response = await client.patch(
+            f"/notes/{note_id}/str-replace",
+            json={"old_str": "Second", "new_str": "Modified"},
+        )
+        assert response.status_code == 200
+
+        # Query history from database
+        history = await get_entity_history(
+            db_session, dev_user_id, EntityType.NOTE, UUID(note_id),
+        )
+
+        update_record = history[1]
+
+        # Verify the reverse diff can reconstruct the original content
+        dmp = history_service.dmp
+        patches = dmp.patch_fromText(update_record.content_diff)
+        new_content = "First line\nModified line\nThird line"
+        result, _ = dmp.patch_apply(patches, new_content)
+        assert result == "First line\nSecond line\nThird line"  # Original content
+
+    @pytest.mark.asyncio
+    async def test__str_replace_noop__no_history_recorded(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        dev_user_id: UUID,
+    ) -> None:
+        """str-replace with old_str == new_str (no-op) does not record history."""
+        # Create note via API
+        response = await client.post(
+            "/notes/",
+            json={"title": "Test", "content": "Hello world"},
+        )
+        assert response.status_code == 201
+        note_id = response.json()["id"]
+
+        # Perform no-op str-replace via API
+        response = await client.patch(
+            f"/notes/{note_id}/str-replace",
+            json={"old_str": "world", "new_str": "world"},  # Same value
+        )
+        assert response.status_code == 200
+
+        # Query history from database
+        history = await get_entity_history(
+            db_session, dev_user_id, EntityType.NOTE, UUID(note_id),
+        )
+
+        # Should only have CREATE, no UPDATE from no-op str-replace
+        assert len(history) == 1
+        assert history[0].action == ActionType.CREATE.value
