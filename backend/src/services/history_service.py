@@ -549,11 +549,11 @@ class HistoryService:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def _get_latest_version(
+    async def get_latest_version(
         self,
         db: AsyncSession,
         user_id: UUID,
-        entity_type: str,
+        entity_type: EntityType | str,
         entity_id: UUID,
     ) -> int | None:
         """
@@ -562,19 +562,25 @@ class HistoryService:
         Args:
             db: Database session.
             user_id: ID of the user.
-            entity_type: Type of entity.
+            entity_type: Type of entity (EntityType enum or string).
             entity_id: ID of the entity.
 
         Returns:
             Latest version number, or None if no history exists.
         """
+        entity_type_value = (
+            entity_type.value if isinstance(entity_type, EntityType) else entity_type
+        )
         stmt = select(func.max(ContentHistory.version)).where(
             ContentHistory.user_id == user_id,
-            ContentHistory.entity_type == entity_type,
+            ContentHistory.entity_type == entity_type_value,
             ContentHistory.entity_id == entity_id,
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    # Keep private alias for backward compatibility with internal callers
+    _get_latest_version = get_latest_version
 
     async def _get_next_version(
         self,

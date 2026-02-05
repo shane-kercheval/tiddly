@@ -43,3 +43,11 @@ class ContentAtVersionResponse(BaseModel):
     content: str | None  # None is valid for DELETE actions
     metadata: dict | None  # metadata_snapshot from the history record
     warnings: list[str] | None = None  # Reconstruction warnings if any issues occurred
+
+
+class RevertResponse(BaseModel):
+    """Schema for revert operation response."""
+
+    message: str
+    version: int  # Version that was reverted to
+    warnings: list[str] | None = None  # Reconstruction warnings if any issues occurred
