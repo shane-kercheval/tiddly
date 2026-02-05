@@ -6,7 +6,7 @@ Entity-specific behavior is defined via abstract methods and class attributes.
 """
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Generic, Literal, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, Protocol, TypeVar
 from uuid import UUID
 
 from sqlalchemy import Column, ColumnElement, Table, exists, func, select
@@ -14,11 +14,16 @@ from sqlalchemy.sql import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 
+from core.request_context import RequestContext
 from core.tier_limits import TierLimits
+from models.content_history import ActionType, EntityType
 from models.tag import Tag
 from schemas.validators import validate_and_normalize_tags
 from services.exceptions import InvalidStateError
 from services.utils import build_tag_filter_from_expression, escape_ilike
+
+if TYPE_CHECKING:
+    from services.history_service import HistoryService
 
 
 # Preview length for content_preview field (characters)
@@ -142,6 +147,36 @@ class BaseEntityService(ABC, Generic[T]):
             QuotaExceededError: If user is at or over their item limit.
         """
         ...
+
+    @property
+    @abstractmethod
+    def entity_type(self) -> EntityType:
+        """Return the EntityType for this service (BOOKMARK, NOTE, or PROMPT)."""
+        ...
+
+    def _get_metadata_snapshot(self, entity: T) -> dict:
+        """
+        Extract non-content fields for history metadata snapshot.
+
+        Returns common fields (title, description, tags). Subclasses should
+        override to add entity-specific fields (e.g., url for bookmarks).
+
+        Args:
+            entity: The entity to extract metadata from.
+
+        Returns:
+            Dictionary of metadata fields.
+        """
+        return {
+            "title": getattr(entity, "title", None),
+            "description": getattr(entity, "description", None),
+            "tags": [t.name for t in entity.tag_objects] if hasattr(entity, "tag_objects") else [],
+        }
+
+    def _get_history_service(self) -> "HistoryService":
+        """Get the history service instance. Lazy import to avoid circular dependency."""
+        from services.history_service import history_service
+        return history_service
 
     # --- Common CRUD Operations ---
 
@@ -372,6 +407,7 @@ class BaseEntityService(ABC, Generic[T]):
         user_id: UUID,
         entity_id: UUID,
         permanent: bool = False,
+        context: RequestContext | None = None,
     ) -> bool:
         """
         Delete an entity (soft or permanent).
@@ -381,6 +417,7 @@ class BaseEntityService(ABC, Generic[T]):
             user_id: User ID to scope the entity.
             entity_id: ID of the entity to delete.
             permanent: If False, soft delete. If True, permanent delete.
+            context: Request context for history recording. If None, history is skipped.
 
         Returns:
             True if deleted, False if not found.
@@ -392,8 +429,25 @@ class BaseEntityService(ABC, Generic[T]):
             return False
 
         if permanent:
+            # Hard delete: cascade-delete history first (application-level cascade)
+            await self._get_history_service().delete_entity_history(
+                db, user_id, self.entity_type, entity_id,
+            )
             await db.delete(entity)
         else:
+            # Soft delete: record history with pre-delete content as SNAPSHOT
+            if context:
+                await self._get_history_service().record_action(
+                    db=db,
+                    user_id=user_id,
+                    entity_type=self.entity_type,
+                    entity_id=entity_id,
+                    action=ActionType.DELETE,
+                    current_content=entity.content,
+                    previous_content=entity.content,  # Same as current for DELETE
+                    metadata=self._get_metadata_snapshot(entity),
+                    context=context,
+                )
             entity.deleted_at = func.now()
             await db.flush()
 
@@ -404,6 +458,7 @@ class BaseEntityService(ABC, Generic[T]):
         db: AsyncSession,
         user_id: UUID,
         entity_id: UUID,
+        context: RequestContext | None = None,
     ) -> T | None:
         """
         Restore a soft-deleted entity to active state.
@@ -418,6 +473,7 @@ class BaseEntityService(ABC, Generic[T]):
             db: Database session.
             user_id: User ID to scope the entity.
             entity_id: ID of the entity to restore.
+            context: Request context for history recording. If None, history is skipped.
 
         Returns:
             The restored entity, or None if not found.
@@ -444,6 +500,21 @@ class BaseEntityService(ABC, Generic[T]):
                 raise InvalidStateError(f"{self.entity_name} is not deleted")
             return None
 
+        # Record history BEFORE restoring (captures pre-restore state)
+        # RESTORE is a METADATA action - content doesn't change
+        if context:
+            await self._get_history_service().record_action(
+                db=db,
+                user_id=user_id,
+                entity_type=self.entity_type,
+                entity_id=entity_id,
+                action=ActionType.RESTORE,
+                current_content=entity.content,
+                previous_content=entity.content,  # Same - content unchanged
+                metadata=self._get_metadata_snapshot(entity),
+                context=context,
+            )
+
         # Restore: clear both deleted_at and archived_at
         entity.deleted_at = None
         entity.archived_at = None
@@ -456,16 +527,18 @@ class BaseEntityService(ABC, Generic[T]):
         db: AsyncSession,
         user_id: UUID,
         entity_id: UUID,
+        context: RequestContext | None = None,
     ) -> T | None:
         """
         Archive an entity by setting archived_at timestamp.
 
-        This operation is idempotent.
+        This operation is idempotent. History is only recorded on state change.
 
         Args:
             db: Database session.
             user_id: User ID to scope the entity.
             entity_id: ID of the entity to archive.
+            context: Request context for history recording. If None, history is skipped.
 
         Returns:
             The archived entity, or None if not found.
@@ -475,6 +548,20 @@ class BaseEntityService(ABC, Generic[T]):
             return None
 
         if not entity.is_archived:
+            # Record history BEFORE archiving (captures pre-archive state)
+            # ARCHIVE is a METADATA action - content doesn't change
+            if context:
+                await self._get_history_service().record_action(
+                    db=db,
+                    user_id=user_id,
+                    entity_type=self.entity_type,
+                    entity_id=entity_id,
+                    action=ActionType.ARCHIVE,
+                    current_content=entity.content,
+                    previous_content=entity.content,  # Same - content unchanged
+                    metadata=self._get_metadata_snapshot(entity),
+                    context=context,
+                )
             entity.archived_at = func.now()
             await db.flush()
             await db.refresh(entity)
@@ -486,6 +573,7 @@ class BaseEntityService(ABC, Generic[T]):
         db: AsyncSession,
         user_id: UUID,
         entity_id: UUID,
+        context: RequestContext | None = None,
     ) -> T | None:
         """
         Unarchive an entity by clearing archived_at timestamp.
@@ -494,6 +582,7 @@ class BaseEntityService(ABC, Generic[T]):
             db: Database session.
             user_id: User ID to scope the entity.
             entity_id: ID of the entity to unarchive.
+            context: Request context for history recording. If None, history is skipped.
 
         Returns:
             The unarchived entity, or None if not found.
@@ -520,6 +609,21 @@ class BaseEntityService(ABC, Generic[T]):
             if non_archived is not None:
                 raise InvalidStateError(f"{self.entity_name} is not archived")
             return None
+
+        # Record history BEFORE unarchiving
+        # UNARCHIVE is a METADATA action - content doesn't change
+        if context:
+            await self._get_history_service().record_action(
+                db=db,
+                user_id=user_id,
+                entity_type=self.entity_type,
+                entity_id=entity_id,
+                action=ActionType.UNARCHIVE,
+                current_content=entity.content,
+                previous_content=entity.content,  # Same - content unchanged
+                metadata=self._get_metadata_snapshot(entity),
+                context=context,
+            )
 
         entity.archived_at = None
         await db.flush()

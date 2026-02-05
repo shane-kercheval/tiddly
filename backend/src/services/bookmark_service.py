@@ -8,8 +8,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from core.request_context import RequestContext
 from core.tier_limits import TierLimits
 from models.bookmark import Bookmark
+from models.content_history import ActionType, EntityType
 from models.tag import bookmark_tags
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate
 from services.base_entity_service import BaseEntityService
@@ -49,6 +51,17 @@ class BookmarkService(BaseEntityService[Bookmark]):
     model = Bookmark
     junction_table = bookmark_tags
     entity_name = "Bookmark"
+
+    @property
+    def entity_type(self) -> EntityType:
+        """Return the EntityType for bookmarks."""
+        return EntityType.BOOKMARK
+
+    def _get_metadata_snapshot(self, entity: Bookmark) -> dict:
+        """Extract bookmark metadata including URL."""
+        base = super()._get_metadata_snapshot(entity)
+        base["url"] = entity.url
+        return base
 
     def _build_text_search_filter(self, pattern: str) -> list:
         """Build text search filter for bookmark fields."""
@@ -158,6 +171,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
         user_id: UUID,
         data: BookmarkCreate,
         limits: TierLimits,
+        context: RequestContext | None = None,
     ) -> Bookmark:
         """
         Create a new bookmark for a user.
@@ -167,6 +181,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
             user_id: User ID to create the bookmark for.
             data: Bookmark creation data.
             limits: User's tier limits for quota and field validation.
+            context: Request context for history recording. If None, history is skipped.
 
         Returns:
             The created bookmark.
@@ -223,6 +238,21 @@ class BookmarkService(BaseEntityService[Bookmark]):
         # Set last_used_at to match created_at for "never clicked" detection
         bookmark.last_used_at = bookmark.created_at
         await db.flush()
+
+        # Record history for CREATE action
+        if context:
+            await self._get_history_service().record_action(
+                db=db,
+                user_id=user_id,
+                entity_type=self.entity_type,
+                entity_id=bookmark.id,
+                action=ActionType.CREATE,
+                current_content=bookmark.content,
+                previous_content=None,
+                metadata=self._get_metadata_snapshot(bookmark),
+                context=context,
+            )
+
         return bookmark
 
     async def update(
@@ -232,6 +262,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
         bookmark_id: UUID,
         data: BookmarkUpdate,
         limits: TierLimits,
+        context: RequestContext | None = None,
     ) -> Bookmark | None:
         """
         Update a bookmark.
@@ -242,6 +273,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
             bookmark_id: ID of the bookmark to update.
             data: Update data.
             limits: User's tier limits for field validation.
+            context: Request context for history recording. If None, history is skipped.
 
         Returns:
             The updated bookmark, or None if not found.
@@ -253,6 +285,10 @@ class BookmarkService(BaseEntityService[Bookmark]):
         bookmark = await self.get(db, user_id, bookmark_id, include_archived=True)
         if bookmark is None:
             return None
+
+        # Capture state before modification for diff and no-op detection
+        previous_content = bookmark.content
+        previous_metadata = self._get_metadata_snapshot(bookmark)
 
         update_data = data.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
 
@@ -289,6 +325,25 @@ class BookmarkService(BaseEntityService[Bookmark]):
                 raise DuplicateUrlError(str(update_data.get("url", ""))) from e
             raise
         await self._refresh_with_tags(db, bookmark)
+
+        # Only record history if something actually changed
+        current_metadata = self._get_metadata_snapshot(bookmark)
+        content_changed = bookmark.content != previous_content
+        metadata_changed = current_metadata != previous_metadata
+
+        if context and (content_changed or metadata_changed):
+            await self._get_history_service().record_action(
+                db=db,
+                user_id=user_id,
+                entity_type=self.entity_type,
+                entity_id=bookmark.id,
+                action=ActionType.UPDATE,
+                current_content=bookmark.content,
+                previous_content=previous_content,
+                metadata=current_metadata,
+                context=context,
+            )
+
         return bookmark
 
     async def restore(
@@ -296,6 +351,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
         db: AsyncSession,
         user_id: UUID,
         entity_id: UUID,
+        context: RequestContext | None = None,
     ) -> Bookmark | None:
         """
         Restore a soft-deleted bookmark.
@@ -309,6 +365,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
             db: Database session.
             user_id: User ID to scope the bookmark.
             entity_id: ID of the bookmark to restore.
+            context: Request context for history recording. If None, history is skipped.
 
         Returns:
             The restored bookmark, or None if not found.
@@ -339,6 +396,21 @@ class BookmarkService(BaseEntityService[Bookmark]):
         existing = await self._check_url_exists(db, user_id, bookmark.url)
         if existing and existing.id != entity_id:
             raise DuplicateUrlError(bookmark.url)
+
+        # Record history BEFORE restoring (captures pre-restore state)
+        # RESTORE is a METADATA action - content doesn't change
+        if context:
+            await self._get_history_service().record_action(
+                db=db,
+                user_id=user_id,
+                entity_type=self.entity_type,
+                entity_id=entity_id,
+                action=ActionType.RESTORE,
+                current_content=bookmark.content,
+                previous_content=bookmark.content,  # Same - content unchanged
+                metadata=self._get_metadata_snapshot(bookmark),
+                context=context,
+            )
 
         bookmark.deleted_at = None
         bookmark.archived_at = None

@@ -6,7 +6,9 @@ from uuid import UUID
 from sqlalchemy import ColumnElement, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.request_context import RequestContext
 from core.tier_limits import TierLimits
+from models.content_history import ActionType, EntityType
 from models.note import Note
 from models.tag import note_tags
 from schemas.note import NoteCreate, NoteUpdate
@@ -29,6 +31,11 @@ class NoteService(BaseEntityService[Note]):
     model = Note
     junction_table = note_tags
     entity_name = "Note"
+
+    @property
+    def entity_type(self) -> EntityType:
+        """Return the EntityType for notes."""
+        return EntityType.NOTE
 
     def _build_text_search_filter(self, pattern: str) -> list:
         """Build text search filter for note fields."""
@@ -116,6 +123,7 @@ class NoteService(BaseEntityService[Note]):
         user_id: UUID,
         data: NoteCreate,
         limits: TierLimits,
+        context: RequestContext | None = None,
     ) -> Note:
         """
         Create a new note for a user.
@@ -125,6 +133,7 @@ class NoteService(BaseEntityService[Note]):
             user_id: User ID to create the note for.
             data: Note creation data.
             limits: User's tier limits for quota and field validation.
+            context: Request context for history recording. If None, history is skipped.
 
         Returns:
             The created note.
@@ -161,6 +170,21 @@ class NoteService(BaseEntityService[Note]):
         # Set last_used_at to match created_at for "never viewed" detection
         note.last_used_at = note.created_at
         await db.flush()
+
+        # Record history for CREATE action
+        if context:
+            await self._get_history_service().record_action(
+                db=db,
+                user_id=user_id,
+                entity_type=self.entity_type,
+                entity_id=note.id,
+                action=ActionType.CREATE,
+                current_content=note.content,
+                previous_content=None,
+                metadata=self._get_metadata_snapshot(note),
+                context=context,
+            )
+
         return note
 
     async def update(
@@ -170,6 +194,7 @@ class NoteService(BaseEntityService[Note]):
         note_id: UUID,
         data: NoteUpdate,
         limits: TierLimits,
+        context: RequestContext | None = None,
     ) -> Note | None:
         """
         Update a note.
@@ -180,6 +205,7 @@ class NoteService(BaseEntityService[Note]):
             note_id: ID of the note to update.
             data: Update data.
             limits: User's tier limits for field validation.
+            context: Request context for history recording. If None, history is skipped.
 
         Returns:
             The updated note, or None if not found.
@@ -190,6 +216,10 @@ class NoteService(BaseEntityService[Note]):
         note = await self.get(db, user_id, note_id, include_archived=True)
         if note is None:
             return None
+
+        # Capture state before modification for diff and no-op detection
+        previous_content = note.content
+        previous_metadata = self._get_metadata_snapshot(note)
 
         update_data = data.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
         new_tags = update_data.pop("tags", None)
@@ -213,5 +243,24 @@ class NoteService(BaseEntityService[Note]):
 
         await db.flush()
         await self._refresh_with_tags(db, note)
+
+        # Only record history if something actually changed
+        current_metadata = self._get_metadata_snapshot(note)
+        content_changed = note.content != previous_content
+        metadata_changed = current_metadata != previous_metadata
+
+        if context and (content_changed or metadata_changed):
+            await self._get_history_service().record_action(
+                db=db,
+                user_id=user_id,
+                entity_type=self.entity_type,
+                entity_id=note.id,
+                action=ActionType.UPDATE,
+                current_content=note.content,
+                previous_content=previous_content,
+                metadata=current_metadata,
+                context=context,
+            )
+
         return note
 

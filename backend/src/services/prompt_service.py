@@ -10,7 +10,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 
+from core.request_context import RequestContext
 from core.tier_limits import TierLimits
+from models.content_history import ActionType, EntityType
 from models.prompt import Prompt
 from models.tag import prompt_tags
 from schemas.prompt import PromptCreate, PromptUpdate
@@ -100,6 +102,18 @@ class PromptService(BaseEntityService[Prompt]):
     model = Prompt
     junction_table = prompt_tags
     entity_name = "Prompt"
+
+    @property
+    def entity_type(self) -> EntityType:
+        """Return the EntityType for prompts."""
+        return EntityType.PROMPT
+
+    def _get_metadata_snapshot(self, entity: Prompt) -> dict:
+        """Extract prompt metadata including name and arguments."""
+        base = super()._get_metadata_snapshot(entity)
+        base["name"] = entity.name
+        base["arguments"] = entity.arguments
+        return base
 
     def _build_text_search_filter(self, pattern: str) -> list:
         """Build text search filter for prompt fields."""
@@ -208,6 +222,7 @@ class PromptService(BaseEntityService[Prompt]):
         user_id: UUID,
         data: PromptCreate,
         limits: TierLimits,
+        context: RequestContext | None = None,
     ) -> Prompt:
         """
         Create a new prompt for a user.
@@ -217,6 +232,7 @@ class PromptService(BaseEntityService[Prompt]):
             user_id: User ID to create the prompt for.
             data: Prompt creation data.
             limits: User's tier limits for quota and field validation.
+            context: Request context for history recording. If None, history is skipped.
 
         Returns:
             The created prompt.
@@ -278,6 +294,20 @@ class PromptService(BaseEntityService[Prompt]):
         prompt.last_used_at = prompt.created_at
         await db.flush()
 
+        # Record history for CREATE action
+        if context:
+            await self._get_history_service().record_action(
+                db=db,
+                user_id=user_id,
+                entity_type=self.entity_type,
+                entity_id=prompt.id,
+                action=ActionType.CREATE,
+                current_content=prompt.content,
+                previous_content=None,
+                metadata=self._get_metadata_snapshot(prompt),
+                context=context,
+            )
+
         return prompt
 
     async def update(
@@ -287,6 +317,7 @@ class PromptService(BaseEntityService[Prompt]):
         prompt_id: UUID,
         data: PromptUpdate,
         limits: TierLimits,
+        context: RequestContext | None = None,
     ) -> Prompt | None:
         """
         Update a prompt.
@@ -297,6 +328,7 @@ class PromptService(BaseEntityService[Prompt]):
             prompt_id: ID of the prompt to update.
             data: Update data.
             limits: User's tier limits for field validation.
+            context: Request context for history recording. If None, history is skipped.
 
         Returns:
             The updated prompt, or None if not found.
@@ -309,6 +341,10 @@ class PromptService(BaseEntityService[Prompt]):
         prompt = await self.get(db, user_id, prompt_id, include_archived=True)
         if prompt is None:
             return None
+
+        # Capture state before modification for diff and no-op detection
+        previous_content = prompt.content
+        previous_metadata = self._get_metadata_snapshot(prompt)
 
         update_data = data.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
         new_tags = update_data.pop("tags", None)
@@ -372,6 +408,25 @@ class PromptService(BaseEntityService[Prompt]):
             raise
 
         await self._refresh_with_tags(db, prompt)
+
+        # Only record history if something actually changed
+        current_metadata = self._get_metadata_snapshot(prompt)
+        content_changed = prompt.content != previous_content
+        metadata_changed = current_metadata != previous_metadata
+
+        if context and (content_changed or metadata_changed):
+            await self._get_history_service().record_action(
+                db=db,
+                user_id=user_id,
+                entity_type=self.entity_type,
+                entity_id=prompt.id,
+                action=ActionType.UPDATE,
+                current_content=prompt.content,
+                previous_content=previous_content,
+                metadata=current_metadata,
+                context=context,
+            )
+
         return prompt
 
     async def get_by_name(

@@ -13,6 +13,7 @@ from api.dependencies import (
     get_current_user,
 )
 from api.helpers import check_optimistic_lock, resolve_filter_and_sorting
+from core.auth import get_request_context
 from core.http_cache import check_not_modified, format_http_date
 from core.tier_limits import TierLimits
 from models.user import User
@@ -42,7 +43,9 @@ from services.content_edit_service import (
 from services.content_lines import apply_partial_read
 from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
+from services.history_service import history_service
 from services.note_service import NoteService
+from models.content_history import ActionType, EntityType
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -51,13 +54,15 @@ note_service = NoteService()
 
 @router.post("/", response_model=NoteResponse, status_code=201)
 async def create_note(
+    request: Request,
     data: NoteCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
     limits: TierLimits = Depends(get_current_limits),
 ) -> NoteResponse:
     """Create a new note."""
-    note = await note_service.create(db, current_user.id, data, limits)
+    context = get_request_context(request)
+    note = await note_service.create(db, current_user.id, data, limits, context)
     return NoteResponse.model_validate(note)
 
 
@@ -313,12 +318,14 @@ async def search_in_note(
 @router.patch("/{note_id}", response_model=NoteResponse)
 async def update_note(
     note_id: UUID,
+    request: Request,
     data: NoteUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
     limits: TierLimits = Depends(get_current_limits),
 ) -> NoteResponse:
     """Update a note."""
+    context = get_request_context(request)
     # Check for conflicts before updating
     await check_optimistic_lock(
         db, note_service, current_user.id, note_id,
@@ -326,7 +333,7 @@ async def update_note(
     )
 
     note = await note_service.update(
-        db, current_user.id, note_id, data, limits,
+        db, current_user.id, note_id, data, limits, context,
     )
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -339,6 +346,7 @@ async def update_note(
 )
 async def str_replace_note(
     note_id: UUID,
+    request: Request,
     data: StrReplaceRequest,
     include_updated_entity: bool = Query(
         default=False,
@@ -374,6 +382,7 @@ async def str_replace_note(
     - 400 with `error: "multiple_matches"` if text found in multiple locations
       (includes match locations with context to help construct unique match)
     """
+    context = get_request_context(request)
     # Check for conflicts before modifying
     await check_optimistic_lock(
         db, note_service, current_user.id, note_id,
@@ -393,6 +402,9 @@ async def str_replace_note(
                 message="Note has no content to edit",
             ).model_dump(),
         )
+
+    # Capture previous content for history
+    previous_content = note.content
 
     # Perform str_replace
     try:
@@ -425,8 +437,22 @@ async def str_replace_note(
     await db.flush()
     await db.refresh(note)
 
+    # Record history for str-replace (content changed)
+    await db.refresh(note, attribute_names=["tag_objects"])
+    metadata = note_service._get_metadata_snapshot(note)
+    await history_service.record_action(
+        db=db,
+        user_id=current_user.id,
+        entity_type=EntityType.NOTE,
+        entity_id=note.id,
+        action=ActionType.UPDATE,
+        current_content=note.content,
+        previous_content=previous_content,
+        metadata=metadata,
+        context=context,
+    )
+
     if include_updated_entity:
-        await db.refresh(note, attribute_names=["tag_objects"])
         return StrReplaceSuccess(
             match_type=result.match_type,
             line=result.line,
@@ -442,6 +468,7 @@ async def str_replace_note(
 @router.delete("/{note_id}", status_code=204)
 async def delete_note(
     note_id: UUID,
+    request: Request,
     permanent: bool = Query(default=False, description="Permanently delete from DB if true"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -452,8 +479,9 @@ async def delete_note(
     By default, performs a soft delete (sets deleted_at timestamp).
     Use ?permanent=true from the trash view to permanently remove from database.
     """
+    context = get_request_context(request)
     deleted = await note_service.delete(
-        db, current_user.id, note_id, permanent=permanent,
+        db, current_user.id, note_id, permanent=permanent, context=context,
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -462,6 +490,7 @@ async def delete_note(
 @router.post("/{note_id}/restore", response_model=NoteResponse)
 async def restore_note(
     note_id: UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
@@ -471,9 +500,10 @@ async def restore_note(
     Clears both deleted_at and archived_at timestamps, returning the note
     to active state (not archived).
     """
+    context = get_request_context(request)
     try:
         note = await note_service.restore(
-            db, current_user.id, note_id,
+            db, current_user.id, note_id, context,
         )
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -486,6 +516,7 @@ async def restore_note(
 @router.post("/{note_id}/archive", response_model=NoteResponse)
 async def archive_note(
     note_id: UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
@@ -495,8 +526,9 @@ async def archive_note(
     Sets archived_at timestamp. This operation is idempotent - archiving an
     already-archived note returns success with the current state.
     """
+    context = get_request_context(request)
     note = await note_service.archive(
-        db, current_user.id, note_id,
+        db, current_user.id, note_id, context,
     )
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -506,6 +538,7 @@ async def archive_note(
 @router.post("/{note_id}/unarchive", response_model=NoteResponse)
 async def unarchive_note(
     note_id: UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> NoteResponse:
@@ -514,9 +547,10 @@ async def unarchive_note(
 
     Clears archived_at timestamp, returning the note to active state.
     """
+    context = get_request_context(request)
     try:
         note = await note_service.unarchive(
-            db, current_user.id, note_id,
+            db, current_user.id, note_id, context,
         )
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
