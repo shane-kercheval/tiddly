@@ -822,11 +822,12 @@ Create service layer for recording and retrieving history, including diff-match-
 
            Uses OPTIMIZED ENTITY-ANCHORED reconstruction:
            1. Get current content from entity table as fallback anchor
-           2. Fetch all history records from latest down to target+1
-           3. Find the nearest snapshot to target (lowest version in fetched records)
-           4. Start from snapshot's content_snapshot (or entity.content if no snapshot)
-           5. Apply content_diff from each record to traverse backwards
-           6. Return content when we reach target version
+           2. Fetch all history records from latest down to AND INCLUDING target
+           3. Check if target is a SNAPSHOT - if so, return directly (optimization)
+           4. Find the nearest snapshot above target (lowest version in fetched records)
+           5. Start from snapshot's content_snapshot (or entity.content if no snapshot)
+           6. Apply content_diff from each record to traverse backwards
+           7. Return content when we reach target version
 
            With dual-storage SNAPSHOTs (content_snapshot + content_diff), we can:
            - Start from any snapshot (using content_snapshot)
@@ -865,14 +866,15 @@ Create service layer for recording and retrieving history, including diff-match-
                # DIFF or METADATA record - entity.content is current
                return ReconstructionResult(found=True, content=entity.content)
 
-           # Step 4: Fetch all history records from latest down to target+1
+           # Step 4: Fetch all history records from latest down to AND INCLUDING target
+           # Including target allows us to check if target is a SNAPSHOT (optimization)
            records_stmt = (
                select(ContentHistory)
                .where(
                    ContentHistory.user_id == user_id,
                    ContentHistory.entity_type == entity_type_value,
                    ContentHistory.entity_id == entity_id,
-                   ContentHistory.version > target_version,
+                   ContentHistory.version >= target_version,  # Include target
                    ContentHistory.version <= latest_version,
                )
                .order_by(ContentHistory.version.desc())  # Descending: latest first
@@ -880,25 +882,43 @@ Create service layer for recording and retrieving history, including diff-match-
            records_result = await db.execute(records_stmt)
            records = list(records_result.scalars().all())
 
-           # Step 5: Find nearest snapshot (lowest version = closest to target)
+           if not records:
+               return ReconstructionResult(found=False, content=None)
+
+           # Step 5: Check if target is a SNAPSHOT - return directly (optimization)
+           # Target is always the last record (lowest version in DESC order)
+           target_record = records[-1]
+           if target_record.version != target_version:
+               # Target record not found (shouldn't happen, but defensive)
+               return ReconstructionResult(found=False, content=None)
+
+           if target_record.content_snapshot is not None:
+               # Target is a SNAPSHOT - return directly, no traversal needed
+               return ReconstructionResult(found=True, content=target_record.content_snapshot)
+
+           # Step 6: Remove target from processing list (we don't apply target's diff)
+           # Target's diff transforms target content → target-1 content, which we don't want
+           records_to_traverse = records[:-1]  # Exclude target record
+
+           # Step 7: Find nearest snapshot (lowest version = closest to target)
            # Records are DESC, so "last" snapshot in iteration = lowest version
            snapshot_indices = [
-               i for i, r in enumerate(records)
+               i for i, r in enumerate(records_to_traverse)
                if r.diff_type == DiffType.SNAPSHOT.value and r.content_snapshot is not None
            ]
 
            if snapshot_indices:
                # Start from nearest snapshot (lowest version, last in DESC order)
                last_snapshot_idx = snapshot_indices[-1]
-               content = records[last_snapshot_idx].content_snapshot
-               # Only process records AFTER the snapshot (lower versions)
-               records_to_process = records[last_snapshot_idx:]
+               content = records_to_traverse[last_snapshot_idx].content_snapshot
+               # Only process records FROM the snapshot onwards (it and lower versions)
+               records_to_process = records_to_traverse[last_snapshot_idx:]
            else:
                # No snapshot found - start from entity.content
                content = entity.content
-               records_to_process = records
+               records_to_process = records_to_traverse
 
-           # Step 6: Apply reverse diffs to reach target version
+           # Step 8: Apply reverse diffs to reach target version
            warnings: list[str] = []
 
            for record in records_to_process:
