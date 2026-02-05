@@ -59,31 +59,46 @@ def _build_update_from_history(
 
     Tags are restored by name. The service layer creates missing tags
     automatically (existing behavior).
+
+    IMPORTANT: Only include fields that actually exist in metadata. If we pass
+    a field with value None, the service's model_dump(exclude_unset=True) will
+    still include it (because it was explicitly set), causing current values
+    to be overwritten with None.
     """
-    # Common fields across all entity types
-    common_fields = {
-        "content": content,
-        "title": metadata.get("title"),
-        "description": metadata.get("description"),
-        "tags": metadata.get("tags", []),  # List of tag names
-    }
+    # Build common fields conditionally - only include fields present in metadata
+    common_fields: dict = {}
+
+    # Content: only include if not None (None means reconstruction found no content)
+    if content is not None:
+        common_fields["content"] = content
+
+    # Metadata fields: only include if key exists in metadata snapshot
+    if "title" in metadata:
+        common_fields["title"] = metadata["title"]
+    if "description" in metadata:
+        common_fields["description"] = metadata["description"]
+    if "tags" in metadata:
+        common_fields["tags"] = metadata["tags"]
 
     if entity_type == EntityType.BOOKMARK:
-        return BookmarkUpdate(
-            **common_fields,
-            url=metadata.get("url"),  # Bookmark-specific
-        )
+        if "url" in metadata:
+            common_fields["url"] = metadata["url"]
+        return BookmarkUpdate(**common_fields)
+
     if entity_type == EntityType.NOTE:
         return NoteUpdate(**common_fields)
+
     if entity_type == EntityType.PROMPT:
-        # Convert arguments from dicts to PromptArgument objects
-        raw_arguments = metadata.get("arguments", [])
-        arguments = [PromptArgument(**arg) for arg in raw_arguments] if raw_arguments else []
-        return PromptUpdate(
-            **common_fields,
-            name=metadata.get("name"),  # Prompt-specific
-            arguments=arguments,
-        )
+        if "name" in metadata:
+            common_fields["name"] = metadata["name"]
+        if "arguments" in metadata and metadata["arguments"] is not None:
+            # Convert arguments from dicts to PromptArgument objects
+            # If arguments is None (malformed snapshot), skip to preserve current value
+            common_fields["arguments"] = [
+                PromptArgument(**arg) for arg in metadata["arguments"]
+            ]
+        return PromptUpdate(**common_fields)
+
     raise ValueError(f"Unknown entity type: {entity_type}")
 
 
@@ -199,10 +214,10 @@ async def get_content_at_version(
     response_model=RevertResponse,
 )
 async def revert_to_version(
+    request: Request,
     entity_type: EntityType,
     entity_id: UUID,
     version: int = Path(..., ge=1, description="Version to revert to (must be >= 1)"),
-    request: Request = None,
     current_user: User = Depends(get_current_user),
     limits: TierLimits = Depends(get_current_limits),
     db: AsyncSession = Depends(get_async_session),

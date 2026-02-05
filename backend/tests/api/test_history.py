@@ -688,6 +688,12 @@ async def test_user_cannot_access_another_users_history(
         )
         assert response.status_code == 404
 
+        # User2 should not be able to revert user1's entity (404 - entity not found)
+        response = await user2_client.post(
+            f"/history/bookmark/{user1_bookmark_id}/revert/1",
+        )
+        assert response.status_code == 404
+
     app.dependency_overrides.clear()
 
 
@@ -771,6 +777,18 @@ async def test_pat_can_access_history(
         # PAT should be able to access per-entity convenience endpoint
         response = await pat_client.get(f"/bookmarks/{bookmark_id}/history")
         assert response.status_code == 200
+
+        # PAT should be able to revert (write operation)
+        # First update to create v2, then revert to v1
+        response = await pat_client.patch(
+            f"/bookmarks/{bookmark_id}",
+            json={"content": "Updated via PAT"},
+        )
+        assert response.status_code == 200
+
+        response = await pat_client.post(f"/history/bookmark/{bookmark_id}/revert/1")
+        assert response.status_code == 200
+        assert response.json()["message"] == "Reverted successfully"
 
     app.dependency_overrides.clear()
 
@@ -942,78 +960,137 @@ async def test_revert_soft_deleted_entity_restores_it(
     assert response.json()["deleted_at"] is None
 
 
+@pytest.mark.parametrize(
+    ("entity_type", "create_endpoint", "create_payload", "update_payload"),
+    [
+        pytest.param(
+            "bookmark", "/bookmarks/",
+            {"url": "https://archived-test.com", "content": "Initial content"},
+            {"content": "Updated content"},
+            id="bookmark",
+        ),
+        pytest.param(
+            "note", "/notes/",
+            {"title": "Test", "content": "Initial content"},
+            {"content": "Updated content"},
+            id="note",
+        ),
+        pytest.param(
+            "prompt", "/prompts/",
+            {"name": "archived-test-prompt", "content": "Initial content", "arguments": []},
+            {"content": "Updated content"},
+            id="prompt",
+        ),
+    ],
+)
 async def test_revert_archived_entity_preserves_archive_state(
     client: AsyncClient,
+    entity_type: str,
+    create_endpoint: str,
+    create_payload: dict,
+    update_payload: dict,
 ) -> None:
     """Test that reverting an archived entity preserves archive state."""
     from datetime import UTC, datetime
 
-    # Create note (v1)
-    response = await client.post(
-        "/notes/",
-        json={"title": "Test", "content": "Initial content"},
-    )
-    note_id = response.json()["id"]
+    # Create entity (v1)
+    response = await client.post(create_endpoint, json=create_payload)
+    assert response.status_code == 201
+    entity_id = response.json()["id"]
 
     # Update to create v2
-    await client.patch(f"/notes/{note_id}", json={"content": "Updated content"})
+    await client.patch(f"{create_endpoint}{entity_id}", json=update_payload)
 
-    # Archive the note
+    # Archive the entity
     past_time = datetime(2020, 1, 1, tzinfo=UTC).isoformat()
-    await client.patch(f"/notes/{note_id}", json={"archived_at": past_time})
+    await client.patch(f"{create_endpoint}{entity_id}", json={"archived_at": past_time})
 
     # Revert to v1
-    response = await client.post(f"/history/note/{note_id}/revert/1")
+    response = await client.post(f"/history/{entity_type}/{entity_id}/revert/1")
     assert response.status_code == 200
 
     # Verify content is restored but still archived
-    response = await client.get(f"/notes/{note_id}", params={"include_archived": True})
+    response = await client.get(
+        f"{create_endpoint}{entity_id}", params={"include_archived": True},
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["content"] == "Initial content"
     assert data["archived_at"] is not None
 
 
-async def test_revert_restores_metadata(client: AsyncClient) -> None:
+@pytest.mark.parametrize(
+    ("entity_type", "create_endpoint", "base_payload", "original_tags", "new_tags"),
+    [
+        pytest.param(
+            "bookmark", "/bookmarks/",
+            {"url": "https://metadata-test.com", "content": "Content"},
+            ["metadata-tag1-bm", "metadata-tag2-bm"],
+            ["metadata-tag3-bm"],
+            id="bookmark",
+        ),
+        pytest.param(
+            "note", "/notes/",
+            {"content": "Content"},
+            ["metadata-tag1-note", "metadata-tag2-note"],
+            ["metadata-tag3-note"],
+            id="note",
+        ),
+        pytest.param(
+            "prompt", "/prompts/",
+            {"name": "metadata-test-prompt", "content": "Content", "arguments": []},
+            ["metadata-tag1-prompt", "metadata-tag2-prompt"],
+            ["metadata-tag3-prompt"],
+            id="prompt",
+        ),
+    ],
+)
+async def test_revert_restores_metadata(
+    client: AsyncClient,
+    entity_type: str,
+    create_endpoint: str,
+    base_payload: dict,
+    original_tags: list[str],
+    new_tags: list[str],
+) -> None:
     """Test that revert restores metadata (title, description, tags)."""
-    # Create note with metadata
-    response = await client.post(
-        "/notes/",
-        json={
-            "title": "Original Title",
-            "description": "Original Description",
-            "content": "Content",
-            "tags": ["tag1", "tag2"],
-        },
-    )
-    note_id = response.json()["id"]
+    # Create entity with metadata
+    create_payload = {
+        **base_payload,
+        "title": "Original Title",
+        "description": "Original Description",
+        "tags": original_tags,
+    }
+    response = await client.post(create_endpoint, json=create_payload)
+    assert response.status_code == 201
+    entity_id = response.json()["id"]
 
     # Update metadata
     await client.patch(
-        f"/notes/{note_id}",
+        f"{create_endpoint}{entity_id}",
         json={
             "title": "New Title",
             "description": "New Description",
-            "tags": ["tag3"],
+            "tags": new_tags,
         },
     )
 
     # Verify metadata changed
-    response = await client.get(f"/notes/{note_id}")
+    response = await client.get(f"{create_endpoint}{entity_id}")
     assert response.json()["title"] == "New Title"
     assert response.json()["description"] == "New Description"
-    assert set(response.json()["tags"]) == {"tag3"}
+    assert set(response.json()["tags"]) == set(new_tags)
 
     # Revert to v1
-    response = await client.post(f"/history/note/{note_id}/revert/1")
+    response = await client.post(f"/history/{entity_type}/{entity_id}/revert/1")
     assert response.status_code == 200
 
     # Verify metadata is restored
-    response = await client.get(f"/notes/{note_id}")
+    response = await client.get(f"{create_endpoint}{entity_id}")
     data = response.json()
     assert data["title"] == "Original Title"
     assert data["description"] == "Original Description"
-    assert set(data["tags"]) == {"tag1", "tag2"}
+    assert set(data["tags"]) == set(original_tags)
 
 
 async def test_revert_bookmark_restores_url(client: AsyncClient) -> None:
@@ -1132,61 +1209,107 @@ async def test_revert_prompt_name_conflict_returns_409(client: AsyncClient) -> N
     assert "name already exists" in response.json()["detail"]
 
 
-async def test_revert_hard_deleted_entity_returns_404(client: AsyncClient) -> None:
+@pytest.mark.parametrize(
+    ("entity_type", "create_endpoint", "create_payload"),
+    [
+        pytest.param(
+            "bookmark", "/bookmarks/",
+            {"url": "https://hard-delete-test.com", "content": "Content"},
+            id="bookmark",
+        ),
+        pytest.param(
+            "note", "/notes/",
+            {"title": "Test", "content": "Content"},
+            id="note",
+        ),
+        pytest.param(
+            "prompt", "/prompts/",
+            {"name": "hard-delete-test-prompt", "content": "Content", "arguments": []},
+            id="prompt",
+        ),
+    ],
+)
+async def test_revert_hard_deleted_entity_returns_404(
+    client: AsyncClient,
+    entity_type: str,
+    create_endpoint: str,
+    create_payload: dict,
+) -> None:
     """Test that reverting a hard-deleted entity returns 404."""
-    # Create bookmark
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://hard-delete-test.com", "content": "Content"},
-    )
-    bookmark_id = response.json()["id"]
+    # Create entity
+    response = await client.post(create_endpoint, json=create_payload)
+    assert response.status_code == 201
+    entity_id = response.json()["id"]
 
     # Soft delete
-    await client.delete(f"/bookmarks/{bookmark_id}")
+    await client.delete(f"{create_endpoint}{entity_id}")
 
     # Hard delete
-    await client.delete(f"/bookmarks/{bookmark_id}", params={"permanent": True})
+    await client.delete(f"{create_endpoint}{entity_id}", params={"permanent": True})
 
     # Try to revert - should fail with 404
-    response = await client.post(f"/history/bookmark/{bookmark_id}/revert/1")
+    response = await client.post(f"/history/{entity_type}/{entity_id}/revert/1")
     assert response.status_code == 404
     assert response.json()["detail"] == "Entity not found"
 
 
-async def test_sequential_reverts_maintain_chain_integrity(client: AsyncClient) -> None:
+@pytest.mark.parametrize(
+    ("entity_type", "create_endpoint", "create_payload"),
+    [
+        pytest.param(
+            "bookmark", "/bookmarks/",
+            {"url": "https://sequential-revert-test.com", "content": "A"},
+            id="bookmark",
+        ),
+        pytest.param(
+            "note", "/notes/",
+            {"title": "Test", "content": "A"},
+            id="note",
+        ),
+        pytest.param(
+            "prompt", "/prompts/",
+            {"name": "sequential-revert-test", "content": "A", "arguments": []},
+            id="prompt",
+        ),
+    ],
+)
+async def test_sequential_reverts_maintain_chain_integrity(
+    client: AsyncClient,
+    entity_type: str,
+    create_endpoint: str,
+    create_payload: dict,
+) -> None:
     """Test that sequential reverts maintain history chain integrity."""
-    # Create note: v1 = "A"
-    response = await client.post(
-        "/notes/",
-        json={"title": "Test", "content": "A"},
-    )
-    note_id = response.json()["id"]
+    # Create entity: v1 = "A"
+    response = await client.post(create_endpoint, json=create_payload)
+    assert response.status_code == 201
+    entity_id = response.json()["id"]
 
     # v2 = "B"
-    await client.patch(f"/notes/{note_id}", json={"content": "B"})
+    await client.patch(f"{create_endpoint}{entity_id}", json={"content": "B"})
 
     # v3 = "C"
-    await client.patch(f"/notes/{note_id}", json={"content": "C"})
+    await client.patch(f"{create_endpoint}{entity_id}", json={"content": "C"})
 
     # Revert to v1 -> creates v4 = "A"
-    response = await client.post(f"/history/note/{note_id}/revert/1")
+    response = await client.post(f"/history/{entity_type}/{entity_id}/revert/1")
     assert response.status_code == 200
 
     # Revert to v2 -> creates v5 = "B"
-    response = await client.post(f"/history/note/{note_id}/revert/2")
+    response = await client.post(f"/history/{entity_type}/{entity_id}/revert/2")
     assert response.status_code == 200
 
     # Revert to v4 -> creates v6 = "A"
-    response = await client.post(f"/history/note/{note_id}/revert/4")
+    response = await client.post(f"/history/{entity_type}/{entity_id}/revert/4")
     assert response.status_code == 200
 
     # Verify history has 6 entries
-    response = await client.get(f"/history/note/{note_id}")
+    response = await client.get(f"/history/{entity_type}/{entity_id}")
     assert response.json()["total"] == 6
 
     # Verify all versions are independently reconstructable
     for version in range(1, 7):
-        response = await client.get(f"/history/note/{note_id}/version/{version}")
+        response = await client.get(f"/history/{entity_type}/{entity_id}/version/{version}")
         assert response.status_code == 200
         content = response.json()["content"]
         if version in [1, 4, 6]:
@@ -1197,40 +1320,490 @@ async def test_sequential_reverts_maintain_chain_integrity(client: AsyncClient) 
             assert content == "C", f"Version {version} should be 'C'"
 
 
-async def test_revert_invalid_version_zero_returns_422(client: AsyncClient) -> None:
+@pytest.mark.parametrize(
+    ("entity_type", "create_endpoint", "create_payload"),
+    [
+        pytest.param(
+            "bookmark", "/bookmarks/",
+            {"url": "https://invalid-version-test.com", "content": "Content"},
+            id="bookmark",
+        ),
+        pytest.param(
+            "note", "/notes/",
+            {"title": "Test", "content": "Content"},
+            id="note",
+        ),
+        pytest.param(
+            "prompt", "/prompts/",
+            {"name": "invalid-version-test", "content": "Content", "arguments": []},
+            id="prompt",
+        ),
+    ],
+)
+async def test_revert_invalid_version_zero_returns_422(
+    client: AsyncClient,
+    entity_type: str,
+    create_endpoint: str,
+    create_payload: dict,
+) -> None:
     """Test that reverting to version 0 returns 422 (validation error)."""
-    # Create note
+    # Create entity
+    response = await client.post(create_endpoint, json=create_payload)
+    assert response.status_code == 201
+    entity_id = response.json()["id"]
+
+    # Try to revert to v0 (invalid)
+    response = await client.post(f"/history/{entity_type}/{entity_id}/revert/0")
+    assert response.status_code == 422  # FastAPI validation error
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "create_endpoint", "create_payload", "tag_name"),
+    [
+        pytest.param(
+            "bookmark", "/bookmarks/",
+            {"url": "https://tag-revert-test.com", "content": "Content"},
+            "tag-revert-bookmark",
+            id="bookmark",
+        ),
+        pytest.param(
+            "note", "/notes/",
+            {"title": "Test", "content": "Content"},
+            "tag-revert-note",
+            id="note",
+        ),
+        pytest.param(
+            "prompt", "/prompts/",
+            {"name": "tag-revert-test", "content": "Content", "arguments": []},
+            "tag-revert-prompt",
+            id="prompt",
+        ),
+    ],
+)
+async def test_revert_creates_tags_if_missing(
+    client: AsyncClient,
+    entity_type: str,
+    create_endpoint: str,
+    create_payload: dict,
+    tag_name: str,
+) -> None:
+    """Test that reverting recreates tags that were deleted."""
+    # Create entity with tag
+    payload_with_tag = {**create_payload, "tags": [tag_name]}
+    response = await client.post(create_endpoint, json=payload_with_tag)
+    assert response.status_code == 201
+    entity_id = response.json()["id"]
+
+    # Remove tag
+    await client.patch(f"{create_endpoint}{entity_id}", json={"tags": []})
+
+    # Verify tag is removed
+    response = await client.get(f"{create_endpoint}{entity_id}")
+    assert response.json()["tags"] == []
+
+    # Revert to v1 - tag should be restored
+    response = await client.post(f"/history/{entity_type}/{entity_id}/revert/1")
+    assert response.status_code == 200
+
+    # Verify tag is back
+    response = await client.get(f"{create_endpoint}{entity_id}")
+    assert tag_name in response.json()["tags"]
+
+
+# --- Schema evolution tests ---
+
+
+async def test_revert_preserves_fields_missing_from_old_metadata(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """
+    Test that reverting to an old version with missing metadata fields
+    preserves the current values for those fields.
+
+    This simulates schema evolution: an old history record may lack fields
+    that were added later. Those missing fields should NOT be overwritten.
+    """
+    from sqlalchemy import select
+
+    from models.content_history import ContentHistory
+
+    # Create note with description (v1)
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "Original Title",
+            "description": "Original Description",
+            "content": "Original Content",
+        },
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Update to create v2
+    await client.patch(
+        f"/notes/{note_id}",
+        json={"content": "Updated Content", "description": "Updated Description"},
+    )
+
+    # Manually modify v1's metadata_snapshot to remove "description" field
+    # This simulates an old record from before the description field existed
+    result = await db_session.execute(
+        select(ContentHistory).where(
+            ContentHistory.entity_id == note_id,
+            ContentHistory.version == 1,
+        ),
+    )
+    v1_history = result.scalar_one()
+
+    # Remove description from metadata snapshot
+    modified_metadata = dict(v1_history.metadata_snapshot)
+    del modified_metadata["description"]
+    v1_history.metadata_snapshot = modified_metadata
+    await db_session.flush()
+
+    # Revert to v1 (which now lacks description in metadata)
+    response = await client.post(f"/history/note/{note_id}/revert/1")
+    assert response.status_code == 200
+
+    # Verify: title and content restored from v1, but description PRESERVED from v2
+    response = await client.get(f"/notes/{note_id}")
+    data = response.json()
+    assert data["title"] == "Original Title"
+    assert data["content"] == "Original Content"
+    assert data["description"] == "Updated Description"  # Preserved, not wiped!
+
+
+async def test_revert_preserves_tags_missing_from_old_metadata(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """
+    Test that reverting to an old version with missing tags field
+    preserves current tags (doesn't wipe them to empty list).
+    """
+    from sqlalchemy import select
+
+    from models.content_history import ContentHistory
+
+    # Create note without tags (v1)
     response = await client.post(
         "/notes/",
         json={"title": "Test", "content": "Content"},
     )
     note_id = response.json()["id"]
 
-    # Try to revert to v0 (invalid)
-    response = await client.post(f"/history/note/{note_id}/revert/0")
-    assert response.status_code == 422  # FastAPI validation error
+    # Update to add tags (v2)
+    await client.patch(f"/notes/{note_id}", json={"tags": ["important", "keep-me"]})
 
-
-async def test_revert_creates_tags_if_missing(client: AsyncClient) -> None:
-    """Test that reverting recreates tags that were deleted."""
-    # Create note with tag
-    response = await client.post(
-        "/notes/",
-        json={"title": "Test", "content": "Content", "tags": ["unique-tag-for-revert"]},
+    # Modify v1's metadata to remove the tags field entirely
+    result = await db_session.execute(
+        select(ContentHistory).where(
+            ContentHistory.entity_id == note_id,
+            ContentHistory.version == 1,
+        ),
     )
-    note_id = response.json()["id"]
+    v1_history = result.scalar_one()
+    modified_metadata = dict(v1_history.metadata_snapshot)
+    modified_metadata.pop("tags", None)
+    v1_history.metadata_snapshot = modified_metadata
+    await db_session.flush()
 
-    # Remove tag
-    await client.patch(f"/notes/{note_id}", json={"tags": []})
-
-    # Verify tag is removed
-    response = await client.get(f"/notes/{note_id}")
-    assert response.json()["tags"] == []
-
-    # Revert to v1 - tag should be restored
+    # Revert to v1
     response = await client.post(f"/history/note/{note_id}/revert/1")
     assert response.status_code == 200
 
-    # Verify tag is back
+    # Verify tags are preserved (not wiped to empty)
     response = await client.get(f"/notes/{note_id}")
-    assert "unique-tag-for-revert" in response.json()["tags"]
+    tags = response.json()["tags"]
+    assert set(tags) == {"important", "keep-me"}
+
+
+async def test_revert_preserves_prompt_name_missing_from_old_metadata(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """
+    Test that reverting to an old version with missing 'name' field
+    preserves the current name.
+
+    Note: We test 'name' instead of 'arguments' because arguments and content
+    are validated together (all arguments must be used in template). This makes
+    arguments unsuitable for isolated schema evolution testing.
+    """
+    from sqlalchemy import select
+
+    from models.content_history import ContentHistory
+
+    # Create prompt (v1)
+    import uuid
+    unique_name = f"test-schema-evolution-{uuid.uuid4().hex[:8]}"
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": unique_name,
+            "content": "Hello {{ greeting }}",
+            "arguments": [{"name": "greeting", "description": "A greeting"}],
+        },
+    )
+    assert response.status_code == 201, f"Failed to create prompt: {response.json()}"
+    prompt_id = response.json()["id"]
+
+    # Update content (v2)
+    await client.patch(f"/prompts/{prompt_id}", json={"content": "Goodbye {{ greeting }}"})
+
+    # Update name (v3)
+    new_name = f"updated-name-{uuid.uuid4().hex[:8]}"
+    await client.patch(f"/prompts/{prompt_id}", json={"name": new_name})
+
+    # Modify v1's metadata to remove 'name' field (simulating old schema)
+    result = await db_session.execute(
+        select(ContentHistory).where(
+            ContentHistory.entity_id == prompt_id,
+            ContentHistory.version == 1,
+        ),
+    )
+    v1_history = result.scalar_one()
+    modified_metadata = dict(v1_history.metadata_snapshot)
+    modified_metadata.pop("name", None)
+    v1_history.metadata_snapshot = modified_metadata
+    await db_session.flush()
+
+    # Revert to v1
+    response = await client.post(f"/history/prompt/{prompt_id}/revert/1")
+    assert response.status_code == 200
+
+    # Verify name is preserved from v3, content restored from v1
+    response = await client.get(f"/prompts/{prompt_id}")
+    data = response.json()
+    assert data["content"] == "Hello {{ greeting }}"  # Restored from v1
+    assert data["name"] == new_name  # Preserved from v3, not wiped
+
+
+async def test_revert_bookmark_preserves_url_missing_from_old_metadata(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """
+    Test that reverting to an old version with missing url field
+    preserves current url (edge case - url should always be present).
+    """
+    from sqlalchemy import select
+
+    from models.content_history import ContentHistory
+
+    # Create bookmark (v1)
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://original.com", "content": "Original"},
+    )
+    bookmark_id = response.json()["id"]
+
+    # Update URL and content (v2)
+    await client.patch(
+        f"/bookmarks/{bookmark_id}",
+        json={"url": "https://updated.com", "content": "Updated"},
+    )
+
+    # Modify v1's metadata to remove url field (simulating corrupted/old record)
+    result = await db_session.execute(
+        select(ContentHistory).where(
+            ContentHistory.entity_id == bookmark_id,
+            ContentHistory.version == 1,
+        ),
+    )
+    v1_history = result.scalar_one()
+    modified_metadata = dict(v1_history.metadata_snapshot)
+    modified_metadata.pop("url", None)
+    v1_history.metadata_snapshot = modified_metadata
+    await db_session.flush()
+
+    # Revert to v1
+    response = await client.post(f"/history/bookmark/{bookmark_id}/revert/1")
+    assert response.status_code == 200
+
+    # Verify content restored but URL preserved
+    response = await client.get(f"/bookmarks/{bookmark_id}")
+    data = response.json()
+    assert data["content"] == "Original"  # Restored from v1
+    assert data["url"] == "https://updated.com/"  # Preserved from v2
+
+
+# --- Revert to DELETE version tests ---
+
+
+async def test_revert_to_delete_version_restores_pre_delete_content(
+    client: AsyncClient,
+) -> None:
+    """
+    Test that reverting to a DELETE version restores the pre-delete content.
+
+    The DELETE action stores the content as it was BEFORE deletion in a snapshot.
+
+    Scenario:
+    1. Create entity (v1) with content A
+    2. Delete entity (v2 - stores pre-delete snapshot with content A)
+    3. Restore entity (v3)
+    4. Update entity (v4) with content B
+    5. Revert to v2 → should restore content A from the DELETE snapshot
+
+    Note: You cannot revert to the DELETE version while the entity is still
+    deleted (v2 would be the "current version"). Use restore endpoint first,
+    or this test shows reverting after subsequent changes.
+    """
+    # v1: Create note
+    response = await client.post(
+        "/notes/",
+        json={
+            "title": "Delete Test",
+            "description": "Will be deleted",
+            "content": "Pre-delete content",
+            "tags": ["test-tag"],
+        },
+    )
+    note_id = response.json()["id"]
+
+    # v2: Soft delete (stores pre-delete snapshot)
+    await client.delete(f"/notes/{note_id}")
+
+    # Verify history shows DELETE at v2
+    response = await client.get(f"/history/note/{note_id}")
+    history = response.json()["items"]
+    assert history[0]["version"] == 2
+    assert history[0]["action"] == "delete"
+
+    # Get content at DELETE version - should return pre-delete content
+    response = await client.get(f"/history/note/{note_id}/version/2")
+    assert response.status_code == 200
+    assert response.json()["content"] == "Pre-delete content"
+
+    # v3: Restore the entity
+    await client.post(f"/notes/{note_id}/restore")
+
+    # v4: Modify the entity
+    await client.patch(f"/notes/{note_id}", json={"content": "Post-restore content"})
+
+    # Verify current content is v4
+    response = await client.get(f"/notes/{note_id}")
+    assert response.json()["content"] == "Post-restore content"
+
+    # Revert to v2 (DELETE version) - should restore pre-delete content
+    response = await client.post(f"/history/note/{note_id}/revert/2")
+    assert response.status_code == 200
+
+    # Verify entity has pre-delete content restored
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["content"] == "Pre-delete content"
+    assert data["title"] == "Delete Test"
+    assert data["description"] == "Will be deleted"
+    assert data["deleted_at"] is None
+
+
+async def test_revert_to_delete_version_after_restore_and_modify(
+    client: AsyncClient,
+) -> None:
+    """
+    Test reverting to DELETE version after entity was restored and modified.
+
+    Scenario:
+    1. Create entity (v1)
+    2. Delete entity (v2 - DELETE)
+    3. Restore entity (v3 - RESTORE)
+    4. Modify entity (v4 - UPDATE)
+    5. Revert to v2 (DELETE version) → should restore pre-delete content from v2
+    """
+    # v1: Create bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://delete-test.com", "content": "Version 1"},
+    )
+    bookmark_id = response.json()["id"]
+
+    # v2: Delete
+    await client.delete(f"/bookmarks/{bookmark_id}")
+
+    # v3: Restore
+    await client.post(f"/bookmarks/{bookmark_id}/restore")
+
+    # v4: Modify
+    await client.patch(f"/bookmarks/{bookmark_id}", json={"content": "Version 4"})
+
+    # Verify current content
+    response = await client.get(f"/bookmarks/{bookmark_id}")
+    assert response.json()["content"] == "Version 4"
+
+    # Revert to v2 (DELETE version)
+    response = await client.post(f"/history/bookmark/{bookmark_id}/revert/2")
+    assert response.status_code == 200
+
+    # Verify content is restored to pre-delete state (v1's content)
+    response = await client.get(f"/bookmarks/{bookmark_id}")
+    assert response.json()["content"] == "Version 1"
+
+
+# --- Reconstruction warnings tests ---
+
+
+async def test_revert_with_reconstruction_warnings_propagates_to_response(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """
+    Test that reconstruction warnings are included in the revert response.
+
+    When diff application encounters issues (partial patch failures),
+    warnings should be propagated to help diagnose problems.
+    """
+    from sqlalchemy import select
+
+    from models.content_history import ContentHistory
+
+    # Create note (v1) - CREATE action stores snapshot
+    response = await client.post(
+        "/notes/",
+        json={"title": "Warning Test", "content": "AAAA\nBBBB\nCCCC\nDDDD"},
+    )
+    note_id = response.json()["id"]
+
+    # Update to create v2 - stores diff from v2→v1
+    await client.patch(f"/notes/{note_id}", json={"content": "EEEE\nFFFF\nGGGG\nHHHH"})
+
+    # Update to create v3 - stores diff from v3→v2
+    await client.patch(f"/notes/{note_id}", json={"content": "IIII\nJJJJ\nKKKK\nLLLL"})
+
+    # Corrupt v3's diff. When we revert to v1:
+    # - v1 is a SNAPSHOT, so we return directly (no traversal needed)
+    # When we revert to v2:
+    # - v2 is a DIFF record, so we need to traverse from v3 down
+    # - We start with entity.content (v3's content) and apply v3's diff
+    # - The corrupted diff should fail to apply
+    result = await db_session.execute(
+        select(ContentHistory).where(
+            ContentHistory.entity_id == note_id,
+            ContentHistory.version == 3,
+        ),
+    )
+    v3_history = result.scalar_one()
+
+    # This diff has mismatched line counts (claims 100 lines but only has 1)
+    # This causes patch_apply to return [False], triggering a warning
+    v3_history.content_diff = "@@ -1,100 +1,100 @@\n-NONEXISTENT\n+REPLACEMENT\n"
+    await db_session.flush()
+
+    # Revert to v2 - reconstruction should encounter the corrupted diff
+    response = await client.post(f"/history/note/{note_id}/revert/2")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["message"] == "Reverted successfully"
+    assert data["version"] == 2
+    # Warnings should be present due to diff application failure
+    assert data["warnings"] is not None, f"Expected warnings but got None. Response: {data}"
+    assert len(data["warnings"]) > 0
+    # Warning should mention patch failure or version number
+    assert any(
+        "patch" in w.lower() or "v3" in w.lower() or "failure" in w.lower()
+        for w in data["warnings"]
+    ), f"Unexpected warning format: {data['warnings']}"
