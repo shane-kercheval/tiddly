@@ -63,6 +63,11 @@ async def profile_and_save(
     with open(filepath, "w") as f:
         f.write(profiler.output_html())
 
+    # Save text report for easy comparison
+    text_filepath = PROFILE_DIR / f"{safe_name}_{content_size_kb}kb.txt"
+    with open(text_filepath, "w") as f:
+        f.write(profiler.output_text())
+
     duration = profiler.last_session.duration * 1000
     status = "✓" if response.status_code < 400 else "✗"
     print(f"  {status} {name}: {duration:.1f}ms -> {filename}")
