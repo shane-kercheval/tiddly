@@ -494,6 +494,21 @@ async def str_replace_bookmark(
             ).model_dump(),
         )
 
+    # Check for no-op (content unchanged after replacement)
+    if result.new_content == previous_content:
+        if include_updated_entity:
+            await db.refresh(bookmark, attribute_names=["tag_objects"])
+            return StrReplaceSuccess(
+                match_type=result.match_type,
+                line=result.line,
+                data=BookmarkResponse.model_validate(bookmark),
+            )
+        return StrReplaceSuccessMinimal(
+            match_type=result.match_type,
+            line=result.line,
+            data=MinimalEntityData(id=bookmark.id, updated_at=bookmark.updated_at),
+        )
+
     # Validate new content length against tier limits
     if len(result.new_content) > limits.max_bookmark_content_length:
         raise FieldLimitExceededError(
@@ -522,7 +537,6 @@ async def str_replace_bookmark(
     )
 
     if include_updated_entity:
-        await db.refresh(bookmark, attribute_names=["tag_objects"])
         return StrReplaceSuccess(
             match_type=result.match_type,
             line=result.line,

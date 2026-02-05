@@ -136,6 +136,21 @@ async def _perform_str_replace(
             ).model_dump(),
         )
 
+    # Check for no-op (content unchanged AND no argument update requested)
+    if result.new_content == previous_content and data.arguments is None:
+        if include_updated_entity:
+            await db.refresh(prompt, attribute_names=["tag_objects"])
+            return StrReplaceSuccess(
+                match_type=result.match_type,
+                line=result.line,
+                data=PromptResponse.model_validate(prompt),
+            )
+        return StrReplaceSuccessMinimal(
+            match_type=result.match_type,
+            line=result.line,
+            data=MinimalEntityData(id=prompt.id, updated_at=prompt.updated_at),
+        )
+
     # Determine which arguments to use for validation:
     # - If data.arguments is provided, use it (enables atomic content + args update)
     # - Otherwise, use the prompt's existing arguments

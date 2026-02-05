@@ -425,6 +425,21 @@ async def str_replace_note(
             ).model_dump(),
         )
 
+    # Check for no-op (content unchanged after replacement)
+    if result.new_content == previous_content:
+        if include_updated_entity:
+            await db.refresh(note, attribute_names=["tag_objects"])
+            return StrReplaceSuccess(
+                match_type=result.match_type,
+                line=result.line,
+                data=NoteResponse.model_validate(note),
+            )
+        return StrReplaceSuccessMinimal(
+            match_type=result.match_type,
+            line=result.line,
+            data=MinimalEntityData(id=note.id, updated_at=note.updated_at),
+        )
+
     # Validate new content length against tier limits
     if len(result.new_content) > limits.max_note_content_length:
         raise FieldLimitExceededError(

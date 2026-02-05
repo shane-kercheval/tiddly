@@ -565,3 +565,52 @@ class TestHistoryWithoutContext:
         # Only CREATE, no UPDATE
         assert len(history) == 1
         assert history[0].action == ActionType.CREATE.value
+
+
+class TestRestoreUrlConflict:
+    """Tests for history behavior when restore fails due to URL conflict."""
+
+    @pytest.mark.asyncio
+    async def test__restore__url_conflict_does_not_record_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """When restore fails due to URL conflict, no history should be recorded."""
+        from services.bookmark_service import BookmarkService, DuplicateUrlError
+
+        service = BookmarkService()
+        limits = get_tier_limits("free")
+        context = make_context()
+
+        # Create and soft-delete a bookmark
+        data1 = BookmarkCreate(url="https://conflict-test.com", content="First bookmark")
+        bookmark1 = await service.create(db_session, test_user.id, data1, limits, context)
+        await service.delete(db_session, test_user.id, bookmark1.id, permanent=False, context=context)
+
+        # Create another bookmark with the same URL (now that the first is deleted)
+        data2 = BookmarkCreate(url="https://conflict-test.com", content="Second bookmark")
+        bookmark2 = await service.create(db_session, test_user.id, data2, limits, context)
+
+        # Get history count before restore attempt
+        history_before = await get_entity_history(
+            db_session, test_user.id, EntityType.BOOKMARK, bookmark1.id,
+        )
+        history_count_before = len(history_before)
+
+        # Try to restore the first bookmark - should fail due to URL conflict
+        with pytest.raises(DuplicateUrlError):
+            await service.restore(db_session, test_user.id, bookmark1.id, context)
+
+        # History count should be unchanged (no RESTORE record added)
+        history_after = await get_entity_history(
+            db_session, test_user.id, EntityType.BOOKMARK, bookmark1.id,
+        )
+        assert len(history_after) == history_count_before
+
+        # The last action should still be DELETE, not RESTORE
+        assert history_after[-1].action == ActionType.DELETE.value
+
+        # Clean up: bookmark2 should still exist
+        active = await service.get(db_session, test_user.id, bookmark2.id)
+        assert active is not None
