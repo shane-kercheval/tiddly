@@ -1,5 +1,7 @@
 """Authentication module for Auth0 JWT validation and PAT support."""
 import logging
+from dataclasses import dataclass
+from enum import StrEnum
 
 import httpx
 import jwt
@@ -26,6 +28,46 @@ from schemas.cached_user import CachedUser
 from services import token_service, user_service
 
 logger = logging.getLogger(__name__)
+
+
+class RequestSource(StrEnum):
+    """Source of the API request, determined by X-Request-Source header."""
+
+    WEB = "web"
+    API = "api"
+    MCP_CONTENT = "mcp-content"
+    MCP_PROMPT = "mcp-prompt"
+    UNKNOWN = "unknown"  # Default when header missing/unrecognized
+
+
+class AuthType(StrEnum):
+    """Authentication method used for the request."""
+
+    AUTH0 = "auth0"
+    PAT = "pat"
+    DEV = "dev"
+
+
+@dataclass
+class RequestContext:
+    """
+    Context about the current request for audit trail purposes.
+
+    Used by content versioning to track who/what initiated changes.
+    """
+
+    source: RequestSource
+    auth_type: AuthType
+    token_prefix: str | None = None  # Only set for PAT auth, e.g. "bm_a3f8..."
+
+
+def get_request_context(request: Request) -> RequestContext | None:
+    """
+    Get the RequestContext from the current request state.
+
+    Returns None if context hasn't been set (e.g., unauthenticated request).
+    """
+    return getattr(request.state, "request_context", None)
 
 
 # HTTP Bearer token scheme
@@ -328,7 +370,38 @@ async def _apply_rate_limit(
         raise RateLimitExceededError(result)
 
 
+def _get_request_source(request: Request) -> RequestSource:
+    """
+    Determine request source from X-Request-Source header.
+
+    The header is set by:
+    - Frontend: 'web'
+    - MCP Content server: 'mcp-content'
+    - MCP Prompt server: 'mcp-prompt'
+    - CLI/scripts can optionally send 'api'
+    - Missing/unrecognized defaults to 'unknown'
+
+    This is spoofable but acceptable - source tracking is for audit/telemetry,
+    not access control.
+    """
+    source_header = request.headers.get("x-request-source", "").lower()
+    source_map = {
+        "web": RequestSource.WEB,
+        "api": RequestSource.API,
+        "mcp-content": RequestSource.MCP_CONTENT,
+        "mcp-prompt": RequestSource.MCP_PROMPT,
+    }
+    source = source_map.get(source_header, RequestSource.UNKNOWN)
+
+    # Log unrecognized source values for monitoring (helps detect misconfigurations)
+    if source_header and source == RequestSource.UNKNOWN:
+        logger.debug("Unrecognized X-Request-Source header: %s", source_header)
+
+    return source
+
+
 async def _authenticate_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None,
     db: AsyncSession,
     settings: Settings,
@@ -344,48 +417,69 @@ async def _authenticate_user(
 
     In DEV_MODE, bypasses auth and returns a test user.
 
+    Also sets request.state.request_context with source/auth tracking info
+    for content versioning audit trail.
+
     Args:
+        request: The FastAPI request object.
         credentials: HTTP Authorization header credentials.
         db: Database session.
         settings: Application settings.
         allow_pat: If False, reject PAT tokens with 403 to help prevent unintended
             programmatic use. Note: does not block Auth0 JWTs used outside the browser.
     """
-    if settings.dev_mode:
-        return await get_or_create_dev_user(db)
+    token_prefix: str | None = None
 
-    if credentials is None:
+    if settings.dev_mode:
+        auth_type = AuthType.DEV
+        user = await get_or_create_dev_user(db)
+    elif credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    else:
+        token = credentials.credentials
 
-    token = credentials.credentials
+        # Route to appropriate validation based on token prefix
+        if token.startswith("bm_"):
+            if not allow_pat:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="This endpoint is not available for API tokens. Please use the web interface.",  # noqa: E501
+                )
+            auth_type = AuthType.PAT
+            # Compute token_prefix for audit trail (e.g., "bm_a3f8...")
+            # Show first 15 chars which includes prefix + partial identifier
+            token_prefix = token[:15] if len(token) > 15 else token
+            user = await validate_pat(db, token)
+        else:
+            # Auth0 JWT validation
+            auth_type = AuthType.AUTH0
+            payload = decode_jwt(token, settings)
 
-    # Route to appropriate validation based on token prefix
-    if token.startswith("bm_"):
-        if not allow_pat:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="This endpoint is not available for API tokens. Please use the web interface.",  # noqa: E501
-            )
-        return await validate_pat(db, token)
+            # Extract user info from JWT claims
+            auth0_id = payload.get("sub")
+            if not auth0_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token: missing sub claim",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
 
-    # Auth0 JWT validation
-    payload = decode_jwt(token, settings)
+            email = payload.get("email")
+            user = await get_or_create_user(db, auth0_id=auth0_id, email=email)
 
-    # Extract user info from JWT claims
-    auth0_id = payload.get("sub")
-    if not auth0_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token: missing sub claim",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # Set request context for content versioning audit trail
+    source = _get_request_source(request)
+    request.state.request_context = RequestContext(
+        source=source,
+        auth_type=auth_type,
+        token_prefix=token_prefix,
+    )
 
-    email = payload.get("email")
-    return await get_or_create_user(db, auth0_id=auth0_id, email=email)
+    return user
 
 
 async def get_current_user(
@@ -405,7 +499,7 @@ async def get_current_user(
     Note: Rate limiting runs before consent check so all authenticated requests
     count against limits, even from users who haven't consented yet.
     """
-    user = await _authenticate_user(credentials, db, settings)
+    user = await _authenticate_user(request, credentials, db, settings)
     await _apply_rate_limit(user, request, settings)
     _check_consent(user, settings)
     return user
@@ -423,7 +517,7 @@ async def get_current_user_without_consent(
     Returns User ORM object on cache miss, CachedUser on cache hit.
     Auth + rate limiting, no consent check (for exempt routes like consent endpoints).
     """
-    user = await _authenticate_user(credentials, db, settings)
+    user = await _authenticate_user(request, credentials, db, settings)
     await _apply_rate_limit(user, request, settings)
     return user
 
@@ -454,7 +548,7 @@ async def get_current_user_auth0_only(
     Returns 451 if user hasn't consented to privacy policy/terms.
     Use get_current_user_auth0_only_without_consent for consent-exempt routes.
     """
-    user = await _authenticate_user(credentials, db, settings, allow_pat=False)
+    user = await _authenticate_user(request, credentials, db, settings, allow_pat=False)
     await _apply_rate_limit(user, request, settings)
     _check_consent(user, settings)
     return user
@@ -474,6 +568,6 @@ async def get_current_user_auth0_only_without_consent(
 
     See get_current_user_auth0_only for details on what this does and doesn't prevent.
     """
-    user = await _authenticate_user(credentials, db, settings, allow_pat=False)
+    user = await _authenticate_user(request, credentials, db, settings, allow_pat=False)
     await _apply_rate_limit(user, request, settings)
     return user

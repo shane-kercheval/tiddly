@@ -16,6 +16,14 @@ def get_default_timeout() -> float:
     return float(os.getenv("MCP_API_TIMEOUT", "30.0"))
 
 
+def _get_headers(token: str) -> dict[str, str]:
+    """Get common headers for API requests."""
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Request-Source": "mcp-prompt",
+    }
+
+
 async def api_get(
     client: httpx.AsyncClient,
     path: str,
@@ -26,7 +34,7 @@ async def api_get(
     response = await client.get(
         path,
         params=params,
-        headers={"Authorization": f"Bearer {token}"},
+        headers=_get_headers(token),
     )
     response.raise_for_status()
     return response.json()
@@ -42,7 +50,7 @@ async def api_post(
     response = await client.post(
         path,
         json=json,
-        headers={"Authorization": f"Bearer {token}"},
+        headers=_get_headers(token),
     )
     response.raise_for_status()
     return response.json()
@@ -58,7 +66,7 @@ async def api_patch(
     response = await client.patch(
         path,
         json=json,
-        headers={"Authorization": f"Bearer {token}"},
+        headers=_get_headers(token),
     )
     response.raise_for_status()
     return response.json()

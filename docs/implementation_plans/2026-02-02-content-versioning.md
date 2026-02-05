@@ -260,14 +260,14 @@ Add request source and auth type tracking to request context so history records 
    ```python
    from enum import Enum
 
-   class RequestSource(str, Enum):
+   class RequestSource(StrEnum):
        WEB = "web"
        API = "api"
        MCP_CONTENT = "mcp-content"
        MCP_PROMPT = "mcp-prompt"
        UNKNOWN = "unknown"  # Default when header missing/unrecognized
 
-   class AuthType(str, Enum):
+   class AuthType(StrEnum):
        AUTH0 = "auth0"
        PAT = "pat"
        DEV = "dev"
@@ -403,7 +403,7 @@ Create the `content_history` table to store all history records, and clean up un
 1. **Create `backend/src/models/content_history.py`:**
    ```python
    from datetime import datetime
-   from enum import Enum
+   from enum import StrEnum
    from uuid import UUID
 
    from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint, func, text
@@ -412,7 +412,7 @@ Create the `content_history` table to store all history records, and clean up un
 
    from models.base import Base, UUIDv7Mixin
 
-   class ActionType(str, Enum):
+   class ActionType(StrEnum):
        CREATE = "create"
        UPDATE = "update"
        DELETE = "delete"
@@ -420,12 +420,12 @@ Create the `content_history` table to store all history records, and clean up un
        ARCHIVE = "archive"
        UNARCHIVE = "unarchive"
 
-   class EntityType(str, Enum):
+   class EntityType(StrEnum):
        BOOKMARK = "bookmark"
        NOTE = "note"
        PROMPT = "prompt"
 
-   class DiffType(str, Enum):
+   class DiffType(StrEnum):
        """
        Describes how content is stored. Uses dual-storage for SNAPSHOTs:
        - content_snapshot: Full content at this version (for starting reconstruction)

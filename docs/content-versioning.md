@@ -21,7 +21,7 @@ The content versioning system tracks all changes to bookmarks, notes, and prompt
 The system uses **reverse diffs** — each diff record stores how to transform the current version's content into the previous version's content (going backwards in time).
 
 **Why reverse diffs:**
-- Cleanup is trivial: delete old records freely, reconstruction always anchors on current content
+- Cleanup is trivial: delete old records freely (when deleting from the oldest end of the chain), reconstruction always anchors on current content
 - No need to preserve old snapshots for correctness
 - Standard pattern used by backup systems
 
