@@ -606,3 +606,170 @@ async def test_get_user_history_requires_auth(
         assert response.status_code == 200
 
     app.dependency_overrides.clear()
+
+
+async def test_user_cannot_access_another_users_history(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot access another user's history (returns empty list)."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport, AsyncClient as HttpxAsyncClient
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from models.user import User
+    from schemas.token import TokenCreate
+    from services.token_service import create_token
+    from tests.api.conftest import add_consent_for_user
+
+    # Create a bookmark as the dev user (user1) - this creates history
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://user1-history-test.com", "title": "User 1 Bookmark"},
+    )
+    assert response.status_code == 201
+    user1_bookmark_id = response.json()["id"]
+
+    # Verify user1 has history
+    response = await client.get("/history/")
+    assert response.status_code == 200
+    user1_history = response.json()
+    assert user1_history["total"] > 0
+
+    # Create a second user and a PAT for them
+    user2 = User(auth0_id="auth0|user2-history-test", email="user2-history@example.com")
+    db_session.add(user2)
+    await db_session.flush()
+
+    # Add consent for user2 (required when dev_mode=False)
+    await add_consent_for_user(db_session, user2)
+
+    _, user2_token = await create_token(
+        db_session, user2.id, TokenCreate(name="Test Token"),
+    )
+    await db_session.flush()
+
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    async with HttpxAsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user2_token}"},
+    ) as user2_client:
+        # User2 should see empty history (their own, not user1's)
+        response = await user2_client.get("/history/")
+        assert response.status_code == 200
+        user2_history = response.json()
+        assert user2_history["total"] == 0
+        assert user2_history["items"] == []
+
+        # User2 should see empty history for user1's specific entity
+        response = await user2_client.get(f"/history/bookmark/{user1_bookmark_id}")
+        assert response.status_code == 200
+        entity_history = response.json()
+        assert entity_history["total"] == 0
+        assert entity_history["items"] == []
+
+        # User2 should get 404 for content at version (version doesn't exist for them)
+        response = await user2_client.get(
+            f"/history/bookmark/{user1_bookmark_id}/version/1",
+        )
+        assert response.status_code == 404
+
+    app.dependency_overrides.clear()
+
+
+async def test_pat_can_access_history(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that PAT authentication can access history endpoints (read operation)."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport, AsyncClient as HttpxAsyncClient
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from schemas.token import TokenCreate
+    from services.token_service import create_token
+    from tests.api.conftest import add_consent_for_user
+
+    # Create a bookmark as the dev user first (so there's history to read)
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://pat-history-test.com", "title": "PAT History Test"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Get the dev user from the database to create a PAT for them
+    from sqlalchemy import select
+
+    from models.user import User as UserModel
+
+    result = await db_session.execute(
+        select(UserModel).where(UserModel.email == "dev@localhost"),
+    )
+    dev_user = result.scalar_one()
+
+    # Ensure dev user has consent
+    await add_consent_for_user(db_session, dev_user)
+
+    # Create a PAT for the dev user
+    _, pat_token = await create_token(
+        db_session, dev_user.id, TokenCreate(name="History PAT"),
+    )
+    await db_session.flush()
+
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    async with HttpxAsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {pat_token}"},
+    ) as pat_client:
+        # PAT should be able to access user history
+        response = await pat_client.get("/history/")
+        assert response.status_code == 200
+        history = response.json()
+        assert history["total"] > 0
+
+        # PAT should be able to access entity history
+        response = await pat_client.get(f"/history/bookmark/{bookmark_id}")
+        assert response.status_code == 200
+        entity_history = response.json()
+        assert entity_history["total"] > 0
+
+        # PAT should be able to access content at version
+        response = await pat_client.get(f"/history/bookmark/{bookmark_id}/version/1")
+        assert response.status_code == 200
+        content = response.json()
+        assert content["version"] == 1
+
+        # PAT should be able to access per-entity convenience endpoint
+        response = await pat_client.get(f"/bookmarks/{bookmark_id}/history")
+        assert response.status_code == 200
+
+    app.dependency_overrides.clear()

@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from models.content_history import ActionType, DiffType, EntityType
+
 
 class HistoryResponse(BaseModel):
     """Schema for a single history record."""
@@ -11,11 +13,11 @@ class HistoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    entity_type: str
+    entity_type: EntityType
     entity_id: UUID
-    action: str
+    action: ActionType
     version: int
-    diff_type: str
+    diff_type: DiffType
     metadata_snapshot: dict | None
     source: str
     auth_type: str
