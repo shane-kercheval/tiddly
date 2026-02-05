@@ -140,7 +140,7 @@ function generateClaudeCodeCommand(
   promptMcpUrl: string
 ): string {
   if (server === 'content') {
-    return `claude mcp add --transport http bookmarks ${mcpUrl}/mcp \\
+    return `claude mcp add --transport http bookmarks_notes ${mcpUrl}/mcp \\
   --header "Authorization: Bearer YOUR_TOKEN_HERE"`
   } else {
     return `claude mcp add --transport http prompts ${promptMcpUrl}/mcp \\
@@ -490,7 +490,7 @@ function generateCodexConfig(
   promptMcpUrl: string
 ): string {
   if (server === 'content') {
-    return `[mcp_servers.bookmarks]
+    return `[mcp_servers.bookmarks_notes]
 url = "${mcpUrl}/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_TOKEN_HERE" }`
   } else {

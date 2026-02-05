@@ -172,6 +172,8 @@ export function Bookmark({
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
+  // Skip useEffect sync for a specific updated_at when manually handling refresh (e.g., from StaleDialog)
+  const skipSyncForUpdatedAtRef = useRef<string | null>(null)
 
   const syncStateFromBookmark = useCallback(
     (nextBookmark: BookmarkType, resetEditor = false): void => {
@@ -199,6 +201,13 @@ export function Bookmark({
   // This is intentional - deriving form state from props when they change is a valid pattern
   useEffect(() => {
     if (!bookmark) return
+    // Skip if we just manually handled the sync for this specific version (e.g., StaleDialog "Load Server Version")
+    // This prevents a race condition where this effect runs without resetEditor after
+    // the manual sync already ran with resetEditor, causing the editor not to refresh
+    if (skipSyncForUpdatedAtRef.current === bookmark.updated_at) {
+      skipSyncForUpdatedAtRef.current = null
+      return
+    }
     syncStateFromBookmark(bookmark)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookmark?.id, bookmark?.updated_at, syncStateFromBookmark])
@@ -652,6 +661,10 @@ export function Bookmark({
   const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
     const refreshed = await onRefresh?.()
     if (refreshed) {
+      // Set flag to skip the prop sync for this specific version since we're handling it here
+      // with resetEditor=true. Otherwise the useEffect would run without resetEditor
+      // and the editor wouldn't refresh properly.
+      skipSyncForUpdatedAtRef.current = refreshed.updated_at
       syncStateFromBookmark(refreshed, true)
     }
   }, [onRefresh, syncStateFromBookmark])
@@ -940,6 +953,10 @@ export function Bookmark({
           onLoadServerVersion={async () => {
             const refreshed = await onRefresh?.()
             if (refreshed) {
+              // Set flag to skip the prop sync for this specific version since we're handling it here
+              // with resetEditor=true. Otherwise the useEffect would run without resetEditor
+              // and the editor wouldn't refresh properly.
+              skipSyncForUpdatedAtRef.current = refreshed.updated_at
               syncStateFromBookmark(refreshed, true)
               dismissStale()
             }

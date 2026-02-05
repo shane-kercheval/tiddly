@@ -223,6 +223,8 @@ export function Prompt({
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
   const [contentKey, setContentKey] = useState(0)
+  // Skip useEffect sync for a specific updated_at when manually handling refresh (e.g., from StaleDialog)
+  const skipSyncForUpdatedAtRef = useRef<string | null>(null)
 
   const syncStateFromPrompt = useCallback((nextPrompt: PromptType, resetEditor = false): void => {
     const archiveState = nextPrompt.archived_at
@@ -250,6 +252,13 @@ export function Prompt({
   // This is intentional - deriving form state from props when they change is a valid pattern
   useEffect(() => {
     if (!prompt) return
+    // Skip if we just manually handled the sync for this specific version (e.g., StaleDialog "Load Server Version")
+    // This prevents a race condition where this effect runs without resetEditor after
+    // the manual sync already ran with resetEditor, causing the editor not to refresh
+    if (skipSyncForUpdatedAtRef.current === prompt.updated_at) {
+      skipSyncForUpdatedAtRef.current = null
+      return
+    }
     syncStateFromPrompt(prompt)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt?.id, prompt?.updated_at, syncStateFromPrompt])
@@ -684,6 +693,10 @@ export function Prompt({
   const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
     const refreshed = await onRefresh?.()
     if (refreshed) {
+      // Set flag to skip the prop sync for this specific version since we're handling it here
+      // with resetEditor=true. Otherwise the useEffect would run without resetEditor
+      // and the editor wouldn't refresh properly.
+      skipSyncForUpdatedAtRef.current = refreshed.updated_at
       syncStateFromPrompt(refreshed, true)
     }
   }, [onRefresh, syncStateFromPrompt])
@@ -1014,6 +1027,10 @@ export function Prompt({
           onLoadServerVersion={async () => {
             const refreshed = await onRefresh?.()
             if (refreshed) {
+              // Set flag to skip the prop sync for this specific version since we're handling it here
+              // with resetEditor=true. Otherwise the useEffect would run without resetEditor
+              // and the editor wouldn't refresh properly.
+              skipSyncForUpdatedAtRef.current = refreshed.updated_at
               syncStateFromPrompt(refreshed, true)
               dismissStale()
             }
