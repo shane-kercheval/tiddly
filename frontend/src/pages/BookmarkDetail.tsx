@@ -229,7 +229,8 @@ export function BookmarkDetail(): ReactNode {
   const handleRefresh = useCallback(async (): Promise<BookmarkType | null> => {
     if (!bookmarkId) return null
     try {
-      const refreshedBookmark = await fetchBookmark(bookmarkId)
+      // skipCache: true ensures we bypass Safari's aggressive caching
+      const refreshedBookmark = await fetchBookmark(bookmarkId, { skipCache: true })
       setBookmark(refreshedBookmark)
       return refreshedBookmark
     } catch {

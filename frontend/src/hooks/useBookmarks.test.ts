@@ -44,7 +44,30 @@ describe('useBookmarks', () => {
       })
 
       expect(fetched).toEqual(mockBookmark)
-      expect(mockGet).toHaveBeenCalledWith('/bookmarks/1')
+      expect(mockGet).toHaveBeenCalledWith('/bookmarks/1', { params: undefined })
+    })
+
+    it('should fetch bookmark with skipCache option', async () => {
+      const mockBookmark = {
+        id: 1,
+        url: 'https://example.com',
+        title: 'Example',
+        description: 'A test bookmark',
+        content: 'Full page content here',
+        tags: ['test'],
+      }
+      mockGet.mockResolvedValueOnce({ data: mockBookmark })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.fetchBookmark('1', { skipCache: true })
+      })
+
+      // Should include cache-busting _t param
+      expect(mockGet).toHaveBeenCalledWith('/bookmarks/1', {
+        params: expect.objectContaining({ _t: expect.any(Number) }),
+      })
     })
 
     it('should throw error on fetch failure', async () => {

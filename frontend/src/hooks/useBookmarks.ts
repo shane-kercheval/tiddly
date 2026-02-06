@@ -1,8 +1,9 @@
 /**
- * Hook for non-cacheable bookmark utilities.
+ * Hook for bookmark fetch utilities.
  *
- * These operations are not cached because:
+ * These operations bypass React Query caching because:
  * - fetchBookmark: Used for edit modal - always want fresh data, rarely edit same bookmark twice
+ * - fetchBookmarkMetadata: Used for stale checking - always needs fresh data
  * - fetchMetadata: URL preview - unique URLs, no benefit from caching
  * - trackBookmarkUsage: Fire-and-forget, no caching needed
  *
@@ -13,11 +14,21 @@ import { useCallback } from 'react'
 import { api } from '../services/api'
 import type { Bookmark, BookmarkListItem, MetadataPreviewResponse } from '../types'
 
+/** Options for fetch operations */
+interface FetchOptions {
+  /**
+   * Skip browser cache by adding a cache-bust parameter.
+   * Use when you need guaranteed fresh data (e.g., after conflict detection).
+   * Required for Safari which aggressively caches despite Cache-Control headers.
+   */
+  skipCache?: boolean
+}
+
 interface UseBookmarksReturn {
   /** Fetch a single bookmark by ID (with full content for editing) */
-  fetchBookmark: (id: string) => Promise<Bookmark>
-  /** Fetch bookmark metadata only (lightweight, for stale checking) */
-  fetchBookmarkMetadataNoCache: (id: string) => Promise<BookmarkListItem>
+  fetchBookmark: (id: string, options?: FetchOptions) => Promise<Bookmark>
+  /** Fetch bookmark metadata only (lightweight, for stale checking). Defaults to skipCache: true */
+  fetchBookmarkMetadata: (id: string, options?: FetchOptions) => Promise<BookmarkListItem>
   /** Fetch metadata preview for a URL */
   fetchMetadata: (url: string) => Promise<MetadataPreviewResponse>
   /** Track bookmark usage (fire-and-forget) */
@@ -25,17 +36,20 @@ interface UseBookmarksReturn {
 }
 
 /**
- * Hook for non-cacheable bookmark utilities.
+ * Hook for bookmark fetch utilities.
  *
  * @example
  * ```tsx
- * const { fetchBookmark, fetchBookmarkMetadataNoCache, fetchMetadata, trackBookmarkUsage } = useBookmarks()
+ * const { fetchBookmark, fetchBookmarkMetadata, fetchMetadata, trackBookmarkUsage } = useBookmarks()
  *
- * // Fetch full bookmark for editing
+ * // Fetch full bookmark for editing (allows cache)
  * const bookmark = await fetchBookmark(id)
  *
- * // Fetch lightweight metadata (for stale checking)
- * const metadata = await fetchBookmarkMetadataNoCache(id)
+ * // Fetch full bookmark, bypassing cache (e.g., after conflict)
+ * const fresh = await fetchBookmark(id, { skipCache: true })
+ *
+ * // Fetch lightweight metadata for stale checking (skips cache by default)
+ * const metadata = await fetchBookmarkMetadata(id)
  *
  * // Preview URL metadata in form
  * const preview = await fetchMetadata(url)
@@ -45,16 +59,24 @@ interface UseBookmarksReturn {
  * ```
  */
 export function useBookmarks(): UseBookmarksReturn {
-  const fetchBookmark = useCallback(async (id: string): Promise<Bookmark> => {
-    const response = await api.get<Bookmark>(`/bookmarks/${id}`)
+  const fetchBookmark = useCallback(async (
+    id: string,
+    options?: FetchOptions
+  ): Promise<Bookmark> => {
+    // Cache-bust param forces Safari to fetch fresh data instead of returning stale cache
+    const params = options?.skipCache ? { _t: Date.now() } : undefined
+    const response = await api.get<Bookmark>(`/bookmarks/${id}`, { params })
     return response.data
   }, [])
 
-  const fetchBookmarkMetadataNoCache = useCallback(async (id: string): Promise<BookmarkListItem> => {
-    // Cache-bust to prevent Safari from returning stale cached responses
-    const response = await api.get<BookmarkListItem>(`/bookmarks/${id}/metadata`, {
-      params: { _t: Date.now() },
-    })
+  const fetchBookmarkMetadata = useCallback(async (
+    id: string,
+    options: FetchOptions = { skipCache: true }
+  ): Promise<BookmarkListItem> => {
+    // Default to skipCache: true since this is primarily used for stale detection
+    // where fresh data is always needed
+    const params = options.skipCache ? { _t: Date.now() } : undefined
+    const response = await api.get<BookmarkListItem>(`/bookmarks/${id}/metadata`, { params })
     return response.data
   }, [])
 
@@ -75,7 +97,7 @@ export function useBookmarks(): UseBookmarksReturn {
 
   return {
     fetchBookmark,
-    fetchBookmarkMetadataNoCache,
+    fetchBookmarkMetadata,
     fetchMetadata,
     trackBookmarkUsage,
   }

@@ -49,7 +49,35 @@ describe('useNotes', () => {
       })
 
       expect(fetched).toEqual(mockNote)
-      expect(mockGet).toHaveBeenCalledWith('/notes/1')
+      expect(mockGet).toHaveBeenCalledWith('/notes/1', { params: undefined })
+    })
+
+    it('should fetch note with skipCache option', async () => {
+      const mockNote = {
+        id: 1,
+        title: 'Test Note',
+        description: 'A test note',
+        content: '# Hello World\n\nThis is the note content.',
+        tags: ['test', 'example'],
+        version: 1,
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+        last_used_at: '2025-01-01T00:00:00Z',
+        deleted_at: null,
+        archived_at: null,
+      }
+      mockGet.mockResolvedValueOnce({ data: mockNote })
+
+      const { result } = renderHook(() => useNotes())
+
+      await act(async () => {
+        await result.current.fetchNote('1', { skipCache: true })
+      })
+
+      // Should include cache-busting _t param
+      expect(mockGet).toHaveBeenCalledWith('/notes/1', {
+        params: expect.objectContaining({ _t: expect.any(Number) }),
+      })
     })
 
     it('should throw error on fetch failure', async () => {

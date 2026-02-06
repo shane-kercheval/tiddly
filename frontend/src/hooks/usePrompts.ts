@@ -1,8 +1,9 @@
 /**
- * Hook for non-cacheable prompt utilities.
+ * Hook for prompt fetch utilities.
  *
- * These operations are not cached because:
+ * These operations bypass React Query caching because:
  * - fetchPrompt: Used for edit view - always want fresh data
+ * - fetchPromptMetadata: Used for stale checking - always needs fresh data
  * - trackPromptUsage: Fire-and-forget, no caching needed
  *
  * For cached prompt list queries, see usePromptsQuery.
@@ -12,11 +13,21 @@ import { useCallback } from 'react'
 import { api } from '../services/api'
 import type { Prompt, PromptListItem, PromptRenderResponse } from '../types'
 
+/** Options for fetch operations */
+interface FetchOptions {
+  /**
+   * Skip browser cache by adding a cache-bust parameter.
+   * Use when you need guaranteed fresh data (e.g., after conflict detection).
+   * Required for Safari which aggressively caches despite Cache-Control headers.
+   */
+  skipCache?: boolean
+}
+
 interface UsePromptsReturn {
   /** Fetch a single prompt by ID (with full content for viewing/editing) */
-  fetchPrompt: (id: string) => Promise<Prompt>
-  /** Fetch prompt metadata only (lightweight, for stale checking) */
-  fetchPromptMetadataNoCache: (id: string) => Promise<PromptListItem>
+  fetchPrompt: (id: string, options?: FetchOptions) => Promise<Prompt>
+  /** Fetch prompt metadata only (lightweight, for stale checking). Defaults to skipCache: true */
+  fetchPromptMetadata: (id: string, options?: FetchOptions) => Promise<PromptListItem>
   /** Track prompt usage (fire-and-forget) */
   trackPromptUsage: (id: string) => void
   /** Render a prompt with the given arguments */
@@ -24,17 +35,20 @@ interface UsePromptsReturn {
 }
 
 /**
- * Hook for non-cacheable prompt utilities.
+ * Hook for prompt fetch utilities.
  *
  * @example
  * ```tsx
- * const { fetchPrompt, fetchPromptMetadataNoCache, trackPromptUsage, renderPrompt } = usePrompts()
+ * const { fetchPrompt, fetchPromptMetadata, trackPromptUsage, renderPrompt } = usePrompts()
  *
- * // Fetch full prompt for viewing/editing
+ * // Fetch full prompt for viewing/editing (allows cache)
  * const prompt = await fetchPrompt(id)
  *
- * // Fetch lightweight metadata (for stale checking)
- * const metadata = await fetchPromptMetadataNoCache(id)
+ * // Fetch full prompt, bypassing cache (e.g., after conflict)
+ * const fresh = await fetchPrompt(id, { skipCache: true })
+ *
+ * // Fetch lightweight metadata for stale checking (skips cache by default)
+ * const metadata = await fetchPromptMetadata(id)
  *
  * // Track when user views a prompt
  * trackPromptUsage(id)
@@ -44,16 +58,24 @@ interface UsePromptsReturn {
  * ```
  */
 export function usePrompts(): UsePromptsReturn {
-  const fetchPrompt = useCallback(async (id: string): Promise<Prompt> => {
-    const response = await api.get<Prompt>(`/prompts/${id}`)
+  const fetchPrompt = useCallback(async (
+    id: string,
+    options?: FetchOptions
+  ): Promise<Prompt> => {
+    // Cache-bust param forces Safari to fetch fresh data instead of returning stale cache
+    const params = options?.skipCache ? { _t: Date.now() } : undefined
+    const response = await api.get<Prompt>(`/prompts/${id}`, { params })
     return response.data
   }, [])
 
-  const fetchPromptMetadataNoCache = useCallback(async (id: string): Promise<PromptListItem> => {
-    // Cache-bust to prevent Safari from returning stale cached responses
-    const response = await api.get<PromptListItem>(`/prompts/${id}/metadata`, {
-      params: { _t: Date.now() },
-    })
+  const fetchPromptMetadata = useCallback(async (
+    id: string,
+    options: FetchOptions = { skipCache: true }
+  ): Promise<PromptListItem> => {
+    // Default to skipCache: true since this is primarily used for stale detection
+    // where fresh data is always needed
+    const params = options.skipCache ? { _t: Date.now() } : undefined
+    const response = await api.get<PromptListItem>(`/prompts/${id}/metadata`, { params })
     return response.data
   }, [])
 
@@ -75,7 +97,7 @@ export function usePrompts(): UsePromptsReturn {
 
   return {
     fetchPrompt,
-    fetchPromptMetadataNoCache,
+    fetchPromptMetadata,
     trackPromptUsage,
     renderPrompt,
   }

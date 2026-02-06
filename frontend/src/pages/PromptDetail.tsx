@@ -240,7 +240,8 @@ export function PromptDetail(): ReactNode {
   const handleRefresh = useCallback(async (): Promise<PromptType | null> => {
     if (!promptId) return null
     try {
-      const refreshedPrompt = await fetchPrompt(promptId)
+      // skipCache: true ensures we bypass Safari's aggressive caching
+      const refreshedPrompt = await fetchPrompt(promptId, { skipCache: true })
       setPrompt(refreshedPrompt)
       return refreshedPrompt
     } catch {

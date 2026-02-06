@@ -115,11 +115,11 @@ export function Note({
   const { limits, isLoading: isLoadingLimits, error: limitsError } = useLimits()
 
   // Stale check hook
-  const { fetchNoteMetadataNoCache } = useNotes()
+  const { fetchNoteMetadata } = useNotes()
   const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
-    const metadata = await fetchNoteMetadataNoCache(id)
+    const metadata = await fetchNoteMetadata(id)
     return metadata.updated_at
-  }, [fetchNoteMetadataNoCache])
+  }, [fetchNoteMetadata])
   const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
     entityId: note?.id,
     loadedUpdatedAt: note?.updated_at,
