@@ -1226,3 +1226,93 @@ class TestStrReplaceHistory:
         # Should only have CREATE, no UPDATE from no-op str-replace
         assert len(history) == 1
         assert history[0].action == ActionType.CREATE.value
+
+    @pytest.mark.asyncio
+    async def test__str_replace__triggers_count_based_pruning(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        dev_user_id: UUID,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        str-replace triggers count-based pruning when limits are exceeded.
+
+        This is a regression test for the bug where str-replace endpoints
+        didn't pass limits to record_action, preventing pruning.
+        """
+        from core import tier_limits
+        from core.tier_limits import Tier, TierLimits
+        from services.history_service import PRUNE_CHECK_INTERVAL
+
+        # Set very low history limit to trigger pruning quickly
+        max_history = 3
+        test_limits = TierLimits(
+            max_bookmarks=100,
+            max_notes=100,
+            max_prompts=100,
+            max_title_length=100,
+            max_description_length=1000,
+            max_tag_name_length=50,
+            max_bookmark_content_length=100_000,
+            max_note_content_length=100_000,
+            max_prompt_content_length=100_000,
+            max_url_length=2048,
+            max_prompt_name_length=100,
+            max_argument_name_length=100,
+            max_argument_description_length=500,
+            rate_read_per_minute=1000,
+            rate_read_per_day=10000,
+            rate_write_per_minute=1000,
+            rate_write_per_day=10000,
+            rate_sensitive_per_minute=1000,
+            rate_sensitive_per_day=10000,
+            history_retention_days=30,
+            max_history_per_entity=max_history,
+        )
+        monkeypatch.setattr(tier_limits, "TIER_LIMITS", {Tier.FREE: test_limits})
+
+        # Create note with content we can edit repeatedly
+        # Use bracketed markers so each replacement is unique and won't match others
+        # e.g., [W0] won't match [W10]
+        content = " ".join([f"[W{i}]" for i in range(20)])
+        response = await client.post(
+            "/notes/",
+            json={"title": "Pruning Test", "content": content},
+        )
+        assert response.status_code == 201
+        note_id = response.json()["id"]
+
+        # Perform enough str-replace edits to exceed limit and trigger prune check
+        # PRUNE_CHECK_INTERVAL is 10, so at version 10 pruning should trigger
+        # Version 1 = CREATE, so we need 9 more edits to reach version 10
+        num_edits = PRUNE_CHECK_INTERVAL - 1  # 9 edits to reach v10
+        for i in range(num_edits):
+            response = await client.patch(
+                f"/notes/{note_id}/str-replace",
+                json={"old_str": f"[W{i}]", "new_str": f"[E{i}]"},
+            )
+            assert response.status_code == 200, f"Edit {i} failed: {response.text}"
+
+        # Force commit to ensure pruning is visible
+        await db_session.commit()
+
+        # Query history - should be pruned to max_history
+        history = await get_entity_history(
+            db_session, dev_user_id, EntityType.NOTE, UUID(note_id),
+        )
+
+        # Should have exactly max_history records after pruning at v10
+        # v1 (CREATE) + 9 edits = v10, which triggers prune to max_history
+        assert len(history) == max_history, (
+            f"Expected exactly {max_history} history records after pruning, "
+            f"got {len(history)}. Pruning may not have triggered."
+        )
+
+        # Verify we kept the newest versions (highest version numbers)
+        versions = sorted([h.version for h in history])
+        # The newest version should be PRUNE_CHECK_INTERVAL (CREATE + 9 edits = 10)
+        expected_newest = PRUNE_CHECK_INTERVAL
+        assert versions[-1] == expected_newest, (
+            f"Expected newest version to be {expected_newest}, got {versions[-1]}"
+        )

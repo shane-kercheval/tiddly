@@ -535,6 +535,7 @@ async def str_replace_bookmark(
         previous_content=previous_content,
         metadata=metadata,
         context=context,
+        limits=limits,
     )
 
     if include_updated_entity:

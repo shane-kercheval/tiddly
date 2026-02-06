@@ -200,6 +200,7 @@ async def _perform_str_replace(
         previous_content=previous_content,
         metadata=metadata,
         context=context,
+        limits=limits,
     )
 
     if include_updated_entity:
