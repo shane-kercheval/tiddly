@@ -275,7 +275,7 @@ async def revert_to_version(
 
     # If entity is soft-deleted, restore it first
     if entity.deleted_at is not None:
-        await service.restore(db, current_user.id, entity_id, context=context)
+        await service.restore(db, current_user.id, entity_id, context=context, limits=limits)
 
     # Update entity with restored content and metadata
     # This will record a new UPDATE history entry

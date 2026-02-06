@@ -1988,3 +1988,238 @@ class TestBoundaryConditions:
         assert history.metadata_snapshot == metadata
         assert len(history.metadata_snapshot["arguments"]) == 3
         assert history.metadata_snapshot["arguments"][0]["name"] == "code_to_review"
+
+
+class TestCountBasedPruning:
+    """Tests for count-based history pruning."""
+
+    @pytest.mark.asyncio
+    async def test__prune_to_limit__deletes_oldest_records(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """_prune_to_limit deletes oldest records while keeping target count."""
+        from services.history_service import history_service
+
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        # Create 20 history records
+        previous = None
+        for i in range(1, 21):
+            current = f"Content v{i}"
+            await history_service.record_action(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=ActionType.CREATE if i == 1 else ActionType.UPDATE,
+                current_content=current,
+                previous_content=previous,
+                metadata=metadata,
+                context=request_context,
+            )
+            previous = current
+
+        # Verify we have 20 records
+        items, total = await history_service.get_entity_history(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+        )
+        assert total == 20
+
+        # Prune to keep only 10 records
+        deleted = await history_service._prune_to_limit(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE.value,
+            entity_id=entity_id,
+            target=10,
+        )
+        await db_session.commit()
+
+        # Should have deleted 10 oldest records
+        assert deleted == 10
+
+        # Verify remaining records
+        items, total = await history_service.get_entity_history(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+        )
+        assert total == 10
+
+        # Remaining should be versions 11-20 (newest)
+        versions = sorted([item.version for item in items])
+        assert versions == list(range(11, 21))
+
+    @pytest.mark.asyncio
+    async def test__prune_to_limit__no_op_when_under_limit(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """_prune_to_limit does nothing when count is below target."""
+        from services.history_service import history_service
+
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        # Create 5 history records
+        previous = None
+        for i in range(1, 6):
+            current = f"Content v{i}"
+            await history_service.record_action(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=ActionType.CREATE if i == 1 else ActionType.UPDATE,
+                current_content=current,
+                previous_content=previous,
+                metadata=metadata,
+                context=request_context,
+            )
+            previous = current
+
+        # Try to prune to 10 (more than we have)
+        deleted = await history_service._prune_to_limit(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE.value,
+            entity_id=entity_id,
+            target=10,
+        )
+
+        # Should not delete anything
+        assert deleted == 0
+
+        # Verify all records still exist
+        items, total = await history_service.get_entity_history(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+        )
+        assert total == 5
+
+    @pytest.mark.asyncio
+    async def test__record_action__triggers_pruning_at_interval(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """
+        record_action triggers pruning check every PRUNE_CHECK_INTERVAL writes.
+
+        When limits.max_history_per_entity is exceeded and version is divisible
+        by PRUNE_CHECK_INTERVAL, pruning occurs.
+        """
+        from core.tier_limits import TierLimits
+        from services.history_service import PRUNE_CHECK_INTERVAL, history_service
+
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        # Create limits with small max to trigger pruning
+        limits = TierLimits(
+            max_bookmarks=100,
+            max_notes=100,
+            max_prompts=100,
+            max_url_length=2000,
+            max_title_length=200,
+            max_description_length=5000,
+            max_bookmark_content_length=100000,
+            max_note_content_length=100000,
+            max_prompt_content_length=100000,
+            max_tag_name_length=50,
+            max_prompt_name_length=100,
+            max_argument_name_length=50,
+            max_argument_description_length=500,
+            rate_read_per_minute=100,
+            rate_read_per_day=1000,
+            rate_write_per_minute=50,
+            rate_write_per_day=500,
+            rate_sensitive_per_minute=10,
+            rate_sensitive_per_day=100,
+            history_retention_days=30,
+            max_history_per_entity=5,  # Low limit for testing
+        )
+
+        # Create more records than the limit
+        previous = None
+        for i in range(1, PRUNE_CHECK_INTERVAL + 1):
+            current = f"Content v{i}"
+            await history_service.record_action(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=ActionType.CREATE if i == 1 else ActionType.UPDATE,
+                current_content=current,
+                previous_content=previous,
+                metadata=metadata,
+                context=request_context,
+                limits=limits,
+            )
+            previous = current
+
+        await db_session.commit()
+
+        # After PRUNE_CHECK_INTERVAL writes with limit=5, should have pruned
+        items, total = await history_service.get_entity_history(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+        )
+
+        # Should have at most max_history_per_entity records
+        assert total <= limits.max_history_per_entity
+
+    @pytest.mark.asyncio
+    async def test__record_action__no_pruning_without_limits(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """record_action does not prune when limits is None."""
+        from services.history_service import PRUNE_CHECK_INTERVAL, history_service
+
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        # Create PRUNE_CHECK_INTERVAL records without limits
+        previous = None
+        for i in range(1, PRUNE_CHECK_INTERVAL + 1):
+            current = f"Content v{i}"
+            await history_service.record_action(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=ActionType.CREATE if i == 1 else ActionType.UPDATE,
+                current_content=current,
+                previous_content=previous,
+                metadata=metadata,
+                context=request_context,
+                limits=None,  # No limits
+            )
+            previous = current
+
+        # All records should still exist (no pruning)
+        items, total = await history_service.get_entity_history(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+        )
+        assert total == PRUNE_CHECK_INTERVAL

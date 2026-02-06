@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.request_context import RequestContext
+from core.tier_limits import TierLimits
 from models.bookmark import Bookmark
 from models.content_history import ActionType, ContentHistory, DiffType, EntityType
 from models.note import Note
@@ -18,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 # Full snapshot every N versions (enables reconstruction optimization)
 SNAPSHOT_INTERVAL = 10
+
+# Check count-based pruning every N writes to avoid per-write COUNT overhead
+PRUNE_CHECK_INTERVAL = 10
 
 
 @dataclass
@@ -47,6 +51,7 @@ class HistoryService:
         previous_content: str | None,
         metadata: dict,
         context: RequestContext,
+        limits: TierLimits | None = None,
     ) -> ContentHistory:
         """
         Record a history entry for an action.
@@ -54,6 +59,9 @@ class HistoryService:
         Uses savepoint-based retry for race conditions on version allocation.
         This ensures the parent entity change is not rolled back if history
         insert fails due to version uniqueness violation.
+
+        After successful insert, performs count-based pruning if limits are
+        provided and the version number triggers a check (every 10th write).
 
         Args:
             db: Database session.
@@ -65,6 +73,7 @@ class HistoryService:
             previous_content: Content before the action (None for CREATE).
             metadata: Non-content metadata (title, tags, etc.).
             context: Request context with source/auth info.
+            limits: User's tier limits for count-based pruning. If None, pruning is skipped.
 
         Returns:
             The created ContentHistory record.
@@ -74,11 +83,12 @@ class HistoryService:
         """
         max_retries = 3
         last_error: IntegrityError | None = None
+        history: ContentHistory | None = None
 
         for attempt in range(max_retries):
             try:
                 async with db.begin_nested():  # Creates savepoint
-                    return await self._record_action_impl(
+                    history = await self._record_action_impl(
                         db,
                         user_id,
                         entity_type,
@@ -89,6 +99,7 @@ class HistoryService:
                         metadata,
                         context,
                     )
+                    break  # Success - exit retry loop
             except IntegrityError as e:
                 last_error = e
                 # Only retry on version uniqueness violations
@@ -99,10 +110,27 @@ class HistoryService:
                     raise
                 # Continue to retry with new version number
 
-        # Should not reach here, but satisfy type checker
-        if last_error:
-            raise last_error
-        raise RuntimeError("Unexpected state in record_action")
+        if history is None:
+            # Should not reach here, but satisfy type checker
+            if last_error:
+                raise last_error
+            raise RuntimeError("Unexpected state in record_action")
+
+        # Count-based pruning: check every 10th write to avoid per-write overhead
+        if limits is not None and history.version % PRUNE_CHECK_INTERVAL == 0:
+            entity_type_value = (
+                entity_type.value if isinstance(entity_type, EntityType) else entity_type
+            )
+            count = await self._get_entity_history_count(
+                db, user_id, entity_type_value, entity_id,
+            )
+            if count > limits.max_history_per_entity:
+                await self._prune_to_limit(
+                    db, user_id, entity_type_value, entity_id,
+                    target=limits.max_history_per_entity,
+                )
+
+        return history
 
     async def _record_action_impl(
         self,
@@ -605,6 +633,92 @@ class HistoryService:
             db, user_id, entity_type, entity_id,
         )
         return (max_version or 0) + 1
+
+    async def _get_entity_history_count(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        entity_type: str,
+        entity_id: UUID,
+    ) -> int:
+        """
+        Count history records for an entity.
+
+        Args:
+            db: Database session.
+            user_id: ID of the user.
+            entity_type: Type of entity (string value).
+            entity_id: ID of the entity.
+
+        Returns:
+            Number of history records for this entity.
+        """
+        stmt = (
+            select(func.count())
+            .select_from(ContentHistory)
+            .where(
+                ContentHistory.user_id == user_id,
+                ContentHistory.entity_type == entity_type,
+                ContentHistory.entity_id == entity_id,
+            )
+        )
+        return (await db.execute(stmt)).scalar_one()
+
+    async def _prune_to_limit(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        entity_type: str,
+        entity_id: UUID,
+        target: int,
+    ) -> int:
+        """
+        Prune oldest history records to reach target count.
+
+        With REVERSE diffs and entity-anchored reconstruction, cleanup is simple:
+        - We use entity.content as the reconstruction anchor (not snapshots in history)
+        - Just delete the oldest records beyond the target count
+        - No need to preserve any specific snapshots
+
+        Args:
+            db: Database session.
+            user_id: ID of the user.
+            entity_type: Type of entity (string value).
+            entity_id: ID of the entity.
+            target: Target number of records to keep (most recent).
+
+        Returns:
+            Number of records deleted.
+        """
+        # Find the version number at the cutoff point (keep 'target' most recent)
+        cutoff_stmt = (
+            select(ContentHistory.version)
+            .where(
+                ContentHistory.user_id == user_id,
+                ContentHistory.entity_type == entity_type,
+                ContentHistory.entity_id == entity_id,
+            )
+            .order_by(ContentHistory.version.desc())
+            .offset(target - 1)  # Keep 'target' most recent
+            .limit(1)
+        )
+        result = await db.execute(cutoff_stmt)
+        cutoff_version = result.scalar_one_or_none()
+
+        if cutoff_version is None:
+            return 0  # Not enough records to prune
+
+        # Simply delete all records older than cutoff
+        # No need to preserve old snapshots with reverse diffs!
+        delete_stmt = delete(ContentHistory).where(
+            ContentHistory.user_id == user_id,
+            ContentHistory.entity_type == entity_type,
+            ContentHistory.entity_id == entity_id,
+            ContentHistory.version < cutoff_version,
+        )
+
+        result = await db.execute(delete_stmt)
+        return result.rowcount
 
 
 # Singleton instance for use throughout the application

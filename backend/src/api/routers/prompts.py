@@ -917,6 +917,7 @@ async def delete_prompt(
     permanent: bool = Query(default=False, description="Permanently delete from DB if true"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> None:
     """
     Delete a prompt.
@@ -926,7 +927,7 @@ async def delete_prompt(
     """
     context = get_request_context(request)
     deleted = await prompt_service.delete(
-        db, current_user.id, prompt_id, permanent=permanent, context=context,
+        db, current_user.id, prompt_id, permanent=permanent, context=context, limits=limits,
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Prompt not found")
@@ -938,6 +939,7 @@ async def restore_prompt(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> PromptResponse:
     """
     Restore a soft-deleted prompt to active state.
@@ -948,7 +950,7 @@ async def restore_prompt(
     context = get_request_context(request)
     try:
         prompt = await prompt_service.restore(
-            db, current_user.id, prompt_id, context,
+            db, current_user.id, prompt_id, context, limits=limits,
         )
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -964,6 +966,7 @@ async def archive_prompt(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> PromptResponse:
     """
     Archive a prompt.
@@ -973,7 +976,7 @@ async def archive_prompt(
     """
     context = get_request_context(request)
     prompt = await prompt_service.archive(
-        db, current_user.id, prompt_id, context,
+        db, current_user.id, prompt_id, context, limits=limits,
     )
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
@@ -986,6 +989,7 @@ async def unarchive_prompt(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> PromptResponse:
     """
     Unarchive a prompt.
@@ -995,7 +999,7 @@ async def unarchive_prompt(
     context = get_request_context(request)
     try:
         prompt = await prompt_service.unarchive(
-            db, current_user.id, prompt_id, context,
+            db, current_user.id, prompt_id, context, limits=limits,
         )
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))

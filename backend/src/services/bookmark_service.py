@@ -251,6 +251,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
                 previous_content=None,
                 metadata=self._get_metadata_snapshot(bookmark),
                 context=context,
+                limits=limits,
             )
 
         return bookmark
@@ -342,6 +343,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
                 previous_content=previous_content,
                 metadata=current_metadata,
                 context=context,
+                limits=limits,
             )
 
         return bookmark
@@ -352,6 +354,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
         user_id: UUID,
         entity_id: UUID,
         context: RequestContext | None = None,
+        limits: TierLimits | None = None,
     ) -> Bookmark | None:
         """
         Restore a soft-deleted bookmark.
@@ -366,6 +369,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
             user_id: User ID to scope the bookmark.
             entity_id: ID of the bookmark to restore.
             context: Request context for history recording. If None, history is skipped.
+            limits: User's tier limits for count-based pruning. If None, pruning is skipped.
 
         Returns:
             The restored bookmark, or None if not found.
@@ -410,6 +414,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
                 previous_content=bookmark.content,  # Same - content unchanged
                 metadata=self._get_metadata_snapshot(bookmark),
                 context=context,
+                limits=limits,
             )
 
         bookmark.deleted_at = None

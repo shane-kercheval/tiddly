@@ -558,6 +558,7 @@ async def delete_bookmark(
     permanent: bool = Query(default=False, description="If true, permanently delete. If false, soft delete."),  # noqa: E501
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> None:
     """
     Delete a bookmark.
@@ -567,7 +568,7 @@ async def delete_bookmark(
     """
     context = get_request_context(request)
     deleted = await bookmark_service.delete(
-        db, current_user.id, bookmark_id, permanent=permanent, context=context,
+        db, current_user.id, bookmark_id, permanent=permanent, context=context, limits=limits,
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Bookmark not found")
@@ -579,6 +580,7 @@ async def restore_bookmark(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> BookmarkResponse:
     """
     Restore a soft-deleted bookmark to active state.
@@ -589,7 +591,7 @@ async def restore_bookmark(
     context = get_request_context(request)
     try:
         bookmark = await bookmark_service.restore(
-            db, current_user.id, bookmark_id, context,
+            db, current_user.id, bookmark_id, context, limits=limits,
         )
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -607,6 +609,7 @@ async def archive_bookmark(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> BookmarkResponse:
     """
     Archive a bookmark.
@@ -616,7 +619,7 @@ async def archive_bookmark(
     """
     context = get_request_context(request)
     bookmark = await bookmark_service.archive(
-        db, current_user.id, bookmark_id, context,
+        db, current_user.id, bookmark_id, context, limits=limits,
     )
     if bookmark is None:
         raise HTTPException(status_code=404, detail="Bookmark not found")
@@ -629,6 +632,7 @@ async def unarchive_bookmark(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> BookmarkResponse:
     """
     Unarchive a bookmark.
@@ -638,7 +642,7 @@ async def unarchive_bookmark(
     context = get_request_context(request)
     try:
         bookmark = await bookmark_service.unarchive(
-            db, current_user.id, bookmark_id, context,
+            db, current_user.id, bookmark_id, context, limits=limits,
         )
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))

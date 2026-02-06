@@ -488,6 +488,7 @@ async def delete_note(
     permanent: bool = Query(default=False, description="Permanently delete from DB if true"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> None:
     """
     Delete a note.
@@ -497,7 +498,7 @@ async def delete_note(
     """
     context = get_request_context(request)
     deleted = await note_service.delete(
-        db, current_user.id, note_id, permanent=permanent, context=context,
+        db, current_user.id, note_id, permanent=permanent, context=context, limits=limits,
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -509,6 +510,7 @@ async def restore_note(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> NoteResponse:
     """
     Restore a soft-deleted note to active state.
@@ -519,7 +521,7 @@ async def restore_note(
     context = get_request_context(request)
     try:
         note = await note_service.restore(
-            db, current_user.id, note_id, context,
+            db, current_user.id, note_id, context, limits=limits,
         )
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -535,6 +537,7 @@ async def archive_note(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> NoteResponse:
     """
     Archive a note.
@@ -544,7 +547,7 @@ async def archive_note(
     """
     context = get_request_context(request)
     note = await note_service.archive(
-        db, current_user.id, note_id, context,
+        db, current_user.id, note_id, context, limits=limits,
     )
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -557,6 +560,7 @@ async def unarchive_note(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> NoteResponse:
     """
     Unarchive a note.
@@ -566,7 +570,7 @@ async def unarchive_note(
     context = get_request_context(request)
     try:
         note = await note_service.unarchive(
-            db, current_user.id, note_id, context,
+            db, current_user.id, note_id, context, limits=limits,
         )
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))

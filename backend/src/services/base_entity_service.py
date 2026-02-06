@@ -408,6 +408,7 @@ class BaseEntityService(ABC, Generic[T]):
         entity_id: UUID,
         permanent: bool = False,
         context: RequestContext | None = None,
+        limits: TierLimits | None = None,
     ) -> bool:
         """
         Delete an entity (soft or permanent).
@@ -418,6 +419,7 @@ class BaseEntityService(ABC, Generic[T]):
             entity_id: ID of the entity to delete.
             permanent: If False, soft delete. If True, permanent delete.
             context: Request context for history recording. If None, history is skipped.
+            limits: User's tier limits for count-based pruning. If None, pruning is skipped.
 
         Returns:
             True if deleted, False if not found.
@@ -447,6 +449,7 @@ class BaseEntityService(ABC, Generic[T]):
                     previous_content=entity.content,  # Same as current for DELETE
                     metadata=self._get_metadata_snapshot(entity),
                     context=context,
+                    limits=limits,
                 )
             entity.deleted_at = func.now()
             await db.flush()
@@ -459,6 +462,7 @@ class BaseEntityService(ABC, Generic[T]):
         user_id: UUID,
         entity_id: UUID,
         context: RequestContext | None = None,
+        limits: TierLimits | None = None,
     ) -> T | None:
         """
         Restore a soft-deleted entity to active state.
@@ -474,6 +478,7 @@ class BaseEntityService(ABC, Generic[T]):
             user_id: User ID to scope the entity.
             entity_id: ID of the entity to restore.
             context: Request context for history recording. If None, history is skipped.
+            limits: User's tier limits for count-based pruning. If None, pruning is skipped.
 
         Returns:
             The restored entity, or None if not found.
@@ -513,6 +518,7 @@ class BaseEntityService(ABC, Generic[T]):
                 previous_content=entity.content,  # Same - content unchanged
                 metadata=self._get_metadata_snapshot(entity),
                 context=context,
+                limits=limits,
             )
 
         # Restore: clear both deleted_at and archived_at
@@ -528,6 +534,7 @@ class BaseEntityService(ABC, Generic[T]):
         user_id: UUID,
         entity_id: UUID,
         context: RequestContext | None = None,
+        limits: TierLimits | None = None,
     ) -> T | None:
         """
         Archive an entity by setting archived_at timestamp.
@@ -539,6 +546,7 @@ class BaseEntityService(ABC, Generic[T]):
             user_id: User ID to scope the entity.
             entity_id: ID of the entity to archive.
             context: Request context for history recording. If None, history is skipped.
+            limits: User's tier limits for count-based pruning. If None, pruning is skipped.
 
         Returns:
             The archived entity, or None if not found.
@@ -561,6 +569,7 @@ class BaseEntityService(ABC, Generic[T]):
                     previous_content=entity.content,  # Same - content unchanged
                     metadata=self._get_metadata_snapshot(entity),
                     context=context,
+                    limits=limits,
                 )
             entity.archived_at = func.now()
             await db.flush()
@@ -574,6 +583,7 @@ class BaseEntityService(ABC, Generic[T]):
         user_id: UUID,
         entity_id: UUID,
         context: RequestContext | None = None,
+        limits: TierLimits | None = None,
     ) -> T | None:
         """
         Unarchive an entity by clearing archived_at timestamp.
@@ -583,6 +593,7 @@ class BaseEntityService(ABC, Generic[T]):
             user_id: User ID to scope the entity.
             entity_id: ID of the entity to unarchive.
             context: Request context for history recording. If None, history is skipped.
+            limits: User's tier limits for count-based pruning. If None, pruning is skipped.
 
         Returns:
             The unarchived entity, or None if not found.
@@ -623,6 +634,7 @@ class BaseEntityService(ABC, Generic[T]):
                 previous_content=entity.content,  # Same - content unchanged
                 metadata=self._get_metadata_snapshot(entity),
                 context=context,
+                limits=limits,
             )
 
         entity.archived_at = None

@@ -183,6 +183,7 @@ class NoteService(BaseEntityService[Note]):
                 previous_content=None,
                 metadata=self._get_metadata_snapshot(note),
                 context=context,
+                limits=limits,
             )
 
         return note
@@ -260,6 +261,7 @@ class NoteService(BaseEntityService[Note]):
                 previous_content=previous_content,
                 metadata=current_metadata,
                 context=context,
+                limits=limits,
             )
 
         return note

@@ -306,6 +306,7 @@ class PromptService(BaseEntityService[Prompt]):
                 previous_content=None,
                 metadata=self._get_metadata_snapshot(prompt),
                 context=context,
+                limits=limits,
             )
 
         return prompt
@@ -425,6 +426,7 @@ class PromptService(BaseEntityService[Prompt]):
                 previous_content=previous_content,
                 metadata=current_metadata,
                 context=context,
+                limits=limits,
             )
 
         return prompt
