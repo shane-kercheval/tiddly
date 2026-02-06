@@ -1,57 +1,124 @@
 """
-Scheduled history cleanup task.
+Scheduled cleanup task.
 
-This module provides time-based cleanup of history records that exceed
-retention limits. Designed to run as a cron job (e.g., daily at 3 AM).
+This module provides time-based cleanup of history records and soft-deleted
+entities. Designed to run as a cron job (e.g., daily at 3 AM).
 
 Usage:
     python -m tasks.cleanup
 
 The task:
-1. Iterates through all users
-2. For each user, applies their tier's retention limits
-3. Deletes history records older than retention_days
-4. Also cleans up orphaned history (entities that no longer exist)
+1. Permanently deletes soft-deleted entities older than 30 days (with their history)
+2. Deletes history records older than each tier's retention_days
+3. Cleans up orphaned history (entities that no longer exist)
 """
 import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.tier_limits import TIER_LIMITS, get_tier_safely
+from core.tier_limits import TIER_LIMITS, Tier
 from db.session import async_session_factory
 from models.bookmark import Bookmark
 from models.content_history import ContentHistory, EntityType
 from models.note import Note
 from models.prompt import Prompt
 from models.user import User
+from services.history_service import history_service
 
 logger = logging.getLogger(__name__)
+
+# Default expiry for soft-deleted items (days in trash before permanent deletion)
+SOFT_DELETE_EXPIRY_DAYS = 30
 
 
 @dataclass
 class CleanupStats:
     """Statistics from a cleanup run."""
 
-    users_processed: int = 0
+    soft_deleted_expired: int = 0
     expired_deleted: int = 0
     orphaned_deleted: int = 0
 
     # Detailed breakdowns for verification
-    expired_by_user: dict[UUID, int] = field(default_factory=dict)
+    soft_deleted_by_type: dict[str, int] = field(default_factory=dict)
+    expired_by_tier: dict[str, int] = field(default_factory=dict)
     orphaned_by_entity_type: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, int]:
         """Convert to simple dict for logging/return."""
         return {
-            "users_processed": self.users_processed,
+            "soft_deleted_expired": self.soft_deleted_expired,
             "expired_deleted": self.expired_deleted,
             "orphaned_deleted": self.orphaned_deleted,
         }
+
+
+async def cleanup_soft_deleted_items(
+    db: AsyncSession,
+    now: datetime | None = None,
+    expiry_days: int = SOFT_DELETE_EXPIRY_DAYS,
+) -> CleanupStats:
+    """
+    Permanently delete soft-deleted items older than expiry_days.
+
+    This supports GDPR "right to erasure" - items in trash are eventually
+    permanently removed. History is cascade-deleted at application level
+    before the entity is deleted.
+
+    Args:
+        db: Database session.
+        now: Current time for cutoff calculation. Defaults to datetime.now(UTC).
+        expiry_days: Days after soft-delete before permanent deletion.
+
+    Returns:
+        CleanupStats with soft_deleted_by_type breakdown.
+    """
+    if now is None:
+        now = datetime.now(UTC)
+
+    stats = CleanupStats()
+    cutoff = now - timedelta(days=expiry_days)
+
+    # Map entity types to their models
+    entity_models: list[tuple[type, str, str]] = [
+        (Bookmark, "bookmark", "bookmarks"),
+        (Note, "note", "notes"),
+        (Prompt, "prompt", "prompts"),
+    ]
+
+    for model, entity_type, type_key in entity_models:
+        # Find expired soft-deleted items
+        stmt = select(model).where(
+            model.deleted_at.is_not(None),
+            model.deleted_at < cutoff,
+        )
+        result = await db.execute(stmt)
+        items = result.scalars().all()
+
+        for item in items:
+            # Delete history first (application-level cascade)
+            await history_service.delete_entity_history(
+                db, item.user_id, entity_type, item.id,
+            )
+            await db.delete(item)
+
+        deleted_count = len(items)
+        if deleted_count > 0:
+            stats.soft_deleted_by_type[type_key] = deleted_count
+            stats.soft_deleted_expired += deleted_count
+            logger.info(
+                "Permanently deleted %d expired %s (soft-deleted > %d days)",
+                deleted_count,
+                type_key,
+                expiry_days,
+            )
+
+    await db.commit()
+    return stats
 
 
 async def cleanup_expired_history(
@@ -59,11 +126,14 @@ async def cleanup_expired_history(
     now: datetime | None = None,
 ) -> CleanupStats:
     """
-    Delete history records older than retention period for all users.
+    Delete history records older than retention period, batched by tier.
 
-    For each user:
-    1. Look up their tier limits
-    2. Delete history records older than history_retention_days
+    For each tier:
+    1. Calculate the cutoff date based on tier's history_retention_days
+    2. Delete all history records for users in that tier older than cutoff
+
+    This is more efficient than per-user deletion as it executes one DELETE
+    per tier rather than one per user.
 
     Args:
         db: Database session.
@@ -71,58 +141,42 @@ async def cleanup_expired_history(
              Inject a specific time for testing boundary conditions.
 
     Returns:
-        CleanupStats with detailed breakdown.
+        CleanupStats with expired_by_tier breakdown.
     """
     if now is None:
         now = datetime.now(UTC)
 
     stats = CleanupStats()
 
-    # Process users in batches to avoid memory issues
-    batch_size = 100
-    offset = 0
+    # Batch by tier: single DELETE per tier (more efficient than per-user)
+    for tier, limits in TIER_LIMITS.items():
+        cutoff = now - timedelta(days=limits.history_retention_days)
 
-    while True:
-        result = await db.execute(
-            select(User.id, User.tier)
-            .order_by(User.id)
-            .offset(offset)
-            .limit(batch_size),
+        # Delete history for all users in this tier with aged records
+        # Use coalesce to handle NULL tier values (default to FREE)
+        delete_stmt = delete(ContentHistory).where(
+            ContentHistory.user_id.in_(
+                select(User.id).where(
+                    func.coalesce(User.tier, Tier.FREE.value) == tier.value,
+                ),
+            ),
+            ContentHistory.created_at < cutoff,
         )
-        users = result.all()
 
-        if not users:
-            break
+        result = await db.execute(delete_stmt)
+        deleted = result.rowcount
 
-        for user_id, tier_str in users:
-            tier = get_tier_safely(tier_str)
-            limits = TIER_LIMITS[tier]
-            cutoff = now - timedelta(days=limits.history_retention_days)
-
-            # Delete old history for this user
-            delete_stmt = delete(ContentHistory).where(
-                ContentHistory.user_id == user_id,
-                ContentHistory.created_at < cutoff,
+        if deleted > 0:
+            stats.expired_by_tier[tier.value] = deleted
+            stats.expired_deleted += deleted
+            logger.info(
+                "Cleaned %d expired history records for tier=%s (cutoff=%s)",
+                deleted,
+                tier.value,
+                cutoff.isoformat(),
             )
-            result = await db.execute(delete_stmt)
-            deleted = result.rowcount
 
-            if deleted > 0:
-                stats.expired_by_user[user_id] = deleted
-                stats.expired_deleted += deleted
-                logger.info(
-                    "Cleaned %d expired history records for user %s (tier=%s, cutoff=%s)",
-                    deleted,
-                    user_id,
-                    tier.value,
-                    cutoff.isoformat(),
-                )
-
-            stats.users_processed += 1
-
-        await db.commit()
-        offset += batch_size
-
+    await db.commit()
     return stats
 
 
@@ -187,6 +241,11 @@ async def run_cleanup(
     """
     Run all cleanup tasks.
 
+    Order matters:
+    1. Soft-delete expiry first (permanently deletes entities + their history)
+    2. Expired history cleanup (deletes old history based on tier limits)
+    3. Orphan cleanup (catches any edge cases)
+
     Args:
         db: Database session. If None, creates one from async_session_factory.
         now: Current time for cutoff calculation. Defaults to datetime.now(UTC).
@@ -194,21 +253,25 @@ async def run_cleanup(
     Returns:
         Combined CleanupStats from all cleanup operations.
     """
-    logger.info("Starting history cleanup task")
+    logger.info("Starting cleanup task")
 
     async def _run(session: AsyncSession) -> CleanupStats:
-        # Time-based cleanup
+        # 1. Permanently delete soft-deleted items older than 30 days
+        soft_delete_stats = await cleanup_soft_deleted_items(session, now=now)
+
+        # 2. Time-based history cleanup
         expired_stats = await cleanup_expired_history(session, now=now)
 
-        # Orphan cleanup
+        # 3. Orphan cleanup (defense-in-depth)
         orphan_stats = await cleanup_orphaned_history(session)
 
         # Combine stats
         return CleanupStats(
-            users_processed=expired_stats.users_processed,
+            soft_deleted_expired=soft_delete_stats.soft_deleted_expired,
             expired_deleted=expired_stats.expired_deleted,
             orphaned_deleted=orphan_stats.orphaned_deleted,
-            expired_by_user=expired_stats.expired_by_user,
+            soft_deleted_by_type=soft_delete_stats.soft_deleted_by_type,
+            expired_by_tier=expired_stats.expired_by_tier,
             orphaned_by_entity_type=orphan_stats.orphaned_by_entity_type,
         )
 
@@ -218,7 +281,7 @@ async def run_cleanup(
         async with async_session_factory() as session:
             stats = await _run(session)
 
-    logger.info("History cleanup complete: %s", stats.to_dict())
+    logger.info("Cleanup complete: %s", stats.to_dict())
     return stats
 
 

@@ -1,5 +1,5 @@
 """
-Comprehensive tests for the history cleanup task.
+Comprehensive tests for the cleanup task.
 
 These tests verify the cleanup logic handles all edge cases correctly
 since this is critical code that deletes production user data.
@@ -16,11 +16,14 @@ from core.tier_limits import TIER_LIMITS, Tier
 from models.bookmark import Bookmark
 from models.content_history import ActionType, ContentHistory, DiffType, EntityType
 from models.note import Note
+from models.prompt import Prompt
 from models.user import User
 from tasks.cleanup import (
+    SOFT_DELETE_EXPIRY_DAYS,
     CleanupStats,
     cleanup_expired_history,
     cleanup_orphaned_history,
+    cleanup_soft_deleted_items,
     run_cleanup,
 )
 
@@ -59,6 +62,245 @@ async def count_history_records(db: AsyncSession, user_id=None) -> int:
         stmt = stmt.where(ContentHistory.user_id == user_id)
     result = await db.execute(stmt)
     return result.scalar_one()
+
+
+async def count_entities(db: AsyncSession, model: type, user_id=None) -> int:
+    """Count entities of a given type, optionally filtered by user."""
+    stmt = select(func.count()).select_from(model)
+    if user_id:
+        stmt = stmt.where(model.user_id == user_id)
+    result = await db.execute(stmt)
+    return result.scalar_one()
+
+
+class TestCleanupSoftDeletedItems:
+    """Tests for permanent deletion of expired soft-deleted items."""
+
+    @pytest.fixture
+    async def user(self, db_session: AsyncSession) -> User:
+        """Create a test user."""
+        user = User(
+            auth0_id=f"test-softdel-{uuid4()}",
+            email=f"softdel-{uuid4()}@test.com",
+            tier=Tier.FREE.value,
+        )
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+        return user
+
+    @pytest.mark.asyncio
+    async def test__day_29__soft_deleted_item_kept(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """Soft-deleted item 29 days ago should be kept."""
+        now = datetime.now(UTC)
+
+        # Create note soft-deleted 29 days ago
+        note = Note(
+            user_id=user.id,
+            title="Recently Deleted",
+            content="Content",
+            deleted_at=now - timedelta(days=29),
+        )
+        db_session.add(note)
+        await db_session.commit()
+
+        # Run cleanup
+        stats = await cleanup_soft_deleted_items(db_session, now=now)
+
+        # Note should still exist
+        assert stats.soft_deleted_expired == 0
+        assert await count_entities(db_session, Note, user.id) == 1
+
+    @pytest.mark.asyncio
+    async def test__day_30_exactly__soft_deleted_item_kept(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """Soft-deleted item exactly 30 days ago should be kept (boundary)."""
+        now = datetime.now(UTC)
+
+        note = Note(
+            user_id=user.id,
+            title="Exactly 30 Days",
+            content="Content",
+            deleted_at=now - timedelta(days=SOFT_DELETE_EXPIRY_DAYS),
+        )
+        db_session.add(note)
+        await db_session.commit()
+
+        stats = await cleanup_soft_deleted_items(db_session, now=now)
+
+        assert stats.soft_deleted_expired == 0
+        assert await count_entities(db_session, Note, user.id) == 1
+
+    @pytest.mark.asyncio
+    async def test__day_30_plus_1_second__soft_deleted_item_deleted(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """Soft-deleted item 30 days + 1 second ago should be permanently deleted."""
+        now = datetime.now(UTC)
+
+        note = Note(
+            user_id=user.id,
+            title="Just Past Expiry",
+            content="Content",
+            deleted_at=now - timedelta(days=SOFT_DELETE_EXPIRY_DAYS, seconds=1),
+        )
+        db_session.add(note)
+        await db_session.flush()
+
+        # Add history for the note
+        db_session.add(create_history_record(
+            user_id=user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=note.id,
+        ))
+        await db_session.commit()
+
+        stats = await cleanup_soft_deleted_items(db_session, now=now)
+
+        # Note and history should be deleted
+        assert stats.soft_deleted_expired == 1
+        assert stats.soft_deleted_by_type["notes"] == 1
+        assert await count_entities(db_session, Note, user.id) == 0
+        assert await count_history_records(db_session, user.id) == 0
+
+    @pytest.mark.asyncio
+    async def test__day_31__soft_deleted_item_deleted(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """Soft-deleted item 31 days ago should be permanently deleted."""
+        now = datetime.now(UTC)
+
+        note = Note(
+            user_id=user.id,
+            title="Expired",
+            content="Content",
+            deleted_at=now - timedelta(days=31),
+        )
+        db_session.add(note)
+        await db_session.commit()
+
+        stats = await cleanup_soft_deleted_items(db_session, now=now)
+
+        assert stats.soft_deleted_expired == 1
+        assert await count_entities(db_session, Note, user.id) == 0
+
+    @pytest.mark.asyncio
+    async def test__all_entity_types__cleaned_correctly(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """Expired soft-deleted bookmarks, notes, and prompts are all cleaned."""
+        now = datetime.now(UTC)
+        expired_time = now - timedelta(days=60)
+
+        # Create expired soft-deleted entities of each type
+        note = Note(
+            user_id=user.id,
+            title="Deleted Note",
+            content="Content",
+            deleted_at=expired_time,
+        )
+        bookmark = Bookmark(
+            user_id=user.id,
+            url="https://example.com",
+            deleted_at=expired_time,
+        )
+        prompt = Prompt(
+            user_id=user.id,
+            name=f"deleted-prompt-{uuid4().hex[:8]}",
+            content="Content",
+            deleted_at=expired_time,
+        )
+        db_session.add_all([note, bookmark, prompt])
+        await db_session.commit()
+
+        stats = await cleanup_soft_deleted_items(db_session, now=now)
+
+        assert stats.soft_deleted_expired == 3
+        assert stats.soft_deleted_by_type["notes"] == 1
+        assert stats.soft_deleted_by_type["bookmarks"] == 1
+        assert stats.soft_deleted_by_type["prompts"] == 1
+
+    @pytest.mark.asyncio
+    async def test__history_cascade_deleted_before_entity(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """History is deleted before the entity (application-level cascade)."""
+        now = datetime.now(UTC)
+
+        # Create expired soft-deleted note with history
+        note = Note(
+            user_id=user.id,
+            title="Expired With History",
+            content="Content",
+            deleted_at=now - timedelta(days=60),
+        )
+        db_session.add(note)
+        await db_session.flush()
+
+        # Add multiple history records
+        for v in range(1, 4):
+            db_session.add(create_history_record(
+                user_id=user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=note.id,
+                version=v,
+            ))
+        await db_session.commit()
+
+        # Verify setup
+        assert await count_history_records(db_session, user.id) == 3
+
+        stats = await cleanup_soft_deleted_items(db_session, now=now)
+
+        # Both entity and all history deleted
+        assert stats.soft_deleted_expired == 1
+        assert await count_entities(db_session, Note, user.id) == 0
+        assert await count_history_records(db_session, user.id) == 0
+
+    @pytest.mark.asyncio
+    async def test__active_entities_not_affected(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """Active (non-deleted) entities are not affected by cleanup."""
+        now = datetime.now(UTC)
+
+        # Create active note and expired soft-deleted note
+        active_note = Note(
+            user_id=user.id,
+            title="Active Note",
+            content="Active content",
+        )
+        deleted_note = Note(
+            user_id=user.id,
+            title="Deleted Note",
+            content="Deleted content",
+            deleted_at=now - timedelta(days=60),
+        )
+        db_session.add_all([active_note, deleted_note])
+        await db_session.commit()
+
+        stats = await cleanup_soft_deleted_items(db_session, now=now)
+
+        # Only deleted note removed
+        assert stats.soft_deleted_expired == 1
+        assert await count_entities(db_session, Note, user.id) == 1
 
 
 class TestCleanupExpiredHistoryBoundaryConditions:
@@ -170,7 +412,7 @@ class TestCleanupExpiredHistoryBoundaryConditions:
 
         # Verify record WAS deleted
         assert stats.expired_deleted == 1
-        assert stats.expired_by_user[user.id] == 1
+        assert stats.expired_by_tier[Tier.FREE.value] == 1
         assert await count_history_records(db_session, user.id) == 0
 
     @pytest.mark.asyncio
@@ -240,160 +482,82 @@ class TestCleanupExpiredHistoryBoundaryConditions:
         assert await count_history_records(db_session, user.id) == 4
 
 
-class TestCleanupExpiredHistoryMultiUser:
-    """Test cleanup behavior with multiple users."""
+class TestCleanupExpiredHistoryBatchByTier:
+    """Test batch-by-tier cleanup behavior."""
 
     @pytest.mark.asyncio
-    async def test__multiple_users__each_processed_independently(
+    async def test__multiple_users_same_tier__single_delete(
         self,
         db_session: AsyncSession,
     ) -> None:
-        """Each user's history is processed independently."""
+        """Multiple users in same tier are cleaned with single DELETE per tier."""
         now = datetime.now(UTC)
 
-        # Create 3 users
+        # Create 3 users all in FREE tier
         users = []
         for i in range(3):
             user = User(
-                auth0_id=f"test-multi-{uuid4()}",
-                email=f"multi-{uuid4()}@test.com",
+                auth0_id=f"test-tier-{uuid4()}",
+                email=f"tier-{uuid4()}@test.com",
                 tier=Tier.FREE.value,
             )
             db_session.add(user)
             users.append(user)
-        await db_session.commit()
+        await db_session.flush()
+
+        # Each user has old records
         for user in users:
-            await db_session.refresh(user)
-
-        # User 0: 2 old records (delete both)
-        # User 1: 1 old, 1 new record (delete 1)
-        # User 2: 2 new records (delete none)
-        entity_ids = [uuid4() for _ in range(3)]
-
-        # User 0: all old
-        for v in [1, 2]:
-            db_session.add(create_history_record(
-                user_id=users[0].id,
-                entity_type=EntityType.NOTE,
-                entity_id=entity_ids[0],
-                version=v,
-                created_at=now - timedelta(days=60),
-            ))
-
-        # User 1: mixed
-        db_session.add(create_history_record(
-            user_id=users[1].id,
-            entity_type=EntityType.NOTE,
-            entity_id=entity_ids[1],
-            version=1,
-            created_at=now - timedelta(days=60),  # old - delete
-        ))
-        db_session.add(create_history_record(
-            user_id=users[1].id,
-            entity_type=EntityType.NOTE,
-            entity_id=entity_ids[1],
-            version=2,
-            created_at=now - timedelta(days=5),  # new - keep
-        ))
-
-        # User 2: all new
-        for v in [1, 2]:
-            db_session.add(create_history_record(
-                user_id=users[2].id,
-                entity_type=EntityType.NOTE,
-                entity_id=entity_ids[2],
-                version=v,
-                created_at=now - timedelta(days=5),
-            ))
-
-        await db_session.commit()
-
-        # Run cleanup
-        stats = await cleanup_expired_history(db_session, now=now)
-
-        # Verify totals
-        assert stats.users_processed == 3
-        assert stats.expired_deleted == 3  # 2 from user0 + 1 from user1
-
-        # Verify per-user breakdown
-        assert stats.expired_by_user[users[0].id] == 2
-        assert stats.expired_by_user[users[1].id] == 1
-        assert users[2].id not in stats.expired_by_user  # No deletions
-
-        # Verify remaining records
-        assert await count_history_records(db_session, users[0].id) == 0
-        assert await count_history_records(db_session, users[1].id) == 1
-        assert await count_history_records(db_session, users[2].id) == 2
-
-    @pytest.mark.asyncio
-    async def test__user_with_no_history__processes_without_error(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        """Users with no history records are processed without error."""
-        # Create user with no history
-        user = User(
-            auth0_id=f"test-empty-{uuid4()}",
-            email=f"empty-{uuid4()}@test.com",
-            tier=Tier.FREE.value,
-        )
-        db_session.add(user)
-        await db_session.commit()
-
-        # Run cleanup
-        stats = await cleanup_expired_history(db_session, now=datetime.now(UTC))
-
-        # User was processed, nothing deleted
-        assert stats.users_processed >= 1
-        assert user.id not in stats.expired_by_user
-
-
-class TestCleanupExpiredHistoryBatchProcessing:
-    """Test batch processing with more than 100 users."""
-
-    @pytest.mark.asyncio
-    async def test__more_than_100_users__all_processed(
-        self,
-        db_session: AsyncSession,
-    ) -> None:
-        """
-        With >100 users, batch processing handles all users correctly.
-
-        The cleanup processes users in batches of 100 to avoid memory issues.
-        This test verifies all users are processed across multiple batches.
-        """
-        now = datetime.now(UTC)
-        num_users = 150  # More than one batch (100)
-
-        # Create users with one old record each
-        user_ids = []
-        for i in range(num_users):
-            user = User(
-                auth0_id=f"test-batch-{uuid4()}",
-                email=f"batch-{uuid4()}@test.com",
-                tier=Tier.FREE.value,
-            )
-            db_session.add(user)
-            await db_session.flush()
-            user_ids.append(user.id)
-
-            # Each user has one old record
             db_session.add(create_history_record(
                 user_id=user.id,
                 entity_type=EntityType.NOTE,
                 entity_id=uuid4(),
                 created_at=now - timedelta(days=60),
             ))
-
         await db_session.commit()
 
         # Run cleanup
         stats = await cleanup_expired_history(db_session, now=now)
 
-        # All users processed, all records deleted
-        assert stats.users_processed == num_users
-        assert stats.expired_deleted == num_users
-        assert len(stats.expired_by_user) == num_users
+        # All 3 records deleted, tracked by tier
+        assert stats.expired_deleted == 3
+        assert stats.expired_by_tier[Tier.FREE.value] == 3
+
+        # All users cleaned
+        for user in users:
+            assert await count_history_records(db_session, user.id) == 0
+
+    @pytest.mark.asyncio
+    async def test__null_tier__treated_as_free(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Users with NULL tier are treated as FREE tier."""
+        now = datetime.now(UTC)
+
+        # Create user with NULL tier
+        user = User(
+            auth0_id=f"test-null-tier-{uuid4()}",
+            email=f"nulltier-{uuid4()}@test.com",
+            tier=None,  # NULL tier
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        # Add old record
+        db_session.add(create_history_record(
+            user_id=user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=uuid4(),
+            created_at=now - timedelta(days=60),
+        ))
+        await db_session.commit()
+
+        # Run cleanup
+        stats = await cleanup_expired_history(db_session, now=now)
+
+        # Record deleted under FREE tier
+        assert stats.expired_deleted == 1
+        assert stats.expired_by_tier[Tier.FREE.value] == 1
 
 
 class TestCleanupExpiredHistoryEntityTypes:
@@ -669,15 +833,7 @@ class TestCleanupEmptyScenarios:
         self,
         db_session: AsyncSession,
     ) -> None:
-        """
-        Cleanup completes successfully when there are no users.
-
-        Note: In practice there will always be users, but the code should
-        handle empty tables gracefully.
-        """
-        # Delete all users for this test
-        # (Not recommended in shared test DB, but tests are isolated via transactions)
-
+        """Cleanup completes successfully when there are no users."""
         # Run cleanup on empty-ish database
         stats = await cleanup_expired_history(db_session, now=datetime.now(UTC))
 
@@ -706,16 +862,39 @@ class TestCleanupEmptyScenarios:
         assert expired_stats.expired_deleted == 0
         assert orphan_stats.orphaned_deleted == 0
 
+    @pytest.mark.asyncio
+    async def test__no_soft_deleted_items__completes_without_error(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """Soft-delete cleanup completes when there are no soft-deleted items."""
+        # Create active note (not deleted)
+        user = User(
+            auth0_id=f"test-active-{uuid4()}",
+            email=f"active-{uuid4()}@test.com",
+            tier=Tier.FREE.value,
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        note = Note(user_id=user.id, title="Active", content="Content")
+        db_session.add(note)
+        await db_session.commit()
+
+        stats = await cleanup_soft_deleted_items(db_session, now=datetime.now(UTC))
+
+        assert stats.soft_deleted_expired == 0
+
 
 class TestRunCleanupIntegration:
     """Integration tests for the full cleanup flow."""
 
     @pytest.mark.asyncio
-    async def test__run_cleanup__combines_expired_and_orphan_cleanup(
+    async def test__run_cleanup__executes_all_cleanup_types(
         self,
         db_session: AsyncSession,
     ) -> None:
-        """run_cleanup executes both cleanup types and combines stats."""
+        """run_cleanup executes soft-delete, expired, and orphan cleanup."""
         now = datetime.now(UTC)
 
         # Create user
@@ -732,7 +911,17 @@ class TestRunCleanupIntegration:
         db_session.add(note)
         await db_session.flush()
 
-        # Create: 1 old record (expired), 1 new record (keep), 1 orphan
+        # Create expired soft-deleted note
+        deleted_note = Note(
+            user_id=user.id,
+            title="Deleted",
+            content="Content",
+            deleted_at=now - timedelta(days=60),
+        )
+        db_session.add(deleted_note)
+        await db_session.flush()
+
+        # Create history: 1 old record (expired), 1 new record (keep), 1 orphan
         db_session.add(create_history_record(
             user_id=user.id,
             entity_type=EntityType.NOTE,
@@ -752,18 +941,71 @@ class TestRunCleanupIntegration:
             entity_type=EntityType.BOOKMARK,
             entity_id=uuid4(),  # Orphan - delete
         ))
+        # History for the deleted note
+        db_session.add(create_history_record(
+            user_id=user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=deleted_note.id,
+        ))
         await db_session.commit()
 
         # Run full cleanup
         stats = await run_cleanup(db=db_session, now=now)
 
         # Verify combined results
-        assert stats.users_processed >= 1
-        assert stats.expired_deleted == 1  # One old record
+        assert stats.soft_deleted_expired == 1  # The deleted note
+        assert stats.expired_deleted == 1  # One old history record
         assert stats.orphaned_deleted == 1  # One orphan
 
         # Only the new, valid record remains
         assert await count_history_records(db_session, user.id) == 1
+        # Only the active note remains
+        assert await count_entities(db_session, Note, user.id) == 1
+
+    @pytest.mark.asyncio
+    async def test__run_cleanup__order_matters(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """
+        Soft-delete cleanup runs first, so its history is deleted before
+        expired history cleanup, preventing double-counting.
+        """
+        now = datetime.now(UTC)
+
+        user = User(
+            auth0_id=f"test-order-{uuid4()}",
+            email=f"order-{uuid4()}@test.com",
+            tier=Tier.FREE.value,
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        # Create expired soft-deleted note with old history
+        deleted_note = Note(
+            user_id=user.id,
+            title="Deleted",
+            content="Content",
+            deleted_at=now - timedelta(days=60),
+        )
+        db_session.add(deleted_note)
+        await db_session.flush()
+
+        # This history is old AND belongs to a soft-deleted entity
+        db_session.add(create_history_record(
+            user_id=user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=deleted_note.id,
+            created_at=now - timedelta(days=60),
+        ))
+        await db_session.commit()
+
+        stats = await run_cleanup(db=db_session, now=now)
+
+        # Soft-delete cleanup handles the entity and its history
+        assert stats.soft_deleted_expired == 1
+        # Expired cleanup doesn't double-count (history already deleted)
+        assert stats.expired_deleted == 0
 
     @pytest.mark.asyncio
     async def test__run_cleanup__stats_breakdown_is_accurate(
@@ -773,33 +1015,19 @@ class TestRunCleanupIntegration:
         """Verify detailed breakdown in stats matches actual deletions."""
         now = datetime.now(UTC)
 
-        # Create 2 users
-        users = []
-        for i in range(2):
-            user = User(
-                auth0_id=f"test-breakdown-{uuid4()}",
-                email=f"breakdown-{uuid4()}@test.com",
-                tier=Tier.FREE.value,
-            )
-            db_session.add(user)
-            users.append(user)
+        user = User(
+            auth0_id=f"test-breakdown-{uuid4()}",
+            email=f"breakdown-{uuid4()}@test.com",
+            tier=Tier.FREE.value,
+        )
+        db_session.add(user)
         await db_session.flush()
 
-        # User 0: 3 old records
+        # Create 3 old history records
         for v in range(1, 4):
             db_session.add(create_history_record(
-                user_id=users[0].id,
+                user_id=user.id,
                 entity_type=EntityType.NOTE,
-                entity_id=uuid4(),
-                version=v,
-                created_at=now - timedelta(days=60),
-            ))
-
-        # User 1: 2 old records
-        for v in range(1, 3):
-            db_session.add(create_history_record(
-                user_id=users[1].id,
-                entity_type=EntityType.BOOKMARK,
                 entity_id=uuid4(),
                 version=v,
                 created_at=now - timedelta(days=60),
@@ -807,24 +1035,37 @@ class TestRunCleanupIntegration:
 
         # Add orphans of different types
         db_session.add(create_history_record(
-            user_id=users[0].id,
+            user_id=user.id,
             entity_type=EntityType.PROMPT,
             entity_id=uuid4(),
         ))
         db_session.add(create_history_record(
-            user_id=users[0].id,
+            user_id=user.id,
             entity_type=EntityType.PROMPT,
             entity_id=uuid4(),
         ))
+
+        # Create expired soft-deleted items
+        for _ in range(2):
+            note = Note(
+                user_id=user.id,
+                title="Deleted",
+                content="Content",
+                deleted_at=now - timedelta(days=60),
+            )
+            db_session.add(note)
         await db_session.commit()
 
         # Run full cleanup
         stats = await run_cleanup(db=db_session, now=now)
 
+        # Verify soft-delete breakdown
+        assert stats.soft_deleted_expired == 2
+        assert stats.soft_deleted_by_type["notes"] == 2
+
         # Verify expired breakdown
-        assert stats.expired_by_user[users[0].id] == 3
-        assert stats.expired_by_user[users[1].id] == 2
-        assert stats.expired_deleted == 5
+        assert stats.expired_by_tier[Tier.FREE.value] == 3
+        assert stats.expired_deleted == 3
 
         # Verify orphan breakdown
         assert stats.orphaned_by_entity_type[EntityType.PROMPT.value] == 2
@@ -837,30 +1078,33 @@ class TestCleanupStatsDataclass:
     def test__to_dict__returns_summary(self) -> None:
         """to_dict returns a simple summary dict."""
         stats = CleanupStats(
-            users_processed=10,
+            soft_deleted_expired=2,
             expired_deleted=5,
             orphaned_deleted=3,
-            expired_by_user={uuid4(): 2, uuid4(): 3},
+            soft_deleted_by_type={"notes": 1, "bookmarks": 1},
+            expired_by_tier={"free": 5},
             orphaned_by_entity_type={"note": 2, "bookmark": 1},
         )
 
         result = stats.to_dict()
 
         assert result == {
-            "users_processed": 10,
+            "soft_deleted_expired": 2,
             "expired_deleted": 5,
             "orphaned_deleted": 3,
         }
         # Detailed breakdowns not in summary
-        assert "expired_by_user" not in result
+        assert "soft_deleted_by_type" not in result
+        assert "expired_by_tier" not in result
         assert "orphaned_by_entity_type" not in result
 
     def test__default_values__are_empty(self) -> None:
         """Default CleanupStats has zero counts and empty dicts."""
         stats = CleanupStats()
 
-        assert stats.users_processed == 0
+        assert stats.soft_deleted_expired == 0
         assert stats.expired_deleted == 0
         assert stats.orphaned_deleted == 0
-        assert stats.expired_by_user == {}
+        assert stats.soft_deleted_by_type == {}
+        assert stats.expired_by_tier == {}
         assert stats.orphaned_by_entity_type == {}
