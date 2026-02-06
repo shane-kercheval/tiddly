@@ -1071,6 +1071,65 @@ class TestRunCleanupIntegration:
         assert stats.orphaned_by_entity_type[EntityType.PROMPT.value] == 2
         assert stats.orphaned_deleted == 2
 
+    @pytest.mark.asyncio
+    async def test__run_cleanup_twice__second_run_deletes_nothing(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """
+        Running cleanup twice is idempotent - second run deletes nothing.
+
+        This is critical for cron jobs that might restart or run multiple times.
+        """
+        now = datetime.now(UTC)
+
+        user = User(
+            auth0_id=f"test-idempotent-{uuid4()}",
+            email=f"idempotent-{uuid4()}@test.com",
+            tier=Tier.FREE.value,
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        # Create data that will be cleaned up
+        # 1. Expired soft-deleted note
+        deleted_note = Note(
+            user_id=user.id,
+            title="Deleted",
+            content="Content",
+            deleted_at=now - timedelta(days=60),
+        )
+        db_session.add(deleted_note)
+        await db_session.flush()
+
+        # 2. Old history record
+        db_session.add(create_history_record(
+            user_id=user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=uuid4(),
+            created_at=now - timedelta(days=60),
+        ))
+
+        # 3. Orphaned history
+        db_session.add(create_history_record(
+            user_id=user.id,
+            entity_type=EntityType.BOOKMARK,
+            entity_id=uuid4(),
+        ))
+        await db_session.commit()
+
+        # First run - should delete everything
+        first_stats = await run_cleanup(db=db_session, now=now)
+        assert first_stats.soft_deleted_expired == 1
+        assert first_stats.expired_deleted == 1
+        assert first_stats.orphaned_deleted == 1
+
+        # Second run - should delete nothing (idempotent)
+        second_stats = await run_cleanup(db=db_session, now=now)
+        assert second_stats.soft_deleted_expired == 0
+        assert second_stats.expired_deleted == 0
+        assert second_stats.orphaned_deleted == 0
+
 
 class TestCleanupStatsDataclass:
     """Tests for the CleanupStats dataclass."""
