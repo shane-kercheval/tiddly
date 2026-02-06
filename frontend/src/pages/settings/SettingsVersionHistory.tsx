@@ -9,6 +9,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useUserHistory } from '../../hooks/useHistory'
 import { BookmarkIcon, NoteIcon, PromptIcon } from '../../components/icons'
+import { CONTENT_TYPE_ICON_COLORS } from '../../constants/contentTypeStyles'
 import type { HistoryEntityType, HistoryActionType } from '../../types'
 
 /** Format action type for display */
@@ -40,11 +41,11 @@ function formatSource(source: string): string {
 function getEntityIcon(type: HistoryEntityType): ReactNode {
   switch (type) {
     case 'bookmark':
-      return <BookmarkIcon className="w-4 h-4 text-blue-500" />
+      return <BookmarkIcon className={`w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.bookmark}`} />
     case 'note':
-      return <NoteIcon className="w-4 h-4 text-amber-500" />
+      return <NoteIcon className={`w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.note}`} />
     case 'prompt':
-      return <PromptIcon className="w-4 h-4 text-purple-500" />
+      return <PromptIcon className={`w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.prompt}`} />
     default:
       return null
   }
