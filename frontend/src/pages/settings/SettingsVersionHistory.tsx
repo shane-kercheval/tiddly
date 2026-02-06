@@ -36,15 +36,15 @@ function formatSource(source: string): string {
   return labels[source] ?? source
 }
 
-/** Get icon for entity type */
+/** Get colored icon for entity type */
 function getEntityIcon(type: HistoryEntityType): ReactNode {
   switch (type) {
     case 'bookmark':
-      return <BookmarkIcon className="w-4 h-4" />
+      return <BookmarkIcon className="w-4 h-4 text-blue-500" />
     case 'note':
-      return <NoteIcon className="w-4 h-4" />
+      return <NoteIcon className="w-4 h-4 text-amber-500" />
     case 'prompt':
-      return <PromptIcon className="w-4 h-4" />
+      return <PromptIcon className="w-4 h-4 text-purple-500" />
     default:
       return null
   }
@@ -136,7 +136,6 @@ export function SettingsVersionHistory(): ReactNode {
             <table className="w-full">
               <thead>
                 <tr className="text-left text-sm text-gray-500 border-b border-gray-200 bg-gray-50">
-                  <th className="px-4 py-3 font-medium">Type</th>
                   <th className="px-4 py-3 font-medium">Item</th>
                   <th className="px-4 py-3 font-medium">Action</th>
                   <th className="px-4 py-3 font-medium">Source</th>
@@ -147,20 +146,15 @@ export function SettingsVersionHistory(): ReactNode {
                 {history?.items.map((entry) => (
                   <tr key={entry.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3">
-                      <span className="flex items-center gap-1.5 text-gray-700">
+                      <div className="flex items-center gap-2">
                         {getEntityIcon(entry.entity_type)}
-                        <span className="capitalize text-sm">{entry.entity_type}</span>
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link
-                        to={getEntityPath(entry.entity_type, entry.entity_id)}
-                        className="text-blue-600 hover:text-blue-800 hover:underline text-sm font-medium"
-                      >
-                        {getItemTitle(entry.metadata_snapshot)}
-                      </Link>
-                      <div className="text-xs text-gray-400 mt-0.5">
-                        v{entry.version}
+                        <Link
+                          to={getEntityPath(entry.entity_type, entry.entity_id)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline text-sm font-medium"
+                        >
+                          {getItemTitle(entry.metadata_snapshot)}
+                        </Link>
+                        <span className="text-xs text-gray-400">v{entry.version}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
