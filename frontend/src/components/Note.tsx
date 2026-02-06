@@ -23,7 +23,7 @@ import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
-import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
+import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
 import { useLimits } from '../hooks/useLimits'
@@ -89,6 +89,8 @@ interface NoteProps {
   fullWidth?: boolean
   /** Called to refresh the note from server (for stale check). Returns the refreshed note on success. */
   onRefresh?: () => Promise<NoteType | null>
+  /** Called when history button is clicked */
+  onShowHistory?: () => void
 }
 
 /**
@@ -108,6 +110,7 @@ export function Note({
   viewState = 'active',
   fullWidth = false,
   onRefresh,
+  onShowHistory,
 }: NoteProps): ReactNode {
   const isCreate = !note
 
@@ -620,6 +623,20 @@ export function Note({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* History button - existing notes only */}
+          {!isCreate && onShowHistory && (
+            <button
+              type="button"
+              onClick={onShowHistory}
+              disabled={isSaving}
+              className="btn-secondary flex items-center gap-2"
+              title="View version history"
+            >
+              <HistoryIcon className="h-4 w-4" />
+              <span className="hidden md:inline">History</span>
+            </button>
+          )}
+
           {/* Archive button - active notes only */}
           {viewState === 'active' && onArchive && (
             <button

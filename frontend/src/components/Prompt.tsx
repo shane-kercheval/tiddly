@@ -26,7 +26,7 @@ import { ArgumentsBuilder } from './ArgumentsBuilder'
 import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { PreviewPromptModal } from './PreviewPromptModal'
-import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
+import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
 import { useLimits } from '../hooks/useLimits'
@@ -156,6 +156,8 @@ interface PromptProps {
   fullWidth?: boolean
   /** Called to refresh the prompt from server (for stale check). Returns the refreshed prompt on success. */
   onRefresh?: () => Promise<PromptType | null>
+  /** Called when history button is clicked */
+  onShowHistory?: () => void
 }
 
 /**
@@ -175,6 +177,7 @@ export function Prompt({
   viewState = 'active',
   fullWidth = false,
   onRefresh,
+  onShowHistory,
 }: PromptProps): ReactNode {
   const isCreate = !prompt
 
@@ -829,6 +832,20 @@ export function Prompt({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* History button - existing prompts only */}
+          {!isCreate && onShowHistory && (
+            <button
+              type="button"
+              onClick={onShowHistory}
+              disabled={isSaving}
+              className="btn-secondary flex items-center gap-2"
+              title="View version history"
+            >
+              <HistoryIcon className="h-4 w-4" />
+              <span className="hidden md:inline">History</span>
+            </button>
+          )}
+
           {/* Archive button - active prompts only */}
           {viewState === 'active' && onArchive && (
             <button

@@ -8,10 +8,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Prompt as PromptComponent, SaveError } from '../components/Prompt'
+import { HistorySidebar } from '../components/HistorySidebar'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { usePrompts } from '../hooks/usePrompts'
+import { historyKeys } from '../hooks/useHistory'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
 import {
   useCreatePrompt,
@@ -54,6 +57,7 @@ export function PromptDetail(): ReactNode {
   const [prompt, setPrompt] = useState<PromptType | null>(null)
   const [isLoading, setIsLoading] = useState(!isCreate)
   const [error, setError] = useState<string | null>(null)
+  const [showHistory, setShowHistory] = useState(false)
 
   // Get navigation state
   const locationState = location.state as { initialTags?: string[]; prompt?: PromptType } | undefined
@@ -64,6 +68,7 @@ export function PromptDetail(): ReactNode {
 
   // Navigation
   const { navigateBack } = useReturnNavigation()
+  const queryClient = useQueryClient()
 
   // Hooks
   const { fetchPrompt, trackPromptUsage } = usePrompts()
@@ -178,6 +183,10 @@ export function PromptDetail(): ReactNode {
             data: data as PromptUpdate,
           })
           setPrompt(updatedPrompt)
+          // Refresh history sidebar if open
+          if (showHistory) {
+            queryClient.invalidateQueries({ queryKey: historyKeys.entity('prompt', promptId, {}) })
+          }
         } catch (err) {
           // Returns true for version conflict - component handles with ConflictDialog
           if (handleNameConflict(err)) {
@@ -189,7 +198,7 @@ export function PromptDetail(): ReactNode {
         }
       }
     },
-    [isCreate, promptId, createMutation, updateMutation, navigate]
+    [isCreate, promptId, createMutation, updateMutation, navigate, showHistory, queryClient]
   )
 
   const handleArchive = useCallback(async (): Promise<void> => {
@@ -250,6 +259,20 @@ export function PromptDetail(): ReactNode {
     }
   }, [promptId, fetchPrompt])
 
+  // History sidebar handlers
+  const handleShowHistory = useCallback((): void => {
+    setShowHistory(true)
+  }, [])
+
+  const handleHistoryReverted = useCallback(async (): Promise<void> => {
+    // Refresh the prompt after a revert to show the restored content
+    if (promptId) {
+      const refreshedPrompt = await fetchPrompt(promptId, { skipCache: true })
+      setPrompt(refreshedPrompt)
+      toast.success('Prompt restored to previous version')
+    }
+  }, [promptId, fetchPrompt])
+
   // Render loading state
   if (isLoading) {
     return <LoadingSpinnerCentered label="Loading prompt..." />
@@ -283,20 +306,31 @@ export function PromptDetail(): ReactNode {
   }
 
   return (
-    <PromptComponent
-      key={effectivePrompt.id}
-      prompt={effectivePrompt}
-      tagSuggestions={tagSuggestions}
-      onSave={handleSave}
-      onClose={handleBack}
-      isSaving={updateMutation.isPending}
-      onArchive={viewState === 'active' ? handleArchive : undefined}
-      onUnarchive={viewState === 'archived' ? handleUnarchive : undefined}
-      onDelete={handleDelete}
-      onRestore={viewState === 'deleted' ? handleRestore : undefined}
-      viewState={viewState}
-      fullWidth={fullWidthLayout}
-      onRefresh={handleRefresh}
-    />
+    <>
+      <PromptComponent
+        key={effectivePrompt.id}
+        prompt={effectivePrompt}
+        tagSuggestions={tagSuggestions}
+        onSave={handleSave}
+        onClose={handleBack}
+        isSaving={updateMutation.isPending}
+        onArchive={viewState === 'active' ? handleArchive : undefined}
+        onUnarchive={viewState === 'archived' ? handleUnarchive : undefined}
+        onDelete={handleDelete}
+        onRestore={viewState === 'deleted' ? handleRestore : undefined}
+        viewState={viewState}
+        fullWidth={fullWidthLayout}
+        onRefresh={handleRefresh}
+        onShowHistory={handleShowHistory}
+      />
+      {showHistory && promptId && (
+        <HistorySidebar
+          entityType="prompt"
+          entityId={promptId}
+          onClose={() => setShowHistory(false)}
+          onReverted={handleHistoryReverted}
+        />
+      )}
+    </>
   )
 }

@@ -19,6 +19,14 @@ vi.mock('react-hot-toast', () => ({
   },
 }))
 
+// Mock @tanstack/react-query's useQueryClient
+const mockInvalidateQueries = vi.fn()
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({
+    invalidateQueries: mockInvalidateQueries,
+  }),
+}))
+
 // Mock prompt data
 const mockPrompt: Prompt = {
   id: '1',

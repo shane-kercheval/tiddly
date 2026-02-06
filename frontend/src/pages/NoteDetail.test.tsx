@@ -19,6 +19,14 @@ vi.mock('react-hot-toast', () => ({
   },
 }))
 
+// Mock @tanstack/react-query's useQueryClient
+const mockInvalidateQueries = vi.fn()
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({
+    invalidateQueries: mockInvalidateQueries,
+  }),
+}))
+
 // Mock note data
 const mockNote: Note = {
   id: '1',

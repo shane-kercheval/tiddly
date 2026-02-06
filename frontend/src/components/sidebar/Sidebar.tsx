@@ -635,6 +635,12 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
                 onClick={onNavClick}
               />
               <SidebarNavItem
+                to="/app/settings/history"
+                label="Version History"
+                isCollapsed={isCollapsed}
+                onClick={onNavClick}
+              />
+              <SidebarNavItem
                 to="/app/settings/faq"
                 label="FAQ"
                 isCollapsed={isCollapsed}
