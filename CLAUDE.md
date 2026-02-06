@@ -172,6 +172,46 @@ The API supports HTTP caching via ETag and Last-Modified headers to reduce bandw
 - `services/base_entity_service.py`: get_updated_at() method
 - `services/prompt_service.py`: get_updated_at_by_name() method
 
+### Content Versioning
+
+All content changes (bookmarks, notes, prompts) are tracked in the `content_history` table:
+
+**Tracked Actions:**
+- CREATE, UPDATE, DELETE, RESTORE, ARCHIVE, UNARCHIVE
+
+**Source Tracking:**
+- Request source via `X-Request-Source` header: web, api, mcp-content, mcp-prompt, unknown
+- Auth type: auth0, pat, dev
+- Token prefix for PAT requests (e.g., "bm_a3f8...") for audit trail
+
+**Diff Storage (Reverse Diffs with Dual Storage):**
+- Uses Google's diff-match-patch algorithm with reverse diffs
+- SNAPSHOT records store both `content_snapshot` (full content) and `content_diff` (diff to previous)
+- DIFF records store only `content_diff` (reverse diff-match-patch delta)
+- METADATA records store neither (content unchanged, e.g., tag/archive changes)
+- Reconstruction: find nearest snapshot, start from `content_snapshot`, apply diffs backwards
+- Fallback: if no snapshot found, start from `entity.content`
+
+**API Endpoints:**
+- `GET /history` - All user history (paginated, filterable by entity_type)
+- `GET /history/{type}/{id}` - Entity history
+- `GET /history/{type}/{id}/version/{v}` - Reconstruct content at version
+- `POST /history/{type}/{id}/revert/{v}` - Revert to version
+- `GET /bookmarks/{id}/history` - Bookmark history (also for notes/prompts)
+
+**Retention:**
+- Tier-based limits: `history_retention_days`, `max_history_per_entity` in TierLimits
+- Count limits: enforced inline every 10th write (modulo check)
+- Time limits: enforced via nightly cron job (batched by tier)
+- Soft-delete expiry: entities deleted 30+ days are permanently removed with history
+
+**Implementation Files:**
+- `models/content_history.py`: ContentHistory model, ActionType, EntityType, DiffType enums
+- `services/history_service.py`: HistoryService for recording and reconstruction
+- `schemas/history.py`: Pydantic schemas for API responses
+- `api/routers/history.py`: History API endpoints
+- `tasks/cleanup.py`: Nightly cleanup cron job
+
 ## Testing
 
 Backend tests use pytest with async support. The `conftest.py` sets up:
