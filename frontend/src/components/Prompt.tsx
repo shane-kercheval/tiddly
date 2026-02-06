@@ -182,11 +182,11 @@ export function Prompt({
   const { limits, isLoading: isLoadingLimits, error: limitsError } = useLimits()
 
   // Stale check hook
-  const { fetchPromptMetadataNoCache } = usePrompts()
+  const { fetchPromptMetadata } = usePrompts()
   const fetchUpdatedAt = useCallback(async (id: string): Promise<string> => {
-    const metadata = await fetchPromptMetadataNoCache(id)
+    const metadata = await fetchPromptMetadata(id)
     return metadata.updated_at
-  }, [fetchPromptMetadataNoCache])
+  }, [fetchPromptMetadata])
   const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
     entityId: prompt?.id,
     loadedUpdatedAt: prompt?.updated_at,

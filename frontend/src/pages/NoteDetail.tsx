@@ -209,7 +209,8 @@ export function NoteDetail(): ReactNode {
   const handleRefresh = useCallback(async (): Promise<NoteType | null> => {
     if (!noteId) return null
     try {
-      const refreshedNote = await fetchNote(noteId)
+      // skipCache: true ensures we bypass Safari's aggressive caching
+      const refreshedNote = await fetchNote(noteId, { skipCache: true })
       setNote(refreshedNote)
       return refreshedNote
     } catch {
