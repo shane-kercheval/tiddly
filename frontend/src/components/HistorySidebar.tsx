@@ -34,11 +34,11 @@ function formatAction(action: HistoryActionType): string {
 /** Format source for display */
 function formatSource(source: string): string {
   const labels: Record<string, string> = {
-    WEB: 'Web',
-    API: 'API',
-    MCP_CONTENT: 'MCP',
-    MCP_PROMPT: 'MCP',
-    UNKNOWN: 'Unknown',
+    web: 'Web',
+    api: 'API',
+    'mcp-content': 'MCP',
+    'mcp-prompt': 'MCP',
+    unknown: 'Unknown',
   }
   return labels[source] ?? source
 }
@@ -46,9 +46,9 @@ function formatSource(source: string): string {
 /** Format auth type for display */
 function formatAuthType(authType: string): string {
   const labels: Record<string, string> = {
-    AUTH0: 'Auth0',
-    PAT: 'Token',
-    DEV: 'Dev',
+    auth0: 'Auth0',
+    pat: 'Token',
+    dev: 'Dev',
   }
   return labels[authType] ?? authType
 }
@@ -76,7 +76,7 @@ function DiffView({
     )
   }
 
-  if (!oldContent && !newContent) {
+  if (oldContent === newContent) {
     return (
       <div className="flex-1 p-4 text-sm text-gray-500">
         No content changes in this version (metadata only).
@@ -247,22 +247,24 @@ export function HistorySidebar({
       {/* Diff view */}
       {selectedVersion && (
         <div className="border-t border-gray-200 h-1/2 flex flex-col">
-          <div className="flex items-center justify-between p-3 bg-gray-50 border-b border-gray-200 shrink-0">
-            <span className="text-sm font-medium text-gray-700">
-              Changes in v{selectedVersion}
-              {previousVersion && (
-                <span className="text-gray-400 font-normal"> (from v{previousVersion})</span>
-              )}
-            </span>
-            <button
-              onClick={() => setSelectedVersion(null)}
-              className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200"
-              aria-label="Close diff view"
-            >
-              <CloseIcon className="w-4 h-4" />
-            </button>
+          <div className="bg-gray-50 border-b border-gray-200 shrink-0">
+            <div className="flex items-center justify-between p-3">
+              <span className="text-sm font-medium text-gray-700">
+                Changes in v{selectedVersion}
+                {previousVersion && (
+                  <span className="text-gray-400 font-normal"> (from v{previousVersion})</span>
+                )}
+              </span>
+              <button
+                onClick={() => setSelectedVersion(null)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200"
+                aria-label="Close diff view"
+              >
+                <CloseIcon className="w-4 h-4" />
+              </button>
+            </div>
             {versionContent?.warnings && versionContent.warnings.length > 0 && (
-              <div className="mt-1 text-xs text-yellow-600">
+              <div className="px-3 pb-2 text-xs text-yellow-600">
                 Warning: Some changes could not be fully reconstructed
               </div>
             )}

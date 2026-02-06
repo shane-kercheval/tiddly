@@ -27,11 +27,11 @@ function formatAction(action: HistoryActionType): string {
 /** Format source for display */
 function formatSource(source: string): string {
   const labels: Record<string, string> = {
-    WEB: 'Web',
-    API: 'API',
-    MCP_CONTENT: 'MCP',
-    MCP_PROMPT: 'MCP',
-    UNKNOWN: 'Unknown',
+    web: 'Web',
+    api: 'API',
+    'mcp-content': 'MCP',
+    'mcp-prompt': 'MCP',
+    unknown: 'Unknown',
   }
   return labels[source] ?? source
 }

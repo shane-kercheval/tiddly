@@ -14,7 +14,6 @@ import { Bookmark as BookmarkComponent } from '../components/Bookmark'
 import { HistorySidebar } from '../components/HistorySidebar'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { useBookmarks } from '../hooks/useBookmarks'
-import { historyKeys } from '../hooks/useHistory'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
 import {
   useCreateBookmark,
@@ -171,9 +170,9 @@ export function BookmarkDetail(): ReactNode {
             data: data as BookmarkUpdate,
           })
           setBookmark(updatedBookmark)
-          // Refresh history sidebar if open
+          // Refresh history sidebar if open (use partial key to match any params)
           if (showHistory) {
-            queryClient.invalidateQueries({ queryKey: historyKeys.entity('bookmark', bookmarkId, {}) })
+            queryClient.invalidateQueries({ queryKey: ['history', 'bookmark', bookmarkId] })
           }
         } catch (err) {
           if (err && typeof err === 'object' && 'response' in err) {

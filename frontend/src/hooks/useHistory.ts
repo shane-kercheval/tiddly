@@ -127,8 +127,9 @@ export function useRevertToVersion() {
       // Invalidate entity queries (the entity was updated)
       queryClient.invalidateQueries({ queryKey: [entityType + 's'] })
       // Invalidate history queries (new history entry was created)
-      queryClient.invalidateQueries({ queryKey: historyKeys.entity(entityType, entityId, {}) })
-      queryClient.invalidateQueries({ queryKey: historyKeys.user({}) })
+      // Use partial key matching to invalidate regardless of params (limit, offset)
+      queryClient.invalidateQueries({ queryKey: ['history', entityType, entityId] })
+      queryClient.invalidateQueries({ queryKey: ['history', 'user'] })
       // Invalidate content queries
       queryClient.invalidateQueries({ queryKey: ['content'] })
     },

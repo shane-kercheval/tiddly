@@ -15,7 +15,6 @@ import { Note as NoteComponent } from '../components/Note'
 import { HistorySidebar } from '../components/HistorySidebar'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { useNotes } from '../hooks/useNotes'
-import { historyKeys } from '../hooks/useHistory'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
 import {
   useCreateNote,
@@ -152,9 +151,9 @@ export function NoteDetail(): ReactNode {
             data: data as NoteUpdate,
           })
           setNote(updatedNote)
-          // Refresh history sidebar if open
+          // Refresh history sidebar if open (use partial key to match any params)
           if (showHistory) {
-            queryClient.invalidateQueries({ queryKey: historyKeys.entity('note', noteId, {}) })
+            queryClient.invalidateQueries({ queryKey: ['history', 'note', noteId] })
           }
         } catch (err) {
           // Don't show toast for 409 Conflict - the component handles it with ConflictDialog

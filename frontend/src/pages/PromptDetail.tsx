@@ -14,7 +14,6 @@ import { Prompt as PromptComponent, SaveError } from '../components/Prompt'
 import { HistorySidebar } from '../components/HistorySidebar'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { usePrompts } from '../hooks/usePrompts'
-import { historyKeys } from '../hooks/useHistory'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
 import {
   useCreatePrompt,
@@ -183,9 +182,9 @@ export function PromptDetail(): ReactNode {
             data: data as PromptUpdate,
           })
           setPrompt(updatedPrompt)
-          // Refresh history sidebar if open
+          // Refresh history sidebar if open (use partial key to match any params)
           if (showHistory) {
-            queryClient.invalidateQueries({ queryKey: historyKeys.entity('prompt', promptId, {}) })
+            queryClient.invalidateQueries({ queryKey: ['history', 'prompt', promptId] })
           }
         } catch (err) {
           // Returns true for version conflict - component handles with ConflictDialog
