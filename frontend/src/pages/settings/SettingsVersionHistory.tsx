@@ -298,23 +298,23 @@ export function SettingsVersionHistory(): ReactNode {
           </select>
           {datePreset === 'custom' && (
             <>
-              <label className="flex items-center gap-1.5">
+              <label className="flex items-center gap-1">
                 <span className="text-xs text-gray-500">From</span>
                 <input
                   type="datetime-local"
                   value={customStartDate}
                   onChange={(e) => handleCustomStartDateChange(e.target.value)}
-                  className="text-sm rounded-lg border border-gray-200 bg-gray-50/50 px-2.5 py-1"
+                  className="text-xs rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-0.5"
                   data-testid="filter-date-start"
                 />
               </label>
-              <label className="flex items-center gap-1.5">
+              <label className="flex items-center gap-1">
                 <span className="text-xs text-gray-500">To</span>
                 <input
                   type="datetime-local"
                   value={customEndDate}
                   onChange={(e) => handleCustomEndDateChange(e.target.value)}
-                  className="text-sm rounded-lg border border-gray-200 bg-gray-50/50 px-2.5 py-1"
+                  className="text-xs rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-0.5"
                   data-testid="filter-date-end"
                 />
               </label>
