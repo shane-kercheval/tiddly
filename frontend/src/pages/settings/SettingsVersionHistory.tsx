@@ -279,7 +279,7 @@ export function SettingsVersionHistory(): ReactNode {
         />
 
         {/* Date filter - single select */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-col md:flex-row md:items-center gap-1.5 w-full md:w-auto">
           <select
             value={datePreset}
             onChange={(e) => handleDatePresetChange(e.target.value as DatePreset)}
@@ -297,14 +297,14 @@ export function SettingsVersionHistory(): ReactNode {
             ))}
           </select>
           {datePreset === 'custom' && (
-            <>
+            <div className="flex flex-col md:flex-row gap-1.5">
               <label className="flex items-center gap-1">
                 <span className="text-xs text-gray-500">From</span>
                 <input
                   type="datetime-local"
                   value={customStartDate}
                   onChange={(e) => handleCustomStartDateChange(e.target.value)}
-                  className="text-xs rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-0.5"
+                  className="text-xs rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-0.5 flex-1"
                   data-testid="filter-date-start"
                 />
               </label>
@@ -314,11 +314,11 @@ export function SettingsVersionHistory(): ReactNode {
                   type="datetime-local"
                   value={customEndDate}
                   onChange={(e) => handleCustomEndDateChange(e.target.value)}
-                  className="text-xs rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-0.5"
+                  className="text-xs rounded-lg border border-gray-200 bg-gray-50/50 px-2 py-0.5 flex-1"
                   data-testid="filter-date-end"
                 />
               </label>
-            </>
+            </div>
           )}
         </div>
 
@@ -417,7 +417,38 @@ export function SettingsVersionHistory(): ReactNode {
         </div>
       ) : (
         <>
-          <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+          {/* Mobile card view */}
+          <div className="md:hidden space-y-2">
+            {history?.items.map((entry) => (
+              <div key={entry.id} className="rounded-lg border border-gray-200 bg-white p-3">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {getEntityIcon(entry.entity_type)}
+                    <Link
+                      to={getEntityPath(entry.entity_type, entry.entity_id)}
+                      className="text-blue-600 hover:text-blue-800 hover:underline text-sm font-medium truncate"
+                    >
+                      {getItemTitle(entry.metadata_snapshot)}
+                    </Link>
+                    <span className="text-xs text-gray-400 shrink-0">v{entry.version}</span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                  <span className="text-gray-700">{formatActionTable(entry.action)}</span>
+                  <span>
+                    {formatSourceTable(entry.source)}
+                    {entry.token_prefix && (
+                      <span className="text-gray-400 ml-1">({entry.token_prefix}...)</span>
+                    )}
+                  </span>
+                  <span>{new Date(entry.created_at).toLocaleString()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table view */}
+          <div className="hidden md:block rounded-lg border border-gray-200 bg-white overflow-hidden">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
