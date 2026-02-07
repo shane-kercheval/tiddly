@@ -11,16 +11,39 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import type {
   HistoryEntityType,
+  HistoryActionType,
+  HistorySourceType,
   HistoryListResponse,
   ContentAtVersionResponse,
   RevertResponse,
 } from '../types'
 
+/** Parameters for user history query */
+export interface UserHistoryParams {
+  entityTypes?: HistoryEntityType[]
+  actions?: HistoryActionType[]
+  sources?: HistorySourceType[]
+  startDate?: string  // ISO 8601 datetime (UTC)
+  endDate?: string    // ISO 8601 datetime (UTC)
+  limit?: number
+  offset?: number
+}
+
 /** Query key factory for history queries */
 export const historyKeys = {
   all: ['history'] as const,
-  user: (params: { entityType?: HistoryEntityType; limit?: number; offset?: number }) =>
-    [...historyKeys.all, 'user', params] as const,
+  user: (params: UserHistoryParams) => [
+    ...historyKeys.all,
+    'user',
+    {
+      ...params,
+      // Sort arrays for consistent cache keys; normalize empty arrays to undefined
+      // so [] and undefined produce the same key (both mean "no filter")
+      entityTypes: params.entityTypes?.length ? params.entityTypes.slice().sort() : undefined,
+      actions: params.actions?.length ? params.actions.slice().sort() : undefined,
+      sources: params.sources?.length ? params.sources.slice().sort() : undefined,
+    },
+  ] as const,
   entity: (entityType: HistoryEntityType, entityId: string, params: { limit?: number; offset?: number }) =>
     [...historyKeys.all, entityType, entityId, params] as const,
   version: (entityType: HistoryEntityType, entityId: string, version: number) =>
@@ -32,21 +55,29 @@ export const historyKeys = {
  *
  * Returns paginated history records across all bookmarks, notes, and prompts,
  * sorted by created_at descending (most recent first).
+ *
+ * Supports filtering by entity types, actions, sources, and date range.
+ * Empty arrays are treated as "no filter" (show all).
  */
-export function useUserHistory(params: {
-  entityType?: HistoryEntityType
-  limit?: number
-  offset?: number
-}) {
+export function useUserHistory(params: UserHistoryParams) {
   return useQuery<HistoryListResponse>({
     queryKey: historyKeys.user(params),
     queryFn: async () => {
-      const queryParams: Record<string, string | number> = {}
-      if (params.entityType) queryParams.entity_type = params.entityType
-      if (params.limit !== undefined) queryParams.limit = params.limit
-      if (params.offset !== undefined) queryParams.offset = params.offset
+      const queryParams = new URLSearchParams()
 
-      const response = await api.get<HistoryListResponse>('/history', { params: queryParams })
+      // Use append for array params to create repeated query params
+      params.entityTypes?.forEach(t => queryParams.append('entity_type', t))
+      params.actions?.forEach(a => queryParams.append('action', a))
+      params.sources?.forEach(s => queryParams.append('source', s))
+
+      if (params.startDate) queryParams.append('start_date', params.startDate)
+      if (params.endDate) queryParams.append('end_date', params.endDate)
+      if (params.limit !== undefined) queryParams.append('limit', String(params.limit))
+      if (params.offset !== undefined) queryParams.append('offset', String(params.offset))
+
+      const queryString = queryParams.toString()
+      const url = queryString ? `/history?${queryString}` : '/history'
+      const response = await api.get<HistoryListResponse>(url)
       return response.data
     },
   })

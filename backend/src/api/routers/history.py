@@ -1,4 +1,5 @@
 """History API endpoints for viewing content version history."""
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
@@ -7,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_limits, get_current_user
 from core.auth import get_request_context
+from core.request_context import RequestSource
 from core.tier_limits import TierLimits
-from models.content_history import EntityType
+from models.content_history import ActionType, EntityType
 from models.user import User
 from schemas.bookmark import BookmarkUpdate
 from schemas.history import (
@@ -104,9 +106,25 @@ def _build_update_from_history(
 
 @router.get("/", response_model=HistoryListResponse)
 async def get_user_history(
-    entity_type: EntityType | None = Query(
+    entity_type: list[EntityType] | None = Query(
         default=None,
-        description="Filter by entity type (bookmark, note, prompt)",
+        description="Filter by entity types. Multiple values use OR logic.",
+    ),
+    action: list[ActionType] | None = Query(
+        default=None,
+        description="Filter by action types. Multiple values use OR logic.",
+    ),
+    source: list[RequestSource] | None = Query(
+        default=None,
+        description="Filter by source (web, api, mcp-content, mcp-prompt, unknown).",
+    ),
+    start_date: datetime | None = Query(
+        default=None,
+        description="Filter records on or after this datetime (ISO 8601 UTC).",
+    ),
+    end_date: datetime | None = Query(
+        default=None,
+        description="Filter records on or before this datetime (ISO 8601 UTC).",
     ),
     limit: int = Query(default=50, ge=1, le=100, description="Number of records to return"),
     offset: int = Query(default=0, ge=0, description="Number of records to skip"),
@@ -119,10 +137,41 @@ async def get_user_history(
     Returns paginated history records across all bookmarks, notes, and prompts,
     sorted by created_at descending (most recent first).
 
-    Optionally filter by entity_type to see history for only one content type.
+    Filters:
+    - entity_type: Filter by content types (OR logic within)
+    - action: Filter by action types (OR logic within)
+    - source: Filter by request source (OR logic within)
+    - start_date/end_date: Filter by date range (inclusive)
+
+    All filters combine with AND logic between categories.
     """
+    # Validate date range - require timezone-aware datetimes
+    if start_date and start_date.tzinfo is None:
+        raise HTTPException(
+            status_code=422,
+            detail="start_date must be timezone-aware (e.g., 2024-01-15T00:00:00Z)",
+        )
+    if end_date and end_date.tzinfo is None:
+        raise HTTPException(
+            status_code=422,
+            detail="end_date must be timezone-aware (e.g., 2024-01-15T00:00:00Z)",
+        )
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=422,
+            detail="start_date must be before or equal to end_date",
+        )
+
     items, total = await history_service.get_user_history(
-        db, current_user.id, entity_type, limit, offset,
+        db,
+        current_user.id,
+        entity_types=entity_type,
+        actions=action,
+        sources=source,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        offset=offset,
     )
     return HistoryListResponse(
         items=[HistoryResponse.model_validate(item) for item in items],

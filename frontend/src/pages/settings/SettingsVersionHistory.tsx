@@ -2,18 +2,67 @@
  * Settings page for viewing all content version history.
  *
  * Shows a paginated list of all changes across bookmarks, notes, and prompts,
- * with filtering by entity type and links to view individual items.
+ * with filtering by entity type, action, source, and date range.
  */
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useUserHistory } from '../../hooks/useHistory'
-import { BookmarkIcon, NoteIcon, PromptIcon } from '../../components/icons'
+import { MultiSelectDropdown } from '../../components/ui'
+import type { DropdownOption } from '../../components/ui'
+import { BookmarkIcon, NoteIcon, PromptIcon, CloseIconFilled } from '../../components/icons'
 import { CONTENT_TYPE_ICON_COLORS } from '../../constants/contentTypeStyles'
-import type { HistoryEntityType, HistoryActionType } from '../../types'
+import type { HistoryEntityType, HistoryActionType, HistorySourceType } from '../../types'
 
-/** Format action type for display */
-function formatAction(action: HistoryActionType): string {
+/** Date preset options */
+type DatePreset = 'all' | 'last7' | 'last30' | 'custom'
+
+/** Display source types (MCP combines both mcp-content and mcp-prompt) */
+type DisplaySourceType = 'web' | 'api' | 'mcp' | 'unknown'
+
+/** Map display source to actual API source values */
+function displaySourceToApiSources(source: DisplaySourceType): HistorySourceType[] {
+  if (source === 'mcp') {
+    return ['mcp-content', 'mcp-prompt']
+  }
+  return [source]
+}
+
+/** Dropdown options for entity type filter */
+const ENTITY_TYPE_OPTIONS: DropdownOption<HistoryEntityType>[] = [
+  { value: 'bookmark', label: 'Bookmarks', icon: <BookmarkIcon className={`h-4 w-4 ${CONTENT_TYPE_ICON_COLORS.bookmark}`} /> },
+  { value: 'note', label: 'Notes', icon: <NoteIcon className={`h-4 w-4 ${CONTENT_TYPE_ICON_COLORS.note}`} /> },
+  { value: 'prompt', label: 'Prompts', icon: <PromptIcon className={`h-4 w-4 ${CONTENT_TYPE_ICON_COLORS.prompt}`} /> },
+]
+
+/** Dropdown options for action filter */
+const ACTION_OPTIONS: DropdownOption<HistoryActionType>[] = [
+  { value: 'create', label: 'Create' },
+  { value: 'update', label: 'Update' },
+  { value: 'delete', label: 'Delete' },
+  { value: 'restore', label: 'Restore' },
+  { value: 'archive', label: 'Archive' },
+  { value: 'unarchive', label: 'Unarchive' },
+]
+
+/** Dropdown options for source filter */
+const SOURCE_OPTIONS: DropdownOption<DisplaySourceType>[] = [
+  { value: 'web', label: 'Web' },
+  { value: 'api', label: 'API' },
+  { value: 'mcp', label: 'MCP' },
+  { value: 'unknown', label: 'Unknown' },
+]
+
+/** Date preset options for dropdown */
+const DATE_PRESET_OPTIONS: { value: DatePreset; label: string }[] = [
+  { value: 'all', label: 'All time' },
+  { value: 'last7', label: 'Last 7 days' },
+  { value: 'last30', label: 'Last 30 days' },
+  { value: 'custom', label: 'Custom range' },
+]
+
+/** Format action type for table display (past tense) */
+function formatActionTable(action: HistoryActionType): string {
   const labels: Record<HistoryActionType, string> = {
     create: 'Created',
     update: 'Updated',
@@ -22,11 +71,11 @@ function formatAction(action: HistoryActionType): string {
     archive: 'Archived',
     unarchive: 'Unarchived',
   }
-  return labels[action] ?? action
+  return labels[action]
 }
 
-/** Format source for display */
-function formatSource(source: string): string {
+/** Format source for table display (MCP variants combined) */
+function formatSourceTable(source: string): string {
   const labels: Record<string, string> = {
     web: 'Web',
     api: 'API',
@@ -72,22 +121,124 @@ function getEntityPath(type: HistoryEntityType, id: string): string {
 }
 
 export function SettingsVersionHistory(): ReactNode {
-  const [entityTypeFilter, setEntityTypeFilter] = useState<HistoryEntityType | undefined>()
+  // Filter state - empty arrays mean "show all"
+  const [entityTypeFilter, setEntityTypeFilter] = useState<HistoryEntityType[]>([])
+  const [actionFilter, setActionFilter] = useState<HistoryActionType[]>([])
+  const [sourceFilter, setSourceFilter] = useState<DisplaySourceType[]>([])
+  const [datePreset, setDatePreset] = useState<DatePreset>('all')
+  const [customStartDate, setCustomStartDate] = useState<string>('')
+  const [customEndDate, setCustomEndDate] = useState<string>('')
   const [page, setPage] = useState(0)
-  const limit = 50
+  const limit = 25
+
+  // Calculate date range from preset or custom inputs
+  const { startDate, endDate } = useMemo(() => {
+    if (datePreset === 'all') {
+      return { startDate: undefined, endDate: undefined }
+    }
+    if (datePreset === 'last7') {
+      const end = new Date()
+      const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000)
+      return { startDate: start.toISOString(), endDate: end.toISOString() }
+    }
+    if (datePreset === 'last30') {
+      const end = new Date()
+      const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000)
+      return { startDate: start.toISOString(), endDate: end.toISOString() }
+    }
+    // Custom: datetime-local returns local time, convert to UTC
+    return {
+      startDate: customStartDate ? new Date(customStartDate).toISOString() : undefined,
+      endDate: customEndDate ? new Date(customEndDate).toISOString() : undefined,
+    }
+  }, [datePreset, customStartDate, customEndDate])
+
+  // Toggle helpers - each resets pagination
+  const toggleEntityType = (type: HistoryEntityType): void => {
+    setEntityTypeFilter(prev =>
+      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
+    )
+    setPage(0)
+  }
+
+  const toggleAction = (action: HistoryActionType): void => {
+    setActionFilter(prev =>
+      prev.includes(action) ? prev.filter(a => a !== action) : [...prev, action]
+    )
+    setPage(0)
+  }
+
+  const toggleSource = (source: DisplaySourceType): void => {
+    setSourceFilter(prev =>
+      prev.includes(source) ? prev.filter(s => s !== source) : [...prev, source]
+    )
+    setPage(0)
+  }
+
+  // Toggle all helpers
+  const toggleAllEntityTypes = (selectAll: boolean): void => {
+    setEntityTypeFilter(selectAll ? ENTITY_TYPE_OPTIONS.map(o => o.value) : [])
+    setPage(0)
+  }
+
+  const toggleAllActions = (selectAll: boolean): void => {
+    setActionFilter(selectAll ? ACTION_OPTIONS.map(o => o.value) : [])
+    setPage(0)
+  }
+
+  const toggleAllSources = (selectAll: boolean): void => {
+    setSourceFilter(selectAll ? SOURCE_OPTIONS.map(o => o.value) : [])
+    setPage(0)
+  }
+
+  // Convert display source filter to API source values
+  const apiSources = useMemo(() => {
+    if (sourceFilter.length === 0) return undefined
+    return sourceFilter.flatMap(displaySourceToApiSources)
+  }, [sourceFilter])
+
+  const handleDatePresetChange = (preset: DatePreset): void => {
+    setDatePreset(preset)
+    setPage(0)
+  }
+
+  const handleCustomStartDateChange = (value: string): void => {
+    setCustomStartDate(value)
+    setPage(0)
+  }
+
+  const handleCustomEndDateChange = (value: string): void => {
+    setCustomEndDate(value)
+    setPage(0)
+  }
+
+  // Check if any filters are active
+  const hasActiveFilters =
+    entityTypeFilter.length > 0 ||
+    actionFilter.length > 0 ||
+    sourceFilter.length > 0 ||
+    datePreset !== 'all'
+
+  // Clear all filters
+  const clearAllFilters = (): void => {
+    setEntityTypeFilter([])
+    setActionFilter([])
+    setSourceFilter([])
+    setDatePreset('all')
+    setCustomStartDate('')
+    setCustomEndDate('')
+    setPage(0)
+  }
 
   const { data: history, isLoading, error } = useUserHistory({
-    entityType: entityTypeFilter,
+    entityTypes: entityTypeFilter.length > 0 ? entityTypeFilter : undefined,
+    actions: actionFilter.length > 0 ? actionFilter : undefined,
+    sources: apiSources,
+    startDate,
+    endDate,
     limit,
     offset: page * limit,
   })
-
-  const filterButtons: { key: HistoryEntityType | undefined; label: string }[] = [
-    { key: undefined, label: 'All' },
-    { key: 'bookmark', label: 'Bookmarks' },
-    { key: 'note', label: 'Notes' },
-    { key: 'prompt', label: 'Prompts' },
-  ]
 
   return (
     <div className="max-w-4xl pt-4">
@@ -98,25 +249,158 @@ export function SettingsVersionHistory(): ReactNode {
         </p>
       </div>
 
-      {/* Filters */}
-      <div className="mb-6 flex flex-wrap gap-2">
-        {filterButtons.map(({ key, label }) => (
-          <button
-            key={label}
-            onClick={() => {
-              setEntityTypeFilter(key)
-              setPage(0)
-            }}
-            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-              entityTypeFilter === key
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+      {/* Filter bar */}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <MultiSelectDropdown
+          label="Type"
+          options={ENTITY_TYPE_OPTIONS}
+          selected={entityTypeFilter}
+          onChange={toggleEntityType}
+          onToggleAll={toggleAllEntityTypes}
+          testId="filter-type"
+        />
+
+        <MultiSelectDropdown
+          label="Action"
+          options={ACTION_OPTIONS}
+          selected={actionFilter}
+          onChange={toggleAction}
+          onToggleAll={toggleAllActions}
+          testId="filter-action"
+        />
+
+        <MultiSelectDropdown
+          label="Source"
+          options={SOURCE_OPTIONS}
+          selected={sourceFilter}
+          onChange={toggleSource}
+          onToggleAll={toggleAllSources}
+          testId="filter-source"
+        />
+
+        {/* Date filter - single select */}
+        <div className="flex items-center gap-1.5">
+          <select
+            value={datePreset}
+            onChange={(e) => handleDatePresetChange(e.target.value as DatePreset)}
+            className={`appearance-none cursor-pointer rounded-lg border px-2.5 py-1 pr-7 text-sm focus:outline-none focus:ring-2 bg-[length:1rem_1rem] bg-[right_0.375rem_center] bg-no-repeat transition-colors ${
+              datePreset !== 'all'
+                ? "border-blue-200 bg-blue-50/50 text-blue-700 focus:border-blue-300 focus:ring-blue-900/5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%231d4ed8%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')]"
+                : "border-gray-200 bg-gray-50/50 text-gray-700 focus:border-gray-300 focus:ring-gray-900/5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')]"
             }`}
+            data-testid="filter-date"
           >
-            {label}
-          </button>
-        ))}
+            {DATE_PRESET_OPTIONS.map(option => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          {datePreset === 'custom' && (
+            <>
+              <label className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-500">From</span>
+                <input
+                  type="datetime-local"
+                  value={customStartDate}
+                  onChange={(e) => handleCustomStartDateChange(e.target.value)}
+                  className="text-sm rounded-lg border border-gray-200 bg-gray-50/50 px-2.5 py-1"
+                  data-testid="filter-date-start"
+                />
+              </label>
+              <label className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-500">To</span>
+                <input
+                  type="datetime-local"
+                  value={customEndDate}
+                  onChange={(e) => handleCustomEndDateChange(e.target.value)}
+                  className="text-sm rounded-lg border border-gray-200 bg-gray-50/50 px-2.5 py-1"
+                  data-testid="filter-date-end"
+                />
+              </label>
+            </>
+          )}
+        </div>
+
       </div>
+
+      {/* Active filter chips */}
+      {hasActiveFilters && (
+        <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="active-filters">
+          <span className="text-sm text-gray-400">Filtering by:</span>
+
+          {/* Entity type chips */}
+          {entityTypeFilter.map(type => {
+            const option = ENTITY_TYPE_OPTIONS.find(o => o.value === type)
+            return (
+              <button
+                key={`type-${type}`}
+                onClick={() => toggleEntityType(type)}
+                className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors group"
+                data-testid={`active-filter-type-${type}`}
+              >
+                {option?.icon}
+                <span>{option?.label}</span>
+                <CloseIconFilled className="h-3 w-3 text-blue-400 group-hover:text-red-500 transition-colors" />
+              </button>
+            )
+          })}
+
+          {/* Action chips */}
+          {actionFilter.map(action => {
+            const option = ACTION_OPTIONS.find(o => o.value === action)
+            return (
+              <button
+                key={`action-${action}`}
+                onClick={() => toggleAction(action)}
+                className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors group"
+                data-testid={`active-filter-action-${action}`}
+              >
+                <span>{option?.label}</span>
+                <CloseIconFilled className="h-3 w-3 text-blue-400 group-hover:text-red-500 transition-colors" />
+              </button>
+            )
+          })}
+
+          {/* Source chips */}
+          {sourceFilter.map(source => {
+            const option = SOURCE_OPTIONS.find(o => o.value === source)
+            return (
+              <button
+                key={`source-${source}`}
+                onClick={() => toggleSource(source)}
+                className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors group"
+                data-testid={`active-filter-source-${source}`}
+              >
+                <span>{option?.label}</span>
+                <CloseIconFilled className="h-3 w-3 text-blue-400 group-hover:text-red-500 transition-colors" />
+              </button>
+            )
+          })}
+
+          {/* Date chip */}
+          {datePreset !== 'all' && (
+            <button
+              onClick={() => handleDatePresetChange('all')}
+              className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors group"
+              data-testid="active-filter-date"
+            >
+              <span>{DATE_PRESET_OPTIONS.find(o => o.value === datePreset)?.label}</span>
+              <CloseIconFilled className="h-3 w-3 text-blue-400 group-hover:text-red-500 transition-colors" />
+            </button>
+          )}
+
+          {/* Clear all */}
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            className="text-xs text-gray-500 hover:text-red-600 transition-colors"
+            data-testid="filter-clear-all"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
 
       {/* History list */}
       {error ? (
@@ -134,19 +418,19 @@ export function SettingsVersionHistory(): ReactNode {
       ) : (
         <>
           <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
-            <table className="w-full">
-              <thead>
-                <tr className="text-left text-sm text-gray-500 border-b border-gray-200 bg-gray-50">
-                  <th className="px-4 py-3 font-medium">Item</th>
-                  <th className="px-4 py-3 font-medium">Action</th>
-                  <th className="px-4 py-3 font-medium">Source</th>
-                  <th className="px-4 py-3 font-medium">Date</th>
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Item</th>
+                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Action</th>
+                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Source</th>
+                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Date</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-gray-200 bg-white">
                 {history?.items.map((entry) => (
                   <tr key={entry.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2">
                         {getEntityIcon(entry.entity_type)}
                         <Link
@@ -158,18 +442,18 @@ export function SettingsVersionHistory(): ReactNode {
                         <span className="text-xs text-gray-400">v{entry.version}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
-                      {formatAction(entry.action)}
+                    <td className="px-3 py-2.5 text-sm text-gray-700">
+                      {formatActionTable(entry.action)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">
-                      {formatSource(entry.source)}
+                    <td className="px-3 py-2.5 text-sm text-gray-500">
+                      {formatSourceTable(entry.source)}
                       {entry.token_prefix && (
                         <span className="text-xs text-gray-400 ml-1">
                           ({entry.token_prefix}...)
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                    <td className="px-3 py-2.5 text-sm text-gray-500 whitespace-nowrap">
                       {new Date(entry.created_at).toLocaleString()}
                     </td>
                   </tr>
@@ -187,14 +471,14 @@ export function SettingsVersionHistory(): ReactNode {
               <button
                 onClick={() => setPage(Math.max(0, page - 1))}
                 disabled={page === 0}
-                className="px-3 py-1.5 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="h-7 px-2.5 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 Previous
               </button>
               <button
                 onClick={() => setPage(page + 1)}
                 disabled={!history?.has_more}
-                className="px-3 py-1.5 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="h-7 px-2.5 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 Next
               </button>

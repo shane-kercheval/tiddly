@@ -1,6 +1,7 @@
 """Service layer for content history recording and reconstruction."""
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import UUID
 
 from diff_match_patch import diff_match_patch
@@ -8,7 +9,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.request_context import RequestContext
+from core.request_context import RequestContext, RequestSource
 from core.tier_limits import TierLimits
 from models.bookmark import Bookmark
 from models.content_history import ActionType, ContentHistory, DiffType, EntityType
@@ -268,7 +269,11 @@ class HistoryService:
         self,
         db: AsyncSession,
         user_id: UUID,
-        entity_type: EntityType | str | None = None,
+        entity_types: list[EntityType | str] | None = None,
+        actions: list[ActionType | str] | None = None,
+        sources: list[RequestSource | str] | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[ContentHistory], int]:
@@ -278,20 +283,46 @@ class HistoryService:
         Args:
             db: Database session.
             user_id: ID of the user.
-            entity_type: Optional filter by entity type.
+            entity_types: Optional filter by entity types (OR logic within).
+            actions: Optional filter by action types (OR logic within).
+            sources: Optional filter by sources (OR logic within).
+            start_date: Optional filter for records on or after this datetime.
+            end_date: Optional filter for records on or before this datetime.
             limit: Maximum records to return.
             offset: Number of records to skip.
 
         Returns:
             Tuple of (history records, total count).
+
+        Note:
+            Empty lists are treated as "no filter" (show all) since bool([]) is False.
         """
         # Build base conditions
         conditions = [ContentHistory.user_id == user_id]
-        if entity_type:
-            entity_type_value = (
-                entity_type.value if isinstance(entity_type, EntityType) else entity_type
-            )
-            conditions.append(ContentHistory.entity_type == entity_type_value)
+
+        if entity_types:
+            entity_type_values = [
+                e.value if isinstance(e, EntityType) else e for e in entity_types
+            ]
+            conditions.append(ContentHistory.entity_type.in_(entity_type_values))
+
+        if actions:
+            action_values = [
+                a.value if isinstance(a, ActionType) else a for a in actions
+            ]
+            conditions.append(ContentHistory.action.in_(action_values))
+
+        if sources:
+            source_values = [
+                s.value if isinstance(s, RequestSource) else s for s in sources
+            ]
+            conditions.append(ContentHistory.source.in_(source_values))
+
+        if start_date:
+            conditions.append(ContentHistory.created_at >= start_date)
+
+        if end_date:
+            conditions.append(ContentHistory.created_at <= end_date)
 
         # Count query
         count_stmt = select(func.count()).select_from(ContentHistory).where(*conditions)

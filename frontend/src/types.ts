@@ -525,6 +525,9 @@ export type HistoryEntityType = 'bookmark' | 'note' | 'prompt'
 /** Action types tracked in history */
 export type HistoryActionType = 'create' | 'update' | 'delete' | 'restore' | 'archive' | 'unarchive'
 
+/** Source types for history records (matches backend RequestSource enum) */
+export type HistorySourceType = 'web' | 'api' | 'mcp-content' | 'mcp-prompt' | 'unknown'
+
 /** Diff types for history records */
 export type HistoryDiffType = 'snapshot' | 'diff' | 'metadata'
 
@@ -537,7 +540,7 @@ export interface HistoryEntry {
   version: number
   diff_type: HistoryDiffType
   metadata_snapshot: Record<string, unknown> | null
-  source: string
+  source: HistorySourceType
   auth_type: string
   token_prefix: string | null
   created_at: string

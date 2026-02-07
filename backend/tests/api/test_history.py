@@ -1,4 +1,5 @@
 """Tests for history API endpoints."""
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
@@ -114,6 +115,322 @@ async def test_get_user_history_filter_by_entity_type(
     data = response.json()
     assert data["total"] == 1
     assert data["items"][0]["entity_type"] == entity_type
+
+
+async def test_get_user_history_filter_by_multiple_entity_types(
+    client: AsyncClient,
+) -> None:
+    """Test filtering user history by multiple entity types (OR logic)."""
+    # Create one of each entity type
+    await client.post("/bookmarks/", json={"url": "https://example.com"})
+    await client.post("/notes/", json={"title": "Test", "content": "Content"})
+    await client.post(
+        "/prompts/",
+        json={"name": "test-multi-entity", "content": "Hello", "arguments": []},
+    )
+
+    # Filter by bookmark and note (should return 2)
+    response = await client.get(
+        "/history/",
+        params=[("entity_type", "bookmark"), ("entity_type", "note")],
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total"] == 2
+    entity_types = {item["entity_type"] for item in data["items"]}
+    assert entity_types == {"bookmark", "note"}
+
+
+async def test_get_user_history_filter_by_action(client: AsyncClient) -> None:
+    """Test filtering user history by action type."""
+    # Create bookmark (create action)
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://action-test.com", "content": "Initial"},
+    )
+    bookmark_id = response.json()["id"]
+
+    # Update bookmark (update action)
+    await client.patch(f"/bookmarks/{bookmark_id}", json={"content": "Updated"})
+
+    # Filter by create action only
+    response = await client.get("/history/", params={"action": "create"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["action"] == "create"
+
+    # Filter by update action only
+    response = await client.get("/history/", params={"action": "update"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["action"] == "update"
+
+
+async def test_get_user_history_filter_by_multiple_actions(client: AsyncClient) -> None:
+    """Test filtering user history by multiple action types (OR logic)."""
+    # Create and update bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://multi-action-test.com", "content": "Initial"},
+    )
+    bookmark_id = response.json()["id"]
+    await client.patch(f"/bookmarks/{bookmark_id}", json={"content": "Updated"})
+
+    # Delete to add delete action
+    await client.delete(f"/bookmarks/{bookmark_id}")
+
+    # Filter by create and delete (should return 2)
+    response = await client.get(
+        "/history/",
+        params=[("action", "create"), ("action", "delete")],
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+    actions = {item["action"] for item in data["items"]}
+    assert actions == {"create", "delete"}
+
+
+async def test_get_user_history_filter_by_source(client: AsyncClient) -> None:
+    """Test filtering user history by source."""
+    # Create bookmark (source will be 'unknown' in test client without header)
+    await client.post("/bookmarks/", json={"url": "https://source-test.com"})
+
+    # Filter by unknown source
+    response = await client.get("/history/", params={"source": "unknown"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["source"] == "unknown"
+
+    # Filter by web source (should return 0 since we didn't set header)
+    response = await client.get("/history/", params={"source": "web"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 0
+
+
+async def test_get_user_history_filter_by_date_range(client: AsyncClient) -> None:
+    """Test filtering user history by date range."""
+    # Create bookmark
+    await client.post("/bookmarks/", json={"url": "https://date-test.com"})
+
+    # Get all history to find the created_at timestamp
+    response = await client.get("/history/")
+    data = response.json()
+    assert data["total"] == 1
+    created_at = datetime.fromisoformat(data["items"][0]["created_at"].replace("Z", "+00:00"))
+
+    # Filter with start_date before creation (should return 1)
+    start_before = (created_at - timedelta(hours=1)).isoformat()
+    response = await client.get("/history/", params={"start_date": start_before})
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+    # Filter with start_date after creation (should return 0)
+    start_after = (created_at + timedelta(hours=1)).isoformat()
+    response = await client.get("/history/", params={"start_date": start_after})
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+
+    # Filter with end_date after creation (should return 1)
+    end_after = (created_at + timedelta(hours=1)).isoformat()
+    response = await client.get("/history/", params={"end_date": end_after})
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+    # Filter with end_date before creation (should return 0)
+    end_before = (created_at - timedelta(hours=1)).isoformat()
+    response = await client.get("/history/", params={"end_date": end_before})
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+
+
+async def test_get_user_history_filter_combined(client: AsyncClient) -> None:
+    """Test combining multiple filters (AND logic between categories)."""
+    # Create bookmark
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://combined-filter-test.com", "content": "Initial"},
+    )
+    bookmark_id = response.json()["id"]
+
+    # Update bookmark
+    await client.patch(f"/bookmarks/{bookmark_id}", json={"content": "Updated"})
+
+    # Create note
+    await client.post("/notes/", json={"title": "Test", "content": "Content"})
+
+    # Filter by bookmark entity_type AND update action (should return 1)
+    response = await client.get(
+        "/history/",
+        params={"entity_type": "bookmark", "action": "update"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["entity_type"] == "bookmark"
+    assert data["items"][0]["action"] == "update"
+
+
+async def test_get_user_history_invalid_entity_type_returns_422(
+    client: AsyncClient,
+) -> None:
+    """Test that invalid entity_type value returns 422."""
+    response = await client.get("/history/", params={"entity_type": "invalid"})
+    assert response.status_code == 422
+
+
+async def test_get_user_history_invalid_action_returns_422(client: AsyncClient) -> None:
+    """Test that invalid action value returns 422."""
+    response = await client.get("/history/", params={"action": "invalid"})
+    assert response.status_code == 422
+
+
+async def test_get_user_history_invalid_source_returns_422(client: AsyncClient) -> None:
+    """Test that invalid source value returns 422."""
+    response = await client.get("/history/", params={"source": "invalid"})
+    assert response.status_code == 422
+
+
+async def test_get_user_history_invalid_date_format_returns_422(
+    client: AsyncClient,
+) -> None:
+    """Test that invalid date format returns 422."""
+    response = await client.get("/history/", params={"start_date": "not-a-date"})
+    assert response.status_code == 422
+
+
+async def test_get_user_history_start_date_after_end_date_returns_422(
+    client: AsyncClient,
+) -> None:
+    """Test that start_date > end_date returns 422."""
+    response = await client.get(
+        "/history/",
+        params={
+            "start_date": "2024-01-20T00:00:00Z",
+            "end_date": "2024-01-10T00:00:00Z",
+        },
+    )
+    assert response.status_code == 422
+    assert "start_date must be before or equal to end_date" in response.json()["detail"]
+
+
+async def test_get_user_history_mixed_naive_aware_datetime_returns_422(
+    client: AsyncClient,
+) -> None:
+    """Test that mixing naive and aware datetimes returns 422."""
+    # start_date is naive (no Z or offset), end_date is aware (has Z)
+    response = await client.get(
+        "/history/",
+        params={
+            "start_date": "2024-01-01T00:00:00",
+            "end_date": "2024-01-10T00:00:00Z",
+        },
+    )
+    assert response.status_code == 422
+    assert "timezone-aware" in response.json()["detail"]
+
+
+async def test_get_user_history_empty_filter_returns_all(client: AsyncClient) -> None:
+    """Test that empty filter arrays return all records."""
+    # Create entities
+    await client.post("/bookmarks/", json={"url": "https://empty-filter-test.com"})
+    await client.post("/notes/", json={"title": "Test", "content": "Content"})
+
+    # No filters - should return all
+    response = await client.get("/history/")
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+
+
+async def test_get_user_history_filter_by_multiple_sources(client: AsyncClient) -> None:
+    """Test filtering by multiple sources (OR logic)."""
+    # In test client without X-Request-Source header, source defaults to 'unknown'
+    await client.post("/bookmarks/", json={"url": "https://multi-source-test.com"})
+
+    # Filter by unknown and web (only unknown exists, should return 1)
+    response = await client.get(
+        "/history/",
+        params=[("source", "unknown"), ("source", "web")],
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["source"] == "unknown"
+
+
+async def test_get_user_history_pagination_with_filters(client: AsyncClient) -> None:
+    """Test that pagination works correctly with filters applied."""
+    # Create 3 bookmarks and 2 notes
+    for i in range(3):
+        await client.post("/bookmarks/", json={"url": f"https://pagination-filter-{i}.com"})
+    for i in range(2):
+        await client.post("/notes/", json={"title": f"Note {i}", "content": "Content"})
+
+    # Filter by bookmark only, with pagination
+    response = await client.get(
+        "/history/",
+        params={"entity_type": "bookmark", "limit": 2, "offset": 0},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 3  # Total matching filter, not total in DB
+    assert len(data["items"]) == 2
+    assert data["has_more"] is True
+    assert all(item["entity_type"] == "bookmark" for item in data["items"])
+
+    # Get second page
+    response = await client.get(
+        "/history/",
+        params={"entity_type": "bookmark", "limit": 2, "offset": 2},
+    )
+    data = response.json()
+    assert data["total"] == 3
+    assert len(data["items"]) == 1
+    assert data["has_more"] is False
+
+
+async def test_get_user_history_date_boundary_inclusive(client: AsyncClient) -> None:
+    """Test that date filtering is inclusive at boundaries."""
+    # Create bookmark
+    await client.post("/bookmarks/", json={"url": "https://boundary-test.com"})
+
+    # Get the exact created_at timestamp
+    response = await client.get("/history/")
+    data = response.json()
+    created_at_str = data["items"][0]["created_at"]
+    created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+
+    # Filter with start_date exactly equal to created_at (should include it)
+    response = await client.get(
+        "/history/",
+        params={"start_date": created_at.isoformat()},
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+    # Filter with end_date exactly equal to created_at (should include it)
+    response = await client.get(
+        "/history/",
+        params={"end_date": created_at.isoformat()},
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+    # Filter with both boundaries exactly equal to created_at (should include it)
+    response = await client.get(
+        "/history/",
+        params={
+            "start_date": created_at.isoformat(),
+            "end_date": created_at.isoformat(),
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
 
 
 async def test_get_user_history_pagination(client: AsyncClient) -> None:
@@ -991,8 +1308,6 @@ async def test_revert_archived_entity_preserves_archive_state(
     update_payload: dict,
 ) -> None:
     """Test that reverting an archived entity preserves archive state."""
-    from datetime import UTC, datetime
-
     # Create entity (v1)
     response = await client.post(create_endpoint, json=create_payload)
     assert response.status_code == 201

@@ -1,4 +1,5 @@
 """Tests for the HistoryService."""
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
@@ -1511,7 +1512,7 @@ class TestHistoryRetrieval:
         items, total = await history_service.get_user_history(
             db=db_session,
             user_id=test_user.id,
-            entity_type=EntityType.NOTE,
+            entity_types=[EntityType.NOTE],
         )
 
         assert total == 2
@@ -2223,3 +2224,370 @@ class TestCountBasedPruning:
             entity_id=entity_id,
         )
         assert total == PRUNE_CHECK_INTERVAL
+
+
+class TestGetUserHistoryFilters:
+    """Tests for get_user_history filter functionality."""
+
+    @pytest.mark.asyncio
+    async def test__get_user_history__filter_by_single_entity_type(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Filter by single entity type returns only matching records."""
+        note_id = uuid4()
+        bookmark_id = uuid4()
+
+        # Create a note
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=note_id,
+            action=ActionType.CREATE,
+            current_content="Note content",
+            previous_content=None,
+            metadata={"title": "Test Note"},
+            context=request_context,
+        )
+
+        # Create a bookmark
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.BOOKMARK,
+            entity_id=bookmark_id,
+            action=ActionType.CREATE,
+            current_content="Bookmark content",
+            previous_content=None,
+            metadata={"url": "https://test.com"},
+            context=request_context,
+        )
+
+        # Filter by note entity type
+        items, total = await history_service.get_user_history(
+            db=db_session,
+            user_id=test_user.id,
+            entity_types=[EntityType.NOTE],
+        )
+
+        assert total == 1
+        assert items[0].entity_type == EntityType.NOTE.value
+
+    @pytest.mark.asyncio
+    async def test__get_user_history__filter_by_multiple_entity_types(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Filter by multiple entity types returns union (OR logic)."""
+        note_id = uuid4()
+        bookmark_id = uuid4()
+        prompt_id = uuid4()
+
+        # Create one of each
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=note_id,
+            action=ActionType.CREATE,
+            current_content="Note",
+            previous_content=None,
+            metadata={"title": "Test"},
+            context=request_context,
+        )
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.BOOKMARK,
+            entity_id=bookmark_id,
+            action=ActionType.CREATE,
+            current_content="Bookmark",
+            previous_content=None,
+            metadata={"url": "https://test.com"},
+            context=request_context,
+        )
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.PROMPT,
+            entity_id=prompt_id,
+            action=ActionType.CREATE,
+            current_content="Prompt",
+            previous_content=None,
+            metadata={"name": "test-prompt"},
+            context=request_context,
+        )
+
+        # Filter by note and bookmark (should return 2)
+        items, total = await history_service.get_user_history(
+            db=db_session,
+            user_id=test_user.id,
+            entity_types=[EntityType.NOTE, EntityType.BOOKMARK],
+        )
+
+        assert total == 2
+        entity_types = {item.entity_type for item in items}
+        assert entity_types == {"note", "bookmark"}
+
+    @pytest.mark.asyncio
+    async def test__get_user_history__filter_by_actions(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Filter by action types returns only matching records."""
+        entity_id = uuid4()
+
+        # Create and update
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Initial",
+            previous_content=None,
+            metadata={"title": "Test"},
+            context=request_context,
+        )
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content="Updated",
+            previous_content="Initial",
+            metadata={"title": "Test"},
+            context=request_context,
+        )
+
+        # Filter by create only
+        items, total = await history_service.get_user_history(
+            db=db_session,
+            user_id=test_user.id,
+            actions=[ActionType.CREATE],
+        )
+        assert total == 1
+        assert items[0].action == ActionType.CREATE.value
+
+        # Filter by both
+        items, total = await history_service.get_user_history(
+            db=db_session,
+            user_id=test_user.id,
+            actions=[ActionType.CREATE, ActionType.UPDATE],
+        )
+        assert total == 2
+
+    @pytest.mark.asyncio
+    async def test__get_user_history__filter_by_sources(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+        pat_context: RequestContext,
+    ) -> None:
+        """Filter by source returns only matching records."""
+        entity_id_1 = uuid4()
+        entity_id_2 = uuid4()
+
+        # Create with web source (via request_context)
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id_1,
+            action=ActionType.CREATE,
+            current_content="Web content",
+            previous_content=None,
+            metadata={"title": "Web"},
+            context=request_context,  # source=web
+        )
+
+        # Create with MCP source (via pat_context)
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id_2,
+            action=ActionType.CREATE,
+            current_content="MCP content",
+            previous_content=None,
+            metadata={"title": "MCP"},
+            context=pat_context,  # source=mcp-content
+        )
+
+        # Filter by web source
+        items, total = await history_service.get_user_history(
+            db=db_session,
+            user_id=test_user.id,
+            sources=["web"],
+        )
+        assert total == 1
+        assert items[0].source == "web"
+
+        # Filter by mcp-content source
+        items, total = await history_service.get_user_history(
+            db=db_session,
+            user_id=test_user.id,
+            sources=["mcp-content"],
+        )
+        assert total == 1
+        assert items[0].source == "mcp-content"
+
+    @pytest.mark.asyncio
+    async def test__get_user_history__filter_by_date_range(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Filter by date range returns only records in range."""
+        entity_id = uuid4()
+
+        # Create a record
+        history = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Content",
+            previous_content=None,
+            metadata={"title": "Test"},
+            context=request_context,
+        )
+        await db_session.flush()
+
+        created_at = history.created_at
+
+        # Filter with start_date before creation
+        items, total = await history_service.get_user_history(
+            db=db_session,
+            user_id=test_user.id,
+            start_date=created_at - timedelta(hours=1),
+        )
+        assert total == 1
+
+        # Filter with start_date after creation
+        items, total = await history_service.get_user_history(
+            db=db_session,
+            user_id=test_user.id,
+            start_date=created_at + timedelta(hours=1),
+        )
+        assert total == 0
+
+        # Filter with end_date after creation
+        items, total = await history_service.get_user_history(
+            db=db_session,
+            user_id=test_user.id,
+            end_date=created_at + timedelta(hours=1),
+        )
+        assert total == 1
+
+        # Filter with end_date before creation
+        items, total = await history_service.get_user_history(
+            db=db_session,
+            user_id=test_user.id,
+            end_date=created_at - timedelta(hours=1),
+        )
+        assert total == 0
+
+    @pytest.mark.asyncio
+    async def test__get_user_history__combined_filters(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Combined filters use AND logic between categories."""
+        note_id = uuid4()
+        bookmark_id = uuid4()
+
+        # Create note
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=note_id,
+            action=ActionType.CREATE,
+            current_content="Note",
+            previous_content=None,
+            metadata={"title": "Note"},
+            context=request_context,
+        )
+
+        # Update note
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=note_id,
+            action=ActionType.UPDATE,
+            current_content="Updated Note",
+            previous_content="Note",
+            metadata={"title": "Note"},
+            context=request_context,
+        )
+
+        # Create bookmark
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.BOOKMARK,
+            entity_id=bookmark_id,
+            action=ActionType.CREATE,
+            current_content="Bookmark",
+            previous_content=None,
+            metadata={"url": "https://test.com"},
+            context=request_context,
+        )
+
+        # Filter by note AND update (should return 1)
+        items, total = await history_service.get_user_history(
+            db=db_session,
+            user_id=test_user.id,
+            entity_types=[EntityType.NOTE],
+            actions=[ActionType.UPDATE],
+        )
+        assert total == 1
+        assert items[0].entity_type == "note"
+        assert items[0].action == "update"
+
+    @pytest.mark.asyncio
+    async def test__get_user_history__empty_filters_return_all(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Empty filter lists return all records (same as None)."""
+        entity_id = uuid4()
+
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Content",
+            previous_content=None,
+            metadata={"title": "Test"},
+            context=request_context,
+        )
+
+        # Empty lists are falsy in Python, so they skip the filter (show all)
+        items, total = await history_service.get_user_history(
+            db=db_session,
+            user_id=test_user.id,
+            entity_types=[],
+            actions=[],
+            sources=[],
+        )
+        assert total == 1

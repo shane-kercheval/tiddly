@@ -56,7 +56,7 @@ export function PaginationControls({
       <button
         onClick={() => onPageChange(Math.max(0, offset - pageSize))}
         disabled={offset === 0}
-        className="btn-secondary"
+        className="btn-secondary h-7"
       >
         Previous
       </button>
@@ -80,7 +80,7 @@ export function PaginationControls({
       <button
         onClick={() => onPageChange(offset + pageSize)}
         disabled={!hasMore}
-        className="btn-secondary"
+        className="btn-secondary h-7"
       >
         Next
       </button>
