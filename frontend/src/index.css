@@ -106,6 +106,15 @@ body {
     @apply inline-flex items-baseline rounded-md bg-gray-50 px-1.5 py-px text-xs font-normal text-gray-600 border border-gray-200;
   }
 
+  /* Chip styles - for filter/tag selections in modals */
+  .chip {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700;
+  }
+
+  .chip-selectable {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200 cursor-pointer transition-colors;
+  }
+
   /* Modal backdrop with safe area support for notched devices */
   .modal-backdrop {
     @apply fixed inset-0 z-50 flex items-center justify-center bg-gray-900/20 backdrop-blur-sm p-4;

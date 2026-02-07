@@ -156,7 +156,7 @@ export function CollectionModal({
               {selectedFilters.map((filter) => (
                 <span
                   key={filter.id}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700"
+                  className="chip"
                 >
                   {filter.name}
                   <button
@@ -188,7 +188,7 @@ export function CollectionModal({
                   key={filter.id}
                   type="button"
                   onClick={() => handleAddFilter(filter.id)}
-                  className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200 cursor-pointer transition-colors"
+                  className="chip-selectable"
                   disabled={isSubmitting}
                 >
                   + {filter.name}
