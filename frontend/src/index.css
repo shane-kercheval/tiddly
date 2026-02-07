@@ -18,21 +18,21 @@ body {
 }
 
 @layer components {
-  /* Button variants - compact sizing */
+  /* Button variants - compact sizing (30px height) */
   .btn-primary {
-    @apply rounded-md bg-gray-900 px-3 py-1 text-sm font-medium text-white transition-all hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:hover:bg-gray-300;
+    @apply h-[30px] rounded-md bg-gray-900 px-3 py-1 text-sm font-medium text-white transition-all hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:hover:bg-gray-300;
   }
 
   .btn-secondary {
-    @apply rounded-md border border-gray-200 bg-white px-3 py-1 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50 hover:border-gray-300 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply h-[30px] rounded-md border border-gray-200 bg-white px-3 py-1 text-sm font-medium text-gray-700 transition-all hover:bg-gray-50 hover:border-gray-300 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-danger {
-    @apply rounded-md bg-red-500 px-3 py-1 text-sm font-medium text-white transition-all hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-red-500/50 disabled:hover:bg-red-500/50;
+    @apply h-[30px] rounded-md bg-red-500 px-3 py-1 text-sm font-medium text-white transition-all hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-red-500/50 disabled:hover:bg-red-500/50;
   }
 
   .btn-ghost {
-    @apply rounded-md bg-transparent px-3 py-1 text-sm font-medium text-gray-600 transition-all hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply h-[30px] rounded-md bg-transparent px-3 py-1 text-sm font-medium text-gray-600 transition-all hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   /* Icon buttons with touch-friendly sizing on mobile (44px min target) */
