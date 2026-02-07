@@ -81,6 +81,19 @@ vi.mock('../stores/sidebarStore', () => ({
   },
 }))
 
+// Track history sidebar state for tests
+let mockHistorySidebarOpen = false
+vi.mock('../stores/historySidebarStore', () => ({
+  useHistorySidebarStore: (selector?: (state: Record<string, unknown>) => unknown) => {
+    const state = {
+      isOpen: mockHistorySidebarOpen,
+      setOpen: vi.fn(),
+    }
+    return selector ? selector(state) : state
+  },
+  HISTORY_SIDEBAR_MARGIN_CLASS: 'md:mr-96',
+}))
+
 function TestPage(): ReactNode {
   return <div data-testid="test-page">Test Page Content</div>
 }
@@ -100,6 +113,7 @@ function renderLayout(): void {
 describe('Layout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockHistorySidebarOpen = false
   })
 
   describe('centralized data fetching', () => {
@@ -143,6 +157,24 @@ describe('Layout', () => {
 
       // Sidebar contains the builtin "All Content" item (appears in both mobile and desktop sidebars)
       expect(screen.getAllByText('All Content').length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  describe('history sidebar margin', () => {
+    it('should not apply margin when history sidebar is closed', () => {
+      mockHistorySidebarOpen = false
+      renderLayout()
+
+      const main = screen.getByRole('main')
+      expect(main.className).not.toContain('md:mr-96')
+    })
+
+    it('should apply margin when history sidebar is open', () => {
+      mockHistorySidebarOpen = true
+      renderLayout()
+
+      const main = screen.getByRole('main')
+      expect(main.className).toContain('md:mr-96')
     })
   })
 })

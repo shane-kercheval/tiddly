@@ -26,6 +26,7 @@ import {
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
+import { useHistorySidebarStore } from '../stores/historySidebarStore'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate } from '../types'
 
 type PromptViewState = 'active' | 'archived' | 'deleted'
@@ -56,7 +57,10 @@ export function PromptDetail(): ReactNode {
   const [prompt, setPrompt] = useState<PromptType | null>(null)
   const [isLoading, setIsLoading] = useState(!isCreate)
   const [error, setError] = useState<string | null>(null)
-  const [showHistory, setShowHistory] = useState(false)
+
+  // History sidebar state (managed in store so Layout can apply margin)
+  const showHistory = useHistorySidebarStore((state) => state.isOpen)
+  const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
 
   // Get navigation state
   const locationState = location.state as { initialTags?: string[]; prompt?: PromptType } | undefined
@@ -121,6 +125,11 @@ export function PromptDetail(): ReactNode {
 
     loadPrompt()
   }, [isCreate, promptId, isValidId, fetchPrompt, trackPromptUsage, passedPrompt])
+
+  // Close history sidebar on unmount
+  useEffect(() => {
+    return () => setShowHistory(false)
+  }, [setShowHistory])
 
   // Navigation helper
   const handleBack = useCallback((): void => {
@@ -261,7 +270,7 @@ export function PromptDetail(): ReactNode {
   // History sidebar handlers
   const handleShowHistory = useCallback((): void => {
     setShowHistory(true)
-  }, [])
+  }, [setShowHistory])
 
   const handleHistoryReverted = useCallback(async (): Promise<void> => {
     // Refresh the prompt after a revert to show the restored content

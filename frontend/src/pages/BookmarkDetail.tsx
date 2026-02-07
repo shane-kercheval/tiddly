@@ -25,6 +25,7 @@ import {
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
+import { useHistorySidebarStore } from '../stores/historySidebarStore'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate } from '../types'
 import { getApiErrorMessage } from '../utils'
 
@@ -54,7 +55,10 @@ export function BookmarkDetail(): ReactNode {
   const [bookmark, setBookmark] = useState<BookmarkType | null>(null)
   const [isLoading, setIsLoading] = useState(!isCreate)
   const [error, setError] = useState<string | null>(null)
-  const [showHistory, setShowHistory] = useState(false)
+
+  // History sidebar state (managed in store so Layout can apply margin)
+  const showHistory = useHistorySidebarStore((state) => state.isOpen)
+  const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
 
   const locationState = location.state as { initialTags?: string[]; initialUrl?: string } | undefined
   const { selectedTags } = useTagFilterStore()
@@ -102,6 +106,11 @@ export function BookmarkDetail(): ReactNode {
 
     loadBookmark()
   }, [isCreate, bookmarkId, fetchBookmark])
+
+  // Close history sidebar on unmount
+  useEffect(() => {
+    return () => setShowHistory(false)
+  }, [setShowHistory])
 
   const handleSave = useCallback(
     async (data: BookmarkCreate | BookmarkUpdate): Promise<void> => {
@@ -250,7 +259,7 @@ export function BookmarkDetail(): ReactNode {
   // History sidebar handlers
   const handleShowHistory = useCallback((): void => {
     setShowHistory(true)
-  }, [])
+  }, [setShowHistory])
 
   const handleHistoryReverted = useCallback(async (): Promise<void> => {
     // Refresh the bookmark after a revert to show the restored content

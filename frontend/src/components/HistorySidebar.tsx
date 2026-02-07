@@ -8,6 +8,7 @@ import { useState, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import * as Diff from 'diff'
 import { useEntityHistory, useContentAtVersion, useRevertToVersion } from '../hooks/useHistory'
+import { HISTORY_SIDEBAR_WIDTH_CLASS } from '../stores/historySidebarStore'
 import { CloseIcon, RestoreIcon } from './icons'
 import type { HistoryEntityType, HistoryActionType } from '../types'
 
@@ -173,7 +174,7 @@ export function HistorySidebar({
   }
 
   return (
-    <div className="fixed right-0 top-0 h-full w-96 bg-white shadow-lg border-l border-gray-200 flex flex-col z-50">
+    <div className={`fixed right-0 top-0 h-full ${HISTORY_SIDEBAR_WIDTH_CLASS} bg-white shadow-lg border-l border-gray-200 flex flex-col z-50`}>
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200 shrink-0">
         <h2 className="text-lg font-semibold text-gray-900">Version History</h2>

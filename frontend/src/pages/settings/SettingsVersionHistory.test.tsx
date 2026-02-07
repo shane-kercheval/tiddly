@@ -231,7 +231,8 @@ describe('SettingsVersionHistory', () => {
 
       expect(screen.getByTestId('filter-date-start')).toBeInTheDocument()
       expect(screen.getByTestId('filter-date-end')).toBeInTheDocument()
-      expect(screen.getByText('–')).toBeInTheDocument()
+      expect(screen.getByText('From')).toBeInTheDocument()
+      expect(screen.getByText('To')).toBeInTheDocument()
     })
 
     it('should pass undefined dates for "all" preset', async () => {
