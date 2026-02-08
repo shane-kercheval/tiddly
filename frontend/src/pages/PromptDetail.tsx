@@ -126,12 +126,6 @@ export function PromptDetail(): ReactNode {
     loadPrompt()
   }, [isCreate, promptId, isValidId, fetchPrompt, trackPromptUsage, passedPrompt])
 
-  // Close history sidebar on unmount without persisting to localStorage.
-  // This resets Layout margin on navigation, while preserving the open state for page refresh.
-  useEffect(() => {
-    return () => setShowHistory(false, { persist: false })
-  }, [setShowHistory])
-
   // Navigation helper
   const handleBack = useCallback((): void => {
     navigateBack()

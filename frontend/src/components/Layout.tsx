@@ -37,6 +37,8 @@ export function Layout(): ReactNode {
   )
   const location = useLocation()
   const showFooter = location.pathname.startsWith('/app/settings')
+  // History sidebar only renders on detail pages (e.g., /app/notes/abc-123)
+  const isDetailPage = /^\/app\/(bookmarks|notes|prompts)\/[^/]+$/.test(location.pathname)
   const hasFetchedRef = useRef(false)
   const historySidebarOpen = useHistorySidebarStore((state) => state.isOpen)
   const historySidebarWidth = useHistorySidebarStore((state) => state.width)
@@ -78,7 +80,7 @@ export function Layout(): ReactNode {
   // Calculate constrained margin for history sidebar
   // Uses the same logic as HistorySidebar to ensure they stay in sync
   const getHistoryMargin = (): number => {
-    if (!historySidebarOpen || !isDesktop) return 0
+    if (!historySidebarOpen || !isDesktop || !isDetailPage) return 0
     const leftSidebar = document.getElementById('desktop-sidebar')
     const leftSidebarWidth = leftSidebar?.getBoundingClientRect().width ?? 0
     // Clamp to MIN_SIDEBAR_WIDTH to prevent negative values on narrow viewports

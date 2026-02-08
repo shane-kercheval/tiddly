@@ -102,12 +102,13 @@ function TestPage(): ReactNode {
   return <div data-testid="test-page">Test Page Content</div>
 }
 
-function renderLayout(): void {
+function renderLayout(route = '/app/bookmarks'): void {
   render(
-    <MemoryRouter initialEntries={['/app/bookmarks']}>
+    <MemoryRouter initialEntries={[route]}>
       <Routes>
         <Route element={<Layout />}>
           <Route path="/app/bookmarks" element={<TestPage />} />
+          <Route path="/app/notes/:id" element={<TestPage />} />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -167,18 +168,26 @@ describe('Layout', () => {
   describe('history sidebar margin', () => {
     it('should not apply margin when history sidebar is closed', () => {
       mockHistorySidebarOpen = false
-      renderLayout()
+      renderLayout('/app/notes/abc-123')
 
       const main = screen.getByRole('main')
       expect(main.style.marginRight).toBe('0px')
     })
 
-    it('should apply margin when history sidebar is open', () => {
+    it('should apply margin when history sidebar is open on detail page', () => {
       mockHistorySidebarOpen = true
-      renderLayout()
+      renderLayout('/app/notes/abc-123')
 
       const main = screen.getByRole('main')
       expect(main.style.marginRight).toBe(`${mockHistorySidebarWidth}px`)
+    })
+
+    it('should not apply margin on non-detail pages even when sidebar is open', () => {
+      mockHistorySidebarOpen = true
+      renderLayout('/app/bookmarks')
+
+      const main = screen.getByRole('main')
+      expect(main.style.marginRight).toBe('0px')
     })
   })
 })

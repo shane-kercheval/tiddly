@@ -127,12 +127,6 @@ export function NoteDetail(): ReactNode {
     loadNote()
   }, [isCreate, noteId, isValidId, fetchNote, trackNoteUsage, passedNote])
 
-  // Close history sidebar on unmount without persisting to localStorage.
-  // This resets Layout margin on navigation, while preserving the open state for page refresh.
-  useEffect(() => {
-    return () => setShowHistory(false, { persist: false })
-  }, [setShowHistory])
-
   // Navigation helper
   const handleBack = useCallback((): void => {
     navigateBack()

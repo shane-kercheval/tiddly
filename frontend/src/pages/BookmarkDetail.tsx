@@ -107,12 +107,6 @@ export function BookmarkDetail(): ReactNode {
     loadBookmark()
   }, [isCreate, bookmarkId, fetchBookmark])
 
-  // Close history sidebar on unmount without persisting to localStorage.
-  // This resets Layout margin on navigation, while preserving the open state for page refresh.
-  useEffect(() => {
-    return () => setShowHistory(false, { persist: false })
-  }, [setShowHistory])
-
   const handleSave = useCallback(
     async (data: BookmarkCreate | BookmarkUpdate): Promise<void> => {
       if (isCreate) {

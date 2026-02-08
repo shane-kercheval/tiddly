@@ -33,28 +33,21 @@ function getInitialOpen(): boolean {
   return localStorage.getItem(OPEN_STORAGE_KEY) === 'true'
 }
 
-interface SetOpenOptions {
-  /** Whether to persist to localStorage (default: true). Pass false for cleanup-only closes. */
-  persist?: boolean
-}
-
 interface HistorySidebarState {
   isOpen: boolean
   width: number
-  setOpen: (open: boolean, options?: SetOpenOptions) => void
+  setOpen: (open: boolean) => void
   setWidth: (width: number) => void
 }
 
 export const useHistorySidebarStore = create<HistorySidebarState>((set) => ({
   isOpen: getInitialOpen(),
   width: getInitialWidth(),
-  setOpen: (open, options) => {
-    if (options?.persist !== false) {
-      try {
-        localStorage.setItem(OPEN_STORAGE_KEY, String(open))
-      } catch {
-        // Ignore storage errors - in-memory state still updates
-      }
+  setOpen: (open) => {
+    try {
+      localStorage.setItem(OPEN_STORAGE_KEY, String(open))
+    } catch {
+      // Ignore storage errors - in-memory state still updates
     }
     set({ isOpen: open })
   },
