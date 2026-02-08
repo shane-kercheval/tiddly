@@ -422,48 +422,31 @@ export function HistorySidebar({
                 </div>
                 {/* Inline diff view - shown below selected version */}
                 {selectedVersion === entry.version && (
-                  <div className="border-t border-gray-200 bg-gray-50">
-                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-200">
-                      <span className="text-xs font-medium text-gray-600">
-                        Changes
-                        {previousVersion && (
-                          <span className="text-gray-400 font-normal"> (from v{previousVersion})</span>
-                        )}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={500}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setWrapText(!wrapText)
-                            }}
-                            className={`p-1 rounded transition-colors flex-shrink-0 ${
-                              wrapText
-                                ? 'text-gray-700 bg-gray-200 hover:bg-gray-300'
-                                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
-                            }`}
-                            aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
-                          >
-                            <WrapIcon />
-                          </button>
-                        </Tooltip>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setSelectedVersion(null)
-                          }}
-                          className="p-1 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors flex-shrink-0"
-                          aria-label="Close diff view"
-                        >
-                          <CloseIcon className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
+                  <div className="border-t border-gray-200 bg-gray-50 relative">
                     {versionContent?.warnings && versionContent.warnings.length > 0 && (
                       <div className="px-3 py-1 text-xs text-yellow-600 border-b border-gray-200">
                         Warning: Some changes could not be fully reconstructed
                       </div>
                     )}
+                    {/* Wrap toggle button - positioned over diff content */}
+                    <div className="absolute top-1 right-1 z-10">
+                      <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={500} position="left">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setWrapText(!wrapText)
+                          }}
+                          className={`p-0.5 rounded transition-colors border ${
+                            wrapText
+                              ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-transparent'
+                              : 'text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-100 shadow-sm border-gray-200'
+                          }`}
+                          aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
+                        >
+                          <WrapIcon />
+                        </button>
+                      </Tooltip>
+                    </div>
                     <div className="max-h-[400px] overflow-auto">
                       <DiffView
                         oldContent={previousVersionContent?.content ?? ''}
