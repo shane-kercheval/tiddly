@@ -177,7 +177,8 @@ The API supports HTTP caching via ETag and Last-Modified headers to reduce bandw
 All content changes (bookmarks, notes, prompts) are tracked in the `content_history` table:
 
 **Tracked Actions:**
-- CREATE, UPDATE, DELETE, RESTORE, ARCHIVE, UNARCHIVE
+- Content actions (versioned): CREATE, UPDATE, RESTORE
+- Audit actions (NULL version, no content): DELETE, UNDELETE, ARCHIVE, UNARCHIVE
 
 **Source Tracking:**
 - Request source via `X-Request-Source` header: web, api, mcp-content, mcp-prompt, unknown
@@ -188,7 +189,8 @@ All content changes (bookmarks, notes, prompts) are tracked in the `content_hist
 - Uses Google's diff-match-patch algorithm with reverse diffs
 - SNAPSHOT records store both `content_snapshot` (full content) and `content_diff` (diff to previous)
 - DIFF records store only `content_diff` (reverse diff-match-patch delta)
-- METADATA records store neither (content unchanged, e.g., tag/archive changes)
+- METADATA records store neither (content unchanged, only metadata changed)
+- AUDIT records store neither (lifecycle state transitions: delete, undelete, archive, unarchive)
 - Reconstruction: find nearest snapshot, start from `content_snapshot`, apply diffs backwards
 - Fallback: if no snapshot found, start from `entity.content`
 
@@ -196,7 +198,7 @@ All content changes (bookmarks, notes, prompts) are tracked in the `content_hist
 - `GET /history` - All user history (paginated, filterable by entity_type)
 - `GET /history/{type}/{id}` - Entity history
 - `GET /history/{type}/{id}/version/{v}` - Reconstruct content at version
-- `POST /history/{type}/{id}/revert/{v}` - Revert to version
+- `POST /history/{type}/{id}/restore/{v}` - Restore to version
 - `GET /bookmarks/{id}/history` - Bookmark history (also for notes/prompts)
 
 **Retention:**

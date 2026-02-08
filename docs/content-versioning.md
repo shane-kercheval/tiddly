@@ -6,7 +6,7 @@ The content versioning system tracks all changes to bookmarks, notes, and prompt
 
 ### Design Goals
 
-1. **Complete audit trail** — Every create, update, delete, restore, archive, and unarchive is recorded
+1. **Complete audit trail** — Every create, update, delete, undelete, restore, archive, and unarchive is recorded
 2. **Efficient storage** — Use diffs instead of full snapshots where possible
 3. **Source attribution** — Track whether changes came from web UI, API, or MCP servers
 4. **Tier-based retention** — Different user tiers get different history retention limits
@@ -33,17 +33,17 @@ The system uses **reverse diffs** — each diff record stores how to transform t
 
 ### Diff Types and Dual Storage
 
-Each history record has one of three diff types. To maintain an unbroken reconstruction chain, **SNAPSHOT records store both the full content AND the diff to the previous version** (where applicable).
+Each history record has one of four diff types. To maintain an unbroken reconstruction chain, **SNAPSHOT records store both the full content AND the diff to the previous version** (where applicable).
 
 | Type | `content_snapshot` | `content_diff` | When Used |
 |------|-------------------|----------------|-----------|
 | `SNAPSHOT` (CREATE) | Full content | None | First version of an entity (no previous) |
 | `SNAPSHOT` (periodic) | Full content | Diff to previous | Every Nth version (default: 10) |
-| `SNAPSHOT` (DELETE) | Pre-delete content | None | Soft delete (content unchanged) |
 | `DIFF` | None | Diff to previous | Normal updates between snapshots |
 | `METADATA` | None | None | Content unchanged, only metadata changed |
+| `AUDIT` | None | None | Lifecycle state transitions (delete, undelete, archive, unarchive) |
 
-**Note:** Metadata is stored as a full snapshot in every record.
+**Note:** Metadata is stored as a full snapshot in content action records. Audit actions (DELETE, UNDELETE, ARCHIVE, UNARCHIVE) store only identifying metadata (title/name, URL for bookmarks).
 
 **Why dual storage for snapshots?**
 
@@ -76,10 +76,10 @@ Each history record contains:
 | `entity_type` | "bookmark", "note", or "prompt" |
 | `entity_id` | ID of the bookmark/note/prompt |
 | `action` | What happened (see Actions below) |
-| `version` | Sequential version number per entity (1, 2, 3, ...) |
-| `diff_type` | "snapshot", "diff", or "metadata" |
+| `version` | Sequential version number per entity (1, 2, 3, ...) or NULL for audit actions |
+| `diff_type` | "snapshot", "diff", "metadata", or "audit" |
 | `content_snapshot` | Full content text (only for SNAPSHOT records, otherwise None) |
-| `content_diff` | Diff-match-patch delta string to previous version (None for CREATE, DELETE, METADATA) |
+| `content_diff` | Diff-match-patch delta string to previous version (None for CREATE, METADATA, AUDIT) |
 | `metadata_snapshot` | JSON object of non-content fields at this version |
 | `source` | Request origin (see Source Tracking) |
 | `auth_type` | Authentication method used |
@@ -106,24 +106,27 @@ The `metadata_snapshot` captures non-content fields at each version:
 
 ## Actions Tracked
 
-| Action | Trigger | Content Stored |
-|--------|---------|----------------|
-| `CREATE` | New entity created | Full content (SNAPSHOT) |
-| `UPDATE` | Entity modified | Diff or snapshot depending on rules |
-| `DELETE` | Soft delete | Previous content (SNAPSHOT) — preserves what was deleted |
-| `RESTORE` | Soft delete reversed | Current content after restore |
-| `ARCHIVE` | Entity archived | Current content |
-| `UNARCHIVE` | Archive reversed | Current content |
+| Action | Trigger | Diff Type | Has Version? | Content Stored |
+|--------|---------|-----------|--------------|----------------|
+| `CREATE` | New entity created | SNAPSHOT | Yes | Full content |
+| `UPDATE` | Entity modified | DIFF or SNAPSHOT | Yes | Diff or snapshot depending on rules |
+| `RESTORE` | Restored to previous version | DIFF or SNAPSHOT | Yes | Diff or snapshot (same as UPDATE) |
+| `DELETE` | Soft delete | AUDIT | No (NULL) | None — only identifying metadata |
+| `UNDELETE` | Soft delete reversed | AUDIT | No (NULL) | None — only identifying metadata |
+| `ARCHIVE` | Entity archived | AUDIT | No (NULL) | None — only identifying metadata |
+| `UNARCHIVE` | Archive reversed | AUDIT | No (NULL) | None — only identifying metadata |
 
-### DELETE Action Behavior
+### Audit Actions (DELETE, UNDELETE, ARCHIVE, UNARCHIVE)
 
-When an entity is soft-deleted, the DELETE history record stores the **pre-delete content** in `content_snapshot` as a SNAPSHOT. The `content_diff` is None because the content itself doesn't change during a soft delete (only `deleted_at` is set). This ensures:
-- Users can see what content looked like before deletion
-- Restoration has access to the deleted content
-- The audit trail shows what was removed
-- The reconstruction chain remains valid (no diff needed since content unchanged)
+These are **lifecycle state transitions** — they change the entity's status but not its content. They use the `AUDIT` diff type and have **no version number** (NULL), no content snapshot, and no content diff.
 
-When an entity is **hard-deleted** (permanently removed), all associated history records are cascade-deleted at the application level. No history survives a hard delete—this supports GDPR "right to erasure" requirements.
+The metadata snapshot for audit actions contains only identifying fields (title/name, URL for bookmarks) rather than a full metadata snapshot, since the entity's content and metadata are unchanged.
+
+**Why no content storage?** Soft delete only sets `deleted_at`; archive only sets `archived_at`. The entity's content remains in the entity table, unchanged. Storing content would be redundant.
+
+**Why no version number?** These are not content versions — they're state transitions. Excluding them from the version sequence keeps version numbers meaningful (each version represents a distinct content state).
+
+**Hard deletes**: When an entity is permanently removed, all associated history records are cascade-deleted at the application level. No history survives a hard delete — this supports GDPR "right to erasure" requirements.
 
 ### No-Op Updates
 
@@ -169,8 +172,9 @@ MCP servers explicitly block delete operations. Attempts to delete via MCP retur
 
 - Versions are sequential integers starting at 1 for each entity
 - Version numbers are monotonic — they never reset, even after pruning
+- **Audit actions (DELETE, UNDELETE, ARCHIVE, UNARCHIVE) have NULL versions** — they are not content versions
 - Concurrent writes to the same entity use a retry mechanism with database savepoints to allocate unique versions
-- The unique constraint on `(user_id, entity_type, entity_id, version)` prevents duplicates
+- The unique constraint on `(user_id, entity_type, entity_id, version)` prevents duplicates (NULL versions are exempt from this constraint)
 
 ---
 
@@ -180,13 +184,13 @@ To reconstruct content at a specific version:
 
 1. **Validate target** — Return not found if version doesn't exist or exceeds latest
 2. **Get current content** — Fetch from entity table (including soft-deleted entities) as fallback anchor
-3. **Get history chain** — Fetch all records from latest version down to target version (ordered by version descending)
+3. **Get history chain** — Fetch all records from latest version down to target version (ordered by version descending). Records with NULL versions (audit actions) are naturally excluded since they have no version number to match.
 4. **Find nearest snapshot** — Scan fetched records for the snapshot closest to the target version (lowest version number in the set). This avoids applying unnecessary diffs.
 5. **Choose starting point:**
    - If snapshot found: start from that snapshot's `content_snapshot`
    - If no snapshot found: start from entity's current content
 6. **Apply reverse diffs** — Starting from the chosen anchor, iterate through records from the snapshot (or start) down to target:
-   - `SNAPSHOT`: If this is the starting snapshot, we already have its content. Apply its `content_diff` if present (periodic snapshots have diffs to continue the chain; CREATE and DELETE have None).
+   - `SNAPSHOT`: If this is the starting snapshot, we already have its content. Apply its `content_diff` if present (periodic snapshots have diffs to continue the chain; CREATE snapshots have None).
    - `DIFF`: Apply the `content_diff` delta to get the previous version's content
    - `METADATA`: Skip (content unchanged at this version)
 7. **Return result** — Content at target version, plus any warnings
@@ -236,6 +240,7 @@ Enforced at write time using modulo-based checking:
 - Only the oldest records are deleted
 - With reverse diffs, no special snapshot preservation is needed
 - Check runs every 10 writes to avoid per-write overhead
+- **Audit events (NULL version) are not subject to count-based pruning** — they have no version number, so the modulo check never triggers. They are only cleaned up by time-based pruning.
 
 ### Time-Based Pruning (Scheduled)
 
@@ -267,17 +272,21 @@ Returns paginated history for a specific entity. Returns empty list (not 404) if
 
 ### View Content at Version
 
-Reconstructs and returns the content at a specific version. Returns the content (which may be None for DELETE actions) and any reconstruction warnings.
+Reconstructs and returns the content at a specific version. Returns the content and any reconstruction warnings.
 
-### Revert to Version
+### Restore to Version
 
 Restores an entity to a previous version's content and metadata:
 
 1. Reconstruct content at target version
-2. If entity is soft-deleted, restore it first
-3. Update entity with reconstructed content and metadata
-4. A new UPDATE history record is created (revert is recorded as a normal update)
-5. Response includes any reconstruction warnings
+2. Update entity with reconstructed content and metadata
+3. A new RESTORE history record is created (distinct from UPDATE)
+4. Response includes any reconstruction warnings
+
+**Restrictions:**
+- Soft-deleted entities must be undeleted first — restore returns 404 for deleted entities
+- Audit versions (DELETE, UNDELETE, ARCHIVE, UNARCHIVE) cannot be restored to — they are state transitions, not content versions
+- Cannot restore to the current version (no-op)
 
 **Conflict handling:**
 - If restored URL conflicts with another bookmark: 409 error
@@ -294,7 +303,7 @@ Restores an entity to a previous version's content and metadata:
 
 ### Schema Evolution
 
-When reverting to an old version:
+When restoring to an old version:
 - **Removed fields**: If the old metadata contains fields that no longer exist in the current schema, they are ignored
 - **New fields**: If the old metadata is missing fields that were added after that version was created, the entity retains its current values for those fields
 
@@ -305,9 +314,9 @@ When only metadata changes (tags, title, description) but content is identical:
 - `content_diff` is None
 - Reconstruction skips these records (content same as next newer version)
 
-### Archived Entity Revert
+### Archived Entity Restore
 
-Reverting an archived entity:
+Restoring an archived entity:
 - Content and metadata are restored to the target version
 - Archive status is preserved (entity remains archived)
 
