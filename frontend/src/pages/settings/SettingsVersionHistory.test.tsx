@@ -131,6 +131,7 @@ describe('SettingsVersionHistory', () => {
       expect(screen.getByTestId('filter-action-option-update')).toBeInTheDocument()
       expect(screen.getByTestId('filter-action-option-delete')).toBeInTheDocument()
       expect(screen.getByTestId('filter-action-option-restore')).toBeInTheDocument()
+      expect(screen.getByTestId('filter-action-option-undelete')).toBeInTheDocument()
       expect(screen.getByTestId('filter-action-option-archive')).toBeInTheDocument()
       expect(screen.getByTestId('filter-action-option-unarchive')).toBeInTheDocument()
     })
@@ -631,6 +632,108 @@ describe('SettingsVersionHistory', () => {
       renderWithProviders()
 
       expect(screen.getByText(/Failed to load history/)).toBeInTheDocument()
+    })
+  })
+
+  describe('audit event handling', () => {
+    const contentEntry = {
+      id: '1',
+      entity_type: 'bookmark' as const,
+      entity_id: 'entity-1',
+      action: 'update' as const,
+      version: 2,
+      diff_type: 'diff' as const,
+      metadata_snapshot: { title: 'Test Bookmark' },
+      source: 'web',
+      auth_type: 'auth0',
+      token_prefix: null,
+      created_at: '2024-01-02T00:00:00Z',
+    }
+
+    const auditEntry = {
+      id: '2',
+      entity_type: 'bookmark' as const,
+      entity_id: 'entity-1',
+      action: 'delete' as const,
+      version: null,
+      diff_type: 'audit' as const,
+      metadata_snapshot: { title: 'Test Bookmark' },
+      source: 'web',
+      auth_type: 'auth0',
+      token_prefix: null,
+      created_at: '2024-01-03T00:00:00Z',
+    }
+
+    const createEntry = {
+      id: '3',
+      entity_type: 'bookmark' as const,
+      entity_id: 'entity-1',
+      action: 'create' as const,
+      version: 1,
+      diff_type: 'snapshot' as const,
+      metadata_snapshot: { title: 'Test Bookmark' },
+      source: 'web',
+      auth_type: 'auth0',
+      token_prefix: null,
+      created_at: '2024-01-01T00:00:00Z',
+    }
+
+    it('test__audit_entry__does_not_show_version_badge', () => {
+      mockUseUserHistory.mockReturnValue({
+        data: {
+          items: [auditEntry, contentEntry, createEntry],
+          total: 3,
+          offset: 0,
+          limit: 25,
+          has_more: false,
+        },
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders()
+
+      // Content entries show version badges
+      expect(screen.getAllByText('v2')).toHaveLength(2) // mobile + desktop
+      expect(screen.getAllByText('v1')).toHaveLength(2)
+
+      // No "v" badge for null version audit entry
+      // Total version badges = 4 (v2 x2 + v1 x2 for mobile+desktop)
+      const allVersionBadges = screen.getAllByText(/^v\d+$/)
+      expect(allVersionBadges).toHaveLength(4)
+    })
+
+    it('test__audit_entry__shows_undelete_label', () => {
+      const undeleteEntry = {
+        ...auditEntry,
+        id: 'undelete-1',
+        action: 'undelete' as const,
+      }
+
+      mockUseUserHistory.mockReturnValue({
+        data: {
+          items: [undeleteEntry],
+          total: 1,
+          offset: 0,
+          limit: 25,
+          has_more: false,
+        },
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders()
+
+      // Should display "Undeleted" (mobile + desktop = 2)
+      expect(screen.getAllByText('Undeleted')).toHaveLength(2)
+    })
+
+    it('test__undelete_filter_option__is_available', () => {
+      renderWithProviders()
+
+      fireEvent.click(screen.getByTestId('filter-action'))
+
+      expect(screen.getByTestId('filter-action-option-undelete')).toBeInTheDocument()
     })
   })
 })

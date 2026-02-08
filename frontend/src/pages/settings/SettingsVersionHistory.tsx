@@ -42,6 +42,7 @@ const ACTION_OPTIONS: DropdownOption<HistoryActionType>[] = [
   { value: 'update', label: 'Update' },
   { value: 'delete', label: 'Delete' },
   { value: 'restore', label: 'Restore' },
+  { value: 'undelete', label: 'Undelete' },
   { value: 'archive', label: 'Archive' },
   { value: 'unarchive', label: 'Unarchive' },
 ]
@@ -69,10 +70,16 @@ function formatActionTable(action: HistoryActionType): string {
     update: 'Updated',
     delete: 'Deleted',
     restore: 'Restored',
+    undelete: 'Undeleted',
     archive: 'Archived',
     unarchive: 'Unarchived',
   }
   return labels[action]
+}
+
+/** Check if action is an audit-only action (lifecycle state transition, no content change) */
+function isAuditAction(action: HistoryActionType): boolean {
+  return ['delete', 'undelete', 'archive', 'unarchive'].includes(action)
 }
 
 /** Format source for table display (MCP variants combined) */
@@ -244,15 +251,18 @@ export function SettingsVersionHistory(): ReactNode {
     offset: page * limit,
   })
 
-  // Fetch content at selected version for diff view
+  // Fetch content at selected version for diff view (skip for audit actions)
+  const selectedVersion = selectedEntry && !isAuditAction(selectedEntry.action)
+    ? selectedEntry.version
+    : null
   const { data: versionContent } = useContentAtVersion(
     selectedEntry?.entity_type ?? 'bookmark',
     selectedEntry?.entity_id ?? '',
-    selectedEntry?.version ?? null
+    selectedVersion
   )
 
   // Fetch previous version content for diff comparison
-  const previousVersion = selectedEntry && selectedEntry.version > 1 ? selectedEntry.version - 1 : null
+  const previousVersion = selectedEntry && selectedEntry.version !== null && selectedEntry.version > 1 ? selectedEntry.version - 1 : null
   const { data: previousVersionContent } = useContentAtVersion(
     selectedEntry?.entity_type ?? 'bookmark',
     selectedEntry?.entity_id ?? '',
@@ -260,7 +270,9 @@ export function SettingsVersionHistory(): ReactNode {
   )
 
   // Toggle entry selection - clicking same entry closes diff view
+  // Audit entries (null version) are not selectable since they have no content diff
   const handleEntryClick = (entry: HistoryEntry): void => {
+    if (isAuditAction(entry.action)) return
     setSelectedEntry(selectedEntry?.id === entry.id ? null : entry)
   }
 
@@ -446,7 +458,9 @@ export function SettingsVersionHistory(): ReactNode {
             {history?.items.map((entry) => (
               <div key={entry.id} className="rounded-lg border border-gray-200 bg-white overflow-hidden">
                 <div
-                  className={`p-3 cursor-pointer ${selectedEntry?.id === entry.id ? 'bg-blue-50' : ''}`}
+                  className={`p-3 ${
+                    isAuditAction(entry.action) ? 'bg-gray-50/50' : 'cursor-pointer'
+                  } ${selectedEntry?.id === entry.id ? 'bg-blue-50' : ''}`}
                   onClick={() => handleEntryClick(entry)}
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
@@ -459,7 +473,9 @@ export function SettingsVersionHistory(): ReactNode {
                       >
                         {getItemTitle(entry.metadata_snapshot)}
                       </Link>
-                      <span className="text-xs text-gray-400 shrink-0">v{entry.version}</span>
+                      {entry.version !== null && (
+                        <span className="text-xs text-gray-400 shrink-0">v{entry.version}</span>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
@@ -473,8 +489,8 @@ export function SettingsVersionHistory(): ReactNode {
                     <span>{new Date(entry.created_at).toLocaleString()}</span>
                   </div>
                 </div>
-                {/* Inline diff view */}
-                {selectedEntry?.id === entry.id && (
+                {/* Inline diff view - only for content actions */}
+                {selectedEntry?.id === entry.id && !isAuditAction(entry.action) && (
                   <div className="border-t border-gray-200 bg-gray-50">
                     <DiffView
                       oldContent={previousVersionContent?.content ?? ''}
@@ -508,7 +524,9 @@ export function SettingsVersionHistory(): ReactNode {
                     >
                       {/* Clickable row content */}
                       <div
-                        className={`grid grid-cols-[1fr_6rem_5rem_11rem] cursor-pointer hover:bg-gray-50 transition-colors ${
+                        className={`grid grid-cols-[1fr_6rem_5rem_11rem] transition-colors ${
+                          isAuditAction(entry.action) ? 'bg-gray-50/50' : 'cursor-pointer hover:bg-gray-50'
+                        } ${
                           selectedEntry?.id === entry.id ? 'bg-blue-50' : ''
                         }`}
                         onClick={() => handleEntryClick(entry)}
@@ -523,7 +541,9 @@ export function SettingsVersionHistory(): ReactNode {
                             >
                               {getItemTitle(entry.metadata_snapshot)}
                             </Link>
-                            <span className="text-xs text-gray-400 shrink-0">v{entry.version}</span>
+                            {entry.version !== null && (
+                              <span className="text-xs text-gray-400 shrink-0">v{entry.version}</span>
+                            )}
                           </div>
                         </div>
                         <div className="px-3 py-2.5 text-sm text-gray-700">
@@ -541,8 +561,8 @@ export function SettingsVersionHistory(): ReactNode {
                           {new Date(entry.created_at).toLocaleString()}
                         </div>
                       </div>
-                      {/* Inline diff view */}
-                      {selectedEntry?.id === entry.id && (
+                      {/* Inline diff view - only for content actions */}
+                      {selectedEntry?.id === entry.id && !isAuditAction(entry.action) && (
                         <div className="border-t border-gray-200 bg-gray-50">
                           <DiffView
                             oldContent={previousVersionContent?.content ?? ''}

@@ -26,10 +26,16 @@ function formatAction(action: HistoryActionType): string {
     update: 'Updated',
     delete: 'Deleted',
     restore: 'Restored',
+    undelete: 'Undeleted',
     archive: 'Archived',
     unarchive: 'Unarchived',
   }
   return labels[action] ?? action
+}
+
+/** Check if action is an audit-only action (lifecycle state transition, no content change) */
+function isAuditAction(action: HistoryActionType): boolean {
+  return ['delete', 'undelete', 'archive', 'unarchive'].includes(action)
 }
 
 /** Format source for display */
@@ -165,7 +171,7 @@ export function HistorySidebar({
 
   const restoreMutation = useRestoreToVersion()
 
-  const latestVersion = history?.items[0]?.version ?? 0
+  const latestVersion = history?.items.find(e => e.version !== null)?.version ?? 0
 
   const handleRestoreClick = (version: number, e: React.MouseEvent): void => {
     e.stopPropagation()
@@ -186,8 +192,10 @@ export function HistorySidebar({
     }
   }
 
-  // Toggle version selection - clicking same version closes diff view
-  const handleVersionClick = (version: number): void => {
+  // Toggle entry selection - clicking same entry closes diff view
+  // Audit entries (null version) are not selectable since they have no content diff
+  const handleVersionClick = (version: number | null): void => {
+    if (version === null) return
     setSelectedVersion(selectedVersion === version ? null : version)
     if (confirmingRestore !== null) {
       setConfirmingRestore(null)
@@ -234,15 +242,21 @@ export function HistorySidebar({
             {history?.items.map((entry) => (
               <li key={entry.id}>
                 <div
-                  className={`px-4 py-2.5 cursor-pointer hover:bg-gray-100 transition-colors ${
-                    selectedVersion === entry.version ? 'bg-blue-50' : ''
+                  className={`px-4 py-2.5 transition-colors ${
+                    isAuditAction(entry.action)
+                      ? 'bg-gray-50/50'
+                      : 'cursor-pointer hover:bg-gray-100'
+                  } ${
+                    selectedVersion === entry.version && entry.version !== null ? 'bg-blue-50' : ''
                   }`}
                   onClick={() => handleVersionClick(entry.version)}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-900">v{entry.version}</span>
+                        {entry.version !== null && (
+                          <span className="font-medium text-gray-900">v{entry.version}</span>
+                        )}
                         <span className="text-sm text-gray-500">
                           {formatAction(entry.action)}
                         </span>
@@ -254,10 +268,10 @@ export function HistorySidebar({
                         {new Date(entry.created_at).toLocaleString()}
                       </div>
                     </div>
-                    {/* Show "Restore" button on older versions (not the latest) */}
-                    {entry.version < latestVersion && (
+                    {/* Show "Restore" button on older content versions (not audit actions) */}
+                    {entry.version !== null && entry.version < latestVersion && (
                       <button
-                        onClick={(e) => handleRestoreClick(entry.version, e)}
+                        onClick={(e) => handleRestoreClick(entry.version!, e)}
                         disabled={restoreMutation.isPending}
                         className={`shrink-0 flex items-center gap-1.5 ${
                           confirmingRestore === entry.version
@@ -271,8 +285,8 @@ export function HistorySidebar({
                     )}
                   </div>
                 </div>
-                {/* Inline diff view - shown below selected version */}
-                {selectedVersion === entry.version && (
+                {/* Inline diff/info view - shown below selected version */}
+                {selectedVersion === entry.version && entry.version !== null && (
                   <div className="border-t border-gray-200 bg-gray-50">
                     {versionContent?.warnings && versionContent.warnings.length > 0 && (
                       <div className="px-3 py-1 text-xs text-yellow-600 border-b border-gray-200">

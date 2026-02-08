@@ -523,13 +523,13 @@ export interface UserLimits {
 export type HistoryEntityType = 'bookmark' | 'note' | 'prompt'
 
 /** Action types tracked in history */
-export type HistoryActionType = 'create' | 'update' | 'delete' | 'restore' | 'archive' | 'unarchive'
+export type HistoryActionType = 'create' | 'update' | 'delete' | 'restore' | 'undelete' | 'archive' | 'unarchive'
 
 /** Source types for history records (matches backend RequestSource enum) */
 export type HistorySourceType = 'web' | 'api' | 'mcp-content' | 'mcp-prompt' | 'unknown'
 
 /** Diff types for history records */
-export type HistoryDiffType = 'snapshot' | 'diff' | 'metadata'
+export type HistoryDiffType = 'snapshot' | 'diff' | 'metadata' | 'audit'
 
 /** Single history record */
 export interface HistoryEntry {
@@ -537,7 +537,7 @@ export interface HistoryEntry {
   entity_type: HistoryEntityType
   entity_id: string
   action: HistoryActionType
-  version: number
+  version: number | null
   diff_type: HistoryDiffType
   metadata_snapshot: Record<string, unknown> | null
   source: HistorySourceType
