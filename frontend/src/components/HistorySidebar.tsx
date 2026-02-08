@@ -160,15 +160,15 @@ function DiffView({
 }): ReactNode {
   if (isLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900" />
+      <div className="flex items-center justify-center p-6">
+        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900" />
       </div>
     )
   }
 
   if (oldContent === newContent) {
     return (
-      <div className="flex-1 p-4 text-sm text-gray-500">
+      <div className="p-3 text-sm text-gray-500">
         No content changes in this version (metadata only).
       </div>
     )
@@ -177,7 +177,7 @@ function DiffView({
   const styles = wrapText ? wrapModeStyles : scrollModeStyles
 
   return (
-    <div className={`flex-1 min-h-0 overflow-auto ${wrapText ? '' : 'diff-scroll-mode'}`}>
+    <div className={wrapText ? '' : 'diff-scroll-mode'}>
       {!wrapText && <style>{scrollModeCss}</style>}
       <ReactDiffViewer
         oldValue={oldContent}
@@ -335,9 +335,9 @@ export function HistorySidebar({
     }
   }
 
-  // Reset confirmation when clicking elsewhere
+  // Toggle version selection - clicking same version closes diff view
   const handleVersionClick = (version: number): void => {
-    setSelectedVersion(version)
+    setSelectedVersion(selectedVersion === version ? null : version)
     if (confirmingRevert !== null) {
       setConfirmingRevert(null)
     }
@@ -368,8 +368,8 @@ export function HistorySidebar({
         </button>
       </div>
 
-      {/* Version list */}
-      <div className={`overflow-y-auto ${selectedVersion ? 'h-1/2' : 'flex-1'}`}>
+      {/* Version list with inline diff view */}
+      <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center p-8">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900" />
@@ -381,98 +381,104 @@ export function HistorySidebar({
         ) : (
           <ul className="divide-y divide-gray-100">
             {history?.items.map((entry) => (
-              <li
-                key={entry.id}
-                className={`px-4 py-2.5 cursor-pointer hover:bg-gray-100 transition-colors ${
-                  selectedVersion === entry.version ? 'bg-blue-50' : ''
-                }`}
-                onClick={() => handleVersionClick(entry.version)}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900">v{entry.version}</span>
-                      <span className="text-sm text-gray-500">
-                        {formatAction(entry.action)}
-                      </span>
-                      <span className="text-xs text-gray-400">
-                        {formatSource(entry.source)}
-                      </span>
+              <li key={entry.id}>
+                <div
+                  className={`px-4 py-2.5 cursor-pointer hover:bg-gray-100 transition-colors ${
+                    selectedVersion === entry.version ? 'bg-blue-50' : ''
+                  }`}
+                  onClick={() => handleVersionClick(entry.version)}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-gray-900">v{entry.version}</span>
+                        <span className="text-sm text-gray-500">
+                          {formatAction(entry.action)}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {formatSource(entry.source)}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {new Date(entry.created_at).toLocaleString()}
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-400 mt-0.5">
-                      {new Date(entry.created_at).toLocaleString()}
+                    {/* Show "Restore" button on older versions (not the latest) */}
+                    {entry.version < latestVersion && (
+                      <button
+                        onClick={(e) => handleRevertClick(entry.version, e)}
+                        disabled={revertMutation.isPending}
+                        className={`shrink-0 flex items-center gap-1.5 ${
+                          confirmingRevert === entry.version
+                            ? 'btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50'
+                            : 'btn-secondary hover:text-red-600'
+                        }`}
+                      >
+                        <RestoreIcon className="w-3.5 h-3.5" />
+                        {confirmingRevert === entry.version ? 'Confirm' : 'Restore'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {/* Inline diff view - shown below selected version */}
+                {selectedVersion === entry.version && (
+                  <div className="border-t border-gray-200 bg-gray-50">
+                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-200">
+                      <span className="text-xs font-medium text-gray-600">
+                        Changes
+                        {previousVersion && (
+                          <span className="text-gray-400 font-normal"> (from v{previousVersion})</span>
+                        )}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={500}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setWrapText(!wrapText)
+                            }}
+                            className={`p-1 rounded transition-colors flex-shrink-0 ${
+                              wrapText
+                                ? 'text-gray-700 bg-gray-200 hover:bg-gray-300'
+                                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
+                            }`}
+                            aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
+                          >
+                            <WrapIcon />
+                          </button>
+                        </Tooltip>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSelectedVersion(null)
+                          }}
+                          className="p-1 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors flex-shrink-0"
+                          aria-label="Close diff view"
+                        >
+                          <CloseIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                    {versionContent?.warnings && versionContent.warnings.length > 0 && (
+                      <div className="px-3 py-1 text-xs text-yellow-600 border-b border-gray-200">
+                        Warning: Some changes could not be fully reconstructed
+                      </div>
+                    )}
+                    <div className="max-h-[400px] overflow-auto">
+                      <DiffView
+                        oldContent={previousVersionContent?.content ?? ''}
+                        newContent={versionContent?.content ?? ''}
+                        isLoading={isLoadingVersion || isLoadingPreviousVersion}
+                        wrapText={wrapText}
+                      />
                     </div>
                   </div>
-                  {/* Show "Restore" button on older versions (not the latest) */}
-                  {entry.version < latestVersion && (
-                    <button
-                      onClick={(e) => handleRevertClick(entry.version, e)}
-                      disabled={revertMutation.isPending}
-                      className={`shrink-0 flex items-center gap-1.5 ${
-                        confirmingRevert === entry.version
-                          ? 'btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50'
-                          : 'btn-secondary hover:text-red-600'
-                      }`}
-                    >
-                      <RestoreIcon className="w-3.5 h-3.5" />
-                      {confirmingRevert === entry.version ? 'Confirm' : 'Restore'}
-                    </button>
-                  )}
-                </div>
+                )}
               </li>
             ))}
           </ul>
         )}
       </div>
-
-      {/* Diff view */}
-      {selectedVersion && (
-        <div className="border-t border-gray-200 h-1/2 flex flex-col">
-          <div className="bg-gray-50 border-b border-gray-200 shrink-0">
-            <div className="flex items-center justify-between p-3">
-              <span className="text-sm font-medium text-gray-700">
-                Changes in v{selectedVersion}
-                {previousVersion && (
-                  <span className="text-gray-400 font-normal"> (from v{previousVersion})</span>
-                )}
-              </span>
-              <div className="flex items-center gap-1">
-                <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={500}>
-                  <button
-                    onClick={() => setWrapText(!wrapText)}
-                    className={`p-1.5 rounded transition-colors flex-shrink-0 ${
-                      wrapText
-                        ? 'text-gray-700 bg-gray-200 hover:bg-gray-300'
-                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
-                    }`}
-                    aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
-                  >
-                    <WrapIcon />
-                  </button>
-                </Tooltip>
-                <button
-                  onClick={() => setSelectedVersion(null)}
-                  className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors flex-shrink-0"
-                  aria-label="Close diff view"
-                >
-                  <CloseIcon className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            {versionContent?.warnings && versionContent.warnings.length > 0 && (
-              <div className="px-3 pb-2 text-xs text-yellow-600">
-                Warning: Some changes could not be fully reconstructed
-              </div>
-            )}
-          </div>
-          <DiffView
-            oldContent={previousVersionContent?.content ?? ''}
-            newContent={versionContent?.content ?? ''}
-            isLoading={isLoadingVersion || isLoadingPreviousVersion}
-            wrapText={wrapText}
-          />
-        </div>
-      )}
     </div>
   )
 }
