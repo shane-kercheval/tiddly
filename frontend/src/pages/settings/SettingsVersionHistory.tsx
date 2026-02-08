@@ -494,9 +494,9 @@ export function SettingsVersionHistory(): ReactNode {
               <thead className="bg-gray-50">
                 <tr>
                   <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Item</th>
-                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Action</th>
-                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Source</th>
-                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Date</th>
+                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-24">Action</th>
+                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-20">Source</th>
+                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-44">Date</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 bg-white">
@@ -508,22 +508,22 @@ export function SettingsVersionHistory(): ReactNode {
                     >
                       {/* Clickable row content */}
                       <div
-                        className={`grid grid-cols-[1fr_auto_auto_auto] cursor-pointer hover:bg-gray-50 transition-colors ${
+                        className={`grid grid-cols-[1fr_6rem_5rem_11rem] cursor-pointer hover:bg-gray-50 transition-colors ${
                           selectedEntry?.id === entry.id ? 'bg-blue-50' : ''
                         }`}
                         onClick={() => handleEntryClick(entry)}
                       >
-                        <div className="px-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            {getEntityIcon(entry.entity_type)}
+                        <div className="px-3 py-2.5 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="shrink-0">{getEntityIcon(entry.entity_type)}</span>
                             <Link
                               to={getEntityPath(entry.entity_type, entry.entity_id)}
-                              className="text-blue-600 hover:text-blue-800 hover:underline text-sm font-medium"
+                              className="text-blue-600 hover:text-blue-800 hover:underline text-sm font-medium truncate"
                               onClick={(e) => e.stopPropagation()}
                             >
                               {getItemTitle(entry.metadata_snapshot)}
                             </Link>
-                            <span className="text-xs text-gray-400">v{entry.version}</span>
+                            <span className="text-xs text-gray-400 shrink-0">v{entry.version}</span>
                           </div>
                         </div>
                         <div className="px-3 py-2.5 text-sm text-gray-700">
