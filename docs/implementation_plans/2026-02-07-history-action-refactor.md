@@ -2,7 +2,7 @@
 
 ## Overview
 
-Refactor the content versioning system to clearly separate content-changing actions from lifecycle state transitions. This improves the semantic clarity of version history and reduces unnecessary storage.
+Refactor the content versioning system to clearly separate content-changing actions from audit-only state transitions. This improves the semantic clarity of version history and reduces unnecessary storage.
 
 **Problem:**
 - Current `RESTORE` action conflates two concepts: "undelete a soft-deleted entity" vs "restore to a previous version"
@@ -10,28 +10,31 @@ Refactor the content versioning system to clearly separate content-changing acti
 - DELETE stores a full content_snapshot (redundant since soft-deleted entity retains content)
 - No way to distinguish "user edited content" from "user restored to version X"
 - Frontend shows restore button on lifecycle actions, which doesn't make sense
+- Terminology inconsistency: backend uses "revert" but UI shows "Restore"
 
 **Solution:**
 - Rename current `RESTORE` → `UNDELETE` (undelete a soft-deleted entity)
 - Add `RESTORE` action (restore content to a previous version - matches UI "Restore" button)
-- Add `LIFECYCLE` diff type for state transitions
-- Lifecycle actions store only `{"title": "..."}` for frontend display, plus audit trail (source, auth_type, token_prefix)
-- Reconstruction algorithm explicitly skips LIFECYCLE records
-- Backend blocks reverting to lifecycle versions (400 error)
-- Frontend disables restore button for lifecycle actions
+- Add `AUDIT` diff type for state transitions (audit trail only, not content versions)
+- Audit actions have `version = NULL` (they're not content versions, just audit events)
+- Audit actions store only `{"title": "..."}` for frontend display, plus audit trail (source, auth_type, token_prefix)
+- Reconstruction naturally uses only records with non-null versions
+- Backend blocks restoring to audit versions (400 error)
+- Frontend displays audit events without version badge, no restore button
+- Rename "revert" → "restore" throughout codebase for consistency
 
 ## Key Design Decisions
 
 **ActionTypes (revised):**
-| Action | Meaning | Stores Content/Diff? | UI Label |
-|--------|---------|---------------------|----------|
-| `CREATE` | First version | Yes (snapshot) | "Created" |
-| `UPDATE` | Content or metadata changed | Yes (diff or snapshot) | "Updated" |
-| `RESTORE` | Restored to previous version | Yes (diff or snapshot) | "Restored" |
-| `DELETE` | Soft deleted | No | "Deleted" |
-| `UNDELETE` | Un-deleted (was soft-deleted) | No | "Undeleted" |
-| `ARCHIVE` | Archived | No | "Archived" |
-| `UNARCHIVE` | Unarchived | No | "Unarchived" |
+| Action | Has Version? | Stores Content/Diff? | UI Label |
+|--------|-------------|---------------------|----------|
+| `CREATE` | Yes (v1) | Yes (snapshot) | "Created" |
+| `UPDATE` | Yes | Yes (diff or snapshot) | "Updated" |
+| `RESTORE` | Yes | Yes (diff or snapshot) | "Restored" |
+| `DELETE` | No (NULL) | No | "Deleted" |
+| `UNDELETE` | No (NULL) | No | "Undeleted" |
+| `ARCHIVE` | No (NULL) | No | "Archived" |
+| `UNARCHIVE` | No (NULL) | No | "Unarchived" |
 
 **DiffTypes (revised):**
 | Type | content_snapshot | content_diff | metadata_snapshot |
@@ -39,19 +42,37 @@ Refactor the content versioning system to clearly separate content-changing acti
 | `SNAPSHOT` | Full content | Maybe (dual) | Full |
 | `DIFF` | None | Yes | Full |
 | `METADATA` | None | None | Full |
-| `LIFECYCLE` | None | None | `{"title": "..."}` only |
+| `AUDIT` | None | None | `{"title": "..."}` only |
 
 **Naming rationale:**
 - `RESTORE` matches the UI "Restore" button in HistorySidebar
 - `UNDELETE` clearly means "undo deletion" (internal operation)
+- `AUDIT` clearly conveys "audit trail for state changes" (not part of content versioning)
+
+**Null version for audit events:**
+- Audit actions (DELETE/UNDELETE/ARCHIVE/UNARCHIVE) have `version = NULL`
+- They're audit events, not content versions - incrementing version would be semantically wrong
+- Frontend displays them without version badge, just action + timestamp
+- Ordered by `created_at` in history list
+- Cannot restore to NULL version (obvious - no version to restore to)
+- Eliminates modulo 10 edge case: version 10 will always be a content action
 
 **Reconstruction behavior:**
-- LIFECYCLE records are **completely skipped** during content reconstruction
-- They are not part of the content chain - just audit events
-- Backend returns 400 if attempting to revert TO a lifecycle version
+- Reconstruction naturally uses only records with non-null versions
+- AUDIT records are not part of the content chain - just audit events
+- Backend returns 400 if attempting to restore TO an audit version (version is NULL anyway)
 
-**Modulo 10 edge case:**
-Lifecycle actions are checked first in the diff type logic, so they never reach the modulo check. Version numbers still increment (v10 might be an ARCHIVE), but no snapshot is taken. This is fine - periodic snapshots are an optimization, not a correctness requirement.
+**Modulo 10 behavior:**
+Since audit actions don't increment version, modulo 10 snapshots work naturally on content versions only:
+```
+CREATE v1 (SNAPSHOT)
+UPDATE v2 (DIFF)
+ARCHIVE (AUDIT, version=NULL)
+UNARCHIVE (AUDIT, version=NULL)
+UPDATE v3 (DIFF)
+...
+UPDATE v10 (SNAPSHOT) ← always a content version
+```
 
 **Reference documentation:**
 - `docs/content-versioning.md` - Current spec (needs updating)
@@ -63,92 +84,112 @@ Lifecycle actions are checked first in the diff type logic, so they never reach 
 ## Milestone 1: Backend Enum, Model, and Migration
 
 ### Goal
-Update ActionType and DiffType enums, modify history_service to handle lifecycle actions, and create database migration for existing records.
+Update ActionType and DiffType enums, make version nullable, modify history_service to handle audit actions with null version, and create database migration.
 
 ### Success Criteria
 - Current `RESTORE` renamed to `UNDELETE` in ActionType enum
 - New `RESTORE` added to ActionType enum (for restoring to previous version)
-- `LIFECYCLE` added to DiffType enum
-- Lifecycle actions (DELETE/UNDELETE/ARCHIVE/UNARCHIVE) create records with:
-  - `diff_type = LIFECYCLE`
+- `AUDIT` added to DiffType enum
+- `version` column made nullable in content_history table
+- Audit actions (DELETE/UNDELETE/ARCHIVE/UNARCHIVE) create records with:
+  - `version = NULL`
+  - `diff_type = AUDIT`
   - `content_snapshot = None`
   - `content_diff = None`
   - `metadata_snapshot = {"title": "..."}` (title only for frontend display)
-- Reconstruction algorithm explicitly filters out LIFECYCLE records
-- Database migration updates existing `action = 'restore'` rows to `action = 'undelete'`
+- Reconstruction uses only records with non-null versions
+- Database migration:
+  - Updates existing `action = 'restore'` rows to `action = 'undelete'`
+  - Makes `version` column nullable
 - All existing history service tests pass (with updates for renamed action)
-- New tests cover lifecycle action storage and reconstruction behavior
+- New tests cover audit action storage and reconstruction behavior
 
 ### Key Changes
 
 1. **Update `backend/src/models/content_history.py`:**
    - Rename `RESTORE = "restore"` to `UNDELETE = "undelete"` in ActionType
    - Add `RESTORE = "restore"` to ActionType (new - for version restoration)
-   - Add `LIFECYCLE = "lifecycle"` to DiffType
+   - Add `AUDIT = "audit"` to DiffType
+   - Update model: `version: Mapped[int | None]` (make nullable)
 
-2. **Create database migration using `make migration message="rename restore to undelete"`:**
+2. **Create database migration using `make migration message="history action refactor"`:**
    - **IMPORTANT**: Always use `make migration` command, never generate migrations manually
-   - Migration should update existing rows: `UPDATE content_history SET action = 'undelete' WHERE action = 'restore'`
+   - Migration should:
+     - Update existing rows: `UPDATE content_history SET action = 'undelete' WHERE action = 'restore'`
+     - Make version column nullable: `ALTER TABLE content_history ALTER COLUMN version DROP NOT NULL`
+   - Note: Unique constraint on (user_id, entity_type, entity_id, version) allows multiple NULLs in PostgreSQL
 
 3. **Update `backend/src/services/history_service.py` `_record_action_impl`:**
    ```python
-   # Check lifecycle actions FIRST - before any content logic
+   # Check audit actions FIRST - before any content logic
    if action_value in (
        ActionType.DELETE.value,
        ActionType.UNDELETE.value,
        ActionType.ARCHIVE.value,
        ActionType.UNARCHIVE.value,
    ):
-       diff_type = DiffType.LIFECYCLE
+       diff_type = DiffType.AUDIT
+       version = None  # Audit events don't get version numbers
        content_snapshot = None
        content_diff = None
        # metadata is passed in - services will pass {"title": "..."} only
    elif action_value == ActionType.CREATE.value:
-       # ... existing CREATE logic
-   # ... rest of existing logic for UPDATE/RESTORE
+       # ... existing CREATE logic (version = 1)
+   else:
+       # UPDATE/RESTORE - increment version as before
+       # ... rest of existing logic
    ```
 
 4. **Update reconstruction in `reconstruct_content_at_version`:**
    ```python
-   # Filter out LIFECYCLE records - they're not part of the content chain
-   records_to_traverse = [r for r in records if r.diff_type != DiffType.LIFECYCLE.value]
+   # Filter to only versioned records - audit events have no content
+   records_to_traverse = [r for r in records if r.version is not None]
    ```
 
-5. **Add helper method for lifecycle metadata:**
+5. **Update `get_latest_version` to handle null versions:**
    ```python
-   def _get_lifecycle_metadata(self, entity: T) -> dict:
-       """Get minimal metadata for lifecycle actions (title only for display)."""
-       return {"title": getattr(entity, "title", None)}
+   # Only consider versioned records for latest version
+   result = await db.execute(
+       select(func.max(ContentHistory.version))
+       .where(ContentHistory.user_id == user_id)
+       .where(ContentHistory.entity_type == entity_type)
+       .where(ContentHistory.entity_id == entity_id)
+       .where(ContentHistory.version.isnot(None))  # Exclude audit events
+   )
    ```
 
 ### Testing Strategy
 
 1. **Unit tests in `test_history_service.py`:**
-   - `test__record_action__lifecycle_actions_store_title_only`: Verify DELETE/UNDELETE/ARCHIVE/UNARCHIVE create LIFECYCLE records with only title in metadata_snapshot
-   - `test__record_action__lifecycle_at_modulo_10_skips_snapshot`: Verify lifecycle action at version 10 doesn't create a snapshot
-   - `test__record_action__restore_stores_diff`: Verify RESTORE action stores diff like UPDATE
-   - `test__reconstruct__skips_lifecycle_records`: Verify reconstruction filters out LIFECYCLE records from the chain
-   - `test__reconstruct__with_lifecycle_in_chain`: Create v1, UPDATE v2, ARCHIVE v3, UPDATE v4 - verify reconstructing v2 works correctly (skips v3)
+   - `test__record_action__audit_actions_have_null_version`: Verify DELETE/UNDELETE/ARCHIVE/UNARCHIVE create records with version=NULL
+   - `test__record_action__audit_actions_store_title_only`: Verify AUDIT records have only title in metadata_snapshot
+   - `test__record_action__audit_doesnt_affect_version_sequence`: Create v1, DELETE (null), UPDATE - verify UPDATE is v2 not v3
+   - `test__record_action__restore_stores_diff`: Verify RESTORE action stores diff like UPDATE and increments version
+   - `test__reconstruct__ignores_audit_records`: Verify reconstruction filters out NULL version records
+   - `test__reconstruct__with_audit_in_chain`: Create v1, UPDATE v2, ARCHIVE (null), UPDATE v3 - verify reconstructing v2 works correctly
+   - `test__get_latest_version__ignores_audit`: Verify latest version ignores NULL version records
    - Update existing tests that reference `ActionType.RESTORE` → `ActionType.UNDELETE`
 
 2. **Migration test:**
    - Verify existing `action = 'restore'` rows are updated to `action = 'undelete'`
+   - Verify version column is nullable
 
 ### Dependencies
 None
 
 ### Risk Factors
 - Ensure the new `RESTORE` action value doesn't conflict (it uses string "restore" which was freed up by renaming to "undelete")
+- Unique constraint behavior with NULLs (PostgreSQL allows multiple NULLs - this is desired)
 
 ---
 
 ## Milestone 2: Update Entity Services
 
 ### Goal
-Update all entity services to pass title-only metadata for lifecycle actions, use the new UNDELETE action type, and add action parameter to update methods.
+Update all entity services to pass title-only metadata for audit actions, use the new UNDELETE action type, and add action parameter to update methods.
 
 ### Success Criteria
-- All lifecycle action calls pass `metadata={"title": entity.title}`
+- All audit action calls pass `metadata={"title": entity.title}`
 - `restore()` method in base_entity_service uses `ActionType.UNDELETE`
 - `soft_delete()`, `archive()`, `unarchive()` pass title-only metadata
 - Update methods accept optional `action` parameter (defaults to UPDATE)
@@ -158,19 +199,19 @@ Update all entity services to pass title-only metadata for lifecycle actions, us
 
 1. **Add helper to `backend/src/services/base_entity_service.py`:**
    ```python
-   def _get_lifecycle_metadata(self, entity: T) -> dict:
-       """Get minimal metadata for lifecycle actions (title only for display)."""
+   def _get_audit_metadata(self, entity: T) -> dict:
+       """Get minimal metadata for audit actions (title only for display)."""
        return {"title": getattr(entity, "title", None)}
    ```
 
 2. **Update lifecycle methods in `base_entity_service.py`:**
-   - `soft_delete()`: Change `metadata=self._get_metadata_snapshot(entity)` → `metadata=self._get_lifecycle_metadata(entity)`
-   - `restore()`: Change `ActionType.RESTORE` → `ActionType.UNDELETE`, change metadata → `self._get_lifecycle_metadata(entity)`
-   - `archive()`: Change metadata → `self._get_lifecycle_metadata(entity)`
-   - `unarchive()`: Change metadata → `self._get_lifecycle_metadata(entity)`
+   - `soft_delete()`: Change `metadata=self._get_metadata_snapshot(entity)` → `metadata=self._get_audit_metadata(entity)`
+   - `restore()`: Change `ActionType.RESTORE` → `ActionType.UNDELETE`, change metadata → `self._get_audit_metadata(entity)`
+   - `archive()`: Change metadata → `self._get_audit_metadata(entity)`
+   - `unarchive()`: Change metadata → `self._get_audit_metadata(entity)`
 
 3. **Update `backend/src/services/bookmark_service.py`:**
-   - `restore()` override: Change `ActionType.RESTORE` → `ActionType.UNDELETE`, change metadata → `self._get_lifecycle_metadata(bookmark)`
+   - `restore()` override: Change `ActionType.RESTORE` → `ActionType.UNDELETE`, change metadata → `self._get_audit_metadata(bookmark)`
 
 4. **Add action parameter to update methods** (note_service, bookmark_service, prompt_service):
    ```python
@@ -196,10 +237,10 @@ Update all entity services to pass title-only metadata for lifecycle actions, us
 ### Testing Strategy
 
 1. **Update existing service tests:**
-   - Verify lifecycle actions create LIFECYCLE diff_type records
-   - Verify metadata_snapshot contains only `{"title": "..."}` for lifecycle actions
+   - Verify audit actions create AUDIT diff_type records with version=NULL
+   - Verify metadata_snapshot contains only `{"title": "..."}` for audit actions
    - Verify UNDELETE action is recorded (not RESTORE)
-   - Verify update() with `action=ActionType.RESTORE` records RESTORE action
+   - Verify update() with `action=ActionType.RESTORE` records RESTORE action with version
 
 ### Dependencies
 Milestone 1 (enum changes and migration)
@@ -210,23 +251,33 @@ Milestone 1 (enum changes and migration)
 
 ---
 
-## Milestone 3: Update Revert Endpoint
+## Milestone 3: Rename Revert to Restore and Update Endpoint
 
 ### Goal
-Modify the revert endpoint to record RESTORE action and block reverting to lifecycle versions.
+Rename "revert" terminology to "restore" throughout the codebase, modify the restore endpoint to record RESTORE action, and block restoring to audit versions.
 
 ### Success Criteria
-- Reverting to a previous version creates a RESTORE action in history
+- Endpoint renamed: `/history/{type}/{id}/revert/{version}` → `/history/{type}/{id}/restore/{version}`
+- Schema renamed: `RevertResponse` → `RestoreResponse`
+- Router function renamed: `revert_to_version()` → `restore_to_version()`
+- Frontend hook renamed: `useRevertToVersion` → `useRestoreToVersion`
+- Restoring to a previous version creates a RESTORE action in history
 - If entity was soft-deleted, creates UNDELETE then RESTORE (two records)
-- Attempting to revert to a LIFECYCLE version returns 400 error
+- Attempting to restore to an audit version (NULL version) returns 400 error
 - Content reconstruction and diff storage work correctly for RESTORE
-- Existing revert tests pass with updated assertions
+- Existing tests pass with updated names and assertions
 
 ### Key Changes
 
-1. **Update `backend/src/api/routers/history.py` `revert_to_version()`:**
+1. **Rename in `backend/src/schemas/history.py`:**
+   - `RevertResponse` → `RestoreResponse`
 
-   Add check to block reverting to lifecycle versions:
+2. **Rename in `backend/src/api/routers/history.py`:**
+   - Function: `revert_to_version()` → `restore_to_version()`
+   - Route: `@router.post("/{entity_type}/{entity_id}/revert/{version}")` → `@router.post("/{entity_type}/{entity_id}/restore/{version}")`
+   - Response model: `RevertResponse` → `RestoreResponse`
+
+   Add check to block restoring to audit versions:
    ```python
    # Get the target version's history record
    target_history = await history_service.get_history_at_version(
@@ -235,11 +286,11 @@ Modify the revert endpoint to record RESTORE action and block reverting to lifec
    if target_history is None:
        raise HTTPException(status_code=404, detail="Version not found")
 
-   # Block reverting to lifecycle versions
-   if target_history.diff_type == DiffType.LIFECYCLE.value:
+   # Block restoring to audit versions (they have NULL version anyway, but be explicit)
+   if target_history.diff_type == DiffType.AUDIT.value:
        raise HTTPException(
            status_code=400,
-           detail="Cannot revert to a lifecycle version (delete/undelete/archive/unarchive). "
+           detail="Cannot restore to an audit version (delete/undelete/archive/unarchive). "
                   "These are state transitions, not content versions.",
        )
    ```
@@ -252,16 +303,24 @@ Modify the revert endpoint to record RESTORE action and block reverting to lifec
    )
    ```
 
+3. **Rename in `frontend/src/hooks/useHistory.ts`:**
+   - `useRevertToVersion` → `useRestoreToVersion`
+   - Update API endpoint path in the hook
+
+4. **Update all frontend components using the hook:**
+   - `HistorySidebar.tsx`: `useRevertToVersion` → `useRestoreToVersion`
+   - Any other components using the hook
+
 ### Testing Strategy
 
 1. **Router tests:**
-   - `test__revert_to_version__records_restore_action`: Verify RESTORE action is created (not UPDATE)
-   - `test__revert_soft_deleted__records_undelete_then_restore`: Verify both actions are created in order
-   - `test__revert_to_lifecycle_version__returns_400`: Verify reverting to DELETE/ARCHIVE/etc. version fails
-   - Update existing revert tests for new action type
+   - `test__restore_to_version__records_restore_action`: Verify RESTORE action is created (not UPDATE)
+   - `test__restore_soft_deleted__records_undelete_then_restore`: Verify both actions are created in order
+   - `test__restore_to_audit_version__returns_400`: Verify restoring to DELETE/ARCHIVE/etc. version fails
+   - Update existing revert tests: rename to restore, update assertions for new action type
 
 2. **Integration test:**
-   - Create entity, update twice, revert to v1
+   - Create entity, update twice, restore to v1
    - Verify history shows: CREATE, UPDATE, UPDATE, RESTORE
    - Verify v4 (RESTORE) content matches v1
 
@@ -270,19 +329,21 @@ Milestone 2 (service updates with action parameter)
 
 ### Risk Factors
 - Need to ensure RESTORE is treated same as UPDATE for diff/snapshot logic (it should be - both are content-changing actions)
+- Frontend API calls need to use new endpoint path
 
 ---
 
 ## Milestone 4: Frontend Updates
 
 ### Goal
-Update frontend to handle new action types and disable interaction for lifecycle actions.
+Update frontend to handle new action types, null versions for audit events, and disable interaction for audit actions.
 
 ### Success Criteria
-- `HistoryActionType` type includes `restore` (for version restoration) and `undelete`, removes old `restore` meaning
+- `HistoryActionType` type includes `restore` (for version restoration) and `undelete`
 - `formatAction()` displays correct labels for all action types
-- Lifecycle action rows (DELETE/UNDELETE/ARCHIVE/UNARCHIVE) show informational message instead of diff
-- No restore button shown for lifecycle actions
+- Audit action rows (DELETE/UNDELETE/ARCHIVE/UNARCHIVE) display without version badge
+- Audit action rows show informational message instead of diff
+- No restore button shown for audit actions
 - RESTORE actions show diff and restore button like UPDATE
 
 ### Key Changes
@@ -292,11 +353,18 @@ Update frontend to handle new action types and disable interaction for lifecycle
    export type HistoryActionType =
      | 'create'
      | 'update'
-     | 'restore'     // Restored to previous version (was 'revert' in earlier plan)
+     | 'restore'     // Restored to previous version
      | 'delete'
      | 'undelete'    // Un-deleted (was 'restore' before)
      | 'archive'
      | 'unarchive'
+
+   // Update HistoryEntry type to allow null version
+   export interface HistoryEntry {
+     // ...
+     version: number | null  // null for audit events
+     // ...
+   }
    ```
 
 2. **Update `frontend/src/components/HistorySidebar.tsx`:**
@@ -312,14 +380,20 @@ Update frontend to handle new action types and disable interaction for lifecycle
        unarchive: 'Unarchived',
      }
      ```
-   - Add helper to check if action is lifecycle:
+   - Add helper to check if action is audit:
      ```typescript
-     const isLifecycleAction = (action: HistoryActionType): boolean =>
+     const isAuditAction = (action: HistoryActionType): boolean =>
        ['delete', 'undelete', 'archive', 'unarchive'].includes(action)
      ```
-   - When lifecycle action is selected, show message instead of diff:
+   - Display version conditionally:
      ```typescript
-     {isLifecycleAction(entry.action) ? (
+     {entry.version !== null && (
+       <span className="font-medium text-gray-900">v{entry.version}</span>
+     )}
+     ```
+   - When audit action is selected, show message instead of diff:
+     ```typescript
+     {isAuditAction(entry.action) ? (
        <div className="p-3 text-sm text-gray-500">
          This is a state transition. No content changes to display.
        </div>
@@ -327,30 +401,32 @@ Update frontend to handle new action types and disable interaction for lifecycle
        <DiffView ... />
      )}
      ```
-   - Hide restore button for lifecycle actions:
+   - Hide restore button for audit actions (they have null version anyway):
      ```typescript
-     {entry.version < latestVersion && !isLifecycleAction(entry.action) && (
+     {entry.version !== null && entry.version < latestVersion && (
        <button ...>Restore</button>
      )}
      ```
 
 3. **Update `frontend/src/pages/settings/SettingsVersionHistory.tsx`:**
    - Update `formatAction()` with same labels
-   - Apply same lifecycle action logic for row expansion
+   - Apply same audit action logic for row expansion and version display
 
 ### Testing Strategy
 
 1. **Component tests:**
    - Verify formatAction returns correct labels for all action types
-   - Verify lifecycle actions don't show restore button
-   - Verify lifecycle actions show informational message instead of diff when expanded
+   - Verify audit actions (null version) don't show version badge
+   - Verify audit actions don't show restore button
+   - Verify audit actions show informational message instead of diff when expanded
    - Verify RESTORE actions show diff and restore button
 
 2. **Type tests:**
    - Verify HistoryActionType includes all new values
+   - Verify HistoryEntry.version accepts null
 
 ### Dependencies
-Milestone 3 (backend changes complete)
+Milestone 3 (backend changes complete, endpoint renamed)
 
 ### Risk Factors
 - Ensure consistent behavior between HistorySidebar and SettingsVersionHistory
@@ -364,23 +440,26 @@ Update content-versioning.md spec to reflect all changes.
 
 ### Success Criteria
 - ActionType table updated with RESTORE (version restoration) and UNDELETE
-- DiffType table updated with LIFECYCLE
+- DiffType table updated with AUDIT
+- Version column documented as nullable (NULL for audit events)
 - DELETE section updated to reflect no content storage (only title in metadata)
-- Lifecycle actions section explains audit-only purpose
-- Reconstruction algorithm explicitly states LIFECYCLE records are filtered out
-- Revert section notes that reverting to lifecycle versions is blocked
+- Audit actions section explains audit-only purpose and null version
+- Reconstruction algorithm notes it naturally ignores null-version records
+- Restore section (renamed from revert) notes that restoring to audit versions is blocked
+- All "revert" terminology updated to "restore"
 
 ### Key Changes
 
 1. **Update `docs/content-versioning.md`:**
-   - Update Actions Tracked table
-   - Update Diff Types table with LIFECYCLE
-   - Rewrite DELETE section (stores only title, no content)
-   - Add section explaining LIFECYCLE diff type and its purpose
-   - Update reconstruction algorithm to specify filtering out LIFECYCLE records
-   - Update revert section to note lifecycle version blocking
+   - Update Actions Tracked table with new columns (Has Version?, etc.)
+   - Update Diff Types table with AUDIT
+   - Rewrite DELETE section (stores only title, no content, no version)
+   - Add section explaining AUDIT diff type and its purpose
+   - Update reconstruction algorithm to specify null-version filtering
+   - Rename "revert" → "restore" throughout
+   - Update restore section to note audit version blocking
 
-2. **Update `CLAUDE.md`** if it references action types
+2. **Update `CLAUDE.md`** if it references action types or revert terminology
 
 ### Testing Strategy
 Manual review of documentation for accuracy and completeness.
@@ -397,10 +476,10 @@ None
 
 | Milestone | Scope | Key Changes |
 |-----------|-------|-------------|
-| 1 | Backend enums, history_service, migration | Add RESTORE, rename old RESTORE→UNDELETE, add LIFECYCLE diff type, update reconstruction to skip lifecycle, create migration |
-| 2 | Entity services | Update lifecycle actions to pass title-only metadata, add action parameter to update methods |
-| 3 | Revert endpoint | Record RESTORE action, block reverting to lifecycle versions |
-| 4 | Frontend | Handle new action types, show message for lifecycle actions, hide restore button |
-| 5 | Documentation | Update spec to reflect all changes |
+| 1 | Backend enums, model, migration | Add RESTORE, rename old RESTORE→UNDELETE, add AUDIT diff type, make version nullable, audit actions get NULL version, update reconstruction |
+| 2 | Entity services | Update audit actions to pass title-only metadata, add action parameter to update methods |
+| 3 | Rename revert→restore, update endpoint | Rename throughout codebase, record RESTORE action, block restoring to audit versions |
+| 4 | Frontend | Handle new action types, null versions for audit events, show message for audit actions, hide restore button |
+| 5 | Documentation | Update spec to reflect all changes, rename revert→restore |
 
 Total: 5 milestones. Each milestone should be reviewed before proceeding to the next.
