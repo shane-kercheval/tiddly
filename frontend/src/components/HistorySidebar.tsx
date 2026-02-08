@@ -285,7 +285,7 @@ export function HistorySidebar({
                     <div className="max-h-[500px] overflow-auto relative">
                       {/* Wrap toggle button - sticky so it stays visible during scroll */}
                       <div className="sticky top-1 right-1 float-right z-10 mr-1 mt-1">
-                        <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={500} position="left">
+                        <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={0} position="left">
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
