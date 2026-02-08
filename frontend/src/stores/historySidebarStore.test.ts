@@ -1,13 +1,19 @@
 /**
  * Tests for history sidebar store.
  */
-import { describe, it, expect, beforeEach } from 'vitest'
-import { useHistorySidebarStore } from './historySidebarStore'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import {
+  useHistorySidebarStore,
+  DEFAULT_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+} from './historySidebarStore'
 
 describe('historySidebarStore', () => {
   beforeEach(() => {
     // Reset store state before each test
-    useHistorySidebarStore.setState({ isOpen: false })
+    useHistorySidebarStore.setState({ isOpen: false, width: DEFAULT_SIDEBAR_WIDTH })
+    // Clear localStorage
+    localStorage.clear()
   })
 
   describe('initial state', () => {
@@ -47,6 +53,60 @@ describe('historySidebarStore', () => {
 
       setOpen(true)
       expect(useHistorySidebarStore.getState().isOpen).toBe(true)
+    })
+  })
+
+  describe('setWidth', () => {
+    it('should update width within valid range', () => {
+      const { setWidth } = useHistorySidebarStore.getState()
+
+      setWidth(500)
+
+      expect(useHistorySidebarStore.getState().width).toBe(500)
+    })
+
+    it('should clamp width to minimum boundary', () => {
+      const { setWidth } = useHistorySidebarStore.getState()
+
+      setWidth(100) // Below MIN_SIDEBAR_WIDTH (280)
+
+      expect(useHistorySidebarStore.getState().width).toBe(MIN_SIDEBAR_WIDTH)
+    })
+
+    it('should accept large widths (dynamic max handled at resize time)', () => {
+      const { setWidth } = useHistorySidebarStore.getState()
+
+      setWidth(1000) // Large value - store accepts it, dynamic max is enforced during resize
+
+      expect(useHistorySidebarStore.getState().width).toBe(1000)
+    })
+
+    it('should persist width to localStorage', () => {
+      const { setWidth } = useHistorySidebarStore.getState()
+
+      setWidth(600)
+
+      expect(localStorage.getItem('history-sidebar-width')).toBe('600')
+    })
+
+    it('should handle localStorage errors gracefully', () => {
+      const { setWidth } = useHistorySidebarStore.getState()
+      const originalSetItem = localStorage.setItem
+      localStorage.setItem = vi.fn(() => {
+        throw new Error('Storage quota exceeded')
+      })
+
+      // Should not throw, state should still update
+      expect(() => setWidth(500)).not.toThrow()
+      expect(useHistorySidebarStore.getState().width).toBe(500)
+
+      localStorage.setItem = originalSetItem
+    })
+  })
+
+  describe('initial width from localStorage', () => {
+    it('should use default width when localStorage is empty', () => {
+      expect(useHistorySidebarStore.getState().width).toBe(DEFAULT_SIDEBAR_WIDTH)
     })
   })
 })

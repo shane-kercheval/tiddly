@@ -8,7 +8,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued'
 import { useEntityHistory, useContentAtVersion, useRevertToVersion } from '../hooks/useHistory'
-import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from '../stores/historySidebarStore'
+import { useHistorySidebarStore } from '../stores/historySidebarStore'
 import { CloseIcon, RestoreIcon } from './icons'
 import type { HistoryEntityType, HistoryActionType } from '../types'
 
@@ -132,6 +132,19 @@ function DiffView({
   )
 }
 
+/** Tailwind md breakpoint */
+const MD_BREAKPOINT = 768
+
+/** Minimum space for content area (header buttons + padding) */
+const MIN_CONTENT_WIDTH = 600
+
+/** Calculate the maximum allowed sidebar width based on current viewport */
+function calculateMaxWidth(): number {
+  const leftSidebar = document.getElementById('desktop-sidebar')
+  const leftSidebarWidth = leftSidebar?.getBoundingClientRect().width ?? 0
+  return window.innerWidth - leftSidebarWidth - MIN_CONTENT_WIDTH
+}
+
 export function HistorySidebar({
   entityType,
   entityId,
@@ -142,10 +155,34 @@ export function HistorySidebar({
   const [confirmingRevert, setConfirmingRevert] = useState<number | null>(null)
   const confirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= MD_BREAKPOINT : true
+  )
 
   // Get width from store
-  const width = useHistorySidebarStore((state) => state.width)
+  const storeWidth = useHistorySidebarStore((state) => state.width)
   const setWidth = useHistorySidebarStore((state) => state.setWidth)
+
+  // Constrain width to current viewport on mount and window resize
+  useEffect(() => {
+    const constrainWidth = (): void => {
+      const maxWidth = calculateMaxWidth()
+      if (storeWidth > maxWidth) {
+        setWidth(maxWidth)
+      }
+      setIsDesktop(window.innerWidth >= MD_BREAKPOINT)
+    }
+
+    // Check on mount
+    constrainWidth()
+
+    // Check on window resize
+    window.addEventListener('resize', constrainWidth)
+    return () => window.removeEventListener('resize', constrainWidth)
+  }, [storeWidth, setWidth])
+
+  // Calculate effective width (clamped to current max)
+  const width = isDesktop ? Math.min(storeWidth, calculateMaxWidth()) : storeWidth
 
   // Handle drag resize
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -159,7 +196,10 @@ export function HistorySidebar({
     const handleMouseMove = (e: MouseEvent) => {
       // Width is calculated from the right edge of the window
       const newWidth = window.innerWidth - e.clientX
-      setWidth(Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, newWidth)))
+      const maxWidth = calculateMaxWidth()
+
+      // Clamp to dynamic max (store handles min clamping)
+      setWidth(Math.min(newWidth, maxWidth))
     }
 
     const handleMouseUp = () => {
@@ -246,15 +286,17 @@ export function HistorySidebar({
 
   return (
     <div
-      className="fixed right-0 top-0 h-full bg-white shadow-lg border-l border-gray-200 flex flex-col z-50"
-      style={{ width: `${width}px` }}
+      className="fixed right-0 top-0 h-full bg-white shadow-lg border-l border-gray-200 flex flex-col z-50 w-full md:w-auto"
+      style={isDesktop ? { width: `${width}px` } : undefined}
     >
-      {/* Drag handle */}
-      <div
-        className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-400 active:bg-blue-500 transition-colors z-10"
-        onMouseDown={handleMouseDown}
-        title="Drag to resize"
-      />
+      {/* Drag handle - hidden on mobile */}
+      {isDesktop && (
+        <div
+          className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-400 active:bg-blue-500 transition-colors z-10"
+          onMouseDown={handleMouseDown}
+          title="Drag to resize"
+        />
+      )}
       {/* Header - matches item header height (pt-3 pb-3) for alignment */}
       <div className="flex items-center justify-between py-3 px-4 border-b border-gray-200 shrink-0">
         <h2 className="text-lg font-semibold text-gray-900">Version History</h2>

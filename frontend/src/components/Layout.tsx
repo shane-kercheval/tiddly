@@ -21,6 +21,9 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
  * - Render sidebar and main content area
  * - Handle global keyboard shortcuts
  */
+/** Tailwind md breakpoint */
+const MD_BREAKPOINT = 768
+
 export function Layout(): ReactNode {
   const fullWidthLayout = useUIPreferencesStore((state) => state.fullWidthLayout)
   const toggleFullWidthLayout = useUIPreferencesStore((state) => state.toggleFullWidthLayout)
@@ -29,9 +32,14 @@ export function Layout(): ReactNode {
   const fetchFilters = useFiltersStore((state) => state.fetchFilters)
   const fetchTags = useTagsStore((state) => state.fetchTags)
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= MD_BREAKPOINT : true
+  )
   const location = useLocation()
   const showFooter = location.pathname.startsWith('/app/settings')
   const hasFetchedRef = useRef(false)
+  const historySidebarOpen = useHistorySidebarStore((state) => state.isOpen)
+  const historySidebarWidth = useHistorySidebarStore((state) => state.width)
 
   // Fetch shared data once on mount (used by Sidebar and child pages)
   useEffect(() => {
@@ -43,6 +51,20 @@ export function Layout(): ReactNode {
     }
   }, [fetchSidebar, fetchFilters, fetchTags])
 
+  // Track viewport size for responsive behavior and to recalculate sidebar margin
+  const [, setResizeCount] = useState(0)
+  useEffect(() => {
+    const handleResize = (): void => {
+      setIsDesktop(window.innerWidth >= MD_BREAKPOINT)
+      // Force re-render to recalculate history sidebar margin
+      if (historySidebarOpen) {
+        setResizeCount((c) => c + 1)
+      }
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [historySidebarOpen])
+
   // Global keyboard shortcuts (work on all pages)
   useKeyboardShortcuts({
     onShowShortcuts: () => setShowShortcuts(true),
@@ -53,8 +75,16 @@ export function Layout(): ReactNode {
     },
   })
 
-  const historySidebarOpen = useHistorySidebarStore((state) => state.isOpen)
-  const historySidebarWidth = useHistorySidebarStore((state) => state.width)
+  // Calculate constrained margin for history sidebar
+  // Uses the same logic as HistorySidebar to ensure they stay in sync
+  const getHistoryMargin = (): number => {
+    if (!historySidebarOpen || !isDesktop) return 0
+    const leftSidebar = document.getElementById('desktop-sidebar')
+    const leftSidebarWidth = leftSidebar?.getBoundingClientRect().width ?? 0
+    const minContentWidth = 600
+    const maxWidth = window.innerWidth - leftSidebarWidth - minContentWidth
+    return Math.min(historySidebarWidth, maxWidth)
+  }
 
   return (
     <div className="flex h-dvh bg-white overflow-hidden">
@@ -63,7 +93,7 @@ export function Layout(): ReactNode {
       <main
         id="main-content"
         className="flex-1 flex flex-col min-w-0 relative overflow-x-hidden transition-[margin] duration-200"
-        style={{ marginRight: historySidebarOpen ? `${historySidebarWidth}px` : 0 }}
+        style={{ marginRight: `${getHistoryMargin()}px` }}
       >
         <div className="flex-1 overflow-y-auto overflow-x-hidden">
           <div className={`flex flex-col min-h-0 px-4 pb-4 md:px-6 ${fullWidthLayout ? 'max-w-full' : 'max-w-5xl'}`}>

@@ -746,6 +746,7 @@ export function Sidebar(): ReactNode {
 
       {/* Desktop sidebar */}
       <aside
+        id="desktop-sidebar"
         className={`hidden h-dvh flex-shrink-0 border-r border-gray-200 bg-white transition-all md:block ${
           isCollapsed ? 'w-16' : 'w-72'
         }`}

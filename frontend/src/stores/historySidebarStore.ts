@@ -7,7 +7,7 @@ import { create } from 'zustand'
 /** Default sidebar width in pixels */
 export const DEFAULT_SIDEBAR_WIDTH = 384 // w-96 equivalent
 export const MIN_SIDEBAR_WIDTH = 280
-export const MAX_SIDEBAR_WIDTH = 800
+export const MAX_SIDEBAR_WIDTH = Infinity // Dynamic max calculated at resize time
 
 // Storage key for persisting width
 const STORAGE_KEY = 'history-sidebar-width'
@@ -38,8 +38,12 @@ export const useHistorySidebarStore = create<HistorySidebarState>((set) => ({
   setOpen: (open) => set({ isOpen: open }),
   setWidth: (width) => {
     const clampedWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width))
-    // Persist to localStorage
-    localStorage.setItem(STORAGE_KEY, String(clampedWidth))
+    // Persist to localStorage (safe guard against storage failures)
+    try {
+      localStorage.setItem(STORAGE_KEY, String(clampedWidth))
+    } catch {
+      // Ignore storage errors - in-memory state still updates
+    }
     set({ width: clampedWidth })
   },
 }))
