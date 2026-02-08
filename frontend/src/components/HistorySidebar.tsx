@@ -8,7 +8,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued'
 import { useEntityHistory, useContentAtVersion, useRevertToVersion } from '../hooks/useHistory'
-import { useHistorySidebarStore } from '../stores/historySidebarStore'
+import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
 import { CloseIcon, RestoreIcon } from './icons'
 import type { HistoryEntityType, HistoryActionType } from '../types'
 
@@ -135,14 +135,12 @@ function DiffView({
 /** Tailwind md breakpoint */
 const MD_BREAKPOINT = 768
 
-/** Minimum space for content area (header buttons + padding) */
-const MIN_CONTENT_WIDTH = 600
-
 /** Calculate the maximum allowed sidebar width based on current viewport */
 function calculateMaxWidth(): number {
   const leftSidebar = document.getElementById('desktop-sidebar')
   const leftSidebarWidth = leftSidebar?.getBoundingClientRect().width ?? 0
-  return window.innerWidth - leftSidebarWidth - MIN_CONTENT_WIDTH
+  // Clamp to MIN_SIDEBAR_WIDTH to prevent negative values on narrow viewports
+  return Math.max(MIN_SIDEBAR_WIDTH, window.innerWidth - leftSidebarWidth - MIN_CONTENT_WIDTH)
 }
 
 export function HistorySidebar({

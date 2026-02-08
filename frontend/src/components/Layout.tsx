@@ -9,7 +9,7 @@ import { useSidebarStore } from '../stores/sidebarStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFiltersStore } from '../stores/filtersStore'
 import { useTagsStore } from '../stores/tagsStore'
-import { useHistorySidebarStore } from '../stores/historySidebarStore'
+import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 
 /**
@@ -81,8 +81,8 @@ export function Layout(): ReactNode {
     if (!historySidebarOpen || !isDesktop) return 0
     const leftSidebar = document.getElementById('desktop-sidebar')
     const leftSidebarWidth = leftSidebar?.getBoundingClientRect().width ?? 0
-    const minContentWidth = 600
-    const maxWidth = window.innerWidth - leftSidebarWidth - minContentWidth
+    // Clamp to MIN_SIDEBAR_WIDTH to prevent negative values on narrow viewports
+    const maxWidth = Math.max(MIN_SIDEBAR_WIDTH, window.innerWidth - leftSidebarWidth - MIN_CONTENT_WIDTH)
     return Math.min(historySidebarWidth, maxWidth)
   }
 

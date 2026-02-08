@@ -94,6 +94,8 @@ vi.mock('../stores/historySidebarStore', () => ({
     }
     return selector ? selector(state) : state
   },
+  MIN_SIDEBAR_WIDTH: 280,
+  MIN_CONTENT_WIDTH: 600,
 }))
 
 function TestPage(): ReactNode {
