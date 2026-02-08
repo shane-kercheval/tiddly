@@ -678,7 +678,7 @@ describe('SettingsVersionHistory', () => {
       created_at: '2024-01-01T00:00:00Z',
     }
 
-    it('test__audit_entry__does_not_show_version_badge', () => {
+    it('test__audit_entry__shows_audit_label_instead_of_version', () => {
       mockUseUserHistory.mockReturnValue({
         data: {
           items: [auditEntry, contentEntry, createEntry],
@@ -697,8 +697,10 @@ describe('SettingsVersionHistory', () => {
       expect(screen.getAllByText('v2')).toHaveLength(2) // mobile + desktop
       expect(screen.getAllByText('v1')).toHaveLength(2)
 
-      // No "v" badge for null version audit entry
-      // Total version badges = 4 (v2 x2 + v1 x2 for mobile+desktop)
+      // Audit entry shows "audit" label instead of version badge (mobile + desktop = 2)
+      expect(screen.getAllByText('audit')).toHaveLength(2)
+
+      // No numeric version badge for audit entry
       const allVersionBadges = screen.getAllByText(/^v\d+$/)
       expect(allVersionBadges).toHaveLength(4)
     })

@@ -193,9 +193,13 @@ export function HistorySidebar({
   }
 
   // Toggle entry selection - clicking same entry closes diff view
-  // Audit entries (null version) are not selectable since they have no content diff
+  // Audit entries (null version) close any open selection but don't open a new one
   const handleVersionClick = (version: number | null): void => {
-    if (version === null) return
+    if (version === null) {
+      setSelectedVersion(null)
+      setConfirmingRestore(null)
+      return
+    }
     setSelectedVersion(selectedVersion === version ? null : version)
     if (confirmingRestore !== null) {
       setConfirmingRestore(null)

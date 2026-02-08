@@ -262,5 +262,32 @@ describe('HistorySidebar', () => {
       const v2Element = screen.getByText('v2').closest('[class*="bg-blue-50"]')
       expect(v2Element).toBeInTheDocument()
     })
+
+    it('test__clicking_audit_entry__closes_open_diff_view', () => {
+      mockUseContentAtVersion.mockReturnValue({
+        data: { content: 'test content', warnings: null },
+      })
+
+      const entries = [
+        createEntry({ id: '1', action: 'update', version: 3 }),
+        createEntry({ id: '2', action: 'delete', version: null, diff_type: 'audit' }),
+        createEntry({ id: '3', action: 'create', version: 1 }),
+      ]
+
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: entries, total: entries.length, offset: 0, limit: 50, has_more: false },
+        isLoading: false,
+      })
+
+      renderSidebar()
+
+      // Click on v3 to open diff
+      fireEvent.click(screen.getByText('v3'))
+      expect(screen.getByText('v3').closest('[class*="bg-blue-50"]')).toBeInTheDocument()
+
+      // Click on the audit entry (Deleted) - should close v3's diff
+      fireEvent.click(screen.getByText('Deleted'))
+      expect(screen.getByText('v3').closest('[class*="bg-blue-50"]')).toBeNull()
+    })
   })
 })

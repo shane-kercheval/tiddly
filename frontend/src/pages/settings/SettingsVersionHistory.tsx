@@ -270,9 +270,12 @@ export function SettingsVersionHistory(): ReactNode {
   )
 
   // Toggle entry selection - clicking same entry closes diff view
-  // Audit entries (null version) are not selectable since they have no content diff
+  // Audit entries close any open selection but don't open a new one
   const handleEntryClick = (entry: HistoryEntry): void => {
-    if (isAuditAction(entry.action)) return
+    if (isAuditAction(entry.action)) {
+      setSelectedEntry(null)
+      return
+    }
     setSelectedEntry(selectedEntry?.id === entry.id ? null : entry)
   }
 
@@ -473,13 +476,17 @@ export function SettingsVersionHistory(): ReactNode {
                       >
                         {getItemTitle(entry.metadata_snapshot)}
                       </Link>
-                      {entry.version !== null && (
+                      {entry.version !== null ? (
                         <span className="text-xs text-gray-400 shrink-0">v{entry.version}</span>
+                      ) : (
+                        <span className="text-xs text-gray-400 italic shrink-0">audit</span>
                       )}
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
-                    <span className="text-gray-700">{formatActionTable(entry.action)}</span>
+                  <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-xs ${
+                    isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-500'
+                  }`}>
+                    <span className={isAuditAction(entry.action) ? 'text-gray-500' : 'text-gray-700'}>{formatActionTable(entry.action)}</span>
                     <span>
                       {formatSourceTable(entry.source)}
                       {entry.token_prefix && (
@@ -541,15 +548,17 @@ export function SettingsVersionHistory(): ReactNode {
                             >
                               {getItemTitle(entry.metadata_snapshot)}
                             </Link>
-                            {entry.version !== null && (
+                            {entry.version !== null ? (
                               <span className="text-xs text-gray-400 shrink-0">v{entry.version}</span>
+                            ) : (
+                              <span className="text-xs text-gray-400 italic shrink-0">audit</span>
                             )}
                           </div>
                         </div>
-                        <div className="px-3 py-2.5 text-sm text-gray-700">
+                        <div className={`px-3 py-2.5 text-sm ${isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-700'}`}>
                           {formatActionTable(entry.action)}
                         </div>
-                        <div className="px-3 py-2.5 text-sm text-gray-500">
+                        <div className={`px-3 py-2.5 text-sm ${isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-500'}`}>
                           {formatSourceTable(entry.source)}
                           {entry.token_prefix && (
                             <span className="text-xs text-gray-400 ml-1">
@@ -557,7 +566,7 @@ export function SettingsVersionHistory(): ReactNode {
                             </span>
                           )}
                         </div>
-                        <div className="px-3 py-2.5 text-sm text-gray-500 whitespace-nowrap">
+                        <div className={`px-3 py-2.5 text-sm whitespace-nowrap ${isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-500'}`}>
                           {new Date(entry.created_at).toLocaleString()}
                         </div>
                       </div>
