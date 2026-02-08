@@ -195,7 +195,7 @@ async def get_entity_history(
     Get history for a specific entity.
 
     Returns paginated history records for the specified entity,
-    sorted by version descending (most recent first).
+    sorted by created_at descending (most recent first).
 
     Returns empty list (not 404) if:
     - Entity was hard-deleted (history cascade-deleted)
@@ -232,7 +232,7 @@ async def get_content_at_version(
     to reconstruct the content at the specified version.
 
     Returns:
-    - 200 with content (may be None for DELETE actions) if version exists
+    - 200 with content if version exists
     - 404 if version doesn't exist or entity was hard-deleted
 
     The response includes any reconstruction warnings if diff application

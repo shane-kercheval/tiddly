@@ -256,8 +256,8 @@ export function BookmarkDetail(): ReactNode {
     setShowHistory(true)
   }, [setShowHistory])
 
-  const handleHistoryReverted = useCallback(async (): Promise<void> => {
-    // Refresh the bookmark after a revert to show the restored content
+  const handleHistoryRestored = useCallback(async (): Promise<void> => {
+    // Refresh the bookmark after a restore to show the restored content
     if (bookmarkId) {
       const refreshedBookmark = await fetchBookmark(bookmarkId, { skipCache: true })
       setBookmark(refreshedBookmark)
@@ -298,7 +298,7 @@ export function BookmarkDetail(): ReactNode {
           entityType="bookmark"
           entityId={bookmarkId}
           onClose={() => setShowHistory(false)}
-          onReverted={handleHistoryReverted}
+          onRestored={handleHistoryRestored}
         />
       )}
     </>

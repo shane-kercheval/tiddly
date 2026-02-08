@@ -177,7 +177,7 @@ export function Bookmark({
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
   // Skip useEffect sync for a specific updated_at when manually handling refresh (e.g., from StaleDialog)
   const skipSyncForUpdatedAtRef = useRef<string | null>(null)
-  // Track current content for detecting external changes (e.g., version revert) in the sync effect.
+  // Track current content for detecting external changes (e.g., version restore) in the sync effect.
   // Using a ref avoids stale closure issues and doesn't need to be in the effect's dependency array.
   const currentContentRef = useRef(current.content)
   currentContentRef.current = current.content
@@ -215,7 +215,7 @@ export function Bookmark({
       skipSyncForUpdatedAtRef.current = null
       return
     }
-    // Reset editor if content changed externally (e.g., version revert from history sidebar).
+    // Reset editor if content changed externally (e.g., version restore from history sidebar).
     // After normal saves, currentContentRef already matches bookmark.content so no reset occurs.
     const needsEditorReset = (bookmark.content ?? '') !== currentContentRef.current
     syncStateFromBookmark(bookmark, needsEditorReset)

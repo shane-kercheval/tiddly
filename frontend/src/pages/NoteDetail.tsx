@@ -236,8 +236,8 @@ export function NoteDetail(): ReactNode {
     setShowHistory(true)
   }, [setShowHistory])
 
-  const handleHistoryReverted = useCallback(async (): Promise<void> => {
-    // Refresh the note after a revert to show the restored content
+  const handleHistoryRestored = useCallback(async (): Promise<void> => {
+    // Refresh the note after a restore to show the restored content
     if (noteId) {
       const refreshedNote = await fetchNote(noteId, { skipCache: true })
       setNote(refreshedNote)
@@ -300,7 +300,7 @@ export function NoteDetail(): ReactNode {
           entityType="note"
           entityId={noteId}
           onClose={() => setShowHistory(false)}
-          onReverted={handleHistoryReverted}
+          onRestored={handleHistoryRestored}
         />
       )}
     </>

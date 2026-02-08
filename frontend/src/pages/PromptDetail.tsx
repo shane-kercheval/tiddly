@@ -267,8 +267,8 @@ export function PromptDetail(): ReactNode {
     setShowHistory(true)
   }, [setShowHistory])
 
-  const handleHistoryReverted = useCallback(async (): Promise<void> => {
-    // Refresh the prompt after a revert to show the restored content
+  const handleHistoryRestored = useCallback(async (): Promise<void> => {
+    // Refresh the prompt after a restore to show the restored content
     if (promptId) {
       const refreshedPrompt = await fetchPrompt(promptId, { skipCache: true })
       setPrompt(refreshedPrompt)
@@ -331,7 +331,7 @@ export function PromptDetail(): ReactNode {
           entityType="prompt"
           entityId={promptId}
           onClose={() => setShowHistory(false)}
-          onReverted={handleHistoryReverted}
+          onRestored={handleHistoryRestored}
         />
       )}
     </>

@@ -574,6 +574,8 @@ Update content-versioning.md spec to reflect all changes.
 - Restore section (renamed from revert) notes that restoring to audit versions is blocked
 - All "revert" terminology updated to "restore"
 
+**NOTE**: content-versioning.md is meant to be a high-level functional spec, so it should not include implementation details. Focus on the conceptual changes and their implications for users and developers.
+
 ### Key Changes
 
 1. **Update `docs/content-versioning.md`:**

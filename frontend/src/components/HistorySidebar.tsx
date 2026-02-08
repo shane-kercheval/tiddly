@@ -16,7 +16,7 @@ interface HistorySidebarProps {
   entityType: HistoryEntityType
   entityId: string
   onClose: () => void
-  onReverted?: () => void
+  onRestored?: () => void
 }
 
 /** Format action type for display */
@@ -59,10 +59,10 @@ export function HistorySidebar({
   entityType,
   entityId,
   onClose,
-  onReverted,
+  onRestored,
 }: HistorySidebarProps): ReactNode {
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
-  const [confirmingRevert, setConfirmingRevert] = useState<number | null>(null)
+  const [confirmingRestore, setConfirmingRestore] = useState<number | null>(null)
   const confirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [isDesktop, setIsDesktop] = useState(() =>
@@ -133,9 +133,9 @@ export function HistorySidebar({
 
   // Auto-reset confirmation after 3 seconds
   useEffect(() => {
-    if (confirmingRevert !== null) {
+    if (confirmingRestore !== null) {
       confirmTimeoutRef.current = setTimeout(() => {
-        setConfirmingRevert(null)
+        setConfirmingRestore(null)
       }, 3000)
     }
     return () => {
@@ -144,7 +144,7 @@ export function HistorySidebar({
         confirmTimeoutRef.current = null
       }
     }
-  }, [confirmingRevert])
+  }, [confirmingRestore])
 
   const { data: history, isLoading } = useEntityHistory(entityType, entityId, { limit: 50 })
 
@@ -163,34 +163,34 @@ export function HistorySidebar({
     previousVersion
   )
 
-  const revertMutation = useRestoreToVersion()
+  const restoreMutation = useRestoreToVersion()
 
   const latestVersion = history?.items[0]?.version ?? 0
 
-  const handleRevertClick = (version: number, e: React.MouseEvent): void => {
+  const handleRestoreClick = (version: number, e: React.MouseEvent): void => {
     e.stopPropagation()
-    if (confirmingRevert === version) {
-      // Second click - execute revert
-      revertMutation.mutate(
+    if (confirmingRestore === version) {
+      // Second click - execute restore
+      restoreMutation.mutate(
         { entityType, entityId, version },
         {
           onSuccess: () => {
-            setConfirmingRevert(null)
-            onReverted?.()
+            setConfirmingRestore(null)
+            onRestored?.()
           },
         }
       )
     } else {
       // First click - show confirm
-      setConfirmingRevert(version)
+      setConfirmingRestore(version)
     }
   }
 
   // Toggle version selection - clicking same version closes diff view
   const handleVersionClick = (version: number): void => {
     setSelectedVersion(selectedVersion === version ? null : version)
-    if (confirmingRevert !== null) {
-      setConfirmingRevert(null)
+    if (confirmingRestore !== null) {
+      setConfirmingRestore(null)
     }
   }
 
@@ -257,16 +257,16 @@ export function HistorySidebar({
                     {/* Show "Restore" button on older versions (not the latest) */}
                     {entry.version < latestVersion && (
                       <button
-                        onClick={(e) => handleRevertClick(entry.version, e)}
-                        disabled={revertMutation.isPending}
+                        onClick={(e) => handleRestoreClick(entry.version, e)}
+                        disabled={restoreMutation.isPending}
                         className={`shrink-0 flex items-center gap-1.5 ${
-                          confirmingRevert === entry.version
+                          confirmingRestore === entry.version
                             ? 'btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50'
                             : 'btn-secondary hover:text-red-600'
                         }`}
                       >
                         <RestoreIcon className="w-3.5 h-3.5" />
-                        {confirmingRevert === entry.version ? 'Confirm' : 'Restore'}
+                        {confirmingRestore === entry.version ? 'Confirm' : 'Restore'}
                       </button>
                     )}
                   </div>
