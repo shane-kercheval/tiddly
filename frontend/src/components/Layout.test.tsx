@@ -83,15 +83,17 @@ vi.mock('../stores/sidebarStore', () => ({
 
 // Track history sidebar state for tests
 let mockHistorySidebarOpen = false
+const mockHistorySidebarWidth = 384
 vi.mock('../stores/historySidebarStore', () => ({
   useHistorySidebarStore: (selector?: (state: Record<string, unknown>) => unknown) => {
     const state = {
       isOpen: mockHistorySidebarOpen,
+      width: mockHistorySidebarWidth,
       setOpen: vi.fn(),
+      setWidth: vi.fn(),
     }
     return selector ? selector(state) : state
   },
-  HISTORY_SIDEBAR_MARGIN_CLASS: 'md:mr-96',
 }))
 
 function TestPage(): ReactNode {
@@ -166,7 +168,7 @@ describe('Layout', () => {
       renderLayout()
 
       const main = screen.getByRole('main')
-      expect(main.className).not.toContain('md:mr-96')
+      expect(main.style.marginRight).toBe('0px')
     })
 
     it('should apply margin when history sidebar is open', () => {
@@ -174,7 +176,7 @@ describe('Layout', () => {
       renderLayout()
 
       const main = screen.getByRole('main')
-      expect(main.className).toContain('md:mr-96')
+      expect(main.style.marginRight).toBe(`${mockHistorySidebarWidth}px`)
     })
   })
 })

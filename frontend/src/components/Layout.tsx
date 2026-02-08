@@ -9,7 +9,7 @@ import { useSidebarStore } from '../stores/sidebarStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFiltersStore } from '../stores/filtersStore'
 import { useTagsStore } from '../stores/tagsStore'
-import { useHistorySidebarStore, HISTORY_SIDEBAR_MARGIN_CLASS } from '../stores/historySidebarStore'
+import { useHistorySidebarStore } from '../stores/historySidebarStore'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 
 /**
@@ -54,12 +54,17 @@ export function Layout(): ReactNode {
   })
 
   const historySidebarOpen = useHistorySidebarStore((state) => state.isOpen)
+  const historySidebarWidth = useHistorySidebarStore((state) => state.width)
 
   return (
     <div className="flex h-dvh bg-white overflow-hidden">
       <Sidebar />
       {/* Note: id="main-content" is used by SaveOverlay.tsx for portal rendering */}
-      <main id="main-content" className={`flex-1 flex flex-col min-w-0 relative overflow-x-hidden transition-[margin] duration-200 ${historySidebarOpen ? HISTORY_SIDEBAR_MARGIN_CLASS : ''}`}>
+      <main
+        id="main-content"
+        className="flex-1 flex flex-col min-w-0 relative overflow-x-hidden transition-[margin] duration-200"
+        style={{ marginRight: historySidebarOpen ? `${historySidebarWidth}px` : 0 }}
+      >
         <div className="flex-1 overflow-y-auto overflow-x-hidden">
           <div className={`flex flex-col min-h-0 px-4 pb-4 md:px-6 ${fullWidthLayout ? 'max-w-full' : 'max-w-5xl'}`}>
             <Outlet />

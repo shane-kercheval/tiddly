@@ -4,11 +4,11 @@
  * Displays a list of versions with diff visualization
  * and restore functionality with inline confirmation.
  */
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
-import * as Diff from 'diff'
+import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued'
 import { useEntityHistory, useContentAtVersion, useRevertToVersion } from '../hooks/useHistory'
-import { HISTORY_SIDEBAR_WIDTH_CLASS } from '../stores/historySidebarStore'
+import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH } from '../stores/historySidebarStore'
 import { CloseIcon, RestoreIcon } from './icons'
 import type { HistoryEntityType, HistoryActionType } from '../types'
 
@@ -44,7 +44,53 @@ function formatSource(source: string): string {
   return labels[source] ?? source
 }
 
-/** Simple diff view component using the diff library */
+/** Custom styles for react-diff-viewer-continued */
+const diffViewerStyles = {
+  variables: {
+    light: {
+      diffViewerBackground: '#ffffff',
+      diffViewerColor: '#374151',
+      addedBackground: '#dcfce7',
+      addedColor: '#166534',
+      removedBackground: '#fee2e2',
+      removedColor: '#991b1b',
+      wordAddedBackground: '#bbf7d0',
+      wordRemovedBackground: '#fecaca',
+      addedGutterBackground: '#bbf7d0',
+      removedGutterBackground: '#fecaca',
+      gutterBackground: '#f9fafb',
+      gutterBackgroundDark: '#f3f4f6',
+      highlightBackground: '#fef3c7',
+      highlightGutterBackground: '#fde68a',
+      codeFoldGutterBackground: '#e5e7eb',
+      codeFoldBackground: '#f3f4f6',
+      emptyLineBackground: '#f9fafb',
+      gutterColor: '#9ca3af',
+      addedGutterColor: '#166534',
+      removedGutterColor: '#991b1b',
+      codeFoldContentColor: '#6b7280',
+    },
+  },
+  line: {
+    padding: '2px 8px',
+    fontSize: '12px',
+  },
+  gutter: {
+    padding: '0 8px',
+    minWidth: '30px',
+  },
+  contentText: {
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+    fontSize: '12px',
+    lineHeight: '1.5',
+  },
+  codeFold: {
+    fontSize: '11px',
+    fontStyle: 'italic',
+  },
+}
+
+/** Diff view component using react-diff-viewer-continued */
 function DiffView({
   oldContent,
   newContent,
@@ -54,11 +100,6 @@ function DiffView({
   newContent: string
   isLoading: boolean
 }): ReactNode {
-  const diffParts = useMemo(() => {
-    if (isLoading) return []
-    return Diff.diffLines(oldContent, newContent)
-  }, [oldContent, newContent, isLoading])
-
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center p-8">
@@ -76,32 +117,17 @@ function DiffView({
   }
 
   return (
-    <div className="flex-1 overflow-auto font-mono text-xs">
-      {diffParts.map((part, index) => {
-        const lines = part.value.split('\n')
-        // Remove last empty line if present (from split)
-        if (lines[lines.length - 1] === '') {
-          lines.pop()
-        }
-
-        return lines.map((line, lineIndex) => (
-          <div
-            key={`${index}-${lineIndex}`}
-            className={`px-3 py-0.5 border-l-4 ${
-              part.added
-                ? 'bg-green-50 border-green-500 text-green-800'
-                : part.removed
-                  ? 'bg-red-50 border-red-500 text-red-800'
-                  : 'bg-white border-transparent text-gray-600'
-            }`}
-          >
-            <span className="select-none text-gray-400 mr-2 inline-block w-4">
-              {part.added ? '+' : part.removed ? '-' : ' '}
-            </span>
-            {line || ' '}
-          </div>
-        ))
-      })}
+    <div className="flex-1 overflow-auto">
+      <ReactDiffViewer
+        oldValue={oldContent}
+        newValue={newContent}
+        splitView={false}
+        useDarkTheme={false}
+        compareMethod={DiffMethod.WORDS}
+        styles={diffViewerStyles}
+        extraLinesSurroundingDiff={3}
+        infiniteLoading={{ pageSize: 50, containerHeight: '100%' }}
+      />
     </div>
   )
 }
@@ -115,6 +141,45 @@ export function HistorySidebar({
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [confirmingRevert, setConfirmingRevert] = useState<number | null>(null)
   const confirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+
+  // Get width from store
+  const width = useHistorySidebarStore((state) => state.width)
+  const setWidth = useHistorySidebarStore((state) => state.setWidth)
+
+  // Handle drag resize
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }, [])
+
+  useEffect(() => {
+    if (!isDragging) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      // Width is calculated from the right edge of the window
+      const newWidth = window.innerWidth - e.clientX
+      setWidth(Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, newWidth)))
+    }
+
+    const handleMouseUp = () => {
+      setIsDragging(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    // Prevent text selection while dragging
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'ew-resize'
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+    }
+  }, [isDragging, setWidth])
 
   // Auto-reset confirmation after 3 seconds
   useEffect(() => {
@@ -180,7 +245,16 @@ export function HistorySidebar({
   }
 
   return (
-    <div className={`fixed right-0 top-0 h-full ${HISTORY_SIDEBAR_WIDTH_CLASS} bg-white shadow-lg border-l border-gray-200 flex flex-col z-50`}>
+    <div
+      className="fixed right-0 top-0 h-full bg-white shadow-lg border-l border-gray-200 flex flex-col z-50"
+      style={{ width: `${width}px` }}
+    >
+      {/* Drag handle */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-400 active:bg-blue-500 transition-colors z-10"
+        onMouseDown={handleMouseDown}
+        title="Drag to resize"
+      />
       {/* Header - matches item header height (pt-3 pb-3) for alignment */}
       <div className="flex items-center justify-between py-3 px-4 border-b border-gray-200 shrink-0">
         <h2 className="text-lg font-semibold text-gray-900">Version History</h2>
