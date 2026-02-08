@@ -5,7 +5,7 @@
  * support for wrap/scroll modes. Includes integrated wrap toggle.
  */
 import { useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued'
 import { WrapIcon } from './editor/EditorToolbarIcons'
 import { Tooltip } from './ui/Tooltip'
@@ -111,7 +111,7 @@ const scrollModeCss = `
 `
 
 /** Loading spinner component for diff viewer */
-function DiffLoadingSpinner(): ReactNode {
+function DiffLoadingSpinner(): ReactElement {
   return (
     <div className="flex items-center justify-center p-6">
       <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900" />
