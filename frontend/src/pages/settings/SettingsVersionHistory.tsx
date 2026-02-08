@@ -11,8 +11,6 @@ import { useUserHistory, useContentAtVersion } from '../../hooks/useHistory'
 import { MultiSelectDropdown } from '../../components/ui'
 import type { DropdownOption } from '../../components/ui'
 import { BookmarkIcon, NoteIcon, PromptIcon, CloseIconFilled } from '../../components/icons'
-import { WrapIcon } from '../../components/editor/EditorToolbarIcons'
-import { Tooltip } from '../../components/ui/Tooltip'
 import { DiffView } from '../../components/DiffView'
 import { CONTENT_TYPE_ICON_COLORS } from '../../constants/contentTypeStyles'
 import type { HistoryEntityType, HistoryActionType, HistorySourceType, HistoryEntry } from '../../types'
@@ -136,7 +134,6 @@ export function SettingsVersionHistory(): ReactNode {
 
   // Diff view state
   const [selectedEntry, setSelectedEntry] = useState<HistoryEntry | null>(null)
-  const [wrapText, setWrapText] = useState(true)
 
   // Calculate date range from preset or custom inputs
   const { startDate, endDate } = useMemo(() => {
@@ -479,33 +476,12 @@ export function SettingsVersionHistory(): ReactNode {
                 {/* Inline diff view */}
                 {selectedEntry?.id === entry.id && (
                   <div className="border-t border-gray-200 bg-gray-50">
-                    <div className="max-h-[400px] overflow-auto relative">
-                      {/* Wrap toggle button */}
-                      <div className="sticky top-1 right-1 float-right z-10 mr-1 mt-1">
-                        <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={0} position="left">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setWrapText(!wrapText)
-                            }}
-                            className={`p-0.5 rounded transition-colors border ${
-                              wrapText
-                                ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-transparent'
-                                : 'text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-100 shadow-sm border-gray-200'
-                            }`}
-                            aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
-                          >
-                            <WrapIcon />
-                          </button>
-                        </Tooltip>
-                      </div>
-                      <DiffView
-                        oldContent={previousVersionContent?.content ?? ''}
-                        newContent={versionContent?.content ?? ''}
-                        isLoading={!versionContent || (previousVersion !== null && !previousVersionContent)}
-                        wrapText={wrapText}
-                      />
-                    </div>
+                    <DiffView
+                      oldContent={previousVersionContent?.content ?? ''}
+                      newContent={versionContent?.content ?? ''}
+                      isLoading={!versionContent || (previousVersion !== null && !previousVersionContent)}
+                      maxHeight={400}
+                    />
                   </div>
                 )}
               </div>
@@ -514,7 +490,7 @@ export function SettingsVersionHistory(): ReactNode {
 
           {/* Desktop table view */}
           <div className="hidden md:block rounded-lg border border-gray-200 bg-white overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
+            <table className="w-full divide-y divide-gray-200 table-fixed">
               <thead className="bg-gray-50">
                 <tr>
                   <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Item</th>
@@ -568,33 +544,11 @@ export function SettingsVersionHistory(): ReactNode {
                       {/* Inline diff view */}
                       {selectedEntry?.id === entry.id && (
                         <div className="border-t border-gray-200 bg-gray-50">
-                          <div className="max-h-[500px] overflow-auto relative">
-                            {/* Wrap toggle button */}
-                            <div className="sticky top-1 right-1 float-right z-10 mr-1 mt-1">
-                              <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={0} position="left">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setWrapText(!wrapText)
-                                  }}
-                                  className={`p-0.5 rounded transition-colors border ${
-                                    wrapText
-                                      ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-transparent'
-                                      : 'text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-100 shadow-sm border-gray-200'
-                                  }`}
-                                  aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
-                                >
-                                  <WrapIcon />
-                                </button>
-                              </Tooltip>
-                            </div>
-                            <DiffView
-                              oldContent={previousVersionContent?.content ?? ''}
-                              newContent={versionContent?.content ?? ''}
-                              isLoading={!versionContent || (previousVersion !== null && !previousVersionContent)}
-                              wrapText={wrapText}
-                            />
-                          </div>
+                          <DiffView
+                            oldContent={previousVersionContent?.content ?? ''}
+                            newContent={versionContent?.content ?? ''}
+                            isLoading={!versionContent || (previousVersion !== null && !previousVersionContent)}
+                          />
                         </div>
                       )}
                     </td>

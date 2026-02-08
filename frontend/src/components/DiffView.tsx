@@ -2,10 +2,13 @@
  * Diff view component for displaying content differences.
  *
  * Uses react-diff-viewer-continued with custom styling and
- * support for wrap/scroll modes.
+ * support for wrap/scroll modes. Includes integrated wrap toggle.
  */
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued'
+import { WrapIcon } from './editor/EditorToolbarIcons'
+import { Tooltip } from './ui/Tooltip'
 
 /** Base styles for react-diff-viewer-continued (colors and typography) */
 const baseDiffStyles = {
@@ -120,7 +123,8 @@ export interface DiffViewProps {
   oldContent: string
   newContent: string
   isLoading: boolean
-  wrapText: boolean
+  /** Maximum height of the diff view container. Defaults to 500. */
+  maxHeight?: number
 }
 
 /** Diff view component using react-diff-viewer-continued */
@@ -128,8 +132,10 @@ export function DiffView({
   oldContent,
   newContent,
   isLoading,
-  wrapText,
+  maxHeight = 500,
 }: DiffViewProps): ReactNode {
+  const [wrapText, setWrapText] = useState(true)
+
   if (isLoading) {
     return <DiffLoadingSpinner />
   }
@@ -145,7 +151,26 @@ export function DiffView({
   const styles = wrapText ? wrapModeStyles : scrollModeStyles
 
   return (
-    <div className={wrapText ? '' : 'diff-scroll-mode'}>
+    <div
+      className={`overflow-auto ${wrapText ? '' : 'diff-scroll-mode'}`}
+      style={{ maxHeight: `${maxHeight}px` }}
+    >
+      {/* Wrap toggle button - sticky+float positions relative to content area, avoiding scrollbar */}
+      <div className="sticky top-1 float-right z-10 mr-1 mt-1">
+        <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={0} position="left">
+          <button
+            onClick={() => setWrapText(!wrapText)}
+            className={`p-0.5 rounded transition-colors border ${
+              wrapText
+                ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-transparent'
+                : 'text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-100 shadow-sm border-gray-200'
+            }`}
+            aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
+          >
+            <WrapIcon />
+          </button>
+        </Tooltip>
+      </div>
       {!wrapText && <style>{scrollModeCss}</style>}
       <ReactDiffViewer
         oldValue={oldContent}

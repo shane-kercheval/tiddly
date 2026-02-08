@@ -9,8 +9,6 @@ import type { ReactNode } from 'react'
 import { useEntityHistory, useContentAtVersion, useRevertToVersion } from '../hooks/useHistory'
 import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
 import { CloseIcon, RestoreIcon } from './icons'
-import { WrapIcon } from './editor/EditorToolbarIcons'
-import { Tooltip } from './ui/Tooltip'
 import { DiffView } from './DiffView'
 import type { HistoryEntityType, HistoryActionType } from '../types'
 
@@ -70,7 +68,6 @@ export function HistorySidebar({
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= MD_BREAKPOINT : true
   )
-  const [wrapText, setWrapText] = useState(true)
 
   // Get width from store
   const storeWidth = useHistorySidebarStore((state) => state.width)
@@ -282,37 +279,15 @@ export function HistorySidebar({
                         Warning: Some changes could not be fully reconstructed
                       </div>
                     )}
-                    <div className="max-h-[500px] overflow-auto relative">
-                      {/* Wrap toggle button - sticky so it stays visible during scroll */}
-                      <div className="sticky top-1 right-1 float-right z-10 mr-1 mt-1">
-                        <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={0} position="left">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setWrapText(!wrapText)
-                            }}
-                            className={`p-0.5 rounded transition-colors border ${
-                              wrapText
-                                ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-transparent'
-                                : 'text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-100 shadow-sm border-gray-200'
-                            }`}
-                            aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
-                          >
-                            <WrapIcon />
-                          </button>
-                        </Tooltip>
-                      </div>
-                      <DiffView
-                        oldContent={previousVersionContent?.content ?? ''}
-                        newContent={versionContent?.content ?? ''}
-                        isLoading={
-                          // Show spinner while waiting for required data
-                          // Check data existence directly rather than relying on React Query flags
-                          !versionContent || (previousVersion !== null && !previousVersionContent)
-                        }
-                        wrapText={wrapText}
-                      />
-                    </div>
+                    <DiffView
+                      oldContent={previousVersionContent?.content ?? ''}
+                      newContent={versionContent?.content ?? ''}
+                      isLoading={
+                        // Show spinner while waiting for required data
+                        // Check data existence directly rather than relying on React Query flags
+                        !versionContent || (previousVersion !== null && !previousVersionContent)
+                      }
+                    />
                   </div>
                 )}
               </li>
