@@ -84,6 +84,8 @@ The current partial index `ix_content_history_snapshots` uses `WHERE diff_type =
 
 **6. Database migration:**
 
+**NOTE** always use the `make migration` command. Never create database migrations manually. 
+
 Create an Alembic migration that:
 - Drops the `ix_content_history_snapshots` index
 - Drops the `diff_type` column
