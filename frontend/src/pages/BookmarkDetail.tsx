@@ -249,12 +249,16 @@ export function BookmarkDetail(): ReactNode {
       // skipCache: true ensures we bypass Safari's aggressive caching
       const refreshedBookmark = await fetchBookmark(bookmarkId, { skipCache: true })
       setBookmark(refreshedBookmark)
+      // Refresh history sidebar if open (server may have new versions)
+      if (showHistory) {
+        queryClient.invalidateQueries({ queryKey: ['history', 'bookmark', bookmarkId] })
+      }
       return refreshedBookmark
     } catch {
       toast.error('Failed to refresh bookmark')
       return null
     }
-  }, [bookmarkId, fetchBookmark])
+  }, [bookmarkId, fetchBookmark, showHistory, queryClient])
 
   // History sidebar handlers
   const handleShowHistory = useCallback((): void => {

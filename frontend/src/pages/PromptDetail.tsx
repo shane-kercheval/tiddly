@@ -260,12 +260,16 @@ export function PromptDetail(): ReactNode {
       // skipCache: true ensures we bypass Safari's aggressive caching
       const refreshedPrompt = await fetchPrompt(promptId, { skipCache: true })
       setPrompt(refreshedPrompt)
+      // Refresh history sidebar if open (server may have new versions)
+      if (showHistory) {
+        queryClient.invalidateQueries({ queryKey: ['history', 'prompt', promptId] })
+      }
       return refreshedPrompt
     } catch {
       toast.error('Failed to refresh prompt')
       return null
     }
-  }, [promptId, fetchPrompt])
+  }, [promptId, fetchPrompt, showHistory, queryClient])
 
   // History sidebar handlers
   const handleShowHistory = useCallback((): void => {

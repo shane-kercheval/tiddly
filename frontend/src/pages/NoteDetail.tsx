@@ -229,12 +229,16 @@ export function NoteDetail(): ReactNode {
       // skipCache: true ensures we bypass Safari's aggressive caching
       const refreshedNote = await fetchNote(noteId, { skipCache: true })
       setNote(refreshedNote)
+      // Refresh history sidebar if open (server may have new versions)
+      if (showHistory) {
+        queryClient.invalidateQueries({ queryKey: ['history', 'note', noteId] })
+      }
       return refreshedNote
     } catch {
       toast.error('Failed to refresh note')
       return null
     }
-  }, [noteId, fetchNote])
+  }, [noteId, fetchNote, showHistory, queryClient])
 
   // History sidebar handlers
   const handleShowHistory = useCallback((): void => {
