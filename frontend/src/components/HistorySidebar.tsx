@@ -442,8 +442,8 @@ export function HistorySidebar({
                     onClick={() => setWrapText(!wrapText)}
                     className={`p-1.5 rounded transition-colors flex-shrink-0 ${
                       wrapText
-                        ? 'text-gray-700 bg-gray-200'
-                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                        ? 'text-gray-700 bg-gray-200 hover:bg-gray-300'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
                     }`}
                     aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
                   >
@@ -452,7 +452,7 @@ export function HistorySidebar({
                 </Tooltip>
                 <button
                   onClick={() => setSelectedVersion(null)}
-                  className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
+                  className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors flex-shrink-0"
                   aria-label="Close diff view"
                 >
                   <CloseIcon className="w-4 h-4" />
