@@ -107,9 +107,10 @@ export function BookmarkDetail(): ReactNode {
     loadBookmark()
   }, [isCreate, bookmarkId, fetchBookmark])
 
-  // Close history sidebar on unmount
+  // Close history sidebar on unmount without persisting to localStorage.
+  // This resets Layout margin on navigation, while preserving the open state for page refresh.
   useEffect(() => {
-    return () => setShowHistory(false)
+    return () => setShowHistory(false, { persist: false })
   }, [setShowHistory])
 
   const handleSave = useCallback(
@@ -179,10 +180,8 @@ export function BookmarkDetail(): ReactNode {
             data: data as BookmarkUpdate,
           })
           setBookmark(updatedBookmark)
-          // Refresh history sidebar if open (use partial key to match any params)
-          if (showHistory) {
-            queryClient.invalidateQueries({ queryKey: ['history', 'bookmark', bookmarkId] })
-          }
+          // Invalidate history cache so sidebar shows latest version when opened
+          queryClient.invalidateQueries({ queryKey: ['history', 'bookmark', bookmarkId] })
         } catch (err) {
           if (err && typeof err === 'object' && 'response' in err) {
             const axiosError = err as { response?: { status?: number; data?: { detail?: string | { error?: string } } } }
@@ -203,7 +202,7 @@ export function BookmarkDetail(): ReactNode {
         }
       }
     },
-    [isCreate, bookmarkId, createMutation, updateMutation, navigateBack, unarchiveMutation, showHistory, queryClient]
+    [isCreate, bookmarkId, createMutation, updateMutation, navigateBack, unarchiveMutation, queryClient]
   )
 
   const handleClose = useCallback((): void => {
@@ -249,16 +248,14 @@ export function BookmarkDetail(): ReactNode {
       // skipCache: true ensures we bypass Safari's aggressive caching
       const refreshedBookmark = await fetchBookmark(bookmarkId, { skipCache: true })
       setBookmark(refreshedBookmark)
-      // Refresh history sidebar if open (server may have new versions)
-      if (showHistory) {
-        queryClient.invalidateQueries({ queryKey: ['history', 'bookmark', bookmarkId] })
-      }
+      // Invalidate history cache so sidebar shows latest version when opened
+      queryClient.invalidateQueries({ queryKey: ['history', 'bookmark', bookmarkId] })
       return refreshedBookmark
     } catch {
       toast.error('Failed to refresh bookmark')
       return null
     }
-  }, [bookmarkId, fetchBookmark, showHistory, queryClient])
+  }, [bookmarkId, fetchBookmark, queryClient])
 
   // History sidebar handlers
   const handleShowHistory = useCallback((): void => {

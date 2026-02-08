@@ -54,6 +54,43 @@ describe('historySidebarStore', () => {
       setOpen(true)
       expect(useHistorySidebarStore.getState().isOpen).toBe(true)
     })
+
+    it('should persist open state to localStorage', () => {
+      const { setOpen } = useHistorySidebarStore.getState()
+
+      setOpen(true)
+      expect(localStorage.getItem('history-sidebar-open')).toBe('true')
+
+      setOpen(false)
+      expect(localStorage.getItem('history-sidebar-open')).toBe('false')
+    })
+
+    it('should not persist when persist: false is passed', () => {
+      const { setOpen } = useHistorySidebarStore.getState()
+
+      // First persist open state
+      setOpen(true)
+      expect(localStorage.getItem('history-sidebar-open')).toBe('true')
+
+      // Close without persisting (used by cleanup effects)
+      setOpen(false, { persist: false })
+      expect(useHistorySidebarStore.getState().isOpen).toBe(false)
+      // localStorage still has 'true' from the explicit open
+      expect(localStorage.getItem('history-sidebar-open')).toBe('true')
+    })
+
+    it('should handle localStorage errors gracefully', () => {
+      const { setOpen } = useHistorySidebarStore.getState()
+      const originalSetItem = localStorage.setItem
+      localStorage.setItem = vi.fn(() => {
+        throw new Error('Storage quota exceeded')
+      })
+
+      expect(() => setOpen(true)).not.toThrow()
+      expect(useHistorySidebarStore.getState().isOpen).toBe(true)
+
+      localStorage.setItem = originalSetItem
+    })
   })
 
   describe('setWidth', () => {

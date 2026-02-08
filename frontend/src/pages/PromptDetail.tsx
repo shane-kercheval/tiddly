@@ -126,9 +126,10 @@ export function PromptDetail(): ReactNode {
     loadPrompt()
   }, [isCreate, promptId, isValidId, fetchPrompt, trackPromptUsage, passedPrompt])
 
-  // Close history sidebar on unmount
+  // Close history sidebar on unmount without persisting to localStorage.
+  // This resets Layout margin on navigation, while preserving the open state for page refresh.
   useEffect(() => {
-    return () => setShowHistory(false)
+    return () => setShowHistory(false, { persist: false })
   }, [setShowHistory])
 
   // Navigation helper
@@ -191,10 +192,8 @@ export function PromptDetail(): ReactNode {
             data: data as PromptUpdate,
           })
           setPrompt(updatedPrompt)
-          // Refresh history sidebar if open (use partial key to match any params)
-          if (showHistory) {
-            queryClient.invalidateQueries({ queryKey: ['history', 'prompt', promptId] })
-          }
+          // Invalidate history cache so sidebar shows latest version when opened
+          queryClient.invalidateQueries({ queryKey: ['history', 'prompt', promptId] })
         } catch (err) {
           // Returns true for version conflict - component handles with ConflictDialog
           if (handleNameConflict(err)) {
@@ -206,7 +205,7 @@ export function PromptDetail(): ReactNode {
         }
       }
     },
-    [isCreate, promptId, createMutation, updateMutation, navigate, showHistory, queryClient]
+    [isCreate, promptId, createMutation, updateMutation, navigate, queryClient]
   )
 
   const handleArchive = useCallback(async (): Promise<void> => {
@@ -260,16 +259,14 @@ export function PromptDetail(): ReactNode {
       // skipCache: true ensures we bypass Safari's aggressive caching
       const refreshedPrompt = await fetchPrompt(promptId, { skipCache: true })
       setPrompt(refreshedPrompt)
-      // Refresh history sidebar if open (server may have new versions)
-      if (showHistory) {
-        queryClient.invalidateQueries({ queryKey: ['history', 'prompt', promptId] })
-      }
+      // Invalidate history cache so sidebar shows latest version when opened
+      queryClient.invalidateQueries({ queryKey: ['history', 'prompt', promptId] })
       return refreshedPrompt
     } catch {
       toast.error('Failed to refresh prompt')
       return null
     }
-  }, [promptId, fetchPrompt, showHistory, queryClient])
+  }, [promptId, fetchPrompt, queryClient])
 
   // History sidebar handlers
   const handleShowHistory = useCallback((): void => {

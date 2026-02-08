@@ -127,9 +127,10 @@ export function NoteDetail(): ReactNode {
     loadNote()
   }, [isCreate, noteId, isValidId, fetchNote, trackNoteUsage, passedNote])
 
-  // Close history sidebar on unmount
+  // Close history sidebar on unmount without persisting to localStorage.
+  // This resets Layout margin on navigation, while preserving the open state for page refresh.
   useEffect(() => {
-    return () => setShowHistory(false)
+    return () => setShowHistory(false, { persist: false })
   }, [setShowHistory])
 
   // Navigation helper
@@ -160,10 +161,8 @@ export function NoteDetail(): ReactNode {
             data: data as NoteUpdate,
           })
           setNote(updatedNote)
-          // Refresh history sidebar if open (use partial key to match any params)
-          if (showHistory) {
-            queryClient.invalidateQueries({ queryKey: ['history', 'note', noteId] })
-          }
+          // Invalidate history cache so sidebar shows latest version when opened
+          queryClient.invalidateQueries({ queryKey: ['history', 'note', noteId] })
         } catch (err) {
           // Don't show toast for 409 Conflict - the component handles it with ConflictDialog
           if (axios.isAxiosError(err) && err.response?.status === 409) {
@@ -175,7 +174,7 @@ export function NoteDetail(): ReactNode {
         }
       }
     },
-    [isCreate, noteId, createMutation, updateMutation, navigate, showHistory, queryClient]
+    [isCreate, noteId, createMutation, updateMutation, navigate, queryClient]
   )
 
   const handleArchive = useCallback(async (): Promise<void> => {
@@ -229,16 +228,14 @@ export function NoteDetail(): ReactNode {
       // skipCache: true ensures we bypass Safari's aggressive caching
       const refreshedNote = await fetchNote(noteId, { skipCache: true })
       setNote(refreshedNote)
-      // Refresh history sidebar if open (server may have new versions)
-      if (showHistory) {
-        queryClient.invalidateQueries({ queryKey: ['history', 'note', noteId] })
-      }
+      // Invalidate history cache so sidebar shows latest version when opened
+      queryClient.invalidateQueries({ queryKey: ['history', 'note', noteId] })
       return refreshedNote
     } catch {
       toast.error('Failed to refresh note')
       return null
     }
-  }, [noteId, fetchNote, showHistory, queryClient])
+  }, [noteId, fetchNote, queryClient])
 
   // History sidebar handlers
   const handleShowHistory = useCallback((): void => {
