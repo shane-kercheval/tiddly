@@ -46,7 +46,7 @@ class DiffType(StrEnum):
     Note: metadata_snapshot is ALWAYS stored as a full snapshot in every record.
     """
 
-    SNAPSHOT = "snapshot"  # Full content + diff (or None for CREATE)
+    SNAPSHOT = "snapshot"  # Full content snapshot + diff (diff is None for CREATE)
     DIFF = "diff"  # content_diff only (diff-match-patch delta)
     METADATA = "metadata"  # No content stored (content unchanged)
     AUDIT = "audit"  # Audit trail only (lifecycle state transitions, no content)

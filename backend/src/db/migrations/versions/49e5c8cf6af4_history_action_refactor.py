@@ -32,8 +32,10 @@ def downgrade() -> None:
     """Downgrade schema."""
     # Rename UNDELETE back to RESTORE
     op.execute("UPDATE content_history SET action = 'restore' WHERE action = 'undelete'")
-    # Make version column non-nullable (set NULLs to 0 first as a fallback)
-    op.execute("UPDATE content_history SET version = 0 WHERE version IS NULL")
+    # Delete audit rows (NULL version) — they only exist post-upgrade and have no
+    # representation in the old schema. Setting them all to version=0 would violate
+    # the unique constraint on (user_id, entity_type, entity_id, version).
+    op.execute("DELETE FROM content_history WHERE version IS NULL")
     op.alter_column('content_history', 'version',
                existing_type=sa.INTEGER(),
                nullable=False)

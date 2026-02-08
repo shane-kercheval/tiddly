@@ -261,7 +261,7 @@ class HistoryService:
                 ContentHistory.entity_type == entity_type_value,
                 ContentHistory.entity_id == entity_id,
             )
-            .order_by(ContentHistory.created_at.desc())
+            .order_by(ContentHistory.created_at.desc(), ContentHistory.id.desc())
             .offset(offset)
             .limit(limit)
         )
@@ -335,7 +335,7 @@ class HistoryService:
         stmt = (
             select(ContentHistory)
             .where(*conditions)
-            .order_by(ContentHistory.created_at.desc())
+            .order_by(ContentHistory.created_at.desc(), ContentHistory.id.desc())
             .offset(offset)
             .limit(limit)
         )
@@ -408,7 +408,7 @@ class HistoryService:
                 db, user_id, entity_type_value, entity_id, target_version,
             )
             if latest_record and latest_record.content_snapshot is not None:
-                # SNAPSHOT record (CREATE/DELETE/periodic) - use stored snapshot
+                # SNAPSHOT record (CREATE/periodic) - use stored snapshot
                 return ReconstructionResult(found=True, content=latest_record.content_snapshot)
             # DIFF or METADATA record - entity.content is current
             return ReconstructionResult(found=True, content=entity.content)
