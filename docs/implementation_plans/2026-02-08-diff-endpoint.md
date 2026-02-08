@@ -40,24 +40,88 @@ class VersionDiffResponse(BaseModel):
     warnings: list[str] | None = None
 ```
 
+Also add a `DiffResult` dataclass in `services/history_service.py` (alongside the existing `ReconstructionResult`):
+
+```python
+@dataclass
+class DiffResult:
+    """Result of version diff computation."""
+    found: bool
+    diff_type: str | None = None
+    before_content: str | None = None
+    after_content: str | None = None
+    before_metadata: dict | None = None
+    after_metadata: dict | None = None
+    warnings: list[str] | None = None
+```
+
 Key design decisions:
 - Include `diff_type` so the frontend knows whether this is a content change, metadata-only change, or a create — avoids the frontend having to infer from content equality
 - `before_*` fields are `null` for version 1 (CREATE) — there is no predecessor
 - `warnings` propagates any reconstruction issues (same as existing endpoint)
 
-**2. Add `reconstruct_diff` method to `HistoryService`:**
+**2. Add `get_version_diff` method to `HistoryService`:**
 
-This method should reconstruct content at version N, then apply one more reverse diff to get version N-1, avoiding the redundant work of two independent reconstruction passes. The approach:
+**Architecture principle: compose, don't duplicate.** This method reuses the existing, well-tested `reconstruct_content_at_version` for the "after" side, then applies one additional reverse diff to derive the "before" side. This ensures all reconstruction logic (audit record skipping, snapshot optimization, reverse diff traversal, hard-deleted entity handling) is inherited from the existing tested code path with zero duplication.
 
-1. Reconstruct content at version N using the existing `reconstruct_content_at_version` logic
-2. Fetch the history record at version N to get its `content_diff` and `metadata_snapshot` (the "after" metadata)
-3. If version > 1: apply the reverse diff from version N's record to get version N-1's content, and fetch version N-1's history record for "before" metadata
-4. If version == 1: before content and metadata are `null`
-5. Return all four pieces together
+The approach:
 
-The content reconstruction for version N already exists. The key optimization is that getting N-1's content is just one more patch application on N's content (using the reverse diff stored on version N's record), rather than a full independent reconstruction from entity.content.
+1. **After content**: Call `self.reconstruct_content_at_version(version=N)` — reuses existing tested logic as-is
+2. **After metadata**: Call `self.get_history_at_version(version=N)` to get `metadata_snapshot`
+3. **Before content** (version > 1): Apply version N's stored `content_diff` (reverse diff) to the after content — version N's diff by definition transforms N → N-1, so one `patch_apply` call gives us N-1's content
+4. **Before metadata** (version > 1): Call `self.get_history_at_version(version=N-1)` to get the predecessor's `metadata_snapshot`
+5. **Version 1 (CREATE)**: `before_content` and `before_metadata` are both `null` — no predecessor exists
 
-**Important edge case**: For METADATA diff_type records, `content_diff` is `null` (no content change). In this case, `before_content == after_content` — use `after_content` for both.
+```python
+async def get_version_diff(self, db, user_id, entity_type, entity_id, version):
+    # 1. Reuse existing tested reconstruction for "after" content
+    after_result = await self.reconstruct_content_at_version(
+        db, user_id, entity_type, entity_id, version,
+    )
+    if not after_result.found:
+        return DiffResult(found=False, ...)
+
+    # 2. Get version N's history record (content_diff + after_metadata)
+    after_history = await self.get_history_at_version(
+        db, user_id, entity_type, entity_id, version,
+    )
+
+    # 3. Derive "before" content from version N's reverse diff
+    if version == 1:
+        before_content = None
+    elif after_history.diff_type == DiffType.METADATA.value:
+        before_content = after_result.content  # content unchanged
+    elif after_history.content_diff:
+        patches = self.dmp.patch_fromText(after_history.content_diff)
+        before_content, results = self.dmp.patch_apply(
+            patches, after_result.content or "",
+        )
+        # Track partial failures in warnings
+    else:
+        before_content = after_result.content
+
+    # 4. Get "before" metadata from version N-1's record
+    before_metadata = None
+    if version > 1:
+        before_history = await self.get_history_at_version(
+            db, user_id, entity_type, entity_id, version - 1,
+        )
+        before_metadata = before_history.metadata_snapshot if before_history else None
+
+    return DiffResult(
+        found=True,
+        after_content=after_result.content,
+        before_content=before_content,
+        after_metadata=after_history.metadata_snapshot,
+        before_metadata=before_metadata,
+        diff_type=after_history.diff_type,
+        warnings=after_result.warnings,
+    )
+```
+
+**Why this design is correct**: The reconstruction algorithm in `reconstruct_content_at_version` applies reverse diffs from versions above the target down to the target, but **excludes the target's own diff** (because that diff goes target → target-1). So when we separately apply version N's `content_diff` to the reconstructed content at N, we get N-1's content. This is a distinct, non-overlapping operation from the reconstruction itself.
+
+**Edge case — pruned predecessor**: If version N-1's history record has been deleted by retention pruning, `get_history_at_version(version - 1)` returns `None`. In this case, `before_metadata` is `null`. The content derivation is unaffected — version N's `content_diff` still produces N-1's content regardless of whether N-1's record exists. The frontend should handle `before_metadata: null` gracefully (skip metadata diff section or show "Previous metadata unavailable").
 
 **3. Add the endpoint in `api/routers/history.py`:**
 
@@ -96,11 +160,14 @@ Add tests to `backend/tests/api/test_history.py` following the existing patterns
 **Auth:**
 - `test_get_version_diff__cross_user_isolation` — User 2 cannot access User 1's entity diff. Expect 404.
 
-Add unit tests to `backend/tests/services/test_history_service.py`:
-- `test__reconstruct_diff__basic_content_change`
-- `test__reconstruct_diff__version_1_no_predecessor`
-- `test__reconstruct_diff__metadata_only_change`
-- `test__reconstruct_diff__with_snapshot_optimization` — Target is a snapshot version, verify direct return
+Add unit tests to `backend/tests/services/test_history_service.py`. Since `get_version_diff` composes the existing `reconstruct_content_at_version` (already thoroughly tested), these tests should focus on the **composition logic** — the before-side derivation, metadata retrieval, and edge cases specific to the diff method:
+
+- `test__get_version_diff__basic_content_change` — Verify `before_content` is derived correctly by applying version N's reverse diff to `after_content`
+- `test__get_version_diff__version_1_no_predecessor` — Verify `before_content` and `before_metadata` are both `None`
+- `test__get_version_diff__metadata_only_change` — Verify `before_content == after_content` and both metadata snapshots are returned with correct values
+- `test__get_version_diff__content_and_metadata_change` — Both content and metadata differ between before/after
+- `test__get_version_diff__pruned_predecessor` — Version N-1's record has been deleted. Verify `before_content` is still derived correctly (from N's diff), but `before_metadata` is `None`
+- `test__get_version_diff__multiple_versions_sequential` — Build a chain of 4+ versions, request diff at each. Verify each diff's `before_content` matches the previous diff's `after_content` (chain consistency)
 
 ---
 
