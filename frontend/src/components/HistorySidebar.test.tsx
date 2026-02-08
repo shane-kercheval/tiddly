@@ -40,7 +40,6 @@ function createEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
     entity_id: 'entity-1',
     action: 'update',
     version: 2,
-    diff_type: 'diff',
     metadata_snapshot: { title: 'Test' },
     source: 'web',
     auth_type: 'auth0',
@@ -82,10 +81,10 @@ describe('HistorySidebar', () => {
         createEntry({ id: '1', action: 'create', version: 1 }),
         createEntry({ id: '2', action: 'update', version: 2 }),
         createEntry({ id: '3', action: 'restore', version: 3 }),
-        createEntry({ id: '4', action: 'delete', version: null, diff_type: 'audit' }),
-        createEntry({ id: '5', action: 'undelete', version: null, diff_type: 'audit' }),
-        createEntry({ id: '6', action: 'archive', version: null, diff_type: 'audit' }),
-        createEntry({ id: '7', action: 'unarchive', version: null, diff_type: 'audit' }),
+        createEntry({ id: '4', action: 'delete', version: null }),
+        createEntry({ id: '5', action: 'undelete', version: null }),
+        createEntry({ id: '6', action: 'archive', version: null }),
+        createEntry({ id: '7', action: 'unarchive', version: null }),
       ]
 
       mockUseEntityHistory.mockReturnValue({
@@ -109,10 +108,10 @@ describe('HistorySidebar', () => {
     it('test__audit_actions__do_not_show_version_badge', () => {
       const entries = [
         createEntry({ id: '1', action: 'update', version: 2 }),
-        createEntry({ id: '2', action: 'delete', version: null, diff_type: 'audit' }),
-        createEntry({ id: '3', action: 'undelete', version: null, diff_type: 'audit' }),
-        createEntry({ id: '4', action: 'archive', version: null, diff_type: 'audit' }),
-        createEntry({ id: '5', action: 'unarchive', version: null, diff_type: 'audit' }),
+        createEntry({ id: '2', action: 'delete', version: null }),
+        createEntry({ id: '3', action: 'undelete', version: null }),
+        createEntry({ id: '4', action: 'archive', version: null }),
+        createEntry({ id: '5', action: 'unarchive', version: null }),
         createEntry({ id: '6', action: 'create', version: 1 }),
       ]
 
@@ -136,7 +135,7 @@ describe('HistorySidebar', () => {
     it('test__audit_actions__do_not_show_restore_button', () => {
       const entries = [
         createEntry({ id: '1', action: 'update', version: 3 }),
-        createEntry({ id: '2', action: 'delete', version: null, diff_type: 'audit' }),
+        createEntry({ id: '2', action: 'delete', version: null }),
         createEntry({ id: '3', action: 'update', version: 2 }),
         createEntry({ id: '4', action: 'create', version: 1 }),
       ]
@@ -197,8 +196,8 @@ describe('HistorySidebar', () => {
     it('test__latest_version__ignores_audit_entries_with_null_version', () => {
       // Audit entries at the top (most recent) should be skipped
       const entries = [
-        createEntry({ id: '1', action: 'archive', version: null, diff_type: 'audit' }),
-        createEntry({ id: '2', action: 'delete', version: null, diff_type: 'audit' }),
+        createEntry({ id: '1', action: 'archive', version: null }),
+        createEntry({ id: '2', action: 'delete', version: null }),
         createEntry({ id: '3', action: 'update', version: 3 }),
         createEntry({ id: '4', action: 'update', version: 2 }),
         createEntry({ id: '5', action: 'create', version: 1 }),
@@ -218,7 +217,7 @@ describe('HistorySidebar', () => {
 
     it('test__latest_version__first_content_entry_has_no_restore_button', () => {
       const entries = [
-        createEntry({ id: '1', action: 'undelete', version: null, diff_type: 'audit' }),
+        createEntry({ id: '1', action: 'undelete', version: null }),
         createEntry({ id: '2', action: 'update', version: 3 }),
         createEntry({ id: '3', action: 'create', version: 1 }),
       ]
@@ -270,7 +269,7 @@ describe('HistorySidebar', () => {
 
       const entries = [
         createEntry({ id: '1', action: 'update', version: 3 }),
-        createEntry({ id: '2', action: 'delete', version: null, diff_type: 'audit' }),
+        createEntry({ id: '2', action: 'delete', version: null }),
         createEntry({ id: '3', action: 'create', version: 1 }),
       ]
 

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.request_context import RequestContext, RequestSource
 from core.tier_limits import TierLimits
 from models.bookmark import Bookmark
-from models.content_history import ActionType, ContentHistory, DiffType, EntityType
+from models.content_history import ActionType, ContentHistory, EntityType
 from models.note import Note
 from models.prompt import Prompt
 
@@ -164,37 +164,34 @@ class HistoryService:
         )
         action_value = action.value if isinstance(action, ActionType) else action
 
-        # Determine diff_type, version, content_snapshot, and content_diff
+        # Determine version, content_snapshot, and content_diff
+        # The change type is derived from these columns:
+        #   version IS NULL → audit action
+        #   action = 'create' → create (content_snapshot set, no diff)
+        #   content_diff IS NOT NULL → content change
+        #   else → metadata-only change
         content_snapshot: str | None = None
         content_diff: str | None = None
 
         if action_value in self.AUDIT_ACTIONS:
             # Audit actions: lifecycle state transitions (no content, no version)
-            diff_type = DiffType.AUDIT
             version: int | None = None
         elif action_value == ActionType.CREATE.value:
             # CREATE: Store initial content as snapshot, no diff (no previous version)
-            diff_type = DiffType.SNAPSHOT
             content_snapshot = current_content
             version = await self._get_next_version(db, user_id, entity_type_value, entity_id)
         elif previous_content == current_content:
             # Content unchanged - metadata-only change (tags, title, etc.)
-            diff_type = DiffType.METADATA
             version = await self._get_next_version(db, user_id, entity_type_value, entity_id)
+            if version % SNAPSHOT_INTERVAL == 0:
+                content_snapshot = current_content  # Guarantee bounded reconstruction
         else:
             # UPDATE/RESTORE with content change
             version = await self._get_next_version(db, user_id, entity_type_value, entity_id)
+            patches = self.dmp.patch_make(current_content or "", previous_content or "")
+            content_diff = self.dmp.patch_toText(patches)
             if version % SNAPSHOT_INTERVAL == 0:
-                # Periodic snapshot: Store BOTH full content AND diff
-                diff_type = DiffType.SNAPSHOT
-                content_snapshot = current_content
-                patches = self.dmp.patch_make(current_content or "", previous_content or "")
-                content_diff = self.dmp.patch_toText(patches)
-            else:
-                # Normal update: Store diff only (no snapshot)
-                diff_type = DiffType.DIFF
-                patches = self.dmp.patch_make(current_content or "", previous_content or "")
-                content_diff = self.dmp.patch_toText(patches)
+                content_snapshot = current_content  # Periodic snapshot
 
         history = ContentHistory(
             user_id=user_id,
@@ -202,7 +199,6 @@ class HistoryService:
             entity_id=entity_id,
             action=action_value,
             version=version,
-            diff_type=diff_type.value if isinstance(diff_type, DiffType) else diff_type,
             content_snapshot=content_snapshot,
             content_diff=content_diff,
             metadata_snapshot=metadata,
@@ -449,10 +445,11 @@ class HistoryService:
 
         # Step 7: Find nearest snapshot (lowest version = closest to target)
         # Records are DESC, so "last" snapshot in iteration = lowest version
+        # Any record with content_snapshot set can serve as an anchor point
         snapshot_indices = [
             i
             for i, r in enumerate(records_to_traverse)
-            if r.diff_type == DiffType.SNAPSHOT.value and r.content_snapshot is not None
+            if r.content_snapshot is not None
         ]
 
         if snapshot_indices:

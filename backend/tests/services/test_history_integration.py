@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.request_context import AuthType, RequestContext, RequestSource
 from core.tier_limits import get_tier_limits
-from models.content_history import ActionType, ContentHistory, DiffType, EntityType
+from models.content_history import ActionType, ContentHistory, EntityType
 from models.user import User
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate
 from schemas.note import NoteCreate, NoteUpdate
@@ -98,7 +98,6 @@ class TestBookmarkHistoryIntegration:
         record = history[0]
         assert record.version == 1
         assert record.action == ActionType.CREATE.value
-        assert record.diff_type == DiffType.SNAPSHOT.value
         assert record.content_snapshot == "Initial content"
         assert record.content_diff is None
         assert record.metadata_snapshot["title"] == "Test Bookmark"
@@ -134,7 +133,6 @@ class TestBookmarkHistoryIntegration:
         update_record = history[1]
         assert update_record.version == 2
         assert update_record.action == ActionType.UPDATE.value
-        assert update_record.diff_type == DiffType.DIFF.value
         assert update_record.content_snapshot is None
         assert update_record.content_diff is not None  # Reverse diff stored
 
@@ -165,7 +163,6 @@ class TestBookmarkHistoryIntegration:
         assert len(history) == 2
         update_record = history[1]
         assert update_record.action == ActionType.UPDATE.value
-        assert update_record.diff_type == DiffType.METADATA.value  # Content unchanged
         assert update_record.metadata_snapshot["title"] == "New Title"
 
     @pytest.mark.asyncio
@@ -221,7 +218,6 @@ class TestBookmarkHistoryIntegration:
         assert len(history) == 2
         delete_record = history[1]
         assert delete_record.action == ActionType.DELETE.value
-        assert delete_record.diff_type == DiffType.AUDIT.value
         assert delete_record.version is None
         assert delete_record.content_snapshot is None
         assert delete_record.content_diff is None
@@ -274,7 +270,6 @@ class TestBookmarkHistoryIntegration:
         assert len(history) == 3
         restore_record = history[2]
         assert restore_record.action == ActionType.UNDELETE.value
-        assert restore_record.diff_type == DiffType.AUDIT.value
         assert restore_record.version is None
 
     @pytest.mark.asyncio
@@ -296,7 +291,6 @@ class TestBookmarkHistoryIntegration:
         assert len(history) == 2
         archive_record = history[1]
         assert archive_record.action == ActionType.ARCHIVE.value
-        assert archive_record.diff_type == DiffType.AUDIT.value
         assert archive_record.version is None
 
     @pytest.mark.asyncio
@@ -339,7 +333,6 @@ class TestBookmarkHistoryIntegration:
         assert len(history) == 3
         unarchive_record = history[2]
         assert unarchive_record.action == ActionType.UNARCHIVE.value
-        assert unarchive_record.diff_type == DiffType.AUDIT.value
         assert unarchive_record.version is None
 
 
@@ -451,7 +444,6 @@ class TestNoteHistoryIntegration:
         record = history[0]
         assert record.version == 1
         assert record.action == ActionType.CREATE.value
-        assert record.diff_type == DiffType.SNAPSHOT.value
         assert record.content_snapshot == "Initial content"
         assert record.content_diff is None
         assert record.metadata_snapshot["title"] == "Test Note"
@@ -481,7 +473,6 @@ class TestNoteHistoryIntegration:
         update_record = history[1]
         assert update_record.version == 2
         assert update_record.action == ActionType.UPDATE.value
-        assert update_record.diff_type == DiffType.DIFF.value
         assert update_record.content_snapshot is None
         assert update_record.content_diff is not None
 
@@ -506,7 +497,6 @@ class TestNoteHistoryIntegration:
         assert len(history) == 2
         update_record = history[1]
         assert update_record.action == ActionType.UPDATE.value
-        assert update_record.diff_type == DiffType.METADATA.value
         assert update_record.metadata_snapshot["title"] == "New Title"
 
     @pytest.mark.asyncio
@@ -550,7 +540,6 @@ class TestNoteHistoryIntegration:
         assert len(history) == 2
         delete_record = history[1]
         assert delete_record.action == ActionType.DELETE.value
-        assert delete_record.diff_type == DiffType.AUDIT.value
         assert delete_record.version is None
         assert delete_record.content_snapshot is None
         assert delete_record.content_diff is None
@@ -598,7 +587,6 @@ class TestNoteHistoryIntegration:
         assert len(history) == 3
         restore_record = history[2]
         assert restore_record.action == ActionType.UNDELETE.value
-        assert restore_record.diff_type == DiffType.AUDIT.value
         assert restore_record.version is None
 
     @pytest.mark.asyncio
@@ -620,7 +608,6 @@ class TestNoteHistoryIntegration:
         assert len(history) == 2
         archive_record = history[1]
         assert archive_record.action == ActionType.ARCHIVE.value
-        assert archive_record.diff_type == DiffType.AUDIT.value
         assert archive_record.version is None
 
     @pytest.mark.asyncio
@@ -662,7 +649,6 @@ class TestNoteHistoryIntegration:
         assert len(history) == 3
         unarchive_record = history[2]
         assert unarchive_record.action == ActionType.UNARCHIVE.value
-        assert unarchive_record.diff_type == DiffType.AUDIT.value
         assert unarchive_record.version is None
 
 
@@ -704,7 +690,6 @@ class TestPromptHistoryIntegration:
         record = history[0]
         assert record.version == 1
         assert record.action == ActionType.CREATE.value
-        assert record.diff_type == DiffType.SNAPSHOT.value
         assert record.content_snapshot == "Hello {{ name }}"
         assert record.metadata_snapshot["name"] == "test-prompt"
         assert record.metadata_snapshot["arguments"] == [
@@ -733,7 +718,6 @@ class TestPromptHistoryIntegration:
         update_record = history[1]
         assert update_record.version == 2
         assert update_record.action == ActionType.UPDATE.value
-        assert update_record.diff_type == DiffType.DIFF.value
         assert update_record.content_snapshot is None
         assert update_record.content_diff is not None
 
@@ -762,7 +746,6 @@ class TestPromptHistoryIntegration:
         assert len(history) == 2
         update_record = history[1]
         assert update_record.action == ActionType.UPDATE.value
-        assert update_record.diff_type == DiffType.METADATA.value
         assert update_record.metadata_snapshot["title"] == "New Title"
 
     @pytest.mark.asyncio
@@ -806,7 +789,6 @@ class TestPromptHistoryIntegration:
         assert len(history) == 2
         delete_record = history[1]
         assert delete_record.action == ActionType.DELETE.value
-        assert delete_record.diff_type == DiffType.AUDIT.value
         assert delete_record.version is None
         assert delete_record.content_snapshot is None
         assert delete_record.content_diff is None
@@ -854,7 +836,6 @@ class TestPromptHistoryIntegration:
         assert len(history) == 3
         restore_record = history[2]
         assert restore_record.action == ActionType.UNDELETE.value
-        assert restore_record.diff_type == DiffType.AUDIT.value
         assert restore_record.version is None
 
     @pytest.mark.asyncio
@@ -876,7 +857,6 @@ class TestPromptHistoryIntegration:
         assert len(history) == 2
         archive_record = history[1]
         assert archive_record.action == ActionType.ARCHIVE.value
-        assert archive_record.diff_type == DiffType.AUDIT.value
         assert archive_record.version is None
 
     @pytest.mark.asyncio
@@ -918,7 +898,6 @@ class TestPromptHistoryIntegration:
         assert len(history) == 3
         unarchive_record = history[2]
         assert unarchive_record.action == ActionType.UNARCHIVE.value
-        assert unarchive_record.diff_type == DiffType.AUDIT.value
         assert unarchive_record.version is None
 
 
@@ -1093,7 +1072,6 @@ class TestStrReplaceHistory:
         assert len(history) == 2
         update_record = history[1]
         assert update_record.action == ActionType.UPDATE.value
-        assert update_record.diff_type == DiffType.DIFF.value
         assert update_record.content_diff is not None
         # Source is recorded (actual value depends on test client headers)
         assert update_record.source is not None
@@ -1130,7 +1108,6 @@ class TestStrReplaceHistory:
         assert len(history) == 2
         update_record = history[1]
         assert update_record.action == ActionType.UPDATE.value
-        assert update_record.diff_type == DiffType.DIFF.value
         assert update_record.content_diff is not None
 
     @pytest.mark.asyncio
@@ -1174,7 +1151,6 @@ class TestStrReplaceHistory:
         assert len(history) == 2
         update_record = history[1]
         assert update_record.action == ActionType.UPDATE.value
-        assert update_record.diff_type == DiffType.DIFF.value
         assert update_record.content_diff is not None
 
     @pytest.mark.asyncio

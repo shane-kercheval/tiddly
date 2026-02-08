@@ -7,7 +7,7 @@ from diff_match_patch import diff_match_patch
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.request_context import AuthType, RequestContext, RequestSource
-from models.content_history import ActionType, ContentHistory, DiffType, EntityType
+from models.content_history import ActionType, ContentHistory, EntityType
 from models.note import Note
 from models.user import User
 from services.history_service import (
@@ -91,7 +91,6 @@ class TestHistoryServiceRecordAction:
         )
 
         assert history.version == 1
-        assert history.diff_type == DiffType.SNAPSHOT.value
         assert history.content_snapshot == content
         assert history.content_diff is None
         assert history.action == ActionType.CREATE.value
@@ -134,7 +133,6 @@ class TestHistoryServiceRecordAction:
         )
 
         assert history.version == 2
-        assert history.diff_type == DiffType.DIFF.value
         assert history.content_snapshot is None
         assert history.content_diff is not None
         assert history.action == ActionType.UPDATE.value
@@ -177,7 +175,6 @@ class TestHistoryServiceRecordAction:
         )
 
         assert history.version == 2
-        assert history.diff_type == DiffType.METADATA.value
         assert history.content_snapshot is None
         assert history.content_diff is None
         assert history.metadata_snapshot == {"title": "Updated Title", "tags": ["new-tag"]}
@@ -221,7 +218,6 @@ class TestHistoryServiceRecordAction:
         )
 
         assert history.version is None
-        assert history.diff_type == DiffType.AUDIT.value
         assert history.content_snapshot is None
         assert history.content_diff is None
         assert history.action == ActionType.DELETE.value
@@ -270,9 +266,53 @@ class TestHistoryServiceRecordAction:
         )
 
         assert history.version == SNAPSHOT_INTERVAL
-        assert history.diff_type == DiffType.SNAPSHOT.value
         assert history.content_snapshot == content_v10  # Full content
         assert history.content_diff is not None  # Also has diff for chain traversal
+
+    @pytest.mark.asyncio
+    async def test__record_action__metadata_only_at_snapshot_interval(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Metadata-only change at modulo-10 version stores content_snapshot for bounded reconstruction."""
+        entity_id = uuid4()
+        content = "Stable content"
+
+        # Create versions 1-9
+        previous = None
+        for i in range(1, SNAPSHOT_INTERVAL):
+            c = f"Content v{i}" if i < SNAPSHOT_INTERVAL - 1 else content
+            await history_service.record_action(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=ActionType.CREATE if i == 1 else ActionType.UPDATE,
+                current_content=c,
+                previous_content=previous,
+                metadata={"title": "Test", "tags": []},
+                context=request_context,
+            )
+            previous = c
+
+        # Create version 10 as metadata-only (same content, different title)
+        history = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content=content,
+            previous_content=content,  # Same content — metadata-only
+            metadata={"title": "Updated Title", "tags": []},
+            context=request_context,
+        )
+
+        assert history.version == SNAPSHOT_INTERVAL
+        assert history.content_snapshot == content  # Snapshot for bounded reconstruction
+        assert history.content_diff is None  # No content change
 
     @pytest.mark.asyncio
     async def test__record_action__stores_request_context(
@@ -340,7 +380,6 @@ class TestHistoryServiceRecordAction:
 
         assert history.version is None
         assert history.action == ActionType.ARCHIVE.value
-        assert history.diff_type == DiffType.AUDIT.value
         assert history.content_snapshot is None
         assert history.content_diff is None
         assert history.metadata_snapshot == metadata
@@ -494,7 +533,6 @@ class TestHistoryServiceDiffComputation:
         )
 
         assert v1.version == 1
-        assert v1.diff_type == DiffType.SNAPSHOT.value
         assert v1.content_snapshot is None  # No content stored
         assert v1.content_diff is None
 
@@ -513,7 +551,6 @@ class TestHistoryServiceDiffComputation:
 
         # Should be DIFF, not SNAPSHOT
         assert v2.version == 2
-        assert v2.diff_type == DiffType.DIFF.value
         assert v2.content_snapshot is None  # Not a snapshot
         assert v2.content_diff is not None  # Has the reverse diff
 
@@ -760,6 +797,92 @@ class TestHistoryServiceReconstruction:
         assert result.found is True
         assert result.content == "Content v3"
 
+    @pytest.mark.asyncio
+    async def test__reconstruct__through_metadata_snapshot(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Reconstruction uses content_snapshot from a metadata-only record at modulo-10 as anchor."""
+        entity_id = uuid4()
+        metadata = {"title": "Test", "tags": []}
+
+        # Create v1 with content
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Content v1",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # Create v2-9 with content changes
+        previous = "Content v1"
+        for i in range(2, SNAPSHOT_INTERVAL):
+            c = f"Content v{i}"
+            await history_service.record_action(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=ActionType.UPDATE,
+                current_content=c,
+                previous_content=previous,
+                metadata=metadata,
+                context=request_context,
+            )
+            previous = c
+
+        # v10: metadata-only change (content stays same as v9)
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content=previous,
+            previous_content=previous,  # Same content
+            metadata={"title": "New Title", "tags": []},
+            context=request_context,
+        )
+
+        # v11: content change
+        new_content = "Content v11"
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content=new_content,
+            previous_content=previous,
+            metadata={"title": "New Title", "tags": []},
+            context=request_context,
+        )
+
+        # Create a note entity to serve as anchor
+        note = Note(user_id=test_user.id, title="Test", content=new_content)
+        note.id = entity_id
+        db_session.add(note)
+        await db_session.flush()
+
+        # Reconstruct v9 — should use the metadata-only v10 snapshot as anchor
+        result = await history_service.reconstruct_content_at_version(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            target_version=9,
+        )
+
+        assert result.found is True
+        assert result.content == f"Content v{SNAPSHOT_INTERVAL - 1}"
+
 
 class TestReconstructionChainIntegrity:
     """[P0] End-to-end reconstruction chain integrity tests."""
@@ -896,7 +1019,6 @@ class TestPeriodicSnapshotDualStorage:
         )
 
         assert v10 is not None
-        assert v10.diff_type == DiffType.SNAPSHOT.value
         assert v10.content_snapshot == "Content 10"  # Full content for optimization
         assert v10.content_diff is not None  # Diff for chain traversal
 
@@ -946,7 +1068,6 @@ class TestDeleteVersionReconstruction:
         )
 
         assert delete_record.version is None
-        assert delete_record.diff_type == DiffType.AUDIT.value
         assert delete_record.content_snapshot is None
 
         # v1 (the content version before DELETE) still reconstructs
@@ -1187,7 +1308,6 @@ class TestEmptyDiffHandling:
             entity_id=test_note.id,
             action=ActionType.UPDATE.value,
             version=2,
-            diff_type=DiffType.DIFF.value,
             content_snapshot=None,
             content_diff="",  # Empty string
             metadata_snapshot=metadata,
@@ -1273,7 +1393,6 @@ class TestCorruptedDiffHandling:
             entity_id=test_note.id,
             action=ActionType.UPDATE.value,
             version=3,
-            diff_type=DiffType.DIFF.value,
             content_snapshot=None,
             content_diff="this_is_not_valid_patch_text!!!",  # Corrupted
             metadata_snapshot=metadata,
@@ -1362,7 +1481,6 @@ class TestCorruptedDiffHandling:
             entity_id=test_note.id,
             action=ActionType.UPDATE.value,
             version=3,
-            diff_type=DiffType.DIFF.value,
             content_snapshot=None,
             content_diff="CORRUPTED_GARBAGE_DATA",
             metadata_snapshot=metadata,
@@ -1387,7 +1505,6 @@ class TestCorruptedDiffHandling:
             entity_id=test_note.id,
             action=ActionType.UPDATE.value,
             version=4,
-            diff_type=DiffType.DIFF.value,
             content_snapshot=None,
             content_diff=valid_diff,
             metadata_snapshot=metadata,
@@ -2711,7 +2828,6 @@ class TestAuditActions:
                 context=request_context,
             )
             assert history.version is None, f"{action} should have NULL version"
-            assert history.diff_type == DiffType.AUDIT.value, f"{action} should be AUDIT"
             assert history.content_snapshot is None, f"{action} should have no content"
             assert history.content_diff is None, f"{action} should have no diff"
 
@@ -2925,7 +3041,6 @@ class TestAuditActions:
 
         assert history.version == 3
         assert history.action == ActionType.RESTORE.value
-        assert history.diff_type == DiffType.DIFF.value
         assert history.content_diff is not None
 
     @pytest.mark.asyncio

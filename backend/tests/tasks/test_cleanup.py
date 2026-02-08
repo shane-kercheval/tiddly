@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.request_context import AuthType, RequestSource
 from core.tier_limits import TIER_LIMITS, Tier
 from models.bookmark import Bookmark
-from models.content_history import ActionType, ContentHistory, DiffType, EntityType
+from models.content_history import ActionType, ContentHistory, EntityType
 from models.note import Note
 from models.prompt import Prompt
 from models.user import User
@@ -46,7 +46,6 @@ def create_history_record(
         entity_id=entity_id,
         action=ActionType.CREATE.value,
         version=version,
-        diff_type=DiffType.SNAPSHOT.value,
         content_snapshot=f"Content v{version}",
         metadata_snapshot={"title": f"Test v{version}"},
         source=RequestSource.WEB.value,

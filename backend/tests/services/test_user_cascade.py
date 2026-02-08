@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.api_token import ApiToken
 from models.bookmark import Bookmark
 from models.content_filter import ContentFilter
-from models.content_history import ActionType, ContentHistory, DiffType, EntityType
+from models.content_history import ActionType, ContentHistory, EntityType
 from models.note import Note
 from models.tag import Tag, bookmark_tags, note_tags
 from models.user import User
@@ -105,7 +105,6 @@ async def test__user_delete__cascades_to_all_user_data(
         entity_id=note_active.id,
         action=ActionType.CREATE,
         version=1,
-        diff_type=DiffType.SNAPSHOT,
         content_snapshot="Initial snapshot content",
         metadata_snapshot={"title": "Active Note"},
         source="web",

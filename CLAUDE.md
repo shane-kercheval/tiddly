@@ -185,13 +185,14 @@ All content changes (bookmarks, notes, prompts) are tracked in the `content_hist
 - Auth type: auth0, pat, dev
 - Token prefix for PAT requests (e.g., "bm_a3f8...") for audit trail
 
-**Diff Storage (Reverse Diffs with Dual Storage):**
+**Content Storage (Reverse Diffs):**
 - Uses Google's diff-match-patch algorithm with reverse diffs
-- SNAPSHOT records store both `content_snapshot` (full content) and `content_diff` (diff to previous)
-- DIFF records store only `content_diff` (reverse diff-match-patch delta)
-- METADATA records store neither (content unchanged, only metadata changed)
-- AUDIT records store neither (lifecycle state transitions: delete, undelete, archive, unarchive)
-- Reconstruction: find nearest snapshot, start from `content_snapshot`, apply diffs backwards
+- Change type derived from columns: `version IS NULL` → audit, `action = 'create'` → create, `content_diff IS NOT NULL` → content change, else → metadata only
+- CREATE: `content_snapshot` set (full content), no diff
+- Content change: `content_diff` set; also `content_snapshot` at every 10th version (periodic snapshot)
+- Metadata only: neither content column set; `content_snapshot` at every 10th version (bounded reconstruction)
+- Audit: neither content column set, version is NULL
+- Reconstruction: find nearest record with `content_snapshot IS NOT NULL`, apply diffs backwards
 - Fallback: if no snapshot found, start from `entity.content`
 
 **API Endpoints:**
@@ -208,7 +209,7 @@ All content changes (bookmarks, notes, prompts) are tracked in the `content_hist
 - Soft-delete expiry: entities deleted 30+ days are permanently removed with history
 
 **Implementation Files:**
-- `models/content_history.py`: ContentHistory model, ActionType, EntityType, DiffType enums
+- `models/content_history.py`: ContentHistory model, ActionType, EntityType enums
 - `services/history_service.py`: HistoryService for recording and reconstruction
 - `schemas/history.py`: Pydantic schemas for API responses
 - `api/routers/history.py`: History API endpoints

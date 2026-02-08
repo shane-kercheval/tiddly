@@ -10,7 +10,7 @@ from api.dependencies import get_async_session, get_current_limits, get_current_
 from core.auth import get_request_context
 from core.request_context import RequestSource
 from core.tier_limits import TierLimits
-from models.content_history import ActionType, DiffType, EntityType
+from models.content_history import ActionType, EntityType
 from models.user import User
 from schemas.bookmark import BookmarkUpdate
 from schemas.history import (
@@ -22,7 +22,7 @@ from schemas.history import (
 from schemas.note import NoteUpdate
 from schemas.prompt import PromptArgument, PromptUpdate
 from services.bookmark_service import BookmarkService, DuplicateUrlError
-from services.history_service import history_service
+from services.history_service import HistoryService, history_service
 from services.note_service import NoteService
 from services.prompt_service import NameConflictError, PromptService
 
@@ -317,7 +317,7 @@ async def restore_to_version(
         raise HTTPException(status_code=404, detail="Version not found")
 
     # Block restoring to audit versions (lifecycle state transitions, not content versions)
-    if history.diff_type == DiffType.AUDIT.value:
+    if history.action in HistoryService.AUDIT_ACTIONS:
         raise HTTPException(
             status_code=400,
             detail="Cannot restore to an audit version (delete/undelete/archive/unarchive). "

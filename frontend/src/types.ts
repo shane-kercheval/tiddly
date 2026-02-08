@@ -528,9 +528,6 @@ export type HistoryActionType = 'create' | 'update' | 'delete' | 'restore' | 'un
 /** Source types for history records (matches backend RequestSource enum) */
 export type HistorySourceType = 'web' | 'api' | 'mcp-content' | 'mcp-prompt' | 'unknown'
 
-/** Diff types for history records */
-export type HistoryDiffType = 'snapshot' | 'diff' | 'metadata' | 'audit'
-
 /** Single history record */
 export interface HistoryEntry {
   id: string
@@ -538,7 +535,6 @@ export interface HistoryEntry {
   entity_id: string
   action: HistoryActionType
   version: number | null
-  diff_type: HistoryDiffType
   metadata_snapshot: Record<string, unknown> | null
   source: HistorySourceType
   auth_type: string

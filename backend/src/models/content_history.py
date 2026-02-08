@@ -35,27 +35,6 @@ class EntityType(StrEnum):
     PROMPT = "prompt"
 
 
-class DiffType(StrEnum):
-    """
-    Describes how content is stored in a history record.
-
-    Uses dual-storage for SNAPSHOTs:
-    - content_snapshot: Full content at this version (for starting reconstruction)
-    - content_diff: Diff to previous version (for chain traversal)
-
-    metadata_snapshot behavior varies by diff type:
-    - SNAPSHOT, DIFF, METADATA: Full metadata snapshot (title, description, tags,
-      plus entity-specific fields like url/name/arguments)
-    - AUDIT: Minimal identifying metadata only (non-empty title/name/url).
-      No description or tags — these are lifecycle state transitions, not content versions.
-    """
-
-    SNAPSHOT = "snapshot"  # Full content snapshot + diff (diff is None for CREATE)
-    DIFF = "diff"  # content_diff only (diff-match-patch delta)
-    METADATA = "metadata"  # No content stored (content unchanged), full metadata snapshot
-    AUDIT = "audit"  # Lifecycle state transitions, minimal identifying metadata only
-
-
 class ContentHistory(Base, UUIDv7Mixin):
     """
     Unified history table for tracking changes to bookmarks, notes, and prompts.
@@ -63,11 +42,19 @@ class ContentHistory(Base, UUIDv7Mixin):
     Uses reverse diffs: each diff record stores how to transform the current
     version's content into the previous version's content (going backwards in time).
 
-    Dual storage columns:
-    - content_snapshot: Full content at this version (SNAPSHOTs only)
-    - content_diff: Reverse diff to previous version (for chain traversal)
-    - metadata_snapshot: JSONB of non-content fields (see DiffType docstring for
-      full vs minimal metadata per diff type)
+    Content storage columns (the change type is derived from these):
+    - content_snapshot: Full content at this version. Set for CREATE, periodic snapshots
+      (every 10th version), and modulo-10 metadata-only changes (bounded reconstruction).
+    - content_diff: Reverse diff to previous version (diff-match-patch delta).
+      Set when content actually changed. None for CREATE, metadata-only, and audit actions.
+    - metadata_snapshot: JSONB of non-content fields. Full metadata for versioned records;
+      minimal identifying metadata (title/name/url) for audit actions.
+
+    Change type derivation:
+    - version IS NULL → audit action (lifecycle state transition)
+    - action = 'create' → initial creation (content_snapshot set, no diff)
+    - content_diff IS NOT NULL → content change
+    - else → metadata-only change (content unchanged)
     """
 
     __tablename__ = "content_history"
@@ -90,15 +77,12 @@ class ContentHistory(Base, UUIDv7Mixin):
     # Version tracking (sequential per entity, starts at 1)
     # NULL for audit events (lifecycle state transitions like DELETE/UNDELETE/ARCHIVE/UNARCHIVE)
     version: Mapped[int | None] = mapped_column(nullable=True)
-    diff_type: Mapped[str] = mapped_column(String(20), nullable=False)
 
-    # Dual storage for content (see DiffType enum for what each type stores):
-    # - content_snapshot: Full content at this version (SNAPSHOTs only)
-    # - content_diff: Reverse diff to previous version (for chain traversal)
+    # Content storage (see class docstring for what each scenario stores):
     content_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_diff: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Metadata snapshot (see DiffType docstring for what's stored per type)
+    # Metadata snapshot (see class docstring for full vs minimal metadata per action type)
     metadata_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Source tracking (who/what initiated this change)
@@ -147,6 +131,6 @@ class ContentHistory(Base, UUIDv7Mixin):
             "entity_type",
             "entity_id",
             "version",
-            postgresql_where=text("diff_type = 'snapshot'"),
+            postgresql_where=text("content_snapshot IS NOT NULL"),
         ),
     )

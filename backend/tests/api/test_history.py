@@ -837,7 +837,7 @@ async def test_history_response_includes_all_fields(client: AsyncClient) -> None
     assert "entity_id" in item
     assert "action" in item
     assert "version" in item
-    assert "diff_type" in item
+    assert "diff_type" not in item
     assert "metadata_snapshot" in item
     assert "source" in item
     assert "auth_type" in item
@@ -1270,17 +1270,19 @@ async def test_restore_soft_deleted_entity_returns_404(
     assert response.json()["detail"] == "Entity not found"
 
 
+@pytest.mark.parametrize("audit_action", ["delete", "undelete", "archive", "unarchive"])
 async def test_restore_to_audit_version_returns_400(
     client: AsyncClient,
     db_session: AsyncSession,
+    audit_action: str,
 ) -> None:
     """
-    Test that the audit version check blocks restoring to AUDIT diff_type records.
+    Test that the audit action check blocks restoring to audit records.
 
     Audit versions normally have NULL version numbers and can't be targeted by the
     restore endpoint (which requires version >= 1). This test directly manipulates
-    the database to create an audit record with a non-null version to verify the
-    defense-in-depth check works.
+    the database to set an audit action on a versioned record to verify the
+    defense-in-depth check works for all audit action types.
     """
     from sqlalchemy import update
 
@@ -1293,19 +1295,19 @@ async def test_restore_to_audit_version_returns_400(
     note_id = response.json()["id"]
     await client.patch(f"/notes/{note_id}", json={"content": "v2"})
 
-    # Corrupt v1's record to be an audit entry (simulates edge case)
+    # Set v1's action to an audit action (simulates edge case)
     stmt = (
         update(ContentHistory)
         .where(
             ContentHistory.entity_id == note_id,
             ContentHistory.version == 1,
         )
-        .values(diff_type="audit")
+        .values(action=audit_action)
     )
     await db_session.execute(stmt)
     await db_session.flush()
 
-    # Try to restore to v1 (now marked as audit) - should get 400
+    # Try to restore to v1 (now an audit action) - should get 400
     response = await client.post(f"/history/note/{note_id}/restore/1")
     assert response.status_code == 400
     assert "audit version" in response.json()["detail"]
@@ -1341,8 +1343,6 @@ async def test_restore_to_version_records_restore_action(
     latest = data["items"][0]
     assert latest["version"] == 3
     assert latest["action"] == "restore"
-    # RESTORE is a content action, so it should have a DIFF or SNAPSHOT diff_type
-    assert latest["diff_type"] in ("diff", "snapshot")
 
 
 @pytest.mark.parametrize(
@@ -2047,7 +2047,6 @@ async def test_delete_is_audit_event_no_version(
     history = response.json()["items"]
     assert history[0]["action"] == "delete"
     assert history[0]["version"] is None
-    assert history[0]["diff_type"] == "audit"
 
     # v1 content is still retrievable
     response = await client.get(f"/history/note/{note_id}/version/1")

@@ -31,25 +31,28 @@ The system uses **reverse diffs** — each diff record stores how to transform t
 3. Apply each reverse diff sequentially to walk backwards through time
 4. The result is the content at the target version
 
-### Diff Types and Dual Storage
+### Content Storage and Change Types
 
-Each history record has one of four diff types. To maintain an unbroken reconstruction chain, **SNAPSHOT records store both the full content AND the diff to the previous version** (where applicable).
+The change type for a history record is derived from its content columns and action, not a separate field:
 
-| Type | `content_snapshot` | `content_diff` | When Used |
-|------|-------------------|----------------|-----------|
-| `SNAPSHOT` (CREATE) | Full content | None | First version of an entity (no previous) |
-| `SNAPSHOT` (periodic) | Full content | Diff to previous | Every Nth version (default: 10) |
-| `DIFF` | None | Diff to previous | Normal updates between snapshots |
-| `METADATA` | None | None | Content unchanged, only metadata changed |
-| `AUDIT` | None | None | Lifecycle state transitions (delete, undelete, archive, unarchive) |
+| Scenario | `content_snapshot` | `content_diff` | How to Identify |
+|----------|-------------------|----------------|-----------------|
+| CREATE | Full content | None | `action = 'create'` |
+| Content change (normal) | None | Diff to previous | `content_diff IS NOT NULL` |
+| Content change (periodic) | Full content | Diff to previous | Every Nth version (default: 10) |
+| Metadata only (normal) | None | None | Version present, `content_diff IS NULL`, action is not `create` |
+| Metadata only (periodic) | Full content | None | Every Nth version — guarantees bounded reconstruction |
+| Audit | None | None | `version IS NULL` |
 
 **Note:** Metadata is stored as a full snapshot in content action records. Audit actions (DELETE, UNDELETE, ARCHIVE, UNARCHIVE) store only identifying metadata (title/name, URL for bookmarks).
 
-**Why dual storage for snapshots?**
+**Why dual storage for periodic snapshots?**
 
-With reverse diffs, each record must provide a way to get to the previous version. If a SNAPSHOT only stored full content (no diff), the reconstruction chain would break at that point—there would be no way to traverse backwards through the snapshot.
+With reverse diffs, each record must provide a way to get to the previous version. If a snapshot only stored full content (no diff), the reconstruction chain would break at that point—there would be no way to traverse backwards through the snapshot.
 
-By storing both `content_snapshot` (for starting reconstruction) and `content_diff` (for chain continuity), snapshots serve as efficient starting points without breaking the chain.
+By storing both `content_snapshot` (for starting reconstruction) and `content_diff` (for chain continuity), periodic content-change snapshots serve as efficient starting points without breaking the chain.
+
+**Metadata-only snapshots at modulo-10 versions** store `content_snapshot` to guarantee reconstruction never traverses more than 10 versions to find an anchor point.
 
 **Storage impact:** Minimal (~5% increase). For every 10 versions with ~10KB content, dual storage adds only ~1KB (one extra diff per snapshot interval).
 
@@ -77,9 +80,8 @@ Each history record contains:
 | `entity_id` | ID of the bookmark/note/prompt |
 | `action` | What happened (see Actions below) |
 | `version` | Sequential version number per entity (1, 2, 3, ...) or NULL for audit actions |
-| `diff_type` | "snapshot", "diff", "metadata", or "audit" |
-| `content_snapshot` | Full content text (only for SNAPSHOT records, otherwise None) |
-| `content_diff` | Diff-match-patch delta string to previous version (None for CREATE, METADATA, AUDIT) |
+| `content_snapshot` | Full content text (set for CREATE, periodic snapshots, and modulo-10 metadata-only changes) |
+| `content_diff` | Diff-match-patch delta string to previous version (set when content changed; None for CREATE, metadata-only, audit) |
 | `metadata_snapshot` | JSON object of non-content fields at this version |
 | `source` | Request origin (see Source Tracking) |
 | `auth_type` | Authentication method used |
@@ -106,19 +108,19 @@ The `metadata_snapshot` captures non-content fields at each version:
 
 ## Actions Tracked
 
-| Action | Trigger | Diff Type | Has Version? | Content Stored |
-|--------|---------|-----------|--------------|----------------|
-| `CREATE` | New entity created | SNAPSHOT | Yes | Full content |
-| `UPDATE` | Entity modified | DIFF or SNAPSHOT | Yes | Diff or snapshot depending on rules |
-| `RESTORE` | Restored to previous version | DIFF or SNAPSHOT | Yes | Diff or snapshot (same as UPDATE) |
-| `DELETE` | Soft delete | AUDIT | No (NULL) | None — only identifying metadata |
-| `UNDELETE` | Soft delete reversed | AUDIT | No (NULL) | None — only identifying metadata |
-| `ARCHIVE` | Entity archived | AUDIT | No (NULL) | None — only identifying metadata |
-| `UNARCHIVE` | Archive reversed | AUDIT | No (NULL) | None — only identifying metadata |
+| Action | Trigger | Has Version? | Content Stored |
+|--------|---------|--------------|----------------|
+| `CREATE` | New entity created | Yes | Full content (`content_snapshot`) |
+| `UPDATE` | Entity modified | Yes | Diff or snapshot depending on interval and whether content changed |
+| `RESTORE` | Restored to previous version | Yes | Same as UPDATE |
+| `DELETE` | Soft delete | No (NULL) | None — only identifying metadata |
+| `UNDELETE` | Soft delete reversed | No (NULL) | None — only identifying metadata |
+| `ARCHIVE` | Entity archived | No (NULL) | None — only identifying metadata |
+| `UNARCHIVE` | Archive reversed | No (NULL) | None — only identifying metadata |
 
 ### Audit Actions (DELETE, UNDELETE, ARCHIVE, UNARCHIVE)
 
-These are **lifecycle state transitions** — they change the entity's status but not its content. They use the `AUDIT` diff type and have **no version number** (NULL), no content snapshot, and no content diff.
+These are **lifecycle state transitions** — they change the entity's status but not its content. They have **no version number** (NULL), no content snapshot, and no content diff.
 
 The metadata snapshot for audit actions contains only identifying fields (title/name, URL for bookmarks) rather than a full metadata snapshot, since the entity's content and metadata are unchanged.
 
@@ -185,14 +187,13 @@ To reconstruct content at a specific version:
 1. **Validate target** — Return not found if version doesn't exist or exceeds latest
 2. **Get current content** — Fetch from entity table (including soft-deleted entities) as fallback anchor
 3. **Get history chain** — Fetch all records from latest version down to target version (ordered by version descending). Records with NULL versions (audit actions) are naturally excluded since they have no version number to match.
-4. **Find nearest snapshot** — Scan fetched records for the snapshot closest to the target version (lowest version number in the set). This avoids applying unnecessary diffs.
+4. **Find nearest snapshot** — Scan fetched records for the nearest record with `content_snapshot IS NOT NULL` (lowest version number in the set). This includes periodic content-change snapshots and modulo-10 metadata-only snapshots. This avoids applying unnecessary diffs.
 5. **Choose starting point:**
-   - If snapshot found: start from that snapshot's `content_snapshot`
+   - If snapshot found: start from that record's `content_snapshot`
    - If no snapshot found: start from entity's current content
 6. **Apply reverse diffs** — Starting from the chosen anchor, iterate through records from the snapshot (or start) down to target:
-   - `SNAPSHOT`: If this is the starting snapshot, we already have its content. Apply its `content_diff` if present (periodic snapshots have diffs to continue the chain; CREATE snapshots have None).
-   - `DIFF`: Apply the `content_diff` delta to get the previous version's content
-   - `METADATA`: Skip (content unchanged at this version)
+   - If `content_diff` is present: apply the delta to get the previous version's content
+   - If `content_diff` is None (CREATE, metadata-only, audit): skip — content unchanged at this version
 7. **Return result** — Content at target version, plus any warnings
 
 ### Why Find the Nearest Snapshot?
@@ -310,8 +311,8 @@ When restoring to an old version:
 ### Metadata-Only Changes
 
 When only metadata changes (tags, title, description) but content is identical:
-- History record created with `diff_type = METADATA`
-- `content_diff` is None
+- `content_diff` is None (no content change to store)
+- At modulo-10 versions, `content_snapshot` is set to guarantee bounded reconstruction distance
 - Reconstruction skips these records (content same as next newer version)
 
 ### Archived Entity Restore

@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.content_history import ActionType, ContentHistory, DiffType, EntityType
+from models.content_history import ActionType, ContentHistory, EntityType
 from models.user import User
 
 
@@ -40,7 +40,6 @@ class TestContentHistoryModel:
             entity_id=entity_id,
             action=ActionType.CREATE,
             version=1,
-            diff_type=DiffType.SNAPSHOT,
             content_snapshot="Initial content",
             content_diff=None,
             metadata_snapshot={"title": "Test Note", "tags": ["test"]},
@@ -58,7 +57,6 @@ class TestContentHistoryModel:
         assert history.entity_id == entity_id
         assert history.action == ActionType.CREATE
         assert history.version == 1
-        assert history.diff_type == DiffType.SNAPSHOT
         assert history.content_snapshot == "Initial content"
         assert history.content_diff is None
         assert history.metadata_snapshot == {"title": "Test Note", "tags": ["test"]}
@@ -81,7 +79,6 @@ class TestContentHistoryModel:
             entity_id=entity_id,
             action=ActionType.UPDATE,
             version=2,
-            diff_type=DiffType.DIFF,
             content_snapshot=None,
             content_diff="@@ -1,5 +1,6 @@\n Test\n",
             metadata_snapshot={"title": "Test Bookmark"},
@@ -111,7 +108,6 @@ class TestContentHistoryModel:
             entity_id=entity_id,
             action=ActionType.ARCHIVE,
             version=3,
-            diff_type=DiffType.METADATA,
             content_snapshot=None,
             content_diff=None,
             metadata_snapshot={"title": "Archived Prompt", "archived_at": "2024-01-01T00:00:00Z"},
@@ -123,7 +119,6 @@ class TestContentHistoryModel:
         await db_session.refresh(history)
 
         assert history.action == ActionType.ARCHIVE
-        assert history.diff_type == DiffType.METADATA
         assert history.content_snapshot is None
         assert history.content_diff is None
 
@@ -147,12 +142,6 @@ class TestContentHistoryEnums:
         assert EntityType.NOTE == "note"
         assert EntityType.PROMPT == "prompt"
 
-    def test__diff_type__all_values(self) -> None:
-        """DiffType has all expected values."""
-        assert DiffType.SNAPSHOT == "snapshot"
-        assert DiffType.DIFF == "diff"
-        assert DiffType.METADATA == "metadata"
-        assert DiffType.AUDIT == "audit"
 
 
 class TestContentHistoryJsonb:
@@ -185,7 +174,6 @@ class TestContentHistoryJsonb:
             entity_id=entity_id,
             action=ActionType.CREATE,
             version=1,
-            diff_type=DiffType.SNAPSHOT,
             content_snapshot="Content",
             metadata_snapshot=complex_metadata,
             source="web",
@@ -218,7 +206,6 @@ class TestContentHistoryRelationships:
             entity_id=entity_id,
             action=ActionType.CREATE,
             version=1,
-            diff_type=DiffType.SNAPSHOT,
             content_snapshot="Content",
             metadata_snapshot={"title": "Test"},
             source="web",
@@ -254,7 +241,6 @@ class TestContentHistoryRelationships:
                 entity_id=entity_id,
                 action=ActionType.UPDATE if version > 1 else ActionType.CREATE,
                 version=version,
-                diff_type=DiffType.SNAPSHOT if version == 1 else DiffType.DIFF,
                 content_snapshot="Content" if version == 1 else None,
                 content_diff="diff" if version > 1 else None,
                 metadata_snapshot={"title": f"Version {version}"},
@@ -288,7 +274,6 @@ class TestContentHistoryUniqueConstraint:
             entity_id=entity_id,
             action=ActionType.CREATE,
             version=1,
-            diff_type=DiffType.SNAPSHOT,
             content_snapshot="Content",
             metadata_snapshot={"title": "Test"},
             source="web",
@@ -304,7 +289,6 @@ class TestContentHistoryUniqueConstraint:
             entity_id=entity_id,
             action=ActionType.UPDATE,
             version=1,  # Same version - should fail
-            diff_type=DiffType.DIFF,
             content_snapshot=None,
             content_diff="diff",
             metadata_snapshot={"title": "Duplicate"},
@@ -333,7 +317,6 @@ class TestContentHistoryUniqueConstraint:
             entity_id=entity_id_1,
             action=ActionType.CREATE,
             version=1,
-            diff_type=DiffType.SNAPSHOT,
             content_snapshot="Content 1",
             metadata_snapshot={"title": "Note 1"},
             source="web",
@@ -348,7 +331,6 @@ class TestContentHistoryUniqueConstraint:
             entity_id=entity_id_2,
             action=ActionType.CREATE,
             version=1,  # Same version, different entity - should succeed
-            diff_type=DiffType.SNAPSHOT,
             content_snapshot="Content 2",
             metadata_snapshot={"title": "Note 2"},
             source="web",
@@ -381,7 +363,6 @@ class TestContentHistoryUniqueConstraint:
             entity_id=entity_id,
             action=ActionType.CREATE,
             version=1,
-            diff_type=DiffType.SNAPSHOT,
             content_snapshot="Note content",
             metadata_snapshot={"title": "Note"},
             source="web",
@@ -396,7 +377,6 @@ class TestContentHistoryUniqueConstraint:
             entity_id=entity_id,
             action=ActionType.CREATE,
             version=1,
-            diff_type=DiffType.SNAPSHOT,
             content_snapshot="Bookmark content",
             metadata_snapshot={"title": "Bookmark"},
             source="web",

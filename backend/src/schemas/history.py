@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from models.content_history import ActionType, DiffType, EntityType
+from models.content_history import ActionType, EntityType
 
 
 class HistoryResponse(BaseModel):
@@ -17,7 +17,6 @@ class HistoryResponse(BaseModel):
     entity_id: UUID
     action: ActionType
     version: int | None  # None for audit events (lifecycle state transitions)
-    diff_type: DiffType
     metadata_snapshot: dict | None
     source: str
     auth_type: str

@@ -3,7 +3,7 @@ from models.api_token import ApiToken
 from models.base import ArchivableMixin, Base, TimestampMixin
 from models.bookmark import Bookmark
 from models.content_filter import ContentFilter
-from models.content_history import ActionType, ContentHistory, DiffType, EntityType
+from models.content_history import ActionType, ContentHistory, EntityType
 from models.filter_group import FilterGroup
 from models.note import Note
 from models.prompt import Prompt
@@ -20,7 +20,6 @@ __all__ = [
     "Bookmark",
     "ContentFilter",
     "ContentHistory",
-    "DiffType",
     "EntityType",
     "FilterGroup",
     "Note",
