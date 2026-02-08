@@ -88,11 +88,11 @@ UPDATE v3 (DIFF)
 UPDATE v10 (SNAPSHOT) ← always a content version
 ```
 
-**Transactional behavior:**
-- When restoring a soft-deleted entity to a previous version, both UNDELETE and RESTORE are recorded
-- These operations occur within the same database transaction
-- If the RESTORE fails, the entire transaction rolls back including the UNDELETE record
-- No risk of partial state - either both succeed or neither does
+**Restore is content-only:**
+- RESTORE only changes content - it does NOT modify lifecycle state (deleted_at, archived_at)
+- Restoring a soft-deleted entity returns 404 (entity must be undeleted first)
+- Restoring an archived entity is allowed (it only changes content, entity stays archived)
+- This is consistent with audit versions being non-restorable: RESTORE operates on content, not state
 
 **Historical data:**
 - This refactor has not been deployed to production; there are no external users
@@ -375,7 +375,7 @@ Rename "revert" terminology to "restore" throughout the codebase, modify the res
 - Router function renamed: `revert_to_version()` → `restore_to_version()`
 - Frontend hook renamed: `useRevertToVersion` → `useRestoreToVersion`
 - Restoring to a previous version creates a RESTORE action in history
-- If entity was soft-deleted, creates UNDELETE then RESTORE (two records, transactional)
+- Restoring a soft-deleted entity returns 404 (must undelete first)
 - Attempting to restore to an audit version (NULL version) returns 400 error
 - Content reconstruction and diff storage work correctly for RESTORE
 - Existing tests pass with updated names and assertions
@@ -428,7 +428,7 @@ Rename "revert" terminology to "restore" throughout the codebase, modify the res
 
 1. **Router tests:**
    - `test__restore_to_version__records_restore_action`: Verify RESTORE action is created (not UPDATE)
-   - `test__restore_soft_deleted__records_undelete_then_restore`: Verify both actions are created in order
+   - `test__restore_to_version__soft_deleted_returns_404`: Verify restoring a soft-deleted entity fails
    - `test__restore_to_audit_version__returns_400`: Verify restoring to DELETE/ARCHIVE/etc. version fails
    - Update existing revert tests: rename to restore, update assertions for new action type
 
