@@ -233,7 +233,7 @@ Each user tier defines:
 Enforced at write time using modulo-based checking:
 
 1. After recording a history entry, check if `version % 10 == 0`
-2. If so, count total history records for this entity
+2. If so, count history records for this entity (excluding audit events)
 3. If count exceeds `max_history_per_entity`, delete oldest records to reach the limit
 
 **Behavior:**
