@@ -422,32 +422,32 @@ export function HistorySidebar({
                 </div>
                 {/* Inline diff view - shown below selected version */}
                 {selectedVersion === entry.version && (
-                  <div className="border-t border-gray-200 bg-gray-50 relative">
+                  <div className="border-t border-gray-200 bg-gray-50">
                     {versionContent?.warnings && versionContent.warnings.length > 0 && (
                       <div className="px-3 py-1 text-xs text-yellow-600 border-b border-gray-200">
                         Warning: Some changes could not be fully reconstructed
                       </div>
                     )}
-                    {/* Wrap toggle button - positioned over diff content */}
-                    <div className="absolute top-1 right-1 z-10">
-                      <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={500} position="left">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setWrapText(!wrapText)
-                          }}
-                          className={`p-0.5 rounded transition-colors border ${
-                            wrapText
-                              ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-transparent'
-                              : 'text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-100 shadow-sm border-gray-200'
-                          }`}
-                          aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
-                        >
-                          <WrapIcon />
-                        </button>
-                      </Tooltip>
-                    </div>
-                    <div className="max-h-[400px] overflow-auto">
+                    <div className="max-h-[400px] overflow-auto relative">
+                      {/* Wrap toggle button - sticky so it stays visible during scroll */}
+                      <div className="sticky top-1 right-1 float-right z-10 mr-1 mt-1">
+                        <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={500} position="left">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setWrapText(!wrapText)
+                            }}
+                            className={`p-0.5 rounded transition-colors border ${
+                              wrapText
+                                ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-transparent'
+                                : 'text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-100 shadow-sm border-gray-200'
+                            }`}
+                            aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
+                          >
+                            <WrapIcon />
+                          </button>
+                        </Tooltip>
+                      </div>
                       <DiffView
                         oldContent={previousVersionContent?.content ?? ''}
                         newContent={versionContent?.content ?? ''}
