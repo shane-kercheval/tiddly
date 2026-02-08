@@ -17,7 +17,7 @@ Refactor the content versioning system to clearly separate content-changing acti
 - Add `RESTORE` action (restore content to a previous version - matches UI "Restore" button)
 - Add `AUDIT` diff type for state transitions (audit trail only, not content versions)
 - Audit actions have `version = NULL` (they're not content versions, just audit events)
-- Audit actions store only `{"title": "..."}` for frontend display, plus audit trail (source, auth_type, token_prefix)
+- Audit actions store minimal identifying metadata (`title`, `name`, `url` - whichever fields exist)
 - Reconstruction naturally uses only records with non-null versions
 - Backend blocks restoring to audit versions (400 error)
 - Frontend displays audit events without version badge, no restore button
@@ -42,20 +42,34 @@ Refactor the content versioning system to clearly separate content-changing acti
 | `SNAPSHOT` | Full content | Maybe (dual) | Full |
 | `DIFF` | None | Yes | Full |
 | `METADATA` | None | None | Full |
-| `AUDIT` | None | None | `{"title": "..."}` only |
+| `AUDIT` | None | None | Identifying fields only (title/name/url) |
 
 **Naming rationale:**
 - `RESTORE` matches the UI "Restore" button in HistorySidebar
 - `UNDELETE` clearly means "undo deletion" (internal operation)
 - `AUDIT` clearly conveys "audit trail for state changes" (not part of content versioning)
 
+**Audit metadata:**
+- Store all available identifying fields, not just title
+- Returns `{"title": "...", "name": "...", "url": "..."}` with only populated fields included
+- Bookmarks: `{"title": "...", "url": "..."}` (or just `{"url": "..."}` if no title)
+- Notes: `{"title": "..."}`
+- Prompts: `{"title": "...", "name": "..."}` (or just `{"name": "..."}` if no title)
+- Frontend can display the best available field
+
 **Null version for audit events:**
 - Audit actions (DELETE/UNDELETE/ARCHIVE/UNARCHIVE) have `version = NULL`
 - They're audit events, not content versions - incrementing version would be semantically wrong
 - Frontend displays them without version badge, just action + timestamp
-- Ordered by `created_at` in history list
+- Ordered by `created_at` in history list (not by version)
 - Cannot restore to NULL version (obvious - no version to restore to)
 - Eliminates modulo 10 edge case: version 10 will always be a content action
+
+**Retention and pruning:**
+- Audit events do NOT count toward `max_history_per_entity` retention limits
+- `max_history_per_entity` applies only to content versions (versioned records)
+- Audit events are pruned only by time-based cleanup (`history_retention_days`)
+- This makes semantic sense: the limit is about how many content versions to keep, not total audit records
 
 **Reconstruction behavior:**
 - Reconstruction naturally uses only records with non-null versions
@@ -74,6 +88,18 @@ UPDATE v3 (DIFF)
 UPDATE v10 (SNAPSHOT) ← always a content version
 ```
 
+**Transactional behavior:**
+- When restoring a soft-deleted entity to a previous version, both UNDELETE and RESTORE are recorded
+- These operations occur within the same database transaction
+- If the RESTORE fails, the entire transaction rolls back including the UNDELETE record
+- No risk of partial state - either both succeed or neither does
+
+**Historical data:**
+- This refactor has not been deployed to production; there are no external users
+- Existing lifecycle records (if any in dev databases) retain their old format with version numbers
+- No backfill migration is needed - we can make breaking changes freely
+- New lifecycle records will use the new AUDIT format with NULL versions
+
 **Reference documentation:**
 - `docs/content-versioning.md` - Current spec (needs updating)
 - `backend/src/services/history_service.py` - Core diff logic
@@ -81,22 +107,27 @@ UPDATE v10 (SNAPSHOT) ← always a content version
 
 ---
 
-## Milestone 1: Backend Enum, Model, and Migration
+## Milestone 1: Backend Enum, Model, Schema, and Migration
 
 ### Goal
-Update ActionType and DiffType enums, make version nullable, modify history_service to handle audit actions with null version, and create database migration.
+Update ActionType and DiffType enums, make version nullable, update response schemas, modify history_service to handle audit actions with null version, and create database migration.
 
 ### Success Criteria
 - Current `RESTORE` renamed to `UNDELETE` in ActionType enum
 - New `RESTORE` added to ActionType enum (for restoring to previous version)
 - `AUDIT` added to DiffType enum
 - `version` column made nullable in content_history table
+- `HistoryResponse.version` schema updated to `int | None`
 - Audit actions (DELETE/UNDELETE/ARCHIVE/UNARCHIVE) create records with:
   - `version = NULL`
   - `diff_type = AUDIT`
   - `content_snapshot = None`
   - `content_diff = None`
-  - `metadata_snapshot = {"title": "..."}` (title only for frontend display)
+  - `metadata_snapshot = {"title": "...", "name": "...", "url": "..."}` (whichever fields exist)
+- Modulo check for pruning skipped when version is NULL (prevents crash)
+- Entity history count excludes NULL versions (for retention limit checking)
+- Pruning excludes NULL versions (audit events pruned by time only)
+- Entity history ordered by `created_at.desc()` (not version)
 - Reconstruction uses only records with non-null versions
 - Database migration:
   - Updates existing `action = 'restore'` rows to `action = 'undelete'`
@@ -112,14 +143,26 @@ Update ActionType and DiffType enums, make version nullable, modify history_serv
    - Add `AUDIT = "audit"` to DiffType
    - Update model: `version: Mapped[int | None]` (make nullable)
 
-2. **Create database migration using `make migration message="history action refactor"`:**
+2. **Update `backend/src/schemas/history.py`:**
+   - Change `version: int` to `version: int | None` in `HistoryResponse`
+
+3. **Create database migration using `make migration message="history action refactor"`:**
    - **IMPORTANT**: Always use `make migration` command, never generate migrations manually
    - Migration should:
      - Update existing rows: `UPDATE content_history SET action = 'undelete' WHERE action = 'restore'`
      - Make version column nullable: `ALTER TABLE content_history ALTER COLUMN version DROP NOT NULL`
    - Note: Unique constraint on (user_id, entity_type, entity_id, version) allows multiple NULLs in PostgreSQL
 
-3. **Update `backend/src/services/history_service.py` `_record_action_impl`:**
+4. **Update `backend/src/services/history_service.py` `record_action`:**
+
+   Guard the modulo check to prevent crash when version is NULL:
+   ```python
+   # Count-based pruning: check every 10th write (only for versioned records)
+   if limits is not None and history.version is not None and history.version % PRUNE_CHECK_INTERVAL == 0:
+       # ... existing pruning logic
+   ```
+
+5. **Update `backend/src/services/history_service.py` `_record_action_impl`:**
    ```python
    # Check audit actions FIRST - before any content logic
    if action_value in (
@@ -132,7 +175,7 @@ Update ActionType and DiffType enums, make version nullable, modify history_serv
        version = None  # Audit events don't get version numbers
        content_snapshot = None
        content_diff = None
-       # metadata is passed in - services will pass {"title": "..."} only
+       # metadata is passed in - services will pass identifying fields only
    elif action_value == ActionType.CREATE.value:
        # ... existing CREATE logic (version = 1)
    else:
@@ -140,34 +183,91 @@ Update ActionType and DiffType enums, make version nullable, modify history_serv
        # ... rest of existing logic
    ```
 
-4. **Update reconstruction in `reconstruct_content_at_version`:**
+6. **Update `get_entity_history` to order by `created_at`:**
+   ```python
+   # Order by created_at for chronological display (version ordering breaks with NULLs)
+   stmt = (
+       select(ContentHistory)
+       .where(...)
+       .order_by(ContentHistory.created_at.desc())  # Changed from version.desc()
+       .offset(offset)
+       .limit(limit)
+   )
+   ```
+
+7. **Update `_get_entity_history_count` to exclude audit events:**
+   ```python
+   # Only count versioned records for retention limit checking
+   stmt = (
+       select(func.count())
+       .select_from(ContentHistory)
+       .where(
+           ContentHistory.user_id == user_id,
+           ContentHistory.entity_type == entity_type,
+           ContentHistory.entity_id == entity_id,
+           ContentHistory.version.isnot(None),  # Exclude audit events
+       )
+   )
+   ```
+
+8. **Update `_prune_to_limit` to exclude audit events:**
+   ```python
+   # Only consider versioned records for pruning (audit events pruned by time only)
+   cutoff_stmt = (
+       select(ContentHistory.version)
+       .where(
+           ContentHistory.user_id == user_id,
+           ContentHistory.entity_type == entity_type,
+           ContentHistory.entity_id == entity_id,
+           ContentHistory.version.isnot(None),  # Only versioned records
+       )
+       .order_by(ContentHistory.version.desc())
+       .offset(target - 1)
+       .limit(1)
+   )
+   # ...
+   # Delete only versioned records below cutoff
+   delete_stmt = delete(ContentHistory).where(
+       ContentHistory.user_id == user_id,
+       ContentHistory.entity_type == entity_type,
+       ContentHistory.entity_id == entity_id,
+       ContentHistory.version.isnot(None),  # Only versioned records
+       ContentHistory.version < cutoff_version,
+   )
+   ```
+
+9. **Update reconstruction in `reconstruct_content_at_version`:**
    ```python
    # Filter to only versioned records - audit events have no content
    records_to_traverse = [r for r in records if r.version is not None]
    ```
 
-5. **Update `get_latest_version` to handle null versions:**
-   ```python
-   # Only consider versioned records for latest version
-   result = await db.execute(
-       select(func.max(ContentHistory.version))
-       .where(ContentHistory.user_id == user_id)
-       .where(ContentHistory.entity_type == entity_type)
-       .where(ContentHistory.entity_id == entity_id)
-       .where(ContentHistory.version.isnot(None))  # Exclude audit events
-   )
-   ```
+10. **Update `get_latest_version` to handle null versions:**
+    ```python
+    # Only consider versioned records for latest version
+    result = await db.execute(
+        select(func.max(ContentHistory.version))
+        .where(ContentHistory.user_id == user_id)
+        .where(ContentHistory.entity_type == entity_type)
+        .where(ContentHistory.entity_id == entity_id)
+        .where(ContentHistory.version.isnot(None))  # Exclude audit events
+    )
+    ```
 
 ### Testing Strategy
 
 1. **Unit tests in `test_history_service.py`:**
    - `test__record_action__audit_actions_have_null_version`: Verify DELETE/UNDELETE/ARCHIVE/UNARCHIVE create records with version=NULL
-   - `test__record_action__audit_actions_store_title_only`: Verify AUDIT records have only title in metadata_snapshot
+   - `test__record_action__audit_actions_store_identifying_fields`: Verify AUDIT records have title/name/url as available
    - `test__record_action__audit_doesnt_affect_version_sequence`: Create v1, DELETE (null), UPDATE - verify UPDATE is v2 not v3
+   - `test__record_action__audit_skips_prune_check`: Verify audit actions don't trigger modulo check (no crash)
    - `test__record_action__restore_stores_diff`: Verify RESTORE action stores diff like UPDATE and increments version
    - `test__reconstruct__ignores_audit_records`: Verify reconstruction filters out NULL version records
    - `test__reconstruct__with_audit_in_chain`: Create v1, UPDATE v2, ARCHIVE (null), UPDATE v3 - verify reconstructing v2 works correctly
    - `test__get_latest_version__ignores_audit`: Verify latest version ignores NULL version records
+   - `test__get_entity_history__orders_by_created_at`: Create v1, DELETE (null), v2 - verify chronological order
+   - `test__get_entity_history_count__excludes_audit`: Verify count only includes versioned records
+   - `test__prune_to_limit__excludes_audit_records`: Create v1-v5 + 3 audit events, prune to 3, verify only v1-v2 deleted, audit retained
    - Update existing tests that reference `ActionType.RESTORE` → `ActionType.UNDELETE`
 
 2. **Migration test:**
@@ -186,12 +286,12 @@ None
 ## Milestone 2: Update Entity Services
 
 ### Goal
-Update all entity services to pass title-only metadata for audit actions, use the new UNDELETE action type, and add action parameter to update methods.
+Update all entity services to pass identifying metadata for audit actions, use the new UNDELETE action type, and add action parameter to update methods.
 
 ### Success Criteria
-- All audit action calls pass `metadata={"title": entity.title}`
+- All audit action calls pass `metadata=self._get_audit_metadata(entity)`
 - `restore()` method in base_entity_service uses `ActionType.UNDELETE`
-- `soft_delete()`, `archive()`, `unarchive()` pass title-only metadata
+- `soft_delete()`, `archive()`, `unarchive()` pass audit metadata
 - Update methods accept optional `action` parameter (defaults to UPDATE)
 - Existing service tests pass with updated assertions
 
@@ -200,8 +300,17 @@ Update all entity services to pass title-only metadata for audit actions, use th
 1. **Add helper to `backend/src/services/base_entity_service.py`:**
    ```python
    def _get_audit_metadata(self, entity: T) -> dict:
-       """Get minimal metadata for audit actions (title only for display)."""
-       return {"title": getattr(entity, "title", None)}
+       """Get minimal metadata for audit actions (identifying fields only).
+
+       Returns all available identifying fields so frontend can display
+       the best available option.
+       """
+       metadata = {}
+       for field in ("title", "name", "url"):
+           value = getattr(entity, field, None)
+           if value is not None:
+               metadata[field] = value
+       return metadata
    ```
 
 2. **Update lifecycle methods in `base_entity_service.py`:**
@@ -238,7 +347,11 @@ Update all entity services to pass title-only metadata for audit actions, use th
 
 1. **Update existing service tests:**
    - Verify audit actions create AUDIT diff_type records with version=NULL
-   - Verify metadata_snapshot contains only `{"title": "..."}` for audit actions
+   - Verify metadata_snapshot contains identifying fields for audit actions
+   - `test__get_audit_metadata__bookmark`: Verify bookmark returns title and url
+   - `test__get_audit_metadata__note`: Verify note returns title
+   - `test__get_audit_metadata__prompt_with_title`: Verify prompt with title returns title and name
+   - `test__get_audit_metadata__prompt_without_title`: Verify prompt without title returns just name
    - Verify UNDELETE action is recorded (not RESTORE)
    - Verify update() with `action=ActionType.RESTORE` records RESTORE action with version
 
@@ -262,7 +375,7 @@ Rename "revert" terminology to "restore" throughout the codebase, modify the res
 - Router function renamed: `revert_to_version()` → `restore_to_version()`
 - Frontend hook renamed: `useRevertToVersion` → `useRestoreToVersion`
 - Restoring to a previous version creates a RESTORE action in history
-- If entity was soft-deleted, creates UNDELETE then RESTORE (two records)
+- If entity was soft-deleted, creates UNDELETE then RESTORE (two records, transactional)
 - Attempting to restore to an audit version (NULL version) returns 400 error
 - Content reconstruction and diff storage work correctly for RESTORE
 - Existing tests pass with updated names and assertions
@@ -340,15 +453,18 @@ Update frontend to handle new action types, null versions for audit events, and 
 
 ### Success Criteria
 - `HistoryActionType` type includes `restore` (for version restoration) and `undelete`
+- `HistoryDiffType` type includes `audit`
+- `HistoryEntry.version` allows `null`
 - `formatAction()` displays correct labels for all action types
 - Audit action rows (DELETE/UNDELETE/ARCHIVE/UNARCHIVE) display without version badge
 - Audit action rows show informational message instead of diff
 - No restore button shown for audit actions
+- `latestVersion` correctly computed from first non-null version
 - RESTORE actions show diff and restore button like UPDATE
 
 ### Key Changes
 
-1. **Update `frontend/src/types/index.ts`:**
+1. **Update `frontend/src/types.ts`:**
    ```typescript
    export type HistoryActionType =
      | 'create'
@@ -358,6 +474,8 @@ Update frontend to handle new action types, null versions for audit events, and 
      | 'undelete'    // Un-deleted (was 'restore' before)
      | 'archive'
      | 'unarchive'
+
+   export type HistoryDiffType = 'snapshot' | 'diff' | 'metadata' | 'audit'
 
    // Update HistoryEntry type to allow null version
    export interface HistoryEntry {
@@ -384,6 +502,11 @@ Update frontend to handle new action types, null versions for audit events, and 
      ```typescript
      const isAuditAction = (action: HistoryActionType): boolean =>
        ['delete', 'undelete', 'archive', 'unarchive'].includes(action)
+     ```
+   - Compute latestVersion from first non-null version:
+     ```typescript
+     // Find latest content version (first non-null version in chronological order)
+     const latestVersion = history?.items.find(e => e.version !== null)?.version ?? 0
      ```
    - Display version conditionally:
      ```typescript
@@ -420,9 +543,11 @@ Update frontend to handle new action types, null versions for audit events, and 
    - Verify audit actions don't show restore button
    - Verify audit actions show informational message instead of diff when expanded
    - Verify RESTORE actions show diff and restore button
+   - `test__latest_version__ignores_audit`: Verify latestVersion computed from first non-null version
 
 2. **Type tests:**
    - Verify HistoryActionType includes all new values
+   - Verify HistoryDiffType includes 'audit'
    - Verify HistoryEntry.version accepts null
 
 ### Dependencies
@@ -442,8 +567,9 @@ Update content-versioning.md spec to reflect all changes.
 - ActionType table updated with RESTORE (version restoration) and UNDELETE
 - DiffType table updated with AUDIT
 - Version column documented as nullable (NULL for audit events)
-- DELETE section updated to reflect no content storage (only title in metadata)
+- DELETE section updated to reflect no content storage (only identifying fields in metadata)
 - Audit actions section explains audit-only purpose and null version
+- Retention section clarifies audit events don't count toward max_history_per_entity
 - Reconstruction algorithm notes it naturally ignores null-version records
 - Restore section (renamed from revert) notes that restoring to audit versions is blocked
 - All "revert" terminology updated to "restore"
@@ -453,8 +579,9 @@ Update content-versioning.md spec to reflect all changes.
 1. **Update `docs/content-versioning.md`:**
    - Update Actions Tracked table with new columns (Has Version?, etc.)
    - Update Diff Types table with AUDIT
-   - Rewrite DELETE section (stores only title, no content, no version)
+   - Rewrite DELETE section (stores only identifying fields, no content, no version)
    - Add section explaining AUDIT diff type and its purpose
+   - Clarify retention behavior: audit events don't count toward entity limits, only time-based cleanup
    - Update reconstruction algorithm to specify null-version filtering
    - Rename "revert" → "restore" throughout
    - Update restore section to note audit version blocking
@@ -476,10 +603,10 @@ None
 
 | Milestone | Scope | Key Changes |
 |-----------|-------|-------------|
-| 1 | Backend enums, model, migration | Add RESTORE, rename old RESTORE→UNDELETE, add AUDIT diff type, make version nullable, audit actions get NULL version, update reconstruction |
-| 2 | Entity services | Update audit actions to pass title-only metadata, add action parameter to update methods |
+| 1 | Backend enums, model, schema, migration | Add RESTORE, rename old RESTORE→UNDELETE, add AUDIT diff type, make version nullable in model and schema, audit actions get NULL version, guard modulo check, update ordering/counting/pruning to handle NULLs, update reconstruction |
+| 2 | Entity services | Update audit actions to pass identifying metadata (title/name/url), add action parameter to update methods |
 | 3 | Rename revert→restore, update endpoint | Rename throughout codebase, record RESTORE action, block restoring to audit versions |
-| 4 | Frontend | Handle new action types, null versions for audit events, show message for audit actions, hide restore button |
+| 4 | Frontend | Handle new action types, null versions for audit events, fix latestVersion calculation, show message for audit actions, hide restore button |
 | 5 | Documentation | Update spec to reflect all changes, rename revert→restore |
 
 Total: 5 milestones. Each milestone should be reviewed before proceeding to the next.
