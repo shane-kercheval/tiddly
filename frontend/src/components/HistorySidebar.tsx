@@ -79,6 +79,10 @@ const diffViewerStyles = {
     padding: '0 8px',
     minWidth: '30px',
   },
+  // Remove the library's default minWidth: 1000px to prevent horizontal scroll
+  diffContainer: {
+    minWidth: 'unset',
+  },
   contentText: {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: '12px',
@@ -89,36 +93,6 @@ const diffViewerStyles = {
     fontStyle: 'italic',
   },
 }
-
-/**
- * CSS overrides for react-diff-viewer-continued to enable horizontal scrolling.
- * The library has multiple layers of overflow:hidden that we need to override.
- */
-const diffScrollStyles = `
-  .diff-viewer-wrapper table {
-    width: max-content !important;
-    min-width: 100% !important;
-    table-layout: auto !important;
-  }
-  .diff-viewer-wrapper td {
-    overflow: visible !important;
-  }
-  .diff-viewer-wrapper pre {
-    white-space: pre !important;
-    overflow: visible !important;
-  }
-  .diff-viewer-wrapper [class*="content-"] {
-    overflow: visible !important;
-  }
-  .diff-viewer-wrapper [class*="lineContent-"] {
-    overflow: visible !important;
-  }
-  .diff-viewer-wrapper [class*="contentText-"] {
-    white-space: pre !important;
-    word-break: normal !important;
-    overflow-wrap: normal !important;
-  }
-`
 
 /** Diff view component using react-diff-viewer-continued */
 function DiffView({
@@ -147,19 +121,16 @@ function DiffView({
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-x-scroll overflow-y-auto">
-      <style>{diffScrollStyles}</style>
-      <div className="diff-viewer-wrapper" style={{ minWidth: 'max-content' }}>
-        <ReactDiffViewer
-          oldValue={oldContent}
-          newValue={newContent}
-          splitView={false}
-          useDarkTheme={false}
-          compareMethod={DiffMethod.WORDS}
-          styles={diffViewerStyles}
-          extraLinesSurroundingDiff={3}
-        />
-      </div>
+    <div className="flex-1 min-h-0 overflow-auto">
+      <ReactDiffViewer
+        oldValue={oldContent}
+        newValue={newContent}
+        splitView={false}
+        useDarkTheme={false}
+        compareMethod={DiffMethod.WORDS}
+        styles={diffViewerStyles}
+        extraLinesSurroundingDiff={3}
+      />
     </div>
   )
 }
