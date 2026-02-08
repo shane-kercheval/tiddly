@@ -10,6 +10,8 @@ import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued'
 import { useEntityHistory, useContentAtVersion, useRevertToVersion } from '../hooks/useHistory'
 import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
 import { CloseIcon, RestoreIcon } from './icons'
+import { WrapIcon } from './editor/EditorToolbarIcons'
+import { Tooltip } from './ui/Tooltip'
 import type { HistoryEntityType, HistoryActionType } from '../types'
 
 interface HistorySidebarProps {
@@ -44,8 +46,8 @@ function formatSource(source: string): string {
   return labels[source] ?? source
 }
 
-/** Custom styles for react-diff-viewer-continued (colors and typography only) */
-const diffViewerStyles = {
+/** Base styles for react-diff-viewer-continued (colors and typography) */
+const baseDiffStyles = {
   variables: {
     light: {
       diffViewerBackground: '#ffffff',
@@ -79,10 +81,6 @@ const diffViewerStyles = {
     padding: '0 8px',
     minWidth: '30px',
   },
-  // Remove the library's default minWidth: 1000px to prevent horizontal scroll
-  diffContainer: {
-    minWidth: 'unset',
-  },
   contentText: {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: '12px',
@@ -94,15 +92,71 @@ const diffViewerStyles = {
   },
 }
 
+/** Styles for wrap mode (default) - removes minWidth to allow natural wrapping */
+const wrapModeStyles = {
+  ...baseDiffStyles,
+  diffContainer: {
+    minWidth: 'unset',
+  },
+}
+
+/** Styles for scroll mode - forces content to not wrap */
+const scrollModeStyles = {
+  ...baseDiffStyles,
+  diffContainer: {
+    minWidth: 'max-content',
+  },
+  content: {
+    overflow: 'visible',
+  },
+  lineContent: {
+    overflow: 'visible',
+  },
+  contentText: {
+    ...baseDiffStyles.contentText,
+    whiteSpace: 'pre' as const,
+    lineBreak: 'auto' as const,
+  },
+}
+
+/** CSS overrides for scroll mode to force horizontal scrolling */
+const scrollModeCss = `
+  .diff-scroll-mode table {
+    width: max-content !important;
+    min-width: 100% !important;
+    table-layout: auto !important;
+  }
+  .diff-scroll-mode td {
+    overflow: visible !important;
+  }
+  .diff-scroll-mode pre {
+    white-space: pre !important;
+    overflow: visible !important;
+  }
+  .diff-scroll-mode [class*="content-"] {
+    overflow: visible !important;
+  }
+  .diff-scroll-mode [class*="lineContent-"] {
+    overflow: visible !important;
+  }
+  .diff-scroll-mode [class*="contentText-"] {
+    white-space: pre !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+  }
+`
+
 /** Diff view component using react-diff-viewer-continued */
 function DiffView({
   oldContent,
   newContent,
   isLoading,
+  wrapText,
 }: {
   oldContent: string
   newContent: string
   isLoading: boolean
+  wrapText: boolean
 }): ReactNode {
   if (isLoading) {
     return (
@@ -120,15 +174,18 @@ function DiffView({
     )
   }
 
+  const styles = wrapText ? wrapModeStyles : scrollModeStyles
+
   return (
-    <div className="flex-1 min-h-0 overflow-auto">
+    <div className={`flex-1 min-h-0 overflow-auto ${wrapText ? '' : 'diff-scroll-mode'}`}>
+      {!wrapText && <style>{scrollModeCss}</style>}
       <ReactDiffViewer
         oldValue={oldContent}
         newValue={newContent}
         splitView={false}
         useDarkTheme={false}
         compareMethod={DiffMethod.WORDS}
-        styles={diffViewerStyles}
+        styles={styles}
         extraLinesSurroundingDiff={3}
       />
     </div>
@@ -159,6 +216,7 @@ export function HistorySidebar({
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= MD_BREAKPOINT : true
   )
+  const [wrapText, setWrapText] = useState(true)
 
   // Get width from store
   const storeWidth = useHistorySidebarStore((state) => state.width)
@@ -378,13 +436,28 @@ export function HistorySidebar({
                   <span className="text-gray-400 font-normal"> (from v{previousVersion})</span>
                 )}
               </span>
-              <button
-                onClick={() => setSelectedVersion(null)}
-                className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200"
-                aria-label="Close diff view"
-              >
-                <CloseIcon className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={500}>
+                  <button
+                    onClick={() => setWrapText(!wrapText)}
+                    className={`p-1.5 rounded transition-colors flex-shrink-0 ${
+                      wrapText
+                        ? 'text-gray-700 bg-gray-200'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                    }`}
+                    aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
+                  >
+                    <WrapIcon />
+                  </button>
+                </Tooltip>
+                <button
+                  onClick={() => setSelectedVersion(null)}
+                  className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
+                  aria-label="Close diff view"
+                >
+                  <CloseIcon className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             {versionContent?.warnings && versionContent.warnings.length > 0 && (
               <div className="px-3 pb-2 text-xs text-yellow-600">
@@ -396,6 +469,7 @@ export function HistorySidebar({
             oldContent={previousVersionContent?.content ?? ''}
             newContent={versionContent?.content ?? ''}
             isLoading={isLoadingVersion || isLoadingPreviousVersion}
+            wrapText={wrapText}
           />
         </div>
       )}
