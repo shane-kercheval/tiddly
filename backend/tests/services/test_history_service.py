@@ -3,6 +3,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from diff_match_patch import diff_match_patch
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.request_context import AuthType, RequestContext, RequestSource
@@ -465,6 +466,60 @@ class TestHistoryServiceDiffComputation:
 
         assert history.content_snapshot == ""
         assert history.content_diff is None
+
+    @pytest.mark.asyncio
+    async def test__diff__null_to_value_creates_diff_not_snapshot(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Update from None content to value creates DIFF, not SNAPSHOT."""
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        # Create v1 with None content (like an empty note)
+        v1 = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content=None,
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        assert v1.version == 1
+        assert v1.diff_type == DiffType.SNAPSHOT.value
+        assert v1.content_snapshot is None  # No content stored
+        assert v1.content_diff is None
+
+        # Update v2: None -> "1" (this was incorrectly creating SNAPSHOT before fix)
+        v2 = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content="1",
+            previous_content=None,  # Previous content was None
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # Should be DIFF, not SNAPSHOT
+        assert v2.version == 2
+        assert v2.diff_type == DiffType.DIFF.value
+        assert v2.content_snapshot is None  # Not a snapshot
+        assert v2.content_diff is not None  # Has the reverse diff
+
+        # Verify the diff is valid: applying it to "1" should give ""
+        dmp = diff_match_patch()
+        patches = dmp.patch_fromText(v2.content_diff)
+        result, _ = dmp.patch_apply(patches, "1")
+        assert result == ""  # Reverse diff from "1" to None/""
 
     @pytest.mark.asyncio
     async def test__diff__unicode_content_handled_correctly(

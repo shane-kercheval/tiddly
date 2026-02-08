@@ -165,7 +165,7 @@ class HistoryService:
             diff_type = DiffType.SNAPSHOT
             content_snapshot = current_content
             content_diff = None
-        elif action_value == ActionType.CREATE.value or previous_content is None:
+        elif action_value == ActionType.CREATE.value:
             # CREATE: Store initial content as snapshot, no diff (no previous version)
             diff_type = DiffType.SNAPSHOT
             content_snapshot = current_content
