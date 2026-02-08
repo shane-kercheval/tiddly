@@ -146,6 +146,15 @@ const scrollModeCss = `
   }
 `
 
+/** Loading spinner component for diff viewer */
+function DiffLoadingSpinner(): ReactNode {
+  return (
+    <div className="flex items-center justify-center p-6">
+      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900" />
+    </div>
+  )
+}
+
 /** Diff view component using react-diff-viewer-continued */
 function DiffView({
   oldContent,
@@ -159,11 +168,7 @@ function DiffView({
   wrapText: boolean
 }): ReactNode {
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center p-6">
-        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900" />
-      </div>
-    )
+    return <DiffLoadingSpinner />
   }
 
   if (oldContent === newContent) {
@@ -187,6 +192,7 @@ function DiffView({
         compareMethod={DiffMethod.WORDS}
         styles={styles}
         extraLinesSurroundingDiff={3}
+        loadingElement={DiffLoadingSpinner}
       />
     </div>
   )
@@ -298,7 +304,7 @@ export function HistorySidebar({
   const { data: history, isLoading } = useEntityHistory(entityType, entityId, { limit: 50 })
 
   // Fetch content at the selected version (the "after" state)
-  const { data: versionContent, isLoading: isLoadingVersion } = useContentAtVersion(
+  const { data: versionContent } = useContentAtVersion(
     entityType,
     entityId,
     selectedVersion
@@ -306,7 +312,7 @@ export function HistorySidebar({
 
   // Fetch content at the previous version (the "before" state) for diff comparison
   const previousVersion = selectedVersion !== null && selectedVersion > 1 ? selectedVersion - 1 : null
-  const { data: previousVersionContent, isLoading: isLoadingPreviousVersion } = useContentAtVersion(
+  const { data: previousVersionContent } = useContentAtVersion(
     entityType,
     entityId,
     previousVersion
@@ -451,7 +457,11 @@ export function HistorySidebar({
                       <DiffView
                         oldContent={previousVersionContent?.content ?? ''}
                         newContent={versionContent?.content ?? ''}
-                        isLoading={isLoadingVersion || isLoadingPreviousVersion}
+                        isLoading={
+                          // Show spinner while waiting for required data
+                          // Check data existence directly rather than relying on React Query flags
+                          !versionContent || (previousVersion !== null && !previousVersionContent)
+                        }
                         wrapText={wrapText}
                       />
                     </div>
