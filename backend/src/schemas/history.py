@@ -16,7 +16,7 @@ class HistoryResponse(BaseModel):
     entity_type: EntityType
     entity_id: UUID
     action: ActionType
-    version: int
+    version: int | None  # None for audit events (lifecycle state transitions)
     diff_type: DiffType
     metadata_snapshot: dict | None
     source: str

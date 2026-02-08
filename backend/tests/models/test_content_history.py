@@ -137,6 +137,7 @@ class TestContentHistoryEnums:
         assert ActionType.UPDATE == "update"
         assert ActionType.DELETE == "delete"
         assert ActionType.RESTORE == "restore"
+        assert ActionType.UNDELETE == "undelete"
         assert ActionType.ARCHIVE == "archive"
         assert ActionType.UNARCHIVE == "unarchive"
 
@@ -151,6 +152,7 @@ class TestContentHistoryEnums:
         assert DiffType.SNAPSHOT == "snapshot"
         assert DiffType.DIFF == "diff"
         assert DiffType.METADATA == "metadata"
+        assert DiffType.AUDIT == "audit"
 
 
 class TestContentHistoryJsonb:

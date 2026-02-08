@@ -117,8 +117,12 @@ class HistoryService:
                 raise last_error
             raise RuntimeError("Unexpected state in record_action")
 
-        # Count-based pruning: check every 10th write to avoid per-write overhead
-        if limits is not None and history.version % PRUNE_CHECK_INTERVAL == 0:
+        # Count-based pruning: check every 10th write (only for versioned records)
+        if (
+            limits is not None
+            and history.version is not None
+            and history.version % PRUNE_CHECK_INTERVAL == 0
+        ):
             entity_type_value = (
                 entity_type.value if isinstance(entity_type, EntityType) else entity_type
             )
@@ -132,6 +136,14 @@ class HistoryService:
                 )
 
         return history
+
+    # Audit actions: lifecycle state transitions that don't affect content
+    AUDIT_ACTIONS = frozenset({
+        ActionType.DELETE.value,
+        ActionType.UNDELETE.value,
+        ActionType.ARCHIVE.value,
+        ActionType.UNARCHIVE.value,
+    })
 
     async def _record_action_impl(
         self,
@@ -152,46 +164,37 @@ class HistoryService:
         )
         action_value = action.value if isinstance(action, ActionType) else action
 
-        version = await self._get_next_version(db, user_id, entity_type_value, entity_id)
-
-        # Determine diff_type, content_snapshot, and content_diff
-        # Uses dual storage: SNAPSHOTs store both full content AND diff (when applicable)
+        # Determine diff_type, version, content_snapshot, and content_diff
         content_snapshot: str | None = None
         content_diff: str | None = None
 
-        if action_value == ActionType.DELETE.value:
-            # DELETE: Store pre-delete content as snapshot for audit trail
-            # No diff because content doesn't change (just deleted_at is set)
-            diff_type = DiffType.SNAPSHOT
-            content_snapshot = current_content
-            content_diff = None
+        if action_value in self.AUDIT_ACTIONS:
+            # Audit actions: lifecycle state transitions (no content, no version)
+            diff_type = DiffType.AUDIT
+            version: int | None = None
         elif action_value == ActionType.CREATE.value:
             # CREATE: Store initial content as snapshot, no diff (no previous version)
             diff_type = DiffType.SNAPSHOT
             content_snapshot = current_content
-            content_diff = None
+            version = await self._get_next_version(db, user_id, entity_type_value, entity_id)
         elif previous_content == current_content:
             # Content unchanged - metadata-only change (tags, title, etc.)
-            # Also covers RESTORE, ARCHIVE, UNARCHIVE which don't change content
             diff_type = DiffType.METADATA
-            content_snapshot = None
-            content_diff = None
-        elif version % SNAPSHOT_INTERVAL == 0:
-            # Periodic snapshot: Store BOTH full content AND diff
-            # This enables reconstruction optimization (start from nearest snapshot)
-            # while maintaining chain traversal (can still apply diff to continue)
-            diff_type = DiffType.SNAPSHOT
-            content_snapshot = current_content
-            # Compute reverse diff: current → previous (how to go backwards)
-            patches = self.dmp.patch_make(current_content or "", previous_content or "")
-            content_diff = self.dmp.patch_toText(patches)
+            version = await self._get_next_version(db, user_id, entity_type_value, entity_id)
         else:
-            # Normal update: Store diff only (no snapshot)
-            diff_type = DiffType.DIFF
-            content_snapshot = None
-            # Compute reverse diff: current → previous
-            patches = self.dmp.patch_make(current_content or "", previous_content or "")
-            content_diff = self.dmp.patch_toText(patches)
+            # UPDATE/RESTORE with content change
+            version = await self._get_next_version(db, user_id, entity_type_value, entity_id)
+            if version % SNAPSHOT_INTERVAL == 0:
+                # Periodic snapshot: Store BOTH full content AND diff
+                diff_type = DiffType.SNAPSHOT
+                content_snapshot = current_content
+                patches = self.dmp.patch_make(current_content or "", previous_content or "")
+                content_diff = self.dmp.patch_toText(patches)
+            else:
+                # Normal update: Store diff only (no snapshot)
+                diff_type = DiffType.DIFF
+                patches = self.dmp.patch_make(current_content or "", previous_content or "")
+                content_diff = self.dmp.patch_toText(patches)
 
         history = ContentHistory(
             user_id=user_id,
@@ -250,7 +253,7 @@ class HistoryService:
         )
         total = (await db.execute(count_stmt)).scalar_one()
 
-        # Data query
+        # Data query (order by created_at since audit events have NULL version)
         stmt = (
             select(ContentHistory)
             .where(
@@ -258,7 +261,7 @@ class HistoryService:
                 ContentHistory.entity_type == entity_type_value,
                 ContentHistory.entity_id == entity_id,
             )
-            .order_by(ContentHistory.version.desc())
+            .order_by(ContentHistory.created_at.desc())
             .offset(offset)
             .limit(limit)
         )
@@ -634,6 +637,7 @@ class HistoryService:
             ContentHistory.user_id == user_id,
             ContentHistory.entity_type == entity_type_value,
             ContentHistory.entity_id == entity_id,
+            ContentHistory.version.isnot(None),
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
@@ -673,7 +677,11 @@ class HistoryService:
         entity_id: UUID,
     ) -> int:
         """
-        Count history records for an entity.
+        Count versioned history records for an entity.
+
+        Only counts records with non-null versions (content versions).
+        Audit events (NULL version) are excluded since they don't count
+        toward retention limits.
 
         Args:
             db: Database session.
@@ -682,7 +690,7 @@ class HistoryService:
             entity_id: ID of the entity.
 
         Returns:
-            Number of history records for this entity.
+            Number of versioned history records for this entity.
         """
         stmt = (
             select(func.count())
@@ -691,6 +699,7 @@ class HistoryService:
                 ContentHistory.user_id == user_id,
                 ContentHistory.entity_type == entity_type,
                 ContentHistory.entity_id == entity_id,
+                ContentHistory.version.isnot(None),
             )
         )
         return (await db.execute(stmt)).scalar_one()
@@ -722,12 +731,14 @@ class HistoryService:
             Number of records deleted.
         """
         # Find the version number at the cutoff point (keep 'target' most recent)
+        # Only consider versioned records (audit events pruned by time only)
         cutoff_stmt = (
             select(ContentHistory.version)
             .where(
                 ContentHistory.user_id == user_id,
                 ContentHistory.entity_type == entity_type,
                 ContentHistory.entity_id == entity_id,
+                ContentHistory.version.isnot(None),
             )
             .order_by(ContentHistory.version.desc())
             .offset(target - 1)  # Keep 'target' most recent
@@ -739,12 +750,13 @@ class HistoryService:
         if cutoff_version is None:
             return 0  # Not enough records to prune
 
-        # Simply delete all records older than cutoff
-        # No need to preserve old snapshots with reverse diffs!
+        # Delete only versioned records older than cutoff
+        # Audit events (NULL version) are not affected
         delete_stmt = delete(ContentHistory).where(
             ContentHistory.user_id == user_id,
             ContentHistory.entity_type == entity_type,
             ContentHistory.entity_id == entity_id,
+            ContentHistory.version.isnot(None),
             ContentHistory.version < cutoff_version,
         )
 

@@ -21,7 +21,8 @@ class ActionType(StrEnum):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
-    RESTORE = "restore"
+    RESTORE = "restore"  # Restore content to a previous version
+    UNDELETE = "undelete"  # Un-delete a soft-deleted entity
     ARCHIVE = "archive"
     UNARCHIVE = "unarchive"
 
@@ -45,9 +46,10 @@ class DiffType(StrEnum):
     Note: metadata_snapshot is ALWAYS stored as a full snapshot in every record.
     """
 
-    SNAPSHOT = "snapshot"  # Full content + diff (or None for CREATE/DELETE)
+    SNAPSHOT = "snapshot"  # Full content + diff (or None for CREATE)
     DIFF = "diff"  # content_diff only (diff-match-patch delta)
     METADATA = "metadata"  # No content stored (content unchanged)
+    AUDIT = "audit"  # Audit trail only (lifecycle state transitions, no content)
 
 
 class ContentHistory(Base, UUIDv7Mixin):
@@ -81,7 +83,8 @@ class ContentHistory(Base, UUIDv7Mixin):
     action: Mapped[str] = mapped_column(String(20), nullable=False)
 
     # Version tracking (sequential per entity, starts at 1)
-    version: Mapped[int] = mapped_column(nullable=False)
+    # NULL for audit events (lifecycle state transitions like DELETE/UNDELETE/ARCHIVE/UNARCHIVE)
+    version: Mapped[int | None] = mapped_column(nullable=True)
     diff_type: Mapped[str] = mapped_column(String(20), nullable=False)
 
     # Dual storage for content (see DiffType enum for what each type stores):

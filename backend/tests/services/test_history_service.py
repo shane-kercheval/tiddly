@@ -183,16 +183,16 @@ class TestHistoryServiceRecordAction:
         assert history.metadata_snapshot == {"title": "Updated Title", "tags": ["new-tag"]}
 
     @pytest.mark.asyncio
-    async def test__record_action__delete_stores_pre_delete_snapshot(
+    async def test__record_action__delete_stores_audit_record(
         self,
         db_session: AsyncSession,
         test_user: User,
         request_context: RequestContext,
     ) -> None:
-        """DELETE action stores pre-delete content as snapshot."""
+        """DELETE action stores AUDIT record with NULL version and no content."""
         entity_id = uuid4()
         content = "Hello World"
-        metadata = {"title": "Test", "tags": []}
+        metadata = {"title": "Test"}
 
         # Create v1
         await history_service.record_action(
@@ -203,11 +203,11 @@ class TestHistoryServiceRecordAction:
             action=ActionType.CREATE,
             current_content=content,
             previous_content=None,
-            metadata=metadata,
+            metadata={"title": "Test", "tags": []},
             context=request_context,
         )
 
-        # Delete v2
+        # Delete (audit event, no version)
         history = await history_service.record_action(
             db=db_session,
             user_id=test_user.id,
@@ -220,11 +220,12 @@ class TestHistoryServiceRecordAction:
             context=request_context,
         )
 
-        assert history.version == 2
-        assert history.diff_type == DiffType.SNAPSHOT.value
-        assert history.content_snapshot == content  # Pre-delete content preserved
+        assert history.version is None
+        assert history.diff_type == DiffType.AUDIT.value
+        assert history.content_snapshot is None
         assert history.content_diff is None
         assert history.action == ActionType.DELETE.value
+        assert history.metadata_snapshot == metadata
 
     @pytest.mark.asyncio
     async def test__record_action__periodic_snapshot_stores_both(
@@ -300,16 +301,16 @@ class TestHistoryServiceRecordAction:
         assert history.token_prefix == "bm_test1234567"
 
     @pytest.mark.asyncio
-    async def test__record_action__archive_stores_metadata_type(
+    async def test__record_action__archive_stores_audit_record(
         self,
         db_session: AsyncSession,
         test_user: User,
         request_context: RequestContext,
     ) -> None:
-        """ARCHIVE action stores METADATA type (content unchanged)."""
+        """ARCHIVE action stores AUDIT record with NULL version."""
         entity_id = uuid4()
         content = "Content"
-        metadata = {"title": "Test", "archived_at": "2024-01-01T00:00:00Z"}
+        metadata = {"title": "Test"}
 
         # Create v1
         await history_service.record_action(
@@ -324,7 +325,7 @@ class TestHistoryServiceRecordAction:
             context=request_context,
         )
 
-        # Archive v2
+        # Archive (audit event, no version)
         history = await history_service.record_action(
             db=db_session,
             user_id=test_user.id,
@@ -337,11 +338,12 @@ class TestHistoryServiceRecordAction:
             context=request_context,
         )
 
-        assert history.version == 2
+        assert history.version is None
         assert history.action == ActionType.ARCHIVE.value
-        assert history.diff_type == DiffType.METADATA.value
+        assert history.diff_type == DiffType.AUDIT.value
         assert history.content_snapshot is None
         assert history.content_diff is None
+        assert history.metadata_snapshot == metadata
 
 
 class TestHistoryServiceDiffComputation:
@@ -771,44 +773,49 @@ class TestReconstructionChainIntegrity:
         request_context: RequestContext,
     ) -> None:
         """
-        Create a realistic chain and verify every version reconstructs correctly.
+        Create a realistic chain with audit events and verify reconstruction.
 
-        Chain structure:
+        Post-refactor chain (audit events have NULL version):
         v1:  CREATE (SNAPSHOT)          content = "A"
         v2:  UPDATE (DIFF)              content = "AB"
-        v3:  UPDATE (DIFF)              content = "ABC"
         ...
         v10: UPDATE (SNAPSHOT + DIFF)   content = "ABCDEFGHIJ"
-        v11: UPDATE (DIFF)              content = "ABCDEFGHIJK"
         ...
-        v15: ARCHIVE (METADATA)         content = "ABCDEFGHIJKLMNO" (unchanged)
-        v16: UNARCHIVE (METADATA)       content = "ABCDEFGHIJKLMNO" (unchanged)
+        v14: UPDATE (DIFF)              content = "ABCDEFGHIJKLMN"
+             ARCHIVE (AUDIT, v=NULL)    content unchanged
+             UNARCHIVE (AUDIT, v=NULL)  content unchanged
+        v15: UPDATE (DIFF)              content = "ABCDEFGHIJKLMNO"
         ...
-        v20: UPDATE (SNAPSHOT + DIFF)   content = "ABCDEFGHIJKLMNOPQRST"
+        v18: UPDATE (DIFF)              content = "ABCDEFGHIJKLMNOPQR"
+
+        Key: audit events don't consume version numbers, so
+        what was v17-v20 pre-refactor is now v15-v18.
         """
         metadata = {"title": test_note.title}
+        # Map version -> expected content for versioned records
         expected_content: dict[int, str] = {}
 
-        # Build the chain
         previous = None
+        content_version = 0  # track content version separately
         for i in range(1, 21):
             if i == 15:
-                # ARCHIVE - content unchanged
+                # ARCHIVE - audit event, no version
                 action = ActionType.ARCHIVE
-                current = expected_content[14]
+                current = previous  # content unchanged
             elif i == 16:
-                # UNARCHIVE - content unchanged
+                # UNARCHIVE - audit event, no version
                 action = ActionType.UNARCHIVE
-                current = expected_content[15]
+                current = previous  # content unchanged
             elif i == 1:
                 action = ActionType.CREATE
+                content_version += 1
                 current = "A"
+                expected_content[content_version] = current
             else:
                 action = ActionType.UPDATE
-                # Build content incrementally: A, AB, ABC, ...
-                current = "".join(chr(ord("A") + j) for j in range(i))
-
-            expected_content[i] = current
+                content_version += 1
+                current = "".join(chr(ord("A") + j) for j in range(content_version))
+                expected_content[content_version] = current
 
             await history_service.record_action(
                 db=db_session,
@@ -823,12 +830,16 @@ class TestReconstructionChainIntegrity:
             )
             previous = current
 
-        # Update entity content to match v20
-        test_note.content = expected_content[20]
+        # content_version should be 18 (20 iterations - 2 audit events)
+        assert content_version == 18
+
+        # Update entity content to match latest version
+        test_note.content = expected_content[18]
         await db_session.flush()
 
         # Verify key versions reconstruct correctly
-        test_versions = [1, 5, 10, 15, 16, 20]
+        # v10 is periodic snapshot, v14 is just before audit gap, v15 is just after
+        test_versions = [1, 5, 10, 14, 15, 18]
         for version in test_versions:
             result = await history_service.reconstruct_content_at_version(
                 db=db_session,
@@ -891,10 +902,10 @@ class TestPeriodicSnapshotDualStorage:
 
 
 class TestDeleteVersionReconstruction:
-    """[P0] DELETE version reconstruction regression tests."""
+    """[P0] DELETE produces audit record; surrounding versions still work."""
 
     @pytest.mark.asyncio
-    async def test__reconstruct__delete_version_returns_pre_delete_content(
+    async def test__reconstruct__version_before_delete_still_works(
         self,
         db_session: AsyncSession,
         test_user: User,
@@ -902,10 +913,8 @@ class TestDeleteVersionReconstruction:
         request_context: RequestContext,
     ) -> None:
         """
-        Regression test: DELETE action must return pre-delete content, not None.
-
-        Bug: DELETE stored content_snapshot=None due to condition ordering.
-        Fix: DELETE explicitly stores current_content in content_snapshot.
+        DELETE creates an audit record (NULL version, no content).
+        The content version before DELETE must still reconstruct correctly.
         """
         original_content = "Hello World"
         metadata = {"title": test_note.title}
@@ -923,8 +932,8 @@ class TestDeleteVersionReconstruction:
             context=request_context,
         )
 
-        # Delete v2
-        await history_service.record_action(
+        # DELETE (audit event, NULL version)
+        delete_record = await history_service.record_action(
             db=db_session,
             user_id=test_user.id,
             entity_type=EntityType.NOTE,
@@ -936,17 +945,21 @@ class TestDeleteVersionReconstruction:
             context=request_context,
         )
 
-        # Reconstruct v2 (DELETE version)
+        assert delete_record.version is None
+        assert delete_record.diff_type == DiffType.AUDIT.value
+        assert delete_record.content_snapshot is None
+
+        # v1 (the content version before DELETE) still reconstructs
         result = await history_service.reconstruct_content_at_version(
             db=db_session,
             user_id=test_user.id,
             entity_type=EntityType.NOTE,
             entity_id=test_note.id,
-            target_version=2,
+            target_version=1,
         )
 
         assert result.found is True
-        assert result.content == original_content  # NOT None
+        assert result.content == original_content
 
 
 class TestNearestSnapshotSelection:
@@ -1007,11 +1020,11 @@ class TestNearestSnapshotSelection:
         assert result.content == expected_content[25]
 
 
-class TestMetadataRecordTraversal:
-    """[P1] Tests for METADATA record traversal."""
+class TestAuditRecordTraversal:
+    """[P1] Tests for audit record behavior in reconstruction."""
 
     @pytest.mark.asyncio
-    async def test__reconstruct__metadata_records_pass_content_through(
+    async def test__reconstruct__audit_records_dont_affect_version_chain(
         self,
         db_session: AsyncSession,
         test_user: User,
@@ -1019,14 +1032,14 @@ class TestMetadataRecordTraversal:
         request_context: RequestContext,
     ) -> None:
         """
-        METADATA records pass content through unchanged during reconstruction.
+        Audit records (NULL version) are excluded from reconstruction.
 
         v5: UPDATE content = "Hello"
-        v6: ARCHIVE (METADATA) - content_diff=None
-        v7: UPDATE (DIFF) content = "Hello World"
+             ARCHIVE (AUDIT, v=NULL)
+        v6: UPDATE (DIFF) content = "Hello World"
 
-        Reconstruct v5: should traverse v7→v6→target, correctly skip v6's None diff
-        Result: "Hello" (not "Hello World")
+        Reconstruct v5: traverses v6 diff, audit record is invisible.
+        Result: "Hello"
         """
         metadata = {"title": test_note.title}
 
@@ -1047,7 +1060,7 @@ class TestMetadataRecordTraversal:
             )
             previous = current
 
-        # v6: ARCHIVE (content unchanged)
+        # ARCHIVE (audit event, NULL version - doesn't consume v6)
         await history_service.record_action(
             db=db_session,
             user_id=test_user.id,
@@ -1060,8 +1073,8 @@ class TestMetadataRecordTraversal:
             context=request_context,
         )
 
-        # v7: UPDATE with content change
-        await history_service.record_action(
+        # v6: UPDATE with content change (not v7 - ARCHIVE didn't consume a version)
+        history = await history_service.record_action(
             db=db_session,
             user_id=test_user.id,
             entity_type=EntityType.NOTE,
@@ -1072,8 +1085,9 @@ class TestMetadataRecordTraversal:
             metadata=metadata,
             context=request_context,
         )
+        assert history.version == 6  # Confirms audit didn't consume v6
 
-        # Update entity content to match v7
+        # Update entity content to match v6
         test_note.content = "Hello World"
         await db_session.flush()
 
@@ -1445,9 +1459,9 @@ class TestHistoryRetrieval:
 
         assert total == 5
         assert len(items) == 5
-        # Should be ordered by version DESC
-        assert items[0].version == 5
-        assert items[-1].version == 1
+        # Should be ordered by created_at DESC (newest first)
+        versions = [item.version for item in items]
+        assert versions == [5, 4, 3, 2, 1]
 
     @pytest.mark.asyncio
     async def test__get_entity_history__pagination_works(
@@ -1489,8 +1503,9 @@ class TestHistoryRetrieval:
 
         assert total == 10
         assert len(items) == 3
-        assert items[0].version == 10
-        assert items[-1].version == 8
+        # Ordered by created_at DESC (newest first)
+        versions = [item.version for item in items]
+        assert versions == [10, 9, 8]
 
         # Get second page
         items, total = await history_service.get_entity_history(
@@ -2646,3 +2661,494 @@ class TestGetUserHistoryFilters:
             sources=[],
         )
         assert total == 1
+
+
+class TestAuditActions:
+    """Tests for audit action behavior (DELETE/UNDELETE/ARCHIVE/UNARCHIVE)."""
+
+    @pytest.mark.asyncio
+    async def test__record_action__all_audit_actions_have_null_version(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """All audit actions (DELETE/UNDELETE/ARCHIVE/UNARCHIVE) create NULL version records."""
+        entity_id = uuid4()
+        content = "Content"
+        metadata = {"title": "Test"}
+
+        # Create v1 first
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content=content,
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        audit_actions = [
+            ActionType.DELETE,
+            ActionType.UNDELETE,
+            ActionType.ARCHIVE,
+            ActionType.UNARCHIVE,
+        ]
+
+        for action in audit_actions:
+            history = await history_service.record_action(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=action,
+                current_content=content,
+                previous_content=content,
+                metadata=metadata,
+                context=request_context,
+            )
+            assert history.version is None, f"{action} should have NULL version"
+            assert history.diff_type == DiffType.AUDIT.value, f"{action} should be AUDIT"
+            assert history.content_snapshot is None, f"{action} should have no content"
+            assert history.content_diff is None, f"{action} should have no diff"
+
+    @pytest.mark.asyncio
+    async def test__record_action__audit_doesnt_affect_version_sequence(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Audit events don't consume version numbers."""
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        # v1: CREATE
+        v1 = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Content v1",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+        assert v1.version == 1
+
+        # DELETE (audit, NULL version)
+        delete = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.DELETE,
+            current_content="Content v1",
+            previous_content="Content v1",
+            metadata=metadata,
+            context=request_context,
+        )
+        assert delete.version is None
+
+        # v2: UPDATE (should be v2, not v3)
+        v2 = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content="Content v2",
+            previous_content="Content v1",
+            metadata=metadata,
+            context=request_context,
+        )
+        assert v2.version == 2
+
+    @pytest.mark.asyncio
+    async def test__record_action__audit_skips_prune_check(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Audit actions don't trigger modulo-based pruning (no crash on NULL % 10)."""
+        from core.tier_limits import TierLimits
+
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        limits = TierLimits(
+            max_bookmarks=100,
+            max_notes=100,
+            max_prompts=100,
+            max_url_length=2000,
+            max_title_length=200,
+            max_description_length=5000,
+            max_bookmark_content_length=100000,
+            max_note_content_length=100000,
+            max_prompt_content_length=100000,
+            max_tag_name_length=50,
+            max_prompt_name_length=100,
+            max_argument_name_length=50,
+            max_argument_description_length=500,
+            rate_read_per_minute=100,
+            rate_read_per_day=1000,
+            rate_write_per_minute=50,
+            rate_write_per_day=500,
+            rate_sensitive_per_minute=10,
+            rate_sensitive_per_day=100,
+            history_retention_days=30,
+            max_history_per_entity=5,
+        )
+
+        # Create v1
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Content",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+            limits=limits,
+        )
+
+        # DELETE with limits - should not crash on NULL % PRUNE_CHECK_INTERVAL
+        history = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.DELETE,
+            current_content="Content",
+            previous_content="Content",
+            metadata=metadata,
+            context=request_context,
+            limits=limits,
+        )
+        assert history.version is None
+
+    @pytest.mark.asyncio
+    async def test__record_action__audit_stores_identifying_metadata(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Audit records store the metadata dict passed to them."""
+        entity_id = uuid4()
+
+        # Create v1
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.BOOKMARK,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="content",
+            previous_content=None,
+            metadata={"title": "My Bookmark", "url": "https://example.com"},
+            context=request_context,
+        )
+
+        # DELETE with identifying metadata only
+        audit_metadata = {"title": "My Bookmark", "url": "https://example.com"}
+        history = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.BOOKMARK,
+            entity_id=entity_id,
+            action=ActionType.DELETE,
+            current_content="content",
+            previous_content="content",
+            metadata=audit_metadata,
+            context=request_context,
+        )
+
+        assert history.metadata_snapshot == audit_metadata
+
+    @pytest.mark.asyncio
+    async def test__record_action__restore_stores_diff_and_increments_version(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """RESTORE action (version restoration) stores diff like UPDATE."""
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        # Create v1
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Original",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # v2: UPDATE
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content="Modified",
+            previous_content="Original",
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # v3: RESTORE (back to "Original")
+        history = await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.RESTORE,
+            current_content="Original",
+            previous_content="Modified",
+            metadata=metadata,
+            context=request_context,
+        )
+
+        assert history.version == 3
+        assert history.action == ActionType.RESTORE.value
+        assert history.diff_type == DiffType.DIFF.value
+        assert history.content_diff is not None
+
+    @pytest.mark.asyncio
+    async def test__get_latest_version__ignores_audit_events(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """get_latest_version returns latest versioned record, ignoring audit events."""
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        # v1: CREATE
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Content",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # DELETE (audit, NULL version)
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.DELETE,
+            current_content="Content",
+            previous_content="Content",
+            metadata=metadata,
+            context=request_context,
+        )
+
+        latest = await history_service.get_latest_version(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+        )
+        assert latest == 1  # Not None or affected by DELETE audit
+
+    @pytest.mark.asyncio
+    async def test__get_entity_history__orders_by_created_at(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Entity history is ordered by created_at DESC, mixing versioned and audit records."""
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        # v1: CREATE
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Content v1",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # DELETE (audit)
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.DELETE,
+            current_content="Content v1",
+            previous_content="Content v1",
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # v2: UPDATE
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content="Content v2",
+            previous_content="Content v1",
+            metadata=metadata,
+            context=request_context,
+        )
+
+        items, total = await history_service.get_entity_history(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+        )
+
+        assert total == 3
+        # Chronological DESC: v2, DELETE (null), v1
+        assert items[0].version == 2
+        assert items[1].version is None
+        assert items[1].action == ActionType.DELETE.value
+        assert items[2].version == 1
+
+    @pytest.mark.asyncio
+    async def test__get_entity_history_count__excludes_audit(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """_get_entity_history_count only counts versioned records."""
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        # v1: CREATE
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Content",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # 3 audit events
+        for action in [ActionType.DELETE, ActionType.UNDELETE, ActionType.ARCHIVE]:
+            await history_service.record_action(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=action,
+                current_content="Content",
+                previous_content="Content",
+                metadata=metadata,
+                context=request_context,
+            )
+
+        count = await history_service._get_entity_history_count(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE.value,
+            entity_id=entity_id,
+        )
+        assert count == 1  # Only v1, not the 3 audit events
+
+    @pytest.mark.asyncio
+    async def test__prune_to_limit__excludes_audit_records(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        request_context: RequestContext,
+    ) -> None:
+        """Pruning only deletes versioned records; audit records are retained."""
+        entity_id = uuid4()
+        metadata = {"title": "Test"}
+
+        # Create v1-v5
+        previous = None
+        for i in range(1, 6):
+            current = f"Content v{i}"
+            await history_service.record_action(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=ActionType.CREATE if i == 1 else ActionType.UPDATE,
+                current_content=current,
+                previous_content=previous,
+                metadata=metadata,
+                context=request_context,
+            )
+            previous = current
+
+        # 3 audit events
+        for action in [ActionType.DELETE, ActionType.UNDELETE, ActionType.ARCHIVE]:
+            await history_service.record_action(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=action,
+                current_content=previous,
+                previous_content=previous,
+                metadata=metadata,
+                context=request_context,
+            )
+
+        # Prune to keep 3 versioned records
+        deleted = await history_service._prune_to_limit(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE.value,
+            entity_id=entity_id,
+            target=3,
+        )
+        await db_session.commit()
+
+        # Should delete v1, v2 (2 oldest versioned records)
+        assert deleted == 2
+
+        items, total = await history_service.get_entity_history(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+        )
+
+        # 3 versioned (v3, v4, v5) + 3 audit = 6 total
+        assert total == 6
+        versioned = [i for i in items if i.version is not None]
+        audit = [i for i in items if i.version is None]
+        assert len(versioned) == 3
+        assert sorted([v.version for v in versioned]) == [3, 4, 5]
+        assert len(audit) == 3
