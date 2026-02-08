@@ -97,7 +97,11 @@ Since the feature hasn't been deployed, existing data is dev/test only. No data 
 
 Remove `HistoryDiffType` type and `diff_type` field from `HistoryEntry` in `types.ts`.
 
-**8. Update `docs/content-versioning.md`:**
+**8. Update `api/routers/history.py` — restore validation:**
+
+The restore endpoint at line 320 checks `history.diff_type == DiffType.AUDIT.value` to block restoring to audit versions. Replace with an action-based check: `history.action in HistoryService.AUDIT_ACTIONS` (or equivalently, check against the set of audit action strings). Remove the `DiffType` import from the router — it should no longer be needed after this change.
+
+**9. Update `docs/content-versioning.md`:**
 
 This is the primary specification document for the versioning system. Update to reflect the removal of `diff_type`:
 
@@ -108,7 +112,7 @@ This is the primary specification document for the versioning system. Update to 
 - **"Reconstruction Algorithm" section**: Update step references from `SNAPSHOT`/`DIFF`/`METADATA` types to column checks (`content_snapshot is not None`, `content_diff` presence). Update the "Note" about metadata being stored as a full snapshot — clarify the audit exception.
 - **"Audit Actions" section**: Already accurate (no diff_type reference needed — just describe the column state).
 
-**9. Update `CLAUDE.md`:**
+**10. Update `CLAUDE.md`:**
 
 Update the Content Versioning section to remove references to `DiffType` enum and `diff_type` column. Specifically:
 - Remove the "Diff Storage" subsection bullet points about SNAPSHOT/DIFF/METADATA/AUDIT record types
@@ -117,7 +121,9 @@ Update the Content Versioning section to remove references to `DiffType` enum an
 
 ### Testing Strategy
 
-**Backend service tests** (`test_history_service.py`):
+All test files referencing `diff_type` must be updated. **Verification step**: after Milestone 0 is complete, run `rg diff_type` across the entire codebase and confirm zero matches outside of migration files.
+
+**Backend service tests** (`test_history_service.py` — 16 references):
 
 - Update existing tests that assert `diff_type` values — remove those assertions, replace with assertions on `content_snapshot` and `content_diff` presence:
   - CREATE: `content_snapshot is not None`, `content_diff is None`
@@ -128,20 +134,35 @@ Update the Content Versioning section to remove references to `DiffType` enum an
 - `test__record_action__metadata_only_at_snapshot_interval` — Metadata-only change at version 10 stores `content_snapshot` with current content and `content_diff` as `None`
 - `test__reconstruct__through_metadata_snapshot` — Verify reconstruction correctly uses a `content_snapshot` stored on a metadata-only record as an anchor point
 
-**Backend API tests** (`test_history.py`):
+**Backend integration tests** (`test_history_integration.py` — 24 references):
+
+- Update all assertions that check `diff_type` values — same replacement pattern as service tests (assert on `content_snapshot`/`content_diff` presence instead)
+
+**Backend API tests** (`test_history.py` — 6 references):
 
 - Update assertions that check `diff_type` in responses — remove them
 - Verify `diff_type` no longer appears in history response JSON
+- Update `test_restore_to_audit_version_returns_400` (line 1273): currently manipulates `diff_type` via direct SQL. Rework to use action-based check — parametrize across all audit actions (`delete`, `undelete`, `archive`, `unarchive`) using `pytest.mark.parametrize`. Each case sets the record's `action` to the audit action value to test that the restore endpoint correctly blocks all audit action types.
+- Update `test_restore_to_version_records_restore_action` (line 1344): remove assertion on `diff_type`
 
-**Backend model tests** (`test_content_history.py`):
+**Backend model tests** (`test_content_history.py` — 17 references):
 
-- Remove `DiffType` enum value tests
-- Update model creation tests to not include `diff_type`
+- Remove `DiffType` enum value tests (`test__diff_type__all_values`)
+- Update all model construction to not include `diff_type`
+- Update assertions to not check `diff_type`
 
-**Frontend tests:**
+**Backend cascade tests** (`test_user_cascade.py` — 1 reference):
+
+- Update model construction to not include `diff_type`
+
+**Backend cleanup tests** (`test_cleanup.py` — 1 reference):
+
+- Update model construction to not include `diff_type`
+
+**Frontend tests** (`HistorySidebar.test.tsx`, `SettingsVersionHistory.test.tsx`):
 
 - Update test fixtures that include `diff_type` — remove the field
-- Update `HistoryDiffType` references
+- Remove `HistoryDiffType` references from `types.ts`
 
 ---
 
@@ -201,14 +222,21 @@ Key design decisions:
 The approach:
 
 1. **After metadata**: Call `self.get_history_at_version(version=N)` to get `metadata_snapshot` and `content_diff`
-2. **Determine if content changed**: Check `content_diff IS NOT NULL` on version N's record
-3. **After content** (only if content changed): Call `self.reconstruct_content_at_version(version=N)` — reuses existing tested logic as-is
-4. **Before content** (only if content changed and version > 1): Apply version N's stored `content_diff` (reverse diff) to the after content — version N's diff by definition transforms N → N-1, so one `patch_apply` call gives us N-1's content
+2. **Determine if content needs reconstruction**: Content is reconstructed when `content_diff IS NOT NULL` (content changed) OR when the action is `CREATE` (initial content exists even though `content_diff` is `None` for CREATEs)
+3. **After content** (only if content needs reconstruction): Call `self.reconstruct_content_at_version(version=N)` — reuses existing tested logic as-is
+4. **Before content** (only if `content_diff IS NOT NULL` and version > 1): Apply version N's stored `content_diff` (reverse diff) to the after content. **Invariant**: version N's `content_diff` is a reverse diff (N → N-1), produced by `patch_make(current_content, previous_content)`. One `patch_apply` call gives us N-1's content.
 5. **Before metadata** (version > 1): Call `self.get_history_at_version(version=N-1)` to get the predecessor's `metadata_snapshot`
 6. **Version 1 (CREATE)**: `before_content` and `before_metadata` are both `null` — no predecessor exists. `after_content` and `after_metadata` are still populated with the initial values (content from reconstruction, metadata from the v1 history record)
 
 ```python
 async def get_version_diff(self, db, user_id, entity_type, entity_id, version):
+    """
+    Compute diff between version N and its predecessor N-1.
+
+    Invariant: content_diff at version N is a reverse diff (N → N-1),
+    produced by patch_make(current_content, previous_content). Changing
+    the diff direction would break the before-content derivation.
+    """
     # 1. Get version N's history record
     after_history = await self.get_history_at_version(
         db, user_id, entity_type, entity_id, version,
@@ -216,12 +244,16 @@ async def get_version_diff(self, db, user_id, entity_type, entity_id, version):
     if after_history is None:
         return DiffResult(found=False)
 
-    content_changed = after_history.content_diff is not None
+    content_diff_exists = after_history.content_diff is not None
+    is_create = after_history.action == ActionType.CREATE.value
+    # Reconstruct content when it changed OR for CREATE (initial content, no diff)
+    needs_content = content_diff_exists or is_create
+
     after_content = None
     before_content = None
     warnings = None
 
-    if content_changed:
+    if needs_content:
         # 2. Reuse existing tested reconstruction for "after" content
         after_result = await self.reconstruct_content_at_version(
             db, user_id, entity_type, entity_id, version,
@@ -232,7 +264,8 @@ async def get_version_diff(self, db, user_id, entity_type, entity_id, version):
         warnings = after_result.warnings
 
         # 3. Derive "before" content from version N's reverse diff
-        if version > 1:
+        #    (only when content actually changed — not for CREATE)
+        if content_diff_exists and version > 1:
             patches = self.dmp.patch_fromText(after_history.content_diff)
             before_content, results = self.dmp.patch_apply(
                 patches, after_content or "",
@@ -259,7 +292,7 @@ async def get_version_diff(self, db, user_id, entity_type, entity_id, version):
 
 **Why this design is correct**: The reconstruction algorithm in `reconstruct_content_at_version` applies reverse diffs from versions above the target down to the target, but **excludes the target's own diff** (because that diff goes target → target-1). So when we separately apply version N's `content_diff` to the reconstructed content at N, we get N-1's content. This is a distinct, non-overlapping operation from the reconstruction itself.
 
-**Edge case — pruned predecessor**: If version N-1's history record has been deleted by retention pruning, `get_history_at_version(version - 1)` returns `None`. In this case, `before_metadata` is `null`. The content derivation is unaffected — version N's `content_diff` still produces N-1's content regardless of whether N-1's record exists. The frontend should handle `before_metadata: null` gracefully (skip metadata diff section or show "Previous metadata unavailable").
+**Edge case — pruned predecessor**: If version N-1's history record has been deleted by retention pruning, `get_history_at_version(version - 1)` returns `None`. In this case, `before_metadata` is `null`. The content derivation is unaffected — version N's `content_diff` still produces N-1's content regardless of whether N-1's record exists. The frontend distinguishes this from CREATE by checking the entry's action: if `before_metadata` is null and action is not `create`, it's a pruned predecessor — skip metadata display or show "Previous metadata unavailable".
 
 **3. Add the endpoint in `api/routers/history.py`:**
 
@@ -341,7 +374,7 @@ export interface VersionDiffResponse {
 
 Add a new query key entry and hook that calls `GET /history/{type}/{id}/version/{version}/diff`. The hook signature should mirror `useContentAtVersion` (same enable guard: `version !== null && version >= 1`).
 
-Remove the two `useContentAtVersion` usage patterns from `HistorySidebar.tsx` and `SettingsVersionHistory.tsx` — replace with a single `useVersionDiff` call. The `useContentAtVersion` hook itself should remain (it's still used by the restore flow).
+Remove the two `useContentAtVersion` usage patterns from `HistorySidebar.tsx` and `SettingsVersionHistory.tsx` — replace with a single `useVersionDiff` call. After this change, `useContentAtVersion` has no remaining callers (the restore flow uses `useRestoreToVersion`, which calls the restore POST endpoint directly). Remove `useContentAtVersion` from `hooks/useHistory.ts`.
 
 **3. Create `MetadataChanges` component:**
 
@@ -349,11 +382,12 @@ Create `frontend/src/components/MetadataChanges.tsx`. This component receives `b
 
 **Display rules by scenario:**
 
-| Scenario | What to show |
-|----------|-------------|
-| CREATE (v1) — `beforeMetadata` is null | List non-empty fields from `afterMetadata` as plain values (no arrows, no diff) |
-| Metadata unchanged (`before == after`) | Nothing — don't render the component |
-| Metadata changed | Field-by-field changes, only showing changed fields |
+| Scenario | How to detect | What to show |
+|----------|--------------|-------------|
+| CREATE (v1) — `beforeMetadata` is null | `before_metadata` is null and entry action is `create` | List non-empty fields from `afterMetadata` as plain values (no arrows, no diff) |
+| Pruned predecessor — `beforeMetadata` is null | `before_metadata` is null and entry action is NOT `create` | Skip metadata section or show "Previous metadata unavailable" message. Content diff still works (derived from the diff, not the predecessor record). |
+| Metadata unchanged (`before == after`) | Deep equality check | Nothing — don't render the component |
+| Metadata changed | Fields differ between before/after | Field-by-field changes, only showing changed fields |
 
 **Display rules by field type:**
 
@@ -430,6 +464,12 @@ The "No content changes in this version (metadata only)" message at lines 143-14
 - `skips unchanged fields` — Only title changed, tags/description/url not shown
 - `renders description change with DiffView` — When description changes, renders a DiffView sub-component for it
 - `respects entity type for field visibility` — Bookmark shows url, Note doesn't; Prompt shows name/arguments, others don't
+- `renders pruned predecessor message when before_metadata is null and action is not create` — Distinguishes pruned from CREATE
+
+**`useContentAtVersion` removal verification:**
+
+- Verify via `rg useContentAtVersion` that no imports or references remain after removal
+- Remove any related query key entries from `historyKeys`
 
 **`HistorySidebar` test updates** — update `frontend/src/components/HistorySidebar.test.tsx`:
 
@@ -475,8 +515,7 @@ After this milestone:
 
 **3. Clean up:**
 
-- Remove the `previousVersion` computation and second `useContentAtVersion` call from both `HistorySidebar.tsx` and `SettingsVersionHistory.tsx` (should already be done in Milestone 2, but verify no references remain).
-- If `useContentAtVersion` is no longer used anywhere after these changes, consider removing it. Check if the restore flow or any other code still uses it — if so, keep it.
+- Verify `previousVersion` computation and `useContentAtVersion` calls have been fully removed in Milestone 2 — run `rg useContentAtVersion` and `rg previousVersion` to confirm no stale references.
 - Remove the `DiffView` "No content changes" message if no callers can reach it, or update it to be generic.
 
 ### Testing Strategy
