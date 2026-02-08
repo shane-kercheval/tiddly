@@ -264,6 +264,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
         data: BookmarkUpdate,
         limits: TierLimits,
         context: RequestContext | None = None,
+        action: ActionType = ActionType.UPDATE,
     ) -> Bookmark | None:
         """
         Update a bookmark.
@@ -275,6 +276,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
             data: Update data.
             limits: User's tier limits for field validation.
             context: Request context for history recording. If None, history is skipped.
+            action: Action type for history recording (UPDATE or RESTORE).
 
         Returns:
             The updated bookmark, or None if not found.
@@ -338,7 +340,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
                 user_id=user_id,
                 entity_type=self.entity_type,
                 entity_id=bookmark.id,
-                action=ActionType.UPDATE,
+                action=action,
                 current_content=bookmark.content,
                 previous_content=previous_content,
                 metadata=current_metadata,
@@ -402,17 +404,17 @@ class BookmarkService(BaseEntityService[Bookmark]):
             raise DuplicateUrlError(bookmark.url)
 
         # Record history BEFORE restoring (captures pre-restore state)
-        # RESTORE is a METADATA action - content doesn't change
+        # UNDELETE is an audit action - no content, no version
         if context:
             await self._get_history_service().record_action(
                 db=db,
                 user_id=user_id,
                 entity_type=self.entity_type,
                 entity_id=entity_id,
-                action=ActionType.RESTORE,
-                current_content=bookmark.content,
-                previous_content=bookmark.content,  # Same - content unchanged
-                metadata=self._get_metadata_snapshot(bookmark),
+                action=ActionType.UNDELETE,
+                current_content=None,
+                previous_content=None,
+                metadata=self._get_audit_metadata(bookmark),
                 context=context,
                 limits=limits,
             )

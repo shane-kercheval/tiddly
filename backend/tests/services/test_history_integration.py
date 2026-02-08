@@ -46,7 +46,7 @@ async def get_entity_history(
     entity_type: EntityType,
     entity_id: UUID,
 ) -> list[ContentHistory]:
-    """Get all history for an entity."""
+    """Get all history for an entity, ordered chronologically."""
     result = await db_session.execute(
         select(ContentHistory)
         .where(
@@ -54,7 +54,7 @@ async def get_entity_history(
             ContentHistory.entity_type == entity_type.value,
             ContentHistory.entity_id == entity_id,
         )
-        .order_by(ContentHistory.version),
+        .order_by(ContentHistory.created_at, ContentHistory.id),
     )
     return list(result.scalars().all())
 
@@ -205,7 +205,7 @@ class TestBookmarkHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Soft delete records DELETE action with content snapshot."""
+        """Soft delete records DELETE as audit action (no content, no version)."""
         # Create bookmark
         create_data = BookmarkCreate(
             url="https://example.com",
@@ -221,8 +221,11 @@ class TestBookmarkHistoryIntegration:
         assert len(history) == 2
         delete_record = history[1]
         assert delete_record.action == ActionType.DELETE.value
-        assert delete_record.diff_type == DiffType.SNAPSHOT.value
-        assert delete_record.content_snapshot == "Content to preserve"
+        assert delete_record.diff_type == DiffType.AUDIT.value
+        assert delete_record.version is None
+        assert delete_record.content_snapshot is None
+        assert delete_record.content_diff is None
+        assert "url" in delete_record.metadata_snapshot
 
     @pytest.mark.asyncio
     async def test__hard_delete__cascades_history(
@@ -259,7 +262,7 @@ class TestBookmarkHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Restore records RESTORE action."""
+        """Restore (undelete) records UNDELETE as audit action."""
         # Create, delete, then restore
         create_data = BookmarkCreate(url="https://example.com", content="Content")
         bookmark = await service.create(db_session, test_user.id, create_data, limits, context)
@@ -270,8 +273,9 @@ class TestBookmarkHistoryIntegration:
 
         assert len(history) == 3
         restore_record = history[2]
-        assert restore_record.action == ActionType.RESTORE.value
-        assert restore_record.diff_type == DiffType.METADATA.value  # Content unchanged
+        assert restore_record.action == ActionType.UNDELETE.value
+        assert restore_record.diff_type == DiffType.AUDIT.value
+        assert restore_record.version is None
 
     @pytest.mark.asyncio
     async def test__archive__records_history(
@@ -282,7 +286,7 @@ class TestBookmarkHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Archive records ARCHIVE action."""
+        """Archive records ARCHIVE as audit action."""
         create_data = BookmarkCreate(url="https://example.com", content="Content")
         bookmark = await service.create(db_session, test_user.id, create_data, limits, context)
         await service.archive(db_session, test_user.id, bookmark.id, context)
@@ -292,7 +296,8 @@ class TestBookmarkHistoryIntegration:
         assert len(history) == 2
         archive_record = history[1]
         assert archive_record.action == ActionType.ARCHIVE.value
-        assert archive_record.diff_type == DiffType.METADATA.value
+        assert archive_record.diff_type == DiffType.AUDIT.value
+        assert archive_record.version is None
 
     @pytest.mark.asyncio
     async def test__archive__idempotent_no_duplicate_history(
@@ -323,7 +328,7 @@ class TestBookmarkHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Unarchive records UNARCHIVE action."""
+        """Unarchive records UNARCHIVE as audit action."""
         create_data = BookmarkCreate(url="https://example.com", content="Content")
         bookmark = await service.create(db_session, test_user.id, create_data, limits, context)
         await service.archive(db_session, test_user.id, bookmark.id, context)
@@ -334,6 +339,8 @@ class TestBookmarkHistoryIntegration:
         assert len(history) == 3
         unarchive_record = history[2]
         assert unarchive_record.action == ActionType.UNARCHIVE.value
+        assert unarchive_record.diff_type == DiffType.AUDIT.value
+        assert unarchive_record.version is None
 
 
 class TestContextPropagation:
@@ -532,7 +539,7 @@ class TestNoteHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Soft delete records DELETE action with content snapshot."""
+        """Soft delete records DELETE as audit action (no content, no version)."""
         create_data = NoteCreate(title="Test Note", content="Content to preserve")
         note = await service.create(db_session, test_user.id, create_data, limits, context)
 
@@ -543,8 +550,11 @@ class TestNoteHistoryIntegration:
         assert len(history) == 2
         delete_record = history[1]
         assert delete_record.action == ActionType.DELETE.value
-        assert delete_record.diff_type == DiffType.SNAPSHOT.value
-        assert delete_record.content_snapshot == "Content to preserve"
+        assert delete_record.diff_type == DiffType.AUDIT.value
+        assert delete_record.version is None
+        assert delete_record.content_snapshot is None
+        assert delete_record.content_diff is None
+        assert "title" in delete_record.metadata_snapshot
 
     @pytest.mark.asyncio
     async def test__hard_delete__cascades_history(
@@ -577,7 +587,7 @@ class TestNoteHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Restore records RESTORE action."""
+        """Restore (undelete) records UNDELETE as audit action."""
         create_data = NoteCreate(title="Test Note", content="Content")
         note = await service.create(db_session, test_user.id, create_data, limits, context)
         await service.delete(db_session, test_user.id, note.id, permanent=False, context=context)
@@ -587,8 +597,9 @@ class TestNoteHistoryIntegration:
 
         assert len(history) == 3
         restore_record = history[2]
-        assert restore_record.action == ActionType.RESTORE.value
-        assert restore_record.diff_type == DiffType.METADATA.value
+        assert restore_record.action == ActionType.UNDELETE.value
+        assert restore_record.diff_type == DiffType.AUDIT.value
+        assert restore_record.version is None
 
     @pytest.mark.asyncio
     async def test__archive__records_history(
@@ -599,7 +610,7 @@ class TestNoteHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Archive records ARCHIVE action."""
+        """Archive records ARCHIVE as audit action."""
         create_data = NoteCreate(title="Test Note", content="Content")
         note = await service.create(db_session, test_user.id, create_data, limits, context)
         await service.archive(db_session, test_user.id, note.id, context)
@@ -609,7 +620,8 @@ class TestNoteHistoryIntegration:
         assert len(history) == 2
         archive_record = history[1]
         assert archive_record.action == ActionType.ARCHIVE.value
-        assert archive_record.diff_type == DiffType.METADATA.value
+        assert archive_record.diff_type == DiffType.AUDIT.value
+        assert archive_record.version is None
 
     @pytest.mark.asyncio
     async def test__archive__idempotent_no_duplicate_history(
@@ -639,7 +651,7 @@ class TestNoteHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Unarchive records UNARCHIVE action."""
+        """Unarchive records UNARCHIVE as audit action."""
         create_data = NoteCreate(title="Test Note", content="Content")
         note = await service.create(db_session, test_user.id, create_data, limits, context)
         await service.archive(db_session, test_user.id, note.id, context)
@@ -650,6 +662,8 @@ class TestNoteHistoryIntegration:
         assert len(history) == 3
         unarchive_record = history[2]
         assert unarchive_record.action == ActionType.UNARCHIVE.value
+        assert unarchive_record.diff_type == DiffType.AUDIT.value
+        assert unarchive_record.version is None
 
 
 class TestPromptHistoryIntegration:
@@ -781,7 +795,7 @@ class TestPromptHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Soft delete records DELETE action with content snapshot."""
+        """Soft delete records DELETE as audit action (no content, no version)."""
         create_data = PromptCreate(name="test-prompt-delete", content="Content to preserve")
         prompt = await service.create(db_session, test_user.id, create_data, limits, context)
 
@@ -792,8 +806,11 @@ class TestPromptHistoryIntegration:
         assert len(history) == 2
         delete_record = history[1]
         assert delete_record.action == ActionType.DELETE.value
-        assert delete_record.diff_type == DiffType.SNAPSHOT.value
-        assert delete_record.content_snapshot == "Content to preserve"
+        assert delete_record.diff_type == DiffType.AUDIT.value
+        assert delete_record.version is None
+        assert delete_record.content_snapshot is None
+        assert delete_record.content_diff is None
+        assert "name" in delete_record.metadata_snapshot
 
     @pytest.mark.asyncio
     async def test__hard_delete__cascades_history(
@@ -826,7 +843,7 @@ class TestPromptHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Restore records RESTORE action."""
+        """Restore (undelete) records UNDELETE as audit action."""
         create_data = PromptCreate(name="test-prompt-restore", content="Content")
         prompt = await service.create(db_session, test_user.id, create_data, limits, context)
         await service.delete(db_session, test_user.id, prompt.id, permanent=False, context=context)
@@ -836,8 +853,9 @@ class TestPromptHistoryIntegration:
 
         assert len(history) == 3
         restore_record = history[2]
-        assert restore_record.action == ActionType.RESTORE.value
-        assert restore_record.diff_type == DiffType.METADATA.value
+        assert restore_record.action == ActionType.UNDELETE.value
+        assert restore_record.diff_type == DiffType.AUDIT.value
+        assert restore_record.version is None
 
     @pytest.mark.asyncio
     async def test__archive__records_history(
@@ -848,7 +866,7 @@ class TestPromptHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Archive records ARCHIVE action."""
+        """Archive records ARCHIVE as audit action."""
         create_data = PromptCreate(name="test-prompt-archive", content="Content")
         prompt = await service.create(db_session, test_user.id, create_data, limits, context)
         await service.archive(db_session, test_user.id, prompt.id, context)
@@ -858,7 +876,8 @@ class TestPromptHistoryIntegration:
         assert len(history) == 2
         archive_record = history[1]
         assert archive_record.action == ActionType.ARCHIVE.value
-        assert archive_record.diff_type == DiffType.METADATA.value
+        assert archive_record.diff_type == DiffType.AUDIT.value
+        assert archive_record.version is None
 
     @pytest.mark.asyncio
     async def test__archive__idempotent_no_duplicate_history(
@@ -888,7 +907,7 @@ class TestPromptHistoryIntegration:
         limits: dict,
         context: RequestContext,
     ) -> None:
-        """Unarchive records UNARCHIVE action."""
+        """Unarchive records UNARCHIVE as audit action."""
         create_data = PromptCreate(name="test-prompt-unarchive", content="Content")
         prompt = await service.create(db_session, test_user.id, create_data, limits, context)
         await service.archive(db_session, test_user.id, prompt.id, context)
@@ -899,6 +918,8 @@ class TestPromptHistoryIntegration:
         assert len(history) == 3
         unarchive_record = history[2]
         assert unarchive_record.action == ActionType.UNARCHIVE.value
+        assert unarchive_record.diff_type == DiffType.AUDIT.value
+        assert unarchive_record.version is None
 
 
 class TestTransactionRollbackSafety:
@@ -1316,3 +1337,177 @@ class TestStrReplaceHistory:
         assert versions[-1] == expected_newest, (
             f"Expected newest version to be {expected_newest}, got {versions[-1]}"
         )
+
+
+class TestAuditMetadata:
+    """Tests for _get_audit_metadata returning only identifying fields."""
+
+    @pytest.mark.asyncio
+    async def test__get_audit_metadata__bookmark(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Bookmark audit metadata includes title and url."""
+        service = BookmarkService()
+        limits = get_tier_limits("free")
+        context = make_context()
+
+        data = BookmarkCreate(
+            url="https://audit-meta.com",
+            title="Audit Test",
+            content="Content",
+        )
+        bookmark = await service.create(db_session, test_user.id, data, limits, context)
+        await service.delete(db_session, test_user.id, bookmark.id, permanent=False, context=context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.BOOKMARK, bookmark.id)
+        delete_record = history[1]
+
+        # Should have only identifying fields, not description/tags
+        assert delete_record.metadata_snapshot == {
+            "title": "Audit Test",
+            "url": "https://audit-meta.com/",  # URL normalized
+        }
+
+    @pytest.mark.asyncio
+    async def test__get_audit_metadata__bookmark_no_title(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Bookmark without title has only url in audit metadata."""
+        service = BookmarkService()
+        limits = get_tier_limits("free")
+        context = make_context()
+
+        data = BookmarkCreate(url="https://no-title-audit.com", content="Content")
+        bookmark = await service.create(db_session, test_user.id, data, limits, context)
+        await service.archive(db_session, test_user.id, bookmark.id, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.BOOKMARK, bookmark.id)
+        archive_record = history[1]
+
+        assert archive_record.metadata_snapshot == {
+            "url": "https://no-title-audit.com/",
+        }
+
+    @pytest.mark.asyncio
+    async def test__get_audit_metadata__note(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Note audit metadata includes only title."""
+        service = NoteService()
+        limits = get_tier_limits("free")
+        context = make_context()
+
+        data = NoteCreate(title="Note Audit Test", content="Content")
+        note = await service.create(db_session, test_user.id, data, limits, context)
+        await service.archive(db_session, test_user.id, note.id, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+        archive_record = history[1]
+
+        assert archive_record.metadata_snapshot == {"title": "Note Audit Test"}
+
+    @pytest.mark.asyncio
+    async def test__get_audit_metadata__prompt_with_title(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Prompt with title has both title and name in audit metadata."""
+        service = PromptService()
+        limits = get_tier_limits("free")
+        context = make_context()
+
+        data = PromptCreate(
+            name="audit-prompt",
+            title="Audit Prompt Title",
+            content="Content",
+        )
+        prompt = await service.create(db_session, test_user.id, data, limits, context)
+        await service.archive(db_session, test_user.id, prompt.id, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+        archive_record = history[1]
+
+        assert archive_record.metadata_snapshot == {
+            "title": "Audit Prompt Title",
+            "name": "audit-prompt",
+        }
+
+    @pytest.mark.asyncio
+    async def test__get_audit_metadata__prompt_without_title(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Prompt without title has only name in audit metadata."""
+        service = PromptService()
+        limits = get_tier_limits("free")
+        context = make_context()
+
+        data = PromptCreate(name="audit-no-title", content="Content")
+        prompt = await service.create(db_session, test_user.id, data, limits, context)
+        await service.archive(db_session, test_user.id, prompt.id, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+        archive_record = history[1]
+
+        assert archive_record.metadata_snapshot == {"name": "audit-no-title"}
+
+
+class TestUpdateActionParameter:
+    """Tests for the action parameter on update methods."""
+
+    @pytest.mark.asyncio
+    async def test__update_with_restore_action__records_restore(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """update() with action=RESTORE records RESTORE action in history."""
+        service = NoteService()
+        limits = get_tier_limits("free")
+        context = make_context()
+
+        data = NoteCreate(title="Test", content="Original")
+        note = await service.create(db_session, test_user.id, data, limits, context)
+
+        update_data = NoteUpdate(content="Restored content")
+        await service.update(
+            db_session, test_user.id, note.id, update_data, limits, context,
+            action=ActionType.RESTORE,
+        )
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+        assert len(history) == 2
+        restore_record = history[1]
+        assert restore_record.action == ActionType.RESTORE.value
+        assert restore_record.version == 2  # Content version, not audit
+
+    @pytest.mark.asyncio
+    async def test__update_default_action__records_update(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """update() without action parameter defaults to UPDATE."""
+        service = BookmarkService()
+        limits = get_tier_limits("free")
+        context = make_context()
+
+        data = BookmarkCreate(url="https://default-action.com", content="Original")
+        bookmark = await service.create(db_session, test_user.id, data, limits, context)
+
+        update_data = BookmarkUpdate(content="Updated content")
+        await service.update(
+            db_session, test_user.id, bookmark.id, update_data, limits, context,
+        )
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.BOOKMARK, bookmark.id)
+        assert len(history) == 2
+        assert history[1].action == ActionType.UPDATE.value

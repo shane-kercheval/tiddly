@@ -503,7 +503,7 @@ async def test_get_entity_history(
     assert data["total"] == 2
     assert len(data["items"]) == 2
 
-    # Items should be sorted by version descending (most recent first)
+    # Items should be sorted by created_at descending (most recent first)
     assert data["items"][0]["version"] == 2
     assert data["items"][0]["entity_type"] == entity_type
     assert data["items"][1]["version"] == 1
@@ -723,26 +723,29 @@ async def test_get_content_at_version_hard_deleted(
     ("entity_type", "create_endpoint", "create_payload"),
     ENTITY_CREATE_DATA,
 )
-async def test_get_content_at_delete_version(
+async def test_get_content_at_version_after_delete(
     client: AsyncClient,
     entity_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
-    """Test getting content at DELETE version returns pre-delete content."""
+    """Test that DELETE is an audit event (no version) and v1 is still retrievable."""
     # Create entity
     response = await client.post(create_endpoint, json=create_payload)
     entity_id = response.json()["id"]
 
-    # Soft delete
+    # Soft delete (creates audit record with NULL version)
     await client.delete(f"{create_endpoint}{entity_id}")
 
-    # Get content at DELETE version (v2)
-    response = await client.get(f"/history/{entity_type}/{entity_id}/version/2")
+    # v1 (CREATE) should still be retrievable
+    response = await client.get(f"/history/{entity_type}/{entity_id}/version/1")
     assert response.status_code == 200
-
     data = response.json()
-    assert data["content"] == "Initial content"  # Pre-delete content preserved
+    assert data["content"] == "Initial content"
+
+    # v2 should not exist (DELETE has NULL version, not v2)
+    response = await client.get(f"/history/{entity_type}/{entity_id}/version/2")
+    assert response.status_code == 404
 
 
 # --- Per-entity /history convenience endpoint tests ---
@@ -1258,7 +1261,7 @@ async def test_revert_soft_deleted_entity_restores_it(
     # Update to create v2
     await client.patch(f"{create_endpoint}{entity_id}", json={"content": "Updated"})
 
-    # Soft delete (v3)
+    # Soft delete (audit event, NULL version)
     await client.delete(f"{create_endpoint}{entity_id}")
 
     # Verify entity is deleted (GET includes deleted, so check deleted_at)
@@ -1947,24 +1950,17 @@ async def test_revert_bookmark_preserves_url_missing_from_old_metadata(
 # --- Revert to DELETE version tests ---
 
 
-async def test_revert_to_delete_version_restores_pre_delete_content(
+async def test_delete_is_audit_event_no_version(
     client: AsyncClient,
 ) -> None:
     """
-    Test that reverting to a DELETE version restores the pre-delete content.
-
-    The DELETE action stores the content as it was BEFORE deletion in a snapshot.
+    Test that DELETE is an audit event with null version.
 
     Scenario:
     1. Create entity (v1) with content A
-    2. Delete entity (v2 - stores pre-delete snapshot with content A)
-    3. Restore entity (v3)
-    4. Update entity (v4) with content B
-    5. Revert to v2 → should restore content A from the DELETE snapshot
-
-    Note: You cannot revert to the DELETE version while the entity is still
-    deleted (v2 would be the "current version"). Use restore endpoint first,
-    or this test shows reverting after subsequent changes.
+    2. Delete entity (audit, version=NULL)
+    3. History shows DELETE with null version
+    4. Reverting to v1 (the only content version) after undelete works
     """
     # v1: Create note
     response = await client.post(
@@ -1978,35 +1974,32 @@ async def test_revert_to_delete_version_restores_pre_delete_content(
     )
     note_id = response.json()["id"]
 
-    # v2: Soft delete (stores pre-delete snapshot)
+    # Soft delete (audit event, NULL version)
     await client.delete(f"/notes/{note_id}")
 
-    # Verify history shows DELETE at v2
+    # Verify history shows DELETE with null version
     response = await client.get(f"/history/note/{note_id}")
     history = response.json()["items"]
-    assert history[0]["version"] == 2
     assert history[0]["action"] == "delete"
+    assert history[0]["version"] is None
+    assert history[0]["diff_type"] == "audit"
 
-    # Get content at DELETE version - should return pre-delete content
-    response = await client.get(f"/history/note/{note_id}/version/2")
+    # v1 content is still retrievable
+    response = await client.get(f"/history/note/{note_id}/version/1")
     assert response.status_code == 200
     assert response.json()["content"] == "Pre-delete content"
 
-    # v3: Restore the entity
+    # Restore the entity (audit event, NULL version)
     await client.post(f"/notes/{note_id}/restore")
 
-    # v4: Modify the entity
+    # Modify the entity (v2)
     await client.patch(f"/notes/{note_id}", json={"content": "Post-restore content"})
 
-    # Verify current content is v4
-    response = await client.get(f"/notes/{note_id}")
-    assert response.json()["content"] == "Post-restore content"
-
-    # Revert to v2 (DELETE version) - should restore pre-delete content
-    response = await client.post(f"/history/note/{note_id}/revert/2")
+    # Revert to v1 (original content)
+    response = await client.post(f"/history/note/{note_id}/revert/1")
     assert response.status_code == 200
 
-    # Verify entity has pre-delete content restored
+    # Verify entity has original content restored
     response = await client.get(f"/notes/{note_id}")
     assert response.status_code == 200
     data = response.json()
@@ -2016,18 +2009,18 @@ async def test_revert_to_delete_version_restores_pre_delete_content(
     assert data["deleted_at"] is None
 
 
-async def test_revert_to_delete_version_after_restore_and_modify(
+async def test_audit_events_dont_consume_versions(
     client: AsyncClient,
 ) -> None:
     """
-    Test reverting to DELETE version after entity was restored and modified.
+    Test that audit events (DELETE/UNDELETE) don't consume version numbers.
 
     Scenario:
-    1. Create entity (v1)
-    2. Delete entity (v2 - DELETE)
-    3. Restore entity (v3 - RESTORE)
-    4. Modify entity (v4 - UPDATE)
-    5. Revert to v2 (DELETE version) → should restore pre-delete content from v2
+    1. Create entity (v1) with content A
+    2. Delete entity (audit, NULL version)
+    3. Restore entity (audit, NULL version)
+    4. Modify entity (v2) with content B
+    5. Revert to v1 → should get content A (v2 is the second content version)
     """
     # v1: Create bookmark
     response = await client.post(
@@ -2036,24 +2029,24 @@ async def test_revert_to_delete_version_after_restore_and_modify(
     )
     bookmark_id = response.json()["id"]
 
-    # v2: Delete
+    # Delete (audit, NULL version)
     await client.delete(f"/bookmarks/{bookmark_id}")
 
-    # v3: Restore
+    # Restore (audit, NULL version)
     await client.post(f"/bookmarks/{bookmark_id}/restore")
 
-    # v4: Modify
-    await client.patch(f"/bookmarks/{bookmark_id}", json={"content": "Version 4"})
+    # v2: Modify
+    await client.patch(f"/bookmarks/{bookmark_id}", json={"content": "Version 2"})
 
     # Verify current content
     response = await client.get(f"/bookmarks/{bookmark_id}")
-    assert response.json()["content"] == "Version 4"
+    assert response.json()["content"] == "Version 2"
 
-    # Revert to v2 (DELETE version)
-    response = await client.post(f"/history/bookmark/{bookmark_id}/revert/2")
+    # Revert to v1 (first content version)
+    response = await client.post(f"/history/bookmark/{bookmark_id}/revert/1")
     assert response.status_code == 200
 
-    # Verify content is restored to pre-delete state (v1's content)
+    # Verify content is restored to v1
     response = await client.get(f"/bookmarks/{bookmark_id}")
     assert response.json()["content"] == "Version 1"
 

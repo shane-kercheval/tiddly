@@ -154,6 +154,20 @@ class BaseEntityService(ABC, Generic[T]):
         """Return the EntityType for this service (BOOKMARK, NOTE, or PROMPT)."""
         ...
 
+    def _get_audit_metadata(self, entity: T) -> dict:
+        """
+        Get minimal metadata for audit actions (identifying fields only).
+
+        Returns all available identifying fields so frontend can display
+        the best available option.
+        """
+        metadata: dict[str, str] = {}
+        for field in ("title", "name", "url"):
+            value = getattr(entity, field, None)
+            if value is not None:
+                metadata[field] = value
+        return metadata
+
     def _get_metadata_snapshot(self, entity: T) -> dict:
         """
         Extract non-content fields for history metadata snapshot.
@@ -437,7 +451,7 @@ class BaseEntityService(ABC, Generic[T]):
             )
             await db.delete(entity)
         else:
-            # Soft delete: record history with pre-delete content as SNAPSHOT
+            # Soft delete: audit record (no content, no version)
             if context:
                 await self._get_history_service().record_action(
                     db=db,
@@ -445,9 +459,9 @@ class BaseEntityService(ABC, Generic[T]):
                     entity_type=self.entity_type,
                     entity_id=entity_id,
                     action=ActionType.DELETE,
-                    current_content=entity.content,
-                    previous_content=entity.content,  # Same as current for DELETE
-                    metadata=self._get_metadata_snapshot(entity),
+                    current_content=None,
+                    previous_content=None,
+                    metadata=self._get_audit_metadata(entity),
                     context=context,
                     limits=limits,
                 )
@@ -506,17 +520,17 @@ class BaseEntityService(ABC, Generic[T]):
             return None
 
         # Record history BEFORE restoring (captures pre-restore state)
-        # RESTORE is a METADATA action - content doesn't change
+        # UNDELETE is an audit action - no content, no version
         if context:
             await self._get_history_service().record_action(
                 db=db,
                 user_id=user_id,
                 entity_type=self.entity_type,
                 entity_id=entity_id,
-                action=ActionType.RESTORE,
-                current_content=entity.content,
-                previous_content=entity.content,  # Same - content unchanged
-                metadata=self._get_metadata_snapshot(entity),
+                action=ActionType.UNDELETE,
+                current_content=None,
+                previous_content=None,
+                metadata=self._get_audit_metadata(entity),
                 context=context,
                 limits=limits,
             )
@@ -556,8 +570,8 @@ class BaseEntityService(ABC, Generic[T]):
             return None
 
         if not entity.is_archived:
-            # Record history BEFORE archiving (captures pre-archive state)
-            # ARCHIVE is a METADATA action - content doesn't change
+            # Record history BEFORE archiving
+            # ARCHIVE is an audit action - no content, no version
             if context:
                 await self._get_history_service().record_action(
                     db=db,
@@ -565,9 +579,9 @@ class BaseEntityService(ABC, Generic[T]):
                     entity_type=self.entity_type,
                     entity_id=entity_id,
                     action=ActionType.ARCHIVE,
-                    current_content=entity.content,
-                    previous_content=entity.content,  # Same - content unchanged
-                    metadata=self._get_metadata_snapshot(entity),
+                    current_content=None,
+                    previous_content=None,
+                    metadata=self._get_audit_metadata(entity),
                     context=context,
                     limits=limits,
                 )
@@ -622,7 +636,7 @@ class BaseEntityService(ABC, Generic[T]):
             return None
 
         # Record history BEFORE unarchiving
-        # UNARCHIVE is a METADATA action - content doesn't change
+        # UNARCHIVE is an audit action - no content, no version
         if context:
             await self._get_history_service().record_action(
                 db=db,
@@ -630,9 +644,9 @@ class BaseEntityService(ABC, Generic[T]):
                 entity_type=self.entity_type,
                 entity_id=entity_id,
                 action=ActionType.UNARCHIVE,
-                current_content=entity.content,
-                previous_content=entity.content,  # Same - content unchanged
-                metadata=self._get_metadata_snapshot(entity),
+                current_content=None,
+                previous_content=None,
+                metadata=self._get_audit_metadata(entity),
                 context=context,
                 limits=limits,
             )

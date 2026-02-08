@@ -319,6 +319,7 @@ class PromptService(BaseEntityService[Prompt]):
         data: PromptUpdate,
         limits: TierLimits,
         context: RequestContext | None = None,
+        action: ActionType = ActionType.UPDATE,
     ) -> Prompt | None:
         """
         Update a prompt.
@@ -330,6 +331,7 @@ class PromptService(BaseEntityService[Prompt]):
             data: Update data.
             limits: User's tier limits for field validation.
             context: Request context for history recording. If None, history is skipped.
+            action: Action type for history recording (UPDATE or RESTORE).
 
         Returns:
             The updated prompt, or None if not found.
@@ -421,7 +423,7 @@ class PromptService(BaseEntityService[Prompt]):
                 user_id=user_id,
                 entity_type=self.entity_type,
                 entity_id=prompt.id,
-                action=ActionType.UPDATE,
+                action=action,
                 current_content=prompt.content,
                 previous_content=previous_content,
                 metadata=current_metadata,

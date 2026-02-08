@@ -196,6 +196,7 @@ class NoteService(BaseEntityService[Note]):
         data: NoteUpdate,
         limits: TierLimits,
         context: RequestContext | None = None,
+        action: ActionType = ActionType.UPDATE,
     ) -> Note | None:
         """
         Update a note.
@@ -207,6 +208,7 @@ class NoteService(BaseEntityService[Note]):
             data: Update data.
             limits: User's tier limits for field validation.
             context: Request context for history recording. If None, history is skipped.
+            action: Action type for history recording (UPDATE or RESTORE).
 
         Returns:
             The updated note, or None if not found.
@@ -256,7 +258,7 @@ class NoteService(BaseEntityService[Note]):
                 user_id=user_id,
                 entity_type=self.entity_type,
                 entity_id=note.id,
-                action=ActionType.UPDATE,
+                action=action,
                 current_content=note.content,
                 previous_content=previous_content,
                 metadata=current_metadata,
