@@ -15,6 +15,7 @@ import { markdownStyleExtension } from '../utils/markdownStyleExtension'
 import type { KeyBinding } from '@codemirror/view'
 import { Prec } from '@codemirror/state'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
+import { Tooltip } from './ui/Tooltip'
 import { MilkdownEditor } from './MilkdownEditor'
 import {
   ToolbarSeparator,
@@ -347,25 +348,26 @@ interface ToolbarButtonProps {
 
 function ToolbarButton({ onClick, title, children }: ToolbarButtonProps): ReactNode {
   return (
-    <button
-      type="button"
-      tabIndex={-1}
-      onMouseDown={(e) => {
-        // On mobile (< md), buttons are always visible so always execute
-        // On desktop, only execute if editor was already focused (toolbar visible)
-        const isMobileView = window.innerWidth < 768
-        if (isMobileView || wasEditorFocused(e.currentTarget)) {
-          e.preventDefault()
-          onClick()
-        }
-        // If editor wasn't focused (desktop), let the click naturally focus the editor
-        // which will reveal the toolbar (but won't execute the action)
-      }}
-      title={title}
-      className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
-    >
-      {children}
-    </button>
+    <Tooltip content={title} compact delay={500}>
+      <button
+        type="button"
+        tabIndex={-1}
+        onMouseDown={(e) => {
+          // On mobile (< md), buttons are always visible so always execute
+          // On desktop, only execute if editor was already focused (toolbar visible)
+          const isMobileView = window.innerWidth < 768
+          if (isMobileView || wasEditorFocused(e.currentTarget)) {
+            e.preventDefault()
+            onClick()
+          }
+          // If editor wasn't focused (desktop), let the click naturally focus the editor
+          // which will reveal the toolbar (but won't execute the action)
+        }}
+        className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
+      >
+        {children}
+      </button>
+    </Tooltip>
   )
 }
 
@@ -603,70 +605,73 @@ export function CodeMirrorEditor({
           <div className="w-px h-5 bg-gray-200 mx-1 md:hidden" />
           {/* Wrap toggle - always visible, only shown when not in reading mode */}
           {onWrapTextChange && !effectiveReadingMode && (
-            <button
-              type="button"
-              tabIndex={-1}
-              disabled={disabled}
-              onMouseDown={(e) => {
-                e.preventDefault()
-                if (!disabled) {
-                  onWrapTextChange(!wrapText)
-                }
-              }}
-              title="Toggle word wrap (⌥Z)"
-              className={`p-1.5 rounded transition-colors flex-shrink-0 ${
-                wrapText
-                  ? 'text-gray-700 bg-gray-200'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-              } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
-            >
-              <WrapIcon />
-            </button>
+            <Tooltip content="Toggle word wrap (⌥Z)" compact>
+              <button
+                type="button"
+                tabIndex={-1}
+                disabled={disabled}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  if (!disabled) {
+                    onWrapTextChange(!wrapText)
+                  }
+                }}
+                className={`p-1.5 rounded transition-colors flex-shrink-0 ${
+                  wrapText
+                    ? 'text-gray-700 bg-gray-200'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+              >
+                <WrapIcon />
+              </button>
+            </Tooltip>
           )}
 
           {/* Line numbers toggle - always visible, only shown when not in reading mode */}
           {onLineNumbersChange && !effectiveReadingMode && (
+            <Tooltip content="Toggle line numbers (⌥L)" compact>
+              <button
+                type="button"
+                tabIndex={-1}
+                disabled={disabled}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  if (!disabled) {
+                    onLineNumbersChange(!showLineNumbers)
+                  }
+                }}
+                className={`p-1.5 rounded transition-colors flex-shrink-0 ${
+                  showLineNumbers
+                    ? 'text-gray-700 bg-gray-200'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+              >
+                <LineNumbersIcon />
+              </button>
+            </Tooltip>
+          )}
+
+          {/* Reading mode toggle - always visible */}
+          <Tooltip content="Toggle reading mode (⌘⇧M)" compact>
             <button
               type="button"
               tabIndex={-1}
               disabled={disabled}
               onMouseDown={(e) => {
-                e.preventDefault()
                 if (!disabled) {
-                  onLineNumbersChange(!showLineNumbers)
+                  e.preventDefault()
+                  toggleReadingMode()
                 }
               }}
-              title="Toggle line numbers (⌥L)"
               className={`p-1.5 rounded transition-colors flex-shrink-0 ${
-                showLineNumbers
+                effectiveReadingMode
                   ? 'text-gray-700 bg-gray-200'
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
               } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
             >
-              <LineNumbersIcon />
+              <ReadingIcon />
             </button>
-          )}
-
-          {/* Reading mode toggle - always visible */}
-          <button
-            type="button"
-            tabIndex={-1}
-            disabled={disabled}
-            onMouseDown={(e) => {
-              if (!disabled) {
-                e.preventDefault()
-                toggleReadingMode()
-              }
-            }}
-            title="Toggle reading mode (⌘⇧M)"
-            className={`p-1.5 rounded transition-colors flex-shrink-0 ${
-              effectiveReadingMode
-                ? 'text-gray-700 bg-gray-200'
-                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-            } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
-          >
-            <ReadingIcon />
-          </button>
+          </Tooltip>
 
           {/* Copy button - always visible but disabled when editor is disabled */}
           {copyContent !== undefined && (

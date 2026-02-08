@@ -116,6 +116,7 @@ import { keymap as createKeymap } from '@milkdown/kit/prose/keymap'
 import { sinkListItem, liftListItem } from '@milkdown/kit/prose/schema-list'
 import { setBlockType } from '@milkdown/kit/prose/commands'
 import { Modal } from './ui/Modal'
+import { Tooltip } from './ui/Tooltip'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
 import { COPY_FEEDBACK_DURATION } from '../hooks/useCopyFeedback'
 import {
@@ -167,23 +168,24 @@ interface ToolbarButtonProps {
 
 function ToolbarButton({ onAction, title, children }: ToolbarButtonProps): ReactNode {
   return (
-    <button
-      type="button"
-      tabIndex={-1}
-      onMouseDown={(e) => {
-        if (wasEditorFocused(e.currentTarget)) {
-          // Editor was focused (toolbar visible) - execute action
-          e.preventDefault()
-          onAction()
-        }
-        // If editor wasn't focused, let the click naturally focus the editor
-        // which will reveal the toolbar (but won't execute the action)
-      }}
-      title={title}
-      className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
-    >
-      {children}
-    </button>
+    <Tooltip content={title} compact delay={500}>
+      <button
+        type="button"
+        tabIndex={-1}
+        onMouseDown={(e) => {
+          if (wasEditorFocused(e.currentTarget)) {
+            // Editor was focused (toolbar visible) - execute action
+            e.preventDefault()
+            onAction()
+          }
+          // If editor wasn't focused, let the click naturally focus the editor
+          // which will reveal the toolbar (but won't execute the action)
+        }}
+        className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+      >
+        {children}
+      </button>
+    </Tooltip>
   )
 }
 

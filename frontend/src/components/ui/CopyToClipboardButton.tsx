@@ -5,6 +5,7 @@
 import { useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { CopyIcon, CheckIcon } from '../icons'
+import { Tooltip } from './Tooltip'
 import { useCopyFeedback } from '../../hooks/useCopyFeedback'
 
 interface CopyToClipboardButtonProps {
@@ -16,6 +17,8 @@ interface CopyToClipboardButtonProps {
   title?: string
   /** Whether the button is disabled */
   disabled?: boolean
+  /** Tooltip delay in ms (default: 500) */
+  tooltipDelay?: number
 }
 
 /**
@@ -31,6 +34,7 @@ export function CopyToClipboardButton({
   className = '',
   title = 'Copy content',
   disabled = false,
+  tooltipDelay = 500,
 }: CopyToClipboardButtonProps): ReactNode {
   const { state, setSuccess, setError } = useCopyFeedback()
 
@@ -75,18 +79,19 @@ export function CopyToClipboardButton({
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      disabled={disabled}
-      className={`p-1.5 rounded text-gray-500 transition-colors ${
-        disabled ? 'cursor-not-allowed opacity-50' : 'hover:text-gray-600 hover:bg-gray-100'
-      } ${className}`}
-      title={getTitle()}
-      aria-label={getTitle()}
-      tabIndex={-1}
-    >
-      {getIcon()}
-    </button>
+    <Tooltip content={getTitle()} compact delay={tooltipDelay}>
+      <button
+        type="button"
+        onClick={handleCopy}
+        disabled={disabled}
+        className={`p-1.5 rounded text-gray-500 transition-colors ${
+          disabled ? 'cursor-not-allowed opacity-50' : 'hover:text-gray-600 hover:bg-gray-100'
+        } ${className}`}
+        aria-label={getTitle()}
+        tabIndex={-1}
+      >
+        {getIcon()}
+      </button>
+    </Tooltip>
   )
 }

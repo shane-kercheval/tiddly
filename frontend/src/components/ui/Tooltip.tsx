@@ -2,7 +2,7 @@
  * Tooltip component that shows content on hover.
  *
  * Features:
- * - 500ms delay before showing (hides immediately)
+ * - Configurable delay before showing (default: immediate)
  * - Compact mode for short labels (action buttons)
  * - Wide mode for longer content (default)
  * - Uses portal to render at body level (not clipped by overflow:hidden)
@@ -18,6 +18,8 @@ interface TooltipProps {
   compact?: boolean
   /** Position relative to trigger: 'bottom' (centered below) or 'left' (to the left) */
   position?: 'bottom' | 'left'
+  /** Delay in ms before showing tooltip (default: 0 for immediate) */
+  delay?: number
 }
 
 interface Position {
@@ -25,7 +27,7 @@ interface Position {
   left: number
 }
 
-export function Tooltip({ content, children, compact = false, position = 'bottom' }: TooltipProps): ReactNode {
+export function Tooltip({ content, children, compact = false, position = 'bottom', delay = 0 }: TooltipProps): ReactNode {
   const [isVisible, setIsVisible] = useState(false)
   const [pos, setPos] = useState<Position>({ top: 0, left: 0 })
   const triggerRef = useRef<HTMLDivElement>(null)
@@ -37,8 +39,8 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
     if (timeoutRef.current) {
       window.clearTimeout(timeoutRef.current)
     }
-    // Delay showing by 500ms
-    timeoutRef.current = window.setTimeout(() => {
+
+    const show = (): void => {
       if (triggerRef.current) {
         const rect = triggerRef.current.getBoundingClientRect()
         if (position === 'left') {
@@ -56,8 +58,14 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
         }
         setIsVisible(true)
       }
-    }, 500)
-  }, [position])
+    }
+
+    if (delay > 0) {
+      timeoutRef.current = window.setTimeout(show, delay)
+    } else {
+      show()
+    }
+  }, [position, delay])
 
   const hideTooltip = useCallback((): void => {
     if (timeoutRef.current) {

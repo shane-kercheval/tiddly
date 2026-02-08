@@ -4,7 +4,7 @@
  * Displays a list of versions with diff visualization
  * and restore functionality with inline confirmation.
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import * as Diff from 'diff'
 import { useEntityHistory, useContentAtVersion, useRevertToVersion } from '../hooks/useHistory'
@@ -42,16 +42,6 @@ function formatSource(source: string): string {
     unknown: 'Unknown',
   }
   return labels[source] ?? source
-}
-
-/** Format auth type for display */
-function formatAuthType(authType: string): string {
-  const labels: Record<string, string> = {
-    auth0: 'Auth0',
-    pat: 'Token',
-    dev: 'Dev',
-  }
-  return labels[authType] ?? authType
 }
 
 /** Simple diff view component using the diff library */
@@ -124,6 +114,22 @@ export function HistorySidebar({
 }: HistorySidebarProps): ReactNode {
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [confirmingRevert, setConfirmingRevert] = useState<number | null>(null)
+  const confirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Auto-reset confirmation after 3 seconds
+  useEffect(() => {
+    if (confirmingRevert !== null) {
+      confirmTimeoutRef.current = setTimeout(() => {
+        setConfirmingRevert(null)
+      }, 3000)
+    }
+    return () => {
+      if (confirmTimeoutRef.current) {
+        clearTimeout(confirmTimeoutRef.current)
+        confirmTimeoutRef.current = null
+      }
+    }
+  }, [confirmingRevert])
 
   const { data: history, isLoading } = useEntityHistory(entityType, entityId, { limit: 50 })
 
@@ -175,12 +181,12 @@ export function HistorySidebar({
 
   return (
     <div className={`fixed right-0 top-0 h-full ${HISTORY_SIDEBAR_WIDTH_CLASS} bg-white shadow-lg border-l border-gray-200 flex flex-col z-50`}>
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 shrink-0">
+      {/* Header - matches item header height (pt-3 pb-3) for alignment */}
+      <div className="flex items-center justify-between py-3 px-4 border-b border-gray-200 shrink-0">
         <h2 className="text-lg font-semibold text-gray-900">Version History</h2>
         <button
           onClick={onClose}
-          className="text-gray-500 hover:text-gray-700 p-1 rounded-md hover:bg-gray-100"
+          className="h-[30px] w-[30px] flex items-center justify-center text-gray-500 hover:text-gray-700 rounded-md hover:bg-gray-100"
           aria-label="Close history sidebar"
         >
           <CloseIcon className="w-5 h-5" />
@@ -202,7 +208,7 @@ export function HistorySidebar({
             {history?.items.map((entry) => (
               <li
                 key={entry.id}
-                className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
+                className={`px-4 py-2.5 cursor-pointer hover:bg-gray-100 transition-colors ${
                   selectedVersion === entry.version ? 'bg-blue-50' : ''
                 }`}
                 onClick={() => handleVersionClick(entry.version)}
@@ -214,13 +220,12 @@ export function HistorySidebar({
                       <span className="text-sm text-gray-500">
                         {formatAction(entry.action)}
                       </span>
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">
-                      {new Date(entry.created_at).toLocaleString()}
+                      <span className="text-xs text-gray-400">
+                        {formatSource(entry.source)}
+                      </span>
                     </div>
                     <div className="text-xs text-gray-400 mt-0.5">
-                      {formatSource(entry.source)} · {formatAuthType(entry.auth_type)}
-                      {entry.token_prefix && ` · ${entry.token_prefix}...`}
+                      {new Date(entry.created_at).toLocaleString()}
                     </div>
                   </div>
                   {/* Show "Restore" button on older versions (not the latest) */}
@@ -228,11 +233,11 @@ export function HistorySidebar({
                     <button
                       onClick={(e) => handleRevertClick(entry.version, e)}
                       disabled={revertMutation.isPending}
-                      className={`shrink-0 flex items-center gap-1 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                      className={`shrink-0 flex items-center gap-1.5 ${
                         confirmingRevert === entry.version
-                          ? 'bg-red-600 text-white hover:bg-red-700'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      } ${revertMutation.isPending ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          ? 'btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50'
+                          : 'btn-secondary hover:text-red-600'
+                      }`}
                     >
                       <RestoreIcon className="w-3.5 h-3.5" />
                       {confirmingRevert === entry.version ? 'Confirm' : 'Restore'}
