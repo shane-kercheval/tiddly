@@ -500,11 +500,8 @@ export function CodeMirrorEditor({
   // This is safe because:
   // - Document switching uses key prop (e.g., key={note?.id}) which forces remount
   // - On remount, useState captures the new document's content fresh
-  // - There's no feature that programmatically changes content mid-edit
-  //
-  // If programmatic content changes were needed, options would be:
-  // - Change the key prop to force remount
-  // - Use imperative ref to dispatch changes directly to CodeMirror
+  // - Programmatic content changes (e.g., version revert) increment contentKey in the
+  //   parent, which changes the key prop and forces remount with the new value
   const [initialValue] = useState(value)
 
   // Build extensions array with optional line wrapping and keybindings

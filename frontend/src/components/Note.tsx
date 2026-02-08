@@ -159,6 +159,10 @@ export function Note({
   const [contentKey, setContentKey] = useState(0)
   // Skip useEffect sync for a specific updated_at when manually handling refresh (e.g., from StaleDialog)
   const skipSyncForUpdatedAtRef = useRef<string | null>(null)
+  // Track current content for detecting external changes (e.g., version revert) in the sync effect.
+  // Using a ref avoids stale closure issues and doesn't need to be in the effect's dependency array.
+  const currentContentRef = useRef(current.content)
+  currentContentRef.current = current.content
 
   const syncStateFromNote = useCallback((nextNote: NoteType, resetEditor = false): void => {
     const archiveState = nextNote.archived_at
@@ -191,7 +195,10 @@ export function Note({
       skipSyncForUpdatedAtRef.current = null
       return
     }
-    syncStateFromNote(note)
+    // Reset editor if content changed externally (e.g., version revert from history sidebar).
+    // After normal saves, currentContentRef already matches note.content so no reset occurs.
+    const needsEditorReset = (note.content ?? '') !== currentContentRef.current
+    syncStateFromNote(note, needsEditorReset)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note?.id, note?.updated_at, syncStateFromNote])
 

@@ -228,6 +228,10 @@ export function Prompt({
   const [contentKey, setContentKey] = useState(0)
   // Skip useEffect sync for a specific updated_at when manually handling refresh (e.g., from StaleDialog)
   const skipSyncForUpdatedAtRef = useRef<string | null>(null)
+  // Track current content for detecting external changes (e.g., version revert) in the sync effect.
+  // Using a ref avoids stale closure issues and doesn't need to be in the effect's dependency array.
+  const currentContentRef = useRef(current.content)
+  currentContentRef.current = current.content
 
   const syncStateFromPrompt = useCallback((nextPrompt: PromptType, resetEditor = false): void => {
     const archiveState = nextPrompt.archived_at
@@ -262,7 +266,10 @@ export function Prompt({
       skipSyncForUpdatedAtRef.current = null
       return
     }
-    syncStateFromPrompt(prompt)
+    // Reset editor if content changed externally (e.g., version revert from history sidebar).
+    // After normal saves, currentContentRef already matches prompt.content so no reset occurs.
+    const needsEditorReset = (prompt.content ?? '') !== currentContentRef.current
+    syncStateFromPrompt(prompt, needsEditorReset)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt?.id, prompt?.updated_at, syncStateFromPrompt])
 
