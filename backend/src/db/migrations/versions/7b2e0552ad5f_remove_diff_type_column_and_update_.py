@@ -36,7 +36,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Downgrade schema."""
     op.drop_index('ix_content_history_snapshots', table_name='content_history')
-    op.add_column('content_history', sa.Column('diff_type', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
+    op.add_column('content_history', sa.Column('diff_type', sa.VARCHAR(length=20), autoincrement=False, nullable=False, server_default='snapshot'))
     op.create_index(
         'ix_content_history_snapshots',
         'content_history',
