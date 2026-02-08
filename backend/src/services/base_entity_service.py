@@ -164,7 +164,7 @@ class BaseEntityService(ABC, Generic[T]):
         metadata: dict[str, str] = {}
         for field in ("title", "name", "url"):
             value = getattr(entity, field, None)
-            if value is not None:
+            if value:
                 metadata[field] = value
         return metadata
 
