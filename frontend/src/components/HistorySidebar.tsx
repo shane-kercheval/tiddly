@@ -44,7 +44,7 @@ function formatSource(source: string): string {
   return labels[source] ?? source
 }
 
-/** Custom styles for react-diff-viewer-continued */
+/** Custom styles for react-diff-viewer-continued (colors and typography only) */
 const diffViewerStyles = {
   variables: {
     light: {
@@ -79,25 +79,10 @@ const diffViewerStyles = {
     padding: '0 8px',
     minWidth: '30px',
   },
-  // Override table container to ensure scrolling works properly
-  diffContainer: {
-    minWidth: 'max-content',
-  },
-  // Override default overflow:hidden to allow horizontal scrolling
-  content: {
-    overflow: 'visible',
-  },
-  // Override default overflow:hidden on line content
-  lineContent: {
-    overflow: 'visible',
-  },
   contentText: {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     fontSize: '12px',
     lineHeight: '1.5',
-    // Use pre instead of pre-wrap to prevent text wrapping
-    whiteSpace: 'pre',
-    lineBreak: 'auto' as const,
   },
   codeFold: {
     fontSize: '11px',
