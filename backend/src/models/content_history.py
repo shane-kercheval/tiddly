@@ -43,13 +43,17 @@ class DiffType(StrEnum):
     - content_snapshot: Full content at this version (for starting reconstruction)
     - content_diff: Diff to previous version (for chain traversal)
 
-    Note: metadata_snapshot is ALWAYS stored as a full snapshot in every record.
+    metadata_snapshot behavior varies by diff type:
+    - SNAPSHOT, DIFF, METADATA: Full metadata snapshot (title, description, tags,
+      plus entity-specific fields like url/name/arguments)
+    - AUDIT: Minimal identifying metadata only (non-empty title/name/url).
+      No description or tags — these are lifecycle state transitions, not content versions.
     """
 
     SNAPSHOT = "snapshot"  # Full content snapshot + diff (diff is None for CREATE)
     DIFF = "diff"  # content_diff only (diff-match-patch delta)
-    METADATA = "metadata"  # No content stored (content unchanged)
-    AUDIT = "audit"  # Audit trail only (lifecycle state transitions, no content)
+    METADATA = "metadata"  # No content stored (content unchanged), full metadata snapshot
+    AUDIT = "audit"  # Lifecycle state transitions, minimal identifying metadata only
 
 
 class ContentHistory(Base, UUIDv7Mixin):
@@ -62,7 +66,8 @@ class ContentHistory(Base, UUIDv7Mixin):
     Dual storage columns:
     - content_snapshot: Full content at this version (SNAPSHOTs only)
     - content_diff: Reverse diff to previous version (for chain traversal)
-    - metadata_snapshot: JSONB of non-content fields - always stored as full snapshot
+    - metadata_snapshot: JSONB of non-content fields (see DiffType docstring for
+      full vs minimal metadata per diff type)
     """
 
     __tablename__ = "content_history"
@@ -93,7 +98,7 @@ class ContentHistory(Base, UUIDv7Mixin):
     content_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_diff: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Metadata is always stored as full snapshot (tags, title, description, etc.)
+    # Metadata snapshot (see DiffType docstring for what's stored per type)
     metadata_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Source tracking (who/what initiated this change)
