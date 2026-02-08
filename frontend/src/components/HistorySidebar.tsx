@@ -6,7 +6,7 @@
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
-import { useEntityHistory, useContentAtVersion, useRevertToVersion } from '../hooks/useHistory'
+import { useEntityHistory, useContentAtVersion, useRestoreToVersion } from '../hooks/useHistory'
 import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
 import { CloseIcon, RestoreIcon } from './icons'
 import { DiffView } from './DiffView'
@@ -163,7 +163,7 @@ export function HistorySidebar({
     previousVersion
   )
 
-  const revertMutation = useRevertToVersion()
+  const revertMutation = useRestoreToVersion()
 
   const latestVersion = history?.items[0]?.version ?? 0
 

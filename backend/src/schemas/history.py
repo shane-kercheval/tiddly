@@ -45,9 +45,9 @@ class ContentAtVersionResponse(BaseModel):
     warnings: list[str] | None = None  # Reconstruction warnings if any issues occurred
 
 
-class RevertResponse(BaseModel):
-    """Schema for revert operation response."""
+class RestoreResponse(BaseModel):
+    """Schema for restore operation response."""
 
     message: str
-    version: int  # Version that was reverted to
+    version: int  # Version that was restored to
     warnings: list[str] | None = None  # Reconstruction warnings if any issues occurred

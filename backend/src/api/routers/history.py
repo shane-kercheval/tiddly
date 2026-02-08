@@ -10,14 +10,14 @@ from api.dependencies import get_async_session, get_current_limits, get_current_
 from core.auth import get_request_context
 from core.request_context import RequestSource
 from core.tier_limits import TierLimits
-from models.content_history import ActionType, EntityType
+from models.content_history import ActionType, DiffType, EntityType
 from models.user import User
 from schemas.bookmark import BookmarkUpdate
 from schemas.history import (
     ContentAtVersionResponse,
     HistoryListResponse,
     HistoryResponse,
-    RevertResponse,
+    RestoreResponse,
 )
 from schemas.note import NoteUpdate
 from schemas.prompt import PromptArgument, PromptUpdate
@@ -28,7 +28,7 @@ from services.prompt_service import NameConflictError, PromptService
 
 router = APIRouter(prefix="/history", tags=["history"])
 
-# Service instances for revert operations
+# Service instances for restore operations
 _bookmark_service = BookmarkService()
 _note_service = NoteService()
 _prompt_service = PromptService()
@@ -259,54 +259,70 @@ async def get_content_at_version(
 
 
 @router.post(
-    "/{entity_type}/{entity_id}/revert/{version}",
-    response_model=RevertResponse,
+    "/{entity_type}/{entity_id}/restore/{version}",
+    response_model=RestoreResponse,
 )
-async def revert_to_version(
+async def restore_to_version(
     request: Request,
     entity_type: EntityType,
     entity_id: UUID,
-    version: int = Path(..., ge=1, description="Version to revert to (must be >= 1)"),
+    version: int = Path(..., ge=1, description="Version to restore to (must be >= 1)"),
     current_user: User = Depends(get_current_user),
     limits: TierLimits = Depends(get_current_limits),
     db: AsyncSession = Depends(get_async_session),
-) -> RevertResponse:
+) -> RestoreResponse:
     """
-    Revert entity to a previous version.
+    Restore entity to a previous version.
 
     Restores content and metadata from the specified version by creating a new
-    UPDATE history entry. The revert operation delegates to the entity-specific
-    service for validation (URL/name uniqueness, field limits, etc.).
+    RESTORE history entry. Delegates to the entity-specific service for
+    validation (URL/name uniqueness, field limits, etc.).
 
-    Note: To "undo create" (delete the entity), use the DELETE endpoint instead.
-    Revert is specifically for restoring to a previous content state.
+    Soft-deleted entities must be undeleted first via the restore (undelete) endpoint.
+    Audit versions (delete/undelete/archive/unarchive) cannot be restored to.
 
     Returns:
-    - 200 with revert confirmation and any warnings
-    - 400 if trying to revert to current version
-    - 404 if entity not found or version doesn't exist
+    - 200 with restore confirmation and any warnings
+    - 400 if trying to restore to current version or to an audit version
+    - 404 if entity not found, soft-deleted, or version doesn't exist
     - 409 if restored URL/name conflicts with another entity
     """
     context = get_request_context(request)
     service = _get_service_for_entity_type(entity_type)
 
-    # Check if trying to revert to current version (no-op, return error)
+    # Check if trying to restore to current version (no-op, return error)
     latest_version = await history_service.get_latest_version(
         db, current_user.id, entity_type, entity_id,
     )
     if latest_version is not None and version == latest_version:
         raise HTTPException(
             status_code=400,
-            detail="Cannot revert to current version",
+            detail="Cannot restore to current version",
         )
 
-    # Check if entity exists (may be soft-deleted)
+    # Check if entity exists and is not soft-deleted
     entity = await service.get(
         db, current_user.id, entity_id, include_deleted=True, include_archived=True,
     )
     if entity is None:
-        # Entity was permanently deleted - cannot restore
         raise HTTPException(status_code=404, detail="Entity not found")
+    if entity.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Entity not found")
+
+    # Get the target version's history record
+    history = await history_service.get_history_at_version(
+        db, current_user.id, entity_type, entity_id, version,
+    )
+    if history is None:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    # Block restoring to audit versions (lifecycle state transitions, not content versions)
+    if history.diff_type == DiffType.AUDIT.value:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot restore to an audit version (delete/undelete/archive/unarchive). "
+                   "These are state transitions, not content versions.",
+        )
 
     # Reconstruct content at the specified version
     result = await history_service.reconstruct_content_at_version(
@@ -315,55 +331,44 @@ async def revert_to_version(
     if not result.found:
         raise HTTPException(status_code=404, detail="Version not found")
 
-    # Get metadata from that version
-    history = await history_service.get_history_at_version(
-        db, current_user.id, entity_type, entity_id, version,
-    )
-    if history is None:
-        raise HTTPException(status_code=404, detail="Version not found")
-
-    # If entity is soft-deleted, restore it first
-    if entity.deleted_at is not None:
-        await service.restore(db, current_user.id, entity_id, context=context, limits=limits)
-
     # Update entity with restored content and metadata
-    # This will record a new UPDATE history entry
+    # Records a RESTORE action in history
     # Service handles validation (URL/name uniqueness, etc.)
     update_data = _build_update_from_history(
         entity_type, result.content, history.metadata_snapshot or {},
     )
     try:
-        await service.update(db, current_user.id, entity_id, update_data, limits, context)
+        await service.update(
+            db, current_user.id, entity_id, update_data, limits, context,
+            action=ActionType.RESTORE,
+        )
     except DuplicateUrlError:
         raise HTTPException(
             status_code=409,
-            detail="Cannot revert: URL already exists on another bookmark",
+            detail="Cannot restore: URL already exists on another bookmark",
         )
     except NameConflictError:
         raise HTTPException(
             status_code=409,
-            detail="Cannot revert: name already exists on another prompt",
+            detail="Cannot restore: name already exists on another prompt",
         )
     except IntegrityError as e:
-        # Handle cases where the service didn't catch the IntegrityError
-        # (e.g., when flush happens during tag update before the service's try/except)
         await db.rollback()
         error_str = str(e)
         if "uq_bookmark_user_url_active" in error_str:
             raise HTTPException(
                 status_code=409,
-                detail="Cannot revert: URL already exists on another bookmark",
+                detail="Cannot restore: URL already exists on another bookmark",
             )
         if "uq_prompt_user_name_active" in error_str:
             raise HTTPException(
                 status_code=409,
-                detail="Cannot revert: name already exists on another prompt",
+                detail="Cannot restore: name already exists on another prompt",
             )
         raise
 
-    # Include warnings in response so frontend can show confirmation if needed
-    return RevertResponse(
-        message="Reverted successfully",
+    return RestoreResponse(
+        message="Restored successfully",
         version=version,
         warnings=result.warnings,
     )

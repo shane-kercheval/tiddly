@@ -5,7 +5,7 @@
  * - useUserHistory: Fetch all user history (for Settings page)
  * - useEntityHistory: Fetch history for a specific entity (for sidebar)
  * - useContentAtVersion: Fetch content at a specific version (for diff view)
- * - useRevertToVersion: Revert entity to a previous version
+ * - useRestoreToVersion: Restore entity to a previous version
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
@@ -15,7 +15,7 @@ import type {
   HistorySourceType,
   HistoryListResponse,
   ContentAtVersionResponse,
-  RevertResponse,
+  RestoreResponse,
 } from '../types'
 
 /** Parameters for user history query */
@@ -135,22 +135,22 @@ export function useContentAtVersion(
 }
 
 /**
- * Revert entity to a previous version.
+ * Restore entity to a previous version.
  *
  * Restores content and metadata from the specified version by creating
- * a new UPDATE history entry.
+ * a new RESTORE history entry.
  */
-export function useRevertToVersion() {
+export function useRestoreToVersion() {
   const queryClient = useQueryClient()
 
   return useMutation<
-    RevertResponse,
+    RestoreResponse,
     Error,
     { entityType: HistoryEntityType; entityId: string; version: number }
   >({
     mutationFn: async ({ entityType, entityId, version }) => {
-      const response = await api.post<RevertResponse>(
-        `/history/${entityType}/${entityId}/revert/${version}`
+      const response = await api.post<RestoreResponse>(
+        `/history/${entityType}/${entityId}/restore/${version}`
       )
       return response.data
     },

@@ -564,8 +564,8 @@ export interface ContentAtVersionResponse {
   warnings: string[] | null
 }
 
-/** Response from revert operation */
-export interface RevertResponse {
+/** Response from restore operation */
+export interface RestoreResponse {
   message: string
   version: number
   warnings: string[] | null
