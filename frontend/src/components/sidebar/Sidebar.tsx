@@ -520,6 +520,10 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   // Render a sidebar item based on type
   const renderItem = (item: SidebarItemComputed): ReactNode => {
     if (item.type === 'collection') {
+      // When collapsed, flatten collection and render items directly
+      if (isCollapsed) {
+        return item.items.map((child) => renderNavItem(child))
+      }
       return (
         <SortableCollectionItem
           key={getItemId(item)}
