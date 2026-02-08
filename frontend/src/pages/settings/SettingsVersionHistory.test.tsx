@@ -9,10 +9,12 @@ import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SettingsVersionHistory } from './SettingsVersionHistory'
 
-// Mock the useUserHistory hook
+// Mock the history hooks
 const mockUseUserHistory = vi.fn()
+const mockUseContentAtVersion = vi.fn()
 vi.mock('../../hooks/useHistory', () => ({
   useUserHistory: (params: unknown) => mockUseUserHistory(params),
+  useContentAtVersion: () => mockUseContentAtVersion(),
 }))
 
 function createQueryClient(): QueryClient {
@@ -41,6 +43,10 @@ describe('SettingsVersionHistory', () => {
       data: { items: [], total: 0, offset: 0, limit: 50, has_more: false },
       isLoading: false,
       error: null,
+    })
+    // Default mock - no content loaded
+    mockUseContentAtVersion.mockReturnValue({
+      data: null,
     })
   })
 

@@ -7,12 +7,15 @@
 import { useState, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { useUserHistory } from '../../hooks/useHistory'
+import { useUserHistory, useContentAtVersion } from '../../hooks/useHistory'
 import { MultiSelectDropdown } from '../../components/ui'
 import type { DropdownOption } from '../../components/ui'
 import { BookmarkIcon, NoteIcon, PromptIcon, CloseIconFilled } from '../../components/icons'
+import { WrapIcon } from '../../components/editor/EditorToolbarIcons'
+import { Tooltip } from '../../components/ui/Tooltip'
+import { DiffView } from '../../components/DiffView'
 import { CONTENT_TYPE_ICON_COLORS } from '../../constants/contentTypeStyles'
-import type { HistoryEntityType, HistoryActionType, HistorySourceType } from '../../types'
+import type { HistoryEntityType, HistoryActionType, HistorySourceType, HistoryEntry } from '../../types'
 
 /** Date preset options */
 type DatePreset = 'all' | 'last7' | 'last30' | 'custom'
@@ -131,6 +134,10 @@ export function SettingsVersionHistory(): ReactNode {
   const [page, setPage] = useState(0)
   const limit = 25
 
+  // Diff view state
+  const [selectedEntry, setSelectedEntry] = useState<HistoryEntry | null>(null)
+  const [wrapText, setWrapText] = useState(true)
+
   // Calculate date range from preset or custom inputs
   const { startDate, endDate } = useMemo(() => {
     if (datePreset === 'all') {
@@ -239,6 +246,26 @@ export function SettingsVersionHistory(): ReactNode {
     limit,
     offset: page * limit,
   })
+
+  // Fetch content at selected version for diff view
+  const { data: versionContent } = useContentAtVersion(
+    selectedEntry?.entity_type ?? 'bookmark',
+    selectedEntry?.entity_id ?? '',
+    selectedEntry?.version ?? null
+  )
+
+  // Fetch previous version content for diff comparison
+  const previousVersion = selectedEntry && selectedEntry.version > 1 ? selectedEntry.version - 1 : null
+  const { data: previousVersionContent } = useContentAtVersion(
+    selectedEntry?.entity_type ?? 'bookmark',
+    selectedEntry?.entity_id ?? '',
+    previousVersion
+  )
+
+  // Toggle entry selection - clicking same entry closes diff view
+  const handleEntryClick = (entry: HistoryEntry): void => {
+    setSelectedEntry(selectedEntry?.id === entry.id ? null : entry)
+  }
 
   return (
     <div className="max-w-4xl pt-4">
@@ -420,29 +447,67 @@ export function SettingsVersionHistory(): ReactNode {
           {/* Mobile card view */}
           <div className="md:hidden space-y-2">
             {history?.items.map((entry) => (
-              <div key={entry.id} className="rounded-lg border border-gray-200 bg-white p-3">
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {getEntityIcon(entry.entity_type)}
-                    <Link
-                      to={getEntityPath(entry.entity_type, entry.entity_id)}
-                      className="text-blue-600 hover:text-blue-800 hover:underline text-sm font-medium truncate"
-                    >
-                      {getItemTitle(entry.metadata_snapshot)}
-                    </Link>
-                    <span className="text-xs text-gray-400 shrink-0">v{entry.version}</span>
+              <div key={entry.id} className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+                <div
+                  className={`p-3 cursor-pointer ${selectedEntry?.id === entry.id ? 'bg-blue-50' : ''}`}
+                  onClick={() => handleEntryClick(entry)}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {getEntityIcon(entry.entity_type)}
+                      <Link
+                        to={getEntityPath(entry.entity_type, entry.entity_id)}
+                        className="text-blue-600 hover:text-blue-800 hover:underline text-sm font-medium truncate"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {getItemTitle(entry.metadata_snapshot)}
+                      </Link>
+                      <span className="text-xs text-gray-400 shrink-0">v{entry.version}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                    <span className="text-gray-700">{formatActionTable(entry.action)}</span>
+                    <span>
+                      {formatSourceTable(entry.source)}
+                      {entry.token_prefix && (
+                        <span className="text-gray-400 ml-1">({entry.token_prefix}...)</span>
+                      )}
+                    </span>
+                    <span>{new Date(entry.created_at).toLocaleString()}</span>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
-                  <span className="text-gray-700">{formatActionTable(entry.action)}</span>
-                  <span>
-                    {formatSourceTable(entry.source)}
-                    {entry.token_prefix && (
-                      <span className="text-gray-400 ml-1">({entry.token_prefix}...)</span>
-                    )}
-                  </span>
-                  <span>{new Date(entry.created_at).toLocaleString()}</span>
-                </div>
+                {/* Inline diff view */}
+                {selectedEntry?.id === entry.id && (
+                  <div className="border-t border-gray-200 bg-gray-50">
+                    <div className="max-h-[400px] overflow-auto relative">
+                      {/* Wrap toggle button */}
+                      <div className="sticky top-1 right-1 float-right z-10 mr-1 mt-1">
+                        <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={500} position="left">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setWrapText(!wrapText)
+                            }}
+                            className={`p-0.5 rounded transition-colors border ${
+                              wrapText
+                                ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-transparent'
+                                : 'text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-100 shadow-sm border-gray-200'
+                            }`}
+                            aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
+                          >
+                            <WrapIcon />
+                          </button>
+                        </Tooltip>
+                      </div>
+                      <DiffView
+                        oldContent={previousVersionContent?.content ?? ''}
+                        newContent={versionContent?.content ?? ''}
+                        isLoading={!versionContent || (previousVersion !== null && !previousVersionContent)}
+                        wrapText={wrapText}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -460,32 +525,78 @@ export function SettingsVersionHistory(): ReactNode {
               </thead>
               <tbody className="divide-y divide-gray-200 bg-white">
                 {history?.items.map((entry) => (
-                  <tr key={entry.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-2">
-                        {getEntityIcon(entry.entity_type)}
-                        <Link
-                          to={getEntityPath(entry.entity_type, entry.entity_id)}
-                          className="text-blue-600 hover:text-blue-800 hover:underline text-sm font-medium"
-                        >
-                          {getItemTitle(entry.metadata_snapshot)}
-                        </Link>
-                        <span className="text-xs text-gray-400">v{entry.version}</span>
+                  <tr key={entry.id} className="group">
+                    <td
+                      colSpan={4}
+                      className="p-0"
+                    >
+                      {/* Clickable row content */}
+                      <div
+                        className={`grid grid-cols-[1fr_auto_auto_auto] cursor-pointer hover:bg-gray-50 transition-colors ${
+                          selectedEntry?.id === entry.id ? 'bg-blue-50' : ''
+                        }`}
+                        onClick={() => handleEntryClick(entry)}
+                      >
+                        <div className="px-3 py-2.5">
+                          <div className="flex items-center gap-2">
+                            {getEntityIcon(entry.entity_type)}
+                            <Link
+                              to={getEntityPath(entry.entity_type, entry.entity_id)}
+                              className="text-blue-600 hover:text-blue-800 hover:underline text-sm font-medium"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {getItemTitle(entry.metadata_snapshot)}
+                            </Link>
+                            <span className="text-xs text-gray-400">v{entry.version}</span>
+                          </div>
+                        </div>
+                        <div className="px-3 py-2.5 text-sm text-gray-700">
+                          {formatActionTable(entry.action)}
+                        </div>
+                        <div className="px-3 py-2.5 text-sm text-gray-500">
+                          {formatSourceTable(entry.source)}
+                          {entry.token_prefix && (
+                            <span className="text-xs text-gray-400 ml-1">
+                              ({entry.token_prefix}...)
+                            </span>
+                          )}
+                        </div>
+                        <div className="px-3 py-2.5 text-sm text-gray-500 whitespace-nowrap">
+                          {new Date(entry.created_at).toLocaleString()}
+                        </div>
                       </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-sm text-gray-700">
-                      {formatActionTable(entry.action)}
-                    </td>
-                    <td className="px-3 py-2.5 text-sm text-gray-500">
-                      {formatSourceTable(entry.source)}
-                      {entry.token_prefix && (
-                        <span className="text-xs text-gray-400 ml-1">
-                          ({entry.token_prefix}...)
-                        </span>
+                      {/* Inline diff view */}
+                      {selectedEntry?.id === entry.id && (
+                        <div className="border-t border-gray-200 bg-gray-50">
+                          <div className="max-h-[500px] overflow-auto relative">
+                            {/* Wrap toggle button */}
+                            <div className="sticky top-1 right-1 float-right z-10 mr-1 mt-1">
+                              <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={500} position="left">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setWrapText(!wrapText)
+                                  }}
+                                  className={`p-0.5 rounded transition-colors border ${
+                                    wrapText
+                                      ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-transparent'
+                                      : 'text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-100 shadow-sm border-gray-200'
+                                  }`}
+                                  aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
+                                >
+                                  <WrapIcon />
+                                </button>
+                              </Tooltip>
+                            </div>
+                            <DiffView
+                              oldContent={previousVersionContent?.content ?? ''}
+                              newContent={versionContent?.content ?? ''}
+                              isLoading={!versionContent || (previousVersion !== null && !previousVersionContent)}
+                              wrapText={wrapText}
+                            />
+                          </div>
+                        </div>
                       )}
-                    </td>
-                    <td className="px-3 py-2.5 text-sm text-gray-500 whitespace-nowrap">
-                      {new Date(entry.created_at).toLocaleString()}
                     </td>
                   </tr>
                 ))}
