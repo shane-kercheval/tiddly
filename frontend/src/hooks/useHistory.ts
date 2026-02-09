@@ -75,7 +75,7 @@ export function useUserHistory(params: UserHistoryParams) {
       if (params.offset !== undefined) queryParams.append('offset', String(params.offset))
 
       const queryString = queryParams.toString()
-      const url = queryString ? `/history?${queryString}` : '/history'
+      const url = queryString ? `/history/?${queryString}` : '/history/'
       const response = await api.get<HistoryListResponse>(url)
       return response.data
     },
