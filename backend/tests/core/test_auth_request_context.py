@@ -1,4 +1,11 @@
-"""Tests for RequestContext functionality in the auth module."""
+"""
+Tests for RequestContext functionality in the auth module.
+
+Imports from core.auth are deferred to inside test functions because
+core.auth -> db.session -> get_settings() at module level, which requires
+DATABASE_URL. Deferring avoids collection failures in CI where the env var
+isn't set until the test session fixtures run.
+"""
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -7,7 +14,6 @@ from fastapi import Request
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth import _get_request_source
 from models.user import User
 
 if TYPE_CHECKING:
@@ -74,6 +80,7 @@ class TestGetRequestSource:
     ) -> None:
         """X-Request-Source: web sets source to WEB."""
         request = mock_request_with_source("web")
+        from core.auth import _get_request_source
         source = _get_request_source(request)
         assert source == "web"
 
@@ -83,6 +90,7 @@ class TestGetRequestSource:
     ) -> None:
         """X-Request-Source: api sets source to API."""
         request = mock_request_with_source("api")
+        from core.auth import _get_request_source
         source = _get_request_source(request)
         assert source == "api"
 
@@ -92,6 +100,7 @@ class TestGetRequestSource:
     ) -> None:
         """X-Request-Source: mcp-content sets source to MCP_CONTENT."""
         request = mock_request_with_source("mcp-content")
+        from core.auth import _get_request_source
         source = _get_request_source(request)
         assert source == "mcp-content"
 
@@ -101,6 +110,7 @@ class TestGetRequestSource:
     ) -> None:
         """X-Request-Source: mcp-prompt sets source to MCP_PROMPT."""
         request = mock_request_with_source("mcp-prompt")
+        from core.auth import _get_request_source
         source = _get_request_source(request)
         assert source == "mcp-prompt"
 
@@ -109,6 +119,7 @@ class TestGetRequestSource:
         mock_request: Request,
     ) -> None:
         """Missing X-Request-Source header defaults to UNKNOWN."""
+        from core.auth import _get_request_source
         source = _get_request_source(mock_request)
         assert source == "unknown"
 
@@ -118,6 +129,7 @@ class TestGetRequestSource:
     ) -> None:
         """Unrecognized X-Request-Source header is passed through as-is."""
         request = mock_request_with_source("iphone")
+        from core.auth import _get_request_source
         source = _get_request_source(request)
         assert source == "iphone"
 
@@ -127,10 +139,12 @@ class TestGetRequestSource:
     ) -> None:
         """X-Request-Source header is case-insensitive."""
         request = mock_request_with_source("WEB")
+        from core.auth import _get_request_source
         source = _get_request_source(request)
         assert source == "web"
 
         request = mock_request_with_source("MCP-Content")
+        from core.auth import _get_request_source
         source = _get_request_source(request)
         assert source == "mcp-content"
 
