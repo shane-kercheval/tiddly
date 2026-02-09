@@ -496,7 +496,7 @@ class HistoryService:
                             results,
                         )
                     content = new_content
-                except (ValueError, Exception) as e:
+                except ValueError as e:
                     # Corrupted diff text - log warning and continue with current content
                     warning_msg = f"Corrupted diff at v{record.version}: {e}"
                     warnings.append(warning_msg)
@@ -594,7 +594,7 @@ class HistoryService:
                             results,
                         )
                     before_content = patched_content
-                except (ValueError, Exception) as e:
+                except ValueError as e:
                     warning_msg = (
                         f"Corrupted diff at v{version}, cannot derive before-content: {e}"
                     )

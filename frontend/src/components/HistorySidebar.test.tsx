@@ -268,6 +268,97 @@ describe('HistorySidebar', () => {
       expect(v2Element).toBeInTheDocument()
     })
 
+    it('test__metadata_only_payload__shows_metadata_changes_without_content_diff', () => {
+      mockUseVersionDiff.mockReturnValue({
+        data: {
+          before_content: null,
+          after_content: null,
+          before_metadata: { title: 'Old Title', tags: ['a'] },
+          after_metadata: { title: 'New Title', tags: ['a'] },
+          warnings: null,
+        },
+      })
+
+      const entries = [
+        createEntry({ id: '1', action: 'update', version: 2 }),
+        createEntry({ id: '2', action: 'create', version: 1 }),
+      ]
+
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: entries, total: entries.length, offset: 0, limit: 50, has_more: false },
+        isLoading: false,
+      })
+
+      renderSidebar()
+      fireEvent.click(screen.getByText('v2'))
+
+      // Metadata changes rendered
+      expect(screen.getByText('Title:')).toBeInTheDocument()
+      expect(screen.getByText('Old Title')).toBeInTheDocument()
+      expect(screen.getByText('New Title')).toBeInTheDocument()
+
+      // No content diff rendered (both content fields null)
+      expect(screen.queryByTestId('diff-viewer')).not.toBeInTheDocument()
+    })
+
+    it('test__content_and_metadata_payload__shows_both_sections', () => {
+      mockUseVersionDiff.mockReturnValue({
+        data: {
+          before_content: 'old content',
+          after_content: 'new content',
+          before_metadata: { title: 'Old Title', tags: [] },
+          after_metadata: { title: 'New Title', tags: [] },
+          warnings: null,
+        },
+      })
+
+      const entries = [
+        createEntry({ id: '1', action: 'update', version: 2 }),
+        createEntry({ id: '2', action: 'create', version: 1 }),
+      ]
+
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: entries, total: entries.length, offset: 0, limit: 50, has_more: false },
+        isLoading: false,
+      })
+
+      renderSidebar()
+      fireEvent.click(screen.getByText('v2'))
+
+      // Metadata changes rendered
+      expect(screen.getByText('Title:')).toBeInTheDocument()
+
+      // Content diff rendered
+      expect(screen.getByTestId('diff-viewer')).toBeInTheDocument()
+    })
+
+    it('test__warnings_present__shows_warning_banner', () => {
+      mockUseVersionDiff.mockReturnValue({
+        data: {
+          before_content: null,
+          after_content: 'some content',
+          before_metadata: { title: 'Test', tags: [] },
+          after_metadata: { title: 'Test', tags: [] },
+          warnings: ['Some changes could not be reconstructed'],
+        },
+      })
+
+      const entries = [
+        createEntry({ id: '1', action: 'update', version: 2 }),
+        createEntry({ id: '2', action: 'create', version: 1 }),
+      ]
+
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: entries, total: entries.length, offset: 0, limit: 50, has_more: false },
+        isLoading: false,
+      })
+
+      renderSidebar()
+      fireEvent.click(screen.getByText('v2'))
+
+      expect(screen.getByText('Warning: Some changes could not be fully reconstructed')).toBeInTheDocument()
+    })
+
     it('test__clicking_audit_entry__closes_open_diff_view', () => {
       mockUseVersionDiff.mockReturnValue({
         data: {
