@@ -18,7 +18,7 @@ interface KeyboardShortcutHandlers {
   onPasteUrl?: (url: string) => void
   /** Called when 'w' is pressed (toggle width) */
   onToggleWidth?: () => void
-  /** Called when Cmd/Ctrl + b is pressed (toggle sidebar) */
+  /** Called when Cmd/Ctrl + \ is pressed (toggle sidebar) */
   onToggleSidebar?: () => void
   /** Called when Cmd/Ctrl + Shift + \ is pressed (toggle history sidebar) */
   onToggleHistorySidebar?: () => void

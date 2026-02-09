@@ -227,12 +227,14 @@ export function MetadataChanges({
         changes.push(
           <div key={field} className="space-y-1">
             <span className="text-sm font-medium text-gray-600">{label}:</span>
-            <DiffView
-              oldContent={beforeStr}
-              newContent={afterStr}
-              isLoading={false}
-              maxHeight={200}
-            />
+            <div className="-mx-3">
+              <DiffView
+                oldContent={beforeStr}
+                newContent={afterStr}
+                isLoading={false}
+                maxHeight={200}
+              />
+            </div>
           </div>
         )
       }

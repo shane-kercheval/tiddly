@@ -323,13 +323,6 @@ function createMarkdownKeyBindings(): KeyBinding[] {
         return true // Consume to prevent CodeMirror's comment toggle
       },
     },
-    {
-      key: 'Mod-\\',
-      run: () => {
-        dispatchGlobalShortcut('\\', true)
-        return true
-      },
-    },
   ]
 }
 

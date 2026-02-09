@@ -83,6 +83,14 @@ const scrollModeStyles = {
   },
 }
 
+/** CSS to ensure diff table fills full width (no side gaps) */
+const diffBaseCss = `
+  .diff-view table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+`
+
 /** CSS overrides for scroll mode to force horizontal scrolling */
 const scrollModeCss = `
   .diff-scroll-mode table {
@@ -152,25 +160,28 @@ export function DiffView({
 
   return (
     <div
-      className={`overflow-auto ${wrapText ? '' : 'diff-scroll-mode'}`}
+      className={`diff-view overflow-auto ${wrapText ? '' : 'diff-scroll-mode'}`}
       style={{ maxHeight: `${maxHeight}px` }}
     >
-      {/* Wrap toggle button - sticky+float positions relative to content area, avoiding scrollbar */}
-      <div className="sticky top-1 float-right z-10 mr-1 mt-1">
-        <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={0} position="left">
-          <button
-            onClick={() => setWrapText(!wrapText)}
-            className={`p-0.5 rounded transition-colors border ${
-              wrapText
-                ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-transparent'
-                : 'text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-100 shadow-sm border-gray-200'
-            }`}
-            aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
-          >
-            <WrapIcon />
-          </button>
-        </Tooltip>
+      {/* Wrap toggle - h-0 sticky keeps button pinned at top-right without taking vertical space */}
+      <div className="sticky top-0 z-10 h-0 flex justify-end pointer-events-none">
+        <div className="pointer-events-auto">
+          <Tooltip content={wrapText ? 'Disable wrap' : 'Enable wrap'} compact delay={0} position="left">
+            <button
+              onClick={() => setWrapText(!wrapText)}
+              className={`mt-1 mr-1 p-0.5 rounded transition-colors border ${
+                wrapText
+                  ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-transparent'
+                  : 'text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-100 shadow-sm border-gray-200'
+              }`}
+              aria-label={wrapText ? 'Disable text wrap' : 'Enable text wrap'}
+            >
+              <WrapIcon />
+            </button>
+          </Tooltip>
+        </div>
       </div>
+      <style>{diffBaseCss}</style>
       {!wrapText && <style>{scrollModeCss}</style>}
       <ReactDiffViewer
         oldValue={oldContent}
