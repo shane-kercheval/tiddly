@@ -9,8 +9,7 @@ import type { ReactNode } from 'react'
 import { useEntityHistory, useVersionDiff, useRestoreToVersion } from '../hooks/useHistory'
 import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
 import { CloseIcon, RestoreIcon } from './icons'
-import { DiffView } from './DiffView'
-import { MetadataChanges } from './MetadataChanges'
+import { VersionDiffPanel } from './VersionDiffPanel'
 import type { HistoryEntityType, HistoryActionType } from '../types'
 
 interface HistorySidebarProps {
@@ -285,33 +284,11 @@ export function HistorySidebar({
                 {/* Inline diff/info view - shown below selected version */}
                 {selectedVersion === entry.version && entry.version !== null && (
                   <div className="border-t border-gray-200 bg-gray-50">
-                    {diffData?.warnings && diffData.warnings.length > 0 && (
-                      <div className="px-3 py-1 text-xs text-yellow-600 border-b border-gray-200">
-                        Warning: Some changes could not be fully reconstructed
-                      </div>
-                    )}
-                    {diffData ? (
-                      <>
-                        <MetadataChanges
-                          beforeMetadata={diffData.before_metadata}
-                          afterMetadata={diffData.after_metadata}
-                          entityType={entityType}
-                          action={entry.action}
-                        />
-                        {(diffData.before_content != null || diffData.after_content != null) && (
-                          <div className="space-y-1">
-                            <span className="text-sm font-medium text-gray-600 px-3 pt-2 block">Content:</span>
-                            <DiffView
-                              oldContent={diffData.before_content ?? ''}
-                              newContent={diffData.after_content ?? ''}
-                              isLoading={false}
-                            />
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <DiffView oldContent="" newContent="" isLoading={true} />
-                    )}
+                    <VersionDiffPanel
+                      diffData={diffData ?? null}
+                      entityType={entityType}
+                      action={entry.action}
+                    />
                   </div>
                 )}
               </li>

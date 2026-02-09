@@ -11,8 +11,7 @@ import { useUserHistory, useVersionDiff } from '../../hooks/useHistory'
 import { MultiSelectDropdown } from '../../components/ui'
 import type { DropdownOption } from '../../components/ui'
 import { BookmarkIcon, NoteIcon, PromptIcon, CloseIconFilled } from '../../components/icons'
-import { DiffView } from '../../components/DiffView'
-import { MetadataChanges } from '../../components/MetadataChanges'
+import { VersionDiffPanel } from '../../components/VersionDiffPanel'
 import { CONTENT_TYPE_ICON_COLORS } from '../../constants/contentTypeStyles'
 import type { HistoryEntityType, HistoryActionType, HistorySourceType, HistoryEntry } from '../../types'
 
@@ -492,34 +491,12 @@ export function SettingsVersionHistory(): ReactNode {
                 {/* Inline diff view - only for content actions */}
                 {selectedEntry?.id === entry.id && !isAuditAction(entry.action) && (
                   <div className="border-t border-gray-200 bg-gray-50">
-                    {diffData?.warnings && diffData.warnings.length > 0 && (
-                      <div className="px-3 py-1 text-xs text-yellow-600 border-b border-gray-200">
-                        Warning: Some changes could not be fully reconstructed
-                      </div>
-                    )}
-                    {diffData ? (
-                      <>
-                        <MetadataChanges
-                          beforeMetadata={diffData.before_metadata}
-                          afterMetadata={diffData.after_metadata}
-                          entityType={entry.entity_type}
-                          action={entry.action}
-                        />
-                        {(diffData.before_content != null || diffData.after_content != null) && (
-                          <div className="space-y-1">
-                            <span className="text-sm font-medium text-gray-600 px-3 pt-2 block">Content:</span>
-                            <DiffView
-                              oldContent={diffData.before_content ?? ''}
-                              newContent={diffData.after_content ?? ''}
-                              isLoading={false}
-                              maxHeight={400}
-                            />
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <DiffView oldContent="" newContent="" isLoading={true} maxHeight={400} />
-                    )}
+                    <VersionDiffPanel
+                      diffData={diffData ?? null}
+                      entityType={entry.entity_type}
+                      action={entry.action}
+                      maxHeight={400}
+                    />
                   </div>
                 )}
               </div>
@@ -588,33 +565,11 @@ export function SettingsVersionHistory(): ReactNode {
                       {/* Inline diff view - only for content actions */}
                       {selectedEntry?.id === entry.id && !isAuditAction(entry.action) && (
                         <div className="border-t border-gray-200 bg-gray-50">
-                          {diffData?.warnings && diffData.warnings.length > 0 && (
-                            <div className="px-3 py-1 text-xs text-yellow-600 border-b border-gray-200">
-                              Warning: Some changes could not be fully reconstructed
-                            </div>
-                          )}
-                          {diffData ? (
-                            <>
-                              <MetadataChanges
-                                beforeMetadata={diffData.before_metadata}
-                                afterMetadata={diffData.after_metadata}
-                                entityType={entry.entity_type}
-                                action={entry.action}
-                              />
-                              {(diffData.before_content != null || diffData.after_content != null) && (
-                                <div className="space-y-1">
-                                  <span className="text-sm font-medium text-gray-600 px-3 pt-2 block">Content:</span>
-                                  <DiffView
-                                    oldContent={diffData.before_content ?? ''}
-                                    newContent={diffData.after_content ?? ''}
-                                    isLoading={false}
-                                  />
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <DiffView oldContent="" newContent="" isLoading={true} />
-                          )}
+                          <VersionDiffPanel
+                            diffData={diffData ?? null}
+                            entityType={entry.entity_type}
+                            action={entry.action}
+                          />
                         </div>
                       )}
                     </td>
