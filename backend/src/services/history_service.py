@@ -34,6 +34,18 @@ class ReconstructionResult:
     warnings: list[str] | None = None  # Warnings if reconstruction had issues
 
 
+@dataclass
+class DiffResult:
+    """Result of version diff computation."""
+
+    found: bool
+    before_content: str | None = None
+    after_content: str | None = None
+    before_metadata: dict | None = None
+    after_metadata: dict | None = None
+    warnings: list[str] | None = None
+
+
 class HistoryService:
     """Service for recording and retrieving content history."""
 
@@ -503,6 +515,96 @@ class HistoryService:
             found=True,
             content=content,
             warnings=warnings if warnings else None,
+        )
+
+    async def get_version_diff(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        entity_type: EntityType | str,
+        entity_id: UUID,
+        version: int,
+    ) -> DiffResult:
+        """
+        Compute diff between version N and its predecessor N-1.
+
+        Returns before/after content and metadata. For CREATE (v1), before fields
+        are None. For metadata-only changes, content fields are both None.
+
+        Invariant: content_diff at version N is a reverse diff (N -> N-1),
+        produced by patch_make(current_content, previous_content). Applying
+        it to version N's content yields version N-1's content.
+
+        Args:
+            db: Database session.
+            user_id: ID of the user.
+            entity_type: Type of entity.
+            entity_id: ID of the entity.
+            version: Version number to compute diff for.
+
+        Returns:
+            DiffResult with before/after content and metadata.
+        """
+        # 1. Get version N's history record
+        after_history = await self.get_history_at_version(
+            db, user_id, entity_type, entity_id, version,
+        )
+        if after_history is None:
+            return DiffResult(found=False)
+
+        content_diff_exists = after_history.content_diff is not None
+        is_create = after_history.action == ActionType.CREATE.value
+        # Reconstruct content when it changed OR for CREATE (initial content, no diff)
+        needs_content = content_diff_exists or is_create
+
+        after_content: str | None = None
+        before_content: str | None = None
+        warnings: list[str] | None = None
+
+        if needs_content:
+            # 2. Reuse existing tested reconstruction for "after" content
+            after_result = await self.reconstruct_content_at_version(
+                db, user_id, entity_type, entity_id, version,
+            )
+            if not after_result.found:
+                return DiffResult(found=False)
+            after_content = after_result.content
+            warnings = after_result.warnings
+
+            # 3. Derive "before" content from version N's reverse diff
+            #    (only when content actually changed — not for CREATE)
+            if content_diff_exists and version > 1:
+                patches = self.dmp.patch_fromText(after_history.content_diff)
+                patched_content, results = self.dmp.patch_apply(
+                    patches, after_content or "",
+                )
+                if not all(results):
+                    warning_msg = f"Partial patch failure deriving before-content at v{version}"
+                    if warnings is None:
+                        warnings = []
+                    warnings.append(warning_msg)
+                    logger.warning(
+                        "Before-content derivation partial failure for v%d: %s",
+                        version,
+                        results,
+                    )
+                before_content = patched_content
+
+        # 4. Get "before" metadata from version N-1's record
+        before_metadata: dict | None = None
+        if version > 1:
+            before_history = await self.get_history_at_version(
+                db, user_id, entity_type, entity_id, version - 1,
+            )
+            before_metadata = before_history.metadata_snapshot if before_history else None
+
+        return DiffResult(
+            found=True,
+            after_content=after_content,
+            before_content=before_content,
+            after_metadata=after_history.metadata_snapshot,
+            before_metadata=before_metadata,
+            warnings=warnings,
         )
 
     async def get_history_at_version(

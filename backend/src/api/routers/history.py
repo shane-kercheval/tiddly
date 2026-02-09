@@ -18,6 +18,7 @@ from schemas.history import (
     HistoryListResponse,
     HistoryResponse,
     RestoreResponse,
+    VersionDiffResponse,
 )
 from schemas.note import NoteUpdate
 from schemas.prompt import PromptArgument, PromptUpdate
@@ -211,6 +212,45 @@ async def get_entity_history(
         offset=offset,
         limit=limit,
         has_more=offset + len(items) < total,
+    )
+
+
+@router.get(
+    "/{entity_type}/{entity_id}/version/{version}/diff",
+    response_model=VersionDiffResponse,
+)
+async def get_version_diff(
+    entity_type: EntityType,
+    entity_id: UUID,
+    version: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> VersionDiffResponse:
+    """
+    Get diff between a version and its predecessor.
+
+    Returns before/after content and metadata for the specified version.
+    For version 1 (CREATE), before fields are null.
+    For metadata-only changes, content fields are both null.
+
+    Returns:
+    - 200 with diff data
+    - 404 if version doesn't exist or entity was hard-deleted
+    """
+    result = await history_service.get_version_diff(
+        db, current_user.id, entity_type, entity_id, version,
+    )
+    if not result.found:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    return VersionDiffResponse(
+        entity_id=entity_id,
+        version=version,
+        before_content=result.before_content,
+        after_content=result.after_content,
+        before_metadata=result.before_metadata,
+        after_metadata=result.after_metadata,
+        warnings=result.warnings,
     )
 
 

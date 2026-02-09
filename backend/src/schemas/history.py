@@ -44,6 +44,18 @@ class ContentAtVersionResponse(BaseModel):
     warnings: list[str] | None = None  # Reconstruction warnings if any issues occurred
 
 
+class VersionDiffResponse(BaseModel):
+    """Schema for diff between a version and its predecessor."""
+
+    entity_id: UUID
+    version: int
+    before_content: str | None
+    after_content: str | None
+    before_metadata: dict | None
+    after_metadata: dict | None
+    warnings: list[str] | None = None
+
+
 class RestoreResponse(BaseModel):
     """Schema for restore operation response."""
 

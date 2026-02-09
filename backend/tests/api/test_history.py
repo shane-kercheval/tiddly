@@ -2179,3 +2179,267 @@ async def test_restore_with_reconstruction_warnings_propagates_to_response(
         "patch" in w.lower() or "v3" in w.lower() or "failure" in w.lower()
         for w in data["warnings"]
     ), f"Unexpected warning format: {data['warnings']}"
+
+
+# --- Version Diff Endpoint Tests ---
+
+
+@pytest.mark.parametrize(("entity_type", "create_url", "create_payload", "update_payload"), ENTITY_TEST_DATA)
+async def test_get_version_diff__returns_before_and_after_content(
+    client: AsyncClient,
+    entity_type: str,
+    create_url: str,
+    create_payload: dict,
+    update_payload: dict,
+) -> None:
+    """Diff at v2 returns original content as before and updated content as after."""
+    # Create entity (v1)
+    response = await client.post(create_url, json=create_payload)
+    assert response.status_code == 201
+    entity_id = response.json()["id"]
+
+    # Update content (v2)
+    if entity_type == "prompt":
+        response = await client.patch(
+            f"{create_url}name/test-prompt", json=update_payload,
+        )
+    else:
+        response = await client.patch(f"{create_url}{entity_id}", json=update_payload)
+    assert response.status_code == 200
+
+    # Get diff at v2
+    response = await client.get(f"/history/{entity_type}/{entity_id}/version/2/diff")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["entity_id"] == entity_id
+    assert data["version"] == 2
+    assert data["after_content"] == "Updated content"
+    assert data["before_content"] == "Initial content"
+    assert data["after_metadata"] is not None
+    assert data["before_metadata"] is not None
+    assert data["warnings"] is None
+
+
+@pytest.mark.parametrize(("entity_type", "create_url", "create_payload"), ENTITY_CREATE_DATA)
+async def test_get_version_diff__version_1_create(
+    client: AsyncClient,
+    entity_type: str,
+    create_url: str,
+    create_payload: dict,
+) -> None:
+    """Version 1 (CREATE) has null before fields and populated after fields."""
+    response = await client.post(create_url, json=create_payload)
+    assert response.status_code == 201
+    entity_id = response.json()["id"]
+
+    response = await client.get(f"/history/{entity_type}/{entity_id}/version/1/diff")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["version"] == 1
+    assert data["after_content"] == create_payload["content"]
+    assert data["before_content"] is None
+    assert data["after_metadata"] is not None
+    assert data["before_metadata"] is None
+
+
+async def test_get_version_diff__metadata_only_change(client: AsyncClient) -> None:
+    """Metadata-only change returns null content fields and differing metadata."""
+    # Create note (v1)
+    response = await client.post(
+        "/notes/",
+        json={"title": "Original Title", "content": "Stable content"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Update only title (v2) - content unchanged
+    response = await client.patch(f"/notes/{note_id}", json={"title": "New Title"})
+    assert response.status_code == 200
+
+    response = await client.get(f"/history/note/{note_id}/version/2/diff")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["before_content"] is None
+    assert data["after_content"] is None
+    assert data["before_metadata"]["title"] == "Original Title"
+    assert data["after_metadata"]["title"] == "New Title"
+
+
+async def test_get_version_diff__content_and_metadata_change(client: AsyncClient) -> None:
+    """Update with both content and metadata changes returns both diff pairs."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Old Title", "content": "Old content"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/notes/{note_id}",
+        json={"title": "New Title", "content": "New content"},
+    )
+    assert response.status_code == 200
+
+    response = await client.get(f"/history/note/{note_id}/version/2/diff")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["before_content"] == "Old content"
+    assert data["after_content"] == "New content"
+    assert data["before_metadata"]["title"] == "Old Title"
+    assert data["after_metadata"]["title"] == "New Title"
+
+
+async def test_get_version_diff__version_not_found(client: AsyncClient) -> None:
+    """Non-existent version returns 404."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Test", "content": "Content"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    response = await client.get(f"/history/note/{note_id}/version/99/diff")
+    assert response.status_code == 404
+
+
+async def test_get_version_diff__hard_deleted_entity(
+    client: AsyncClient,
+) -> None:
+    """Hard-deleted entity returns 404."""
+    from uuid import uuid4
+
+    fake_id = str(uuid4())
+    response = await client.get(f"/history/note/{fake_id}/version/1/diff")
+    assert response.status_code == 404
+
+
+async def test_get_version_diff__reconstruction_warnings_propagated(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Reconstruction warnings are propagated in the diff response."""
+    from sqlalchemy import select
+
+    from models.content_history import ContentHistory
+
+    # Create note with 3 versions
+    response = await client.post(
+        "/notes/",
+        json={"title": "Warning Test", "content": "v1 content"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    await client.patch(f"/notes/{note_id}", json={"content": "v2 content"})
+    await client.patch(f"/notes/{note_id}", json={"content": "v3 content"})
+
+    # Corrupt v3's diff to trigger a warning during reconstruction
+    result = await db_session.execute(
+        select(ContentHistory).where(
+            ContentHistory.entity_id == UUID(note_id),
+            ContentHistory.version == 3,
+        ),
+    )
+    v3_history = result.scalar_one()
+    v3_history.content_diff = "@@ -1,100 +1,100 @@\n-NONEXISTENT\n+REPLACEMENT\n"
+    await db_session.flush()
+
+    response = await client.get(f"/history/note/{note_id}/version/3/diff")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["warnings"] is not None
+    assert len(data["warnings"]) > 0
+
+
+async def test_get_version_diff__multiple_versions_chain(client: AsyncClient) -> None:
+    """Diff at each version returns correct before/after pairs throughout the chain."""
+    response = await client.post(
+        "/notes/",
+        json={"title": "Chain Test", "content": "v1 content"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    contents = ["v1 content", "v2 content", "v3 content", "v4 content"]
+    for content in contents[1:]:
+        await client.patch(f"/notes/{note_id}", json={"content": content})
+
+    prev_after = None
+    for v in range(1, 5):
+        response = await client.get(f"/history/note/{note_id}/version/{v}/diff")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["after_content"] == contents[v - 1]
+
+        if v == 1:
+            assert data["before_content"] is None
+        else:
+            assert data["before_content"] == contents[v - 2]
+            assert data["before_content"] == prev_after
+
+        prev_after = data["after_content"]
+
+
+async def test_get_version_diff__cross_user_isolation(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """User 2 cannot access User 1's entity diff."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport, AsyncClient as HttpxAsyncClient
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from models.user import User
+    from schemas.token import TokenCreate
+    from services.token_service import create_token
+    from tests.api.conftest import add_consent_for_user
+
+    # Create a note as user1
+    response = await client.post(
+        "/notes/",
+        json={"title": "User 1 Note", "content": "User 1 content"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    # Create user2 with PAT
+    user2 = User(auth0_id="auth0|diff-cross-user", email="diff-cross@example.com")
+    db_session.add(user2)
+    await db_session.flush()
+
+    await add_consent_for_user(db_session, user2)
+
+    _, user2_token = await create_token(
+        db_session, user2.id, TokenCreate(name="Diff Test Token"),
+    )
+    await db_session.flush()
+
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    async with HttpxAsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user2_token}"},
+    ) as user2_client:
+        response = await user2_client.get(f"/history/note/{note_id}/version/1/diff")
+        assert response.status_code == 404
+
+    app.dependency_overrides.clear()

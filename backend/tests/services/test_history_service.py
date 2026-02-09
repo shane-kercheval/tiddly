@@ -3267,3 +3267,368 @@ class TestAuditActions:
         assert len(versioned) == 3
         assert sorted([v.version for v in versioned]) == [3, 4, 5]
         assert len(audit) == 3
+
+
+class TestGetVersionDiff:
+    """Tests for HistoryService.get_version_diff()."""
+
+    @pytest.mark.asyncio
+    async def test__get_version_diff__basic_content_change(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        test_note: Note,
+        request_context: RequestContext,
+    ) -> None:
+        """Before content is derived correctly by applying version N's reverse diff."""
+        entity_id = test_note.id
+        metadata = {"title": "Test Note", "tags": []}
+
+        # v1 CREATE
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Hello",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # v2 UPDATE with content change
+        test_note.content = "Hello World"
+        await db_session.flush()
+
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content="Hello World",
+            previous_content="Hello",
+            metadata=metadata,
+            context=request_context,
+        )
+
+        result = await history_service.get_version_diff(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            version=2,
+        )
+
+        assert result.found is True
+        assert result.after_content == "Hello World"
+        assert result.before_content == "Hello"
+        assert result.after_metadata == metadata
+        assert result.before_metadata == metadata
+        assert result.warnings is None
+
+    @pytest.mark.asyncio
+    async def test__get_version_diff__version_1_no_predecessor(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        test_note: Note,
+        request_context: RequestContext,
+    ) -> None:
+        """Version 1 (CREATE) has null before_content and before_metadata."""
+        entity_id = test_note.id
+        metadata = {"title": "Test Note", "tags": []}
+
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Initial content",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        result = await history_service.get_version_diff(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            version=1,
+        )
+
+        assert result.found is True
+        assert result.after_content == "Initial content"
+        assert result.before_content is None
+        assert result.after_metadata == metadata
+        assert result.before_metadata is None
+        assert result.warnings is None
+
+    @pytest.mark.asyncio
+    async def test__get_version_diff__metadata_only_change(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        test_note: Note,
+        request_context: RequestContext,
+    ) -> None:
+        """Metadata-only change returns null content fields and both metadata snapshots."""
+        entity_id = test_note.id
+        content = "Stable content"
+        test_note.content = content
+        await db_session.flush()
+
+        metadata_v1 = {"title": "Original", "tags": []}
+        metadata_v2 = {"title": "Updated", "tags": ["new-tag"]}
+
+        # v1 CREATE
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content=content,
+            previous_content=None,
+            metadata=metadata_v1,
+            context=request_context,
+        )
+
+        # v2 metadata-only change
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content=content,
+            previous_content=content,
+            metadata=metadata_v2,
+            context=request_context,
+        )
+
+        result = await history_service.get_version_diff(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            version=2,
+        )
+
+        assert result.found is True
+        assert result.after_content is None
+        assert result.before_content is None
+        assert result.after_metadata == metadata_v2
+        assert result.before_metadata == metadata_v1
+
+    @pytest.mark.asyncio
+    async def test__get_version_diff__content_and_metadata_change(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        test_note: Note,
+        request_context: RequestContext,
+    ) -> None:
+        """Both content and metadata differ between before/after."""
+        entity_id = test_note.id
+        metadata_v1 = {"title": "Original", "tags": []}
+        metadata_v2 = {"title": "Updated", "tags": ["tag1"]}
+
+        # v1 CREATE
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Old content",
+            previous_content=None,
+            metadata=metadata_v1,
+            context=request_context,
+        )
+
+        # v2 UPDATE with content + metadata change
+        test_note.content = "New content"
+        await db_session.flush()
+
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content="New content",
+            previous_content="Old content",
+            metadata=metadata_v2,
+            context=request_context,
+        )
+
+        result = await history_service.get_version_diff(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            version=2,
+        )
+
+        assert result.found is True
+        assert result.after_content == "New content"
+        assert result.before_content == "Old content"
+        assert result.after_metadata == metadata_v2
+        assert result.before_metadata == metadata_v1
+
+    @pytest.mark.asyncio
+    async def test__get_version_diff__pruned_predecessor(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        test_note: Note,
+        request_context: RequestContext,
+    ) -> None:
+        """When predecessor record is pruned, before_content still works but before_metadata is None."""
+        entity_id = test_note.id
+        metadata = {"title": "Test", "tags": []}
+
+        # v1 CREATE
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="First",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # v2 UPDATE
+        test_note.content = "Second"
+        await db_session.flush()
+
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content="Second",
+            previous_content="First",
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # v3 UPDATE
+        test_note.content = "Third"
+        await db_session.flush()
+
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content="Third",
+            previous_content="Second",
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # Delete v2's record to simulate pruning
+        v2_record = await history_service.get_history_at_version(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            version=2,
+        )
+        assert v2_record is not None
+        await db_session.delete(v2_record)
+        await db_session.flush()
+
+        # Get diff at v3 — v2's record is gone
+        result = await history_service.get_version_diff(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            version=3,
+        )
+
+        assert result.found is True
+        assert result.after_content == "Third"
+        assert result.before_content == "Second"  # Derived from v3's diff, not v2's record
+        assert result.before_metadata is None  # v2's record was pruned
+
+    @pytest.mark.asyncio
+    async def test__get_version_diff__multiple_versions_sequential(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        test_note: Note,
+        request_context: RequestContext,
+    ) -> None:
+        """Chain consistency: each diff's before_content matches previous diff's after_content."""
+        entity_id = test_note.id
+        contents = ["v1 content", "v2 content", "v3 content", "v4 content"]
+        metadata = {"title": "Test", "tags": []}
+
+        # Build version chain
+        previous = None
+        for i, content in enumerate(contents):
+            test_note.content = content
+            await db_session.flush()
+
+            await history_service.record_action(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=ActionType.CREATE if i == 0 else ActionType.UPDATE,
+                current_content=content,
+                previous_content=previous,
+                metadata=metadata,
+                context=request_context,
+            )
+            previous = content
+
+        # Check each diff
+        prev_after: str | None = None
+        for v in range(1, 5):
+            result = await history_service.get_version_diff(
+                db=db_session,
+                user_id=test_user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                version=v,
+            )
+            assert result.found is True
+            assert result.after_content == contents[v - 1]
+
+            if v == 1:
+                assert result.before_content is None
+            else:
+                assert result.before_content == contents[v - 2]
+                # Chain consistency: before matches previous after
+                assert result.before_content == prev_after
+
+            prev_after = result.after_content
+
+    @pytest.mark.asyncio
+    async def test__get_version_diff__version_not_found(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+    ) -> None:
+        """Returns found=False for non-existent version."""
+        result = await history_service.get_version_diff(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=uuid4(),
+            version=99,
+        )
+        assert result.found is False
