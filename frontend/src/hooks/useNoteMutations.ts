@@ -23,6 +23,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { noteKeys } from './useNotesQuery'
 import { contentKeys } from './useContentQuery'
+import { historyKeys } from './useHistory'
 import { useTagsStore } from '../stores/tagsStore'
 import type { Note, NoteCreate, NoteUpdate, NoteListResponse, ContentListResponse } from '../types'
 
@@ -38,7 +39,7 @@ interface OptimisticContext {
  */
 function optimisticallyRemoveNote(
   queryClient: QueryClient,
-  noteId: number
+  noteId: string
 ): OptimisticContext {
   // Snapshot current data before modification
   const previousNoteQueries = queryClient.getQueriesData<NoteListResponse>({
@@ -102,6 +103,73 @@ function rollbackOptimisticUpdate(
 }
 
 /**
+ * Optimistically update a note's properties in all cached list queries.
+ * Used for tag updates to provide instant feedback.
+ * Returns previous data for rollback on error.
+ *
+ * Note: Only fields present in list items are updated here. Fields like
+ * `content` and `archived_at` are excluded because they're either not in
+ * list responses or don't require immediate visual feedback.
+ */
+function optimisticallyUpdateNote(
+  queryClient: QueryClient,
+  noteId: string,
+  updates: NoteUpdate
+): OptimisticContext {
+  // Snapshot current data before modification
+  const previousNoteQueries = queryClient.getQueriesData<NoteListResponse>({
+    queryKey: noteKeys.lists(),
+  })
+  const previousContentQueries = queryClient.getQueriesData<ContentListResponse>({
+    queryKey: contentKeys.lists(),
+  })
+
+  // Update all note list queries
+  queryClient.setQueriesData<NoteListResponse>(
+    { queryKey: noteKeys.lists() },
+    (old) => {
+      if (!old) return old
+      return {
+        ...old,
+        items: old.items.map((item) => {
+          if (item.id !== noteId) return item
+          // Apply updates to the matching item
+          return {
+            ...item,
+            ...(updates.tags !== undefined && { tags: updates.tags }),
+            ...(updates.title !== undefined && { title: updates.title }),
+            ...(updates.description !== undefined && { description: updates.description }),
+          }
+        }),
+      }
+    }
+  )
+
+  // Update all content list queries
+  queryClient.setQueriesData<ContentListResponse>(
+    { queryKey: contentKeys.lists() },
+    (old) => {
+      if (!old) return old
+      return {
+        ...old,
+        items: old.items.map((item) => {
+          if (!(item.type === 'note' && item.id === noteId)) return item
+          // Apply updates to the matching item
+          return {
+            ...item,
+            ...(updates.tags !== undefined && { tags: updates.tags }),
+            ...(updates.title !== undefined && { title: updates.title }),
+            ...(updates.description !== undefined && { description: updates.description }),
+          }
+        }),
+      }
+    }
+  )
+
+  return { previousNoteQueries, previousContentQueries }
+}
+
+/**
  * Hook for creating a new note.
  *
  * New notes are always active, so invalidates:
@@ -121,6 +189,7 @@ export function useCreateNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -129,27 +198,44 @@ export function useCreateNote() {
 /**
  * Hook for updating an existing note.
  *
- * Updates can affect active or archived notes, so invalidates:
- * - Active view queries
- * - Archived view queries
- * - Custom list queries (tag changes may affect list membership)
+ * Updates can affect active or archived notes:
+ * - Optimistically updates item in cache immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, and custom list queries
  */
 export function useUpdateNote() {
   const queryClient = useQueryClient()
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: NoteUpdate }): Promise<Note> => {
+    mutationFn: async ({ id, data }: { id: string; data: NoteUpdate }): Promise<Note> => {
       const response = await api.patch<Note>(`/notes/${id}`, data)
       return response.data
     },
-    onSuccess: () => {
+    onMutate: async ({ id, data }) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: noteKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically update the item in cache
+      return optimisticallyUpdateNote(queryClient, id, data)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: (_, __, { data }) => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
-      fetchTags()
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
+      // Only refresh tags if tags were modified (reduces flicker on save)
+      if ('tags' in data) {
+        fetchTags()
+      }
     },
   })
 }
@@ -172,7 +258,7 @@ export function useDeleteNote() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async ({ id, permanent = false }: { id: number; permanent?: boolean }): Promise<void> => {
+    mutationFn: async ({ id, permanent = false }: { id: string; permanent?: boolean }): Promise<void> => {
       const url = permanent ? `/notes/${id}?permanent=true` : `/notes/${id}`
       await api.delete(url)
     },
@@ -202,6 +288,7 @@ export function useDeleteNote() {
         queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
         queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       }
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -220,7 +307,7 @@ export function useRestoreNote() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Note> => {
+    mutationFn: async (id: string): Promise<Note> => {
       const response = await api.post<Note>(`/notes/${id}/restore`)
       return response.data
     },
@@ -243,6 +330,7 @@ export function useRestoreNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -261,7 +349,7 @@ export function useArchiveNote() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Note> => {
+    mutationFn: async (id: string): Promise<Note> => {
       const response = await api.post<Note>(`/notes/${id}/archive`)
       return response.data
     },
@@ -284,6 +372,7 @@ export function useArchiveNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -302,7 +391,7 @@ export function useUnarchiveNote() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Note> => {
+    mutationFn: async (id: string): Promise<Note> => {
       const response = await api.post<Note>(`/notes/${id}/unarchive`)
       return response.data
     },
@@ -325,6 +414,7 @@ export function useUnarchiveNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })

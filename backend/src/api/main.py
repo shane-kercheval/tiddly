@@ -11,8 +11,10 @@ from api.routers import (
     bookmarks,
     consent,
     content,
+    filters,
     health,
-    lists,
+    history,
+    mcp,
     notes,
     prompts,
     settings,
@@ -22,8 +24,10 @@ from api.routers import (
 )
 from core.auth_cache import AuthCache, set_auth_cache
 from core.config import get_settings
+from core.http_cache import ETagMiddleware
 from core.rate_limit_config import RateLimitExceededError
 from core.redis import RedisClient, set_redis_client
+from services.exceptions import FieldLimitExceededError, QuotaExceededError
 
 
 @asynccontextmanager
@@ -118,10 +122,48 @@ async def rate_limit_exception_handler(
     )
 
 
-# Rate limit headers middleware (runs first, adds headers to successful responses)
+@app.exception_handler(QuotaExceededError)
+async def quota_exceeded_exception_handler(
+    _request: Request, exc: QuotaExceededError,
+) -> JSONResponse:
+    """Handle quota exceeded errors with structured response."""
+    return JSONResponse(
+        status_code=402,
+        content={
+            "detail": str(exc),
+            "error_code": "QUOTA_EXCEEDED",
+            "resource": exc.resource,
+            "current": exc.current,
+            "limit": exc.limit,
+        },
+    )
+
+
+@app.exception_handler(FieldLimitExceededError)
+async def field_limit_exceeded_exception_handler(
+    _request: Request, exc: FieldLimitExceededError,
+) -> JSONResponse:
+    """Handle field length limit exceeded errors."""
+    return JSONResponse(
+        status_code=400,
+        content={
+            "detail": str(exc),
+            "error_code": "FIELD_LIMIT_EXCEEDED",
+            "field": exc.field,
+            "current": exc.current,
+            "limit": exc.limit,
+        },
+    )
+
+
+# Rate limit headers middleware (innermost, runs first on response)
 app.add_middleware(RateLimitHeadersMiddleware)
 
-# Security headers middleware (runs after CORS, adds headers to responses)
+# ETag middleware (generates ETags, returns 304 when content unchanged)
+# Added before SecurityHeadersMiddleware so 304 responses get security headers
+app.add_middleware(ETagMiddleware)
+
+# Security headers middleware (adds HSTS, X-Frame-Options, etc. to all responses)
 app.add_middleware(SecurityHeadersMiddleware)
 
 app.add_middleware(
@@ -141,5 +183,7 @@ app.include_router(prompts.router)
 app.include_router(content.router)
 app.include_router(tags.router)
 app.include_router(tokens.router)
-app.include_router(lists.router)
+app.include_router(filters.router)
 app.include_router(settings.router)
+app.include_router(history.router)
+app.include_router(mcp.router)

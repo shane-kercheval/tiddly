@@ -1,20 +1,18 @@
 """Tests for the Redis-based rate limiter module."""
 import time
+from uuid import uuid4
 
 from core.rate_limit_config import (
-    RATE_LIMITS,
-    AuthType,
     OperationType,
     RateLimitResult,
     get_operation_type,
 )
 from core.rate_limiter import check_rate_limit
 from core.redis import RedisClient
+from core.tier_limits import Tier, get_tier_limits
 
 # Reference configurations for cleaner tests
-PAT_READ_CONFIG = RATE_LIMITS[(AuthType.PAT, OperationType.READ)]
-AUTH0_READ_CONFIG = RATE_LIMITS[(AuthType.AUTH0, OperationType.READ)]
-AUTH0_SENSITIVE_CONFIG = RATE_LIMITS[(AuthType.AUTH0, OperationType.SENSITIVE)]
+FREE_LIMITS = get_tier_limits(Tier.FREE)
 
 
 class TestGetOperationType:
@@ -48,11 +46,10 @@ class TestCheckRateLimit:
         self, redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """Requests under the limit are allowed."""
-        # redis_client fixture sets global client via set_redis_client()
         result = await check_rate_limit(
-            user_id=1,
-            auth_type=AuthType.AUTH0,
+            user_id=uuid4(),
             operation_type=OperationType.READ,
+            tier=Tier.FREE,
         )
 
         assert result.allowed is True
@@ -62,11 +59,11 @@ class TestCheckRateLimit:
         self, redis_client: RedisClient,
     ) -> None:
         """Requests over the limit are blocked."""
-        user_id = 999  # Use unique user ID for isolation
-        limit = AUTH0_READ_CONFIG.requests_per_minute
+        user_id = uuid4()
+        limit = FREE_LIMITS.rate_read_per_minute
 
         # Fill up the limit by manually adding entries via sliding window
-        key = f"rate:{user_id}:auth0:read:min"
+        key = f"rate:{user_id}:read:min"
         now = int(time.time())
         for i in range(limit):
             await redis_client.evalsha(
@@ -82,8 +79,8 @@ class TestCheckRateLimit:
         # Next request should be blocked
         result = await check_rate_limit(
             user_id=user_id,
-            auth_type=AuthType.AUTH0,
             operation_type=OperationType.READ,
+            tier=Tier.FREE,
         )
 
         assert result.allowed is False
@@ -95,59 +92,66 @@ class TestCheckRateLimit:
     ) -> None:
         """Different users have separate rate limit buckets."""
         result1 = await check_rate_limit(
-            user_id=100,
-            auth_type=AuthType.AUTH0,
+            user_id=uuid4(),
             operation_type=OperationType.READ,
+            tier=Tier.FREE,
         )
         result2 = await check_rate_limit(
-            user_id=200,
-            auth_type=AuthType.AUTH0,
+            user_id=uuid4(),
             operation_type=OperationType.READ,
+            tier=Tier.FREE,
         )
 
         # Both should be allowed (separate buckets)
         assert result1.allowed is True
         assert result2.allowed is True
 
-    async def test__check__pat_and_auth0_use_configured_limits(
+    async def test__check__limits_match_tier_config(
         self, redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
-        """PAT and Auth0 use their respective configured limits."""
-        pat_result = await check_rate_limit(
-            user_id=1,
-            auth_type=AuthType.PAT,
+        """Rate limits match the tier configuration."""
+        read_result = await check_rate_limit(
+            user_id=uuid4(),
             operation_type=OperationType.READ,
+            tier=Tier.FREE,
         )
-        auth0_result = await check_rate_limit(
-            user_id=2,
-            auth_type=AuthType.AUTH0,
-            operation_type=OperationType.READ,
+        write_result = await check_rate_limit(
+            user_id=uuid4(),
+            operation_type=OperationType.WRITE,
+            tier=Tier.FREE,
+        )
+        sensitive_result = await check_rate_limit(
+            user_id=uuid4(),
+            operation_type=OperationType.SENSITIVE,
+            tier=Tier.FREE,
         )
 
-        # Verify limits match configuration
-        assert pat_result.limit == PAT_READ_CONFIG.requests_per_minute
-        assert auth0_result.limit == AUTH0_READ_CONFIG.requests_per_minute
+        assert read_result.limit == FREE_LIMITS.rate_read_per_minute
+        assert write_result.limit == FREE_LIMITS.rate_write_per_minute
+        assert sensitive_result.limit == FREE_LIMITS.rate_sensitive_per_minute
 
     async def test__check__sensitive_has_strictest_limits(
         self, redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """Sensitive operations have the strictest limits."""
         result = await check_rate_limit(
-            user_id=1,
-            auth_type=AuthType.AUTH0,
+            user_id=uuid4(),
             operation_type=OperationType.SENSITIVE,
+            tier=Tier.FREE,
         )
 
-        assert result.limit == AUTH0_SENSITIVE_CONFIG.requests_per_minute
+        assert result.limit == FREE_LIMITS.rate_sensitive_per_minute
+        assert result.limit < FREE_LIMITS.rate_read_per_minute
+        assert result.limit < FREE_LIMITS.rate_write_per_minute
 
     async def test__check__returns_rate_limit_info_for_headers(
         self, redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """Check returns all info needed for rate limit headers."""
         result = await check_rate_limit(
-            user_id=1,
-            auth_type=AuthType.AUTH0,
+            user_id=uuid4(),
             operation_type=OperationType.READ,
+            tier=Tier.FREE,
         )
 
         assert isinstance(result, RateLimitResult)
@@ -169,8 +173,8 @@ class TestDailyLimits:
         Scenario: User exhausts daily limit over multiple minute windows.
         Per-minute sliding window resets, but daily fixed window still blocks.
         """
-        user_id = 5000  # Unique user for isolation
-        daily_limit = AUTH0_READ_CONFIG.requests_per_day
+        user_id = uuid4()
+        daily_limit = FREE_LIMITS.rate_read_per_day
 
         # Pre-fill the daily limit directly using the fixed window key
         daily_key = f"rate:{user_id}:daily:general"
@@ -182,19 +186,18 @@ class TestDailyLimits:
                 1,
                 daily_key,
                 daily_limit,
-                86400,  # window (24 hours)
+                86400,
             )
 
         # The per-minute limit should still have room (we haven't used it)
         # But daily limit is exhausted, so request should be blocked
         result = await check_rate_limit(
             user_id=user_id,
-            auth_type=AuthType.AUTH0,
             operation_type=OperationType.READ,
+            tier=Tier.FREE,
         )
 
         assert result.allowed is False, "Should be blocked by daily limit"
-        # Daily limit retry_after should be much longer than minute limit
         assert result.retry_after > 60, "Daily retry_after should be > 60 seconds"
 
     async def test__check__general_and_sensitive_have_separate_daily_pools(
@@ -205,8 +208,8 @@ class TestDailyLimits:
 
         Exhausting general daily limit should not affect sensitive limit.
         """
-        user_id = 5001  # Unique user for isolation
-        daily_limit = AUTH0_READ_CONFIG.requests_per_day
+        user_id = uuid4()
+        daily_limit = FREE_LIMITS.rate_read_per_day
 
         # Exhaust the general daily pool (READ/WRITE share this)
         general_key = f"rate:{user_id}:daily:general"
@@ -222,16 +225,16 @@ class TestDailyLimits:
         # READ should be blocked (uses general pool)
         read_result = await check_rate_limit(
             user_id=user_id,
-            auth_type=AuthType.AUTH0,
             operation_type=OperationType.READ,
+            tier=Tier.FREE,
         )
         assert read_result.allowed is False, "READ should be blocked (general pool exhausted)"
 
         # SENSITIVE should still be allowed (separate pool)
         sensitive_result = await check_rate_limit(
             user_id=user_id,
-            auth_type=AuthType.AUTH0,
             operation_type=OperationType.SENSITIVE,
+            tier=Tier.FREE,
         )
         assert sensitive_result.allowed is True, "SENSITIVE should be allowed (separate pool)"
 
@@ -239,8 +242,8 @@ class TestDailyLimits:
         self, redis_client: RedisClient,
     ) -> None:
         """Exhausting sensitive daily limit does not affect general pool."""
-        user_id = 5002  # Unique user for isolation
-        sensitive_daily_limit = AUTH0_SENSITIVE_CONFIG.requests_per_day
+        user_id = uuid4()
+        sensitive_daily_limit = FREE_LIMITS.rate_sensitive_per_day
 
         # Exhaust the sensitive daily pool
         sensitive_key = f"rate:{user_id}:daily:sensitive"
@@ -256,16 +259,16 @@ class TestDailyLimits:
         # SENSITIVE should be blocked
         sensitive_result = await check_rate_limit(
             user_id=user_id,
-            auth_type=AuthType.AUTH0,
             operation_type=OperationType.SENSITIVE,
+            tier=Tier.FREE,
         )
         assert sensitive_result.allowed is False, "SENSITIVE should be blocked"
 
         # READ should still be allowed (general pool is separate)
         read_result = await check_rate_limit(
             user_id=user_id,
-            auth_type=AuthType.AUTH0,
             operation_type=OperationType.READ,
+            tier=Tier.FREE,
         )
         assert read_result.allowed is True, "READ should be allowed (general pool not affected)"
 
@@ -273,18 +276,16 @@ class TestDailyLimits:
         self, redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """Daily limit returns reset timestamp in the future (within 24 hours)."""
-        user_id = 5003
+        user_id = uuid4()
         now = int(time.time())
 
-        # Make a request to trigger daily limit tracking
         result = await check_rate_limit(
             user_id=user_id,
-            auth_type=AuthType.AUTH0,
             operation_type=OperationType.READ,
+            tier=Tier.FREE,
         )
 
         # Reset should be in the future but within 24 hours
-        # Note: The per-minute result is returned when both pass, so check that
         assert result.reset > now
         assert result.reset <= now + 86400, "Reset should be within 24 hours"
 
@@ -292,8 +293,8 @@ class TestDailyLimits:
         self, redis_client: RedisClient,
     ) -> None:
         """WRITE operations use the same 'general' daily pool as READ."""
-        user_id = 5004
-        daily_limit = AUTH0_READ_CONFIG.requests_per_day
+        user_id = uuid4()
+        daily_limit = FREE_LIMITS.rate_read_per_day
 
         # Exhaust general daily pool
         general_key = f"rate:{user_id}:daily:general"
@@ -309,8 +310,8 @@ class TestDailyLimits:
         # WRITE should be blocked (shares general pool with READ)
         write_result = await check_rate_limit(
             user_id=user_id,
-            auth_type=AuthType.AUTH0,
             operation_type=OperationType.WRITE,
+            tier=Tier.FREE,
         )
         assert write_result.allowed is False, "WRITE should be blocked (general pool exhausted)"
 
@@ -320,14 +321,13 @@ class TestRateLimiterFallback:
 
     async def test__check__allows_request_when_redis_unavailable(self) -> None:
         """Requests are allowed when Redis is unavailable (fail-open)."""
-        # Don't set up Redis client - it will be None
         from core.redis import set_redis_client
         set_redis_client(None)
 
         result = await check_rate_limit(
-            user_id=1,
-            auth_type=AuthType.AUTH0,
+            user_id=uuid4(),
             operation_type=OperationType.READ,
+            tier=Tier.FREE,
         )
 
         assert result.allowed is True
@@ -336,16 +336,15 @@ class TestRateLimiterFallback:
         """Requests are allowed when Redis is disabled (fail-open)."""
         from core.redis import set_redis_client
 
-        # Create a disabled Redis client
         disabled_client = RedisClient("redis://localhost:6379", enabled=False)
         await disabled_client.connect()
         set_redis_client(disabled_client)
 
         try:
             result = await check_rate_limit(
-                user_id=1,
-                auth_type=AuthType.AUTH0,
+                user_id=uuid4(),
                 operation_type=OperationType.READ,
+                tier=Tier.FREE,
             )
 
             assert result.allowed is True
@@ -361,24 +360,20 @@ class TestRateLimiterFallback:
 
         This handles the edge case where Redis connects but script loading fails.
         """
-        # Save original SHAs
         original_sliding = redis_client._sliding_window_sha
         original_fixed = redis_client._fixed_window_sha
 
-        # Simulate scripts not loaded
         redis_client._sliding_window_sha = None
         redis_client._fixed_window_sha = None
 
         try:
             result = await check_rate_limit(
-                user_id=1,
-                auth_type=AuthType.AUTH0,
+                user_id=uuid4(),
                 operation_type=OperationType.READ,
+                tier=Tier.FREE,
             )
 
-            # Should fail open
             assert result.allowed is True
         finally:
-            # Restore SHAs
             redis_client._sliding_window_sha = original_sliding
             redis_client._fixed_window_sha = original_fixed

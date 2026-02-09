@@ -14,6 +14,7 @@ interface TagFilterState {
 interface TagFilterActions {
   addTag: (tag: string) => void
   removeTag: (tag: string) => void
+  renameTag: (oldName: string, newName: string) => void
   setTags: (tags: string[]) => void
   setTagMatch: (match: TagMatchOption) => void
   clearFilters: () => void
@@ -37,6 +38,13 @@ export const useTagFilterStore = create<TagFilterStore>((set, get) => ({
   removeTag: (tag: string) => {
     const { selectedTags } = get()
     set({ selectedTags: selectedTags.filter((t) => t !== tag) })
+  },
+
+  renameTag: (oldName: string, newName: string) => {
+    const { selectedTags } = get()
+    if (selectedTags.includes(oldName)) {
+      set({ selectedTags: selectedTags.map((t) => (t === oldName ? newName : t)) })
+    }
   },
 
   setTags: (tags: string[]) => {

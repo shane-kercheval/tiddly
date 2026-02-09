@@ -2,6 +2,7 @@
  * Reusable modal dialog component.
  */
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 import { CloseIcon } from '../icons'
 
@@ -11,7 +12,7 @@ interface ModalProps {
   /** Called when the modal should close */
   onClose: () => void
   /** Modal title */
-  title: string
+  title: ReactNode
   /** Modal content */
   children: ReactNode
   /** Maximum width class (default: max-w-lg) */
@@ -30,6 +31,7 @@ interface ModalProps {
  * - Focus trap (focuses first input on open)
  * - Scroll lock when open
  * - ARIA attributes for accessibility
+ * - Portal rendering (renders at document.body to avoid DOM nesting issues)
  *
  * Note: Clicking outside does NOT close the modal to prevent accidental
  * data loss. Use Escape key or close button to dismiss.
@@ -66,18 +68,23 @@ export function Modal({
       firstInput?.focus()
     })
 
-    // Handle escape key
+    // Handle escape key - always stop propagation when modal is open to prevent
+    // other document-level listeners (like note/bookmark close handlers) from firing
     function handleKeyDown(e: KeyboardEvent): void {
-      if (e.key === 'Escape' && canClose) {
-        onClose()
+      if (e.key === 'Escape') {
+        e.stopImmediatePropagation()
+        if (canClose) {
+          onClose()
+        }
       }
     }
 
-    document.addEventListener('keydown', handleKeyDown)
+    // Use capture phase to ensure modal handles Escape before other listeners
+    document.addEventListener('keydown', handleKeyDown, true)
 
     return () => {
       document.body.style.overflow = ''
-      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('keydown', handleKeyDown, true)
       if (animationFrameId !== null) {
         cancelAnimationFrame(animationFrameId)
       }
@@ -91,7 +98,9 @@ export function Modal({
 
   if (!isOpen) return null
 
-  return (
+  // Use portal to render at document.body level, avoiding DOM nesting issues
+  // (e.g., nested forms, z-index problems, overflow clipping)
+  return createPortal(
     <div
       className="modal-backdrop"
       role="dialog"
@@ -99,26 +108,28 @@ export function Modal({
       aria-labelledby="modal-title"
     >
       <div ref={modalRef} className={`modal-content ${maxWidth}`}>
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+        {/* Header - fixed at top */}
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 flex-shrink-0">
           <h2 id="modal-title" className="text-lg font-semibold text-gray-900">
             {title}
           </h2>
-          <button
-            onClick={onClose}
-            disabled={!canClose}
-            className="btn-icon"
-            aria-label="Close"
-          >
-            <CloseIcon />
-          </button>
+          {canClose && (
+            <button
+              onClick={onClose}
+              className="btn-icon"
+              aria-label="Close"
+            >
+              <CloseIcon />
+            </button>
+          )}
         </div>
 
-        {/* Content */}
-        <div className={noPadding ? '' : 'px-6 py-4'}>
+        {/* Content - scrollable */}
+        <div className={`flex-1 min-h-0 overflow-y-auto ${noPadding ? '' : 'px-6 py-4'}`}>
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

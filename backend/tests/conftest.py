@@ -1,6 +1,7 @@
 """Pytest fixtures for testing."""
 import os
 from collections.abc import AsyncGenerator, Generator
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -15,7 +16,9 @@ from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
 from core.auth_cache import AuthCache, set_auth_cache
+from core.config import Settings
 from core.redis import RedisClient, set_redis_client
+from core.tier_limits import Tier, TierLimits, get_tier_limits
 from models.base import Base
 
 
@@ -105,6 +108,17 @@ async def db_session(db_connection: AsyncConnection) -> AsyncGenerator[AsyncSess
 
 
 @pytest.fixture
+def db_session_factory(db_connection: AsyncConnection) -> async_sessionmaker:
+    """Session factory bound to the test transaction for concurrent query tests."""
+    return async_sessionmaker(
+        bind=db_connection,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+
+
+@pytest.fixture
 async def redis_client(redis_container: RedisContainer) -> AsyncGenerator[RedisClient]:
     """Create a Redis client connected to the test container and set as global."""
     client = RedisClient(get_redis_url(redis_container))
@@ -126,6 +140,7 @@ async def redis_client(redis_container: RedisContainer) -> AsyncGenerator[RedisC
 @pytest.fixture
 async def client(
     db_session: AsyncSession,
+    db_session_factory: async_sessionmaker,
     redis_client: RedisClient,
 ) -> AsyncGenerator[AsyncClient]:
     """Create a test client with database session and Redis overrides."""
@@ -135,12 +150,15 @@ async def client(
     get_settings.cache_clear()
 
     from api.main import app
-    from db.session import get_async_session
+    from api.routers.mcp import get_concurrent_queries
+    from db.session import get_async_session, get_session_factory
 
     async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
 
     app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_session_factory] = lambda: db_session_factory
+    app.dependency_overrides[get_concurrent_queries] = lambda: False
 
     # Set the global Redis client and auth cache for the test
     # (redis_client fixture already sets these, but we ensure they're set here too)
@@ -157,3 +175,97 @@ async def client(
     app.dependency_overrides.clear()
     set_auth_cache(None)
     set_redis_client(None)
+
+
+@pytest.fixture
+async def rate_limit_client(
+    client: AsyncClient,
+) -> AsyncGenerator[AsyncClient]:
+    """
+    Wrap the standard test client to enable rate limiting.
+
+    The standard client uses dev_mode=True which bypasses rate limiting.
+    This fixture patches _apply_rate_limit to NOT skip rate limiting,
+    while keeping auth in dev mode (so dev user still works).
+    """
+    from core import auth
+
+    # Store the original function
+    original_apply_rate_limit = auth._apply_rate_limit
+
+    async def patched_apply_rate_limit(
+        user: object,
+        request: object,
+        settings: Settings,
+    ) -> None:
+        """Apply rate limiting even in dev mode."""
+        # Temporarily pretend we're not in dev mode for rate limiting
+        original_dev_mode = settings.dev_mode
+        try:
+            # Use object.__setattr__ to bypass frozen settings if needed
+            object.__setattr__(settings, "dev_mode", False)
+            await original_apply_rate_limit(user, request, settings)
+        finally:
+            object.__setattr__(settings, "dev_mode", original_dev_mode)
+
+    # Patch the function
+    auth._apply_rate_limit = patched_apply_rate_limit
+    try:
+        yield client
+    finally:
+        # Restore original
+        auth._apply_rate_limit = original_apply_rate_limit
+
+
+# Low limits for testing tier-based limits with small values
+LOW_TIER_LIMITS = TierLimits(
+    max_bookmarks=2,
+    max_notes=2,
+    max_prompts=2,
+    max_title_length=10,
+    max_description_length=50,
+    max_tag_name_length=10,
+    max_bookmark_content_length=100,
+    max_note_content_length=100,
+    max_prompt_content_length=100,
+    max_url_length=100,
+    max_prompt_name_length=10,
+    max_argument_name_length=10,
+    max_argument_description_length=20,
+    # Rate limits - low values for testing
+    rate_read_per_minute=5,
+    rate_read_per_day=20,
+    rate_write_per_minute=3,
+    rate_write_per_day=10,
+    rate_sensitive_per_minute=2,
+    rate_sensitive_per_day=5,
+    # History retention - low values for testing
+    history_retention_days=7,
+    max_history_per_entity=5,
+)
+
+
+@pytest.fixture
+def default_limits() -> TierLimits:
+    """
+    Get the default tier limits for testing.
+
+    Use this fixture when calling service methods that require a limits parameter
+    but you don't need to test limit enforcement.
+    """
+    return get_tier_limits(Tier.FREE)
+
+
+@pytest.fixture
+def low_limits() -> Generator[TierLimits]:
+    """
+    Override TIER_LIMITS with restrictive limits for testing.
+
+    Use this fixture to test quota and field limit enforcement without
+    depending on actual production limit values.
+    """
+    with patch.dict(
+        "core.tier_limits.TIER_LIMITS",
+        {Tier.FREE: LOW_TIER_LIMITS},
+    ):
+        yield LOW_TIER_LIMITS

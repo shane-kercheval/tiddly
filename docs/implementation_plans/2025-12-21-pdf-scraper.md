@@ -1,7 +1,6 @@
 # PDF Scraping Support Implementation Plan
 
 **Created**: 2025-12-21
-**Status**: Draft
 **Goal**: Enable the URL scraper to extract text content and metadata from PDF files (e.g., arxiv papers)
 
 ## Overview

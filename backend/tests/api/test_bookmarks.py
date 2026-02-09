@@ -1,6 +1,8 @@
 """Tests for bookmark CRUD endpoints."""
+import asyncio
 from datetime import datetime, UTC
 from unittest.mock import AsyncMock, patch
+from uuid import UUID
 
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -8,22 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
 from models.user import User
-from models.user_consent import UserConsent
 from services.url_scraper import ExtractedMetadata, ScrapedPage
 
-
-async def add_consent_for_user(db_session: AsyncSession, user: User) -> None:
-    """Add valid consent record for a user (required for non-dev mode tests)."""
-    from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
-
-    consent = UserConsent(
-        user_id=user.id,
-        consented_at=datetime.now(UTC),
-        privacy_policy_version=PRIVACY_POLICY_VERSION,
-        terms_of_service_version=TERMS_OF_SERVICE_VERSION,
-    )
-    db_session.add(consent)
-    await db_session.flush()
+from tests.api.conftest import add_consent_for_user
 
 
 async def test_create_bookmark(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -50,13 +39,13 @@ async def test_create_bookmark(client: AsyncClient, db_session: AsyncSession) ->
     assert data["summary"] is None  # AI summary not implemented yet
     assert data["deleted_at"] is None
     assert data["archived_at"] is None
-    assert isinstance(data["id"], int)
+    assert isinstance(data["id"], str)
     assert "created_at" in data
     assert "updated_at" in data
     assert "last_used_at" in data
 
     # Verify in database
-    result = await db_session.execute(select(Bookmark).where(Bookmark.id == data["id"]))
+    result = await db_session.execute(select(Bookmark).where(Bookmark.id == UUID(data["id"])))
     bookmark = result.scalar_one()
     assert bookmark.url == "https://example.com/"
     assert bookmark.title == "Example Site"
@@ -152,37 +141,6 @@ async def test_update_bookmark_clear_archived_at(client: AsyncClient) -> None:
     assert update_response.json()["archived_at"] is None
 
 
-async def test_get_archived_bookmark_by_id(client: AsyncClient) -> None:
-    """
-    Test that GET /bookmarks/{id} returns archived bookmarks.
-
-    This verifies the fix for the bug where editing an archived bookmark
-    would fail with 'Failed to load bookmark' because the endpoint
-    didn't include archived bookmarks.
-    """
-    from datetime import timedelta
-
-    # Create a bookmark with a past archived_at (immediately archived)
-    past_date = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
-    create_response = await client.post(
-        "/bookmarks/",
-        json={
-            "url": "https://archived-fetch.example.com",
-            "title": "Archived Bookmark",
-            "archived_at": past_date,
-        },
-    )
-    assert create_response.status_code == 201
-    bookmark_id = create_response.json()["id"]
-
-    # Fetch the archived bookmark by ID - this should succeed
-    get_response = await client.get(f"/bookmarks/{bookmark_id}")
-    assert get_response.status_code == 200
-    assert get_response.json()["id"] == bookmark_id
-    assert get_response.json()["title"] == "Archived Bookmark"
-    assert get_response.json()["archived_at"] is not None
-
-
 async def test_create_bookmark_with_content(
     client: AsyncClient,
     db_session: AsyncSession,
@@ -202,7 +160,7 @@ async def test_create_bookmark_with_content(
     assert data["content"] == "This is the article content for search."
 
     # Verify content is stored in database
-    result = await db_session.execute(select(Bookmark).where(Bookmark.id == data["id"]))
+    result = await db_session.execute(select(Bookmark).where(Bookmark.id == UUID(data["id"])))
     bookmark = result.scalar_one()
     assert bookmark.content == "This is the article content for search."
 
@@ -354,6 +312,45 @@ async def test_list_bookmarks_pagination(client: AsyncClient) -> None:
     assert data["total"] == 5
 
 
+async def test__list_bookmarks__returns_length_and_preview(client: AsyncClient) -> None:
+    """Test that list endpoint returns content_length and content_preview."""
+    content = "E" * 1000
+    await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://list-length-test.com",
+            "title": "List Length Test",
+            "content": content,
+        },
+    )
+
+    response = await client.get("/bookmarks/")
+    assert response.status_code == 200
+
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["content_length"] == 1000
+    assert items[0]["content_preview"] == "E" * 500
+    assert "content" not in items[0]
+
+
+async def test__list_bookmarks__null_content__returns_null_metrics(
+    client: AsyncClient,
+) -> None:
+    """Test that list endpoint returns null metrics when content is null."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://no-content-list.com", "title": "No Content"},
+    )
+
+    response = await client.get("/bookmarks/")
+    assert response.status_code == 200
+
+    items = response.json()["items"]
+    assert items[0]["content_length"] is None
+    assert items[0]["content_preview"] is None
+
+
 async def test_get_bookmark(client: AsyncClient) -> None:
     """Test getting a single bookmark."""
     # Create a bookmark
@@ -373,11 +370,122 @@ async def test_get_bookmark(client: AsyncClient) -> None:
     assert data["title"] == "Get Test"
 
 
-async def test_get_bookmark_not_found(client: AsyncClient) -> None:
-    """Test getting a non-existent bookmark returns 404."""
-    response = await client.get("/bookmarks/99999")
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Bookmark not found"
+async def test__get_bookmark__returns_full_content_and_length(client: AsyncClient) -> None:
+    """Test that GET /bookmarks/{id} returns full content and content_length."""
+    content = "This is the full content of the bookmark for testing."
+    create_response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://content-length-test.com",
+            "title": "Content Length Test",
+            "content": content,
+        },
+    )
+    bookmark_id = create_response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == content
+    assert data["content_length"] == len(content)
+    # content_preview should not be returned for full content endpoint
+    assert data.get("content_preview") is None
+
+
+async def test__get_bookmark_metadata__returns_length_and_preview_no_content(
+    client: AsyncClient,
+) -> None:
+    """Test that GET /bookmarks/{id}/metadata returns length and preview, no full content."""
+    content = "A" * 1000  # 1000 characters, longer than preview
+    create_response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://metadata-test.com",
+            "title": "Metadata Test",
+            "content": content,
+        },
+    )
+    bookmark_id = create_response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] == 1000
+    assert data["content_preview"] == "A" * 500  # First 500 chars
+    # Full content should NOT be returned
+    assert data.get("content") is None
+
+
+async def test__get_bookmark_metadata__content_under_500_chars__preview_equals_full(
+    client: AsyncClient,
+) -> None:
+    """Test that metadata endpoint preview equals full content when under 500 chars."""
+    content = "Short content for testing"
+    create_response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://short-content.com",
+            "title": "Short Content Test",
+            "content": content,
+        },
+    )
+    bookmark_id = create_response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] == len(content)
+    assert data["content_preview"] == content  # Preview equals full content
+
+
+async def test__get_bookmark_metadata__null_content__returns_null_metrics(
+    client: AsyncClient,
+) -> None:
+    """Test that metadata endpoint returns null metrics when content is null."""
+    create_response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://no-content.com",
+            "title": "No Content Test",
+        },
+    )
+    bookmark_id = create_response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}/metadata")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content_length"] is None
+    assert data["content_preview"] is None
+
+
+async def test__get_bookmark_metadata__start_line_returns_400(client: AsyncClient) -> None:
+    """Test that metadata endpoint returns 400 when start_line is provided."""
+    create_response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://line-param-test.com", "title": "Test"},
+    )
+    bookmark_id = create_response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}/metadata", params={"start_line": 1})
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
+
+
+async def test__get_bookmark_metadata__end_line_returns_400(client: AsyncClient) -> None:
+    """Test that metadata endpoint returns 400 when end_line is provided."""
+    create_response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://line-param-test2.com", "title": "Test"},
+    )
+    bookmark_id = create_response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}/metadata", params={"end_line": 10})
+    assert response.status_code == 400
+    assert "start_line/end_line" in response.json()["detail"]
 
 
 async def test_update_bookmark(client: AsyncClient) -> None:
@@ -459,34 +567,9 @@ async def test_update_bookmark_updates_updated_at(client: AsyncClient) -> None:
 async def test_update_bookmark_not_found(client: AsyncClient) -> None:
     """Test updating a non-existent bookmark returns 404."""
     response = await client.patch(
-        "/bookmarks/99999",
+        "/bookmarks/00000000-0000-0000-0000-000000000000",
         json={"title": "Won't Work"},
     )
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Bookmark not found"
-
-
-async def test_delete_bookmark(client: AsyncClient) -> None:
-    """Test deleting a bookmark."""
-    # Create a bookmark
-    create_response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://delete-test.com"},
-    )
-    bookmark_id = create_response.json()["id"]
-
-    # Delete it
-    response = await client.delete(f"/bookmarks/{bookmark_id}")
-    assert response.status_code == 204
-
-    # Verify it's gone
-    get_response = await client.get(f"/bookmarks/{bookmark_id}")
-    assert get_response.status_code == 404
-
-
-async def test_delete_bookmark_not_found(client: AsyncClient) -> None:
-    """Test deleting a non-existent bookmark returns 404."""
-    response = await client.delete("/bookmarks/99999")
     assert response.status_code == 404
     assert response.json()["detail"] == "Bookmark not found"
 
@@ -501,53 +584,53 @@ async def test_create_bookmark_invalid_url(client: AsyncClient) -> None:
 
 
 async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
-    """Test that title exceeding max length returns 422."""
-    from core.config import get_settings
+    """Test that title exceeding max length returns 400."""
+    from core.tier_limits import Tier, get_tier_limits
 
-    settings = get_settings()
-    long_title = "a" * (settings.max_title_length + 1)
+    limits = get_tier_limits(Tier.FREE)
+    long_title = "a" * (limits.max_title_length + 1)
 
     response = await client.post(
         "/bookmarks/",
         json={"url": "https://example.com", "title": long_title},
     )
-    assert response.status_code == 422
-    assert "exceeds maximum length" in response.text.lower()
+    assert response.status_code == 400
+    assert "exceeds limit" in response.text.lower()
 
 
 async def test_create_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
-    """Test that description exceeding max length returns 422."""
-    from core.config import get_settings
+    """Test that description exceeding max length returns 400."""
+    from core.tier_limits import Tier, get_tier_limits
 
-    settings = get_settings()
-    long_description = "a" * (settings.max_description_length + 1)
+    limits = get_tier_limits(Tier.FREE)
+    long_description = "a" * (limits.max_description_length + 1)
 
     response = await client.post(
         "/bookmarks/",
         json={"url": "https://example.com", "description": long_description},
     )
-    assert response.status_code == 422
-    assert "exceeds maximum length" in response.text.lower()
+    assert response.status_code == 400
+    assert "exceeds limit" in response.text.lower()
 
 
 async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
-    """Test that content exceeding max length returns 422."""
-    from core.config import get_settings
+    """Test that content exceeding max length returns 400."""
+    from core.tier_limits import Tier, get_tier_limits
 
-    settings = get_settings()
-    long_content = "a" * (settings.max_content_length + 1)
+    limits = get_tier_limits(Tier.FREE)
+    long_content = "a" * (limits.max_bookmark_content_length + 1)
 
     response = await client.post(
         "/bookmarks/",
         json={"url": "https://example.com", "content": long_content},
     )
-    assert response.status_code == 422
-    assert "exceeds maximum length" in response.text.lower()
+    assert response.status_code == 400
+    assert "exceeds limit" in response.text.lower()
 
 
 async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
-    """Test that updating with title exceeding max length returns 422."""
-    from core.config import get_settings
+    """Test that updating with title exceeding max length returns 400."""
+    from core.tier_limits import Tier, get_tier_limits
 
     # Create a valid bookmark first
     create_response = await client.post(
@@ -558,20 +641,20 @@ async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
     bookmark_id = create_response.json()["id"]
 
     # Try to update with oversized title
-    settings = get_settings()
-    long_title = "a" * (settings.max_title_length + 1)
+    limits = get_tier_limits(Tier.FREE)
+    long_title = "a" * (limits.max_title_length + 1)
 
     response = await client.patch(
         f"/bookmarks/{bookmark_id}",
         json={"title": long_title},
     )
-    assert response.status_code == 422
-    assert "exceeds maximum length" in response.text.lower()
+    assert response.status_code == 400
+    assert "exceeds limit" in response.text.lower()
 
 
 async def test_update_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
-    """Test that updating with description exceeding max length returns 422."""
-    from core.config import get_settings
+    """Test that updating with description exceeding max length returns 400."""
+    from core.tier_limits import Tier, get_tier_limits
 
     # Create a valid bookmark first
     create_response = await client.post(
@@ -582,20 +665,20 @@ async def test_update_bookmark_description_exceeds_max_length(client: AsyncClien
     bookmark_id = create_response.json()["id"]
 
     # Try to update with oversized description
-    settings = get_settings()
-    long_description = "a" * (settings.max_description_length + 1)
+    limits = get_tier_limits(Tier.FREE)
+    long_description = "a" * (limits.max_description_length + 1)
 
     response = await client.patch(
         f"/bookmarks/{bookmark_id}",
         json={"description": long_description},
     )
-    assert response.status_code == 422
-    assert "exceeds maximum length" in response.text.lower()
+    assert response.status_code == 400
+    assert "exceeds limit" in response.text.lower()
 
 
 async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
-    """Test that updating with content exceeding max length returns 422."""
-    from core.config import get_settings
+    """Test that updating with content exceeding max length returns 400."""
+    from core.tier_limits import Tier, get_tier_limits
 
     # Create a valid bookmark first
     create_response = await client.post(
@@ -606,40 +689,40 @@ async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -
     bookmark_id = create_response.json()["id"]
 
     # Try to update with oversized content
-    settings = get_settings()
-    long_content = "a" * (settings.max_content_length + 1)
+    limits = get_tier_limits(Tier.FREE)
+    long_content = "a" * (limits.max_bookmark_content_length + 1)
 
     response = await client.patch(
         f"/bookmarks/{bookmark_id}",
         json={"content": long_content},
     )
-    assert response.status_code == 422
-    assert "exceeds maximum length" in response.text.lower()
+    assert response.status_code == 400
+    assert "exceeds limit" in response.text.lower()
 
 
 async def test_create_bookmark_fields_at_max_length_succeeds(client: AsyncClient) -> None:
     """Test that fields exactly at max length are accepted."""
-    from core.config import get_settings
+    from core.tier_limits import Tier, get_tier_limits
 
-    settings = get_settings()
+    limits = get_tier_limits(Tier.FREE)
 
     response = await client.post(
         "/bookmarks/",
         json={
             "url": "https://example.com",
-            "title": "a" * settings.max_title_length,
-            "description": "b" * settings.max_description_length,
+            "title": "a" * limits.max_title_length,
+            "description": "b" * limits.max_description_length,
             # Note: not testing max content length here as it's 512KB
         },
     )
     assert response.status_code == 201
     data = response.json()
-    assert len(data["title"]) == settings.max_title_length
-    assert len(data["description"]) == settings.max_description_length
+    assert len(data["title"]) == limits.max_title_length
+    assert len(data["description"]) == limits.max_description_length
 
 
 # =============================================================================
-# Search and Filtering Tests (Milestone 5)
+# Search and Filtering Tests
 # =============================================================================
 
 
@@ -728,7 +811,6 @@ async def test_search_by_content(
 ) -> None:
     """Test text search finds bookmarks by content field."""
     from models.bookmark import Bookmark
-    from models.user import User
     from sqlalchemy import select
 
     # First make an API call to ensure dev user exists
@@ -1213,7 +1295,6 @@ async def test_search_by_summary(
 ) -> None:
     """Test text search finds bookmarks by summary field (Phase 2 preparation)."""
     from models.bookmark import Bookmark
-    from models.user import User
     from sqlalchemy import select
 
     # First make an API call to ensure dev user exists
@@ -1244,7 +1325,7 @@ async def test_search_by_summary(
 
 
 # =============================================================================
-# Metadata Preview Endpoint Tests (Milestone 7)
+# Metadata Endpoint Tests
 # =============================================================================
 
 
@@ -1432,7 +1513,7 @@ async def test_fetch_metadata_requires_auth(client: AsyncClient) -> None:
     assert response.status_code == 200
 
 
-async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
+async def test_fetch_metadata_rate_limited(rate_limit_client: AsyncClient) -> None:
     """Test that fetch-metadata endpoint returns 429 when rate limit exceeded."""
     import time
 
@@ -1448,7 +1529,7 @@ async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
 
     # Mock the rate limiter to simulate rate limit exceeded
     async def mock_check(
-        _user_id: int, _auth_type: object, _operation_type: object,
+        _user_id: object, _operation_type: object, _tier: object,
     ) -> RateLimitResult:
         return RateLimitResult(
             allowed=False,
@@ -1466,7 +1547,7 @@ async def test_fetch_metadata_rate_limited(client: AsyncClient) -> None:
         'core.auth.check_rate_limit',
         side_effect=mock_check,
     ):
-        response = await client.get(
+        response = await rate_limit_client.get(
             "/bookmarks/fetch-metadata",
             params={"url": "https://example.com/page-over-limit"},
         )
@@ -1661,7 +1742,6 @@ async def test_different_users_can_have_same_url(
 ) -> None:
     """Test that different users can bookmark the same URL."""
     from models.bookmark import Bookmark
-    from models.user import User
 
     # Create bookmark via API (dev user)
     response = await client.post(
@@ -1693,196 +1773,8 @@ async def test_different_users_can_have_same_url(
 
 
 # =============================================================================
-# Soft Delete and Permanent Delete Tests
+# Restore Endpoint Tests (bookmark-specific)
 # =============================================================================
-
-
-async def test_delete_bookmark_soft_delete_hides_from_list(client: AsyncClient) -> None:
-    """Test that soft delete hides bookmark from list but keeps it in DB."""
-    # Create a bookmark
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://soft-delete-test.com", "title": "To Delete"},
-    )
-    assert response.status_code == 201
-    bookmark_id = response.json()["id"]
-
-    # Delete it (soft delete by default)
-    response = await client.delete(f"/bookmarks/{bookmark_id}")
-    assert response.status_code == 204
-
-    # Should not appear in list
-    response = await client.get("/bookmarks/")
-    assert response.status_code == 200
-    items = response.json()["items"]
-    assert not any(b["id"] == bookmark_id for b in items)
-
-
-async def test_delete_bookmark_soft_delete_visible_in_deleted_view(
-    client: AsyncClient,
-) -> None:
-    """Test that soft-deleted bookmark appears in deleted view."""
-    # Create a bookmark
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://deleted-view-test.com", "title": "To Delete"},
-    )
-    assert response.status_code == 201
-    bookmark_id = response.json()["id"]
-
-    # Delete it
-    response = await client.delete(f"/bookmarks/{bookmark_id}")
-    assert response.status_code == 204
-
-    # Should appear in deleted view
-    response = await client.get("/bookmarks/?view=deleted")
-    assert response.status_code == 200
-    items = response.json()["items"]
-    assert any(b["id"] == bookmark_id for b in items)
-
-
-async def test_delete_bookmark_permanent_removes_from_db(
-    client: AsyncClient,
-) -> None:
-    """Test that permanent delete removes bookmark from database."""
-    # Create and soft-delete a bookmark
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://permanent-delete-test.com", "title": "To Delete"},
-    )
-    assert response.status_code == 201
-    bookmark_id = response.json()["id"]
-
-    response = await client.delete(f"/bookmarks/{bookmark_id}")
-    assert response.status_code == 204
-
-    # Permanently delete
-    response = await client.delete(f"/bookmarks/{bookmark_id}?permanent=true")
-    assert response.status_code == 204
-
-    # Should not appear in any view
-    response = await client.get("/bookmarks/?view=deleted")
-    assert response.status_code == 200
-    items = response.json()["items"]
-    assert not any(b["id"] == bookmark_id for b in items)
-
-
-# =============================================================================
-# View Filter Tests
-# =============================================================================
-
-
-async def test_list_bookmarks_view_active_excludes_deleted_and_archived(
-    client: AsyncClient,
-) -> None:
-    """Test that view=active excludes deleted and archived bookmarks."""
-    # Create three bookmarks
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://active-view-1.com", "title": "Active"},
-    )
-    assert response.status_code == 201
-
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://active-view-2.com", "title": "To Archive"},
-    )
-    assert response.status_code == 201
-    archived_id = response.json()["id"]
-
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://active-view-3.com", "title": "To Delete"},
-    )
-    assert response.status_code == 201
-    deleted_id = response.json()["id"]
-
-    # Archive and delete
-    await client.post(f"/bookmarks/{archived_id}/archive")
-    await client.delete(f"/bookmarks/{deleted_id}")
-
-    # Active view should only show the first bookmark
-    response = await client.get("/bookmarks/?view=active")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["total"] == 1
-    assert data["items"][0]["title"] == "Active"
-
-
-async def test_list_bookmarks_view_archived_returns_only_archived(
-    client: AsyncClient,
-) -> None:
-    """Test that view=archived returns only archived (not deleted) bookmarks."""
-    # Create and archive a bookmark
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://archived-view-test.com", "title": "Archived"},
-    )
-    assert response.status_code == 201
-    bookmark_id = response.json()["id"]
-
-    await client.post(f"/bookmarks/{bookmark_id}/archive")
-
-    # Archived view should show it
-    response = await client.get("/bookmarks/?view=archived")
-    assert response.status_code == 200
-    data = response.json()
-    assert any(b["id"] == bookmark_id for b in data["items"])
-
-
-async def test_list_bookmarks_view_with_search_filter(client: AsyncClient) -> None:
-    """Test that search query works with view parameter."""
-    # Create two bookmarks, archive one
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://python-active.com", "title": "Python Active"},
-    )
-    assert response.status_code == 201
-
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://python-archived.com", "title": "Python Archived"},
-    )
-    assert response.status_code == 201
-    archived_id = response.json()["id"]
-
-    await client.post(f"/bookmarks/{archived_id}/archive")
-
-    # Search for "Python" in archived view
-    response = await client.get("/bookmarks/?view=archived&q=Python")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["total"] == 1
-    assert data["items"][0]["title"] == "Python Archived"
-
-
-# =============================================================================
-# Restore Endpoint Tests
-# =============================================================================
-
-
-async def test_restore_bookmark_success(client: AsyncClient) -> None:
-    """Test that restore endpoint restores a deleted bookmark."""
-    # Create and delete a bookmark
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://restore-test.com", "title": "To Restore"},
-    )
-    assert response.status_code == 201
-    bookmark_id = response.json()["id"]
-
-    await client.delete(f"/bookmarks/{bookmark_id}")
-
-    # Restore it
-    response = await client.post(f"/bookmarks/{bookmark_id}/restore")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["id"] == bookmark_id
-    assert data["deleted_at"] is None
-
-    # Should appear in active list again
-    response = await client.get("/bookmarks/")
-    assert any(b["id"] == bookmark_id for b in response.json()["items"])
 
 
 async def test_restore_bookmark_clears_both_timestamps(client: AsyncClient) -> None:
@@ -1904,22 +1796,6 @@ async def test_restore_bookmark_clears_both_timestamps(client: AsyncClient) -> N
     data = response.json()
     assert data["deleted_at"] is None
     assert data["archived_at"] is None
-
-
-async def test_restore_bookmark_not_deleted_returns_400(client: AsyncClient) -> None:
-    """Test that restoring a non-deleted bookmark returns 400."""
-    # Create a bookmark (not deleted)
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://not-deleted-test.com", "title": "Not Deleted"},
-    )
-    assert response.status_code == 201
-    bookmark_id = response.json()["id"]
-
-    # Try to restore
-    response = await client.post(f"/bookmarks/{bookmark_id}/restore")
-    assert response.status_code == 400
-    assert "not deleted" in response.json()["detail"]
 
 
 async def test_restore_bookmark_url_conflict_returns_409(client: AsyncClient) -> None:
@@ -1944,111 +1820,6 @@ async def test_restore_bookmark_url_conflict_returns_409(client: AsyncClient) ->
     # Try to restore the first one
     response = await client.post(f"/bookmarks/{first_id}/restore")
     assert response.status_code == 409
-
-
-async def test_restore_bookmark_not_found_returns_404(client: AsyncClient) -> None:
-    """Test that restoring a non-existent bookmark returns 404."""
-    response = await client.post("/bookmarks/99999/restore")
-    assert response.status_code == 404
-
-
-# =============================================================================
-# Archive Endpoint Tests
-# =============================================================================
-
-
-async def test_archive_bookmark_success(client: AsyncClient) -> None:
-    """Test that archive endpoint archives a bookmark."""
-    # Create a bookmark
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://archive-test.com", "title": "To Archive"},
-    )
-    assert response.status_code == 201
-    bookmark_id = response.json()["id"]
-
-    # Archive it
-    response = await client.post(f"/bookmarks/{bookmark_id}/archive")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["archived_at"] is not None
-
-    # Should not appear in active list
-    response = await client.get("/bookmarks/")
-    assert not any(b["id"] == bookmark_id for b in response.json()["items"])
-
-
-async def test_archive_bookmark_is_idempotent(client: AsyncClient) -> None:
-    """Test that archiving an already-archived bookmark returns 200."""
-    # Create and archive a bookmark
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://archive-idempotent.com", "title": "To Archive"},
-    )
-    assert response.status_code == 201
-    bookmark_id = response.json()["id"]
-
-    await client.post(f"/bookmarks/{bookmark_id}/archive")
-
-    # Archive again - should succeed
-    response = await client.post(f"/bookmarks/{bookmark_id}/archive")
-    assert response.status_code == 200
-
-
-async def test_archive_bookmark_not_found_returns_404(client: AsyncClient) -> None:
-    """Test that archiving a non-existent bookmark returns 404."""
-    response = await client.post("/bookmarks/99999/archive")
-    assert response.status_code == 404
-
-
-# =============================================================================
-# Unarchive Endpoint Tests
-# =============================================================================
-
-
-async def test_unarchive_bookmark_success(client: AsyncClient) -> None:
-    """Test that unarchive endpoint unarchives a bookmark."""
-    # Create and archive a bookmark
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://unarchive-test.com", "title": "To Unarchive"},
-    )
-    assert response.status_code == 201
-    bookmark_id = response.json()["id"]
-
-    await client.post(f"/bookmarks/{bookmark_id}/archive")
-
-    # Unarchive it
-    response = await client.post(f"/bookmarks/{bookmark_id}/unarchive")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["archived_at"] is None
-
-    # Should appear in active list again
-    response = await client.get("/bookmarks/")
-    assert any(b["id"] == bookmark_id for b in response.json()["items"])
-
-
-async def test_unarchive_bookmark_not_archived_returns_400(client: AsyncClient) -> None:
-    """Test that unarchiving a non-archived bookmark returns 400."""
-    # Create a bookmark (not archived)
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://not-archived-test.com", "title": "Not Archived"},
-    )
-    assert response.status_code == 201
-    bookmark_id = response.json()["id"]
-
-    # Try to unarchive
-    response = await client.post(f"/bookmarks/{bookmark_id}/unarchive")
-    assert response.status_code == 400
-    assert "not archived" in response.json()["detail"]
-
-
-async def test_unarchive_bookmark_not_found_returns_404(client: AsyncClient) -> None:
-    """Test that unarchiving a non-existent bookmark returns 404."""
-    response = await client.post("/bookmarks/99999/unarchive")
-    assert response.status_code == 404
 
 
 # =============================================================================
@@ -2138,7 +1909,6 @@ async def test_user_cannot_see_other_users_bookmarks_in_list(
     from api.main import app
     from core.config import Settings, get_settings
     from db.session import get_async_session
-    from models.user import User
     from services.token_service import create_token
     from schemas.token import TokenCreate
 
@@ -2202,7 +1972,6 @@ async def test_user_cannot_get_other_users_bookmark_by_id(
     from api.main import app
     from core.config import Settings, get_settings
     from db.session import get_async_session
-    from models.user import User
     from services.token_service import create_token
     from schemas.token import TokenCreate
 
@@ -2263,7 +2032,6 @@ async def test_user_cannot_update_other_users_bookmark(
     from api.main import app
     from core.config import Settings, get_settings
     from db.session import get_async_session
-    from models.user import User
     from services.token_service import create_token
     from schemas.token import TokenCreate
 
@@ -2334,7 +2102,6 @@ async def test_user_cannot_delete_other_users_bookmark(
     from api.main import app
     from core.config import Settings, get_settings
     from db.session import get_async_session
-    from models.user import User
     from services.token_service import create_token
     from schemas.token import TokenCreate
 
@@ -2391,93 +2158,78 @@ async def test_user_cannot_delete_other_users_bookmark(
     assert bookmark.deleted_at is None  # Not soft-deleted either
 
 
-# =============================================================================
-# Track Usage Endpoint Tests
-# =============================================================================
-
-
-async def test_track_bookmark_usage_success(
+async def test_user_cannot_str_replace_other_users_bookmark(
     client: AsyncClient,
+    db_session: AsyncSession,
 ) -> None:
-    """Test that POST /bookmarks/{id}/track-usage returns 204 and updates timestamp."""
-    # Create a bookmark
+    """Test that a user cannot str-replace another user's bookmark (returns 404)."""
+    from collections.abc import AsyncGenerator
+
+    from httpx import ASGITransport
+
+    from api.main import app
+    from core.config import Settings, get_settings
+    from db.session import get_async_session
+    from services.token_service import create_token
+    from schemas.token import TokenCreate
+
+    # Create a bookmark as the dev user with content
     response = await client.post(
         "/bookmarks/",
-        json={"url": "https://track-usage-test.com", "title": "Track Me"},
+        json={
+            "url": "https://user1-str-replace-test.com",
+            "title": "Test",
+            "content": "Original content that should not be modified",
+        },
     )
     assert response.status_code == 201
-    bookmark_id = response.json()["id"]
-    original_last_used = response.json()["last_used_at"]
+    user1_bookmark_id = response.json()["id"]
 
-    # Track usage
-    response = await client.post(f"/bookmarks/{bookmark_id}/track-usage")
-    assert response.status_code == 204
+    # Create a second user and a PAT for them
+    user2 = User(auth0_id="auth0|user2-str-replace-test", email="user2-str-replace@example.com")
+    db_session.add(user2)
+    await db_session.flush()
 
-    # Verify timestamp was updated
-    response = await client.get(f"/bookmarks/{bookmark_id}")
-    assert response.status_code == 200
-    assert response.json()["last_used_at"] > original_last_used
+    # Add consent for user2 (required when dev_mode=False)
+    await add_consent_for_user(db_session, user2)
 
-
-async def test_track_bookmark_usage_not_found(client: AsyncClient) -> None:
-    """Test that POST /bookmarks/{id}/track-usage returns 404 for non-existent bookmark."""
-    response = await client.post("/bookmarks/99999/track-usage")
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Bookmark not found"
-
-
-async def test_track_bookmark_usage_works_on_archived(
-    client: AsyncClient,
-) -> None:
-    """Test that track-usage works on archived bookmarks."""
-    # Create and archive a bookmark
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://archived-track.com", "title": "Archived"},
+    _, user2_token = await create_token(
+        db_session, user2.id, TokenCreate(name="Test Token"),
     )
-    assert response.status_code == 201
-    bookmark_id = response.json()["id"]
+    await db_session.flush()
 
-    response = await client.post(f"/bookmarks/{bookmark_id}/archive")
-    assert response.status_code == 200
-    original_last_used = response.json()["last_used_at"]
+    get_settings.cache_clear()
 
-    # Track usage on archived bookmark
-    response = await client.post(f"/bookmarks/{bookmark_id}/track-usage")
-    assert response.status_code == 204
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
 
-    # Verify via archived view
-    response = await client.get("/bookmarks/?view=archived")
-    assert response.status_code == 200
-    archived = next(b for b in response.json()["items"] if b["id"] == bookmark_id)
-    assert archived["last_used_at"] > original_last_used
+    def override_get_settings() -> Settings:
+        return Settings(database_url="postgresql://test", dev_mode=False)
 
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
 
-async def test_track_bookmark_usage_works_on_deleted(
-    client: AsyncClient,
-) -> None:
-    """Test that track-usage works on soft-deleted bookmarks."""
-    # Create and delete a bookmark
-    response = await client.post(
-        "/bookmarks/",
-        json={"url": "https://deleted-track.com", "title": "Deleted"},
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user2_token}"},
+    ) as user2_client:
+        # Try to str-replace user1's bookmark - should get 404
+        response = await user2_client.patch(
+            f"/bookmarks/{user1_bookmark_id}/str-replace",
+            json={"old_str": "Original", "new_str": "HACKED"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Bookmark not found"
+
+    app.dependency_overrides.clear()
+
+    # Verify the bookmark content was not modified via database query
+    result = await db_session.execute(
+        select(Bookmark).where(Bookmark.id == user1_bookmark_id),
     )
-    assert response.status_code == 201
-    bookmark_id = response.json()["id"]
-    original_last_used = response.json()["last_used_at"]
-
-    response = await client.delete(f"/bookmarks/{bookmark_id}")
-    assert response.status_code == 204
-
-    # Track usage on deleted bookmark
-    response = await client.post(f"/bookmarks/{bookmark_id}/track-usage")
-    assert response.status_code == 204
-
-    # Verify via deleted view
-    response = await client.get("/bookmarks/?view=deleted")
-    assert response.status_code == 200
-    deleted = next(b for b in response.json()["items"] if b["id"] == bookmark_id)
-    assert deleted["last_used_at"] > original_last_used
+    bookmark = result.scalar_one()
+    assert bookmark.content == "Original content that should not be modified"
 
 
 # =============================================================================
@@ -2517,8 +2269,8 @@ async def test_list_bookmarks_includes_last_used_at(client: AsyncClient) -> None
 # =============================================================================
 
 
-async def test_list_bookmarks_with_list_id(client: AsyncClient) -> None:
-    """Test filtering bookmarks by list_id parameter."""
+async def test_list_bookmarks_with_filter_id(client: AsyncClient) -> None:
+    """Test filtering bookmarks by filter_id parameter."""
     # Create bookmarks with different tags
     await client.post(
         "/bookmarks/",
@@ -2535,7 +2287,7 @@ async def test_list_bookmarks_with_list_id(client: AsyncClient) -> None:
 
     # Create a list that filters for work AND priority
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Work Priority List",
             "filter_expression": {
@@ -2545,10 +2297,10 @@ async def test_list_bookmarks_with_list_id(client: AsyncClient) -> None:
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
-    # Filter bookmarks by list_id
-    response = await client.get(f"/bookmarks/?list_id={list_id}")
+    # Filter bookmarks by filter_id
+    response = await client.get(f"/bookmarks/?filter_id={filter_id}")
     assert response.status_code == 200
 
     data = response.json()
@@ -2556,7 +2308,7 @@ async def test_list_bookmarks_with_list_id(client: AsyncClient) -> None:
     assert data["items"][0]["title"] == "Work Priority"
 
 
-async def test_list_bookmarks_with_list_id_complex_filter(client: AsyncClient) -> None:
+async def test_list_bookmarks_with_filter_id_complex_filter(client: AsyncClient) -> None:
     """Test filtering with complex list expression: (work AND priority) OR (urgent)."""
     # Create bookmarks
     await client.post(
@@ -2574,7 +2326,7 @@ async def test_list_bookmarks_with_list_id_complex_filter(client: AsyncClient) -
 
     # Create a list with complex filter
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Priority Tasks",
             "filter_expression": {
@@ -2587,10 +2339,10 @@ async def test_list_bookmarks_with_list_id_complex_filter(client: AsyncClient) -
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
-    # Filter bookmarks by list_id
-    response = await client.get(f"/bookmarks/?list_id={list_id}")
+    # Filter bookmarks by filter_id
+    response = await client.get(f"/bookmarks/?filter_id={filter_id}")
     assert response.status_code == 200
 
     data = response.json()
@@ -2601,15 +2353,15 @@ async def test_list_bookmarks_with_list_id_complex_filter(client: AsyncClient) -
     assert "Personal" not in titles
 
 
-async def test_list_bookmarks_with_list_id_not_found(client: AsyncClient) -> None:
-    """Test that non-existent list_id returns 404."""
-    response = await client.get("/bookmarks/?list_id=99999")
+async def test_list_bookmarks_with_filter_id_not_found(client: AsyncClient) -> None:
+    """Test that non-existent filter_id returns 404."""
+    response = await client.get("/bookmarks/?filter_id=00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
-    assert response.json()["detail"] == "List not found"
+    assert response.json()["detail"] == "Filter not found"
 
 
-async def test_list_bookmarks_with_list_id_and_search(client: AsyncClient) -> None:
-    """Test combining list_id filter with text search."""
+async def test_list_bookmarks_with_filter_id_and_search(client: AsyncClient) -> None:
+    """Test combining filter_id filter with text search."""
     # Create bookmarks
     await client.post(
         "/bookmarks/",
@@ -2626,7 +2378,7 @@ async def test_list_bookmarks_with_list_id_and_search(client: AsyncClient) -> No
 
     # Create a list for work+coding
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Work Coding",
             "filter_expression": {
@@ -2636,10 +2388,10 @@ async def test_list_bookmarks_with_list_id_and_search(client: AsyncClient) -> No
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
     # Filter by list AND search for "Python"
-    response = await client.get(f"/bookmarks/?list_id={list_id}&q=python")
+    response = await client.get(f"/bookmarks/?filter_id={filter_id}&q=python")
     assert response.status_code == 200
 
     data = response.json()
@@ -2647,8 +2399,8 @@ async def test_list_bookmarks_with_list_id_and_search(client: AsyncClient) -> No
     assert data["items"][0]["title"] == "Python Work"
 
 
-async def test_list_bookmarks_list_id_combines_with_tags(client: AsyncClient) -> None:
-    """Test that list_id filter and tags parameter are combined with AND logic."""
+async def test_list_bookmarks_filter_id_combines_with_tags(client: AsyncClient) -> None:
+    """Test that filter_id filter and tags parameter are combined with AND logic."""
     # Create bookmarks
     await client.post(
         "/bookmarks/",
@@ -2665,7 +2417,7 @@ async def test_list_bookmarks_list_id_combines_with_tags(client: AsyncClient) ->
 
     # Create a list for work
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Work List",
             "filter_expression": {
@@ -2675,10 +2427,10 @@ async def test_list_bookmarks_list_id_combines_with_tags(client: AsyncClient) ->
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
-    # Pass both list_id AND tags - should combine with AND logic
-    response = await client.get(f"/bookmarks/?list_id={list_id}&tags=urgent")
+    # Pass both filter_id AND tags - should combine with AND logic
+    response = await client.get(f"/bookmarks/?filter_id={filter_id}&tags=urgent")
     assert response.status_code == 200
 
     data = response.json()
@@ -2687,7 +2439,7 @@ async def test_list_bookmarks_list_id_combines_with_tags(client: AsyncClient) ->
     assert data["items"][0]["title"] == "Work Urgent"
 
 
-async def test_list_bookmarks_list_id_and_tags_no_overlap(client: AsyncClient) -> None:
+async def test_list_bookmarks_filter_id_and_tags_no_overlap(client: AsyncClient) -> None:
     """Test that combining list filter and tags with no overlap returns empty."""
     # Bookmark in work list
     await client.post(
@@ -2702,23 +2454,23 @@ async def test_list_bookmarks_list_id_and_tags_no_overlap(client: AsyncClient) -
 
     # Create work list
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Work",
             "filter_expression": {"groups": [{"tags": ["work"]}], "group_operator": "OR"},
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
     # Filter work list by 'personal' tag - no bookmark has both
-    response = await client.get(f"/bookmarks/?list_id={list_id}&tags=personal")
+    response = await client.get(f"/bookmarks/?filter_id={filter_id}&tags=personal")
     assert response.status_code == 200
     assert response.json()["total"] == 0
 
 
-async def test_list_bookmarks_list_id_empty_results(client: AsyncClient) -> None:
-    """Test list_id filter with no matching bookmarks."""
+async def test_list_bookmarks_filter_id_empty_results(client: AsyncClient) -> None:
+    """Test filter_id filter with no matching bookmarks."""
     # Create a bookmark
     await client.post(
         "/bookmarks/",
@@ -2727,7 +2479,7 @@ async def test_list_bookmarks_list_id_empty_results(client: AsyncClient) -> None
 
     # Create a list for non-existent tags
     response = await client.post(
-        "/lists/",
+        "/filters/",
         json={
             "name": "Empty List",
             "filter_expression": {
@@ -2737,10 +2489,10 @@ async def test_list_bookmarks_list_id_empty_results(client: AsyncClient) -> None
         },
     )
     assert response.status_code == 201
-    list_id = response.json()["id"]
+    filter_id = response.json()["id"]
 
     # Filter by list - should return empty
-    response = await client.get(f"/bookmarks/?list_id={list_id}")
+    response = await client.get(f"/bookmarks/?filter_id={filter_id}")
     assert response.status_code == 200
 
     data = response.json()
@@ -2899,3 +2651,651 @@ async def test_sort_by_deleted_at_asc(client: AsyncClient) -> None:
     # First deleted should come first (least recent)
     ids = [b["id"] for b in data["items"]]
     assert ids.index(first_id) < ids.index(second_id)
+
+
+# =============================================================================
+# Partial Read Tests
+# =============================================================================
+
+
+async def test__get_bookmark__full_read_includes_content_metadata(client: AsyncClient) -> None:
+    """Test that full read includes content_metadata with is_partial=false."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://partial-test.com", "content": "line 1\nline 2\nline 3"},
+    )
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 1\nline 2\nline 3"
+    assert data["content_metadata"] is not None
+    assert data["content_metadata"]["total_lines"] == 3
+    assert data["content_metadata"]["is_partial"] is False
+
+
+async def test__get_bookmark__partial_read_with_both_params(client: AsyncClient) -> None:
+    """Test partial read with start_line and end_line."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://partial-test2.com", "content": "line 1\nline 2\nline 3\nline 4"},
+    )
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}",
+        params={"start_line": 2, "end_line": 3},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["content"] == "line 2\nline 3"
+    assert data["content_metadata"]["total_lines"] == 4
+    assert data["content_metadata"]["start_line"] == 2
+    assert data["content_metadata"]["end_line"] == 3
+    assert data["content_metadata"]["is_partial"] is True
+
+
+async def test__get_bookmark__null_content_with_line_params_returns_400(
+    client: AsyncClient,
+) -> None:
+    """Test that null content with line params returns 400."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://no-content.com"},  # No content
+    )
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}", params={"start_line": 1})
+    assert response.status_code == 400
+    assert "Content is empty" in response.json()["detail"]
+
+
+async def test__get_bookmark__start_line_exceeds_total_returns_400(client: AsyncClient) -> None:
+    """Test that start_line > total_lines returns 400."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://partial-test3.com", "content": "line 1\nline 2"},
+    )
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}", params={"start_line": 10})
+    assert response.status_code == 400
+    assert "exceeds total lines" in response.json()["detail"]
+
+
+# =============================================================================
+# Within-Content Search Tests
+# =============================================================================
+
+
+async def test_search_in_bookmark_basic(client: AsyncClient) -> None:
+    """Test basic search within a bookmark's content."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://search-test.com",
+            "title": "Test Bookmark",
+            "content": "line 1\nline 2 with target\nline 3",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "target"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert len(data["matches"]) == 1
+    assert data["matches"][0]["field"] == "content"
+    assert data["matches"][0]["line"] == 2
+    assert "target" in data["matches"][0]["context"]
+
+
+async def test_search_in_bookmark_no_matches_returns_empty(client: AsyncClient) -> None:
+    """Test that no matches returns empty array (not error)."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://no-matches.com",
+            "title": "Test",
+            "content": "some content here",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "nonexistent"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 0
+    assert data["matches"] == []
+
+
+async def test_search_in_bookmark_title_field(client: AsyncClient) -> None:
+    """Test searching in title field returns full title as context."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://title-search.com",
+            "title": "Important Documentation Page",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "documentation", "fields": "title"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 1
+    assert data["matches"][0]["field"] == "title"
+    assert data["matches"][0]["line"] is None
+    assert data["matches"][0]["context"] == "Important Documentation Page"
+
+
+async def test_search_in_bookmark_multiple_fields(client: AsyncClient) -> None:
+    """Test searching across multiple fields."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://multi-field.com",
+            "title": "Python Tutorial",
+            "description": "Learn Python basics",
+            "content": "Python is a programming language",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "python", "fields": "content,title,description"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["total_matches"] == 3
+    fields = {m["field"] for m in data["matches"]}
+    assert fields == {"content", "title", "description"}
+
+
+async def test_search_in_bookmark_case_sensitive(client: AsyncClient) -> None:
+    """Test case-sensitive search."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://case-sensitive.com",
+            "title": "Test",
+            "content": "Hello World",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Case-sensitive search should not match
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "WORLD", "case_sensitive": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 0
+
+    # Exact case should match
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "World", "case_sensitive": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_bookmark_not_found(client: AsyncClient) -> None:
+    """Test 404 when bookmark doesn't exist."""
+    response = await client.get(
+        "/bookmarks/00000000-0000-0000-0000-000000000000/search",
+        params={"q": "test"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Bookmark not found"
+
+
+async def test_search_in_bookmark_invalid_field(client: AsyncClient) -> None:
+    """Test 400 when invalid field is specified."""
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://invalid-field.com", "title": "Test"},
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "test", "fields": "content,invalid"},
+    )
+    assert response.status_code == 400
+    assert "Invalid fields" in response.json()["detail"]
+
+
+async def test_search_in_bookmark_works_on_archived(client: AsyncClient) -> None:
+    """Test that search works on archived bookmarks."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://archived-search.com",
+            "title": "Test",
+            "content": "search target here",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Archive the bookmark
+    await client.post(f"/bookmarks/{bookmark_id}/archive")
+
+    # Search should still work
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "target"},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+async def test_search_in_bookmark_works_on_deleted(client: AsyncClient) -> None:
+    """Test that search works on soft-deleted bookmarks."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://deleted-search.com",
+            "title": "Test",
+            "content": "search target here",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    # Delete the bookmark
+    await client.delete(f"/bookmarks/{bookmark_id}")
+
+    # Search should still work
+    response = await client.get(
+        f"/bookmarks/{bookmark_id}/search",
+        params={"q": "target"},
+    )
+    assert response.status_code == 200
+    assert response.json()["total_matches"] == 1
+
+
+# =============================================================================
+# Str-Replace Tests
+# =============================================================================
+
+
+async def test_str_replace_bookmark_success_minimal(client: AsyncClient) -> None:
+    """Test successful str-replace returns minimal response by default."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://str-replace-test-minimal.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["response_type"] == "minimal"
+    assert data["match_type"] == "exact"
+    assert data["line"] == 1
+    # Default response is minimal - only id and updated_at
+    assert data["data"]["id"] == bookmark_id
+    assert "updated_at" in data["data"]
+    assert "content" not in data["data"]
+    assert "title" not in data["data"]
+
+
+async def test_str_replace_bookmark_success_full_entity(client: AsyncClient) -> None:
+    """Test str-replace with include_updated_entity=true."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://str-replace-test.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["response_type"] == "full"
+    assert data["match_type"] == "exact"
+    assert data["line"] == 1
+    assert data["data"]["content"] == "Hello universe"
+    assert data["data"]["id"] == bookmark_id
+
+
+async def test_str_replace_bookmark_multiline(client: AsyncClient) -> None:
+    """Test str-replace on multiline bookmark content."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://multiline-replace.com",
+            "title": "Test",
+            "content": "line 1\nline 2 target\nline 3",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "target", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["line"] == 2
+    assert data["data"]["content"] == "line 1\nline 2 replaced\nline 3"
+
+
+async def test_str_replace_bookmark_multiline_old_str(client: AsyncClient) -> None:
+    """Test str-replace with multiline old_str."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://multiline-old-str.com",
+            "title": "Test",
+            "content": "line 1\nline 2\nline 3\nline 4",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "line 2\nline 3", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["line"] == 2
+    assert data["data"]["content"] == "line 1\nreplaced\nline 4"
+
+
+async def test_str_replace_bookmark_no_match(client: AsyncClient) -> None:
+    """Test str-replace returns 400 when old_str not found."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://no-match.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "nonexistent", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "no_match"
+
+
+async def test_str_replace_bookmark_multiple_matches(client: AsyncClient) -> None:
+    """Test str-replace returns 400 when multiple matches found."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://multiple-matches.com",
+            "title": "Test",
+            "content": "foo bar foo baz foo",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "foo", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "multiple_matches"
+    assert len(response.json()["detail"]["matches"]) == 3
+
+
+async def test_str_replace_bookmark_deletion(client: AsyncClient) -> None:
+    """Test str-replace with empty new_str performs deletion."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://deletion-test.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": " world", "new_str": ""},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello"
+
+
+async def test_str_replace_bookmark_whitespace_normalized(client: AsyncClient) -> None:
+    """Test str-replace with whitespace-normalized matching."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://whitespace-norm.com",
+            "title": "Test",
+            "content": "line 1  \nline 2\nline 3",  # Trailing spaces on line 1
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "line 1\nline 2", "new_str": "replaced"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["match_type"] == "whitespace_normalized"
+    assert "replaced" in data["data"]["content"]
+
+
+async def test_str_replace_bookmark_null_content(client: AsyncClient) -> None:
+    """Test str-replace on bookmark with null content returns content_empty error."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://null-content.com",
+            "title": "Test",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "test", "new_str": "replaced"},
+    )
+    assert response.status_code == 400
+
+    data = response.json()["detail"]
+    assert data["error"] == "content_empty"
+    assert "no content" in data["message"].lower()
+    assert "suggestion" in data
+
+
+async def test_str_replace_bookmark_not_found(client: AsyncClient) -> None:
+    """Test str-replace on non-existent bookmark returns 404."""
+    response = await client.patch(
+        "/bookmarks/00000000-0000-0000-0000-000000000000/str-replace",
+        json={"old_str": "test", "new_str": "replaced"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Bookmark not found"
+
+
+async def test_str_replace_bookmark_updates_updated_at(client: AsyncClient) -> None:
+    """Test that str-replace updates the updated_at timestamp."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://timestamp-test.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+    original_updated_at = response.json()["updated_at"]
+
+    await asyncio.sleep(0.01)
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["updated_at"] > original_updated_at
+
+
+async def test_str_replace_bookmark_no_op_does_not_update_timestamp(client: AsyncClient) -> None:
+    """Test that str-replace with old_str == new_str does not update timestamp."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://no-op-timestamp-test.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+    original_updated_at = response.json()["updated_at"]
+
+    await asyncio.sleep(0.01)
+
+    # Perform str-replace with identical old and new strings (no-op)
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "world"},
+    )
+    assert response.status_code == 200
+
+    # Timestamp should NOT have changed
+    assert response.json()["data"]["updated_at"] == original_updated_at
+
+    # Verify match info is still returned
+    assert response.json()["match_type"] == "exact"
+    assert "line" in response.json()
+
+
+async def test_str_replace_bookmark_works_on_archived(client: AsyncClient) -> None:
+    """Test that str-replace works on archived bookmarks."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://archived-replace.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    await client.post(f"/bookmarks/{bookmark_id}/archive")
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["content"] == "Hello universe"
+
+
+async def test_str_replace_bookmark_not_on_deleted(client: AsyncClient) -> None:
+    """Test that str-replace does not work on soft-deleted bookmarks."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://deleted-replace.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    await client.delete(f"/bookmarks/{bookmark_id}")
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 404
+
+
+async def test_str_replace_bookmark_preserves_other_fields(client: AsyncClient) -> None:
+    """Test that str-replace preserves other bookmark fields."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://preserve-fields.com",
+            "title": "My Title",
+            "description": "My Description",
+            "content": "Hello world",
+            "tags": ["tag1", "tag2"],
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace?include_updated_entity=true",
+        json={"old_str": "world", "new_str": "universe"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()["data"]
+    assert "preserve-fields.com" in data["url"]
+    assert data["title"] == "My Title"
+    assert data["description"] == "My Description"
+    assert data["content"] == "Hello universe"
+    assert data["tags"] == ["tag1", "tag2"]

@@ -1,5 +1,6 @@
 """Service layer for unified content operations across bookmarks, notes, and prompts."""
 from typing import Any, Literal
+from uuid import UUID
 
 from sqlalchemy import Row, Table, and_, cast, exists, func, literal, or_, select, union_all
 from sqlalchemy.dialects.postgresql import JSONB
@@ -12,13 +13,14 @@ from models.prompt import Prompt
 from models.tag import Tag, bookmark_tags, note_tags, prompt_tags
 from schemas.validators import validate_and_normalize_tags
 from schemas.content import ContentListItem
+from services.base_entity_service import CONTENT_PREVIEW_LENGTH
 from services.utils import build_tag_filter_from_expression, escape_ilike
 
 
 def _build_tag_filter(
     tags: list[str],
     tag_match: Literal["all", "any"],
-    user_id: int,
+    user_id: UUID,
     junction_table: Table,
     entity_id_column: InstrumentedAttribute,
 ) -> list:
@@ -71,19 +73,19 @@ def _build_tag_filter(
     return [exists(subq)]
 
 
-async def _get_tags_for_items(
+async def get_tags_for_items(
     db: AsyncSession,
-    user_id: int,
-    bookmark_ids: list[int],
-    note_ids: list[int],
-    prompt_ids: list[int] | None = None,
-) -> dict[tuple[str, int], list[str]]:
+    user_id: UUID,
+    bookmark_ids: list[UUID],
+    note_ids: list[UUID],
+    prompt_ids: list[UUID] | None = None,
+) -> dict[tuple[str, UUID], list[str]]:
     """
     Fetch tags for a list of bookmarks, notes, and prompts.
 
     Returns a dict mapping (type, id) -> list of tag names.
     """
-    result: dict[tuple[str, int], list[str]] = {}
+    result: dict[tuple[str, UUID], list[str]] = {}
     prompt_ids = prompt_ids or []
 
     # Initialize empty lists for all items
@@ -152,8 +154,9 @@ def _row_to_content_item(row: Row, tags: list[str]) -> ContentListItem:
         last_used_at=row.last_used_at,
         deleted_at=row.deleted_at,
         archived_at=row.archived_at,
+        content_length=row.content_length,
+        content_preview=row.content_preview,
         url=row.url if row.type == "bookmark" else None,
-        version=row.version if row.type == "note" else None,
         name=row.name if row.type == "prompt" else None,
         arguments=row.arguments if row.type == "prompt" else None,
     )
@@ -161,7 +164,7 @@ def _row_to_content_item(row: Row, tags: list[str]) -> ContentListItem:
 
 async def search_all_content(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     query: str | None = None,
     tags: list[str] | None = None,
     tag_match: Literal["all", "any"] = "all",
@@ -213,6 +216,8 @@ async def search_all_content(
         return [], 0
 
     subqueries = []
+    # Separate count subqueries avoid computing content_length/content_preview for counting
+    count_subqueries = []
 
     # Build bookmark subquery if needed
     if include_bookmarks:
@@ -242,14 +247,20 @@ async def search_all_content(
                 Bookmark.last_used_at.label("last_used_at"),
                 Bookmark.deleted_at.label("deleted_at"),
                 Bookmark.archived_at.label("archived_at"),
+                func.length(Bookmark.content).label("content_length"),
+                func.left(Bookmark.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
                 Bookmark.url.label("url"),
-                literal(None).label("version"),
                 literal(None).label("name"),
                 cast(literal(None), JSONB).label("arguments"),
+                # Computed sort_title: LOWER(COALESCE(NULLIF(title, ''), url))
+                func.lower(func.coalesce(func.nullif(Bookmark.title, ''), Bookmark.url)).\
+                    label("sort_title"),
             )
             .where(and_(*bookmark_filters))
         )
         subqueries.append(bookmark_subq)
+        # Count-only subquery: minimal SELECT to avoid computing content_length/content_preview
+        count_subqueries.append(select(Bookmark.id).where(and_(*bookmark_filters)))
 
     # Build note subquery if needed
     if include_notes:
@@ -276,14 +287,19 @@ async def search_all_content(
                 Note.last_used_at.label("last_used_at"),
                 Note.deleted_at.label("deleted_at"),
                 Note.archived_at.label("archived_at"),
+                func.length(Note.content).label("content_length"),
+                func.left(Note.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
                 literal(None).label("url"),
-                Note.version.label("version"),
                 literal(None).label("name"),
                 cast(literal(None), JSONB).label("arguments"),
+                # Computed sort_title: LOWER(title) - notes always have title
+                func.lower(Note.title).label("sort_title"),
             )
             .where(and_(*note_filters))
         )
         subqueries.append(note_subq)
+        # Count-only subquery: minimal SELECT to avoid computing content_length/content_preview
+        count_subqueries.append(select(Note.id).where(and_(*note_filters)))
 
     # Build prompt subquery if needed
     if include_prompts:
@@ -310,14 +326,20 @@ async def search_all_content(
                 Prompt.last_used_at.label("last_used_at"),
                 Prompt.deleted_at.label("deleted_at"),
                 Prompt.archived_at.label("archived_at"),
+                func.length(Prompt.content).label("content_length"),
+                func.left(Prompt.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
                 literal(None).label("url"),
-                literal(None).label("version"),
                 Prompt.name.label("name"),
                 Prompt.arguments.label("arguments"),
+                # Computed sort_title: LOWER(COALESCE(NULLIF(title, ''), name))
+                func.lower(func.coalesce(func.nullif(Prompt.title, ''), Prompt.name)).\
+                    label("sort_title"),
             )
             .where(and_(*prompt_filters))
         )
         subqueries.append(prompt_subq)
+        # Count-only subquery: minimal SELECT to avoid computing content_length/content_preview
+        count_subqueries.append(select(Prompt.id).where(and_(*prompt_filters)))
 
     # Combine subqueries
     if len(subqueries) == 1:
@@ -325,13 +347,19 @@ async def search_all_content(
     else:
         combined = union_all(*subqueries).subquery()
 
-    # Get total count
-    count_query = select(func.count()).select_from(combined)
+    # Get total count using lightweight count-only subqueries
+    if len(count_subqueries) == 1:
+        count_combined = count_subqueries[0].subquery()
+    else:
+        count_combined = union_all(*count_subqueries).subquery()
+    count_query = select(func.count()).select_from(count_combined)
     count_result = await db.execute(count_query)
     total = count_result.scalar() or 0
 
     # Build the final query with sorting and pagination
-    sort_column = getattr(combined.c, sort_by)
+    # Use sort_title (computed column) for title sorting to handle COALESCE/LOWER
+    sort_column_name = "sort_title" if sort_by == "title" else sort_by
+    sort_column = getattr(combined.c, sort_column_name)
     sort_column = sort_column.desc() if sort_order == "desc" else sort_column.asc()
 
     final_query = (
@@ -350,7 +378,7 @@ async def search_all_content(
     prompt_ids = [row.id for row in rows if row.type == "prompt"]
 
     # Fetch tags for all items
-    tags_map = await _get_tags_for_items(db, user_id, bookmark_ids, note_ids, prompt_ids)
+    tags_map = await get_tags_for_items(db, user_id, bookmark_ids, note_ids, prompt_ids)
 
     # Convert rows to ContentListItems
     items = [
@@ -370,7 +398,7 @@ def _apply_entity_filters(
     query: str | None,
     normalized_tags: list[str] | None,
     tag_match: Literal["all", "any"],
-    user_id: int,
+    user_id: UUID,
     filter_expression: dict[str, Any] | None,
 ) -> list:
     """

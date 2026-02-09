@@ -9,18 +9,32 @@ import { LoadingSpinnerCentered } from '../components/ui'
 /**
  * Landing page content shown to unauthenticated users.
  */
-function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
+function LandingContent({
+  onLogin,
+  onSignup,
+}: {
+  onLogin: () => void
+  onSignup: () => void
+}): ReactNode {
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 sm:px-8 lg:px-12">
         <BookmarkIcon className="h-8 w-8 text-gray-900" />
-        <button
-          onClick={onLogin}
-          className="rounded-lg border border-gray-300 px-5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
-        >
-          Log In
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onLogin}
+            className="rounded-lg px-5 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+          >
+            Log In
+          </button>
+          <button
+            onClick={onSignup}
+            className="rounded-lg bg-gray-900 px-5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+          >
+            Sign Up
+          </button>
+        </div>
       </header>
 
       {/* Hero Section */}
@@ -35,13 +49,13 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
             </span>
           </div>
           <p className="mx-auto mb-4 max-w-3xl text-2xl leading-relaxed text-gray-600">
-            Your personal knowledge base. Save and organize content with tags, search, and AI integration.
+            A simple, AI-integrated personal knowledge base.
           </p>
-          <p className="mx-auto mb-16 text-base text-gray-500">
+          <p className="mx-auto mb-10 text-base text-gray-500">
             Currently in beta.
           </p>
           <button
-            onClick={onLogin}
+            onClick={onSignup}
             className="rounded-full bg-gray-900 px-10 py-4 text-lg font-medium text-white transition-all hover:bg-gray-800 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
           >
             Get Started
@@ -49,14 +63,8 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
         </div>
 
         {/* Content Types */}
-        <div className="mx-auto mt-24 max-w-3xl">
+        <div className="mx-auto mt-16 max-w-3xl">
           <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-lg">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-gray-900">Bookmarks</span>
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
-                Available
-              </span>
-            </div>
             <div className="flex items-center gap-2">
               <span className="font-semibold text-gray-900">Notes</span>
               <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
@@ -64,13 +72,19 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-500">Prompts</span>
-              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
-                Coming soon
+              <span className="font-semibold text-gray-900">Prompts</span>
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                Available
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-500">Tasks</span>
+              <span className="font-semibold text-gray-900">Bookmarks</span>
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                Available
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">AI Assistant</span>
               <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
                 Coming soon
               </span>
@@ -82,44 +96,52 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
         <div className="mx-auto mt-24 max-w-4xl">
           <div className="grid gap-x-12 gap-y-10 sm:grid-cols-2">
             <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Full-text search</h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Markdown editor</h3>
               <p className="text-gray-600">
-                Search across titles, descriptions, and content. Filter by tags with AND/OR
-                matching. Sort by date created, modified, or last accessed.
+                Write notes with markdown syntax highlighting, formatting toolbar, and keyboard
+                shortcuts. Toggle reading mode to preview rendered markdown.
               </p>
             </div>
             <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Tags & custom lists</h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Content MCP Server</h3>
               <p className="text-gray-600">
-                Organize with flexible tags. Create saved lists with complex filter expressions.
-                Rename or delete tags across all content from settings.
+                Connect AI agents to search and manage your bookmarks and notes. Create content
+                using natural language through Model Context Protocol.
               </p>
             </div>
             <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Markdown notes</h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Prompt library</h3>
               <p className="text-gray-600">
-                Write notes with GitHub Flavored Markdown. Live preview, auto-saving drafts,
-                and keyboard shortcuts for formatting.
+                Build your personal prompt library. Create reusable templates with Jinja2 syntax
+                and dynamic arguments. Organize with tags for easy discovery.
               </p>
             </div>
             <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Keyboard shortcuts</h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Prompt MCP Server</h3>
               <p className="text-gray-600">
-                <kbd className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">Cmd+/</kbd> to see all shortcuts.
+                Expose your prompt library to Claude Desktop, Claude Code, or any MCP-compatible
+                AI agent. Your prompts follow you across tools - write once, use everywhere.
               </p>
             </div>
             <div>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Version history</h3>
+              <p className="text-gray-600">
+                Full edit history for all content. Compare versions, see what changed, and
+                restore with one click. Your work is never lost - even when AI agents make updates.
+              </p>
+            </div>
+            {/* <div>
               <h3 className="mb-2 text-lg font-semibold text-gray-900">API access</h3>
               <p className="text-gray-600">
                 Generate Personal Access Tokens for programmatic access. Search, create, and
                 manage content from scripts or CLI tools.
               </p>
-            </div>
+            </div> */}
             <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">MCP integration</h3>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Open source</h3>
               <p className="text-gray-600">
-                Connect Claude Desktop via Model Context Protocol. Search and create content
-                using natural language through AI agents.
+                Use the hosted version by signing up above, or self-host for full control
+                over your data. Open source with FastAPI backend, React frontend, and PostgreSQL database.
               </p>
             </div>
           </div>
@@ -145,8 +167,8 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
               </p>
               <p className="mb-3 text-gray-600">
                 We don't use client-side encryption (end-to-end encryption) because it would
-                prevent full-text search across your bookmarks, notes, prompts, and tasks. Search
-                functionality requires the server to be able to read and index your content.
+                prevent full-text search across your content. Search functionality requires the
+                server to be able to read and index your content.
               </p>
               <p className="mb-3 text-gray-600">
                 <strong>Important:</strong> As with most web applications, the database
@@ -173,9 +195,9 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
                 Who can access my content?
               </h3>
               <p className="text-gray-600">
-                Only you. Your bookmarks and notes are completely private and isolated to your
-                account. We use a multi-tenant database architecture where all content is tied
-                to your user ID. There's no sharing functionality - your data is yours alone.
+                Your content is private and isolated to your account. We use a multi-tenant
+                database architecture where all content is tied to your user ID. There's no
+                sharing functionality. See the data security question above for important caveats.
               </p>
             </div>
 
@@ -196,8 +218,9 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
                 What happens to deleted items?
               </h3>
               <p className="text-gray-600">
-                Deleted bookmarks and notes go to Trash where they can be restored. Items remain
-                in trash until you manually restore or permanently delete them.
+                Deleted items go to Trash where they can be restored. Items in trash are
+                automatically permanently deleted after a retention period (currently 30 days).
+                You can also manually restore or permanently delete items at any time.
               </p>
             </div>
 
@@ -220,9 +243,10 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
               </h3>
               <p className="text-gray-600">
                 MCP (Model Context Protocol) allows AI agents like Claude to interact with your
-                content. Connect Claude Desktop or other MCP-compatible tools to search, create,
-                and organize bookmarks and notes using natural language. Requires a Personal
-                Access Token for authentication.
+                data. Tiddly provides two MCP servers: the <strong>Content MCP Server</strong> for
+                searching and managing bookmarks and notes, and the <strong>Prompt MCP Server</strong> for
+                listing and rendering your prompt templates. Connect Claude Desktop, Claude Code,
+                or other MCP-compatible tools. Requires a Personal Access Token for authentication.
               </p>
             </div>
 
@@ -277,7 +301,7 @@ function LandingContent({ onLogin }: { onLogin: () => void }): ReactNode {
             Free while in beta. Pricing to be determined.
           </p>
           <button
-            onClick={onLogin}
+            onClick={onSignup}
             className="rounded-full bg-gray-900 px-10 py-4 text-lg font-medium text-white transition-all hover:bg-gray-800 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
           >
             Get Started
@@ -305,7 +329,12 @@ function AuthenticatedLandingPage(): ReactNode {
     return <Navigate to="/app/content" replace />
   }
 
-  return <LandingContent onLogin={() => loginWithRedirect()} />
+  return (
+    <LandingContent
+      onLogin={() => loginWithRedirect({ authorizationParams: { screen_hint: 'login' } })}
+      onSignup={() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } })}
+    />
+  )
 }
 
 /**

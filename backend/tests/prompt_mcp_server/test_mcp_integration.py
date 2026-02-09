@@ -5,12 +5,14 @@ These tests verify the MCP handlers work correctly against the actual REST API
 with a real PostgreSQL database (via testcontainers).
 """
 
+import json
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from mcp import types
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from prompt_mcp_server import server as server_module
@@ -90,7 +92,7 @@ async def test_prompt(mcp_integration_client: AsyncClient) -> dict[str, Any]:
 
 
 @pytest.fixture(autouse=True)
-def setup_auth_token() -> None:
+def setup_auth_token() -> None: # type: ignore
     """Set up authentication token for MCP handlers."""
     # In dev mode, any token works (VITE_DEV_MODE=true set in conftest)
     set_current_token("test-integration-token")
@@ -183,8 +185,9 @@ async def test__create_prompt_tool__creates_in_db(
         },
     )
 
-    assert len(result) == 1
-    assert "integration-test-prompt" in result[0].text
+    # Returns CallToolResult with structuredContent
+    assert isinstance(result, types.CallToolResult)
+    assert result.structuredContent["name"] == "integration-test-prompt"
 
     # Verify it exists in database via API
     response = await mcp_integration_client.get("/prompts/name/integration-test-prompt")
@@ -268,3 +271,95 @@ async def test__get_prompt__tracks_usage_in_db(
 
     # last_used_at should be set (it was null initially or updated)
     assert data.get("last_used_at") is not None
+
+
+@pytest.mark.asyncio
+async def test__list_prompts__excludes_archived_prompts(
+    mcp_integration_client: AsyncClient,
+) -> None:
+    """Test that archived prompts are not returned by list_prompts."""
+    # Create a prompt
+    response = await mcp_integration_client.post(
+        "/prompts/",
+        json={"name": "archived-test-prompt", "content": "Test content"},
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Verify it appears in list_prompts
+    result = await handle_list_prompts(make_list_prompts_request())
+    prompt_names = [p.name for p in result.prompts]
+    assert "archived-test-prompt" in prompt_names
+
+    # Archive the prompt
+    response = await mcp_integration_client.post(f"/prompts/{prompt_id}/archive")
+    assert response.status_code == 200
+
+    # Verify it no longer appears in list_prompts
+    result = await handle_list_prompts(make_list_prompts_request())
+    prompt_names = [p.name for p in result.prompts]
+    assert "archived-test-prompt" not in prompt_names
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__excludes_archived_prompts(
+    mcp_integration_client: AsyncClient,
+) -> None:
+    """Test that archived prompts are not returned by search_prompts tool."""
+    # Create a prompt with a unique name for searching
+    response = await mcp_integration_client.post(
+        "/prompts/",
+        json={
+            "name": "searchable-archived-prompt",
+            "content": "Unique searchable content xyz123",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+
+    # Verify it appears in search_prompts
+    result = await handle_call_tool("search_prompts", {"query": "searchable-archived"})
+    assert len(result) == 1
+    search_result = json.loads(result[0].text)
+    prompt_names = [p["name"] for p in search_result["items"]]
+    assert "searchable-archived-prompt" in prompt_names
+
+    # Archive the prompt
+    response = await mcp_integration_client.post(f"/prompts/{prompt_id}/archive")
+    assert response.status_code == 200
+
+    # Verify it no longer appears in search_prompts
+    result = await handle_call_tool("search_prompts", {"query": "searchable-archived"})
+    search_result = json.loads(result[0].text)
+    prompt_names = [p["name"] for p in search_result["items"]]
+    assert "searchable-archived-prompt" not in prompt_names
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_metadata__returns_tags(
+    mcp_integration_client: AsyncClient,  # noqa: ARG001 - triggers fixture
+    test_prompt: dict[str, Any],
+) -> None:
+    """Test that get_prompt_metadata returns tags and other metadata."""
+    result = await handle_call_tool(
+        "get_prompt_metadata",
+        {"name": test_prompt["name"]},
+    )
+
+    assert len(result) == 1
+    metadata = json.loads(result[0].text)
+
+    # Should have metadata fields
+    assert metadata["name"] == test_prompt["name"]
+    assert metadata["title"] == test_prompt["title"]
+    assert metadata["description"] == test_prompt["description"]
+    assert "arguments" in metadata
+
+    # Should have tags
+    assert "tags" in metadata
+    assert set(metadata["tags"]) == {"test", "greeting"}
+
+    # Should have size info (not full content)
+    assert "prompt_length" in metadata
+    assert "prompt_preview" in metadata
+    assert "content" not in metadata

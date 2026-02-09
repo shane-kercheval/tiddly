@@ -20,7 +20,7 @@ describe('ConfirmDeleteButton', () => {
 
       const button = screen.getByRole('button')
       expect(button).toBeInTheDocument()
-      expect(button).toHaveAttribute('title', 'Delete')
+      expect(button).toHaveAttribute('aria-label', 'Delete')
       // Should contain SVG (trash icon), not "Delete?" text
       expect(screen.queryByText('Delete?')).not.toBeInTheDocument()
     })
@@ -28,7 +28,7 @@ describe('ConfirmDeleteButton', () => {
     it('uses custom title when provided', () => {
       render(<ConfirmDeleteButton onConfirm={vi.fn()} title="Delete item" />)
 
-      expect(screen.getByRole('button')).toHaveAttribute('title', 'Delete item')
+      expect(screen.getByRole('button')).toHaveAttribute('aria-label', 'Delete item')
     })
   })
 
@@ -40,7 +40,7 @@ describe('ConfirmDeleteButton', () => {
       fireEvent.click(button)
 
       expect(screen.getByText('Delete?')).toBeInTheDocument()
-      expect(button).toHaveAttribute('title', 'Click again to confirm')
+      expect(button).toHaveAttribute('aria-label', 'Click again to confirm')
     })
 
     it('does NOT call onConfirm on first click', () => {
@@ -122,7 +122,7 @@ describe('ConfirmDeleteButton', () => {
         </div>
       )
 
-      const confirmButton = screen.getByTitle('Delete')
+      const confirmButton = screen.getByRole('button', { name: 'Delete' })
       fireEvent.click(confirmButton)
 
       expect(screen.getByText('Delete?')).toBeInTheDocument()

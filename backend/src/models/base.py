@@ -1,16 +1,34 @@
 """SQLAlchemy declarative base with common mixins."""
 from datetime import UTC, datetime
+from uuid import UUID
 
 from sqlalchemy import DateTime, and_, func
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.sql.elements import BinaryExpression
+from uuid6 import uuid7
 
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
 
     pass
+
+
+class UUIDv7Mixin:
+    """
+    Mixin that provides a UUIDv7 primary key.
+
+    UUIDv7 is time-sortable (embeds Unix timestamp) and globally unique.
+    Uses native PostgreSQL uuid type for efficient storage and indexing.
+    """
+
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid7,
+    )
 
 
 class TimestampMixin:

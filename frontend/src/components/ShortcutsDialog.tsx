@@ -33,6 +33,8 @@ const leftColumnGroups: ShortcutGroup[] = [
       { keys: ['e'], description: 'Edit note (when viewing)' },
       { keys: ['\u2318', 'V'], description: 'Paste URL to add bookmark' },
       { keys: ['\u21E7', '\u2318', 'Click'], description: 'Open link without tracking' },
+      { keys: ['\u2318', 'S'], description: 'Save' },
+      { keys: ['\u2318', '\u21E7', 'S'], description: 'Save and close' },
     ],
   },
   {
@@ -47,24 +49,40 @@ const leftColumnGroups: ShortcutGroup[] = [
     shortcuts: [
       { keys: ['w'], description: 'Toggle full-width layout' },
       { keys: ['\u2318', '\\'], description: 'Toggle sidebar' },
+      { keys: ['\u2318', '\u21E7', '\\'], description: 'Toggle history sidebar' },
       { keys: ['\u2318', '/'], description: 'Show shortcuts' },
+      { keys: ['\u2318', '\u21E7', 'M'], description: 'Toggle reading mode' },
+      { keys: ['\u2325', 'Z'], description: 'Toggle word wrap' },
+      { keys: ['\u2325', 'L'], description: 'Toggle line numbers' },
     ],
   },
 ]
 
-// Right column: Markdown Editor only
+// Right column: Markdown Editor formatting shortcuts
+// Order matches toolbar layout in CodeMirrorEditor
 const rightColumnGroups: ShortcutGroup[] = [
   {
     title: 'Markdown Editor',
     shortcuts: [
-      { keys: ['\u2325', 'Z'], description: 'Toggle word wrap' },
+      // Text formatting (matches toolbar order)
       { keys: ['\u2318', 'B'], description: 'Bold' },
       { keys: ['\u2318', 'I'], description: 'Italic' },
-      { keys: ['\u2318', 'K'], description: 'Insert link' },
       { keys: ['\u2318', '\u21E7', 'X'], description: 'Strikethrough' },
-      { keys: ['\u2318', 'S'], description: 'Save' },
-      { keys: ['Esc'], description: 'Cancel / back out of discard prompt' },
-      { keys: ['Enter'], description: 'Confirm discard (when prompted)' },
+      { keys: ['\u2318', '\u21E7', 'H'], description: 'Highlight' },
+      { keys: ['\u2318', '\u21E7', '.'], description: 'Blockquote' },
+      // Code
+      { keys: ['\u2318', 'E'], description: 'Inline code' },
+      { keys: ['\u2318', '\u21E7', 'E'], description: 'Code block' },
+      // Lists (Notion convention: 7=numbered, 8=bullet, 9=task)
+      { keys: ['\u2318', '\u21E7', '8'], description: 'Bullet list' },
+      { keys: ['\u2318', '\u21E7', '7'], description: 'Numbered list' },
+      { keys: ['\u2318', '\u21E7', '9'], description: 'Task list' },
+      // Links and other
+      { keys: ['\u2318', 'K'], description: 'Insert link' },
+      { keys: ['\u2318', '\u21E7', '-'], description: 'Horizontal rule' },
+      { keys: ['\u2318', 'Click'], description: 'Open link in new tab' },
+      // Selection
+      { keys: ['\u2318', 'D'], description: 'Select next occurrence' },
     ],
   },
 ]
@@ -143,15 +161,18 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
 
     function handleKeyDown(e: KeyboardEvent): void {
       if (e.key === 'Escape') {
+        e.stopImmediatePropagation()
         onClose()
       }
     }
 
-    document.addEventListener('keydown', handleKeyDown)
+    // Use capture phase so this handler runs before other document-level handlers
+    // This ensures Escape closes only the dialog, not components behind it
+    document.addEventListener('keydown', handleKeyDown, true)
 
     return () => {
       document.body.style.overflow = ''
-      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('keydown', handleKeyDown, true)
 
       if (previousActiveElement.current) {
         previousActiveElement.current.focus()

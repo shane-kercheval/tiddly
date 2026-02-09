@@ -1,12 +1,13 @@
 """Prompt model for storing user prompt templates."""
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import ArchivableMixin, Base, TimestampMixin
+from models.base import ArchivableMixin, Base, TimestampMixin, UUIDv7Mixin
 from models.tag import prompt_tags
 
 if TYPE_CHECKING:
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from models.user import User
 
 
-class Prompt(Base, TimestampMixin, ArchivableMixin):
+class Prompt(Base, UUIDv7Mixin, TimestampMixin, ArchivableMixin):
     """Prompt model - stores user prompt templates with Jinja2 content and tags."""
 
     __tablename__ = "prompts"
@@ -29,8 +30,8 @@ class Prompt(Base, TimestampMixin, ArchivableMixin):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(
+    # id provided by UUIDv7Mixin
+    user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
     )

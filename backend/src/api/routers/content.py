@@ -5,14 +5,15 @@ Provides endpoints for searching across all content types (bookmarks, notes, pro
 with unified pagination and sorting.
 """
 from typing import Literal
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_user
+from api.helpers import resolve_filter_and_sorting
 from models.user import User
 from schemas.content import ContentListResponse
-from services import content_list_service
 from services.content_service import search_all_content
 
 router = APIRouter(prefix="/content", tags=["content"])
@@ -30,15 +31,21 @@ async def list_all_content(
     ),
     sort_by: Literal[
         "created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at",
-    ] = Query(default="created_at", description="Field to sort by"),
-    sort_order: Literal["asc", "desc"] = Query(default="desc", description="Sort direction"),
+    ] | None = Query(
+        default=None,
+        description="Sort field. Takes precedence over filter_id's default.",
+    ),
+    sort_order: Literal["asc", "desc"] | None = Query(
+        default=None,
+        description="Sort direction. Takes precedence over filter_id's default.",
+    ),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
     view: Literal["active", "archived", "deleted"] = Query(
         default="active",
         description="View: 'active' (not deleted/archived), 'archived', or 'deleted'",
     ),
-    list_id: int | None = Query(default=None, description="Filter by content list ID"),
+    filter_id: UUID | None = Query(default=None, description="Filter by content filter ID"),
     content_types: list[Literal["bookmark", "note", "prompt"]] | None = Query(
         default=None,
         description="Filter by content types (bookmark, note, prompt). If not specified, all types are included.",  # noqa: E501
@@ -53,30 +60,26 @@ async def list_all_content(
     Each item includes a `type` field indicating whether it's a "bookmark", "note", or "prompt".
 
     Use this endpoint for:
-    - Shared "All", "Archived", and "Trash" views (no list_id)
-    - Custom content lists with mixed types (with list_id)
+    - Shared "All", "Archived", and "Trash" views (no filter_id)
+    - Custom content filters with mixed types (with filter_id)
 
-    When list_id is provided:
-    - The list's filter_expression is applied
-    - The list's content_types act as the upper bound of entity types returned
+    When filter_id is provided:
+    - The filter's filter_expression is applied
+    - The filter's content_types act as the upper bound of entity types returned
     - If content_types query param is provided, results are filtered to the intersection
+    - sort_by/sort_order take precedence over filter's sort defaults
     """
-    # If list_id provided, fetch the list and use its filter expression + content_types
-    filter_expression = None
-    effective_content_types: list[str] | None = content_types
-    if list_id is not None:
-        content_list = await content_list_service.get_list(db, current_user.id, list_id)
-        if content_list is None:
-            raise HTTPException(status_code=404, detail="List not found")
-        filter_expression = content_list.filter_expression
-        if content_types is None:
-            effective_content_types = content_list.content_types
-        else:
-            effective_content_types = [
-                content_type
-                for content_type in content_types
-                if content_type in content_list.content_types
-            ]
+    resolved = await resolve_filter_and_sorting(
+        db, current_user.id, filter_id, sort_by, sort_order,
+    )
+
+    # Compute effective content types: intersection of query param with filter's content_types
+    if content_types is None:
+        effective_content_types = resolved.content_types
+    elif resolved.content_types is None:
+        effective_content_types = content_types
+    else:
+        effective_content_types = [ct for ct in content_types if ct in resolved.content_types]
 
     items, total = await search_all_content(
         db=db,
@@ -84,12 +87,12 @@ async def list_all_content(
         query=q,
         tags=tags,
         tag_match=tag_match,
-        sort_by=sort_by,
-        sort_order=sort_order,
+        sort_by=resolved.sort_by,
+        sort_order=resolved.sort_order,
         offset=offset,
         limit=limit,
         view=view,
-        filter_expression=filter_expression,
+        filter_expression=resolved.filter_expression,
         content_types=effective_content_types,
     )
 

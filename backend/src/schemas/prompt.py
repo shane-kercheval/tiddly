@@ -1,31 +1,18 @@
 """Pydantic schemas for prompt endpoints."""
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from core.config import get_settings
+from schemas.content_metadata import ContentMetadata
 from schemas.validators import (
     check_duplicate_argument_names,
+    normalize_preview,
     validate_and_normalize_tags,
     validate_argument_name,
-    validate_description_length,
     validate_prompt_name,
-    validate_title_length,
 )
-
-
-def validate_prompt_content_length(content: str | None) -> str | None:
-    """Validate that prompt content doesn't exceed maximum length (100KB)."""
-    settings = get_settings()
-    if content is None:
-        return content
-    if len(content) > settings.max_prompt_content_length:
-        raise ValueError(
-            f"Content exceeds maximum length of {settings.max_prompt_content_length:,} characters "
-            f"(got {len(content):,} characters).",
-        )
-    return content
 
 
 class PromptArgument(BaseModel):
@@ -64,24 +51,6 @@ class PromptCreate(BaseModel):
         """Validate prompt name format."""
         return validate_prompt_name(v)
 
-    @field_validator("title")
-    @classmethod
-    def check_title_length(cls, v: str | None) -> str | None:
-        """Validate title length."""
-        return validate_title_length(v)
-
-    @field_validator("description")
-    @classmethod
-    def check_description_length(cls, v: str | None) -> str | None:
-        """Validate description length."""
-        return validate_description_length(v)
-
-    @field_validator("content")
-    @classmethod
-    def check_content_length(cls, v: str | None) -> str | None:
-        """Validate content length."""
-        return validate_prompt_content_length(v)
-
     @field_validator("tags", mode="before")
     @classmethod
     def normalize_tags(cls, v: list[str]) -> list[str]:
@@ -113,6 +82,11 @@ class PromptUpdate(BaseModel):
                     "Accepts ISO 8601 format (e.g., '2025-02-01T16:00:00Z'). "
                     "Future dates schedule auto-archive; past dates archive immediately.",
     )
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description="For optimistic locking. If provided and the prompt was modified after "
+                    "this timestamp, returns 409 Conflict with current server state.",
+    )
 
     @field_validator("name")
     @classmethod
@@ -121,24 +95,6 @@ class PromptUpdate(BaseModel):
         if v is not None:
             return validate_prompt_name(v)
         return v
-
-    @field_validator("title")
-    @classmethod
-    def check_title_length(cls, v: str | None) -> str | None:
-        """Validate title length."""
-        return validate_title_length(v)
-
-    @field_validator("description")
-    @classmethod
-    def check_description_length(cls, v: str | None) -> str | None:
-        """Validate description length."""
-        return validate_description_length(v)
-
-    @field_validator("content")
-    @classmethod
-    def check_content_length(cls, v: str | None) -> str | None:
-        """Validate content length."""
-        return validate_prompt_content_length(v)
 
     @field_validator("tags", mode="before")
     @classmethod
@@ -168,7 +124,7 @@ class PromptListItem(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     name: str
     title: str | None
     description: str | None
@@ -179,26 +135,38 @@ class PromptListItem(BaseModel):
     last_used_at: datetime
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
+    content_length: int | None = Field(
+        default=None,
+        description="Total character count of content field.",
+    )
+    content_preview: str | None = Field(
+        default=None,
+        description="First 500 characters of content.",
+    )
+
+    @field_validator("content_preview", mode="before")
+    @classmethod
+    def strip_preview_whitespace(cls, v: str | None) -> str | None:
+        """Collapse whitespace in content preview for clean display."""
+        return normalize_preview(v)
 
     @model_validator(mode="before")
     @classmethod
-    def extract_tag_names(cls, data: Any) -> Any:
+    def extract_from_sqlalchemy(cls, data: Any) -> Any:
         """
-        Extract tag names from tag_objects relationship.
+        Extract fields from SQLAlchemy model and tag names from tag_objects.
+
+        Uses model introspection to automatically extract all schema fields,
+        eliminating the need to maintain a hardcoded field list.
 
         Only accesses tag_objects if it's already loaded (not lazy) to avoid
         triggering database queries outside async context.
         """
         # Handle SQLAlchemy model objects
         if hasattr(data, "__dict__"):
-            data_dict = {}
-            for key in [
-                "id", "name", "title", "description", "arguments",
-                "created_at", "updated_at", "last_used_at",
-                "deleted_at", "archived_at", "content",
-            ]:
-                if hasattr(data, key):
-                    data_dict[key] = getattr(data, key)
+            # Get all field names from the Pydantic model, excluding 'tags' which we handle
+            field_names = set(cls.model_fields.keys()) - {"tags"}
+            data_dict = {key: getattr(data, key) for key in field_names if hasattr(data, key)}
 
             # Check if tag_objects is already loaded (not lazy)
             # SQLAlchemy sets __dict__ entry when relationship is loaded
@@ -216,9 +184,14 @@ class PromptResponse(PromptListItem):
     Schema for full prompt responses (includes content).
 
     Returned by GET /prompts/:id and mutation endpoints.
+
+    The content_metadata field is included whenever content is non-null,
+    providing line count information and indicating whether the response
+    contains partial or full content.
     """
 
     content: str | None
+    content_metadata: ContentMetadata | None = None
 
 
 class PromptListResponse(BaseModel):
@@ -229,3 +202,22 @@ class PromptListResponse(BaseModel):
     offset: int  # Current pagination offset
     limit: int  # Current pagination limit
     has_more: bool  # True if there are more results beyond this page
+
+
+class PromptRenderRequest(BaseModel):
+    """Request schema for rendering a prompt with arguments."""
+
+    arguments: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Argument values keyed by argument name. Values can be strings, "
+        "lists, dicts, or other JSON-serializable types for use with Jinja2 features "
+        "like {% for %} loops.",
+    )
+
+
+class PromptRenderResponse(BaseModel):
+    """Response schema for rendered prompt content."""
+
+    rendered_content: str = Field(
+        description="The rendered template with arguments applied",
+    )

@@ -11,7 +11,7 @@ import { ConfirmDeleteButton } from './ui'
 interface TokenListProps {
   tokens: Token[]
   isLoading: boolean
-  onDelete: (id: number) => Promise<void>
+  onDelete: (id: string) => Promise<void>
   onCreateClick: () => void
 }
 
@@ -38,9 +38,9 @@ function isExpired(expiresAt: string | null): boolean {
  * Token list with create button and delete functionality.
  */
 export function TokenList({ tokens, isLoading, onDelete, onCreateClick }: TokenListProps): ReactNode {
-  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const handleDelete = async (tokenId: number): Promise<void> => {
+  const handleDelete = async (tokenId: string): Promise<void> => {
     setDeletingId(tokenId)
     try {
       await onDelete(tokenId)
@@ -87,7 +87,7 @@ export function TokenList({ tokens, isLoading, onDelete, onCreateClick }: TokenL
         {tokens.map((token) => (
           <div
             key={token.id}
-            className="flex items-center justify-between p-4 list-item-hover"
+            className="flex items-center justify-between px-3 py-2.5 list-item-hover"
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">

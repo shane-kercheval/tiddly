@@ -163,7 +163,7 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      expect(screen.getByTitle('Rename group')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Rename group' })).toBeInTheDocument()
     })
 
     it('should enter edit mode when edit button is clicked', async () => {
@@ -181,7 +181,7 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      await user.click(screen.getByTitle('Rename group'))
+      await user.click(screen.getByRole('button', { name: 'Rename group' }))
 
       // Input should appear with the current name
       const input = screen.getByRole('textbox')
@@ -205,7 +205,7 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      await user.click(screen.getByTitle('Rename group'))
+      await user.click(screen.getByRole('button', { name: 'Rename group' }))
 
       const input = screen.getByRole('textbox')
       await user.clear(input)
@@ -230,7 +230,7 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      await user.click(screen.getByTitle('Rename group'))
+      await user.click(screen.getByRole('button', { name: 'Rename group' }))
 
       const input = screen.getByRole('textbox')
       await user.clear(input)
@@ -256,7 +256,7 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      await user.click(screen.getByTitle('Rename group'))
+      await user.click(screen.getByRole('button', { name: 'Rename group' }))
 
       const input = screen.getByRole('textbox')
       await user.clear(input)
@@ -288,7 +288,7 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      await user.click(screen.getByTitle('Rename group'))
+      await user.click(screen.getByRole('button', { name: 'Rename group' }))
 
       const input = screen.getByRole('textbox')
       await user.clear(input)
@@ -313,7 +313,7 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      await user.click(screen.getByTitle('Rename group'))
+      await user.click(screen.getByRole('button', { name: 'Rename group' }))
 
       const input = screen.getByRole('textbox')
       await user.type(input, '{Enter}')
@@ -337,7 +337,7 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      await user.click(screen.getByTitle('Rename group'))
+      await user.click(screen.getByRole('button', { name: 'Rename group' }))
 
       const input = screen.getByRole('textbox')
       await user.clear(input)
@@ -361,7 +361,7 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      expect(screen.getByTitle('Delete group')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Delete group' })).toBeInTheDocument()
     })
 
     it('should show confirmation state on first click', async () => {
@@ -380,10 +380,10 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      await user.click(screen.getByTitle('Delete group'))
+      await user.click(screen.getByRole('button', { name: 'Delete group' }))
 
       expect(screen.getByText('Delete?')).toBeInTheDocument()
-      expect(screen.getByTitle('Click again to confirm')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Click again to confirm' })).toBeInTheDocument()
       expect(onDelete).not.toHaveBeenCalled()
     })
 
@@ -403,8 +403,8 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      await user.click(screen.getByTitle('Delete group'))
-      await user.click(screen.getByTitle('Click again to confirm'))
+      await user.click(screen.getByRole('button', { name: 'Delete group' }))
+      await user.click(screen.getByRole('button', { name: 'Click again to confirm' }))
 
       expect(onDelete).toHaveBeenCalledTimes(1)
     })
@@ -425,7 +425,7 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      await user.click(screen.getByTitle('Delete group'))
+      await user.click(screen.getByRole('button', { name: 'Delete group' }))
       expect(screen.getByText('Delete?')).toBeInTheDocument()
 
       await act(async () => {
@@ -434,7 +434,7 @@ describe('SidebarGroup', () => {
 
       await waitFor(() => {
         expect(screen.queryByText('Delete?')).not.toBeInTheDocument()
-        expect(screen.getByTitle('Delete group')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Delete group' })).toBeInTheDocument()
       })
     })
 
@@ -454,11 +454,11 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      expect(screen.getByTitle('Rename group')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Rename group' })).toBeInTheDocument()
 
-      await user.click(screen.getByTitle('Delete group'))
+      await user.click(screen.getByRole('button', { name: 'Delete group' }))
 
-      expect(screen.queryByTitle('Rename group')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Rename group' })).not.toBeInTheDocument()
     })
   })
 
@@ -478,8 +478,8 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      expect(screen.queryByTitle('Rename group')).not.toBeInTheDocument()
-      expect(screen.queryByTitle('Delete group')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Rename group' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Delete group' })).not.toBeInTheDocument()
     })
 
     it('should NOT show action buttons when in edit mode', async () => {
@@ -498,14 +498,14 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      await user.click(screen.getByTitle('Rename group'))
+      await user.click(screen.getByRole('button', { name: 'Rename group' }))
 
       // Should be in edit mode now
       expect(screen.getByRole('textbox')).toBeInTheDocument()
 
       // Action buttons should be hidden
-      expect(screen.queryByTitle('Rename group')).not.toBeInTheDocument()
-      expect(screen.queryByTitle('Delete group')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Rename group' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Delete group' })).not.toBeInTheDocument()
     })
   })
 
@@ -529,7 +529,7 @@ describe('SidebarGroup', () => {
         </div>
       )
 
-      await user.click(screen.getByTitle('Delete group'))
+      await user.click(screen.getByRole('button', { name: 'Delete group' }))
 
       expect(parentClick).not.toHaveBeenCalled()
     })
@@ -552,7 +552,7 @@ describe('SidebarGroup', () => {
         </div>
       )
 
-      await user.click(screen.getByTitle('Rename group'))
+      await user.click(screen.getByRole('button', { name: 'Rename group' }))
 
       expect(parentClick).not.toHaveBeenCalled()
     })
@@ -574,7 +574,7 @@ describe('SidebarGroup', () => {
       )
 
       // Enter edit mode
-      await user.click(screen.getByTitle('Rename group'))
+      await user.click(screen.getByRole('button', { name: 'Rename group' }))
       onToggle.mockClear()
 
       // Click on input

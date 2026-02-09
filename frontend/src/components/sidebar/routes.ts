@@ -21,12 +21,12 @@ export function getBuiltinRoute(key: BuiltinKey): string {
 }
 
 /**
- * Get the route path for a list sidebar item.
+ * Get the route path for a filter sidebar item.
  *
- * All lists use the unified /app/content/lists/:id route.
- * The list's content_types configuration determines what content is shown,
+ * All filters use the unified /app/content/filters/:id route.
+ * The filter's content_types configuration determines what content is shown,
  * not the URL pattern.
  */
-export function getListRoute(listId: number): string {
-  return `/app/content/lists/${listId}`
+export function getFilterRoute(filterId: string): string {
+  return `/app/content/filters/${filterId}`
 }

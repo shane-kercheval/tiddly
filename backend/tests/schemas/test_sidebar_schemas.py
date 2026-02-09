@@ -1,12 +1,14 @@
 """Tests for sidebar schema validation."""
+from uuid import uuid4
+
 import pytest
 from pydantic import ValidationError
 
 from schemas.sidebar import (
     SIDEBAR_VERSION,
     SidebarBuiltinItem,
-    SidebarGroup,
-    SidebarListItem,
+    SidebarCollection,
+    SidebarFilterItem,
     SidebarOrder,
 )
 
@@ -56,40 +58,42 @@ def test__sidebar_builtin_item__rejects_all_notes() -> None:
 
 
 # =============================================================================
-# SidebarListItem Tests
+# SidebarFilterItem Tests
 # =============================================================================
 
 
-def test__sidebar_list_item__valid() -> None:
-    """Test that list items with integer IDs are valid."""
-    item = SidebarListItem(type="list", id=123)
-    assert item.id == 123
-    assert item.type == "list"
+def test__sidebar_filter_item__valid() -> None:
+    """Test that filter items with UUID IDs are valid."""
+    test_id = uuid4()
+    item = SidebarFilterItem(type="filter", id=test_id)
+    assert item.id == test_id
+    assert item.type == "filter"
 
 
-def test__sidebar_list_item__valid_zero() -> None:
-    """Test that list ID 0 is valid."""
-    item = SidebarListItem(type="list", id=0)
-    assert item.id == 0
+def test__sidebar_filter_item__valid_uuid_string() -> None:
+    """Test that filter items with UUID strings are valid."""
+    uuid_str = "550e8400-e29b-41d4-a716-446655440000"
+    item = SidebarFilterItem(type="filter", id=uuid_str)  # type: ignore[arg-type]
+    assert str(item.id) == uuid_str
 
 
-def test__sidebar_list_item__coerces_string_id() -> None:
-    """Test that string list IDs are coerced to integers by Pydantic."""
+def test__sidebar_filter_item__coerces_string_id() -> None:
+    """Test that string UUID IDs are coerced to UUID by Pydantic."""
     # Pydantic's default behavior is to coerce compatible types
-    item = SidebarListItem(type="list", id="123")  # type: ignore[arg-type]
-    assert item.id == 123
-    assert isinstance(item.id, int)
+    uuid_str = "550e8400-e29b-41d4-a716-446655440001"
+    item = SidebarFilterItem(type="filter", id=uuid_str)  # type: ignore[arg-type]
+    assert str(item.id) == uuid_str
 
 
 # =============================================================================
-# SidebarGroup Tests
+# SidebarCollection Tests
 # =============================================================================
 
 
-def test__sidebar_group__valid_minimal() -> None:
-    """Test that a valid minimal group is accepted."""
-    group = SidebarGroup(
-        type="group",
+def test__sidebar_collection__valid_minimal() -> None:
+    """Test that a valid minimal collection is accepted."""
+    group = SidebarCollection(
+        type="collection",
         id="550e8400-e29b-41d4-a716-446655440000",
         name="Work",
         items=[],
@@ -98,25 +102,25 @@ def test__sidebar_group__valid_minimal() -> None:
     assert group.items == []
 
 
-def test__sidebar_group__valid_with_items() -> None:
-    """Test that a group with items is valid."""
-    group = SidebarGroup(
-        type="group",
+def test__sidebar_collection__valid_with_items() -> None:
+    """Test that a collection with items is valid."""
+    group = SidebarCollection(
+        type="collection",
         id="550e8400-e29b-41d4-a716-446655440000",
         name="Work",
         items=[
-            SidebarListItem(type="list", id=1),
+            SidebarFilterItem(type="filter", id=uuid4()),
             SidebarBuiltinItem(type="builtin", key="archived"),
         ],
     )
     assert len(group.items) == 2
 
 
-def test__sidebar_group__rejects_invalid_uuid() -> None:
+def test__sidebar_collection__rejects_invalid_uuid() -> None:
     """Test that invalid UUID format is rejected."""
     with pytest.raises(ValidationError) as exc_info:
-        SidebarGroup(
-            type="group",
+        SidebarCollection(
+            type="collection",
             id="not-a-uuid",
             name="Work",
             items=[],
@@ -125,22 +129,22 @@ def test__sidebar_group__rejects_invalid_uuid() -> None:
     assert "id" in str(exc_info.value)
 
 
-def test__sidebar_group__rejects_uppercase_uuid() -> None:
+def test__sidebar_collection__rejects_uppercase_uuid() -> None:
     """Test that uppercase UUID is rejected (must be lowercase)."""
     with pytest.raises(ValidationError):
-        SidebarGroup(
-            type="group",
+        SidebarCollection(
+            type="collection",
             id="550E8400-E29B-41D4-A716-446655440000",  # Uppercase
             name="Work",
             items=[],
         )
 
 
-def test__sidebar_group__rejects_empty_name() -> None:
-    """Test that empty group name is rejected."""
+def test__sidebar_collection__rejects_empty_name() -> None:
+    """Test that empty collection name is rejected."""
     with pytest.raises(ValidationError) as exc_info:
-        SidebarGroup(
-            type="group",
+        SidebarCollection(
+            type="collection",
             id="550e8400-e29b-41d4-a716-446655440000",
             name="",
             items=[],
@@ -149,11 +153,11 @@ def test__sidebar_group__rejects_empty_name() -> None:
     assert "name" in str(exc_info.value)
 
 
-def test__sidebar_group__rejects_too_long_name() -> None:
-    """Test that group name over 100 chars is rejected."""
+def test__sidebar_collection__rejects_too_long_name() -> None:
+    """Test that collection name over 100 chars is rejected."""
     with pytest.raises(ValidationError) as exc_info:
-        SidebarGroup(
-            type="group",
+        SidebarCollection(
+            type="collection",
             id="550e8400-e29b-41d4-a716-446655440000",
             name="x" * 101,
             items=[],
@@ -162,10 +166,10 @@ def test__sidebar_group__rejects_too_long_name() -> None:
     assert "name" in str(exc_info.value)
 
 
-def test__sidebar_group__accepts_max_length_name() -> None:
-    """Test that group name at exactly 100 chars is accepted."""
-    group = SidebarGroup(
-        type="group",
+def test__sidebar_collection__accepts_max_length_name() -> None:
+    """Test that collection name at exactly 100 chars is accepted."""
+    group = SidebarCollection(
+        type="collection",
         id="550e8400-e29b-41d4-a716-446655440000",
         name="x" * 100,
         items=[],
@@ -196,16 +200,16 @@ def test__sidebar_order__valid_with_all_types() -> None:
         version=SIDEBAR_VERSION,
         items=[
             SidebarBuiltinItem(type="builtin", key="all"),
-            SidebarGroup(
-                type="group",
+            SidebarCollection(
+                type="collection",
                 id="550e8400-e29b-41d4-a716-446655440000",
                 name="Work",
                 items=[
-                    SidebarListItem(type="list", id=1),
-                    SidebarListItem(type="list", id=2),
+                    SidebarFilterItem(type="filter", id=uuid4()),
+                    SidebarFilterItem(type="filter", id=uuid4()),
                 ],
             ),
-            SidebarListItem(type="list", id=3),
+            SidebarFilterItem(type="filter", id=uuid4()),
             SidebarBuiltinItem(type="builtin", key="archived"),
             SidebarBuiltinItem(type="builtin", key="trash"),
         ],
@@ -232,14 +236,14 @@ def test__sidebar_order__from_dict() -> None:
         "items": [
             {"type": "builtin", "key": "all"},
             {
-                "type": "group",
+                "type": "collection",
                 "id": "550e8400-e29b-41d4-a716-446655440000",
                 "name": "Work",
                 "items": [
-                    {"type": "list", "id": 1},
+                    {"type": "filter", "id": "550e8400-e29b-41d4-a716-446655440001"},
                 ],
             },
-            {"type": "list", "id": 2},
+            {"type": "filter", "id": "550e8400-e29b-41d4-a716-446655440002"},
         ],
     }
     order = SidebarOrder.model_validate(data)
@@ -248,20 +252,20 @@ def test__sidebar_order__from_dict() -> None:
 
 
 def test__sidebar_order__rejects_nested_groups() -> None:
-    """Test that nested groups are rejected at schema level."""
+    """Test that nested collections are rejected at schema level."""
     # Groups can only contain list and builtin items, not other groups.
-    # This is enforced by the type annotation on SidebarGroup.items.
+    # This is enforced by the type annotation on SidebarCollection.items.
     with pytest.raises(ValidationError):
         SidebarOrder.model_validate({
             "version": 1,
             "items": [
                 {
-                    "type": "group",
+                    "type": "collection",
                     "id": "550e8400-e29b-41d4-a716-446655440000",
                     "name": "Outer",
                     "items": [
                         {
-                            "type": "group",  # Nested group - should fail
+                            "type": "collection",  # Nested group - should fail
                             "id": "660e8400-e29b-41d4-a716-446655440001",
                             "name": "Inner",
                             "items": [],

@@ -1,26 +1,12 @@
 """Pydantic schemas for note endpoints."""
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from core.config import get_settings
-from schemas.validators import (
-    validate_and_normalize_tags,
-    validate_description_length,
-    validate_title_length,
-)
-
-
-def validate_note_content_length(content: str | None) -> str | None:
-    """Validate that note content doesn't exceed maximum length (2MB)."""
-    settings = get_settings()
-    if content is not None and len(content) > settings.max_note_content_length:
-        raise ValueError(
-            f"Content exceeds maximum length of {settings.max_note_content_length:,} characters "
-            f"(got {len(content):,} characters).",
-        )
-    return content
+from schemas.content_metadata import ContentMetadata
+from schemas.validators import normalize_preview, validate_and_normalize_tags
 
 
 class NoteCreate(BaseModel):
@@ -47,25 +33,11 @@ class NoteCreate(BaseModel):
 
     @field_validator("title")
     @classmethod
-    def check_title_length(cls, v: str) -> str:
-        """Validate title is not empty and doesn't exceed max length."""
+    def check_title_not_empty(cls, v: str) -> str:
+        """Validate title is not empty."""
         if not v or not v.strip():
             raise ValueError("Title cannot be empty")
-        # validate_title_length only returns None if input is None,
-        # but we've already validated v is non-empty above
-        return validate_title_length(v)  # type: ignore[return-value]
-
-    @field_validator("description")
-    @classmethod
-    def check_description_length(cls, v: str | None) -> str | None:
-        """Validate description length."""
-        return validate_description_length(v)
-
-    @field_validator("content")
-    @classmethod
-    def check_content_length(cls, v: str | None) -> str | None:
-        """Validate content length."""
-        return validate_note_content_length(v)
+        return v
 
 
 class NoteUpdate(BaseModel):
@@ -82,6 +54,11 @@ class NoteUpdate(BaseModel):
                     "Accepts ISO 8601 format (e.g., '2025-02-01T16:00:00Z'). "
                     "Future dates schedule auto-archive; past dates archive immediately.",
     )
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description="For optimistic locking. If provided and the note was modified after "
+                    "this timestamp, returns 409 Conflict with current server state.",
+    )
 
     @field_validator("tags", mode="before")
     @classmethod
@@ -93,25 +70,11 @@ class NoteUpdate(BaseModel):
 
     @field_validator("title")
     @classmethod
-    def check_title_length(cls, v: str | None) -> str | None:
-        """Validate title is not empty (if provided) and doesn't exceed max length."""
-        if v is not None:
-            if not v.strip():
-                raise ValueError("Title cannot be empty")
-            return validate_title_length(v)
+    def check_title_not_empty(cls, v: str | None) -> str | None:
+        """Validate title is not empty (if provided)."""
+        if v is not None and not v.strip():
+            raise ValueError("Title cannot be empty")
         return v
-
-    @field_validator("description")
-    @classmethod
-    def check_description_length(cls, v: str | None) -> str | None:
-        """Validate description length."""
-        return validate_description_length(v)
-
-    @field_validator("content")
-    @classmethod
-    def check_content_length(cls, v: str | None) -> str | None:
-        """Validate content length."""
-        return validate_note_content_length(v)
 
 
 class NoteListItem(BaseModel):
@@ -127,7 +90,7 @@ class NoteListItem(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     title: str
     description: str | None
     tags: list[str]
@@ -136,27 +99,38 @@ class NoteListItem(BaseModel):
     last_used_at: datetime
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
-    version: int
+    content_length: int | None = Field(
+        default=None,
+        description="Total character count of content field.",
+    )
+    content_preview: str | None = Field(
+        default=None,
+        description="First 500 characters of content.",
+    )
+
+    @field_validator("content_preview", mode="before")
+    @classmethod
+    def strip_preview_whitespace(cls, v: str | None) -> str | None:
+        """Collapse whitespace in content preview for clean display."""
+        return normalize_preview(v)
 
     @model_validator(mode="before")
     @classmethod
-    def extract_tag_names(cls, data: Any) -> Any:
+    def extract_from_sqlalchemy(cls, data: Any) -> Any:
         """
-        Extract tag names from tag_objects relationship.
+        Extract fields from SQLAlchemy model and tag names from tag_objects.
+
+        Uses model introspection to automatically extract all schema fields,
+        eliminating the need to maintain a hardcoded field list.
 
         Only accesses tag_objects if it's already loaded (not lazy) to avoid
         triggering database queries outside async context.
         """
         # Handle SQLAlchemy model objects
         if hasattr(data, "__dict__"):
-            data_dict = {}
-            for key in [
-                "id", "title", "description",
-                "created_at", "updated_at", "last_used_at",
-                "deleted_at", "archived_at", "version", "content",
-            ]:
-                if hasattr(data, key):
-                    data_dict[key] = getattr(data, key)
+            # Get all field names from the Pydantic model, excluding 'tags' which we handle
+            field_names = set(cls.model_fields.keys()) - {"tags"}
+            data_dict = {key: getattr(data, key) for key in field_names if hasattr(data, key)}
 
             # Check if tag_objects is already loaded (not lazy)
             # SQLAlchemy sets __dict__ entry when relationship is loaded
@@ -174,9 +148,14 @@ class NoteResponse(NoteListItem):
     Schema for full note responses (includes content).
 
     Returned by GET /notes/:id and mutation endpoints.
+
+    The content_metadata field is included whenever content is non-null,
+    providing line count information and indicating whether the response
+    contains partial or full content.
     """
 
     content: str | None
+    content_metadata: ContentMetadata | None = None
 
 
 class NoteListResponse(BaseModel):

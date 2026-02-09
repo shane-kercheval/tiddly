@@ -1,7 +1,8 @@
 /**
  * Tests for NoteDetail page.
  *
- * Tests view, edit, and create modes for notes.
+ * Tests the unified Note component for creating and editing notes.
+ * The unified component is always editable - there's no separate view/edit mode.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -18,9 +19,17 @@ vi.mock('react-hot-toast', () => ({
   },
 }))
 
+// Mock @tanstack/react-query's useQueryClient
+const mockInvalidateQueries = vi.fn()
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({
+    invalidateQueries: mockInvalidateQueries,
+  }),
+}))
+
 // Mock note data
 const mockNote: Note = {
-  id: 1,
+  id: '1',
   title: 'Test Note',
   description: 'Test description',
   content: '# Hello World\n\nThis is a test note.',
@@ -31,6 +40,7 @@ const mockNote: Note = {
   last_used_at: '2024-01-01T00:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 // Mock hooks
@@ -84,7 +94,10 @@ vi.mock('../hooks/useNoteMutations', () => ({
 
 vi.mock('../stores/tagsStore', () => ({
   useTagsStore: () => ({
-    tags: [{ name: 'test', count: 5 }, { name: 'example', count: 3 }],
+    tags: [
+      { name: 'test', content_count: 5, filter_count: 0 },
+      { name: 'example', content_count: 3, filter_count: 0 },
+    ],
   }),
 }))
 
@@ -102,6 +115,24 @@ vi.mock('../stores/tagFilterStore', () => ({
   ),
 }))
 
+vi.mock('../stores/uiPreferencesStore', () => ({
+  useUIPreferencesStore: (selector: (state: { fullWidthLayout: boolean }) => boolean) =>
+    selector({ fullWidthLayout: false }),
+}))
+
+// Mock ContentEditor to avoid Milkdown timer issues in tests
+// Milkdown's internal timers try to call removeEventListener after test environment teardown
+vi.mock('../components/ContentEditor', () => ({
+  ContentEditor: ({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) => (
+    <textarea
+      data-testid="content-editor"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+    />
+  ),
+}))
+
 // Helper to render NoteDetail with router
 function renderWithRouter(initialRoute: string): void {
   render(
@@ -109,7 +140,6 @@ function renderWithRouter(initialRoute: string): void {
       <Routes>
         <Route path="/app/notes/new" element={<NoteDetail />} />
         <Route path="/app/notes/:id" element={<NoteDetail />} />
-        <Route path="/app/notes/:id/edit" element={<NoteDetail />} />
         <Route path="/app/notes" element={<div>Notes List</div>} />
       </Routes>
     </MemoryRouter>
@@ -127,8 +157,8 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        // Create mode shows the NoteEditor with Create Note button
-        expect(screen.getByText('Create Note')).toBeInTheDocument()
+        // Create mode shows the unified Note component with Close button
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
     })
 
@@ -136,52 +166,78 @@ describe('NoteDetail page', () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        expect(screen.getByText('Create Note')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
 
       expect(mockFetchNote).not.toHaveBeenCalled()
     })
 
-    it('should have cancel button in create mode', async () => {
+    it('should show Close button', async () => {
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        // Cancel button serves as "back" in edit/create mode
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
     })
 
-    it('should show create note button', async () => {
+    it('should show Create button when form is dirty', async () => {
+      const user = userEvent.setup()
       renderWithRouter('/app/notes/new')
 
       await waitFor(() => {
-        expect(screen.getByText('Create Note')).toBeInTheDocument()
+        expect(screen.getByPlaceholderText('Note title')).toBeInTheDocument()
+      })
+
+      // Type in title to make form dirty
+      await user.type(screen.getByPlaceholderText('Note title'), 'New Note Title')
+
+      await waitFor(() => {
+        expect(screen.getByText('Create')).toBeInTheDocument()
+      })
+    })
+
+    it('should show Discard? confirmation when Close is clicked with dirty form', async () => {
+      const user = userEvent.setup()
+      renderWithRouter('/app/notes/new')
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Note title')).toBeInTheDocument()
+      })
+
+      // Type in title to make form dirty
+      await user.type(screen.getByPlaceholderText('Note title'), 'New Note Title')
+
+      // Click Close to trigger confirmation
+      await user.click(screen.getByText('Close'))
+
+      await waitFor(() => {
+        expect(screen.getByText('Discard?')).toBeInTheDocument()
       })
     })
   })
 
-  describe('view mode', () => {
+  describe('existing note', () => {
     it('should fetch note by ID', async () => {
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(mockFetchNote).toHaveBeenCalledWith(1)
+        expect(mockFetchNote).toHaveBeenCalledWith('1')
       })
     })
 
-    it('should track note usage in view mode', async () => {
+    it('should track note usage', async () => {
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(mockTrackNoteUsage).toHaveBeenCalledWith(1)
+        expect(mockTrackNoteUsage).toHaveBeenCalledWith('1')
       })
     })
 
-    it('should render note title', async () => {
+    it('should render note title in editable field', async () => {
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        expect(screen.getByDisplayValue('Test Note')).toBeInTheDocument()
       })
     })
 
@@ -202,11 +258,11 @@ describe('NoteDetail page', () => {
       })
     })
 
-    it('should show edit button in view mode', async () => {
+    it('should show Close button', async () => {
       renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(screen.getByText('Edit')).toBeInTheDocument()
+        expect(screen.getByText('Close')).toBeInTheDocument()
       })
     })
 
@@ -217,49 +273,21 @@ describe('NoteDetail page', () => {
         expect(screen.getByText('Archive')).toBeInTheDocument()
       })
     })
-  })
 
-  describe('edit mode', () => {
-    it('should render edit form for /app/notes/:id/edit', async () => {
-      renderWithRouter('/app/notes/1/edit')
-
-      await waitFor(() => {
-        // Edit mode shows the NoteEditor with Save Changes button
-        expect(screen.getByText('Save Changes')).toBeInTheDocument()
-      })
-    })
-
-    it('should fetch note in edit mode', async () => {
-      renderWithRouter('/app/notes/1/edit')
+    it('should show Save button when form is dirty', async () => {
+      const user = userEvent.setup()
+      renderWithRouter('/app/notes/1')
 
       await waitFor(() => {
-        expect(mockFetchNote).toHaveBeenCalledWith(1)
-      })
-    })
-
-    it('should not track usage in edit mode', async () => {
-      renderWithRouter('/app/notes/1/edit')
-
-      await waitFor(() => {
-        expect(mockFetchNote).toHaveBeenCalled()
+        expect(screen.getByDisplayValue('Test Note')).toBeInTheDocument()
       })
 
-      expect(mockTrackNoteUsage).not.toHaveBeenCalled()
-    })
-
-    it('should show save changes button', async () => {
-      renderWithRouter('/app/notes/1/edit')
+      // Modify title to make form dirty
+      await user.clear(screen.getByDisplayValue('Test Note'))
+      await user.type(screen.getByPlaceholderText('Note title'), 'Updated Title')
 
       await waitFor(() => {
-        expect(screen.getByText('Save Changes')).toBeInTheDocument()
-      })
-    })
-
-    it('should show cancel button', async () => {
-      renderWithRouter('/app/notes/1/edit')
-
-      await waitFor(() => {
-        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.getByText('Save')).toBeInTheDocument()
       })
     })
   })
@@ -275,11 +303,12 @@ describe('NoteDetail page', () => {
       })
     })
 
-    it('should show error for invalid note ID', async () => {
-      renderWithRouter('/app/notes/invalid')
+    it('should show error when API returns not found', async () => {
+      mockFetchNote.mockRejectedValue(new Error('Note not found'))
+      renderWithRouter('/app/notes/invalid-uuid')
 
       await waitFor(() => {
-        expect(screen.getByText('Invalid note ID')).toBeInTheDocument()
+        expect(screen.getByText('Note not found')).toBeInTheDocument()
       })
     })
   })
@@ -307,6 +336,80 @@ describe('NoteDetail page', () => {
       await user.click(screen.getByText('Close'))
 
       expect(mockNavigate).toHaveBeenCalledWith('/app/content')
+    })
+  })
+
+  describe('create then stay on page', () => {
+    it('should navigate to note URL with state after creating', async () => {
+      const user = userEvent.setup()
+      const createdNote = { ...mockNote, id: 'new-note-id', title: 'New Note' }
+      mockCreateMutateAsync.mockResolvedValue(createdNote)
+
+      renderWithRouter('/app/notes/new')
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Note title')).toBeInTheDocument()
+      })
+
+      // Fill in required field
+      await user.type(screen.getByPlaceholderText('Note title'), 'New Note')
+
+      // Submit the form
+      await user.click(screen.getByText('Create'))
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith(
+          '/app/notes/new-note-id',
+          {
+            replace: true,
+            state: { note: createdNote },
+          }
+        )
+      })
+    })
+
+    it('should use note from location state instead of fetching', async () => {
+      const passedNote = { ...mockNote, id: '123', title: 'Passed Note' }
+
+      render(
+        <MemoryRouter
+          initialEntries={[{ pathname: '/app/notes/123', state: { note: passedNote } }]}
+        >
+          <Routes>
+            <Route path="/app/notes/:id" element={<NoteDetail />} />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Should immediately display the passed note without error flash
+      // This must NOT use waitFor - we're testing there's no flash before state syncs
+      expect(screen.queryByText('Note not found')).not.toBeInTheDocument()
+      expect(screen.getByDisplayValue('Passed Note')).toBeInTheDocument()
+
+      // Should NOT have called fetchNote since we passed the note
+      expect(mockFetchNote).not.toHaveBeenCalled()
+
+      // Should still track usage
+      expect(mockTrackNoteUsage).toHaveBeenCalledWith('123')
+    })
+
+    it('should fetch note if passed note ID does not match route ID', async () => {
+      const passedNote = { ...mockNote, id: 'different-id', title: 'Wrong Note' }
+
+      render(
+        <MemoryRouter
+          initialEntries={[{ pathname: '/app/notes/123', state: { note: passedNote } }]}
+        >
+          <Routes>
+            <Route path="/app/notes/:id" element={<NoteDetail />} />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Should fetch since IDs don't match
+      await waitFor(() => {
+        expect(mockFetchNote).toHaveBeenCalledWith('123')
+      })
     })
   })
 })

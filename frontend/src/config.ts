@@ -1,5 +1,8 @@
 /**
  * Application configuration loaded from environment variables.
+ *
+ * Note: Field length limits are now fetched from the API via useLimits() hook.
+ * See /users/me/limits endpoint and hooks/useLimits.ts
  */
 
 export const config = {
@@ -10,16 +13,6 @@ export const config = {
     domain: import.meta.env.VITE_AUTH0_DOMAIN || '',
     clientId: import.meta.env.VITE_AUTH0_CLIENT_ID || '',
     audience: import.meta.env.VITE_AUTH0_AUDIENCE || '',
-  },
-  // Field length limits - shared with backend via env vars
-  limits: {
-    maxContentLength: parseInt(import.meta.env.VITE_MAX_CONTENT_LENGTH || '512000', 10),
-    maxNoteContentLength: parseInt(import.meta.env.VITE_MAX_NOTE_CONTENT_LENGTH || '500000', 10),
-    maxPromptContentLength: parseInt(import.meta.env.VITE_MAX_PROMPT_CONTENT_LENGTH || '100000', 10),
-    maxPromptNameLength: parseInt(import.meta.env.VITE_MAX_PROMPT_NAME_LENGTH || '255', 10),
-    maxArgumentNameLength: parseInt(import.meta.env.VITE_MAX_ARGUMENT_NAME_LENGTH || '100', 10),
-    maxDescriptionLength: parseInt(import.meta.env.VITE_MAX_DESCRIPTION_LENGTH || '2000', 10),
-    maxTitleLength: parseInt(import.meta.env.VITE_MAX_TITLE_LENGTH || '500', 10),
   },
 } as const
 

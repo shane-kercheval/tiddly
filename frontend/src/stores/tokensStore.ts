@@ -15,7 +15,7 @@ interface TokensState {
 interface TokensActions {
   fetchTokens: () => Promise<void>
   createToken: (data: TokenCreate) => Promise<TokenCreateResponse>
-  deleteToken: (id: number) => Promise<void>
+  deleteToken: (id: string) => Promise<void>
   clearError: () => void
 }
 
@@ -55,7 +55,7 @@ export const useTokensStore = create<TokensStore>((set, get) => ({
     return newToken
   },
 
-  deleteToken: async (id: number) => {
+  deleteToken: async (id: string) => {
     await api.delete(`/tokens/${id}`)
     set({ tokens: get().tokens.filter((token) => token.id !== id) })
   },

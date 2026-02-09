@@ -4,7 +4,7 @@ import httpx
 import pytest
 from httpx import Response
 
-from mcp_server.api_client import api_get, api_post
+from mcp_server.api_client import api_get, api_patch, api_post
 
 
 @pytest.mark.asyncio
@@ -80,3 +80,71 @@ async def test__api_get__authorization_header_set(mock_api) -> None:
     assert (
         mock_api.calls[0].request.headers["authorization"] == "Bearer bm_test_token_12345"
     )
+
+
+@pytest.mark.asyncio
+async def test__api_patch__success(mock_api) -> None:
+    """Test successful PATCH request."""
+    mock_api.patch("/notes/1/str-replace").mock(
+        return_value=Response(
+            200,
+            json={"match_type": "exact", "line": 5, "data": {"id": 1, "title": "Note"}},
+        ),
+    )
+
+    async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+        result = await api_patch(
+            client,
+            "/notes/1/str-replace",
+            "bm_test_token",
+            {"old_str": "old", "new_str": "new"},
+        )
+
+    assert result["match_type"] == "exact"
+    assert result["line"] == 5
+
+
+@pytest.mark.asyncio
+async def test__api_patch__authorization_header_set(mock_api) -> None:
+    """Test that Authorization header is correctly set for PATCH."""
+    mock_api.patch("/test").mock(return_value=Response(200, json={}))
+
+    async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+        await api_patch(client, "/test", "bm_patch_token", {"key": "value"})
+
+    assert (
+        mock_api.calls[0].request.headers["authorization"] == "Bearer bm_patch_token"
+    )
+
+
+@pytest.mark.asyncio
+async def test__api_get__request_source_header_set(mock_api) -> None:
+    """Test that X-Request-Source header is set to mcp-content."""
+    mock_api.get("/test").mock(return_value=Response(200, json={}))
+
+    async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+        await api_get(client, "/test", "bm_test_token")
+
+    assert mock_api.calls[0].request.headers["x-request-source"] == "mcp-content"
+
+
+@pytest.mark.asyncio
+async def test__api_post__request_source_header_set(mock_api) -> None:
+    """Test that X-Request-Source header is set to mcp-content for POST."""
+    mock_api.post("/test").mock(return_value=Response(201, json={}))
+
+    async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+        await api_post(client, "/test", "bm_test_token", {"key": "value"})
+
+    assert mock_api.calls[0].request.headers["x-request-source"] == "mcp-content"
+
+
+@pytest.mark.asyncio
+async def test__api_patch__request_source_header_set(mock_api) -> None:
+    """Test that X-Request-Source header is set to mcp-content for PATCH."""
+    mock_api.patch("/test").mock(return_value=Response(200, json={}))
+
+    async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+        await api_patch(client, "/test", "bm_test_token", {"key": "value"})
+
+    assert mock_api.calls[0].request.headers["x-request-source"] == "mcp-content"

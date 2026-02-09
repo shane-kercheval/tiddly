@@ -1,5 +1,7 @@
 """Tag management endpoints."""
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_user
@@ -7,6 +9,7 @@ from models.user import User
 from schemas.tag import TagListResponse, TagRenameRequest, TagResponse
 from services.tag_service import (
     TagAlreadyExistsError,
+    TagInUseByFiltersError,
     TagNotFoundError,
     delete_tag,
     get_user_tags_with_counts,
@@ -18,18 +21,36 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 
 @router.get("/", response_model=TagListResponse)
 async def list_tags(
+    include_inactive: bool = False,
+    content_types: list[Literal["bookmark", "note", "prompt"]] | None = Query(
+        default=None,
+        description="Filter to tags associated with these content types. "
+        "When specified, only returns tags that have at least one item of these "
+        "types (or are used in a compatible filter). Also scopes content_count "
+        "and filter_count to only count items/filters of these types.",
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> TagListResponse:
     """
     Get all tags for the current user with their usage counts.
 
-    Returns all tags (including those with zero active content) sorted by
-    count (most used first), then alphabetically.
+    Returns tags with `content_count` (active bookmarks, notes, prompts) and
+    `filter_count` (number of filters using this tag).
 
-    Counts include active bookmarks and notes (not deleted or archived).
+    By default, returns only tags with at least one active content item OR
+    used in at least one filter. Use include_inactive=true to include tags
+    that only have archived/deleted content.
+
+    When content_types is specified, only returns tags associated with those
+    content types. For example, content_types=prompt returns only tags that
+    are used on at least one prompt.
+
+    Results are sorted by filter_count DESC, content_count DESC, then name ASC.
     """
-    tags = await get_user_tags_with_counts(db, current_user.id, include_zero_count=True)
+    tags = await get_user_tags_with_counts(
+        db, current_user.id, include_inactive, content_types,
+    )
     return TagListResponse(tags=tags)
 
 
@@ -76,7 +97,8 @@ async def delete_tag_endpoint(
 
     This removes the tag from all bookmarks and notes, then deletes the tag itself.
 
-    Returns 204 if successful, 404 if the tag doesn't exist.
+    Returns 204 if successful, 404 if the tag doesn't exist,
+    409 if the tag is used in filters (must be removed from filters first).
     """
     try:
         await delete_tag(db, current_user.id, tag_name)
@@ -84,4 +106,12 @@ async def delete_tag_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
+        ) from e
+    except TagInUseByFiltersError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": f"Cannot delete tag '{e.tag_name}' because it is used in filters",
+                "filters": e.filters,
+            },
         ) from e

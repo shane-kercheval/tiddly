@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider, Navigate, Outlet } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './components/AuthProvider'
@@ -17,6 +17,81 @@ import { SettingsTokens } from './pages/settings/SettingsTokens'
 import { SettingsMCP } from './pages/settings/SettingsMCP'
 import { SettingsTags } from './pages/settings/SettingsTags'
 import { SettingsFAQ } from './pages/settings/SettingsFAQ'
+import { SettingsVersionHistory } from './pages/settings/SettingsVersionHistory'
+
+/**
+ * Root layout component that wraps the entire app with providers.
+ */
+function RootLayout(): ReactNode {
+  return (
+    <AuthProvider>
+      <Toaster position="top-right" />
+      <Outlet />
+    </AuthProvider>
+  )
+}
+
+/**
+ * Router configuration using createBrowserRouter for data router features.
+ * This enables useBlocker and other data router hooks.
+ */
+const router = createBrowserRouter([
+  {
+    element: <RootLayout />,
+    children: [
+      // Public routes
+      { path: '/', element: <LandingPage /> },
+      { path: '/privacy', element: <PrivacyPolicy /> },
+      { path: '/terms', element: <TermsOfService /> },
+
+      // Protected app routes - requires auth + consent
+      {
+        element: <ProtectedRoute />,
+        children: [
+          {
+            element: <AppLayout />,
+            children: [
+              {
+                element: <Layout />,
+                children: [
+                  // /app root redirects to content
+                  { path: '/app', element: <Navigate to="/app/content" replace /> },
+
+                  // Unified content routes (All, Archived, Trash, Filters)
+                  { path: '/app/content', element: <AllContent /> },
+                  { path: '/app/content/archived', element: <AllContent /> },
+                  { path: '/app/content/trash', element: <AllContent /> },
+                  { path: '/app/content/filters/:filterId', element: <AllContent /> },
+
+                  // Bookmark detail routes
+                  { path: '/app/bookmarks/new', element: <BookmarkDetail /> },
+                  { path: '/app/bookmarks/:id', element: <BookmarkDetail /> },
+
+                  // Note detail routes
+                  { path: '/app/notes/new', element: <NoteDetail /> },
+                  { path: '/app/notes/:id', element: <NoteDetail /> },
+
+                  // Prompt detail routes
+                  { path: '/app/prompts/new', element: <PromptDetail /> },
+                  { path: '/app/prompts/:id', element: <PromptDetail /> },
+
+                  // Settings routes
+                  { path: '/app/settings', element: <Navigate to="/app/settings/general" replace /> },
+                  { path: '/app/settings/general', element: <SettingsGeneral /> },
+                  { path: '/app/settings/tokens', element: <SettingsTokens /> },
+                  { path: '/app/settings/mcp', element: <SettingsMCP /> },
+                  { path: '/app/settings/tags', element: <SettingsTags /> },
+                  { path: '/app/settings/history', element: <SettingsVersionHistory /> },
+                  { path: '/app/settings/faq', element: <SettingsFAQ /> },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+])
 
 /**
  * Main application component with routing configuration.
@@ -32,16 +107,13 @@ import { SettingsFAQ } from './pages/settings/SettingsFAQ'
  *   - /app/content : Unified view - all content (bookmarks + notes + prompts)
  *   - /app/content/archived : Archived content
  *   - /app/content/trash : Deleted content
- *   - /app/content/lists/:listId : Custom list
+ *   - /app/content/filters/:filterId : Custom filter
  *   - /app/bookmarks/new : Create new bookmark
- *   - /app/bookmarks/:id : Edit bookmark
- *   - /app/bookmarks/:id/edit : Edit bookmark
+ *   - /app/bookmarks/:id : View/edit bookmark (unified component)
  *   - /app/notes/new : Create new note
- *   - /app/notes/:id : View note
- *   - /app/notes/:id/edit : Edit note
+ *   - /app/notes/:id : View/edit note (unified component)
  *   - /app/prompts/new : Create new prompt
- *   - /app/prompts/:id : View prompt
- *   - /app/prompts/:id/edit : Edit prompt
+ *   - /app/prompts/:id : View/edit prompt (unified component)
  *   - /app/settings : Redirects to /app/settings/general
  *   - /app/settings/general : General UI preferences
  *   - /app/settings/tokens : Personal access tokens
@@ -50,58 +122,7 @@ import { SettingsFAQ } from './pages/settings/SettingsFAQ'
  *   - /app/settings/faq : Frequently asked questions
  */
 function App(): ReactNode {
-  return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Toaster position="top-right" />
-        <Routes>
-          {/* Public routes */}
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/privacy" element={<PrivacyPolicy />} />
-          <Route path="/terms" element={<TermsOfService />} />
-
-          {/* Protected app routes - requires auth + consent */}
-          <Route element={<ProtectedRoute />}>
-            <Route element={<AppLayout />}>
-              <Route element={<Layout />}>
-                {/* /app root redirects to content */}
-                <Route path="/app" element={<Navigate to="/app/content" replace />} />
-
-                {/* Unified content routes (All, Archived, Trash, Lists) */}
-                <Route path="/app/content" element={<AllContent />} />
-                <Route path="/app/content/archived" element={<AllContent />} />
-                <Route path="/app/content/trash" element={<AllContent />} />
-                <Route path="/app/content/lists/:listId" element={<AllContent />} />
-
-                {/* Bookmark detail routes */}
-                <Route path="/app/bookmarks/new" element={<BookmarkDetail />} />
-                <Route path="/app/bookmarks/:id" element={<BookmarkDetail />} />
-                <Route path="/app/bookmarks/:id/edit" element={<BookmarkDetail />} />
-
-                {/* Note detail routes */}
-                <Route path="/app/notes/new" element={<NoteDetail />} />
-                <Route path="/app/notes/:id" element={<NoteDetail />} />
-                <Route path="/app/notes/:id/edit" element={<NoteDetail />} />
-
-                {/* Prompt detail routes */}
-                <Route path="/app/prompts/new" element={<PromptDetail />} />
-                <Route path="/app/prompts/:id" element={<PromptDetail />} />
-                <Route path="/app/prompts/:id/edit" element={<PromptDetail />} />
-
-                {/* Settings routes */}
-                <Route path="/app/settings" element={<Navigate to="/app/settings/general" replace />} />
-                <Route path="/app/settings/general" element={<SettingsGeneral />} />
-                <Route path="/app/settings/tokens" element={<SettingsTokens />} />
-                <Route path="/app/settings/mcp" element={<SettingsMCP />} />
-                <Route path="/app/settings/tags" element={<SettingsTags />} />
-                <Route path="/app/settings/faq" element={<SettingsFAQ />} />
-              </Route>
-            </Route>
-          </Route>
-        </Routes>
-      </AuthProvider>
-    </BrowserRouter>
-  )
+  return <RouterProvider router={router} />
 }
 
 export default App

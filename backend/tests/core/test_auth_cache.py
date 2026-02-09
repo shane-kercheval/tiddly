@@ -1,6 +1,7 @@
 """Tests for the auth caching module."""
 import json
 from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
@@ -76,7 +77,7 @@ class TestAuthCache:
         """Cache miss returns None."""
         cache = AuthCache(redis_client)
 
-        result = await cache.get_by_user_id(99999)
+        result = await cache.get_by_user_id(uuid4())
 
         assert result is None
 
@@ -179,7 +180,7 @@ class TestAuthCache:
         cache = AuthCache(redis_client)
 
         auth0_key = cache._cache_key_auth0("auth0|test")
-        user_id_key = cache._cache_key_user_id(123)
+        user_id_key = cache._cache_key_user_id(uuid4())
 
         assert f"v{CACHE_SCHEMA_VERSION}" in auth0_key
         assert f"v{CACHE_SCHEMA_VERSION}" in user_id_key
@@ -199,7 +200,7 @@ class TestAuthCacheSchemaVersioning:
         # Manually write a cache entry with old version (v0)
         old_key = "auth:v0:user:auth0:auth0|old-version"
         old_data = json.dumps({
-            "id": test_user.id,
+            "id": str(test_user.id),
             "auth0_id": "auth0|old-version",
             "email": "old@test.com",
             "consent_privacy_version": None,
@@ -207,7 +208,7 @@ class TestAuthCacheSchemaVersioning:
         })
         await redis_client.setex(old_key, 300, old_data)
 
-        # Current code uses v1, should not find old v0 key
+        # Current code uses v2, should not find old v0 key
         result = await cache.get_by_auth0_id("auth0|old-version")
 
         assert result is None

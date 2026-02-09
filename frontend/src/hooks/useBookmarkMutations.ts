@@ -23,6 +23,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { bookmarkKeys } from './useBookmarksQuery'
 import { contentKeys } from './useContentQuery'
+import { historyKeys } from './useHistory'
 import { useTagsStore } from '../stores/tagsStore'
 import type { Bookmark, BookmarkCreate, BookmarkUpdate, BookmarkListResponse, ContentListResponse } from '../types'
 
@@ -38,7 +39,7 @@ interface OptimisticContext {
  */
 function optimisticallyRemoveBookmark(
   queryClient: QueryClient,
-  bookmarkId: number
+  bookmarkId: string
 ): OptimisticContext {
   // Snapshot current data before modification
   const previousBookmarkQueries = queryClient.getQueriesData<BookmarkListResponse>({
@@ -102,6 +103,75 @@ function rollbackOptimisticUpdate(
 }
 
 /**
+ * Optimistically update a bookmark's properties in all cached list queries.
+ * Used for tag updates to provide instant feedback.
+ * Returns previous data for rollback on error.
+ *
+ * Note: Only fields present in list items are updated here. Fields like
+ * `content` and `archived_at` are excluded because they're either not in
+ * list responses or don't require immediate visual feedback.
+ */
+function optimisticallyUpdateBookmark(
+  queryClient: QueryClient,
+  bookmarkId: string,
+  updates: BookmarkUpdate
+): OptimisticContext {
+  // Snapshot current data before modification
+  const previousBookmarkQueries = queryClient.getQueriesData<BookmarkListResponse>({
+    queryKey: bookmarkKeys.lists(),
+  })
+  const previousContentQueries = queryClient.getQueriesData<ContentListResponse>({
+    queryKey: contentKeys.lists(),
+  })
+
+  // Update all bookmark list queries
+  queryClient.setQueriesData<BookmarkListResponse>(
+    { queryKey: bookmarkKeys.lists() },
+    (old) => {
+      if (!old) return old
+      return {
+        ...old,
+        items: old.items.map((item) => {
+          if (item.id !== bookmarkId) return item
+          // Apply updates to the matching item
+          return {
+            ...item,
+            ...(updates.tags !== undefined && { tags: updates.tags }),
+            ...(updates.title !== undefined && { title: updates.title }),
+            ...(updates.description !== undefined && { description: updates.description }),
+            ...(updates.url !== undefined && { url: updates.url }),
+          }
+        }),
+      }
+    }
+  )
+
+  // Update all content list queries
+  queryClient.setQueriesData<ContentListResponse>(
+    { queryKey: contentKeys.lists() },
+    (old) => {
+      if (!old) return old
+      return {
+        ...old,
+        items: old.items.map((item) => {
+          if (!(item.type === 'bookmark' && item.id === bookmarkId)) return item
+          // Apply updates to the matching item
+          return {
+            ...item,
+            ...(updates.tags !== undefined && { tags: updates.tags }),
+            ...(updates.title !== undefined && { title: updates.title }),
+            ...(updates.description !== undefined && { description: updates.description }),
+            ...(updates.url !== undefined && { url: updates.url }),
+          }
+        }),
+      }
+    }
+  )
+
+  return { previousBookmarkQueries, previousContentQueries }
+}
+
+/**
  * Hook for creating a new bookmark.
  *
  * New bookmarks are always active, so invalidates:
@@ -121,6 +191,7 @@ export function useCreateBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -129,27 +200,44 @@ export function useCreateBookmark() {
 /**
  * Hook for updating an existing bookmark.
  *
- * Updates can affect active or archived bookmarks, so invalidates:
- * - Active view queries
- * - Archived view queries
- * - Custom list queries (tag changes may affect list membership)
+ * Updates can affect active or archived bookmarks:
+ * - Optimistically updates item in cache immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, and custom list queries
  */
 export function useUpdateBookmark() {
   const queryClient = useQueryClient()
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: BookmarkUpdate }): Promise<Bookmark> => {
+    mutationFn: async ({ id, data }: { id: string; data: BookmarkUpdate }): Promise<Bookmark> => {
       const response = await api.patch<Bookmark>(`/bookmarks/${id}`, data)
       return response.data
     },
-    onSuccess: () => {
+    onMutate: async ({ id, data }) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: bookmarkKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically update the item in cache
+      return optimisticallyUpdateBookmark(queryClient, id, data)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: (_, __, { data }) => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
-      fetchTags()
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
+      // Only refresh tags if tags were modified (reduces flicker on save)
+      if ('tags' in data) {
+        fetchTags()
+      }
     },
   })
 }
@@ -172,7 +260,7 @@ export function useDeleteBookmark() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async ({ id, permanent = false }: { id: number; permanent?: boolean }): Promise<void> => {
+    mutationFn: async ({ id, permanent = false }: { id: string; permanent?: boolean }): Promise<void> => {
       const url = permanent ? `/bookmarks/${id}?permanent=true` : `/bookmarks/${id}`
       await api.delete(url)
     },
@@ -200,6 +288,7 @@ export function useDeleteBookmark() {
         queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
         queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       }
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -218,7 +307,7 @@ export function useRestoreBookmark() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Bookmark> => {
+    mutationFn: async (id: string): Promise<Bookmark> => {
       const response = await api.post<Bookmark>(`/bookmarks/${id}/restore`)
       return response.data
     },
@@ -241,6 +330,7 @@ export function useRestoreBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -259,7 +349,7 @@ export function useArchiveBookmark() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Bookmark> => {
+    mutationFn: async (id: string): Promise<Bookmark> => {
       const response = await api.post<Bookmark>(`/bookmarks/${id}/archive`)
       return response.data
     },
@@ -282,6 +372,7 @@ export function useArchiveBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -300,7 +391,7 @@ export function useUnarchiveBookmark() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Bookmark> => {
+    mutationFn: async (id: string): Promise<Bookmark> => {
       const response = await api.post<Bookmark>(`/bookmarks/${id}/unarchive`)
       return response.data
     },
@@ -323,6 +414,7 @@ export function useUnarchiveBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })

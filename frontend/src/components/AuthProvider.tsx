@@ -12,16 +12,16 @@ interface AuthProviderProps {
 
 function AuthStatusProviderDev({ children }: AuthProviderProps): ReactNode {
   return (
-    <AuthStatusProvider value={{ isAuthenticated: true, isLoading: false, error: null }}>
+    <AuthStatusProvider value={{ isAuthenticated: true, isLoading: false, error: null, userId: 'dev-user' }}>
       {children}
     </AuthStatusProvider>
   )
 }
 
 function AuthStatusProviderProd({ children }: AuthProviderProps): ReactNode {
-  const { isAuthenticated, isLoading, error } = useAuth0()
+  const { isAuthenticated, isLoading, error, user } = useAuth0()
   return (
-    <AuthStatusProvider value={{ isAuthenticated, isLoading, error: error ?? null }}>
+    <AuthStatusProvider value={{ isAuthenticated, isLoading, error: error ?? null, userId: user?.sub ?? null }}>
       {children}
     </AuthStatusProvider>
   )
@@ -37,7 +37,7 @@ function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
   useEffect(() => {
     if (!isDevMode) {
       setupAuthInterceptor(
-        () => getAccessTokenSilently(),
+        (options) => getAccessTokenSilently(options),
         () => {
           resetConsent()
           queryClient.clear()
@@ -53,6 +53,17 @@ function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
 /**
  * Auth provider component that wraps the app with Auth0 context.
  * In dev mode, Auth0Provider is skipped and no authentication is required.
+ *
+ * IMPORTANT - Refresh Token Configuration:
+ * The `offline_access` scope is required for Auth0 to issue refresh tokens.
+ * Without it, users are logged out when the access token expires (~24 hours),
+ * even with `useRefreshTokens={true}` set. Both are required:
+ *   1. `scope: 'offline_access'` here in the frontend
+ *   2. "Allow Offline Access" enabled in Auth0 API settings (see README_DEPLOY.md)
+ *
+ * The options passthrough in AuthInterceptorSetup allows the API interceptor
+ * to call `getAccessTokenSilently({ cacheMode: 'off' })` when retrying after
+ * a 401, forcing a fresh token fetch instead of using a cached expired token.
  */
 export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   // In dev mode, skip Auth0 entirely
@@ -67,6 +78,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       authorizationParams={{
         redirect_uri: window.location.origin,
         audience: config.auth0.audience,
+        scope: 'openid profile email offline_access',
       }}
       cacheLocation="localstorage"
       useRefreshTokens={true}

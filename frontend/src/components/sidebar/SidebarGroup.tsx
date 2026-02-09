@@ -13,6 +13,7 @@ interface SidebarGroupProps {
   isCollapsed: boolean
   isGroupCollapsed: boolean
   onToggle: () => void
+  onEdit?: () => void // Opens modal for full editing (name + filters)
   onRename?: (newName: string) => void
   onDelete?: () => void
   children: ReactNode
@@ -38,6 +39,7 @@ export function SidebarGroup({
   isCollapsed,
   isGroupCollapsed,
   onToggle,
+  onEdit,
   onRename,
   onDelete,
   children,
@@ -82,14 +84,14 @@ export function SidebarGroup({
     }
   }
 
-  const baseClassName = `flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 ${
+  const baseClassName = `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-700 ${
     isCollapsed ? 'justify-center' : ''
   }`
 
   // If sidebar is collapsed, render minimal version
   if (isCollapsed) {
     return (
-      <div className="mb-2">
+      <div>
         <button
           onClick={onToggle}
           type="button"
@@ -103,7 +105,7 @@ export function SidebarGroup({
   }
 
   return (
-    <div className="mb-2">
+    <div>
       {/* Group header with relative positioning for absolute icons */}
       <div className="group/section relative w-full">
         <button
@@ -129,18 +131,22 @@ export function SidebarGroup({
           )}
         </button>
 
-        {/* Hover actions - absolutely positioned with solid background */}
-        {!isEditing && (onRename || onDelete) && (
-          <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity bg-white rounded shadow-sm ${isConfirmingDelete ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100'}`}>
-            {onRename && !isConfirmingDelete && (
+        {/* Hover actions - absolutely positioned with solid background, hidden on mobile */}
+        {!isEditing && (onEdit || onRename || onDelete) && (
+          <div className={`absolute right-1 top-1/2 -translate-y-1/2 hidden md:flex items-center gap-0.5 transition-opacity bg-white rounded shadow-sm ${isConfirmingDelete ? 'opacity-100' : 'opacity-0 group-hover/section:opacity-100'}`}>
+            {(onEdit || onRename) && !isConfirmingDelete && (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation()
-                  setIsEditing(true)
+                  if (onEdit) {
+                    onEdit()
+                  } else {
+                    setIsEditing(true)
+                  }
                 }}
                 className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
-                title="Rename group"
+                aria-label={onEdit ? 'Edit collection' : 'Rename group'}
               >
                 <EditIcon className="h-3.5 w-3.5" />
               </button>
@@ -153,9 +159,9 @@ export function SidebarGroup({
                 className={`p-1 rounded transition-colors ${
                   isConfirmingDelete
                     ? 'bg-red-100 text-red-600 hover:bg-red-200 px-2'
-                    : 'text-gray-400 hover:text-red-500 hover:bg-gray-100'
+                    : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
                 }`}
-                title={isConfirmingDelete ? 'Click again to confirm' : 'Delete group'}
+                aria-label={isConfirmingDelete ? 'Click again to confirm' : onEdit ? 'Delete collection' : 'Delete group'}
               >
                 {isConfirmingDelete ? (
                   <span className="text-xs font-medium whitespace-nowrap">Delete?</span>
@@ -169,7 +175,7 @@ export function SidebarGroup({
       </div>
 
       {isExpanded && (
-        <div className="ml-4 mt-1 space-y-1 border-l border-gray-200 pl-2">
+        <div className="ml-4 mt-0.5 space-y-0.5 border-l border-gray-200 pl-2">
           {children}
         </div>
       )}

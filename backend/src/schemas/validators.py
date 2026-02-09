@@ -2,11 +2,9 @@
 Shared validation functions for Pydantic schemas.
 
 This module contains validators used across multiple entity schemas (bookmarks, notes, prompts).
-Entity-specific content validators remain in their respective schema modules.
+Format validation happens here; length validation happens in service layer (tier-based limits).
 """
 import re
-
-from core.config import get_settings
 
 # Tag format: lowercase alphanumeric with hyphens (e.g., 'machine-learning', 'web-dev')
 # Note: This pattern is intentionally duplicated in the frontend (frontend/src/utils.ts)
@@ -20,6 +18,13 @@ PROMPT_NAME_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 # Argument name format: valid Python/Jinja2 identifier
 # Must start with lowercase letter, can contain lowercase letters, numbers, and underscores
 ARGUMENT_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def normalize_preview(value: str | None) -> str | None:
+    """Collapse newlines, tabs, and runs of whitespace in a content preview."""
+    if value is None:
+        return None
+    return re.sub(r"\s+", " ", value).strip()
 
 
 def validate_and_normalize_tag(tag: str) -> str:
@@ -54,46 +59,30 @@ def validate_and_normalize_tags(tags: list[str]) -> list[str]:
         tags: List of tag strings to validate.
 
     Returns:
-        List of normalized tags (lowercase, trimmed), with empty strings filtered out.
+        List of normalized tags (lowercase, trimmed), with empty strings filtered out
+        and duplicates removed (preserving first occurrence order).
 
     Raises:
         ValueError: If any tag has invalid format.
     """
     normalized = []
+    seen: set[str] = set()
     for tag in tags:
         trimmed = tag.lower().strip()
         if not trimmed:
             continue  # Skip empty tags silently
-        normalized.append(validate_and_normalize_tag(trimmed))
+        validated = validate_and_normalize_tag(trimmed)
+        if validated not in seen:
+            seen.add(validated)
+            normalized.append(validated)
     return normalized
-
-
-def validate_title_length(title: str | None) -> str | None:
-    """Validate that title doesn't exceed maximum length."""
-    settings = get_settings()
-    if title is not None and len(title) > settings.max_title_length:
-        raise ValueError(
-            f"Title exceeds maximum length of {settings.max_title_length:,} characters "
-            f"(got {len(title):,} characters).",
-        )
-    return title
-
-
-def validate_description_length(description: str | None) -> str | None:
-    """Validate that description doesn't exceed maximum length."""
-    settings = get_settings()
-    if description is not None and len(description) > settings.max_description_length:
-        max_len = settings.max_description_length
-        raise ValueError(
-            f"Description exceeds maximum length of {max_len:,} characters "
-            f"(got {len(description):,} characters).",
-        )
-    return description
 
 
 def validate_prompt_name(name: str) -> str:
     """
     Validate prompt name format.
+
+    Length validation happens in service layer (tier-based limits).
 
     Args:
         name: The prompt name to validate.
@@ -102,17 +91,11 @@ def validate_prompt_name(name: str) -> str:
         The validated name (trimmed).
 
     Raises:
-        ValueError: If name is empty, too long, or has invalid format.
+        ValueError: If name is empty or has invalid format.
     """
-    settings = get_settings()
     trimmed = name.strip()
     if not trimmed:
         raise ValueError("Prompt name cannot be empty")
-    if len(trimmed) > settings.max_prompt_name_length:
-        raise ValueError(
-            f"Prompt name exceeds maximum length of {settings.max_prompt_name_length} characters "
-            f"(got {len(trimmed)} characters).",
-        )
     if not PROMPT_NAME_PATTERN.match(trimmed):
         raise ValueError(
             f"Invalid prompt name format: '{trimmed}'. "
@@ -126,6 +109,8 @@ def validate_argument_name(name: str) -> str:
     """
     Validate argument name format.
 
+    Length validation happens in service layer (tier-based limits).
+
     Args:
         name: The argument name to validate.
 
@@ -133,18 +118,11 @@ def validate_argument_name(name: str) -> str:
         The validated name (trimmed).
 
     Raises:
-        ValueError: If name is empty, too long, or has invalid format.
+        ValueError: If name is empty or has invalid format.
     """
-    settings = get_settings()
     trimmed = name.strip()
     if not trimmed:
         raise ValueError("Argument name cannot be empty")
-    if len(trimmed) > settings.max_argument_name_length:
-        max_len = settings.max_argument_name_length
-        raise ValueError(
-            f"Argument name exceeds maximum length of {max_len} characters "
-            f"(got {len(trimmed)} characters).",
-        )
     if not ARGUMENT_NAME_PATTERN.match(trimmed):
         raise ValueError(
             f"Invalid argument name format: '{trimmed}'. "

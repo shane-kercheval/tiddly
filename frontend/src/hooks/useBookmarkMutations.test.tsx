@@ -163,7 +163,7 @@ describe('useUpdateBookmark', () => {
     let updated: unknown
     await act(async () => {
       updated = await result.current.mutateAsync({
-        id: 1,
+        id: '1',
         data: { title: 'Updated Title' },
       })
     })
@@ -182,7 +182,7 @@ describe('useUpdateBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, data: { title: 'New' } })
+      await result.current.mutateAsync({ id: '1', data: { title: 'New' } })
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
@@ -195,7 +195,7 @@ describe('useUpdateBookmark', () => {
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
   })
 
-  it('should refresh tags on success', async () => {
+  it('should refresh tags when tags are included in update', async () => {
     const queryClient = createTestQueryClient()
     mockPatch.mockResolvedValueOnce({ data: { id: 1 } })
 
@@ -204,10 +204,147 @@ describe('useUpdateBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, data: { title: 'New' } })
+      await result.current.mutateAsync({ id: '1', data: { tags: ['new-tag'] } })
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
+  })
+
+  it('should not refresh tags when tags are not included in update', async () => {
+    const queryClient = createTestQueryClient()
+    mockPatch.mockResolvedValueOnce({ data: { id: 1 } })
+
+    const { result } = renderHook(() => useUpdateBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: '1', data: { title: 'New Title' } })
+    })
+
+    expect(mockFetchTags).not.toHaveBeenCalled()
+  })
+
+  it('should optimistically update tags in cache before API completes', async () => {
+    const queryClient = createTestQueryClient()
+    // Set up initial cached data
+    const initialData = {
+      items: [
+        { id: '1', url: 'https://example.com', title: 'Test 1', tags: ['tag1', 'tag2'] },
+        { id: '2', url: 'https://other.com', title: 'Test 2', tags: ['tag3'] },
+      ],
+      total: 2,
+    }
+    queryClient.setQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 }), initialData)
+
+    // Create a promise that we control to delay API response
+    let resolvePatch: (value: { data: unknown }) => void
+    const patchPromise = new Promise<{ data: unknown }>((resolve) => {
+      resolvePatch = resolve
+    })
+    mockPatch.mockReturnValueOnce(patchPromise)
+
+    const { result } = renderHook(() => useUpdateBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    // Start the mutation but don't await it yet
+    let mutationPromise: Promise<unknown>
+    act(() => {
+      mutationPromise = result.current.mutateAsync({ id: '1', data: { tags: ['tag1'] } })
+    })
+
+    // Wait for optimistic update to apply
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // Check cache was optimistically updated BEFORE API completed
+    const cachedData = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 })) as { items: { id: string; tags: string[] }[]; total: number }
+    expect(cachedData.items[0].tags).toEqual(['tag1']) // tag2 was removed
+    expect(cachedData.items[1].tags).toEqual(['tag3']) // unchanged
+    expect(cachedData.total).toBe(2) // Total unchanged (update, not delete)
+
+    // Now complete the API call
+    await act(async () => {
+      resolvePatch!({ data: { id: '1', tags: ['tag1'] } })
+      await mutationPromise
+    })
+  })
+
+  it('should rollback optimistic update on API error', async () => {
+    const queryClient = createTestQueryClient()
+    // Set up initial cached data
+    const initialData = {
+      items: [
+        { id: '1', url: 'https://example.com', title: 'Test 1', tags: ['tag1', 'tag2'] },
+        { id: '2', url: 'https://other.com', title: 'Test 2', tags: ['tag3'] },
+      ],
+      total: 2,
+    }
+    queryClient.setQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 }), initialData)
+
+    // Make API fail
+    mockPatch.mockRejectedValueOnce(new Error('Network error'))
+
+    const { result } = renderHook(() => useUpdateBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    // Attempt the mutation (should fail)
+    await act(async () => {
+      try {
+        await result.current.mutateAsync({ id: '1', data: { tags: ['only-tag1'] } })
+      } catch {
+        // Expected to fail
+      }
+    })
+
+    // Cache should be rolled back to original state
+    const cachedData = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 })) as { items: { id: string; tags: string[] }[]; total: number }
+    expect(cachedData.items[0].tags).toEqual(['tag1', 'tag2']) // Restored
+    expect(cachedData.items[1].tags).toEqual(['tag3'])
+  })
+
+  it('should not modify items not matching the update id', async () => {
+    const queryClient = createTestQueryClient()
+    // Set up cached data with multiple pages
+    const page1Data = {
+      items: [
+        { id: '1', url: 'https://example.com', title: 'Test 1', tags: ['tag1'] },
+        { id: '2', url: 'https://other.com', title: 'Test 2', tags: ['tag2'] },
+      ],
+      total: 4,
+    }
+    const page2Data = {
+      items: [
+        { id: '3', url: 'https://third.com', title: 'Test 3', tags: ['tag3'] },
+        { id: '4', url: 'https://fourth.com', title: 'Test 4', tags: ['tag4'] },
+      ],
+      total: 4,
+    }
+    queryClient.setQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 2 }), page1Data)
+    queryClient.setQueryData(bookmarkKeys.list({ view: 'active', offset: 2, limit: 2 }), page2Data)
+
+    mockPatch.mockResolvedValueOnce({ data: { id: '3', tags: ['new-tag'] } })
+
+    const { result } = renderHook(() => useUpdateBookmark(), {
+      wrapper: createWrapper(queryClient),
+    })
+
+    await act(async () => {
+      await result.current.mutateAsync({ id: '3', data: { tags: ['new-tag'] } })
+    })
+
+    // Page 1 should be unchanged
+    const cachedPage1 = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 2 })) as { items: { id: string; tags: string[] }[] }
+    expect(cachedPage1.items[0].tags).toEqual(['tag1'])
+    expect(cachedPage1.items[1].tags).toEqual(['tag2'])
+
+    // Page 2, item 3 should be updated, item 4 unchanged
+    const cachedPage2 = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 2, limit: 2 })) as { items: { id: string; tags: string[] }[] }
+    expect(cachedPage2.items[0].tags).toEqual(['new-tag'])
+    expect(cachedPage2.items[1].tags).toEqual(['tag4'])
   })
 })
 
@@ -225,7 +362,7 @@ describe('useDeleteBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1 })
+      await result.current.mutateAsync({ id: '1' })
     })
 
     expect(mockDelete).toHaveBeenCalledWith('/bookmarks/1')
@@ -236,8 +373,8 @@ describe('useDeleteBookmark', () => {
     // Set up initial cached data
     const initialData = {
       items: [
-        { id: 1, url: 'https://example.com', title: 'Test 1' },
-        { id: 2, url: 'https://other.com', title: 'Test 2' },
+        { id: '1', url: 'https://example.com', title: 'Test 1' },
+        { id: '2', url: 'https://other.com', title: 'Test 2' },
       ],
       total: 2,
     }
@@ -257,7 +394,7 @@ describe('useDeleteBookmark', () => {
     // Start the mutation but don't await it yet
     let mutationPromise: Promise<void>
     act(() => {
-      mutationPromise = result.current.mutateAsync({ id: 1 })
+      mutationPromise = result.current.mutateAsync({ id: '1' })
     })
 
     // Wait for optimistic update to apply
@@ -266,9 +403,9 @@ describe('useDeleteBookmark', () => {
     })
 
     // Check cache was optimistically updated BEFORE API completed
-    const cachedData = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 })) as { items: { id: number }[]; total: number }
+    const cachedData = queryClient.getQueryData(bookmarkKeys.list({ view: 'active', offset: 0, limit: 10 })) as { items: { id: string }[]; total: number }
     expect(cachedData.items).toHaveLength(1)
-    expect(cachedData.items[0].id).toBe(2)
+    expect(cachedData.items[0].id).toBe('2')
     expect(cachedData.total).toBe(1)
 
     // Now complete the API call
@@ -300,7 +437,7 @@ describe('useDeleteBookmark', () => {
     // Attempt the mutation (should fail)
     await act(async () => {
       try {
-        await result.current.mutateAsync({ id: 1 })
+        await result.current.mutateAsync({ id: '1' })
       } catch {
         // Expected to fail
       }
@@ -332,7 +469,7 @@ describe('useDeleteBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1 }) // Delete item 1, which isn't in page 2
+      await result.current.mutateAsync({ id: '1' }) // Delete item 1, which isn't in page 2
     })
 
     // Page 2's total should NOT be decremented since item 1 wasn't in this page
@@ -351,7 +488,7 @@ describe('useDeleteBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1 })
+      await result.current.mutateAsync({ id: '1' })
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
@@ -373,7 +510,7 @@ describe('useDeleteBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, permanent: true })
+      await result.current.mutateAsync({ id: '1', permanent: true })
     })
 
     expect(mockDelete).toHaveBeenCalledWith('/bookmarks/1?permanent=true')
@@ -389,7 +526,7 @@ describe('useDeleteBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, permanent: true })
+      await result.current.mutateAsync({ id: '1', permanent: true })
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
@@ -411,7 +548,7 @@ describe('useDeleteBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1 })
+      await result.current.mutateAsync({ id: '1' })
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -426,7 +563,7 @@ describe('useDeleteBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync({ id: 1, permanent: true })
+      await result.current.mutateAsync({ id: '1', permanent: true })
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -454,7 +591,7 @@ describe('useRestoreBookmark', () => {
 
     let restored: unknown
     await act(async () => {
-      restored = await result.current.mutateAsync(1)
+      restored = await result.current.mutateAsync('1')
     })
 
     expect(restored).toEqual(mockBookmark)
@@ -471,7 +608,7 @@ describe('useRestoreBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
@@ -493,7 +630,7 @@ describe('useRestoreBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -521,7 +658,7 @@ describe('useArchiveBookmark', () => {
 
     let archived: unknown
     await act(async () => {
-      archived = await result.current.mutateAsync(1)
+      archived = await result.current.mutateAsync('1')
     })
 
     expect(archived).toEqual(mockBookmark)
@@ -538,7 +675,7 @@ describe('useArchiveBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
@@ -560,7 +697,7 @@ describe('useArchiveBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(mockFetchTags).toHaveBeenCalled()
@@ -588,7 +725,7 @@ describe('useUnarchiveBookmark', () => {
 
     let unarchived: unknown
     await act(async () => {
-      unarchived = await result.current.mutateAsync(1)
+      unarchived = await result.current.mutateAsync('1')
     })
 
     expect(unarchived).toEqual(mockBookmark)
@@ -605,7 +742,7 @@ describe('useUnarchiveBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
@@ -627,7 +764,7 @@ describe('useUnarchiveBookmark', () => {
     })
 
     await act(async () => {
-      await result.current.mutateAsync(1)
+      await result.current.mutateAsync('1')
     })
 
     expect(mockFetchTags).toHaveBeenCalled()

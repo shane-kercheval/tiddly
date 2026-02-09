@@ -1,20 +1,21 @@
-# Tiddly
+# [Tiddly](https://tiddly.me/)
 
-A bookmark and notes management system with tagging and search capabilities.
+Notes, Bookmarks, and Prompt management system; + Remote MCP Servers.
 
 ## Features
 
 - **Bookmarks & Notes** - Manage both bookmarks and markdown notes in one place
 - **Prompts** - Jinja2 templates with arguments, exposed via MCP for AI assistants
-- **Tag-based organization** - Filter content by tags with AND/OR matching
+- **MCP Servers** - AI agent access via Model Context Protocol (Claude, etc.)
 - **Custom lists** - Create filtered views based on tag expressions
+- **Tag-based organization** - Filter content by tags with AND/OR matching
 - **URL metadata extraction** - Auto-fetch title, description, and page content from URLs
 - **Full-text search** - Search across title, description, URL, and content
-- **Soft delete & restore** - Delete content without permanent loss
-- **Archive** - Hide content without deleting them
 - **Keyboard shortcuts** - Quick actions for power users
+- **Archive** - Hide content without deleting them
+- **Soft delete & restore** - Delete content without permanent loss
+- **Version history** - Track all changes to bookmarks, notes, and prompts. View diffs, see who made changes, and restore any previous version
 - **Personal Access Tokens** - Programmatic API access for CLI tools and scripts
-- **MCP Servers** - AI agent access via Model Context Protocol (Claude, etc.)
 
 ## Project Structure
 
@@ -40,11 +41,11 @@ bookmarks/
 # Setup
 cp .env.example .env
 make build          # Install backend dependencies
-make db-up          # Start PostgreSQL
+make docker-up      # Start PostgreSQL
 make migrate        # Run database migrations
 
 # Run backend
-make run            # API at http://localhost:8000/docs
+make api-run        # API at http://localhost:8000/docs
 
 # Run frontend (separate terminal)
 cd frontend && npm install && npm run dev
@@ -93,8 +94,19 @@ See `Makefile` for all commands. Run `make` with no args to see help.
 
 ```bash
 make tests          # Run backend linting + tests
-make frontend-test  # Run frontend tests
+make frontend-tests # Run frontend tests
 ```
+
+## Evaluations
+
+LLM-based evaluations verify that AI agents can correctly use the MCP tools:
+
+```bash
+make evals              # Run all evaluations
+make evals-content-mcp  # Run Content MCP evals only
+```
+
+Evals use the [flex-evals](https://github.com/shane-kercheval/flex-evals) framework with test cases defined in YAML. See [evals/README.md](evals/README.md) for setup and configuration.
 
 ## API Documentation
 
@@ -138,24 +150,26 @@ make prompt-mcp-server    # Prompt MCP server (port 8002)
 
 | Tool | Description |
 |------|-------------|
-| `search_bookmarks` | Search with text query and tag filtering |
-| `get_bookmark` | Get full details of a bookmark by ID |
-| `create_bookmark` | Create a new bookmark (auto-fetches metadata) |
-| `search_notes` | Search notes with text query and tag filtering |
-| `get_note` | Get full details of a note by ID |
+| `search_items` | Search bookmarks and notes with text query and tag filtering |
+| `get_item` | Get bookmark or note by ID with optional partial read (line range) |
+| `edit_content` | Edit bookmark or note content using string replacement |
+| `search_in_content` | Search within a single item's content for matches with context |
+| `update_item` | Update metadata or fully replace content |
+| `create_bookmark` | Create a new bookmark |
 | `create_note` | Create a new note |
-| `search_all_content` | Search across bookmarks and notes |
 | `list_tags` | List all tags with usage counts |
 
-### Prompt MCP Server
+### Prompt MCP Server Tools
 
-The Prompt MCP server exposes your saved prompts via the MCP prompts capability:
-
-| Capability | Description |
-|------------|-------------|
-| `list_prompts` | List available prompts with arguments |
-| `get_prompt` | Render a prompt with provided argument values |
-| `create_prompt` (tool) | Create a new prompt template |
+| Tool | Description |
+|------|-------------|
+| `search_prompts` | Search prompts with text query and tag filtering |
+| `get_prompt_content` | Get template and arguments for viewing/editing |
+| `get_prompt_metadata` | Get metadata without the template |
+| `list_tags` | List all tags with usage counts |
+| `create_prompt` | Create a new prompt template |
+| `edit_prompt_content` | Edit template and arguments using string replacement |
+| `update_prompt` | Update metadata, template, or arguments |
 
 ### Configuration
 
@@ -172,7 +186,7 @@ npx @modelcontextprotocol/inspector
 
 # Content MCP: http://localhost:8001/mcp
 # Prompt MCP: http://localhost:8002/mcp
-# Add header: Authorization: Bearer bm_your_token_here
+# Add header: Authorization: `Bearer bm_your_token_here`
 ```
 
 ### Claude Desktop Configuration

@@ -27,8 +27,8 @@ describe('getViewKey', () => {
   })
 
   it('returns list:id for active view with listId', () => {
-    expect(getViewKey('active', 5)).toBe('list:5')
-    expect(getViewKey('active', 123)).toBe('list:123')
+    expect(getViewKey('active', '5')).toBe('list:5')
+    expect(getViewKey('active', '123')).toBe('list:123')
   })
 })
 

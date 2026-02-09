@@ -6,16 +6,17 @@ import type { ReactNode } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { SidebarNavItem } from './SidebarNavItem'
-import { getBuiltinRoute, getListRoute } from './routes'
-import { getItemId, getBuiltinIcon, getListIcon } from './sidebarDndUtils'
+import { getBuiltinRoute, getFilterRoute } from './routes'
+import { getItemId, getBuiltinIcon, getFilterIcon } from './sidebarDndUtils'
 import { GripIcon } from '../icons'
+import { Tooltip } from '../ui'
 import type {
   SidebarBuiltinItemComputed,
-  SidebarListItemComputed,
+  SidebarFilterItemComputed,
 } from '../../types'
 
 export interface SortableNavItemProps {
-  item: SidebarBuiltinItemComputed | SidebarListItemComputed
+  item: SidebarBuiltinItemComputed | SidebarFilterItemComputed
   isCollapsed: boolean
   onNavClick?: () => void
   onEdit?: () => void
@@ -47,24 +48,34 @@ export function SortableNavItem({
   const icon =
     item.type === 'builtin'
       ? getBuiltinIcon(item.key)
-      : getListIcon(item.content_types)
+      : getFilterIcon(item.content_types)
 
   const route =
     item.type === 'builtin'
       ? getBuiltinRoute(item.key)
-      : getListRoute(item.id)
+      : getFilterRoute(item.id)
+
+  const navItem = (
+    <SidebarNavItem
+      to={route}
+      label={item.name}
+      icon={icon}
+      isCollapsed={isCollapsed}
+      onClick={onNavClick}
+      onEdit={item.type === 'filter' ? onEdit : undefined}
+      onDelete={item.type === 'filter' ? onDelete : undefined}
+    />
+  )
 
   return (
     <div ref={setNodeRef} style={style} className="group/item flex w-full items-center min-w-0 overflow-hidden">
-      <SidebarNavItem
-        to={route}
-        label={item.name}
-        icon={icon}
-        isCollapsed={isCollapsed}
-        onClick={onNavClick}
-        onEdit={item.type === 'list' ? onEdit : undefined}
-        onDelete={item.type === 'list' ? onDelete : undefined}
-      />
+      {isCollapsed ? (
+        <Tooltip content={item.name} compact position="right" className="w-full">
+          {navItem}
+        </Tooltip>
+      ) : (
+        navItem
+      )}
       {/* Drag handle on right */}
       {!isCollapsed && (
         <button

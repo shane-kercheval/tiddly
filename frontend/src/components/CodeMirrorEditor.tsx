@@ -1,0 +1,709 @@
+/**
+ * CodeMirror-based plain text editor.
+ * Provides syntax highlighting and formatting shortcuts for markdown editing.
+ *
+ * This is the main editor used by ContentEditor.
+ * Includes optional "Reading" mode that shows read-only Milkdown preview.
+ */
+import { useMemo, useRef, useCallback, useState, useEffect } from 'react'
+import type { ReactNode } from 'react'
+import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
+import { markdown } from '@codemirror/lang-markdown'
+import { languages } from '@codemirror/language-data'
+import { keymap, EditorView } from '@codemirror/view'
+import { markdownStyleExtension } from '../utils/markdownStyleExtension'
+import type { KeyBinding } from '@codemirror/view'
+import { Prec } from '@codemirror/state'
+import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
+import { Tooltip } from './ui/Tooltip'
+import { MilkdownEditor } from './MilkdownEditor'
+import {
+  ToolbarSeparator,
+  BoldIcon,
+  ItalicIcon,
+  StrikethroughIcon,
+  HighlightIcon,
+  InlineCodeIcon,
+  CodeBlockIcon,
+  LinkIcon,
+  BulletListIcon,
+  OrderedListIcon,
+  TaskListIcon,
+  BlockquoteIcon,
+  HorizontalRuleIcon,
+  JinjaVariableIcon,
+  JinjaIfIcon,
+  JinjaIfTrimIcon,
+  WrapIcon,
+  LineNumbersIcon,
+  ReadingIcon,
+} from './editor/EditorToolbarIcons'
+import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
+import { wasEditorFocused } from '../utils/editorUtils'
+import { getToggleMarkerAction } from '../utils/markdownToggle'
+
+/** Markdown formatting markers for wrap-style formatting. */
+const MARKERS = {
+  bold: { before: '**', after: '**' },
+  italic: { before: '*', after: '*' },
+  strikethrough: { before: '~~', after: '~~' },
+  highlight: { before: '==', after: '==' },
+  inlineCode: { before: '`', after: '`' },
+} as const
+
+/** Line prefixes for block-style formatting. */
+const LINE_PREFIXES = {
+  blockquote: '> ',
+  bulletList: '- ',
+  numberedList: '1. ',
+  taskList: '- [ ] ',
+} as const
+
+interface CodeMirrorEditorProps {
+  /** Current content value */
+  value: string
+  /** Called when content changes */
+  onChange: (value: string) => void
+  /** Whether the editor is disabled */
+  disabled?: boolean
+  /** Minimum height for the editor */
+  minHeight?: string
+  /** Placeholder text shown when empty */
+  placeholder?: string
+  /** Whether to wrap long lines */
+  wrapText?: boolean
+  /** Called when wrap text preference changes */
+  onWrapTextChange?: (wrap: boolean) => void
+  /** Whether to show line numbers */
+  showLineNumbers?: boolean
+  /** Called when line numbers preference changes */
+  onLineNumbersChange?: (show: boolean) => void
+  /** Remove padding to align text with other elements */
+  noPadding?: boolean
+  /** Whether to auto-focus on mount */
+  autoFocus?: boolean
+  /** Content for the copy button (if provided, copy button is shown) */
+  copyContent?: string
+  /** Show Jinja2 template tools in toolbar (for prompts) */
+  showJinjaTools?: boolean
+  /** Called when a modal opens/closes (for beforeunload handlers) */
+  onModalStateChange?: (isOpen: boolean) => void
+}
+
+/**
+ * Toggle markdown markers around selected text (smart toggle).
+ * - If selection includes markers: unwrap
+ * - If markers are just outside selection: unwrap
+ * - Otherwise: wrap
+ * If no selection, insert markers and place cursor between them.
+ */
+function toggleWrapMarkers(view: EditorView, before: string, after: string): boolean {
+  const { state } = view
+  const { from, to } = state.selection.main
+  const selectedText = state.sliceDoc(from, to)
+
+  // Get surrounding text for smart detection
+  const expandedFrom = Math.max(0, from - before.length)
+  const expandedTo = Math.min(state.doc.length, to + after.length)
+  const surroundingBefore = state.sliceDoc(expandedFrom, from)
+  const surroundingAfter = state.sliceDoc(to, expandedTo)
+
+  // Get one more char on each side to detect if markers are part of longer sequences
+  // E.g., to distinguish `*` (italic) from `**` (bold)
+  const charBeforeSurrounding = expandedFrom > 0 ? state.sliceDoc(expandedFrom - 1, expandedFrom) : ''
+  const charAfterSurrounding = expandedTo < state.doc.length ? state.sliceDoc(expandedTo, expandedTo + 1) : ''
+
+  const action = getToggleMarkerAction(
+    selectedText,
+    surroundingBefore,
+    surroundingAfter,
+    before,
+    after,
+    charBeforeSurrounding,
+    charAfterSurrounding
+  )
+
+  switch (action.type) {
+    case 'insert':
+      view.dispatch({
+        changes: { from, insert: `${before}${after}` },
+        selection: { anchor: from + before.length },
+      })
+      break
+
+    case 'unwrap-selection': {
+      const inner = selectedText.slice(before.length, -after.length || undefined)
+      view.dispatch({
+        changes: { from, to, insert: inner },
+        selection: { anchor: from, head: from + inner.length },
+      })
+      break
+    }
+
+    case 'unwrap-surrounding':
+      view.dispatch({
+        changes: { from: expandedFrom, to: expandedTo, insert: selectedText },
+        selection: { anchor: expandedFrom, head: expandedFrom + selectedText.length },
+      })
+      break
+
+    case 'wrap':
+      view.dispatch({
+        changes: { from, to, insert: `${before}${selectedText}${after}` },
+        selection: { anchor: from + before.length, head: to + before.length },
+      })
+      break
+  }
+
+  return true
+}
+
+/**
+ * Insert a markdown link. If text is selected, use it as the link text.
+ */
+function insertLink(view: EditorView): boolean {
+  const { state } = view
+  const { from, to } = state.selection.main
+  const selectedText = state.sliceDoc(from, to)
+
+  if (selectedText) {
+    // Use selected text as link text, place cursor in URL position
+    const linkText = `[${selectedText}](url)`
+    view.dispatch({
+      changes: { from, to, insert: linkText },
+      selection: { anchor: from + selectedText.length + 3, head: from + selectedText.length + 6 },
+    })
+  } else {
+    // Insert empty link template, place cursor in text position
+    view.dispatch({
+      changes: { from, insert: '[text](url)' },
+      selection: { anchor: from + 1, head: from + 5 },
+    })
+  }
+  return true
+}
+
+/**
+ * Insert a code block. Wraps selection in fenced code block markers, or inserts empty block at cursor.
+ * Note: This inserts only; it does not detect/remove existing code blocks (that would require parsing).
+ */
+function insertCodeBlock(view: EditorView): boolean {
+  const { state } = view
+  const { from, to } = state.selection.main
+  const selectedText = state.sliceDoc(from, to)
+
+  if (selectedText) {
+    // Wrap selected text in code block
+    view.dispatch({
+      changes: { from, to, insert: `\`\`\`\n${selectedText}\n\`\`\`` },
+      selection: { anchor: from + 4, head: from + 4 + selectedText.length },
+    })
+  } else {
+    // Insert empty code block and place cursor inside
+    view.dispatch({
+      changes: { from, insert: '```\n\n```' },
+      selection: { anchor: from + 4 },
+    })
+  }
+  return true
+}
+
+/**
+ * Add or toggle a prefix on selected lines.
+ */
+function toggleLinePrefix(view: EditorView, prefix: string): boolean {
+  const { state } = view
+  const { from, to } = state.selection.main
+  const startLine = state.doc.lineAt(from)
+  const endLine = state.doc.lineAt(to)
+
+  const changes: { from: number; to: number; insert: string }[] = []
+  let newSelectionStart = from
+  let newSelectionEnd = to
+
+  for (let lineNum = startLine.number; lineNum <= endLine.number; lineNum++) {
+    const line = state.doc.line(lineNum)
+    const lineText = line.text
+
+    if (lineText.startsWith(prefix)) {
+      // Remove prefix
+      changes.push({ from: line.from, to: line.from + prefix.length, insert: '' })
+      if (lineNum === startLine.number) newSelectionStart -= prefix.length
+      newSelectionEnd -= prefix.length
+    } else {
+      // Add prefix
+      changes.push({ from: line.from, to: line.from, insert: prefix })
+      if (lineNum === startLine.number) newSelectionStart += prefix.length
+      newSelectionEnd += prefix.length
+    }
+  }
+
+  view.dispatch({
+    changes,
+    selection: { anchor: Math.max(0, newSelectionStart), head: newSelectionEnd },
+  })
+  return true
+}
+
+/**
+ * Insert a horizontal rule.
+ */
+function insertHorizontalRule(view: EditorView): boolean {
+  const { state } = view
+  const { from } = state.selection.main
+  const line = state.doc.lineAt(from)
+
+  // Insert at end of current line with newlines
+  const insert = line.text.length > 0 ? '\n\n---\n' : '---\n'
+  const insertPos = line.text.length > 0 ? line.to : from
+
+  view.dispatch({
+    changes: { from: insertPos, insert },
+    selection: { anchor: insertPos + insert.length },
+  })
+  return true
+}
+
+/**
+ * Insert text at cursor position.
+ */
+function insertText(view: EditorView, text: string): boolean {
+  const { from } = view.state.selection.main
+  view.dispatch({
+    changes: { from, insert: text },
+    selection: { anchor: from + text.length },
+  })
+  return true
+}
+
+/**
+ * Dispatch a keyboard event to the document for global handlers to catch.
+ * Used to pass shortcuts through from CodeMirror to global handlers.
+ *
+ * This enables shortcuts like Cmd+/ (help modal) and Cmd+\ (sidebar toggle)
+ * to work when the CodeMirror editor has focus. The events bubble up to
+ * document-level listeners in the parent components.
+ */
+function dispatchGlobalShortcut(key: string, metaKey: boolean): void {
+  const event = new KeyboardEvent('keydown', {
+    key,
+    metaKey,
+    ctrlKey: !metaKey, // Use ctrlKey on non-Mac
+    bubbles: true,
+  })
+  document.dispatchEvent(event)
+}
+
+/**
+ * Create CodeMirror keybindings for markdown formatting.
+ */
+function createMarkdownKeyBindings(): KeyBinding[] {
+  return [
+    // Text formatting
+    { key: 'Mod-b', run: (view) => toggleWrapMarkers(view, MARKERS.bold.before, MARKERS.bold.after) },
+    { key: 'Mod-i', run: (view) => toggleWrapMarkers(view, MARKERS.italic.before, MARKERS.italic.after) },
+    { key: 'Mod-Shift-x', run: (view) => toggleWrapMarkers(view, MARKERS.strikethrough.before, MARKERS.strikethrough.after) },
+    { key: 'Mod-Shift-h', run: (view) => toggleWrapMarkers(view, MARKERS.highlight.before, MARKERS.highlight.after) },
+    { key: 'Mod-Shift-.', run: (view) => toggleLinePrefix(view, LINE_PREFIXES.blockquote) },
+    // Code
+    { key: 'Mod-e', run: (view) => toggleWrapMarkers(view, MARKERS.inlineCode.before, MARKERS.inlineCode.after) },
+    { key: 'Mod-Shift-e', run: (view) => insertCodeBlock(view) },
+    // Lists (Notion convention: 7=numbered, 8=bullet, 9=task)
+    { key: 'Mod-Shift-7', run: (view) => toggleLinePrefix(view, LINE_PREFIXES.numberedList) },
+    { key: 'Mod-Shift-8', run: (view) => toggleLinePrefix(view, LINE_PREFIXES.bulletList) },
+    { key: 'Mod-Shift-9', run: (view) => toggleLinePrefix(view, LINE_PREFIXES.taskList) },
+    // Links and other
+    { key: 'Mod-k', run: (view) => insertLink(view) },
+    { key: 'Mod-Shift--', run: (view) => insertHorizontalRule(view) },
+    // Pass through to global handlers (consume event, then dispatch globally)
+    {
+      key: 'Mod-/',
+      run: () => {
+        dispatchGlobalShortcut('/', true)
+        return true // Consume to prevent CodeMirror's comment toggle
+      },
+    },
+  ]
+}
+
+/**
+ * Toolbar button for CodeMirror editor.
+ *
+ * Uses wasEditorFocused() guard to prevent clicks on invisible buttons.
+ * When the toolbar is hidden (opacity-0), clicking where a button would be
+ * should just focus the editor and reveal the toolbar, not trigger the action.
+ */
+interface ToolbarButtonProps {
+  onClick: () => void
+  title: string
+  children: ReactNode
+}
+
+function ToolbarButton({ onClick, title, children }: ToolbarButtonProps): ReactNode {
+  return (
+    <Tooltip content={title} compact delay={500}>
+      <button
+        type="button"
+        tabIndex={-1}
+        onMouseDown={(e) => {
+          // On mobile (< md), buttons are always visible so always execute
+          // On desktop, only execute if editor was already focused (toolbar visible)
+          const isMobileView = window.innerWidth < 768
+          if (isMobileView || wasEditorFocused(e.currentTarget)) {
+            e.preventDefault()
+            onClick()
+          }
+          // If editor wasn't focused (desktop), let the click naturally focus the editor
+          // which will reveal the toolbar (but won't execute the action)
+        }}
+        className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
+      >
+        {children}
+      </button>
+    </Tooltip>
+  )
+}
+
+/**
+ * CodeMirrorEditor provides a raw markdown editor with syntax highlighting.
+ *
+ * Features:
+ * - CodeMirror editor with markdown syntax highlighting
+ * - Formatting toolbar with buttons for common markdown operations
+ * - Keyboard shortcuts for formatting (Cmd+B, Cmd+I, Cmd+K, Cmd+Shift+X)
+ * - Optional text wrapping
+ */
+export function CodeMirrorEditor({
+  value,
+  onChange,
+  disabled = false,
+  minHeight = '200px',
+  placeholder = 'Write your content in markdown...',
+  wrapText = false,
+  onWrapTextChange,
+  showLineNumbers = false,
+  onLineNumbersChange,
+  noPadding = false,
+  autoFocus = false,
+  copyContent,
+  showJinjaTools = false,
+  onModalStateChange: _onModalStateChange, // eslint-disable-line @typescript-eslint/no-unused-vars
+}: CodeMirrorEditorProps): ReactNode {
+  const editorRef = useRef<ReactCodeMirrorRef>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Reading mode state (local, not persisted)
+  const [readingMode, setReadingMode] = useState(false)
+
+  // Store scroll position when toggling modes to preserve reading position
+  const scrollPositionRef = useRef<number>(0)
+
+  // Toggle reading mode with scroll position preservation
+  const toggleReadingMode = useCallback((): void => {
+    if (!readingMode) {
+      // Switching TO reading mode - save scroll position
+      const scroller = containerRef.current?.querySelector('.cm-scroller')
+      if (scroller) {
+        scrollPositionRef.current = scroller.scrollTop
+      }
+    }
+    setReadingMode((prev) => !prev)
+  }, [readingMode])
+
+  // Restore scroll position when switching back from reading mode
+  useEffect(() => {
+    if (!readingMode && scrollPositionRef.current > 0) {
+      // Switching FROM reading mode - restore scroll position
+      // Use requestAnimationFrame to ensure CodeMirror has rendered
+      requestAnimationFrame(() => {
+        const scroller = containerRef.current?.querySelector('.cm-scroller')
+        if (scroller) {
+          scroller.scrollTop = scrollPositionRef.current
+        }
+      })
+    }
+  }, [readingMode])
+
+  // Derive effective reading mode - disabled editor can't be in reading mode
+  // This prevents user from being stuck in reading mode when disabled
+  const effectiveReadingMode = readingMode && !disabled
+
+  // Keyboard shortcuts for editor
+  // Uses capture phase to intercept before macOS converts to special character (Ω for Alt+Z)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      const isMod = e.metaKey || e.ctrlKey
+
+      // Cmd+Shift+M - toggle reading mode
+      if (isMod && e.shiftKey && e.code === 'KeyM') {
+        e.preventDefault()
+        e.stopPropagation()
+        toggleReadingMode()
+        return
+      }
+
+      // Option+Z (Alt+Z) - toggle word wrap (only when not in reading mode)
+      // Uses e.code which is independent of keyboard layout
+      if (e.altKey && e.code === 'KeyZ' && !effectiveReadingMode && onWrapTextChange) {
+        e.preventDefault()
+        e.stopPropagation()
+        onWrapTextChange(!wrapText)
+        return
+      }
+
+      // Option+L (Alt+L) - toggle line numbers (only when not in reading mode)
+      if (e.altKey && e.code === 'KeyL' && !effectiveReadingMode && onLineNumbersChange) {
+        e.preventDefault()
+        e.stopPropagation()
+        onLineNumbersChange(!showLineNumbers)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
+  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange, showLineNumbers, onLineNumbersChange])
+
+  // Get the EditorView from ref
+  const getView = useCallback((): EditorView | undefined => {
+    return editorRef.current?.view
+  }, [])
+
+  /**
+   * Run an action on the editor view, then refocus.
+   * Centralizes the common pattern of: get view -> run action -> focus.
+   */
+  const runAction = useCallback((action: (view: EditorView) => boolean): void => {
+    const view = getView()
+    if (view) {
+      action(view)
+      view.focus()
+    }
+  }, [getView])
+
+  // Semi-controlled mode: pass value for initial render, ignore prop updates after mount.
+  // This works around a Safari bug in @uiw/react-codemirror where content disappears
+  // after fast typing then pausing (controlled value sync issue).
+  // See: https://github.com/uiwjs/react-codemirror/issues/694
+  //
+  // How it works:
+  // - useState(value) captures the initial value once on mount
+  // - User edits flow through onChange, keeping parent state in sync
+  // - Subsequent value prop changes are ignored (initialValue never updates)
+  //
+  // This is safe because:
+  // - Document switching uses key prop (e.g., key={note?.id}) which forces remount
+  // - On remount, useState captures the new document's content fresh
+  // - Programmatic content changes (e.g., version restore) increment contentKey in the
+  //   parent, which changes the key prop and forces remount with the new value
+  const [initialValue] = useState(value)
+
+  // Build extensions array with optional line wrapping and keybindings
+  const extensions = useMemo(() => {
+    const bindings = createMarkdownKeyBindings()
+    const exts = [
+      markdown({ codeLanguages: languages }),
+      Prec.highest(keymap.of(bindings)),
+      markdownStyleExtension,
+    ]
+    if (wrapText) {
+      exts.push(EditorView.lineWrapping)
+    }
+    return exts
+  }, [wrapText])
+
+  return (
+    <div ref={containerRef} className={`w-full ${noPadding ? 'codemirror-no-padding' : ''}`}>
+      {/* Toolbar - formatting buttons fade in on focus, copy button stays visible (doesn't fade) */}
+      {/* Always render toolbar to prevent layout shift; buttons are disabled when editor is disabled */}
+      {/* min-h and transform-gpu prevent Safari reflow issues during focus/blur transitions */}
+      {/* Mobile: flex-wrap, all buttons visible. Desktop: no-wrap, buttons fade in on focus */}
+      <div className="flex items-center flex-wrap md:flex-nowrap gap-0.5 md:gap-0 md:justify-between px-2 py-1.5 min-h-[38px] transform-gpu border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50 transition-colors">
+        {/* Left: formatting buttons - visible on mobile, fade in on focus on desktop */}
+        {/* On mobile: 'contents' flattens structure so all buttons wrap together as siblings */}
+        <div className={`contents md:flex md:flex-nowrap md:items-center md:gap-0.5 md:opacity-0 md:group-focus-within/editor:opacity-100 transition-opacity ${disabled ? 'pointer-events-none' : ''}`}>
+          {/* Text formatting */}
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.bold.before, MARKERS.bold.after))} title="Bold (⌘B)">
+            <BoldIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.italic.before, MARKERS.italic.after))} title="Italic (⌘I)">
+            <ItalicIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.strikethrough.before, MARKERS.strikethrough.after))} title="Strikethrough (⌘⇧X)">
+            <StrikethroughIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.highlight.before, MARKERS.highlight.after))} title="Highlight (⌘⇧H)">
+            <HighlightIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.blockquote))} title="Blockquote (⌘⇧.)">
+            <BlockquoteIcon />
+          </ToolbarButton>
+
+          <ToolbarSeparator />
+
+          {/* Code */}
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.inlineCode.before, MARKERS.inlineCode.after))} title="Inline Code (⌘E)">
+            <InlineCodeIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title="Code Block (⌘⇧E)">
+            <CodeBlockIcon />
+          </ToolbarButton>
+
+          <ToolbarSeparator />
+
+          {/* Lists */}
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.bulletList))} title="Bullet List (⌘⇧8)">
+            <BulletListIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.numberedList))} title="Numbered List (⌘⇧7)">
+            <OrderedListIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.taskList))} title="Task List (⌘⇧9)">
+            <TaskListIcon />
+          </ToolbarButton>
+
+          <ToolbarSeparator />
+
+          {/* Links and dividers */}
+          <ToolbarButton onClick={() => runAction(insertLink)} title="Insert Link (⌘K)">
+            <LinkIcon />
+          </ToolbarButton>
+          <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title="Horizontal Rule (⌘⇧-)">
+            <HorizontalRuleIcon />
+          </ToolbarButton>
+
+          {/* Jinja2 template tools (for prompts) */}
+          {showJinjaTools && (
+            <>
+              <ToolbarSeparator />
+              <ToolbarButton onClick={() => runAction((v) => insertText(v, JINJA_VARIABLE))} title="Insert Variable {{ }}">
+                <JinjaVariableIcon />
+              </ToolbarButton>
+              <ToolbarButton onClick={() => runAction((v) => insertText(v, JINJA_IF_BLOCK))} title="If Block {% if %}">
+                <JinjaIfIcon />
+              </ToolbarButton>
+              <ToolbarButton onClick={() => runAction((v) => insertText(v, JINJA_IF_BLOCK_TRIM))} title="If Block with Whitespace Trim {%- if %}">
+                <JinjaIfTrimIcon />
+              </ToolbarButton>
+            </>
+          )}
+        </div>
+
+        {/* Right: Toggle icons (Wrap, Lines, Reading) and Copy */}
+        {/* On mobile: 'contents' flattens structure so buttons flow with others. On desktop: stays at right */}
+        <div className="contents md:flex md:items-center md:gap-0.5 md:ml-auto">
+          {/* Separator only on mobile (other separators are hidden on mobile) */}
+          <div className="w-px h-5 bg-gray-200 mx-1 md:hidden" />
+          {/* Wrap toggle - always visible, only shown when not in reading mode */}
+          {onWrapTextChange && !effectiveReadingMode && (
+            <Tooltip content="Toggle word wrap (⌥Z)" compact>
+              <button
+                type="button"
+                tabIndex={-1}
+                disabled={disabled}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  if (!disabled) {
+                    onWrapTextChange(!wrapText)
+                  }
+                }}
+                className={`p-1.5 rounded transition-colors flex-shrink-0 ${
+                  wrapText
+                    ? 'text-gray-700 bg-gray-200'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+              >
+                <WrapIcon />
+              </button>
+            </Tooltip>
+          )}
+
+          {/* Line numbers toggle - always visible, only shown when not in reading mode */}
+          {onLineNumbersChange && !effectiveReadingMode && (
+            <Tooltip content="Toggle line numbers (⌥L)" compact>
+              <button
+                type="button"
+                tabIndex={-1}
+                disabled={disabled}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  if (!disabled) {
+                    onLineNumbersChange(!showLineNumbers)
+                  }
+                }}
+                className={`p-1.5 rounded transition-colors flex-shrink-0 ${
+                  showLineNumbers
+                    ? 'text-gray-700 bg-gray-200'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+              >
+                <LineNumbersIcon />
+              </button>
+            </Tooltip>
+          )}
+
+          {/* Reading mode toggle - always visible */}
+          <Tooltip content="Toggle reading mode (⌘⇧M)" compact>
+            <button
+              type="button"
+              tabIndex={-1}
+              disabled={disabled}
+              onMouseDown={(e) => {
+                if (!disabled) {
+                  e.preventDefault()
+                  toggleReadingMode()
+                }
+              }}
+              className={`p-1.5 rounded transition-colors flex-shrink-0 ${
+                effectiveReadingMode
+                  ? 'text-gray-700 bg-gray-200'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+              } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+            >
+              <ReadingIcon />
+            </button>
+          </Tooltip>
+
+          {/* Copy button - always visible but disabled when editor is disabled */}
+          {copyContent !== undefined && (
+            <CopyToClipboardButton content={copyContent} title="Copy content" disabled={disabled} />
+          )}
+        </div>
+      </div>
+      {/* Editor area - overflow-hidden for content clipping (rounded corners handled by parent) */}
+      <div className="overflow-hidden">
+        {/* Reading mode: show Milkdown preview */}
+        {effectiveReadingMode && (
+          <MilkdownEditor
+            value={value}
+            onChange={() => {}} // Read-only: ignore changes
+            disabled={false}
+            readOnly={true}
+            minHeight={minHeight}
+            placeholder={placeholder}
+            noPadding={noPadding}
+          />
+        )}
+        {/* CodeMirror: always mounted to preserve state, hidden when in reading mode */}
+        {/* This prevents loss of edits when toggling modes (initialValue pattern) */}
+        <div className={effectiveReadingMode ? 'hidden' : ''}>
+          <CodeMirror
+            ref={editorRef}
+            value={initialValue}
+            onChange={onChange}
+            extensions={extensions}
+            minHeight={minHeight}
+            placeholder={placeholder}
+            editable={!disabled}
+            autoFocus={autoFocus}
+            basicSetup={{
+              lineNumbers: showLineNumbers,
+              foldGutter: false,
+              highlightActiveLine: false,
+            }}
+            className="text-sm"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}

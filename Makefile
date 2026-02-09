@@ -1,4 +1,4 @@
-.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli
+.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp
 
 -include .env
 export
@@ -76,6 +76,19 @@ migrate:  ## Run database migrations
 
 migration:  ## Create new migration: make migration message="description"
 	uv run alembic revision --autogenerate -m "$(message)"
+
+####
+# Evaluations (LLM-based MCP tool testing)
+####
+evals:  ## Run all LLM evaluations (requires API + MCP servers running)
+	uv run ruff check evals --fix --unsafe-fixes
+	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/ -vs --timeout=300
+
+evals-content-mcp:  ## Run Content MCP evaluations only
+	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/content_mcp/ -vs --timeout=300
+
+evals-prompt-mcp:  ## Run Prompt MCP evaluations only
+	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/prompt_mcp/ -vs --timeout=300
 
 ####
 # Testing & Quality

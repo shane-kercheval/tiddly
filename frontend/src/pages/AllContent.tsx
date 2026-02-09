@@ -3,7 +3,7 @@
  *
  * This is the main content page for the app, handling:
  * - All, Archived, Trash views
- * - Custom lists (any content types)
+ * - Custom filters (any content types)
  * - Bookmark add/edit navigation
  * - Note/Prompt navigation with proper return state
  */
@@ -21,18 +21,21 @@ import {
   useRestoreBookmark,
   useArchiveBookmark,
   useUnarchiveBookmark,
+  useUpdateBookmark,
 } from '../hooks/useBookmarkMutations'
 import {
   useDeleteNote,
   useRestoreNote,
   useArchiveNote,
   useUnarchiveNote,
+  useUpdateNote,
 } from '../hooks/useNoteMutations'
 import {
   useDeletePrompt,
   useRestorePrompt,
   useArchivePrompt,
   useUnarchivePrompt,
+  useUpdatePrompt,
 } from '../hooks/usePromptMutations'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
@@ -41,7 +44,7 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useContentTypeFilterStore, ALL_CONTENT_TYPES } from '../stores/contentTypeFilterStore'
-import { useListsStore } from '../stores/listsStore'
+import { useFiltersStore } from '../stores/filtersStore'
 import type { PageSize } from '../stores/uiPreferencesStore'
 import type { SortByOption } from '../constants/sortOptions'
 import { BookmarkCard } from '../components/BookmarkCard'
@@ -97,14 +100,17 @@ export function AllContent(): ReactNode {
   const restoreBookmarkMutation = useRestoreBookmark()
   const archiveBookmarkMutation = useArchiveBookmark()
   const unarchiveBookmarkMutation = useUnarchiveBookmark()
+  const updateBookmarkMutation = useUpdateBookmark()
   const deleteNoteMutation = useDeleteNote()
   const restoreNoteMutation = useRestoreNote()
   const archiveNoteMutation = useArchiveNote()
   const unarchiveNoteMutation = useUnarchiveNote()
+  const updateNoteMutation = useUpdateNote()
   const deletePromptMutation = useDeletePrompt()
   const restorePromptMutation = useRestorePrompt()
   const archivePromptMutation = useArchivePrompt()
   const unarchivePromptMutation = useUnarchivePrompt()
+  const updatePromptMutation = useUpdatePrompt()
 
   const { tags: tagSuggestions } = useTagsStore()
   const { pageSize, setPageSize } = useUIPreferencesStore()
@@ -119,52 +125,56 @@ export function AllContent(): ReactNode {
     clearFilters: clearTagFilters,
   } = useTagFilterStore()
 
-  // Route-based view and list ID
-  const { currentView, currentListId } = useContentView('/app/content')
+  // Route-based view and filter ID
+  const { currentView, currentFilterId } = useContentView('/app/content')
 
-  // Get current list data for custom lists
-  const { lists } = useListsStore()
-  const currentList = useMemo(
-    () => currentListId !== undefined ? lists.find(l => l.id === currentListId) : undefined,
-    [currentListId, lists]
+  // Get current filter data for custom filters
+  const { filters } = useFiltersStore()
+  const currentFilter = useMemo(
+    () => currentFilterId !== undefined ? filters.find(f => f.id === currentFilterId) : undefined,
+    [currentFilterId, filters]
   )
 
-  // Content type filter - builtin views always, lists only when multiple types exist
+  // Content type filter - builtin views always, filters only when multiple types exist
   const { getSelectedTypes, toggleType } = useContentTypeFilterStore()
   const availableContentTypes = useMemo(() => {
-    if (currentListId === undefined) return ALL_CONTENT_TYPES
-    const listTypes = currentList?.content_types
-    return listTypes && listTypes.length > 0 ? listTypes : ALL_CONTENT_TYPES
-  }, [currentListId, currentList])
-  const contentTypeFilterKey = currentListId !== undefined ? `list:${currentListId}` : currentView
-  const shouldShowContentTypeFilters = currentListId === undefined || availableContentTypes.length > 1
+    if (currentFilterId === undefined) return ALL_CONTENT_TYPES
+    const filterTypes = currentFilter?.content_types
+    return filterTypes && filterTypes.length > 0 ? filterTypes : ALL_CONTENT_TYPES
+  }, [currentFilterId, currentFilter])
+  const contentTypeFilterKey = currentFilterId !== undefined ? `filter:${currentFilterId}` : currentView
+  const shouldShowContentTypeFilters = currentFilterId === undefined || availableContentTypes.length > 1
   const selectedContentTypes = shouldShowContentTypeFilters
     ? getSelectedTypes(contentTypeFilterKey, availableContentTypes)
     : undefined
 
+  // Determine if we're showing bookmarks only (hide content type icon in favor of favicon)
+  const effectiveContentTypes = selectedContentTypes ?? availableContentTypes
+  const isBookmarksOnly = effectiveContentTypes.length === 1 && effectiveContentTypes[0] === 'bookmark'
+
   // Per-view sort
-  const viewKey = useMemo(() => getViewKey(currentView, currentListId), [currentView, currentListId])
-  const listDefault = useMemo(
-    () => currentList
+  const viewKey = useMemo(() => getViewKey(currentView, currentFilterId), [currentView, currentFilterId])
+  const filterDefault = useMemo(
+    () => currentFilter
       ? {
-          sortBy: currentList.default_sort_by,
-          ascending: currentList.default_sort_ascending,
+          sortBy: currentFilter.default_sort_by,
+          ascending: currentFilter.default_sort_ascending,
         }
       : undefined,
-    [currentList]
+    [currentFilter]
   )
   const { sortBy, sortOrder, setSort, availableSortOptions } = useEffectiveSort(
     viewKey,
     currentView,
-    listDefault
+    filterDefault
   )
 
-  // Get initial tags from current list's first filter group (for pre-populating new bookmarks)
-  const initialTagsFromList = useMemo(() => {
-    if (!currentListId) return undefined
-    const list = lists.find((l) => l.id === currentListId)
-    return getFirstGroupTags(list)
-  }, [currentListId, lists])
+  // Get initial tags from current filter's first filter group (for pre-populating new bookmarks)
+  const initialTagsFromFilter = useMemo(() => {
+    if (!currentFilterId) return undefined
+    const filter = filters.find((f) => f.id === currentFilterId)
+    return getFirstGroupTags(filter)
+  }, [currentFilterId, filters])
 
   useEffect(() => {
     if (searchParams.get('action') === 'add') {
@@ -181,7 +191,7 @@ export function AllContent(): ReactNode {
         navigate('/app/bookmarks/new', {
           state: {
             ...createReturnState(),
-            initialTags: initialTagsFromList,
+            initialTags: initialTagsFromFilter,
           },
         })
       }
@@ -198,7 +208,7 @@ export function AllContent(): ReactNode {
           state: {
             ...createReturnState(),
             initialUrl: url,
-            initialTags: initialTagsFromList,
+            initialTags: initialTagsFromFilter,
           },
         })
       }
@@ -224,10 +234,10 @@ export function AllContent(): ReactNode {
       offset,
       limit: pageSize,
       view: currentView,
-      list_id: currentListId,
+      filter_id: currentFilterId,
       content_types: selectedContentTypes,
     }),
-    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentListId, selectedContentTypes]
+    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentFilterId, selectedContentTypes]
   )
 
   // Fetch content with TanStack Query
@@ -308,7 +318,7 @@ export function AllContent(): ReactNode {
 
   // Bookmark action handlers
   const handleEditClick = (bookmark: BookmarkListItem): void => {
-    navigate(`/app/bookmarks/${bookmark.id}/edit`, { state: createReturnState() })
+    navigate(`/app/bookmarks/${bookmark.id}`, { state: createReturnState() })
   }
 
   const handleDeleteBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
@@ -352,13 +362,35 @@ export function AllContent(): ReactNode {
     }
   }
 
+  const handleTagRemoveBookmark = async (bookmark: BookmarkListItem, tag: string): Promise<void> => {
+    try {
+      const newTags = bookmark.tags.filter((t) => t !== tag)
+      await updateBookmarkMutation.mutateAsync({ id: bookmark.id, data: { tags: newTags } })
+    } catch {
+      toast.error('Failed to remove tag')
+    }
+  }
+
+  const handleTagAddBookmark = async (bookmark: BookmarkListItem, tag: string): Promise<void> => {
+    try {
+      const newTags = [...bookmark.tags, tag]
+      await updateBookmarkMutation.mutateAsync({ id: bookmark.id, data: { tags: newTags } })
+    } catch {
+      toast.error('Failed to add tag')
+    }
+  }
+
+  const handleCancelScheduledArchiveBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
+    try {
+      await updateBookmarkMutation.mutateAsync({ id: bookmark.id, data: { archived_at: null } })
+    } catch {
+      toast.error('Failed to cancel scheduled archive')
+    }
+  }
+
   // Note action handlers
   const handleViewNote = (note: NoteListItem): void => {
     navigate(`/app/notes/${note.id}`, { state: createReturnState() })
-  }
-
-  const handleEditNote = (note: NoteListItem): void => {
-    navigate(`/app/notes/${note.id}/edit`, { state: createReturnState() })
   }
 
   const handleDeleteNote = async (note: NoteListItem): Promise<void> => {
@@ -402,13 +434,35 @@ export function AllContent(): ReactNode {
     }
   }
 
+  const handleTagRemoveNote = async (note: NoteListItem, tag: string): Promise<void> => {
+    try {
+      const newTags = note.tags.filter((t) => t !== tag)
+      await updateNoteMutation.mutateAsync({ id: note.id, data: { tags: newTags } })
+    } catch {
+      toast.error('Failed to remove tag')
+    }
+  }
+
+  const handleTagAddNote = async (note: NoteListItem, tag: string): Promise<void> => {
+    try {
+      const newTags = [...note.tags, tag]
+      await updateNoteMutation.mutateAsync({ id: note.id, data: { tags: newTags } })
+    } catch {
+      toast.error('Failed to add tag')
+    }
+  }
+
+  const handleCancelScheduledArchiveNote = async (note: NoteListItem): Promise<void> => {
+    try {
+      await updateNoteMutation.mutateAsync({ id: note.id, data: { archived_at: null } })
+    } catch {
+      toast.error('Failed to cancel scheduled archive')
+    }
+  }
+
   // Prompt action handlers
   const handleViewPrompt = (prompt: PromptListItem): void => {
     navigate(`/app/prompts/${prompt.id}`, { state: createReturnState() })
-  }
-
-  const handleEditPrompt = (prompt: PromptListItem): void => {
-    navigate(`/app/prompts/${prompt.id}/edit`, { state: createReturnState() })
   }
 
   const handleDeletePrompt = async (prompt: PromptListItem): Promise<void> => {
@@ -452,6 +506,32 @@ export function AllContent(): ReactNode {
     }
   }
 
+  const handleTagRemovePrompt = async (prompt: PromptListItem, tag: string): Promise<void> => {
+    try {
+      const newTags = prompt.tags.filter((t) => t !== tag)
+      await updatePromptMutation.mutateAsync({ id: prompt.id, data: { tags: newTags } })
+    } catch {
+      toast.error('Failed to remove tag')
+    }
+  }
+
+  const handleTagAddPrompt = async (prompt: PromptListItem, tag: string): Promise<void> => {
+    try {
+      const newTags = [...prompt.tags, tag]
+      await updatePromptMutation.mutateAsync({ id: prompt.id, data: { tags: newTags } })
+    } catch {
+      toast.error('Failed to add tag')
+    }
+  }
+
+  const handleCancelScheduledArchivePrompt = async (prompt: PromptListItem): Promise<void> => {
+    try {
+      await updatePromptMutation.mutateAsync({ id: prompt.id, data: { archived_at: null } })
+    } catch {
+      toast.error('Failed to cancel scheduled archive')
+    }
+  }
+
   // Convert ContentListItem to type-specific item for card components
   const toBookmarkListItem = (item: ContentListItem): BookmarkListItem => ({
     id: item.id,
@@ -465,6 +545,7 @@ export function AllContent(): ReactNode {
     last_used_at: item.last_used_at,
     deleted_at: item.deleted_at,
     archived_at: item.archived_at,
+    content_preview: item.content_preview,
   })
 
   const toNoteListItem = (item: ContentListItem): NoteListItem => ({
@@ -478,6 +559,7 @@ export function AllContent(): ReactNode {
     deleted_at: item.deleted_at,
     archived_at: item.archived_at,
     version: item.version || 1,
+    content_preview: item.content_preview,
   })
 
   const toPromptListItem = (item: ContentListItem): PromptListItem => ({
@@ -492,6 +574,7 @@ export function AllContent(): ReactNode {
     last_used_at: item.last_used_at,
     deleted_at: item.deleted_at,
     archived_at: item.archived_at,
+    content_preview: item.content_preview,
   })
 
   // Pagination calculations
@@ -501,16 +584,16 @@ export function AllContent(): ReactNode {
 
   // Quick-add handlers
   const handleQuickAddBookmark = useCallback((): void => {
-    navigate('/app/bookmarks/new', { state: { ...createReturnState(), initialTags: initialTagsFromList } })
-  }, [navigate, createReturnState, initialTagsFromList])
+    navigate('/app/bookmarks/new', { state: { ...createReturnState(), initialTags: initialTagsFromFilter } })
+  }, [navigate, createReturnState, initialTagsFromFilter])
 
   const handleQuickAddNote = useCallback((): void => {
-    navigate('/app/notes/new', { state: { ...createReturnState(), initialTags: initialTagsFromList } })
-  }, [navigate, createReturnState, initialTagsFromList])
+    navigate('/app/notes/new', { state: { ...createReturnState(), initialTags: initialTagsFromFilter } })
+  }, [navigate, createReturnState, initialTagsFromFilter])
 
   const handleQuickAddPrompt = useCallback((): void => {
-    navigate('/app/prompts/new', { state: { ...createReturnState(), initialTags: initialTagsFromList } })
-  }, [navigate, createReturnState, initialTagsFromList])
+    navigate('/app/prompts/new', { state: { ...createReturnState(), initialTags: initialTagsFromFilter } })
+  }, [navigate, createReturnState, initialTagsFromFilter])
 
   const contentTypeActions = useMemo<Record<ContentType, {
     pluralLabel: string
@@ -642,12 +725,17 @@ export function AllContent(): ReactNode {
                   bookmark={toBookmarkListItem(item)}
                   view={currentView}
                   sortBy={sortBy}
+                  showContentTypeIcon={!isBookmarksOnly}
                   onEdit={currentView !== 'deleted' ? handleEditClick : undefined}
                   onDelete={handleDeleteBookmark}
                   onArchive={currentView === 'active' ? handleArchiveBookmark : undefined}
                   onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
                   onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
+                  onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchiveBookmark : undefined}
                   onTagClick={handleTagClick}
+                  onTagRemove={currentView !== 'deleted' ? handleTagRemoveBookmark : undefined}
+                  onTagAdd={currentView !== 'deleted' ? handleTagAddBookmark : undefined}
+                  tagSuggestions={tagSuggestions}
                   onLinkClick={(b) => trackBookmarkUsage(b.id)}
                 />
               )
@@ -660,12 +748,15 @@ export function AllContent(): ReactNode {
                   view={currentView}
                   sortBy={sortBy}
                   onView={handleViewPrompt}
-                  onEdit={currentView !== 'deleted' ? handleEditPrompt : undefined}
                   onDelete={handleDeletePrompt}
                   onArchive={currentView === 'active' ? handleArchivePrompt : undefined}
                   onUnarchive={currentView === 'archived' ? handleUnarchivePrompt : undefined}
                   onRestore={currentView === 'deleted' ? handleRestorePrompt : undefined}
+                  onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchivePrompt : undefined}
                   onTagClick={handleTagClick}
+                  onTagRemove={currentView !== 'deleted' ? handleTagRemovePrompt : undefined}
+                  onTagAdd={currentView !== 'deleted' ? handleTagAddPrompt : undefined}
+                  tagSuggestions={tagSuggestions}
                 />
               )
             }
@@ -676,12 +767,15 @@ export function AllContent(): ReactNode {
                 view={currentView}
                 sortBy={sortBy}
                 onView={handleViewNote}
-                onEdit={currentView !== 'deleted' ? handleEditNote : undefined}
                 onDelete={handleDeleteNote}
                 onArchive={currentView === 'active' ? handleArchiveNote : undefined}
                 onUnarchive={currentView === 'archived' ? handleUnarchiveNote : undefined}
                 onRestore={currentView === 'deleted' ? handleRestoreNote : undefined}
+                onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchiveNote : undefined}
                 onTagClick={handleTagClick}
+                onTagRemove={currentView !== 'deleted' ? handleTagRemoveNote : undefined}
+                onTagAdd={currentView !== 'deleted' ? handleTagAddNote : undefined}
+                tagSuggestions={tagSuggestions}
               />
             )
           })}
@@ -715,7 +809,7 @@ export function AllContent(): ReactNode {
   const showQuickAdd = currentView === 'active'
 
   return (
-    <div>
+    <div className="pt-4">
       {/* Search and filters */}
       <div className="mb-6 space-y-3">
         <SearchFilterBar
@@ -735,7 +829,7 @@ export function AllContent(): ReactNode {
                 onAddBookmark={handleQuickAddBookmark}
                 onAddNote={handleQuickAddNote}
                 onAddPrompt={handleQuickAddPrompt}
-                contentTypes={currentList?.content_types}
+                contentTypes={currentFilter?.content_types}
               />
             ) : undefined
           }

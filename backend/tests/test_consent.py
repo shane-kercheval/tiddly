@@ -226,7 +226,7 @@ class TestRecordConsent:
 
         assert response.status_code == 201
         data = response.json()
-        assert data["user_id"] == test_user.id
+        assert data["user_id"] == str(test_user.id)
         assert data["privacy_policy_version"] == PRIVACY_POLICY_VERSION
         assert data["terms_of_service_version"] == TERMS_OF_SERVICE_VERSION
         assert "consented_at" in data
@@ -267,7 +267,7 @@ class TestRecordConsent:
 
         assert response.status_code == 201
         data = response.json()
-        assert data["id"] == old_id  # Same ID (updated, not created)
+        assert data["id"] == str(old_id)  # Same ID (updated, not created)
         assert data["privacy_policy_version"] == PRIVACY_POLICY_VERSION
         assert data["terms_of_service_version"] == TERMS_OF_SERVICE_VERSION
 

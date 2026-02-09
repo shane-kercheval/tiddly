@@ -5,11 +5,13 @@ Tests the soft delete, archive, restore, and view filtering functionality
 that was added to support the trash/archive features.
 """
 from datetime import UTC
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.tier_limits import Tier, get_tier_limits
 from models.note import Note
 from models.tag import note_tags
 from models.user import User
@@ -20,6 +22,7 @@ from services.utils import build_tag_filter_from_expression, escape_ilike
 
 
 note_service = NoteService()
+DEFAULT_LIMITS = get_tier_limits(Tier.FREE)
 
 
 @pytest.fixture
@@ -345,7 +348,7 @@ async def test__restore_note__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that restore returns None for non-existent note."""
-    result = await note_service.restore(db_session, test_user.id, 99999)
+    result = await note_service.restore(db_session, test_user.id, uuid4())
     assert result is None
 
 
@@ -421,7 +424,7 @@ async def test__archive_note__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that archive returns None for non-existent note."""
-    result = await note_service.archive(db_session, test_user.id, 99999)
+    result = await note_service.archive(db_session, test_user.id, uuid4())
     assert result is None
 
 
@@ -474,7 +477,7 @@ async def test__unarchive_note__returns_none_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that unarchive returns None for non-existent note."""
-    result = await note_service.unarchive(db_session, test_user.id, 99999)
+    result = await note_service.unarchive(db_session, test_user.id, uuid4())
     assert result is None
 
 
@@ -559,7 +562,7 @@ async def test__track_note_usage__returns_false_for_nonexistent(
     test_user: User,
 ) -> None:
     """Test that track_note_usage returns False for non-existent note."""
-    result = await note_service.track_usage(db_session, test_user.id, 99999)
+    result = await note_service.track_usage(db_session, test_user.id, uuid4())
     assert result is False
 
 
@@ -649,7 +652,7 @@ async def test__create_note__creates_note_with_all_fields(
         content='# Test\n\nContent here.',
         tags=['test', 'python'],
     )
-    note = await note_service.create(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data, DEFAULT_LIMITS)
 
     assert note.title == 'My Test Note'
     assert note.description == 'A test description'
@@ -666,20 +669,9 @@ async def test__create_note__last_used_at_equals_created_at(
 ) -> None:
     """Test that new notes have last_used_at exactly equal to created_at."""
     data = NoteCreate(title='New Note')
-    note = await note_service.create(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data, DEFAULT_LIMITS)
 
     assert note.last_used_at == note.created_at
-
-
-async def test__create_note__version_starts_at_one(
-    db_session: AsyncSession,
-    test_user: User,
-) -> None:
-    """Test that new notes have version=1."""
-    data = NoteCreate(title='New Note')
-    note = await note_service.create(db_session, test_user.id, data)
-
-    assert note.version == 1
 
 
 # =============================================================================
@@ -696,13 +688,13 @@ async def test__search_notes__sort_by_last_used_at_desc(
 
     # Create notes
     data1 = NoteCreate(title='First Note')
-    n1 = await note_service.create(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1, DEFAULT_LIMITS)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay to ensure different timestamps
 
     data2 = NoteCreate(title='Second Note')
-    n2 = await note_service.create(db_session, test_user.id, data2)
+    n2 = await note_service.create(db_session, test_user.id, data2, DEFAULT_LIMITS)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay before tracking usage
@@ -729,13 +721,13 @@ async def test__search_notes__sort_by_last_used_at_asc(
 
     # Create notes
     data1 = NoteCreate(title='First Note')
-    n1 = await note_service.create(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1, DEFAULT_LIMITS)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     data2 = NoteCreate(title='Second Note')
-    n2 = await note_service.create(db_session, test_user.id, data2)
+    n2 = await note_service.create(db_session, test_user.id, data2, DEFAULT_LIMITS)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay before tracking usage
@@ -762,20 +754,20 @@ async def test__search_notes__sort_by_updated_at_desc(
 
     # Create notes
     data1 = NoteCreate(title='First Note')
-    n1 = await note_service.create(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1, DEFAULT_LIMITS)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     data2 = NoteCreate(title='Second Note')
-    n2 = await note_service.create(db_session, test_user.id, data2)
+    n2 = await note_service.create(db_session, test_user.id, data2, DEFAULT_LIMITS)
     await db_session.flush()
 
     await asyncio.sleep(0.01)  # Small delay before updating
 
     # Update first note via service (makes it most recently modified)
     await note_service.update(
-        db_session, test_user.id, n1.id, NoteUpdate(title='Updated Title'),
+        db_session, test_user.id, n1.id, NoteUpdate(title='Updated Title'), DEFAULT_LIMITS,
     )
     await db_session.flush()
 
@@ -809,6 +801,28 @@ async def test__search_notes__sort_by_title_asc(
     assert notes[2].title == 'Zebra Note'
 
 
+async def test__search_notes__sort_by_title_case_insensitive(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that title sorting is case-insensitive."""
+    n1 = Note(user_id=test_user.id, title='banana')  # lowercase
+    n2 = Note(user_id=test_user.id, title='Apple')   # capitalized
+    n3 = Note(user_id=test_user.id, title='CHERRY')  # uppercase
+    db_session.add_all([n1, n2, n3])
+    await db_session.flush()
+
+    notes, total = await note_service.search(
+        db_session, test_user.id, sort_by='title', sort_order='asc',
+    )
+
+    # Case-insensitive order: Apple < banana < CHERRY
+    assert total == 3
+    assert notes[0].title == 'Apple'
+    assert notes[1].title == 'banana'
+    assert notes[2].title == 'CHERRY'
+
+
 # =============================================================================
 # Filter Expression Tests (for ContentList filtering)
 # =============================================================================
@@ -824,19 +838,19 @@ async def test__search_notes__filter_expression_single_group_and(
         title='Work Priority Note',
         tags=['work', 'priority'],
     )
-    n1 = await note_service.create(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1, DEFAULT_LIMITS)
 
     data2 = NoteCreate(
         title='Work Only Note',
         tags=['work'],
     )
-    await note_service.create(db_session, test_user.id, data2)
+    await note_service.create(db_session, test_user.id, data2, DEFAULT_LIMITS)
 
     data3 = NoteCreate(
         title='Priority Only Note',
         tags=['priority'],
     )
-    await note_service.create(db_session, test_user.id, data3)
+    await note_service.create(db_session, test_user.id, data3, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -864,19 +878,19 @@ async def test__search_notes__filter_expression_multiple_groups_or(
         title='Work Priority Note',
         tags=['work', 'priority'],
     )
-    n1 = await note_service.create(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1, DEFAULT_LIMITS)
 
     data2 = NoteCreate(
         title='Urgent Note',
         tags=['urgent'],
     )
-    n2 = await note_service.create(db_session, test_user.id, data2)
+    n2 = await note_service.create(db_session, test_user.id, data2, DEFAULT_LIMITS)
 
     data3 = NoteCreate(
         title='Personal Note',
         tags=['personal'],
     )
-    await note_service.create(db_session, test_user.id, data3)
+    await note_service.create(db_session, test_user.id, data3, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -908,13 +922,13 @@ async def test__search_notes__filter_expression_with_text_search(
         title='Python Guide',
         tags=['work', 'coding'],
     )
-    n1 = await note_service.create(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1, DEFAULT_LIMITS)
 
     data2 = NoteCreate(
         title='JavaScript Guide',
         tags=['work', 'coding'],
     )
-    await note_service.create(db_session, test_user.id, data2)
+    await note_service.create(db_session, test_user.id, data2, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -946,7 +960,7 @@ async def test__update_note__updates_title(
     note_id = test_note.id
 
     updated = await note_service.update(
-        db_session, test_user.id, note_id, NoteUpdate(title='New Title'),
+        db_session, test_user.id, note_id, NoteUpdate(title='New Title'), DEFAULT_LIMITS,
     )
 
     assert updated is not None
@@ -963,7 +977,7 @@ async def test__update_note__updates_description(
 
     updated = await note_service.update(
         db_session, test_user.id, note_id,
-        NoteUpdate(description='New description'),
+        NoteUpdate(description='New description'), DEFAULT_LIMITS,
     )
 
     assert updated is not None
@@ -980,7 +994,7 @@ async def test__update_note__updates_content(
 
     updated = await note_service.update(
         db_session, test_user.id, note_id,
-        NoteUpdate(content='# New Content\n\nUpdated markdown.'),
+        NoteUpdate(content='# New Content\n\nUpdated markdown.'), DEFAULT_LIMITS,
     )
 
     assert updated is not None
@@ -999,7 +1013,7 @@ async def test__update_note__partial_update_preserves_other_fields(
 
     updated = await note_service.update(
         db_session, test_user.id, note_id,
-        NoteUpdate(description='Only description changed'),
+        NoteUpdate(description='Only description changed'), DEFAULT_LIMITS,
     )
 
     assert updated is not None
@@ -1017,12 +1031,12 @@ async def test__update_note__updates_tags(
         title='Tag Update Test',
         tags=['original-tag'],
     )
-    note = await note_service.create(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data, DEFAULT_LIMITS)
     await db_session.flush()
 
     updated = await note_service.update(
         db_session, test_user.id, note.id,
-        NoteUpdate(tags=['new-tag-1', 'new-tag-2']),
+        NoteUpdate(tags=['new-tag-1', 'new-tag-2']), DEFAULT_LIMITS,
     )
 
     assert updated is not None
@@ -1038,8 +1052,8 @@ async def test__update_note__returns_none_for_nonexistent(
 ) -> None:
     """Test that update_note returns None for non-existent note."""
     result = await note_service.update(
-        db_session, test_user.id, 99999,
-        NoteUpdate(title='Will not work'),
+        db_session, test_user.id, uuid4(),
+        NoteUpdate(title='Will not work'), DEFAULT_LIMITS,
     )
     assert result is None
 
@@ -1059,7 +1073,7 @@ async def test__update_note__updates_updated_at(
 
     await note_service.update(
         db_session, test_user.id, note_id,
-        NoteUpdate(title='Updated Title'),
+        NoteUpdate(title='Updated Title'), DEFAULT_LIMITS,
     )
     await db_session.flush()
     await db_session.refresh(test_note)
@@ -1082,7 +1096,7 @@ async def test__update_note__does_not_update_last_used_at(
 
     await note_service.update(
         db_session, test_user.id, note_id,
-        NoteUpdate(title='Updated Title'),
+        NoteUpdate(title='Updated Title'), DEFAULT_LIMITS,
     )
     await db_session.flush()
     await db_session.refresh(test_note)
@@ -1103,7 +1117,7 @@ async def test__update_note__wrong_user_returns_none(
     # Try to update test_user's note as other_user
     result = await note_service.update(
         db_session, other_user.id, test_note.id,
-        NoteUpdate(title='Hacked Title'),
+        NoteUpdate(title='Hacked Title'), DEFAULT_LIMITS,
     )
 
     assert result is None
@@ -1135,7 +1149,7 @@ async def test__update_note__can_update_archived_note(
     # Try to update the archived note's title
     updated = await note_service.update(
         db_session, test_user.id, test_note.id,
-        NoteUpdate(title='Updated Archived Title'),
+        NoteUpdate(title='Updated Archived Title'), DEFAULT_LIMITS,
     )
 
     # Should succeed - archived notes should be editable
@@ -1194,7 +1208,7 @@ def test__build_note_filter_from_expression__empty_groups_returns_empty() -> Non
     filter_expression = {'groups': [], 'group_operator': 'OR'}
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=note_tags,
         entity_id_column=Note.id,
     )
@@ -1206,7 +1220,7 @@ def test__build_note_filter_from_expression__missing_groups_returns_empty() -> N
     filter_expression = {'group_operator': 'OR'}
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=note_tags,
         entity_id_column=Note.id,
     )
@@ -1221,7 +1235,7 @@ def test__build_note_filter_from_expression__single_group_single_tag() -> None:
     }
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=note_tags,
         entity_id_column=Note.id,
     )
@@ -1238,7 +1252,7 @@ def test__build_note_filter_from_expression__single_group_multiple_tags() -> Non
     }
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=note_tags,
         entity_id_column=Note.id,
     )
@@ -1258,7 +1272,7 @@ def test__build_note_filter_from_expression__multiple_groups() -> None:
     }
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=note_tags,
         entity_id_column=Note.id,
     )
@@ -1278,7 +1292,7 @@ def test__build_note_filter_from_expression__group_with_empty_tags_skipped() -> 
     }
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=note_tags,
         entity_id_column=Note.id,
     )
@@ -1297,7 +1311,7 @@ def test__build_note_filter_from_expression__all_groups_empty_returns_empty() ->
     }
     result = build_tag_filter_from_expression(
         filter_expression=filter_expression,
-        user_id=1,
+        user_id=uuid4(),
         junction_table=note_tags,
         entity_id_column=Note.id,
     )
@@ -1493,7 +1507,7 @@ async def test__create_note__with_archived_at_future_date(
         title='Scheduled Note',
         archived_at=future_date,
     )
-    note = await note_service.create(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data, DEFAULT_LIMITS)
 
     assert note.archived_at is not None
     assert note.is_archived is False  # Not yet archived
@@ -1514,7 +1528,7 @@ async def test__create_note__with_archived_at_past_date(
         title='Immediately Archived Note',
         archived_at=past_date,
     )
-    note = await note_service.create(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data, DEFAULT_LIMITS)
 
     assert note.archived_at is not None
     assert note.is_archived is True  # Already archived
@@ -1534,7 +1548,7 @@ async def test__update_note__can_set_archived_at(
     future_date = datetime.now(UTC) + timedelta(days=7)
     updated = await note_service.update(
         db_session, test_user.id, test_note.id,
-        NoteUpdate(archived_at=future_date),
+        NoteUpdate(archived_at=future_date), DEFAULT_LIMITS,
     )
 
     assert updated is not None
@@ -1555,13 +1569,13 @@ async def test__update_note__can_clear_archived_at(
         title='Scheduled Then Cleared Note',
         archived_at=future_date,
     )
-    note = await note_service.create(db_session, test_user.id, data)
+    note = await note_service.create(db_session, test_user.id, data, DEFAULT_LIMITS)
     await db_session.flush()
 
     # Clear the scheduled date
     updated = await note_service.update(
         db_session, test_user.id, note.id,
-        NoteUpdate(archived_at=None),
+        NoteUpdate(archived_at=None), DEFAULT_LIMITS,
     )
 
     assert updated is not None
@@ -1656,13 +1670,13 @@ async def test__search_notes__tag_filter_all_mode(
 ) -> None:
     """Test tag filtering with tag_match='all' (must have ALL tags)."""
     data1 = NoteCreate(title='Both Tags', tags=['python', 'web'])
-    n1 = await note_service.create(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1, DEFAULT_LIMITS)
 
     data2 = NoteCreate(title='Python Only', tags=['python'])
-    await note_service.create(db_session, test_user.id, data2)
+    await note_service.create(db_session, test_user.id, data2, DEFAULT_LIMITS)
 
     data3 = NoteCreate(title='Web Only', tags=['web'])
-    await note_service.create(db_session, test_user.id, data3)
+    await note_service.create(db_session, test_user.id, data3, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -1680,13 +1694,13 @@ async def test__search_notes__tag_filter_any_mode(
 ) -> None:
     """Test tag filtering with tag_match='any' (must have ANY tag)."""
     data1 = NoteCreate(title='Python Note', tags=['python'])
-    n1 = await note_service.create(db_session, test_user.id, data1)
+    n1 = await note_service.create(db_session, test_user.id, data1, DEFAULT_LIMITS)
 
     data2 = NoteCreate(title='Web Note', tags=['web'])
-    n2 = await note_service.create(db_session, test_user.id, data2)
+    n2 = await note_service.create(db_session, test_user.id, data2, DEFAULT_LIMITS)
 
     data3 = NoteCreate(title='Java Note', tags=['java'])
-    await note_service.create(db_session, test_user.id, data3)
+    await note_service.create(db_session, test_user.id, data3, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -1818,10 +1832,10 @@ async def test__cascade_delete__user_deletion_removes_notes(
     await db_session.flush()
 
     await note_service.create(
-        db_session, user.id, NoteCreate(title="Note 1", content="Test content"),
+        db_session, user.id, NoteCreate(title="Note 1", content="Test content"), DEFAULT_LIMITS,
     )
     await note_service.create(
-        db_session, user.id, NoteCreate(title="Note 2", content="Test content"),
+        db_session, user.id, NoteCreate(title="Note 2", content="Test content"), DEFAULT_LIMITS,
     )
     await db_session.flush()
 
@@ -1834,3 +1848,81 @@ async def test__cascade_delete__user_deletion_removes_notes(
         select(Note).where(Note.user_id == user.id),
     )
     assert result.scalars().all() == []
+
+
+def test__search_query__defer_excludes_content_from_select() -> None:
+    """
+    Verify that defer() excludes content column from SELECT while computed columns work.
+
+    This test ensures the SQL optimization in BaseEntityService.search() is working:
+    - The full content column should NOT be in the SELECT list
+    - content_length and content_preview should be computed via length() and left()
+
+    If this test fails, it means content is being transferred from the database,
+    defeating the performance optimization.
+    """
+    from sqlalchemy import func
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.orm import defer, selectinload
+
+    from services.base_entity_service import CONTENT_PREVIEW_LENGTH
+
+    # Build the same query pattern used in BaseEntityService.search()
+    query = (
+        select(
+            Note,
+            func.length(Note.content).label("content_length"),
+            func.left(Note.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
+        )
+        .options(
+            defer(Note.content),
+            selectinload(Note.tag_objects),
+        )
+        .where(Note.user_id == "some-uuid")
+    )
+
+    # Compile to PostgreSQL SQL
+    compiled = query.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+
+    # The SQL should look like:
+    # SELECT notes.user_id, notes.title, notes.description, ...,
+    #        length(notes.content) AS content_length,
+    #        left(notes.content, 500) AS content_preview
+    # FROM notes WHERE ...
+    #
+    # Note: notes.content should NOT appear as a direct column selection
+
+    # Split into SELECT clause and rest
+    select_clause = sql.split(" FROM ")[0].upper()
+
+    # content should appear in function calls (LENGTH, LEFT) but not as a standalone column
+    # A standalone column would look like: "NOTES.CONTENT," or "NOTES.CONTENT AS"
+    # We check that NOTES.CONTENT only appears within function parentheses
+
+    # Count occurrences of NOTES.CONTENT
+    content_occurrences = select_clause.count("NOTES.CONTENT")
+
+    # It should appear exactly twice: once in LENGTH(), once in LEFT()
+    assert content_occurrences == 2, (
+        f"Expected notes.content to appear exactly 2 times (in LENGTH and LEFT), "
+        f"but found {content_occurrences} occurrences. SQL: {sql}"
+    )
+
+    # Verify it appears within the function calls
+    assert "LENGTH(NOTES.CONTENT)" in select_clause, (
+        f"Expected LENGTH(notes.content) in SELECT clause. SQL: {sql}"
+    )
+    assert "LEFT(NOTES.CONTENT" in select_clause, (
+        f"Expected LEFT(notes.content, ...) in SELECT clause. SQL: {sql}"
+    )
+
+    # Verify content is NOT a standalone selected column
+    # A standalone column would have a comma before/after or be at the start
+    # We check that "NOTES.CONTENT," doesn't appear outside of function calls
+    import re
+    # Match notes.content that is NOT preceded by ( (which would indicate a function call)
+    standalone_content = re.search(r'(?<!\()NOTES\.CONTENT\s*,', select_clause)
+    assert standalone_content is None, (
+        f"Found standalone notes.content column in SELECT (defer not working). SQL: {sql}"
+    )

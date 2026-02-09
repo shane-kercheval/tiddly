@@ -1,6 +1,7 @@
 """Tests for prompt schemas."""
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -44,16 +45,19 @@ class TestPromptArgument:
         assert "Invalid argument name format" in str(exc_info.value)
 
     def test__prompt_argument__name_max_length(self) -> None:
-        """Argument name at max length (100) should be accepted, over should be rejected."""
+        """
+        Argument name at max length (100) should be accepted at schema level.
+
+        Note: Max length validation is now done at service layer, not schema level.
+        """
         # 100 chars accepted
         long_name = "a" * 100
         arg = PromptArgument(name=long_name)
         assert arg.name == long_name
 
-        # 101 chars rejected
-        with pytest.raises(ValidationError) as exc_info:
-            PromptArgument(name="a" * 101)
-        assert "exceeds maximum length" in str(exc_info.value)
+        # Longer names are accepted at schema level (validated at service layer)
+        long_arg = PromptArgument(name="a" * 101)
+        assert len(long_arg.name) == 101
 
     def test__prompt_argument__required_defaults_to_none(self) -> None:
         """Required field should default to None."""
@@ -104,28 +108,34 @@ class TestPromptCreate:
         assert "Invalid prompt name format" in str(exc_info.value)
 
     def test__prompt_create__name_max_length(self) -> None:
-        """Prompt name at max length (255) should be accepted, over should be rejected."""
-        # 255 chars accepted
-        long_name = "a" * 255
+        """
+        Prompt name at max length (100) should be accepted at schema level.
+
+        Note: Max length validation is now done at service layer, not schema level.
+        """
+        # 100 chars accepted
+        long_name = "a" * 100
         prompt = PromptCreate(name=long_name, content="Test content")
         assert prompt.name == long_name
 
-        # 256 chars rejected
-        with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="a" * 256, content="Test content")
-        assert "exceeds maximum length" in str(exc_info.value)
+        # Longer names are accepted at schema level (validated at service layer)
+        long_prompt = PromptCreate(name="a" * 101, content="Test content")
+        assert len(long_prompt.name) == 101
 
     def test__prompt_create__title_max_length(self) -> None:
-        """Title at max length (500) should be accepted, over should be rejected."""
+        """
+        Title at max length (500) should be accepted at schema level.
+
+        Note: Max length validation is now done at service layer, not schema level.
+        """
         # 500 chars accepted
         long_title = "a" * 500
         prompt = PromptCreate(name="test", content="Test content", title=long_title)
         assert prompt.title == long_title
 
-        # 501 chars rejected
-        with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="test", content="Test content", title="a" * 501)
-        assert "exceeds maximum length" in str(exc_info.value)
+        # Longer titles are accepted at schema level (validated at service layer)
+        long_prompt = PromptCreate(name="test", content="Test content", title="a" * 501)
+        assert len(long_prompt.title) == 501
 
     def test__prompt_create__duplicate_argument_names_rejected(self) -> None:
         """Duplicate argument names should be rejected."""
@@ -159,28 +169,34 @@ class TestPromptCreate:
         assert prompt.arguments == []
 
     def test__prompt_create__description_max_length(self) -> None:
-        """Description should respect max_description_length setting (2000)."""
-        # 2000 chars accepted
-        long_desc = "a" * 2000
+        """
+        Description at max length (1000) should be accepted at schema level.
+
+        Note: Max length validation is now done at service layer, not schema level.
+        """
+        # 1000 chars accepted
+        long_desc = "a" * 1000
         prompt = PromptCreate(name="test", content="Test content", description=long_desc)
         assert prompt.description == long_desc
 
-        # 2001 chars rejected
-        with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="test", content="Test content", description="a" * 2001)
-        assert "exceeds maximum length" in str(exc_info.value)
+        # Longer descriptions are accepted at schema level (validated at service layer)
+        long_prompt = PromptCreate(name="test", content="Test content", description="a" * 1001)
+        assert len(long_prompt.description) == 1001
 
     def test__prompt_create__content_max_length(self) -> None:
-        """Content should respect max_prompt_content_length setting (100000)."""
+        """
+        Content at max length (100000) should be accepted at schema level.
+
+        Note: Max length validation is now done at service layer, not schema level.
+        """
         # 100000 chars accepted
         long_content = "a" * 100_000
         prompt = PromptCreate(name="test", content=long_content)
         assert prompt.content == long_content
 
-        # 100001 chars rejected
-        with pytest.raises(ValidationError) as exc_info:
-            PromptCreate(name="test", content="a" * 100_001)
-        assert "exceeds maximum length" in str(exc_info.value)
+        # Longer content is accepted at schema level (validated at service layer)
+        long_prompt = PromptCreate(name="test", content="a" * 100_001)
+        assert len(long_prompt.content) == 100_001
 
     def test__prompt_create__content_required(self) -> None:
         """Content is required for prompt creation."""
@@ -285,7 +301,7 @@ class TestPromptListItem:
         tag2 = SimpleNamespace(name="tutorial")
 
         mock_prompt = SimpleNamespace(
-            id=1,
+            id=uuid4(),
             name="test-prompt",
             title="Test Prompt",
             description=None,
@@ -308,8 +324,9 @@ class TestPromptListItem:
 
     def test__prompt_list_item__from_dict(self) -> None:
         """Should accept dict input."""
+        test_id = uuid4()
         data = {
-            "id": 1,
+            "id": test_id,
             "name": "test-prompt",
             "title": "Test Prompt",
             "description": "A test prompt",
@@ -322,7 +339,7 @@ class TestPromptListItem:
             "archived_at": None,
         }
         item = PromptListItem.model_validate(data)
-        assert item.id == 1
+        assert item.id == test_id
         assert item.name == "test-prompt"
         assert item.tags == ["python", "test"]
         assert len(item.arguments) == 1
@@ -349,7 +366,7 @@ class TestPromptResponse:
     def test__prompt_response__from_dict(self) -> None:
         """Should accept dict input with content."""
         data = {
-            "id": 1,
+            "id": uuid4(),
             "name": "test-prompt",
             "title": "Test Prompt",
             "description": "A test prompt",
@@ -387,7 +404,7 @@ class TestPromptListResponse:
     def test__prompt_list_response__with_items(self) -> None:
         """Should accept list of PromptListItem."""
         item_data = {
-            "id": 1,
+            "id": uuid4(),
             "name": "test",
             "title": None,
             "description": None,

@@ -12,8 +12,13 @@ interface TagsState {
   error: string | null
 }
 
+interface FetchTagsOptions {
+  includeInactive?: boolean
+  contentTypes?: ('bookmark' | 'note' | 'prompt')[]
+}
+
 interface TagsActions {
-  fetchTags: () => Promise<void>
+  fetchTags: (options?: FetchTagsOptions) => Promise<void>
   renameTag: (oldName: string, newName: string) => Promise<Tag>
   deleteTag: (tagName: string) => Promise<void>
   clearError: () => void
@@ -28,10 +33,18 @@ export const useTagsStore = create<TagsStore>((set, get) => ({
   error: null,
 
   // Actions
-  fetchTags: async () => {
+  fetchTags: async (options?: FetchTagsOptions) => {
     set({ isLoading: true, error: null })
     try {
-      const response = await api.get<TagListResponse>('/tags/')
+      const params = new URLSearchParams()
+      if (options?.includeInactive) {
+        params.set('include_inactive', 'true')
+      }
+      if (options?.contentTypes) {
+        options.contentTypes.forEach((ct) => params.append('content_types', ct))
+      }
+      const url = params.toString() ? `/tags/?${params.toString()}` : '/tags/'
+      const response = await api.get<TagListResponse>(url)
       set({ tags: response.data.tags, isLoading: false })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch tags'

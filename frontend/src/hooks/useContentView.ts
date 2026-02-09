@@ -2,7 +2,7 @@
  * Generic hook for deriving content view from route params.
  *
  * This is the shared implementation used by useBookmarkView and useNoteView.
- * It extracts the view state (active/archived/deleted) and optional list ID
+ * It extracts the view state (active/archived/deleted) and optional filter ID
  * from the current route.
  */
 import { useMemo } from 'react'
@@ -13,8 +13,8 @@ export type ContentView = 'active' | 'archived' | 'deleted'
 export interface UseContentViewReturn {
   /** Current view for API calls */
   currentView: ContentView
-  /** List ID for custom list views */
-  currentListId: number | undefined
+  /** Filter ID for custom filter views */
+  currentFilterId: string | undefined
 }
 
 /**
@@ -23,37 +23,36 @@ export interface UseContentViewReturn {
  * @param basePath - The base path for this content type (e.g., '/app/bookmarks', '/app/notes')
  *
  * Routes handled:
- * - {basePath} → view: 'active', listId: undefined
- * - {basePath}/archived → view: 'archived', listId: undefined
- * - {basePath}/trash → view: 'deleted', listId: undefined
- * - {basePath}/lists/:listId → view: 'active', listId: number
+ * - {basePath} → view: 'active', filterId: undefined
+ * - {basePath}/archived → view: 'archived', filterId: undefined
+ * - {basePath}/trash → view: 'deleted', filterId: undefined
+ * - {basePath}/filters/:filterId → view: 'active', filterId: string
  */
 export function useContentView(basePath: string): UseContentViewReturn {
   const location = useLocation()
-  const params = useParams<{ listId?: string }>()
+  const params = useParams<{ filterId?: string }>()
 
-  const { currentView, currentListId } = useMemo(() => {
+  const { currentView, currentFilterId } = useMemo(() => {
     const path = location.pathname
 
     if (path === `${basePath}/archived`) {
-      return { currentView: 'archived' as ContentView, currentListId: undefined }
+      return { currentView: 'archived' as ContentView, currentFilterId: undefined }
     }
 
     if (path === `${basePath}/trash`) {
-      return { currentView: 'deleted' as ContentView, currentListId: undefined }
+      return { currentView: 'deleted' as ContentView, currentFilterId: undefined }
     }
 
-    if (path.startsWith(`${basePath}/lists/`) && params.listId) {
-      const listId = parseInt(params.listId, 10)
+    if (path.startsWith(`${basePath}/filters/`) && params.filterId) {
       return {
         currentView: 'active' as ContentView,
-        currentListId: isNaN(listId) ? undefined : listId,
+        currentFilterId: params.filterId,
       }
     }
 
     // Default: base path
-    return { currentView: 'active' as ContentView, currentListId: undefined }
-  }, [basePath, location.pathname, params.listId])
+    return { currentView: 'active' as ContentView, currentFilterId: undefined }
+  }, [basePath, location.pathname, params.filterId])
 
-  return { currentView, currentListId }
+  return { currentView, currentFilterId }
 }

@@ -125,7 +125,7 @@ export function TagFilterInput({
           onFocus={handleFocus}
           placeholder={placeholder}
           disabled={disabled}
-          className="w-40 rounded-lg border border-gray-200 bg-gray-50/50 py-2.5 pl-9 pr-3 text-sm placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900/5"
+          className="w-full md:w-40 rounded-lg border border-gray-200 bg-gray-50/50 py-1 pl-9 pr-2.5 text-sm placeholder:text-gray-400 focus:border-gray-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gray-900/5"
         />
       </div>
 
@@ -138,14 +138,14 @@ export function TagFilterInput({
               type="button"
               onClick={() => selectTag(suggestion.name)}
               aria-selected={index === highlightedIndex}
-              className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors ${
+              className={`flex w-full items-center justify-between px-3 py-[5px] text-left text-sm transition-colors ${
                 index === highlightedIndex
                   ? 'bg-gray-100 text-gray-900'
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
               <span>{suggestion.name}</span>
-              <span className="text-xs text-gray-400">{suggestion.count}</span>
+              <span className="text-xs text-gray-400">{suggestion.content_count}</span>
             </button>
           ))}
         </div>

@@ -4,12 +4,13 @@ from typing import TYPE_CHECKING
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import Base, TimestampMixin
+from models.base import Base, TimestampMixin, UUIDv7Mixin
 
 if TYPE_CHECKING:
     from models.api_token import ApiToken
     from models.bookmark import Bookmark
-    from models.content_list import ContentList
+    from models.content_filter import ContentFilter
+    from models.content_history import ContentHistory
     from models.note import Note
     from models.prompt import Prompt
     from models.tag import Tag
@@ -17,12 +18,12 @@ if TYPE_CHECKING:
     from models.user_settings import UserSettings
 
 
-class User(Base, TimestampMixin):
+class User(Base, UUIDv7Mixin, TimestampMixin):
     """User model - stores Auth0 user info for foreign key relationships."""
 
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    # id provided by UUIDv7Mixin
     auth0_id: Mapped[str] = mapped_column(
         String(255),
         unique=True,
@@ -30,6 +31,12 @@ class User(Base, TimestampMixin):
         comment="Auth0 'sub' claim - unique identifier from Auth0",
     )
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tier: Mapped[str] = mapped_column(
+        String(50),
+        default="free",
+        server_default="free",
+        comment="User subscription tier (e.g., 'free', 'pro')",
+    )
 
     bookmarks: Mapped[list["Bookmark"]] = relationship(
         back_populates="user",
@@ -52,7 +59,7 @@ class User(Base, TimestampMixin):
         cascade="all, delete-orphan",
         uselist=False,
     )
-    content_lists: Mapped[list["ContentList"]] = relationship(
+    content_filters: Mapped[list["ContentFilter"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )
@@ -64,4 +71,8 @@ class User(Base, TimestampMixin):
         back_populates="user",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    content_history: Mapped[list["ContentHistory"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
     )

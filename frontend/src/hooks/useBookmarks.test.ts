@@ -40,11 +40,34 @@ describe('useBookmarks', () => {
 
       let fetched: unknown
       await act(async () => {
-        fetched = await result.current.fetchBookmark(1)
+        fetched = await result.current.fetchBookmark('1')
       })
 
       expect(fetched).toEqual(mockBookmark)
-      expect(mockGet).toHaveBeenCalledWith('/bookmarks/1')
+      expect(mockGet).toHaveBeenCalledWith('/bookmarks/1', { params: undefined })
+    })
+
+    it('should fetch bookmark with skipCache option', async () => {
+      const mockBookmark = {
+        id: 1,
+        url: 'https://example.com',
+        title: 'Example',
+        description: 'A test bookmark',
+        content: 'Full page content here',
+        tags: ['test'],
+      }
+      mockGet.mockResolvedValueOnce({ data: mockBookmark })
+
+      const { result } = renderHook(() => useBookmarks())
+
+      await act(async () => {
+        await result.current.fetchBookmark('1', { skipCache: true })
+      })
+
+      // Should include cache-busting _t param
+      expect(mockGet).toHaveBeenCalledWith('/bookmarks/1', {
+        params: expect.objectContaining({ _t: expect.any(Number) }),
+      })
     })
 
     it('should throw error on fetch failure', async () => {
@@ -52,7 +75,7 @@ describe('useBookmarks', () => {
 
       const { result } = renderHook(() => useBookmarks())
 
-      await expect(result.current.fetchBookmark(999)).rejects.toThrow('Not found')
+      await expect(result.current.fetchBookmark('999')).rejects.toThrow('Not found')
     })
   })
 
@@ -99,7 +122,7 @@ describe('useBookmarks', () => {
       const { result } = renderHook(() => useBookmarks())
 
       act(() => {
-        result.current.trackBookmarkUsage(1)
+        result.current.trackBookmarkUsage('1')
       })
 
       expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/track-usage')
@@ -112,7 +135,7 @@ describe('useBookmarks', () => {
 
       // Should not throw
       act(() => {
-        result.current.trackBookmarkUsage(1)
+        result.current.trackBookmarkUsage('1')
       })
 
       expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/track-usage')

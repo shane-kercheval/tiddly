@@ -1,5 +1,8 @@
 /**
  * Tests for PromptCard component.
+ *
+ * Note: PromptCard renders both mobile and desktop layouts (hidden via CSS).
+ * Tests use getAllByRole and take the first match for elements that appear twice.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -8,7 +11,7 @@ import { PromptCard } from './PromptCard'
 import type { PromptListItem } from '../types'
 
 const mockPrompt: PromptListItem = {
-  id: 1,
+  id: '1',
   name: 'code-review',
   title: 'Code Review Prompt',
   description: 'A prompt for reviewing code',
@@ -17,11 +20,13 @@ const mockPrompt: PromptListItem = {
     { name: 'language', description: null, required: false },
   ],
   tags: ['code', 'review'],
-  created_at: '2024-01-01T00:00:00Z',
-  updated_at: '2024-01-02T00:00:00Z',
-  last_used_at: '2024-01-03T00:00:00Z',
+  // Use noon UTC to avoid timezone edge cases
+  created_at: '2024-01-01T12:00:00Z',
+  updated_at: '2024-01-02T12:00:00Z',
+  last_used_at: '2024-01-03T12:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 describe('PromptCard', () => {
@@ -33,20 +38,26 @@ describe('PromptCard', () => {
     it('should render prompt title', () => {
       render(<PromptCard prompt={mockPrompt} onDelete={vi.fn()} />)
 
-      expect(screen.getByText('Code Review Prompt')).toBeInTheDocument()
+      // Title appears in both mobile and desktop layouts
+      const titles = screen.getAllByText('Code Review Prompt')
+      expect(titles.length).toBeGreaterThan(0)
     })
 
     it('should render name when no title', () => {
       const promptWithoutTitle = { ...mockPrompt, title: null }
       render(<PromptCard prompt={promptWithoutTitle} onDelete={vi.fn()} />)
 
-      expect(screen.getByRole('button', { name: 'code-review' })).toBeInTheDocument()
+      // Name appears in both layouts
+      const buttons = screen.getAllByRole('button', { name: 'code-review' })
+      expect(buttons.length).toBeGreaterThan(0)
     })
 
     it('should show name in parentheses when title differs', () => {
       render(<PromptCard prompt={mockPrompt} onDelete={vi.fn()} />)
 
-      expect(screen.getByText('code-review')).toBeInTheDocument()
+      // Name appears in both mobile and desktop views
+      const names = screen.getAllByText('code-review')
+      expect(names.length).toBeGreaterThan(0)
     })
 
     it('should render description', () => {
@@ -57,37 +68,89 @@ describe('PromptCard', () => {
       expect(descriptions.length).toBeGreaterThan(0)
     })
 
+    it('should render content_preview when description is null', () => {
+      const promptWithPreview = { ...mockPrompt, description: null, content_preview: 'Preview of prompt template' }
+      render(<PromptCard prompt={promptWithPreview} onDelete={vi.fn()} />)
+
+      // Preview appears in both mobile and desktop views
+      const previews = screen.getAllByText('Preview of prompt template')
+      expect(previews.length).toBeGreaterThan(0)
+    })
+
+    it('should prefer description over content_preview when both exist', () => {
+      const promptWithBoth = { ...mockPrompt, description: 'The description', content_preview: 'The preview' }
+      render(<PromptCard prompt={promptWithBoth} onDelete={vi.fn()} />)
+
+      // Description should be shown
+      const descriptions = screen.getAllByText('The description')
+      expect(descriptions.length).toBeGreaterThan(0)
+      // Preview should not be shown
+      expect(screen.queryByText('The preview')).not.toBeInTheDocument()
+    })
+
+    it('should not render preview section when both description and content_preview are null', () => {
+      const promptWithNeither = { ...mockPrompt, description: null, content_preview: null }
+      render(<PromptCard prompt={promptWithNeither} onDelete={vi.fn()} />)
+
+      expect(screen.queryByText('A prompt for reviewing code')).not.toBeInTheDocument()
+    })
+
     it('should render tags', () => {
       render(<PromptCard prompt={mockPrompt} onDelete={vi.fn()} />)
 
-      expect(screen.getByText('code')).toBeInTheDocument()
-      expect(screen.getByText('review')).toBeInTheDocument()
+      // Tags appear in both layouts
+      const codeTags = screen.getAllByText('code')
+      const reviewTags = screen.getAllByText('review')
+      expect(codeTags.length).toBeGreaterThan(0)
+      expect(reviewTags.length).toBeGreaterThan(0)
     })
 
     it('should render created date by default', () => {
       render(<PromptCard prompt={mockPrompt} onDelete={vi.fn()} />)
 
-      expect(screen.getByText(/Created:/)).toBeInTheDocument()
+      // Date is shown, label is in tooltip (not visible text)
+      const dates = screen.getAllByText('Jan 1, 2024')
+      expect(dates.length).toBeGreaterThan(0)
     })
   })
 
   describe('date display', () => {
-    it('should show modified date when sortBy is updated_at', () => {
+    it('should show updated date when sortBy is updated_at', () => {
       render(<PromptCard prompt={mockPrompt} sortBy="updated_at" onDelete={vi.fn()} />)
 
-      expect(screen.getByText(/Modified:/)).toBeInTheDocument()
+      // Shows date, label in tooltip
+      const dates = screen.getAllByText('Jan 2, 2024')
+      expect(dates.length).toBeGreaterThan(0)
     })
 
-    it('should show used date when sortBy is last_used_at', () => {
+    it('should show last used date when sortBy is last_used_at', () => {
       render(<PromptCard prompt={mockPrompt} sortBy="last_used_at" onDelete={vi.fn()} />)
 
-      expect(screen.getByText(/Used:/)).toBeInTheDocument()
+      const dates = screen.getAllByText('Jan 3, 2024')
+      expect(dates.length).toBeGreaterThan(0)
     })
 
     it('should show created date for title sort', () => {
       render(<PromptCard prompt={mockPrompt} sortBy="title" onDelete={vi.fn()} />)
 
-      expect(screen.getByText(/Created:/)).toBeInTheDocument()
+      const dates = screen.getAllByText('Jan 1, 2024')
+      expect(dates.length).toBeGreaterThan(0)
+    })
+
+    it('should show archived date when sortBy is archived_at', () => {
+      const archivedPrompt = { ...mockPrompt, archived_at: '2024-02-01T12:00:00Z' }
+      render(<PromptCard prompt={archivedPrompt} sortBy="archived_at" onDelete={vi.fn()} />)
+
+      const dates = screen.getAllByText('Feb 1, 2024')
+      expect(dates.length).toBeGreaterThan(0)
+    })
+
+    it('should show deleted date when sortBy is deleted_at', () => {
+      const deletedPrompt = { ...mockPrompt, deleted_at: '2024-03-01T12:00:00Z' }
+      render(<PromptCard prompt={deletedPrompt} sortBy="deleted_at" onDelete={vi.fn()} />)
+
+      const dates = screen.getAllByText('Mar 1, 2024')
+      expect(dates.length).toBeGreaterThan(0)
     })
   })
 
@@ -98,7 +161,8 @@ describe('PromptCard', () => {
 
       render(<PromptCard prompt={mockPrompt} onDelete={vi.fn()} onView={onView} />)
 
-      await user.click(screen.getByRole('button', { name: 'Code Review Prompt' }))
+      const buttons = screen.getAllByRole('button', { name: 'Code Review Prompt' })
+      await user.click(buttons[0])
 
       expect(onView).toHaveBeenCalledWith(mockPrompt)
     })
@@ -111,7 +175,8 @@ describe('PromptCard', () => {
 
       render(<PromptCard prompt={mockPrompt} onDelete={vi.fn()} onTagClick={onTagClick} />)
 
-      await user.click(screen.getByRole('button', { name: 'code' }))
+      const tagButtons = screen.getAllByRole('button', { name: 'code' })
+      await user.click(tagButtons[0])
 
       expect(onTagClick).toHaveBeenCalledWith('code')
     })
@@ -128,13 +193,15 @@ describe('PromptCard', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: /archive prompt/i })).toBeInTheDocument()
+      const archiveButtons = screen.getAllByRole('button', { name: /archive prompt/i })
+      expect(archiveButtons.length).toBeGreaterThan(0)
     })
 
     it('should show delete button in active view', () => {
       render(<PromptCard prompt={mockPrompt} view="active" onDelete={vi.fn()} />)
 
-      expect(screen.getByRole('button', { name: /delete prompt/i })).toBeInTheDocument()
+      const deleteButtons = screen.getAllByRole('button', { name: /delete prompt/i })
+      expect(deleteButtons.length).toBeGreaterThan(0)
     })
 
     it('should call onArchive when archive button is clicked', async () => {
@@ -150,7 +217,8 @@ describe('PromptCard', () => {
         />
       )
 
-      await user.click(screen.getByRole('button', { name: /archive prompt/i }))
+      const archiveButtons = screen.getAllByRole('button', { name: /archive prompt/i })
+      await user.click(archiveButtons[0])
 
       expect(onArchive).toHaveBeenCalledWith(mockPrompt)
     })
@@ -161,7 +229,8 @@ describe('PromptCard', () => {
 
       render(<PromptCard prompt={mockPrompt} view="active" onDelete={onDelete} />)
 
-      await user.click(screen.getByRole('button', { name: /delete prompt/i }))
+      const deleteButtons = screen.getAllByRole('button', { name: /delete prompt/i })
+      await user.click(deleteButtons[0])
 
       expect(onDelete).toHaveBeenCalledWith(mockPrompt)
     })
@@ -178,7 +247,8 @@ describe('PromptCard', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: /restore prompt/i })).toBeInTheDocument()
+      const restoreButtons = screen.getAllByRole('button', { name: /restore prompt/i })
+      expect(restoreButtons.length).toBeGreaterThan(0)
     })
 
     it('should not show archive button in archived view', () => {
@@ -207,7 +277,8 @@ describe('PromptCard', () => {
         />
       )
 
-      await user.click(screen.getByRole('button', { name: /restore prompt/i }))
+      const restoreButtons = screen.getAllByRole('button', { name: /restore prompt/i })
+      await user.click(restoreButtons[0])
 
       expect(onUnarchive).toHaveBeenCalledWith(mockPrompt)
     })
@@ -224,7 +295,8 @@ describe('PromptCard', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: /restore prompt/i })).toBeInTheDocument()
+      const restoreButtons = screen.getAllByRole('button', { name: /restore prompt/i })
+      expect(restoreButtons.length).toBeGreaterThan(0)
     })
 
     it('should not make card clickable in deleted view', () => {
@@ -233,7 +305,6 @@ describe('PromptCard', () => {
           prompt={mockPrompt}
           view="deleted"
           onDelete={vi.fn()}
-          onEdit={vi.fn()}
         />
       )
 
@@ -245,8 +316,9 @@ describe('PromptCard', () => {
     it('should show confirm delete button in deleted view', () => {
       render(<PromptCard prompt={mockPrompt} view="deleted" onDelete={vi.fn()} />)
 
-      // ConfirmDeleteButton initially shows "Delete permanently" tooltip
-      expect(screen.getByTitle('Delete permanently')).toBeInTheDocument()
+      // ConfirmDeleteButton initially shows "Delete permanently" aria-label
+      const deleteButtons = screen.getAllByRole('button', { name: 'Delete permanently' })
+      expect(deleteButtons.length).toBeGreaterThan(0)
     })
 
     it('should call onRestore when restore button is clicked', async () => {
@@ -262,7 +334,8 @@ describe('PromptCard', () => {
         />
       )
 
-      await user.click(screen.getByRole('button', { name: /restore prompt/i }))
+      const restoreButtons = screen.getAllByRole('button', { name: /restore prompt/i })
+      await user.click(restoreButtons[0])
 
       expect(onRestore).toHaveBeenCalledWith(mockPrompt)
     })
@@ -281,27 +354,93 @@ describe('PromptCard', () => {
         />
       )
 
-      // Hover to reveal remove button, then click
-      const removeButton = screen.getByRole('button', { name: /remove tag code/i })
-      await user.click(removeButton)
+      // Multiple remove buttons exist (mobile + desktop)
+      const removeButtons = screen.getAllByRole('button', { name: /remove tag code/i })
+      await user.click(removeButtons[0])
 
       expect(onTagRemove).toHaveBeenCalledWith(mockPrompt, 'code')
     })
   })
 
-  describe('loading state', () => {
-    it('should show spinner in hover indicator when isLoading', () => {
-      const { container } = render(
+  describe('tag addition', () => {
+    const mockSuggestions = [
+      { name: 'react', content_count: 5, filter_count: 0 },
+      { name: 'typescript', content_count: 3, filter_count: 0 },
+    ]
+
+    it('should show add tag button when onTagAdd is provided', () => {
+      render(
         <PromptCard
           prompt={mockPrompt}
           onDelete={vi.fn()}
-          onEdit={vi.fn()}
-          isLoading={true}
+          onTagAdd={vi.fn()}
+          tagSuggestions={mockSuggestions}
         />
       )
 
-      // Spinner should be visible in the hover edit indicator
-      expect(container.querySelector('.spinner-sm')).toBeInTheDocument()
+      const addButtons = screen.getAllByRole('button', { name: 'Add tag' })
+      expect(addButtons.length).toBeGreaterThan(0)
+    })
+
+    it('should not show add tag button when onTagAdd is not provided', () => {
+      render(
+        <PromptCard
+          prompt={mockPrompt}
+          onDelete={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
+    })
+
+    it('should show add tag button even when item has zero tags', () => {
+      const promptWithNoTags = { ...mockPrompt, tags: [] }
+
+      render(
+        <PromptCard
+          prompt={promptWithNoTags}
+          onDelete={vi.fn()}
+          onTagAdd={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      const addButtons = screen.getAllByRole('button', { name: 'Add tag' })
+      expect(addButtons.length).toBeGreaterThan(0)
+    })
+
+    it('should not show add tag button when tagSuggestions is not provided', () => {
+      render(
+        <PromptCard
+          prompt={mockPrompt}
+          onDelete={vi.fn()}
+          onTagAdd={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('copy button', () => {
+    it('should show copy button in active view', () => {
+      render(<PromptCard prompt={mockPrompt} view="active" onDelete={vi.fn()} />)
+
+      const copyButtons = screen.getAllByRole('button', { name: /copy prompt content/i })
+      expect(copyButtons.length).toBeGreaterThan(0)
+    })
+
+    it('should show copy button in archived view', () => {
+      render(<PromptCard prompt={mockPrompt} view="archived" onDelete={vi.fn()} />)
+
+      const copyButtons = screen.getAllByRole('button', { name: /copy prompt content/i })
+      expect(copyButtons.length).toBeGreaterThan(0)
+    })
+
+    it('should not show copy button in deleted view', () => {
+      render(<PromptCard prompt={mockPrompt} view="deleted" onDelete={vi.fn()} />)
+
+      expect(screen.queryByRole('button', { name: /copy prompt content/i })).not.toBeInTheDocument()
     })
   })
 
@@ -343,30 +482,6 @@ describe('PromptCard', () => {
       await user.click(card!)
 
       expect(onView).toHaveBeenCalledWith(mockPrompt)
-    })
-
-    it('should not call onEdit when card is clicked (edit only via button)', async () => {
-      const onEdit = vi.fn()
-      const onView = vi.fn()
-      const user = userEvent.setup()
-
-      const { container } = render(
-        <PromptCard
-          prompt={mockPrompt}
-          view="active"
-          onDelete={vi.fn()}
-          onEdit={onEdit}
-          onView={onView}
-        />
-      )
-
-      // Click the card
-      const card = container.querySelector('.card')
-      await user.click(card!)
-
-      // onView should be called, not onEdit
-      expect(onView).toHaveBeenCalledWith(mockPrompt)
-      expect(onEdit).not.toHaveBeenCalled()
     })
   })
 })

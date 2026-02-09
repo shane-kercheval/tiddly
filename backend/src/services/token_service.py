@@ -2,6 +2,7 @@
 import hashlib
 import secrets
 from datetime import datetime, timedelta, UTC
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +33,7 @@ def hash_token(token: str) -> str:
 
 async def create_token(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     data: TokenCreate,
 ) -> tuple[ApiToken, str]:
     """
@@ -72,7 +73,7 @@ async def create_token(
 
 async def get_tokens(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
 ) -> list[ApiToken]:
     """
     Get all API tokens for a user.
@@ -94,8 +95,8 @@ async def get_tokens(
 
 async def get_token_by_id(
     db: AsyncSession,
-    user_id: int,
-    token_id: int,
+    user_id: UUID,
+    token_id: UUID,
 ) -> ApiToken | None:
     """
     Get a specific token by ID, scoped to user.
@@ -119,8 +120,8 @@ async def get_token_by_id(
 
 async def delete_token(
     db: AsyncSession,
-    user_id: int,
-    token_id: int,
+    user_id: UUID,
+    token_id: UUID,
 ) -> bool:
     """
     Delete (revoke) an API token.

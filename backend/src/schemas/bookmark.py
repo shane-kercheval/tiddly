@@ -1,26 +1,12 @@
 """Pydantic schemas for bookmark endpoints."""
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
-from core.config import get_settings
-from schemas.validators import (
-    validate_and_normalize_tags,
-    validate_description_length,
-    validate_title_length,
-)
-
-
-def validate_content_length(content: str | None) -> str | None:
-    """Validate that bookmark content doesn't exceed maximum length."""
-    settings = get_settings()
-    if content is not None and len(content) > settings.max_content_length:
-        raise ValueError(
-            f"Content exceeds maximum length of {settings.max_content_length:,} characters "
-            f"(got {len(content):,} characters). Consider summarizing the content.",
-        )
-    return content
+from schemas.content_metadata import ContentMetadata
+from schemas.validators import normalize_preview, validate_and_normalize_tags
 
 
 class BookmarkCreate(BaseModel):
@@ -48,24 +34,6 @@ class BookmarkCreate(BaseModel):
             return []
         return validate_and_normalize_tags(v)
 
-    @field_validator("title")
-    @classmethod
-    def check_title_length(cls, v: str | None) -> str | None:
-        """Validate title length."""
-        return validate_title_length(v)
-
-    @field_validator("description")
-    @classmethod
-    def check_description_length(cls, v: str | None) -> str | None:
-        """Validate description length."""
-        return validate_description_length(v)
-
-    @field_validator("content")
-    @classmethod
-    def check_content_length(cls, v: str | None) -> str | None:
-        """Validate content length."""
-        return validate_content_length(v)
-
 
 class BookmarkUpdate(BaseModel):
     """Schema for updating an existing bookmark."""
@@ -83,6 +51,11 @@ class BookmarkUpdate(BaseModel):
                     "Accepts ISO 8601 format (e.g., '2025-02-01T16:00:00Z'). "
                     "Future dates schedule auto-archive; past dates archive immediately.",
     )
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description="For optimistic locking. If provided and the bookmark was modified after "
+                    "this timestamp, returns 409 Conflict with current server state.",
+    )
 
     @field_validator("tags", mode="before")
     @classmethod
@@ -91,24 +64,6 @@ class BookmarkUpdate(BaseModel):
         if v is None:
             return None
         return validate_and_normalize_tags(v)
-
-    @field_validator("title")
-    @classmethod
-    def check_title_length(cls, v: str | None) -> str | None:
-        """Validate title length."""
-        return validate_title_length(v)
-
-    @field_validator("description")
-    @classmethod
-    def check_description_length(cls, v: str | None) -> str | None:
-        """Validate description length."""
-        return validate_description_length(v)
-
-    @field_validator("content")
-    @classmethod
-    def check_content_length(cls, v: str | None) -> str | None:
-        """Validate content length."""
-        return validate_content_length(v)
 
 
 class BookmarkListItem(BaseModel):
@@ -124,7 +79,7 @@ class BookmarkListItem(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     url: str
     title: str | None
     description: str | None
@@ -135,26 +90,38 @@ class BookmarkListItem(BaseModel):
     last_used_at: datetime
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
+    content_length: int | None = Field(
+        default=None,
+        description="Total character count of content field.",
+    )
+    content_preview: str | None = Field(
+        default=None,
+        description="First 500 characters of content.",
+    )
+
+    @field_validator("content_preview", mode="before")
+    @classmethod
+    def strip_preview_whitespace(cls, v: str | None) -> str | None:
+        """Collapse whitespace in content preview for clean display."""
+        return normalize_preview(v)
 
     @model_validator(mode="before")
     @classmethod
-    def extract_tag_names(cls, data: Any) -> Any:
+    def extract_from_sqlalchemy(cls, data: Any) -> Any:
         """
-        Extract tag names from tag_objects relationship.
+        Extract fields from SQLAlchemy model and tag names from tag_objects.
+
+        Uses model introspection to automatically extract all schema fields,
+        eliminating the need to maintain a hardcoded field list.
 
         Only accesses tag_objects if it's already loaded (not lazy) to avoid
         triggering database queries outside async context.
         """
         # Handle SQLAlchemy model objects
         if hasattr(data, "__dict__"):
-            data_dict = {}
-            for key in [
-                "id", "url", "title", "description", "summary",
-                "created_at", "updated_at", "last_used_at",
-                "deleted_at", "archived_at", "content",
-            ]:
-                if hasattr(data, key):
-                    data_dict[key] = getattr(data, key)
+            # Get all field names from the Pydantic model, excluding 'tags' which we handle
+            field_names = set(cls.model_fields.keys()) - {"tags"}
+            data_dict = {key: getattr(data, key) for key in field_names if hasattr(data, key)}
 
             # Check if tag_objects is already loaded (not lazy)
             # SQLAlchemy sets __dict__ entry when relationship is loaded
@@ -172,9 +139,14 @@ class BookmarkResponse(BookmarkListItem):
     Schema for full bookmark responses (includes content).
 
     Returned by GET /bookmarks/:id and mutation endpoints.
+
+    The content_metadata field is included whenever content is non-null,
+    providing line count information and indicating whether the response
+    contains partial or full content.
     """
 
     content: str | None
+    content_metadata: ContentMetadata | None = None
 
 
 class BookmarkListResponse(BaseModel):

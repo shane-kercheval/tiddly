@@ -74,6 +74,44 @@ describe('useTagFilterStore', () => {
     })
   })
 
+  describe('renameTag', () => {
+    it('renames a tag in selected tags', () => {
+      useTagFilterStore.setState({ selectedTags: ['javascript', 'react'] })
+      const { renameTag } = useTagFilterStore.getState()
+      renameTag('javascript', 'js')
+
+      const { selectedTags } = useTagFilterStore.getState()
+      expect(selectedTags).toEqual(['js', 'react'])
+    })
+
+    it('does nothing when renaming non-existent tag', () => {
+      useTagFilterStore.setState({ selectedTags: ['javascript', 'react'] })
+      const { renameTag } = useTagFilterStore.getState()
+      renameTag('nonexistent', 'something')
+
+      const { selectedTags } = useTagFilterStore.getState()
+      expect(selectedTags).toEqual(['javascript', 'react'])
+    })
+
+    it('preserves tag order when renaming', () => {
+      useTagFilterStore.setState({ selectedTags: ['first', 'middle', 'last'] })
+      const { renameTag } = useTagFilterStore.getState()
+      renameTag('middle', 'center')
+
+      const { selectedTags } = useTagFilterStore.getState()
+      expect(selectedTags).toEqual(['first', 'center', 'last'])
+    })
+
+    it('does nothing when old and new names are the same', () => {
+      useTagFilterStore.setState({ selectedTags: ['javascript', 'react'] })
+      const { renameTag } = useTagFilterStore.getState()
+      renameTag('javascript', 'javascript')
+
+      const { selectedTags } = useTagFilterStore.getState()
+      expect(selectedTags).toEqual(['javascript', 'react'])
+    })
+  })
+
   describe('setTags', () => {
     it('replaces all selected tags', () => {
       useTagFilterStore.setState({ selectedTags: ['old'] })

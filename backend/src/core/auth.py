@@ -15,17 +15,39 @@ from core.auth_cache import get_auth_cache
 from core.config import Settings, get_settings
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from core.rate_limit_config import (
-    AuthType,
     RateLimitExceededError,
     get_operation_type,
 )
 from core.rate_limiter import check_rate_limit
+# Import and re-export for backward compatibility
+from core.request_context import AuthType, RequestContext
+from core.tier_limits import get_tier_safely
 from db.session import get_async_session
 from models.user import User
 from schemas.cached_user import CachedUser
 from services import token_service, user_service
 
 logger = logging.getLogger(__name__)
+
+# Re-export for backward compatibility
+__all__ = [
+    "AuthType",
+    "RequestContext",
+    "get_current_user",
+    "get_current_user_auth0_only",
+    "get_current_user_auth0_only_without_consent",
+    "get_current_user_without_consent",
+    "get_request_context",
+]
+
+
+def get_request_context(request: Request) -> RequestContext | None:
+    """
+    Get the RequestContext from the current request state.
+
+    Returns None if context hasn't been set (e.g., unauthenticated request).
+    """
+    return getattr(request.state, "request_context", None)
 
 
 # HTTP Bearer token scheme
@@ -297,18 +319,25 @@ def _check_consent(user: User | CachedUser, settings: Settings) -> None:
 async def _apply_rate_limit(
     user: User | CachedUser,
     request: Request,
+    settings: Settings,
 ) -> None:
     """
     Apply rate limiting for the current request.
 
-    Checks both per-minute and daily limits based on auth type and operation type.
+    Checks both per-minute and daily limits based on user tier and operation type.
     Stores rate limit info in request.state for middleware to add headers.
     Raises RateLimitExceededError if limit exceeded (handled by exception handler).
-    """
-    auth_type = getattr(request.state, "auth_type", AuthType.AUTH0)
-    operation_type = get_operation_type(request.method, request.url.path)
 
-    result = await check_rate_limit(user.id, auth_type, operation_type)
+    In dev mode, rate limiting is disabled to allow running evals and tests
+    without hitting limits.
+    """
+    if settings.dev_mode:
+        return
+
+    operation_type = get_operation_type(request.method, request.url.path)
+    tier = get_tier_safely(user.tier)
+
+    result = await check_rate_limit(user.id, operation_type, tier)
 
     # Store result in request.state for RateLimitHeadersMiddleware
     request.state.rate_limit_info = {
@@ -321,11 +350,29 @@ async def _apply_rate_limit(
         raise RateLimitExceededError(result)
 
 
+def _get_request_source(request: Request) -> str:
+    """
+    Determine request source from X-Request-Source header.
+
+    The header value is passed through as-is (lowercased). Known values:
+    - Frontend: 'web'
+    - MCP Content server: 'mcp-content'
+    - MCP Prompt server: 'mcp-prompt'
+    - CLI/scripts can optionally send 'api'
+    - Missing header defaults to 'unknown'
+
+    This is spoofable but acceptable - source tracking is for audit/telemetry,
+    not access control.
+    """
+    source = request.headers.get("x-request-source", "").strip().lower()
+    return source or "unknown"
+
+
 async def _authenticate_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None,
     db: AsyncSession,
     settings: Settings,
-    request: Request,
     *,
     allow_pat: bool = True,
 ) -> User | CachedUser:
@@ -338,55 +385,69 @@ async def _authenticate_user(
 
     In DEV_MODE, bypasses auth and returns a test user.
 
-    Sets request.state.auth_type for rate limiting.
+    Also sets request.state.request_context with source/auth tracking info
+    for content versioning audit trail.
 
     Args:
+        request: The FastAPI request object.
         credentials: HTTP Authorization header credentials.
         db: Database session.
         settings: Application settings.
-        request: FastAPI request object (for storing auth_type).
         allow_pat: If False, reject PAT tokens with 403 to help prevent unintended
             programmatic use. Note: does not block Auth0 JWTs used outside the browser.
     """
-    if settings.dev_mode:
-        # Default to AUTH0 in dev mode for rate limiting
-        request.state.auth_type = AuthType.AUTH0
-        return await get_or_create_dev_user(db)
+    token_prefix: str | None = None
 
-    if credentials is None:
+    if settings.dev_mode:
+        auth_type = AuthType.DEV
+        user = await get_or_create_dev_user(db)
+    elif credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    else:
+        token = credentials.credentials
 
-    token = credentials.credentials
+        # Route to appropriate validation based on token prefix
+        if token.startswith("bm_"):
+            if not allow_pat:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="This endpoint is not available for API tokens. Please use the web interface.",  # noqa: E501
+                )
+            auth_type = AuthType.PAT
+            # Compute token_prefix for audit trail (e.g., "bm_a3f8...")
+            # Show first 15 chars which includes prefix + partial identifier
+            token_prefix = token[:15] if len(token) > 15 else token
+            user = await validate_pat(db, token)
+        else:
+            # Auth0 JWT validation
+            auth_type = AuthType.AUTH0
+            payload = decode_jwt(token, settings)
 
-    # Route to appropriate validation based on token prefix
-    if token.startswith("bm_"):
-        if not allow_pat:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="This endpoint is not available for API tokens. Please use the web interface.",  # noqa: E501
-            )
-        request.state.auth_type = AuthType.PAT
-        return await validate_pat(db, token)
+            # Extract user info from JWT claims
+            auth0_id = payload.get("sub")
+            if not auth0_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token: missing sub claim",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
 
-    # Auth0 JWT validation
-    request.state.auth_type = AuthType.AUTH0
-    payload = decode_jwt(token, settings)
+            email = payload.get("email")
+            user = await get_or_create_user(db, auth0_id=auth0_id, email=email)
 
-    # Extract user info from JWT claims
-    auth0_id = payload.get("sub")
-    if not auth0_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token: missing sub claim",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # Set request context for content versioning audit trail
+    source = _get_request_source(request)
+    request.state.request_context = RequestContext(
+        source=source,
+        auth_type=auth_type,
+        token_prefix=token_prefix,
+    )
 
-    email = payload.get("email")
-    return await get_or_create_user(db, auth0_id=auth0_id, email=email)
+    return user
 
 
 async def get_current_user(
@@ -406,8 +467,8 @@ async def get_current_user(
     Note: Rate limiting runs before consent check so all authenticated requests
     count against limits, even from users who haven't consented yet.
     """
-    user = await _authenticate_user(credentials, db, settings, request)
-    await _apply_rate_limit(user, request)
+    user = await _authenticate_user(request, credentials, db, settings)
+    await _apply_rate_limit(user, request, settings)
     _check_consent(user, settings)
     return user
 
@@ -424,8 +485,8 @@ async def get_current_user_without_consent(
     Returns User ORM object on cache miss, CachedUser on cache hit.
     Auth + rate limiting, no consent check (for exempt routes like consent endpoints).
     """
-    user = await _authenticate_user(credentials, db, settings, request)
-    await _apply_rate_limit(user, request)
+    user = await _authenticate_user(request, credentials, db, settings)
+    await _apply_rate_limit(user, request, settings)
     return user
 
 
@@ -455,8 +516,8 @@ async def get_current_user_auth0_only(
     Returns 451 if user hasn't consented to privacy policy/terms.
     Use get_current_user_auth0_only_without_consent for consent-exempt routes.
     """
-    user = await _authenticate_user(credentials, db, settings, request, allow_pat=False)
-    await _apply_rate_limit(user, request)
+    user = await _authenticate_user(request, credentials, db, settings, allow_pat=False)
+    await _apply_rate_limit(user, request, settings)
     _check_consent(user, settings)
     return user
 
@@ -475,6 +536,6 @@ async def get_current_user_auth0_only_without_consent(
 
     See get_current_user_auth0_only for details on what this does and doesn't prevent.
     """
-    user = await _authenticate_user(credentials, db, settings, request, allow_pat=False)
-    await _apply_rate_limit(user, request)
+    user = await _authenticate_user(request, credentials, db, settings, allow_pat=False)
+    await _apply_rate_limit(user, request, settings)
     return user

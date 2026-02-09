@@ -4,6 +4,8 @@ export interface AuthStatus {
   isAuthenticated: boolean
   isLoading: boolean
   error: Error | null
+  /** User ID (Auth0 sub claim). Used to scope user-specific query caches. */
+  userId: string | null
 }
 
 export const AuthStatusContext = createContext<AuthStatus | null>(null)

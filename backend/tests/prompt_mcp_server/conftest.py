@@ -43,7 +43,7 @@ def mock_auth():
 def sample_prompt() -> dict[str, Any]:
     """Sample prompt response data."""
     return {
-        "id": 1,
+        "id": "550e8400-e29b-41d4-a716-446655440001",
         "name": "code-review",
         "title": "Code Review Assistant",
         "description": "Reviews code and provides feedback",
@@ -73,7 +73,7 @@ def sample_prompt() -> dict[str, Any]:
 def sample_prompt_no_args() -> dict[str, Any]:
     """Sample prompt with no arguments."""
     return {
-        "id": 2,
+        "id": "550e8400-e29b-41d4-a716-446655440002",
         "name": "greeting",
         "title": "Friendly Greeting",
         "description": "A simple greeting prompt",
@@ -92,7 +92,7 @@ def sample_prompt_no_args() -> dict[str, Any]:
 def sample_prompt_optional_args() -> dict[str, Any]:
     """Sample prompt with optional arguments."""
     return {
-        "id": 3,
+        "id": "550e8400-e29b-41d4-a716-446655440003",
         "name": "summarize",
         "title": "Text Summarizer",
         "description": "Summarizes text",
@@ -139,4 +139,39 @@ def sample_prompt_list_empty() -> dict[str, Any]:
         "offset": 0,
         "limit": 100,
         "has_more": False,
+    }
+
+
+@pytest.fixture
+def sample_prompt_list_item() -> dict[str, Any]:
+    """Sample prompt list item with content_length and content_preview."""
+    return {
+        "id": "550e8400-e29b-41d4-a716-446655440001",
+        "name": "code-review",
+        "title": "Code Review Assistant",
+        "description": "Reviews code and provides feedback",
+        "arguments": [
+            {"name": "language", "required": True},
+            {"name": "code", "required": True},
+        ],
+        "tags": ["development", "code-review"],
+        "content_length": 500,
+        "content_preview": "Please review the following {{ language }} code...",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+        "last_used_at": "2024-01-01T00:00:00Z",
+        "deleted_at": None,
+        "archived_at": None,
+    }
+
+
+@pytest.fixture
+def sample_tags_response() -> dict[str, Any]:
+    """Sample tags list response."""
+    return {
+        "tags": [
+            {"name": "python", "count": 5},
+            {"name": "web", "count": 3},
+            {"name": "testing", "count": 2},
+        ],
     }

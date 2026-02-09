@@ -5,13 +5,15 @@ This test verifies that when a user is deleted, ALL of their data is properly
 cascade-deleted at both the ORM and database levels.
 """
 from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from models.api_token import ApiToken
 from models.bookmark import Bookmark
-from models.content_list import ContentList
+from models.content_filter import ContentFilter
+from models.content_history import ActionType, ContentHistory, EntityType
 from models.note import Note
-from models.note_version import NoteVersion
 from models.tag import Tag, bookmark_tags, note_tags
 from models.user import User
 from models.user_settings import UserSettings
@@ -27,10 +29,10 @@ async def test__user_delete__cascades_to_all_user_data(
     - Multiple bookmarks (active, archived, deleted)
     - Multiple notes (active, archived, deleted)
     - Multiple tags associated with bookmarks and notes
-    - Note versions (for testing cascade from notes)
+    - Content history records (for testing cascade)
     - API tokens
     - User settings
-    - Content lists
+    - Content filters
 
     Then verifies that deleting the user removes ALL of this data,
     including junction table entries (bookmark_tags, note_tags).
@@ -96,16 +98,21 @@ async def test__user_delete__cascades_to_all_user_data(
     await db_session.flush()
     note_ids = [note_active.id, note_archived.id, note_deleted.id]
 
-    # Create a note version (to test cascade from note deletion)
-    note_version = NoteVersion(
-        note_id=note_active.id,
+    # Create content history records (to test cascade from user deletion)
+    content_history = ContentHistory(
+        user_id=user_id,
+        entity_type=EntityType.NOTE,
+        entity_id=note_active.id,
+        action=ActionType.CREATE,
         version=1,
-        version_type="snapshot",
-        content="Initial snapshot content",
+        content_snapshot="Initial snapshot content",
+        metadata_snapshot={"title": "Active Note"},
+        source="web",
+        auth_type="auth0",
     )
-    db_session.add(note_version)
+    db_session.add(content_history)
     await db_session.flush()
-    note_version_id = note_version.id
+    content_history_id = content_history.id
 
     # Create API tokens
     token1 = ApiToken(
@@ -132,22 +139,22 @@ async def test__user_delete__cascades_to_all_user_data(
     db_session.add(settings)
     await db_session.flush()
 
-    # Create content lists
-    list1 = ContentList(
+    # Create content filters (groups are stored separately, not as filter_expression)
+    list1 = ContentFilter(
         user_id=user_id,
         name="Work",
         content_types=["bookmark", "note"],
-        filter_expression={"groups": [{"tags": ["python"]}], "group_operator": "OR"},
+        group_operator="OR",
     )
-    list2 = ContentList(
+    list2 = ContentFilter(
         user_id=user_id,
         name="Personal",
         content_types=["bookmark"],
-        filter_expression={"groups": [{"tags": ["web"]}], "group_operator": "OR"},
+        group_operator="OR",
     )
     db_session.add_all([list1, list2])
     await db_session.flush()
-    list_ids = [list1.id, list2.id]
+    filter_ids = [list1.id, list2.id]
 
     # ==========================================================================
     # Verify: All data exists before deletion
@@ -183,9 +190,9 @@ async def test__user_delete__cascades_to_all_user_data(
     )
     assert len(result.fetchall()) == 4  # 2 + 1 + 1 = 4 associations
 
-    # Verify note versions exist
+    # Verify content history records exist
     result = await db_session.execute(
-        select(NoteVersion).where(NoteVersion.id == note_version_id),
+        select(ContentHistory).where(ContentHistory.id == content_history_id),
     )
     assert result.scalar_one_or_none() is not None
 
@@ -201,9 +208,9 @@ async def test__user_delete__cascades_to_all_user_data(
     )
     assert result.scalar_one_or_none() is not None
 
-    # Verify content lists exist
+    # Verify content filters exist
     result = await db_session.execute(
-        select(ContentList).where(ContentList.id.in_(list_ids)),
+        select(ContentFilter).where(ContentFilter.id.in_(filter_ids)),
     )
     assert len(result.scalars().all()) == 2
 
@@ -254,9 +261,9 @@ async def test__user_delete__cascades_to_all_user_data(
     )
     assert len(result.fetchall()) == 0
 
-    # Note versions should be gone
+    # Content history records should be gone
     result = await db_session.execute(
-        select(NoteVersion).where(NoteVersion.id == note_version_id),
+        select(ContentHistory).where(ContentHistory.id == content_history_id),
     )
     assert result.scalar_one_or_none() is None
 
@@ -272,9 +279,9 @@ async def test__user_delete__cascades_to_all_user_data(
     )
     assert result.scalar_one_or_none() is None
 
-    # Content lists should be gone
+    # Content filters should be gone
     result = await db_session.execute(
-        select(ContentList).where(ContentList.id.in_(list_ids)),
+        select(ContentFilter).where(ContentFilter.id.in_(filter_ids)),
     )
     assert len(result.scalars().all()) == 0
 

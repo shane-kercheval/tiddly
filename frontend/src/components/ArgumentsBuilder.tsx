@@ -76,9 +76,9 @@ export function ArgumentsBuilder({
           No arguments defined. Arguments are passed by either the human or AI when using the prompt and can be referenced in the template using jinja syntax.
         </p>
       ) : (
-        <div className="divide-y divide-gray-200">
+        <div className="space-y-3">
           {args.map((arg, index) => (
-            <div key={index} className="py-3 first:pt-0 last:pb-0">
+            <div key={index}>
               <div className="flex items-start gap-3">
                 {/* Reorder buttons */}
                 <div className="flex flex-col gap-0.5 pt-1">
@@ -117,7 +117,7 @@ export function ArgumentsBuilder({
                     type="text"
                     value={arg.description || ''}
                     onChange={(e) => updateArgument(index, 'description', e.target.value || null)}
-                    placeholder="Description (optional)"
+                    placeholder="Description (optional). This description helps users/agents understand how to use the argument."
                     disabled={disabled}
                     className="input py-1.5 text-sm min-w-[220px] flex-[4]"
                     aria-label={`Argument ${index + 1} description`}
@@ -148,9 +148,6 @@ export function ArgumentsBuilder({
           ))}
         </div>
       )}
-      <p className="helper-text mt-2">
-        Use lowercase with underscores for argument names (e.g., code_to_review, file_path)
-      </p>
     </div>
   )
 }

@@ -1,0 +1,50 @@
+# Frontend CI Workflow
+#
+# Runs frontend tests on push to main and PRs when frontend files change.
+# Railway deploys automatically after CI passes (when "Wait for CI" is enabled).
+
+name: frontend-tests
+
+on:
+  push:
+    branches:
+      - "main"
+      - "staging"
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-tests.yaml'
+  pull_request:
+    branches:
+      - "main"
+      - "staging"
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-tests.yaml'
+  workflow_dispatch:  # Allow manual trigger from GitHub Actions UI
+
+jobs:
+  frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: make frontend-install
+
+      - name: Run linting
+        run: make frontend-lint
+
+      - name: Run type checking
+        run: make frontend-typecheck
+
+      - name: Run tests
+        run: make frontend-tests

@@ -7,6 +7,7 @@ into a unified list with proper pagination and sorting.
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.tier_limits import Tier, get_tier_limits
 from models.user import User
 from schemas.bookmark import BookmarkCreate
 from schemas.note import NoteCreate
@@ -20,6 +21,7 @@ from services.prompt_service import PromptService
 bookmark_service = BookmarkService()
 note_service = NoteService()
 prompt_service = PromptService()
+DEFAULT_LIMITS = get_tier_limits(Tier.FREE)
 
 
 @pytest.fixture
@@ -57,11 +59,11 @@ async def test__search_all_content__returns_both_bookmarks_and_notes(
         url='https://example.com',
         title='Example Bookmark',
     )
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     # Create a note
     note_data = NoteCreate(title='Example Note')
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -93,10 +95,10 @@ async def test__search_all_content__has_correct_type_discriminator(
     """Test that items have correct type field."""
     # Create bookmark and note
     bookmark_data = BookmarkCreate(url='https://test.com', title='Bookmark')
-    bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Note')
-    note = await note_service.create(db_session, test_user.id, note_data)
+    note = await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -109,12 +111,10 @@ async def test__search_all_content__has_correct_type_discriminator(
     assert bookmark_item.type == 'bookmark'
     assert bookmark_item.id == bookmark.id
     assert bookmark_item.url == 'https://test.com/'
-    assert bookmark_item.version is None
 
     assert note_item.type == 'note'
     assert note_item.id == note.id
     assert note_item.url is None
-    assert note_item.version == 1
 
 
 # =============================================================================
@@ -129,10 +129,10 @@ async def test__search_all_content__view_active_excludes_deleted(
     """Test that view='active' excludes deleted content."""
     # Create content
     bookmark_data = BookmarkCreate(url='https://active.com', title='Active Bookmark')
-    active_bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    active_bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Deleted Note')
-    deleted_note = await note_service.create(db_session, test_user.id, note_data)
+    deleted_note = await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     # Delete the note
@@ -154,10 +154,10 @@ async def test__search_all_content__view_active_excludes_archived(
     """Test that view='active' excludes archived content."""
     # Create content
     bookmark_data = BookmarkCreate(url='https://archived.com', title='Archived Bookmark')
-    archived_bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    archived_bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Active Note')
-    active_note = await note_service.create(db_session, test_user.id, note_data)
+    active_note = await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     # Archive the bookmark
@@ -179,13 +179,13 @@ async def test__search_all_content__view_archived_returns_only_archived(
     """Test that view='archived' returns only archived content."""
     # Create content
     bookmark_data = BookmarkCreate(url='https://archived.com', title='Archived Bookmark')
-    archived_bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    archived_bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Archived Note')
-    archived_note = await note_service.create(db_session, test_user.id, note_data)
+    archived_note = await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     note_data2 = NoteCreate(title='Active Note')
-    await note_service.create(db_session, test_user.id, note_data2)
+    await note_service.create(db_session, test_user.id, note_data2, DEFAULT_LIMITS)
     await db_session.flush()
 
     # Archive bookmark and note
@@ -208,13 +208,13 @@ async def test__search_all_content__view_deleted_returns_all_deleted(
     """Test that view='deleted' returns all deleted content."""
     # Create content
     bookmark_data = BookmarkCreate(url='https://deleted.com', title='Deleted Bookmark')
-    deleted_bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    deleted_bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Deleted Note')
-    deleted_note = await note_service.create(db_session, test_user.id, note_data)
+    deleted_note = await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     note_data2 = NoteCreate(title='Active Note')
-    await note_service.create(db_session, test_user.id, note_data2)
+    await note_service.create(db_session, test_user.id, note_data2, DEFAULT_LIMITS)
     await db_session.flush()
 
     # Delete bookmark and note
@@ -242,10 +242,10 @@ async def test__search_all_content__text_search_finds_in_title(
     """Test that text search finds matches in title."""
     # Create content with different titles
     bookmark_data = BookmarkCreate(url='https://python.com', title='Python Guide')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='JavaScript Tutorial')
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -268,10 +268,10 @@ async def test__search_all_content__text_search_finds_in_description(
         title='Test',
         description='Learn Python basics',
     )
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Note', description='JavaScript advanced')
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -288,7 +288,7 @@ async def test__search_all_content__text_search_is_case_insensitive(
 ) -> None:
     """Test that text search is case insensitive."""
     bookmark_data = BookmarkCreate(url='https://test.com', title='PYTHON GUIDE')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -313,11 +313,11 @@ async def test__search_all_content__tag_filter_all_mode(
         title='Both Tags',
         tags=['python', 'web'],
     )
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     # Create note with only one tag
     note_data = NoteCreate(title='Python Only', tags=['python'])
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -337,13 +337,13 @@ async def test__search_all_content__tag_filter_any_mode(
     """Test tag filtering with tag_match='any' (must have ANY tag)."""
     # Create content with different tags
     bookmark_data = BookmarkCreate(url='https://python.com', title='Python', tags=['python'])
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Web', tags=['web'])
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     note_data2 = NoteCreate(title='Java', tags=['java'])
-    await note_service.create(db_session, test_user.id, note_data2)
+    await note_service.create(db_session, test_user.id, note_data2, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -367,10 +367,10 @@ async def test__search_all_content__includes_tags_in_response(
         title='Tagged Bookmark',
         tags=['tag-a', 'tag-b'],
     )
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Tagged Note', tags=['tag-c', 'tag-d'])
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -397,19 +397,19 @@ async def test__search_all_content__sort_by_created_at_desc(
 
     # Create content with delays
     bookmark_data = BookmarkCreate(url='https://first.com', title='First')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     note_data = NoteCreate(title='Second')
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     bookmark_data2 = BookmarkCreate(url='https://third.com', title='Third')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data2)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data2, DEFAULT_LIMITS)
     await db_session.flush()
 
     items, _ = await search_all_content(
@@ -427,13 +427,13 @@ async def test__search_all_content__sort_by_title_asc(
 ) -> None:
     """Test sorting by title ascending (alphabetical)."""
     bookmark_data = BookmarkCreate(url='https://z.com', title='Zebra')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Apple')
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     bookmark_data2 = BookmarkCreate(url='https://m.com', title='Mango')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data2)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data2, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -444,6 +444,47 @@ async def test__search_all_content__sort_by_title_asc(
     assert items[0].title == 'Apple'
     assert items[1].title == 'Mango'
     assert items[2].title == 'Zebra'
+
+
+async def test__search_all_content__sort_by_title_uses_name_fallback_for_prompts(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that prompts without titles sort by name and interleave correctly with titled items."""
+    # Prompt WITHOUT title - should sort by name "code-review"
+    prompt1 = await prompt_service.create(
+        db_session, test_user.id,
+        PromptCreate(name="code-review", content="Test content"), DEFAULT_LIMITS,
+    )
+    # Prompt WITH title starting with uppercase 'D'
+    prompt2 = await prompt_service.create(
+        db_session, test_user.id,
+        PromptCreate(name="decision-prompt", title="Decision Clarity", content="Test content"), DEFAULT_LIMITS,
+    )
+    # Prompt WITH title starting with lowercase 'c'
+    prompt3 = await prompt_service.create(
+        db_session, test_user.id,
+        PromptCreate(name="coding-prompt", title="coding Guidelines", content="Test content"), DEFAULT_LIMITS,
+    )
+    # Bookmark with title starting with 'B'
+    bookmark = await bookmark_service.create(
+        db_session, test_user.id,
+        BookmarkCreate(url="https://example.com", title="Beta Site"), DEFAULT_LIMITS,
+    )
+    await db_session.flush()
+
+    items, _ = await search_all_content(
+        db_session, test_user.id,
+        sort_by='title', sort_order='asc',
+        content_types=['prompt', 'bookmark'],
+    )
+
+    # Case-insensitive order: "Beta Site" < "code-review" < "coding Guidelines" < "Decision Clarity"
+    assert len(items) == 4
+    assert items[0].id == bookmark.id  # Beta Site
+    assert items[1].id == prompt1.id   # code-review (name, no title)
+    assert items[2].id == prompt3.id   # coding Guidelines (title)
+    assert items[3].id == prompt2.id   # Decision Clarity (title)
 
 
 # =============================================================================
@@ -459,10 +500,10 @@ async def test__search_all_content__pagination_offset_and_limit(
     # Create 5 items (mix of bookmarks and notes)
     for i in range(3):
         bookmark_data = BookmarkCreate(url=f'https://test{i}.com', title=f'Bookmark {i}')
-        await bookmark_service.create(db_session, test_user.id, bookmark_data)
+        await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
     for i in range(2):
         note_data = NoteCreate(title=f'Note {i}')
-        await note_service.create(db_session, test_user.id, note_data)
+        await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     # Get first page
@@ -490,10 +531,10 @@ async def test__search_all_content__returns_total_before_pagination(
     # Create 10 items
     for i in range(5):
         bookmark_data = BookmarkCreate(url=f'https://test{i}.com', title=f'Bookmark {i}')
-        await bookmark_service.create(db_session, test_user.id, bookmark_data)
+        await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
     for i in range(5):
         note_data = NoteCreate(title=f'Note {i}')
-        await note_service.create(db_session, test_user.id, note_data)
+        await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     # Get only 3 items
@@ -519,17 +560,17 @@ async def test__search_all_content__excludes_other_users_content(
     """Test that search only returns the current user's content."""
     # Create content for test_user
     bookmark_data = BookmarkCreate(url='https://mysite.com', title='My Bookmark')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='My Note')
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     # Create content for other_user
     other_bookmark_data = BookmarkCreate(url='https://other.com', title='Other Bookmark')
-    await bookmark_service.create(db_session, other_user.id, other_bookmark_data)
+    await bookmark_service.create(db_session, other_user.id, other_bookmark_data, DEFAULT_LIMITS)
 
     other_note_data = NoteCreate(title='Other Note')
-    await note_service.create(db_session, other_user.id, other_note_data)
+    await note_service.create(db_session, other_user.id, other_note_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -552,7 +593,7 @@ async def test__search_all_content__handles_empty_tags_gracefully(
 ) -> None:
     """Test that empty tags list doesn't filter anything."""
     bookmark_data = BookmarkCreate(url='https://test.com', title='Test')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     items, total = await search_all_content(
@@ -568,7 +609,7 @@ async def test__search_all_content__handles_special_characters_in_query(
 ) -> None:
     """Test that special characters in query are escaped properly."""
     bookmark_data = BookmarkCreate(url='https://test.com', title='100% Complete')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     # Search with % which is a SQL wildcard
@@ -591,14 +632,14 @@ async def test__search_all_content__content_item_fields_are_populated(
         description='A description',
         tags=['test'],
     )
-    bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(
         title='Full Note',
         description='Note description',
         tags=['note-tag'],
     )
-    note = await note_service.create(db_session, test_user.id, note_data)
+    note = await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -612,7 +653,6 @@ async def test__search_all_content__content_item_fields_are_populated(
     assert bookmark_item.title == 'Full Bookmark'
     assert bookmark_item.description == 'A description'
     assert bookmark_item.url == 'https://test.com/'
-    assert bookmark_item.version is None
     assert bookmark_item.created_at is not None
     assert bookmark_item.updated_at is not None
     assert bookmark_item.last_used_at is not None
@@ -625,7 +665,6 @@ async def test__search_all_content__content_item_fields_are_populated(
     assert note_item.title == 'Full Note'
     assert note_item.description == 'Note description'
     assert note_item.url is None
-    assert note_item.version == 1
     assert note_item.created_at is not None
     assert 'note-tag' in note_item.tags
 
@@ -642,13 +681,13 @@ async def test__search_all_content__returns_prompts(
     """Test that search returns prompts along with bookmarks and notes."""
     # Create one of each type
     bookmark_data = BookmarkCreate(url='https://example.com', title='Bookmark')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Note')
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     prompt_data = PromptCreate(name='test-prompt', title='Prompt Title', content='Prompt content')
-    await prompt_service.create(db_session, test_user.id, prompt_data)
+    await prompt_service.create(db_session, test_user.id, prompt_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -675,7 +714,7 @@ async def test__search_all_content__prompt_has_correct_fields(
         ],
         tags=['code', 'review'],
     )
-    prompt = await prompt_service.create(db_session, test_user.id, prompt_data)
+    prompt = await prompt_service.create(db_session, test_user.id, prompt_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     items, _ = await search_all_content(db_session, test_user.id)
@@ -691,9 +730,8 @@ async def test__search_all_content__prompt_has_correct_fields(
     assert prompt_item.arguments[0]['name'] == 'code'
     assert prompt_item.arguments[0]['required'] is True
     assert set(prompt_item.tags) == {'code', 'review'}
-    # Prompt-specific: no url or version
+    # Prompt-specific: no url
     assert prompt_item.url is None
-    assert prompt_item.version is None
 
 
 async def test__search_all_content__content_types_filter_prompts_only(
@@ -702,13 +740,13 @@ async def test__search_all_content__content_types_filter_prompts_only(
 ) -> None:
     """Test filtering to only return prompts."""
     bookmark_data = BookmarkCreate(url='https://test.com', title='Bookmark')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Note')
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     prompt_data = PromptCreate(name='my-prompt', title='My Prompt', content='My prompt content')
-    await prompt_service.create(db_session, test_user.id, prompt_data)
+    await prompt_service.create(db_session, test_user.id, prompt_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -728,13 +766,13 @@ async def test__search_all_content__content_types_filter_excludes_prompts(
 ) -> None:
     """Test filtering to exclude prompts."""
     bookmark_data = BookmarkCreate(url='https://test.com', title='Bookmark')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Note')
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     prompt_data = PromptCreate(name='my-prompt', content='Prompt content')
-    await prompt_service.create(db_session, test_user.id, prompt_data)
+    await prompt_service.create(db_session, test_user.id, prompt_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -754,13 +792,13 @@ async def test__search_all_content__content_types_multiple_combinations(
 ) -> None:
     """Test various content_types filter combinations."""
     bookmark_data = BookmarkCreate(url='https://test.com', title='Bookmark')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
 
     note_data = NoteCreate(title='Note')
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
 
     prompt_data = PromptCreate(name='prompt', content='Prompt content')
-    await prompt_service.create(db_session, test_user.id, prompt_data)
+    await prompt_service.create(db_session, test_user.id, prompt_data, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -792,13 +830,13 @@ async def test__search_all_content__prompt_view_active(
     """Test that view='active' works correctly for prompts."""
     # Create active, archived, and deleted prompts
     active_prompt = PromptCreate(name='active-prompt', content='Active content')
-    await prompt_service.create(db_session, test_user.id, active_prompt)
+    await prompt_service.create(db_session, test_user.id, active_prompt, DEFAULT_LIMITS)
 
     archived_prompt = PromptCreate(name='archived-prompt', content='Archived content')
-    archived = await prompt_service.create(db_session, test_user.id, archived_prompt)
+    archived = await prompt_service.create(db_session, test_user.id, archived_prompt, DEFAULT_LIMITS)
 
     deleted_prompt = PromptCreate(name='deleted-prompt', content='Deleted content')
-    deleted = await prompt_service.create(db_session, test_user.id, deleted_prompt)
+    deleted = await prompt_service.create(db_session, test_user.id, deleted_prompt, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -822,10 +860,10 @@ async def test__search_all_content__prompt_view_archived(
 ) -> None:
     """Test that view='archived' returns archived prompts."""
     active_prompt = PromptCreate(name='active-prompt', content='Active content')
-    await prompt_service.create(db_session, test_user.id, active_prompt)
+    await prompt_service.create(db_session, test_user.id, active_prompt, DEFAULT_LIMITS)
 
     archived_prompt = PromptCreate(name='archived-prompt', content='Archived content')
-    archived = await prompt_service.create(db_session, test_user.id, archived_prompt)
+    archived = await prompt_service.create(db_session, test_user.id, archived_prompt, DEFAULT_LIMITS)
 
     await db_session.flush()
     await prompt_service.archive(db_session, test_user.id, archived.id)
@@ -845,10 +883,10 @@ async def test__search_all_content__prompt_view_deleted(
 ) -> None:
     """Test that view='deleted' returns deleted prompts."""
     active_prompt = PromptCreate(name='active-prompt', content='Active content')
-    await prompt_service.create(db_session, test_user.id, active_prompt)
+    await prompt_service.create(db_session, test_user.id, active_prompt, DEFAULT_LIMITS)
 
     deleted_prompt = PromptCreate(name='deleted-prompt', content='Deleted content')
-    deleted = await prompt_service.create(db_session, test_user.id, deleted_prompt)
+    deleted = await prompt_service.create(db_session, test_user.id, deleted_prompt, DEFAULT_LIMITS)
 
     await db_session.flush()
     await prompt_service.delete(db_session, test_user.id, deleted.id)
@@ -868,10 +906,10 @@ async def test__search_all_content__prompt_text_search_in_name(
 ) -> None:
     """Test that text search finds prompts by name."""
     prompt1 = PromptCreate(name='code-review-prompt', content='Content 1')
-    await prompt_service.create(db_session, test_user.id, prompt1)
+    await prompt_service.create(db_session, test_user.id, prompt1, DEFAULT_LIMITS)
 
     prompt2 = PromptCreate(name='bug-report-prompt', content='Content 2')
-    await prompt_service.create(db_session, test_user.id, prompt2)
+    await prompt_service.create(db_session, test_user.id, prompt2, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -892,13 +930,13 @@ async def test__search_all_content__prompt_text_search_in_content(
         name='prompt1',
         content='Please review the following Python code',
     )
-    await prompt_service.create(db_session, test_user.id, prompt1)
+    await prompt_service.create(db_session, test_user.id, prompt1, DEFAULT_LIMITS)
 
     prompt2 = PromptCreate(
         name='prompt2',
         content='Write a JavaScript function',
     )
-    await prompt_service.create(db_session, test_user.id, prompt2)
+    await prompt_service.create(db_session, test_user.id, prompt2, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -916,10 +954,10 @@ async def test__search_all_content__prompt_tag_filter(
 ) -> None:
     """Test that tag filtering works for prompts."""
     prompt1 = PromptCreate(name='prompt1', content='Content 1', tags=['code', 'review'])
-    await prompt_service.create(db_session, test_user.id, prompt1)
+    await prompt_service.create(db_session, test_user.id, prompt1, DEFAULT_LIMITS)
 
     prompt2 = PromptCreate(name='prompt2', content='Content 2', tags=['writing'])
-    await prompt_service.create(db_session, test_user.id, prompt2)
+    await prompt_service.create(db_session, test_user.id, prompt2, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -939,10 +977,10 @@ async def test__search_all_content__prompt_excludes_other_users(
 ) -> None:
     """Test that prompts from other users are excluded."""
     my_prompt = PromptCreate(name='my-prompt', content='My content')
-    await prompt_service.create(db_session, test_user.id, my_prompt)
+    await prompt_service.create(db_session, test_user.id, my_prompt, DEFAULT_LIMITS)
 
     other_prompt = PromptCreate(name='other-prompt', content='Other content')
-    await prompt_service.create(db_session, other_user.id, other_prompt)
+    await prompt_service.create(db_session, other_user.id, other_prompt, DEFAULT_LIMITS)
 
     await db_session.flush()
 
@@ -960,7 +998,7 @@ async def test__search_all_content__prompt_with_empty_arguments(
 ) -> None:
     """Test that prompts with no arguments work correctly."""
     prompt_data = PromptCreate(name='no-args-prompt', content='Simple content without variables')
-    await prompt_service.create(db_session, test_user.id, prompt_data)
+    await prompt_service.create(db_session, test_user.id, prompt_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     items, _ = await search_all_content(db_session, test_user.id)
@@ -978,19 +1016,19 @@ async def test__search_all_content__mixed_content_sorting(
 
     # Create with delays to ensure different created_at times
     bookmark_data = BookmarkCreate(url='https://first.com', title='First')
-    await bookmark_service.create(db_session, test_user.id, bookmark_data)
+    await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     note_data = NoteCreate(title='Second')
-    await note_service.create(db_session, test_user.id, note_data)
+    await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     await asyncio.sleep(0.01)
 
     prompt_data = PromptCreate(name='third', content='Third content')
-    await prompt_service.create(db_session, test_user.id, prompt_data)
+    await prompt_service.create(db_session, test_user.id, prompt_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     # Sort by created_at desc (newest first)
@@ -1012,7 +1050,7 @@ async def test__search_all_content__prompt_pagination(
     # Create 5 prompts
     for i in range(5):
         prompt_data = PromptCreate(name=f'prompt-{i}', content=f'Content {i}')
-        await prompt_service.create(db_session, test_user.id, prompt_data)
+        await prompt_service.create(db_session, test_user.id, prompt_data, DEFAULT_LIMITS)
     await db_session.flush()
 
     # Get first page

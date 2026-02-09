@@ -1,0 +1,109 @@
+"""Pydantic schemas for content filter endpoints."""
+from datetime import datetime
+from typing import Any, Literal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from schemas.validators import validate_and_normalize_tags
+
+# Valid content types for filters
+ContentType = Literal["bookmark", "note", "prompt"]
+
+# Sort options for filter defaults
+# Note: archived_at/deleted_at are valid for bookmarks API but NOT for filter defaults
+FilterSortByOption = Literal["created_at", "updated_at", "last_used_at", "title"]
+
+
+class FilterGroup(BaseModel):
+    """A group of tags combined with AND logic."""
+
+    tags: list[str] = Field(default_factory=list)
+    operator: Literal["AND"] = "AND"
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def normalize_tags(cls, v: list[str]) -> list[str]:
+        """Normalize and validate tags."""
+        if v is None:
+            return []
+        return validate_and_normalize_tags(v)
+
+
+class FilterExpression(BaseModel):
+    """
+    Filter expression with AND groups combined by OR.
+
+    Example: {"groups": [{"tags": ["a", "b"]}, {"tags": ["c"]}], "group_operator": "OR"}
+    Evaluates to: (a AND b) OR (c)
+    """
+
+    groups: list[FilterGroup] = Field(default_factory=list)
+    group_operator: Literal["OR"] = "OR"
+
+
+class ContentFilterCreate(BaseModel):
+    """Schema for creating a new content filter."""
+
+    name: str = Field(min_length=1, max_length=100)
+    content_types: list[ContentType] = Field(
+        default=["bookmark", "note"],
+        min_length=1,
+        description="Content types this filter applies to",
+    )
+    filter_expression: FilterExpression
+    default_sort_by: FilterSortByOption | None = None
+    default_sort_ascending: bool | None = None  # None/False = desc, True = asc
+
+
+class ContentFilterUpdate(BaseModel):
+    """Schema for updating an existing content filter."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    content_types: list[ContentType] | None = Field(
+        default=None,
+        min_length=1,
+        description="Content types this filter applies to",
+    )
+    filter_expression: FilterExpression | None = None
+    default_sort_by: FilterSortByOption | None = None
+    default_sort_ascending: bool | None = None
+
+
+class ContentFilterResponse(BaseModel):
+    """
+    Schema for content filter responses.
+
+    Reconstructs filter_expression from normalized groups relationship.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    content_types: list[ContentType]
+    filter_expression: FilterExpression
+    default_sort_by: str | None
+    default_sort_ascending: bool | None
+    created_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_from_sqlalchemy(cls, data: Any) -> Any:
+        """
+        Reconstruct filter_expression from normalized groups.
+
+        Follows the established pattern from BookmarkResponse/NoteResponse.
+        Uses the model's filter_expression property which handles the __dict__
+        check internally to avoid lazy loading issues.
+        """
+        # Handle SQLAlchemy model objects
+        if hasattr(data, "__dict__"):
+            # Get all field names from the Pydantic model, excluding filter_expression
+            field_names = set(cls.model_fields.keys()) - {"filter_expression"}
+            data_dict = {key: getattr(data, key) for key in field_names if hasattr(data, key)}
+            # Use the model's property (handles eager loading check internally)
+            data_dict["filter_expression"] = data.filter_expression
+            return data_dict
+        return data

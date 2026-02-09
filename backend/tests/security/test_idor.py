@@ -28,6 +28,21 @@ class TestBookmarkIDOR:
         assert response.status_code == 404
         assert response.json()["detail"] == "Bookmark not found"
 
+    async def test__search_in_bookmark__returns_404_for_other_users_bookmark(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_bookmark: Bookmark,
+    ) -> None:
+        """User B cannot search within User A's bookmark content."""
+        response = await client_as_user_b.get(
+            f"/bookmarks/{user_a_bookmark.id}/search",
+            params={"q": "test"},
+        )
+
+        # Should return 404, not 403 (to prevent ID enumeration)
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Bookmark not found"
+
     async def test__update_bookmark__returns_404_for_other_users_bookmark(
         self,
         client_as_user_b: AsyncClient,
@@ -80,9 +95,9 @@ class TestBookmarkIDOR:
         bookmark_ids_b = [b["id"] for b in bookmarks_b]
 
         # User B sees their own bookmark
-        assert user_b_bookmark.id in bookmark_ids_b
+        assert str(user_b_bookmark.id) in bookmark_ids_b
         # User B does NOT see User A's bookmark
-        assert user_a_bookmark.id not in bookmark_ids_b
+        assert str(user_a_bookmark.id) not in bookmark_ids_b
 
 
 class TestTokenIDOR:
@@ -164,6 +179,21 @@ class TestNoteIDOR:
         assert response.status_code == 404
         assert response.json()["detail"] == "Note not found"
 
+    async def test__search_in_note__returns_404_for_other_users_note(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_note: Note,
+    ) -> None:
+        """User B cannot search within User A's note content."""
+        response = await client_as_user_b.get(
+            f"/notes/{user_a_note.id}/search",
+            params={"q": "test"},
+        )
+
+        # Should return 404, not 403 (to prevent ID enumeration)
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Note not found"
+
     async def test__update_note__returns_404_for_other_users_note(
         self,
         client_as_user_b: AsyncClient,
@@ -216,9 +246,9 @@ class TestNoteIDOR:
         note_ids_b = [n["id"] for n in notes_b]
 
         # User B sees their own note
-        assert user_b_note.id in note_ids_b
+        assert str(user_b_note.id) in note_ids_b
         # User B does NOT see User A's note
-        assert user_a_note.id not in note_ids_b
+        assert str(user_a_note.id) not in note_ids_b
 
 
 class TestPromptIDOR:
@@ -231,6 +261,21 @@ class TestPromptIDOR:
     ) -> None:
         """User B cannot access User A's prompt via direct ID access."""
         response = await client_as_user_b.get(f"/prompts/{user_a_prompt.id}")
+
+        # Should return 404, not 403 (to prevent ID enumeration)
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Prompt not found"
+
+    async def test__search_in_prompt__returns_404_for_other_users_prompt(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_prompt: Prompt,
+    ) -> None:
+        """User B cannot search within User A's prompt content."""
+        response = await client_as_user_b.get(
+            f"/prompts/{user_a_prompt.id}/search",
+            params={"q": "test"},
+        )
 
         # Should return 404, not 403 (to prevent ID enumeration)
         assert response.status_code == 404
@@ -300,6 +345,6 @@ class TestPromptIDOR:
         prompt_ids_b = [p["id"] for p in prompts_b]
 
         # User B sees their own prompt
-        assert user_b_prompt.id in prompt_ids_b
+        assert str(user_b_prompt.id) in prompt_ids_b
         # User B does NOT see User A's prompt
-        assert user_a_prompt.id not in prompt_ids_b
+        assert str(user_a_prompt.id) not in prompt_ids_b

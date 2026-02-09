@@ -9,7 +9,7 @@
  * unnecessarily large. Use GET /bookmarks/:id to fetch full bookmark with content.
  */
 export interface BookmarkListItem {
-  id: number
+  id: string
   url: string
   title: string | null
   description: string | null
@@ -20,6 +20,7 @@ export interface BookmarkListItem {
   last_used_at: string
   deleted_at: string | null
   archived_at: string | null
+  content_preview: string | null  // First 500 chars of content (whitespace normalized)
 }
 
 /**
@@ -49,6 +50,7 @@ export interface BookmarkUpdate {
   content?: string | null
   tags?: string[]
   archived_at?: string | null  // ISO 8601 datetime string, or null to cancel schedule
+  expected_updated_at?: string  // ISO 8601 timestamp for optimistic locking. If provided and entity was modified after this time, returns 409 Conflict.
 }
 
 /** Paginated list response from GET /bookmarks/ */
@@ -81,7 +83,7 @@ export interface MetadataPreviewResponse {
  * unnecessarily large. Use GET /notes/:id to fetch full note with content.
  */
 export interface NoteListItem {
-  id: number
+  id: string
   title: string
   description: string | null
   tags: string[]
@@ -91,6 +93,7 @@ export interface NoteListItem {
   deleted_at: string | null
   archived_at: string | null
   version: number
+  content_preview: string | null  // First 500 chars of content (whitespace normalized)
 }
 
 /**
@@ -118,6 +121,7 @@ export interface NoteUpdate {
   content?: string | null
   tags?: string[]
   archived_at?: string | null  // ISO 8601 datetime string, or null to cancel schedule
+  expected_updated_at?: string  // ISO 8601 timestamp for optimistic locking. If provided and entity was modified after this time, returns 409 Conflict.
 }
 
 /** Paginated list response from GET /notes/ */
@@ -139,13 +143,14 @@ export interface NoteSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
-  list_id?: number
+  filter_id?: string
 }
 
-/** Tag with usage count */
+/** Tag with usage counts */
 export interface TagCount {
   name: string
-  count: number
+  content_count: number  // Count of bookmarks + notes + prompts using this tag
+  filter_count: number   // Count of filters using this tag
 }
 
 /** Tags list response from GET /tags/ */
@@ -155,7 +160,7 @@ export interface TagListResponse {
 
 /** Full tag object returned by rename endpoint */
 export interface Tag {
-  id: number
+  id: string
   name: string
   created_at: string
 }
@@ -175,7 +180,7 @@ export interface BookmarkSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
-  list_id?: number
+  filter_id?: string
 }
 
 // =============================================================================
@@ -191,7 +196,7 @@ export interface BookmarkSearchParams {
  */
 export interface ContentListItem {
   type: 'bookmark' | 'note' | 'prompt'
-  id: number
+  id: string
   title: string | null
   description: string | null
   tags: string[]
@@ -200,6 +205,7 @@ export interface ContentListItem {
   last_used_at: string
   deleted_at: string | null
   archived_at: string | null
+  content_preview: string | null  // First 500 chars of content (whitespace normalized)
   // Bookmark-specific (null for notes/prompts)
   url: string | null
   // Note-specific (null for bookmarks/prompts)
@@ -228,15 +234,15 @@ export interface ContentSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
-  list_id?: number
+  filter_id?: string
   content_types?: ContentType[]
 }
 
 // =============================================================================
-// ContentList Types
+// ContentFilter Types
 // =============================================================================
 
-/** Valid content types for lists */
+/** Valid content types for filters */
 export type ContentType = 'bookmark' | 'note' | 'prompt'
 
 /** A group of tags combined with AND logic */
@@ -251,9 +257,9 @@ export interface FilterExpression {
   group_operator: 'OR'
 }
 
-/** ContentList data returned from the API */
-export interface ContentList {
-  id: number
+/** ContentFilter data returned from the API */
+export interface ContentFilter {
+  id: string
   name: string
   content_types: ContentType[]
   filter_expression: FilterExpression
@@ -263,8 +269,8 @@ export interface ContentList {
   updated_at: string
 }
 
-/** Data for creating a new content list */
-export interface ContentListCreate {
+/** Data for creating a new content filter */
+export interface ContentFilterCreate {
   name: string
   content_types?: ContentType[]  // Defaults to ["bookmark", "note"]
   filter_expression: FilterExpression
@@ -272,8 +278,8 @@ export interface ContentListCreate {
   default_sort_ascending?: boolean | null
 }
 
-/** Data for updating an existing content list */
-export interface ContentListUpdate {
+/** Data for updating an existing content filter */
+export interface ContentFilterUpdate {
   name?: string
   content_types?: ContentType[]
   filter_expression?: FilterExpression
@@ -295,22 +301,22 @@ export interface SidebarBuiltinItem {
   key: BuiltinKey
 }
 
-/** A user-created list item in the sidebar (input format) */
-export interface SidebarListItem {
-  type: 'list'
-  id: number
+/** A user-created filter item in the sidebar (input format) */
+export interface SidebarFilterItem {
+  type: 'filter'
+  id: string
 }
 
-/** A group containing other items in the sidebar (input format) */
-export interface SidebarGroup {
-  type: 'group'
+/** A collection containing other items in the sidebar (input format) */
+export interface SidebarCollection {
+  type: 'collection'
   id: string // UUID, generated client-side via crypto.randomUUID()
   name: string
-  items: (SidebarListItem | SidebarBuiltinItem)[]
+  items: (SidebarFilterItem | SidebarBuiltinItem)[]
 }
 
 /** Any sidebar item (input format) */
-export type SidebarItem = SidebarBuiltinItem | SidebarListItem | SidebarGroup
+export type SidebarItem = SidebarBuiltinItem | SidebarFilterItem | SidebarCollection
 
 /** Complete sidebar structure (input format for PUT) */
 export interface SidebarOrder {
@@ -325,25 +331,25 @@ export interface SidebarBuiltinItemComputed extends SidebarBuiltinItem {
   name: string // "All", "Archived", "Trash"
 }
 
-/** A list item with name and content types resolved from database */
-export interface SidebarListItemComputed extends SidebarListItem {
+/** A filter item with name and content types resolved from database */
+export interface SidebarFilterItemComputed extends SidebarFilterItem {
   name: string
-  content_types: string[]
+  content_types: ContentType[]
 }
 
-/** A group with resolved child items */
-export interface SidebarGroupComputed {
-  type: 'group'
+/** A collection with resolved child items */
+export interface SidebarCollectionComputed {
+  type: 'collection'
   id: string
   name: string
-  items: (SidebarListItemComputed | SidebarBuiltinItemComputed)[]
+  items: (SidebarFilterItemComputed | SidebarBuiltinItemComputed)[]
 }
 
 /** Any computed sidebar item */
 export type SidebarItemComputed =
   | SidebarBuiltinItemComputed
-  | SidebarListItemComputed
-  | SidebarGroupComputed
+  | SidebarFilterItemComputed
+  | SidebarCollectionComputed
 
 /** Complete sidebar structure with resolved names (from GET response) */
 export interface SidebarOrderComputed {
@@ -357,7 +363,7 @@ export interface SidebarOrderComputed {
 
 /** API Token (PAT) data returned from the API */
 export interface Token {
-  id: number
+  id: string
   name: string
   token_prefix: string
   last_used_at: string | null
@@ -394,7 +400,7 @@ export interface PromptArgument {
  * Prompt item in list responses (excludes content for performance).
  */
 export interface PromptListItem {
-  id: number
+  id: string
   name: string
   title: string | null
   description: string | null
@@ -405,6 +411,7 @@ export interface PromptListItem {
   last_used_at: string
   deleted_at: string | null
   archived_at: string | null
+  content_preview: string | null  // First 500 chars of content (whitespace normalized)
 }
 
 /**
@@ -435,6 +442,7 @@ export interface PromptUpdate {
   arguments?: PromptArgument[]
   tags?: string[]
   archived_at?: string | null
+  expected_updated_at?: string  // ISO 8601 timestamp for optimistic locking. If provided and entity was modified after this time, returns 409 Conflict.
 }
 
 /** Paginated list response from GET /prompts/ */
@@ -456,5 +464,104 @@ export interface PromptSearchParams {
   offset?: number
   limit?: number
   view?: 'active' | 'archived' | 'deleted'
-  list_id?: number
+  filter_id?: string
+}
+
+/** Request for rendering a prompt with arguments */
+export interface PromptRenderRequest {
+  arguments: Record<string, unknown>
+}
+
+/** Response from prompt render endpoint */
+export interface PromptRenderResponse {
+  rendered_content: string
+}
+
+// =============================================================================
+// User Limits Types
+// =============================================================================
+
+/** User tier limits returned from GET /users/me/limits */
+export interface UserLimits {
+  tier: string
+
+  // Item counts
+  max_bookmarks: number
+  max_notes: number
+  max_prompts: number
+
+  // Field lengths (common)
+  max_title_length: number
+  max_description_length: number
+  max_tag_name_length: number
+
+  // Field lengths (content - per entity type)
+  max_bookmark_content_length: number
+  max_note_content_length: number
+  max_prompt_content_length: number
+
+  // Field lengths (entity-specific)
+  max_url_length: number
+  max_prompt_name_length: number
+  max_argument_name_length: number
+  max_argument_description_length: number
+
+  // Rate limits
+  rate_read_per_minute: number
+  rate_read_per_day: number
+  rate_write_per_minute: number
+  rate_write_per_day: number
+  rate_sensitive_per_minute: number
+  rate_sensitive_per_day: number
+}
+
+// =============================================================================
+// History Types
+// =============================================================================
+
+/** Entity type for history records */
+export type HistoryEntityType = 'bookmark' | 'note' | 'prompt'
+
+/** Action types tracked in history */
+export type HistoryActionType = 'create' | 'update' | 'delete' | 'restore' | 'undelete' | 'archive' | 'unarchive'
+
+/** Single history record */
+export interface HistoryEntry {
+  id: string
+  entity_type: HistoryEntityType
+  entity_id: string
+  action: HistoryActionType
+  version: number | null
+  metadata_snapshot: Record<string, unknown> | null
+  source: string
+  auth_type: string
+  token_prefix: string | null
+  created_at: string
+}
+
+/** Paginated history list response */
+export interface HistoryListResponse {
+  items: HistoryEntry[]
+  total: number
+  offset: number
+  limit: number
+  has_more: boolean
+}
+
+/** Diff between a version and its predecessor */
+export interface VersionDiffResponse {
+  entity_id: string
+  version: number
+  before_content: string | null
+  after_content: string | null
+  before_metadata: Record<string, unknown> | null
+  after_metadata: Record<string, unknown> | null
+  warnings: string[] | null
+}
+
+/** Response from restore operation */
+export interface RestoreResponse {
+  message: string
+  version: number
+  warnings: string[] | null
 }

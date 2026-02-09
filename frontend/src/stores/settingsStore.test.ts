@@ -21,13 +21,13 @@ const createMockSidebar = (): SidebarOrderComputed => ({
   version: 1,
   items: [
     { type: 'builtin', key: 'all', name: 'All Content' },
-    { type: 'list', id: 1, name: 'Test List', content_types: ['bookmark'] },
+    { type: 'filter', id: '1', name: 'Test Filter', content_types: ['bookmark'] },
     {
-      type: 'group',
-      id: 'group-1',
-      name: 'Test Group',
+      type: 'collection',
+      id: 'collection-1',
+      name: 'Test Collection',
       items: [
-        { type: 'list', id: 2, name: 'Grouped List', content_types: ['note'] },
+        { type: 'filter', id: '2', name: 'Nested Filter', content_types: ['note'] },
       ],
     },
   ],
@@ -203,18 +203,18 @@ describe('useSettingsStore', () => {
   })
 
   describe('optimistic update flow integration', () => {
-    it('completes full optimistic create group flow on success', async () => {
+    it('completes full optimistic create collection flow on success', async () => {
       const originalSidebar = createMockSidebar()
       useSettingsStore.setState({ sidebar: originalSidebar })
 
-      // Simulate creating a new group
-      const newGroup: SidebarItemComputed = {
-        type: 'group',
+      // Simulate creating a new collection
+      const newCollection: SidebarItemComputed = {
+        type: 'collection',
         id: 'new-group',
-        name: 'New Group',
+        name: 'New Collection',
         items: [],
       }
-      const optimisticItems = [newGroup, ...originalSidebar.items]
+      const optimisticItems = [newCollection, ...originalSidebar.items]
 
       // Step 1: Optimistic update
       const { setSidebarOptimistic, updateSidebar } = useSettingsStore.getState()
@@ -222,7 +222,7 @@ describe('useSettingsStore', () => {
 
       // Verify optimistic state
       let state = useSettingsStore.getState()
-      expect(state.sidebar?.items[0]).toEqual(newGroup)
+      expect(state.sidebar?.items[0]).toEqual(newCollection)
       expect(state._previousSidebar).toEqual(originalSidebar)
 
       // Step 2: API call succeeds
@@ -238,21 +238,21 @@ describe('useSettingsStore', () => {
       // Verify final state
       state = useSettingsStore.getState()
       expect(state._previousSidebar).toBeNull()
-      expect(state.sidebar?.items[0]).toEqual(newGroup)
+      expect(state.sidebar?.items[0]).toEqual(newCollection)
     })
 
     it('rolls back on API failure during optimistic update', async () => {
       const originalSidebar = createMockSidebar()
       useSettingsStore.setState({ sidebar: originalSidebar })
 
-      // Simulate creating a new group
-      const newGroup: SidebarItemComputed = {
-        type: 'group',
+      // Simulate creating a new collection
+      const newCollection: SidebarItemComputed = {
+        type: 'collection',
         id: 'new-group',
-        name: 'New Group',
+        name: 'New Collection',
         items: [],
       }
-      const optimisticItems = [newGroup, ...originalSidebar.items]
+      const optimisticItems = [newCollection, ...originalSidebar.items]
 
       // Step 1: Optimistic update
       const { setSidebarOptimistic, updateSidebar, rollbackSidebar } =
@@ -261,7 +261,7 @@ describe('useSettingsStore', () => {
 
       // Verify optimistic state
       let state = useSettingsStore.getState()
-      expect(state.sidebar?.items[0]).toEqual(newGroup)
+      expect(state.sidebar?.items[0]).toEqual(newCollection)
 
       // Step 2: API call fails
       mockApiPut.mockRejectedValueOnce(new Error('Server error'))
@@ -279,60 +279,60 @@ describe('useSettingsStore', () => {
       expect(state._previousSidebar).toBeNull()
     })
 
-    it('handles delete group optimistic flow', async () => {
-      const sidebarWithGroup: SidebarOrderComputed = {
+    it('handles delete collection optimistic flow', async () => {
+      const sidebarWithCollection: SidebarOrderComputed = {
         version: 1,
         items: [
           { type: 'builtin', key: 'all', name: 'All Content' },
           {
-            type: 'group',
-            id: 'group-to-delete',
-            name: 'Group to Delete',
+            type: 'collection',
+            id: 'collection-to-delete',
+            name: 'Collection to Delete',
             items: [
-              { type: 'list', id: 1, name: 'List 1', content_types: ['bookmark'] },
+              { type: 'filter', id: '1', name: 'Filter 1', content_types: ['bookmark'] },
             ],
           },
         ],
       }
-      useSettingsStore.setState({ sidebar: sidebarWithGroup })
+      useSettingsStore.setState({ sidebar: sidebarWithCollection })
 
       // Simulate deleting group (items move to root)
       const optimisticItems: SidebarItemComputed[] = [
         { type: 'builtin', key: 'all', name: 'All Content' },
-        { type: 'list', id: 1, name: 'List 1', content_types: ['bookmark'] },
+        { type: 'filter', id: '1', name: 'Filter 1', content_types: ['bookmark'] },
       ]
 
       const { setSidebarOptimistic } = useSettingsStore.getState()
       setSidebarOptimistic(optimisticItems)
 
       const state = useSettingsStore.getState()
-      // Group should be gone, list should be at root
+      // Collection should be gone, filter should be at root
       expect(state.sidebar?.items).toHaveLength(2)
-      expect(state.sidebar?.items.find((i) => i.type === 'group')).toBeUndefined()
-      expect(state.sidebar?.items.find((i) => i.type === 'list')).toBeDefined()
+      expect(state.sidebar?.items.find((i) => i.type === 'collection')).toBeUndefined()
+      expect(state.sidebar?.items.find((i) => i.type === 'filter')).toBeDefined()
       // Previous state should be stored for rollback
-      expect(state._previousSidebar).toEqual(sidebarWithGroup)
+      expect(state._previousSidebar).toEqual(sidebarWithCollection)
     })
 
-    it('handles rename group optimistic flow', async () => {
-      const sidebarWithGroup: SidebarOrderComputed = {
+    it('handles rename collection optimistic flow', async () => {
+      const sidebarWithCollection: SidebarOrderComputed = {
         version: 1,
         items: [
           {
-            type: 'group',
-            id: 'group-1',
+            type: 'collection',
+            id: 'collection-1',
             name: 'Original Name',
             items: [],
           },
         ],
       }
-      useSettingsStore.setState({ sidebar: sidebarWithGroup })
+      useSettingsStore.setState({ sidebar: sidebarWithCollection })
 
-      // Simulate renaming group
+      // Simulate renaming collection
       const optimisticItems: SidebarItemComputed[] = [
         {
-          type: 'group',
-          id: 'group-1',
+          type: 'collection',
+          id: 'collection-1',
           name: 'New Name',
           items: [],
         },
@@ -342,15 +342,15 @@ describe('useSettingsStore', () => {
       setSidebarOptimistic(optimisticItems)
 
       const state = useSettingsStore.getState()
-      const group = state.sidebar?.items[0]
-      expect(group?.type).toBe('group')
-      if (group?.type === 'group') {
-        expect(group.name).toBe('New Name')
+      const collection = state.sidebar?.items[0]
+      expect(collection?.type).toBe('collection')
+      if (collection?.type === 'collection') {
+        expect(collection.name).toBe('New Name')
       }
       // Previous state should be stored for rollback
       expect(state._previousSidebar?.items[0]).toEqual({
-        type: 'group',
-        id: 'group-1',
+        type: 'collection',
+        id: 'collection-1',
         name: 'Original Name',
         items: [],
       })

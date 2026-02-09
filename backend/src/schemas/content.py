@@ -1,8 +1,11 @@
 """Pydantic schemas for unified content endpoints."""
 from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+
+from schemas.validators import normalize_preview
 
 
 class ContentListItem(BaseModel):
@@ -15,7 +18,7 @@ class ContentListItem(BaseModel):
     """
 
     type: Literal["bookmark", "note", "prompt"]
-    id: int
+    id: UUID
     title: str | None
     description: str | None
     tags: list[str]
@@ -25,11 +28,24 @@ class ContentListItem(BaseModel):
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
 
+    # Content size metrics (available for all types)
+    content_length: int | None = Field(
+        default=None,
+        description="Total character count of content field.",
+    )
+    content_preview: str | None = Field(
+        default=None,
+        description="First 500 characters of content.",
+    )
+
+    @field_validator("content_preview", mode="before")
+    @classmethod
+    def strip_preview_whitespace(cls, v: str | None) -> str | None:
+        """Collapse whitespace in content preview for clean display."""
+        return normalize_preview(v)
+
     # Bookmark-specific (None for notes/prompts)
     url: str | None = None
-
-    # Note-specific (None for bookmarks/prompts)
-    version: int | None = None
 
     # Prompt-specific (None for bookmarks/notes)
     name: str | None = None

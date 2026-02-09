@@ -18,8 +18,10 @@ interface KeyboardShortcutHandlers {
   onPasteUrl?: (url: string) => void
   /** Called when 'w' is pressed (toggle width) */
   onToggleWidth?: () => void
-  /** Called when Cmd/Ctrl + b is pressed (toggle sidebar) */
+  /** Called when Cmd/Ctrl + \ is pressed (toggle sidebar) */
   onToggleSidebar?: () => void
+  /** Called when Cmd/Ctrl + Shift + \ is pressed (toggle history sidebar) */
+  onToggleHistorySidebar?: () => void
 }
 
 /**
@@ -48,6 +50,7 @@ function isInputFocused(): boolean {
  * - `Escape` - Close modal
  * - `Cmd/Ctrl + /` - Show shortcuts dialog
  * - `Cmd/Ctrl + \` - Toggle sidebar
+ * - `Cmd/Ctrl + Shift + \` - Toggle history sidebar
  * - `Cmd/Ctrl + V` - Paste URL to create bookmark (when not in input)
  *
  * Usage:
@@ -70,6 +73,14 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
       if ((event.metaKey || event.ctrlKey) && event.key === '/') {
         event.preventDefault()
         handlers.onShowShortcuts?.()
+        return
+      }
+
+      // Cmd/Ctrl + Shift + \ - Toggle history sidebar (works even when typing)
+      // Must check before Cmd+\ since Shift is an additional modifier
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === '\\') {
+        event.preventDefault()
+        handlers.onToggleHistorySidebar?.()
         return
       }
 

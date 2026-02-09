@@ -4,7 +4,7 @@
  * These tests ensure navigation links use the correct /app prefix.
  */
 import { describe, it, expect } from 'vitest'
-import { getBuiltinRoute, getListRoute } from './routes'
+import { getBuiltinRoute, getFilterRoute } from './routes'
 
 describe('getBuiltinRoute', () => {
   it('returns /app/content for "all"', () => {
@@ -27,17 +27,17 @@ describe('getBuiltinRoute', () => {
   })
 })
 
-describe('getListRoute', () => {
-  it('returns /app/content/lists/:id for any list', () => {
-    expect(getListRoute(123)).toBe('/app/content/lists/123')
-    expect(getListRoute(456)).toBe('/app/content/lists/456')
-    expect(getListRoute(789)).toBe('/app/content/lists/789')
+describe('getFilterRoute', () => {
+  it('returns /app/content/filters/:id for any filter', () => {
+    expect(getFilterRoute('123')).toBe('/app/content/filters/123')
+    expect(getFilterRoute('456')).toBe('/app/content/filters/456')
+    expect(getFilterRoute('789')).toBe('/app/content/filters/789')
   })
 
-  it('all list routes start with /app/', () => {
-    const testIds = [1, 2, 3, 4]
+  it('all filter routes start with /app/', () => {
+    const testIds = ['1', '2', '3', '4']
     for (const id of testIds) {
-      expect(getListRoute(id).startsWith('/app/')).toBe(true)
+      expect(getFilterRoute(id).startsWith('/app/')).toBe(true)
     }
   })
 })

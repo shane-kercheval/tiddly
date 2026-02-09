@@ -6,6 +6,8 @@ import {
   normalizeUrl,
   isValidUrl,
   getDomain,
+  getGoogleFaviconUrl,
+  GOOGLE_FAVICON_URLS,
   validateTag,
   normalizeTag,
   getFirstGroupTags,
@@ -14,7 +16,7 @@ import {
   addMonthsWithClamp,
   calculateArchivePresetDate,
 } from './utils'
-import type { ContentList, TagCount } from './types'
+import type { ContentFilter, TagCount } from './types'
 
 // ============================================================================
 // Date Utilities
@@ -214,6 +216,100 @@ describe('getDomain', () => {
   })
 })
 
+describe('getGoogleFaviconUrl', () => {
+  describe('Google Docs', () => {
+    it('test__getGoogleFaviconUrl__returns_docs_favicon_for_document_urls', () => {
+      expect(getGoogleFaviconUrl('https://docs.google.com/document/d/abc123/edit'))
+        .toBe(GOOGLE_FAVICON_URLS.docs)
+    })
+
+    it('test__getGoogleFaviconUrl__handles_docs_with_various_paths', () => {
+      expect(getGoogleFaviconUrl('https://docs.google.com/document/d/abc123'))
+        .toBe(GOOGLE_FAVICON_URLS.docs)
+      expect(getGoogleFaviconUrl('https://docs.google.com/document/u/0/d/abc123/edit'))
+        .toBe(GOOGLE_FAVICON_URLS.docs)
+      expect(getGoogleFaviconUrl('https://docs.google.com/document/d/abc123/edit?usp=sharing'))
+        .toBe(GOOGLE_FAVICON_URLS.docs)
+    })
+  })
+
+  describe('Google Sheets', () => {
+    it('test__getGoogleFaviconUrl__returns_sheets_favicon_for_spreadsheets_urls', () => {
+      expect(getGoogleFaviconUrl('https://docs.google.com/spreadsheets/d/abc123/edit'))
+        .toBe(GOOGLE_FAVICON_URLS.sheets)
+    })
+
+    it('test__getGoogleFaviconUrl__handles_sheets_with_various_paths', () => {
+      expect(getGoogleFaviconUrl('https://docs.google.com/spreadsheets/d/abc123'))
+        .toBe(GOOGLE_FAVICON_URLS.sheets)
+      expect(getGoogleFaviconUrl('https://docs.google.com/spreadsheets/u/0/d/abc123/edit'))
+        .toBe(GOOGLE_FAVICON_URLS.sheets)
+      expect(getGoogleFaviconUrl('https://docs.google.com/spreadsheets/d/abc123/edit#gid=0'))
+        .toBe(GOOGLE_FAVICON_URLS.sheets)
+    })
+  })
+
+  describe('Google Slides', () => {
+    it('test__getGoogleFaviconUrl__returns_slides_favicon_for_presentation_urls', () => {
+      expect(getGoogleFaviconUrl('https://docs.google.com/presentation/d/abc123/edit'))
+        .toBe(GOOGLE_FAVICON_URLS.slides)
+    })
+
+    it('test__getGoogleFaviconUrl__handles_slides_with_various_paths', () => {
+      expect(getGoogleFaviconUrl('https://docs.google.com/presentation/d/abc123'))
+        .toBe(GOOGLE_FAVICON_URLS.slides)
+      expect(getGoogleFaviconUrl('https://docs.google.com/presentation/u/0/d/abc123/edit'))
+        .toBe(GOOGLE_FAVICON_URLS.slides)
+      expect(getGoogleFaviconUrl('https://docs.google.com/presentation/d/abc123/present'))
+        .toBe(GOOGLE_FAVICON_URLS.slides)
+    })
+  })
+
+  describe('Gmail', () => {
+    it('test__getGoogleFaviconUrl__returns_gmail_favicon_for_mail_urls', () => {
+      expect(getGoogleFaviconUrl('https://mail.google.com/mail/u/0/'))
+        .toBe(GOOGLE_FAVICON_URLS.gmail)
+    })
+
+    it('test__getGoogleFaviconUrl__handles_gmail_with_various_paths', () => {
+      expect(getGoogleFaviconUrl('https://mail.google.com/'))
+        .toBe(GOOGLE_FAVICON_URLS.gmail)
+      expect(getGoogleFaviconUrl('https://mail.google.com/mail/u/0/#inbox'))
+        .toBe(GOOGLE_FAVICON_URLS.gmail)
+      expect(getGoogleFaviconUrl('https://mail.google.com/mail/u/1/#sent'))
+        .toBe(GOOGLE_FAVICON_URLS.gmail)
+    })
+  })
+
+  describe('Non-Google URLs', () => {
+    it('test__getGoogleFaviconUrl__returns_null_for_non_google_urls', () => {
+      expect(getGoogleFaviconUrl('https://github.com')).toBeNull()
+      expect(getGoogleFaviconUrl('https://example.com')).toBeNull()
+      expect(getGoogleFaviconUrl('https://google.com')).toBeNull()
+    })
+
+    it('test__getGoogleFaviconUrl__returns_null_for_other_google_domains', () => {
+      // Other docs.google.com paths that aren't recognized products
+      expect(getGoogleFaviconUrl('https://docs.google.com/')).toBeNull()
+      expect(getGoogleFaviconUrl('https://docs.google.com/forms/d/abc123')).toBeNull()
+      expect(getGoogleFaviconUrl('https://drive.google.com/drive/folders/abc123')).toBeNull()
+      expect(getGoogleFaviconUrl('https://calendar.google.com/')).toBeNull()
+    })
+  })
+
+  describe('Edge cases', () => {
+    it('test__getGoogleFaviconUrl__returns_null_for_invalid_urls', () => {
+      expect(getGoogleFaviconUrl('not a url')).toBeNull()
+      expect(getGoogleFaviconUrl('')).toBeNull()
+    })
+
+    it('test__getGoogleFaviconUrl__handles_http_protocol', () => {
+      expect(getGoogleFaviconUrl('http://docs.google.com/document/d/abc123'))
+        .toBe(GOOGLE_FAVICON_URLS.docs)
+    })
+  })
+})
+
 // ============================================================================
 // Tag Utilities
 // ============================================================================
@@ -291,6 +387,12 @@ describe('normalizeTag', () => {
     expect(normalizeTag('TypeScript')).toBe('typescript')
   })
 
+  it('should convert underscores to hyphens', () => {
+    expect(normalizeTag('my_test')).toBe('my-test')
+    expect(normalizeTag('MY_TEST_TAG')).toBe('my-test-tag')
+    expect(normalizeTag('snake_case')).toBe('snake-case')
+  })
+
   it('should handle already normalized tags', () => {
     expect(normalizeTag('react')).toBe('react')
     expect(normalizeTag('react-native')).toBe('react-native')
@@ -302,9 +404,9 @@ describe('normalizeTag', () => {
 // ============================================================================
 
 describe('getFirstGroupTags', () => {
-  const createList = (groups: { tags: string[] }[]): ContentList => ({
-    id: 1,
-    name: 'Test List',
+  const createFilter = (groups: { tags: string[] }[]): ContentFilter => ({
+    id: '1',
+    name: 'Test Filter',
     content_types: ['bookmark'],
     filter_expression: {
       groups: groups.map((g) => ({ tags: g.tags, operator: 'AND' as const })),
@@ -316,43 +418,43 @@ describe('getFirstGroupTags', () => {
     default_sort_ascending: null,
   })
 
-  it('should return tags from first group when list has single group', () => {
-    const list = createList([{ tags: ['react', 'typescript'] }])
-    expect(getFirstGroupTags(list)).toEqual(['react', 'typescript'])
+  it('should return tags from first group when filter has single group', () => {
+    const filter = createFilter([{ tags: ['react', 'typescript'] }])
+    expect(getFirstGroupTags(filter)).toEqual(['react', 'typescript'])
   })
 
-  it('should return only first group tags when list has multiple groups', () => {
+  it('should return only first group tags when filter has multiple groups', () => {
     // Filter: (react AND typescript) OR (vue) OR (angular AND rxjs)
-    const list = createList([
+    const filter = createFilter([
       { tags: ['react', 'typescript'] },
       { tags: ['vue'] },
       { tags: ['angular', 'rxjs'] },
     ])
-    expect(getFirstGroupTags(list)).toEqual(['react', 'typescript'])
+    expect(getFirstGroupTags(filter)).toEqual(['react', 'typescript'])
   })
 
-  it('should return undefined when list is undefined', () => {
+  it('should return undefined when filter is undefined', () => {
     expect(getFirstGroupTags(undefined)).toBeUndefined()
   })
 
   it('should return undefined when filter_expression is missing', () => {
-    const list = { id: 1, name: 'Test', created_at: '', updated_at: '' } as ContentList
-    expect(getFirstGroupTags(list)).toBeUndefined()
+    const filter = { id: '1', name: 'Test', created_at: '', updated_at: '' } as ContentFilter
+    expect(getFirstGroupTags(filter)).toBeUndefined()
   })
 
   it('should return undefined when groups array is empty', () => {
-    const list = createList([])
-    expect(getFirstGroupTags(list)).toBeUndefined()
+    const filter = createFilter([])
+    expect(getFirstGroupTags(filter)).toBeUndefined()
   })
 
   it('should return undefined when first group has no tags', () => {
-    const list = createList([{ tags: [] }])
-    expect(getFirstGroupTags(list)).toBeUndefined()
+    const filter = createFilter([{ tags: [] }])
+    expect(getFirstGroupTags(filter)).toBeUndefined()
   })
 
   it('should return single tag when first group has one tag', () => {
-    const list = createList([{ tags: ['javascript'] }])
-    expect(getFirstGroupTags(list)).toEqual(['javascript'])
+    const filter = createFilter([{ tags: ['javascript'] }])
+    expect(getFirstGroupTags(filter)).toEqual(['javascript'])
   })
 })
 
@@ -362,10 +464,10 @@ describe('getFirstGroupTags', () => {
 
 describe('sortTags', () => {
   const tags: TagCount[] = [
-    { name: 'react', count: 5 },
-    { name: 'angular', count: 3 },
-    { name: 'vue', count: 5 },
-    { name: 'svelte', count: 1 },
+    { name: 'react', content_count: 5, filter_count: 0 },
+    { name: 'angular', content_count: 3, filter_count: 1 },
+    { name: 'vue', content_count: 5, filter_count: 2 },
+    { name: 'svelte', content_count: 1, filter_count: 0 },
   ]
 
   it('should sort by name ascending', () => {
@@ -378,13 +480,13 @@ describe('sortTags', () => {
     expect(sorted.map((t) => t.name)).toEqual(['vue', 'svelte', 'react', 'angular'])
   })
 
-  it('should sort by count ascending with name as tiebreaker', () => {
+  it('should sort by content_count ascending with name as tiebreaker', () => {
     const sorted = sortTags(tags, 'count-asc')
     // svelte (1), angular (3), react (5), vue (5) - react before vue alphabetically
     expect(sorted.map((t) => t.name)).toEqual(['svelte', 'angular', 'react', 'vue'])
   })
 
-  it('should sort by count descending with name as tiebreaker', () => {
+  it('should sort by content_count descending with name as tiebreaker', () => {
     const sorted = sortTags(tags, 'count-desc')
     // react (5), vue (5), angular (3), svelte (1) - react before vue alphabetically
     expect(sorted.map((t) => t.name)).toEqual(['react', 'vue', 'angular', 'svelte'])
@@ -519,6 +621,13 @@ describe('calculateArchivePresetDate', () => {
     expect(result.getFullYear()).toBe(2025)
     expect(result.getMonth()).toBe(0) // January
     expect(result.getDate()).toBe(31) // Last day of January
+  })
+
+  it('should calculate 3-months preset correctly', () => {
+    const result = new Date(calculateArchivePresetDate('3-months', referenceDate))
+    expect(result.getFullYear()).toBe(2025)
+    expect(result.getMonth()).toBe(3) // April
+    expect(result.getDate()).toBe(15)
   })
 
   it('should calculate 6-months preset correctly', () => {

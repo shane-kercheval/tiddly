@@ -5,6 +5,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { ReactNode, KeyboardEvent } from 'react'
 import type { FilterExpression, FilterGroup, TagCount } from '../types'
+import { normalizeTag } from '../utils'
 import { PlusIcon, CloseIconFilled } from './icons'
 
 interface FilterExpressionBuilderProps {
@@ -55,7 +56,7 @@ function GroupEditor({
 
   const addTag = useCallback(
     (tag: string): void => {
-      const normalizedTag = tag.toLowerCase().trim()
+      const normalizedTag = normalizeTag(tag)
       if (normalizedTag && !group.tags.includes(normalizedTag)) {
         onUpdate([...group.tags, normalizedTag])
       }
@@ -134,7 +135,7 @@ function GroupEditor({
           }}
           onKeyDown={handleKeyDown}
           placeholder="Add tag..."
-          className="w-full rounded border border-gray-200 px-2 py-1.5 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
+          className="h-[30px] w-full rounded border border-gray-200 px-2 py-1 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
         />
 
         {/* Suggestions dropdown */}
@@ -145,10 +146,10 @@ function GroupEditor({
                 key={tag.name}
                 type="button"
                 onClick={() => addTag(tag.name)}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center justify-between"
+                className="w-full px-3 py-1.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between"
               >
                 <span>{tag.name}</span>
-                <span className="text-xs text-gray-400">{tag.count}</span>
+                <span className="text-xs text-gray-400">{tag.content_count}</span>
               </button>
             ))}
           </div>

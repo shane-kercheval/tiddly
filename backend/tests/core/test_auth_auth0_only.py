@@ -7,7 +7,6 @@ import pytest
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.datastructures import State
 
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
@@ -19,9 +18,10 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def mock_request() -> Request:
-    """Create a mock request object for auth tests."""
+    """Create a mock request for auth tests."""
     request = MagicMock(spec=Request)
-    request.state = State()
+    request.headers = {}
+    request.state = MagicMock()
     return request
 
 
@@ -63,6 +63,8 @@ async def test_user_with_consent(db_session: AsyncSession) -> User:
 @pytest.fixture
 def mock_settings_no_dev_mode() -> "Settings":
     """Create mock settings with dev_mode=False."""
+    from unittest.mock import MagicMock
+
     from core.config import Settings
 
     settings = MagicMock(spec=Settings)
@@ -75,6 +77,8 @@ def mock_settings_no_dev_mode() -> "Settings":
 @pytest.fixture
 def mock_settings_dev_mode() -> "Settings":
     """Create mock settings with dev_mode=True."""
+    from unittest.mock import MagicMock
+
     from core.config import Settings
 
     settings = MagicMock(spec=Settings)
@@ -110,7 +114,7 @@ class TestAuthenticateUserAllowPat:
             return_value=test_user,
         ):
             result = await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 allow_pat=True,
             )
 
@@ -133,7 +137,7 @@ class TestAuthenticateUserAllowPat:
 
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 allow_pat=False,
             )
 
@@ -163,7 +167,7 @@ class TestAuthenticateUserAllowPat:
         mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
         with patch("core.auth.decode_jwt", return_value=mock_payload):
             result = await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 allow_pat=False,
             )
 
@@ -186,7 +190,7 @@ class TestAuthenticateUserAllowPat:
         )
 
         result = await _authenticate_user(
-            credentials, db_session, mock_settings_dev_mode, mock_request,
+            mock_request, credentials, db_session, mock_settings_dev_mode,
             allow_pat=False,
         )
 
@@ -205,7 +209,7 @@ class TestAuthenticateUserAllowPat:
 
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
-                None, db_session, mock_settings_no_dev_mode, mock_request,
+                mock_request, None, db_session, mock_settings_no_dev_mode,
                 allow_pat=False,
             )
 
@@ -237,7 +241,7 @@ class TestGetCurrentUserAuth0Only:
 
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 allow_pat=False,
             )
 
@@ -267,7 +271,7 @@ class TestGetCurrentUserAuth0Only:
         }
         with patch("core.auth.decode_jwt", return_value=mock_payload):
             user = await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 allow_pat=False,
             )
 
@@ -304,7 +308,7 @@ class TestGetCurrentUserAuth0Only:
         mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
         with patch("core.auth.decode_jwt", return_value=mock_payload):
             user = await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 allow_pat=False,
             )
 
@@ -337,7 +341,7 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
 
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 allow_pat=False,
             )
 
@@ -366,7 +370,7 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
             # This simulates get_current_user_auth0_only_without_consent
             # which calls _authenticate_user with allow_pat=False but no consent check
             user = await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 allow_pat=False,
             )
 
@@ -394,7 +398,7 @@ class TestErrorMessages:
 
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
-                credentials, db_session, mock_settings_no_dev_mode, mock_request,
+                mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 allow_pat=False,
             )
 

@@ -1,7 +1,6 @@
 # Implementation Plan: Backend Consent Enforcement
 
 **Date:** December 21, 2024
-**Status:** Implemented
 **Goal:** Add backend enforcement of Privacy Policy and Terms of Service consent
 
 ---

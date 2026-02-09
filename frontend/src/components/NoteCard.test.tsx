@@ -1,5 +1,8 @@
 /**
  * Tests for NoteCard component.
+ *
+ * Note: NoteCard renders both mobile and desktop layouts (hidden via CSS).
+ * Tests use getAllByRole and take the first match for elements that appear twice.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -8,16 +11,18 @@ import { NoteCard } from './NoteCard'
 import type { NoteListItem } from '../types'
 
 const mockNote: NoteListItem = {
-  id: 1,
+  id: '1',
   title: 'Test Note',
   description: 'A test note description',
   tags: ['test', 'example'],
-  created_at: '2024-01-01T00:00:00Z',
-  updated_at: '2024-01-01T00:00:00Z',
-  last_used_at: '2024-01-01T00:00:00Z',
+  // Use noon UTC to avoid timezone edge cases
+  created_at: '2024-01-01T12:00:00Z',
+  updated_at: '2024-01-02T12:00:00Z',
+  last_used_at: '2024-01-03T12:00:00Z',
   deleted_at: null,
   archived_at: null,
   version: 1,
+  content_preview: null,
 }
 
 describe('NoteCard', () => {
@@ -29,13 +34,15 @@ describe('NoteCard', () => {
     it('should render note title', () => {
       render(<NoteCard note={mockNote} onDelete={vi.fn()} />)
 
-      expect(screen.getByText('Test Note')).toBeInTheDocument()
+      // Title appears in both mobile and desktop layouts
+      const titles = screen.getAllByText('Test Note')
+      expect(titles.length).toBeGreaterThan(0)
     })
 
     it('should render note description', () => {
       render(<NoteCard note={mockNote} onDelete={vi.fn()} />)
 
-      // Description appears twice (mobile inline + desktop block), check at least one exists
+      // Description appears in both mobile and desktop views
       const descriptions = screen.getAllByText('A test note description')
       expect(descriptions.length).toBeGreaterThan(0)
     })
@@ -43,21 +50,28 @@ describe('NoteCard', () => {
     it('should render tags', () => {
       render(<NoteCard note={mockNote} onDelete={vi.fn()} />)
 
-      expect(screen.getByText('test')).toBeInTheDocument()
-      expect(screen.getByText('example')).toBeInTheDocument()
+      // Tags appear in both layouts
+      const testTags = screen.getAllByText('test')
+      const exampleTags = screen.getAllByText('example')
+      expect(testTags.length).toBeGreaterThan(0)
+      expect(exampleTags.length).toBeGreaterThan(0)
     })
 
     it('should render created date by default', () => {
       render(<NoteCard note={mockNote} onDelete={vi.fn()} />)
 
-      expect(screen.getByText(/Created:/)).toBeInTheDocument()
+      // Date is shown, label is in tooltip
+      const dates = screen.getAllByText('Jan 1, 2024')
+      expect(dates.length).toBeGreaterThan(0)
     })
 
     it('should show version number when version > 1', () => {
       const noteWithVersion = { ...mockNote, version: 5 }
       render(<NoteCard note={noteWithVersion} onDelete={vi.fn()} />)
 
-      expect(screen.getByText('v5')).toBeInTheDocument()
+      // Version appears in both layouts
+      const versions = screen.getAllByText('v5')
+      expect(versions.length).toBeGreaterThan(0)
     })
 
     it('should not show version number when version is 1', () => {
@@ -73,25 +87,73 @@ describe('NoteCard', () => {
       // Description paragraph should not exist
       expect(screen.queryByText('A test note description')).not.toBeInTheDocument()
     })
+
+    it('should render content_preview when description is null', () => {
+      const noteWithPreview = { ...mockNote, description: null, content_preview: 'Preview of note content' }
+      render(<NoteCard note={noteWithPreview} onDelete={vi.fn()} />)
+
+      // Preview appears in both mobile and desktop views
+      const previews = screen.getAllByText('Preview of note content')
+      expect(previews.length).toBeGreaterThan(0)
+    })
+
+    it('should prefer description over content_preview when both exist', () => {
+      const noteWithBoth = { ...mockNote, description: 'The description', content_preview: 'The preview' }
+      render(<NoteCard note={noteWithBoth} onDelete={vi.fn()} />)
+
+      // Description should be shown
+      const descriptions = screen.getAllByText('The description')
+      expect(descriptions.length).toBeGreaterThan(0)
+      // Preview should not be shown
+      expect(screen.queryByText('The preview')).not.toBeInTheDocument()
+    })
+
+    it('should not render preview section when both description and content_preview are null', () => {
+      const noteWithNeither = { ...mockNote, description: null, content_preview: null }
+      render(<NoteCard note={noteWithNeither} onDelete={vi.fn()} />)
+
+      // No preview text should be rendered (checking for non-breaking space used as placeholder)
+      expect(screen.queryByText('A test note description')).not.toBeInTheDocument()
+    })
   })
 
   describe('date display', () => {
-    it('should show modified date when sortBy is updated_at', () => {
+    it('should show updated date when sortBy is updated_at', () => {
       render(<NoteCard note={mockNote} sortBy="updated_at" onDelete={vi.fn()} />)
 
-      expect(screen.getByText(/Modified:/)).toBeInTheDocument()
+      // Date is shown, label is in tooltip
+      const dates = screen.getAllByText('Jan 2, 2024')
+      expect(dates.length).toBeGreaterThan(0)
     })
 
-    it('should show used date when sortBy is last_used_at', () => {
+    it('should show last used date when sortBy is last_used_at', () => {
       render(<NoteCard note={mockNote} sortBy="last_used_at" onDelete={vi.fn()} />)
 
-      expect(screen.getByText(/Used:/)).toBeInTheDocument()
+      const dates = screen.getAllByText('Jan 3, 2024')
+      expect(dates.length).toBeGreaterThan(0)
     })
 
     it('should show created date for title sort', () => {
       render(<NoteCard note={mockNote} sortBy="title" onDelete={vi.fn()} />)
 
-      expect(screen.getByText(/Created:/)).toBeInTheDocument()
+      const dates = screen.getAllByText('Jan 1, 2024')
+      expect(dates.length).toBeGreaterThan(0)
+    })
+
+    it('should show archived date when sortBy is archived_at', () => {
+      const archivedNote = { ...mockNote, archived_at: '2024-02-01T12:00:00Z' }
+      render(<NoteCard note={archivedNote} sortBy="archived_at" onDelete={vi.fn()} />)
+
+      const dates = screen.getAllByText('Feb 1, 2024')
+      expect(dates.length).toBeGreaterThan(0)
+    })
+
+    it('should show deleted date when sortBy is deleted_at', () => {
+      const deletedNote = { ...mockNote, deleted_at: '2024-03-01T12:00:00Z' }
+      render(<NoteCard note={deletedNote} sortBy="deleted_at" onDelete={vi.fn()} />)
+
+      const dates = screen.getAllByText('Mar 1, 2024')
+      expect(dates.length).toBeGreaterThan(0)
     })
   })
 
@@ -102,8 +164,9 @@ describe('NoteCard', () => {
 
       render(<NoteCard note={mockNote} onDelete={vi.fn()} onView={onView} />)
 
-      // Title button has text content as its accessible name
-      await user.click(screen.getByRole('button', { name: 'Test Note' }))
+      // Title button appears in both layouts
+      const buttons = screen.getAllByRole('button', { name: 'Test Note' })
+      await user.click(buttons[0])
 
       expect(onView).toHaveBeenCalledWith(mockNote)
     })
@@ -116,7 +179,8 @@ describe('NoteCard', () => {
 
       render(<NoteCard note={mockNote} onDelete={vi.fn()} onTagClick={onTagClick} />)
 
-      await user.click(screen.getByRole('button', { name: 'test' }))
+      const tagButtons = screen.getAllByRole('button', { name: 'test' })
+      await user.click(tagButtons[0])
 
       expect(onTagClick).toHaveBeenCalledWith('test')
     })
@@ -133,13 +197,15 @@ describe('NoteCard', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: /archive note/i })).toBeInTheDocument()
+      const archiveButtons = screen.getAllByRole('button', { name: /archive note/i })
+      expect(archiveButtons.length).toBeGreaterThan(0)
     })
 
     it('should show delete button in active view', () => {
       render(<NoteCard note={mockNote} view="active" onDelete={vi.fn()} />)
 
-      expect(screen.getByRole('button', { name: /delete note/i })).toBeInTheDocument()
+      const deleteButtons = screen.getAllByRole('button', { name: /delete note/i })
+      expect(deleteButtons.length).toBeGreaterThan(0)
     })
 
     it('should call onArchive when archive button is clicked', async () => {
@@ -155,7 +221,8 @@ describe('NoteCard', () => {
         />
       )
 
-      await user.click(screen.getByRole('button', { name: /archive note/i }))
+      const archiveButtons = screen.getAllByRole('button', { name: /archive note/i })
+      await user.click(archiveButtons[0])
 
       expect(onArchive).toHaveBeenCalledWith(mockNote)
     })
@@ -166,7 +233,8 @@ describe('NoteCard', () => {
 
       render(<NoteCard note={mockNote} view="active" onDelete={onDelete} />)
 
-      await user.click(screen.getByRole('button', { name: /delete note/i }))
+      const deleteButtons = screen.getAllByRole('button', { name: /delete note/i })
+      await user.click(deleteButtons[0])
 
       expect(onDelete).toHaveBeenCalledWith(mockNote)
     })
@@ -183,7 +251,8 @@ describe('NoteCard', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: /restore note/i })).toBeInTheDocument()
+      const restoreButtons = screen.getAllByRole('button', { name: /restore note/i })
+      expect(restoreButtons.length).toBeGreaterThan(0)
     })
 
     it('should not show archive button in archived view', () => {
@@ -212,7 +281,8 @@ describe('NoteCard', () => {
         />
       )
 
-      await user.click(screen.getByRole('button', { name: /restore note/i }))
+      const restoreButtons = screen.getAllByRole('button', { name: /restore note/i })
+      await user.click(restoreButtons[0])
 
       expect(onUnarchive).toHaveBeenCalledWith(mockNote)
     })
@@ -229,7 +299,8 @@ describe('NoteCard', () => {
         />
       )
 
-      expect(screen.getByRole('button', { name: /restore note/i })).toBeInTheDocument()
+      const restoreButtons = screen.getAllByRole('button', { name: /restore note/i })
+      expect(restoreButtons.length).toBeGreaterThan(0)
     })
 
     it('should not make card clickable in deleted view', () => {
@@ -238,7 +309,6 @@ describe('NoteCard', () => {
           note={mockNote}
           view="deleted"
           onDelete={vi.fn()}
-          onEdit={vi.fn()}
         />
       )
 
@@ -250,8 +320,9 @@ describe('NoteCard', () => {
     it('should show confirm delete button in deleted view', () => {
       render(<NoteCard note={mockNote} view="deleted" onDelete={vi.fn()} />)
 
-      // ConfirmDeleteButton initially shows "Delete permanently" tooltip
-      expect(screen.getByTitle('Delete permanently')).toBeInTheDocument()
+      // ConfirmDeleteButton initially shows "Delete permanently" aria-label
+      const deleteButtons = screen.getAllByRole('button', { name: 'Delete permanently' })
+      expect(deleteButtons.length).toBeGreaterThan(0)
     })
 
     it('should call onRestore when restore button is clicked', async () => {
@@ -267,7 +338,8 @@ describe('NoteCard', () => {
         />
       )
 
-      await user.click(screen.getByRole('button', { name: /restore note/i }))
+      const restoreButtons = screen.getAllByRole('button', { name: /restore note/i })
+      await user.click(restoreButtons[0])
 
       expect(onRestore).toHaveBeenCalledWith(mockNote)
     })
@@ -286,27 +358,93 @@ describe('NoteCard', () => {
         />
       )
 
-      // Hover to reveal remove button, then click
-      const removeButton = screen.getByRole('button', { name: /remove tag test/i })
-      await user.click(removeButton)
+      // Multiple remove buttons exist (mobile + desktop)
+      const removeButtons = screen.getAllByRole('button', { name: /remove tag test/i })
+      await user.click(removeButtons[0])
 
       expect(onTagRemove).toHaveBeenCalledWith(mockNote, 'test')
     })
   })
 
-  describe('loading state', () => {
-    it('should show spinner in hover indicator when isLoading', () => {
-      const { container } = render(
+  describe('tag addition', () => {
+    const mockSuggestions = [
+      { name: 'react', content_count: 5, filter_count: 0 },
+      { name: 'typescript', content_count: 3, filter_count: 0 },
+    ]
+
+    it('should show add tag button when onTagAdd is provided', () => {
+      render(
         <NoteCard
           note={mockNote}
           onDelete={vi.fn()}
-          onEdit={vi.fn()}
-          isLoading={true}
+          onTagAdd={vi.fn()}
+          tagSuggestions={mockSuggestions}
         />
       )
 
-      // Spinner should be visible in the hover edit indicator
-      expect(container.querySelector('.spinner-sm')).toBeInTheDocument()
+      const addButtons = screen.getAllByRole('button', { name: 'Add tag' })
+      expect(addButtons.length).toBeGreaterThan(0)
+    })
+
+    it('should not show add tag button when onTagAdd is not provided', () => {
+      render(
+        <NoteCard
+          note={mockNote}
+          onDelete={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
+    })
+
+    it('should show add tag button even when item has zero tags', () => {
+      const noteWithNoTags = { ...mockNote, tags: [] }
+
+      render(
+        <NoteCard
+          note={noteWithNoTags}
+          onDelete={vi.fn()}
+          onTagAdd={vi.fn()}
+          tagSuggestions={mockSuggestions}
+        />
+      )
+
+      const addButtons = screen.getAllByRole('button', { name: 'Add tag' })
+      expect(addButtons.length).toBeGreaterThan(0)
+    })
+
+    it('should not show add tag button when tagSuggestions is not provided', () => {
+      render(
+        <NoteCard
+          note={mockNote}
+          onDelete={vi.fn()}
+          onTagAdd={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('copy button', () => {
+    it('should show copy button in active view', () => {
+      render(<NoteCard note={mockNote} view="active" onDelete={vi.fn()} />)
+
+      const copyButtons = screen.getAllByRole('button', { name: /copy note content/i })
+      expect(copyButtons.length).toBeGreaterThan(0)
+    })
+
+    it('should show copy button in archived view', () => {
+      render(<NoteCard note={mockNote} view="archived" onDelete={vi.fn()} />)
+
+      const copyButtons = screen.getAllByRole('button', { name: /copy note content/i })
+      expect(copyButtons.length).toBeGreaterThan(0)
+    })
+
+    it('should not show copy button in deleted view', () => {
+      render(<NoteCard note={mockNote} view="deleted" onDelete={vi.fn()} />)
+
+      expect(screen.queryByRole('button', { name: /copy note content/i })).not.toBeInTheDocument()
     })
   })
 
@@ -348,30 +486,6 @@ describe('NoteCard', () => {
       await user.click(card!)
 
       expect(onView).toHaveBeenCalledWith(mockNote)
-    })
-
-    it('should not call onEdit when card is clicked (edit only via button)', async () => {
-      const onEdit = vi.fn()
-      const onView = vi.fn()
-      const user = userEvent.setup()
-
-      const { container } = render(
-        <NoteCard
-          note={mockNote}
-          view="active"
-          onDelete={vi.fn()}
-          onEdit={onEdit}
-          onView={onView}
-        />
-      )
-
-      // Click the card
-      const card = container.querySelector('.card')
-      await user.click(card!)
-
-      // onView should be called, not onEdit
-      expect(onView).toHaveBeenCalledWith(mockNote)
-      expect(onEdit).not.toHaveBeenCalled()
     })
   })
 })

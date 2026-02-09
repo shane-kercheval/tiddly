@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Deploy the Bookmarks application to Railway using Railpack (Railway's auto-build system).
+Deploy Tiddly services to Railway using Railpack (Railway's auto-build system).
 
 ## Architecture
 
@@ -192,32 +192,115 @@ VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
 
 **Note:** Railway may warn about egress fees for `VITE_API_URL` and `VITE_MCP_URL` referencing public endpoints. You can ignore this - the frontend is a static SPA, so all API calls happen from the user's browser, not between Railway services.
 
-### Step 6: Configure Auth0 for Deployed URLs
+### Step 6: Configure Auth0
 
-After generating your frontend domain (Step 4), add it to Auth0:
+After generating your frontend domain (Step 4), configure Auth0 for authentication and refresh tokens.
 
-1. Go to [Auth0 Dashboard](https://manage.auth0.com/) → **Applications** → Your SPA Application → **Settings**
+#### 6a. Create Auth0 Tenant
 
-2. Add your Railway frontend URL to these fields (replace with your actual domain):
+1. Go to [Auth0 Dashboard](https://manage.auth0.com/)
+2. Click your tenant name (top-left) → **+ Create tenant**
+3. Tenant name: e.g., `tiddly` (cannot be changed later)
+4. Region: Pick closest to your users
+5. Environment Tag: select **Production**
+
+**Important:** Production environment tag ensures proper rate limits for your tenant.
+
+#### 6b. Create & Configure SPA Application
+
+1. Go to **Applications** → **Applications** → **+ Create Application**
+2. Name: e.g., "Tiddly"
+3. Select: **Single Page Application**
+4. Click **Create**
+
+**In the Settings tab**:
+
+5. Note the **Domain** and **Client ID** for Railway environment variables:
+   - `VITE_AUTH0_DOMAIN` = Domain (e.g., `tiddly.us.auth0.com`)
+   - `VITE_AUTH0_CLIENT_ID` = Client ID
+
+6. Add your frontend URLs (use placeholder for now, update after Railway generates domain):
 
    **Allowed Callback URLs:**
    ```
-   http://localhost:5173, https://frontend-production-XXXX.up.railway.app
+   https://frontend-production-XXXX.up.railway.app, https://tiddly.me
    ```
 
    **Allowed Logout URLs:**
    ```
-   http://localhost:5173, https://frontend-production-XXXX.up.railway.app
+   https://frontend-production-XXXX.up.railway.app, https://tiddly.me
    ```
 
    **Allowed Web Origins:**
    ```
-   http://localhost:5173, https://frontend-production-XXXX.up.railway.app
+   https://frontend-production-XXXX.up.railway.app, https://tiddly.me
    ```
 
-3. Click **Save Changes**
+7. Scroll down to **Refresh Token Rotation**:
+   - Toggle ON **Allow Refresh Token Rotation** (invalidates old tokens after use to prevent replay attacks)
+   - Leave **Rotation Overlap Period** at `0` seconds (default)
 
-**Note:** Keep `http://localhost:5173` for local development. Separate multiple URLs with commas.
+8. Scroll to **Advanced Settings** → **Grant Types** tab:
+   - Check the box for **Implicit** (optional, but typically enabled for SPAs)
+   - Check the box for **Authorization Code**
+   - Check the box for **Refresh Token**
+
+9. Click **Save Changes**
+
+#### 6c. Create & Configure API
+
+1. Go to **Applications** → **APIs** → **+ Create API**
+2. Name: e.g., "Tiddly API"
+3. Identifier: e.g., `https://api.tiddly.me` (this becomes the "audience" - doesn't need to be a real URL)
+4. Click **Create**
+
+Go to the **Settings** tab of your new API:
+
+5. Note the **Identifier** for Railway environment variables:
+   - `VITE_AUTH0_AUDIENCE` = Identifier
+
+6. In the **Settings** tab, under **Access Settings**:
+   - Toggle ON **Allow Offline Access** (required for refresh tokens to be issued)
+
+7. Click **Save**
+
+**Why Allow Offline Access matters:** The frontend requests the `offline_access` scope to get refresh tokens. Without this enabled, Auth0 silently ignores the scope and users get logged out when their access token expires (~24 hours).
+
+#### 6d. Google Social Connection (Optional)
+
+To enable "Sign in with Google":
+
+**Step 1: Create Google OAuth Credentials**
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Select your project (or create one)
+3. Navigate to **Branding** (configure consent screen first):
+   - App name, support email, developer contact (required fields)
+   - **Authorized domains**: Add `auth0.com`
+4. Navigate to **Audience**:
+   - User Type: **External** (unless you have Google Workspace)
+   - If in testing mode, add your email as a test user
+5. Navigate to **Clients**
+6. Click **+ Create client**:
+   - Application type: **Web application**
+   - Name: e.g., "Tiddly"
+   - **Authorized JavaScript origins**: Leave empty (not required for Auth0)
+   - **Authorized redirect URIs**: Add your Auth0 callback URL:
+     ```
+     https://YOUR-AUTH0-TENANT.us.auth0.com/login/callback
+     ```
+
+7. Click **Create** and copy the **Client ID** and **Client Secret**
+
+**Note:** Changes to Google OAuth credentials may take 5 minutes to a few hours to propagate.
+
+**Step 2: Configure Auth0**
+
+1. Go to [Auth0 Dashboard](https://manage.auth0.com/) → **Authentication** → **Social**
+2. Click **+ Create Connection** → **Google / Gmail**
+3. Paste your **Client ID** and **Client Secret** from Google
+4. Click **Create**
+5. Go to the **Applications** tab and enable the connection for your SPA application
 
 ### Step 7: Configure Pre-Deploy Command (Migrations)
 

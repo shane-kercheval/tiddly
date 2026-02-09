@@ -1,5 +1,6 @@
 """Pydantic schemas for tag endpoints."""
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -7,10 +8,11 @@ from schemas.validators import validate_and_normalize_tag
 
 
 class TagCount(BaseModel):
-    """Schema for a tag with its usage count."""
+    """Schema for a tag with its usage counts."""
 
     name: str
-    count: int
+    content_count: int  # Count of bookmarks + notes + prompts
+    filter_count: int  # Count of filters using this tag
 
 
 class TagListResponse(BaseModel):
@@ -24,7 +26,7 @@ class TagResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     name: str
     created_at: datetime
 

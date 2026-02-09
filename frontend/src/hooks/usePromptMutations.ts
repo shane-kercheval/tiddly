@@ -23,6 +23,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { promptKeys } from './usePromptsQuery'
 import { contentKeys } from './useContentQuery'
+import { historyKeys } from './useHistory'
 import { useTagsStore } from '../stores/tagsStore'
 import type { Prompt, PromptCreate, PromptUpdate, PromptListResponse, ContentListResponse } from '../types'
 
@@ -38,7 +39,7 @@ interface OptimisticContext {
  */
 function optimisticallyRemovePrompt(
   queryClient: QueryClient,
-  promptId: number
+  promptId: string
 ): OptimisticContext {
   // Snapshot current data before modification
   const previousPromptQueries = queryClient.getQueriesData<PromptListResponse>({
@@ -102,6 +103,77 @@ function rollbackOptimisticUpdate(
 }
 
 /**
+ * Optimistically update a prompt's properties in all cached list queries.
+ * Used for tag updates to provide instant feedback.
+ * Returns previous data for rollback on error.
+ *
+ * Note: Only fields present in list items are updated here. Fields like
+ * `content` and `archived_at` are excluded because they're either not in
+ * list responses or don't require immediate visual feedback.
+ */
+function optimisticallyUpdatePrompt(
+  queryClient: QueryClient,
+  promptId: string,
+  updates: PromptUpdate
+): OptimisticContext {
+  // Snapshot current data before modification
+  const previousPromptQueries = queryClient.getQueriesData<PromptListResponse>({
+    queryKey: promptKeys.lists(),
+  })
+  const previousContentQueries = queryClient.getQueriesData<ContentListResponse>({
+    queryKey: contentKeys.lists(),
+  })
+
+  // Update all prompt list queries
+  queryClient.setQueriesData<PromptListResponse>(
+    { queryKey: promptKeys.lists() },
+    (old) => {
+      if (!old) return old
+      return {
+        ...old,
+        items: old.items.map((item) => {
+          if (item.id !== promptId) return item
+          // Apply updates to the matching item
+          return {
+            ...item,
+            ...(updates.tags !== undefined && { tags: updates.tags }),
+            ...(updates.title !== undefined && { title: updates.title }),
+            ...(updates.description !== undefined && { description: updates.description }),
+            ...(updates.name !== undefined && { name: updates.name }),
+            ...(updates.arguments !== undefined && { arguments: updates.arguments }),
+          }
+        }),
+      }
+    }
+  )
+
+  // Update all content list queries
+  queryClient.setQueriesData<ContentListResponse>(
+    { queryKey: contentKeys.lists() },
+    (old) => {
+      if (!old) return old
+      return {
+        ...old,
+        items: old.items.map((item) => {
+          if (!(item.type === 'prompt' && item.id === promptId)) return item
+          // Apply updates to the matching item
+          return {
+            ...item,
+            ...(updates.tags !== undefined && { tags: updates.tags }),
+            ...(updates.title !== undefined && { title: updates.title }),
+            ...(updates.description !== undefined && { description: updates.description }),
+            ...(updates.name !== undefined && { name: updates.name }),
+            ...(updates.arguments !== undefined && { arguments: updates.arguments }),
+          }
+        }),
+      }
+    }
+  )
+
+  return { previousPromptQueries, previousContentQueries }
+}
+
+/**
  * Hook for creating a new prompt.
  *
  * New prompts are always active, so invalidates:
@@ -121,6 +193,7 @@ export function useCreatePrompt() {
       queryClient.invalidateQueries({ queryKey: promptKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -129,27 +202,44 @@ export function useCreatePrompt() {
 /**
  * Hook for updating an existing prompt.
  *
- * Updates can affect active or archived prompts, so invalidates:
- * - Active view queries
- * - Archived view queries
- * - Custom list queries (tag changes may affect list membership)
+ * Updates can affect active or archived prompts:
+ * - Optimistically updates item in cache immediately
+ * - Rolls back on error
+ * - Invalidates active, archived, and custom list queries
  */
 export function useUpdatePrompt() {
   const queryClient = useQueryClient()
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: PromptUpdate }): Promise<Prompt> => {
+    mutationFn: async ({ id, data }: { id: string; data: PromptUpdate }): Promise<Prompt> => {
       const response = await api.patch<Prompt>(`/prompts/${id}`, data)
       return response.data
     },
-    onSuccess: () => {
+    onMutate: async ({ id, data }) => {
+      // Cancel outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: promptKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contentKeys.lists() })
+
+      // Optimistically update the item in cache
+      return optimisticallyUpdatePrompt(queryClient, id, data)
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      rollbackOptimisticUpdate(queryClient, context)
+    },
+    onSettled: (_, __, { data }) => {
+      // Always refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: promptKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: promptKeys.view('archived') })
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
-      fetchTags()
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
+      // Only refresh tags if tags were modified (reduces flicker on save)
+      if ('tags' in data) {
+        fetchTags()
+      }
     },
   })
 }
@@ -172,7 +262,7 @@ export function useDeletePrompt() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async ({ id, permanent = false }: { id: number; permanent?: boolean }): Promise<void> => {
+    mutationFn: async ({ id, permanent = false }: { id: string; permanent?: boolean }): Promise<void> => {
       const url = permanent ? `/prompts/${id}?permanent=true` : `/prompts/${id}`
       await api.delete(url)
     },
@@ -202,6 +292,7 @@ export function useDeletePrompt() {
         queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
         queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       }
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -220,7 +311,7 @@ export function useRestorePrompt() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Prompt> => {
+    mutationFn: async (id: string): Promise<Prompt> => {
       const response = await api.post<Prompt>(`/prompts/${id}/restore`)
       return response.data
     },
@@ -243,6 +334,7 @@ export function useRestorePrompt() {
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -261,7 +353,7 @@ export function useArchivePrompt() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Prompt> => {
+    mutationFn: async (id: string): Promise<Prompt> => {
       const response = await api.post<Prompt>(`/prompts/${id}/archive`)
       return response.data
     },
@@ -284,6 +376,7 @@ export function useArchivePrompt() {
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -302,7 +395,7 @@ export function useUnarchivePrompt() {
   const fetchTags = useTagsStore((state) => state.fetchTags)
 
   return useMutation({
-    mutationFn: async (id: number): Promise<Prompt> => {
+    mutationFn: async (id: string): Promise<Prompt> => {
       const response = await api.post<Prompt>(`/prompts/${id}/unarchive`)
       return response.data
     },
@@ -325,6 +418,7 @@ export function useUnarchivePrompt() {
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })

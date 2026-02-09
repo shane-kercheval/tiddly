@@ -1,235 +1,283 @@
 /**
  * Component for displaying a single note card in list view.
+ *
+ * Responsive layout:
+ * - Mobile: Vertical stacking with always-visible actions
+ * - Desktop: Horizontal compact layout with hover-revealed actions
  */
 import type { ReactNode } from 'react'
-import type { NoteListItem } from '../types'
+import type { NoteListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
-import { formatDate, truncate } from '../utils'
-import { ConfirmDeleteButton } from './ui'
-import { NoteIcon, EditIcon, ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon } from './icons'
+import { CopyContentButton } from './ui'
+import { NoteIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
+import { ContentCard } from './ContentCard'
 
 interface NoteCardProps {
   note: NoteListItem
   view?: 'active' | 'archived' | 'deleted'
   sortBy?: SortByOption
   onView?: (note: NoteListItem) => void
-  onEdit?: (note: NoteListItem) => void
   onDelete: (note: NoteListItem) => void
   onArchive?: (note: NoteListItem) => void
   onUnarchive?: (note: NoteListItem) => void
   onRestore?: (note: NoteListItem) => void
   onTagClick?: (tag: string) => void
   onTagRemove?: (note: NoteListItem, tag: string) => void
-  /** Whether the edit action is currently loading */
-  isLoading?: boolean
+  onTagAdd?: (note: NoteListItem, tag: string) => void
+  tagSuggestions?: TagCount[]
+  onCancelScheduledArchive?: (note: NoteListItem) => void
 }
 
-/**
- * NoteCard displays a single note with its metadata.
- *
- * Features:
- * - Clickable title opens note view
- * - Context-aware action buttons based on view:
- *   - active: edit, archive, delete
- *   - archived: edit, restore, delete
- *   - deleted: restore, permanent delete
- * - Clickable tags for filtering
- * - Shows description or truncated content preview
- */
 export function NoteCard({
   note,
   view = 'active',
   sortBy = 'created_at',
   onView,
-  onEdit,
   onDelete,
   onArchive,
   onUnarchive,
   onRestore,
   onTagClick,
   onTagRemove,
-  isLoading = false,
+  onTagAdd,
+  tagSuggestions,
+  onCancelScheduledArchive,
 }: NoteCardProps): ReactNode {
-  // Display description if present, otherwise show truncated content preview
-  const previewText = note.description || ''
-
-  // Dynamic date display based on current sort option
-  const getDateDisplay = (): string => {
-    switch (sortBy) {
-      case 'updated_at':
-        return `Modified: ${formatDate(note.updated_at)}`
-      case 'last_used_at':
-        return `Used: ${formatDate(note.last_used_at)}`
-      case 'created_at':
-      case 'title':
-      default:
-        return `Created: ${formatDate(note.created_at)}`
-    }
-  }
+  const previewText = note.description || note.content_preview || ''
 
   const handleTitleClick = (e: React.MouseEvent): void => {
-    e.stopPropagation() // Prevent card click from triggering edit
-    onView?.(note)
-  }
-
-  // Handle card click to go to view mode
-  const handleCardClick = (): void => {
+    e.stopPropagation()
     onView?.(note)
   }
 
   return (
-    <div
-      className={`card card-interactive group ${onView ? 'cursor-pointer' : ''}`}
-      onClick={onView ? handleCardClick : undefined}
+    <ContentCard
+      view={view}
+      onClick={onView ? () => onView(note) : undefined}
     >
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
-        {/* Row 1 (mobile) / Main content (desktop) */}
-        <div className="min-w-0 flex-1">
-          {/* Title row - on mobile, description is inline; on desktop, it wraps below */}
-          <div className="flex items-center gap-2 md:flex-wrap">
-            <span className={`shrink-0 w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.note}`}>
-              <NoteIcon className="w-4 h-4" />
-            </span>
+      {/* Column 1: Icon */}
+      <span className={`w-4 h-4 mt-1 ${CONTENT_TYPE_ICON_COLORS.note}`}>
+        <NoteIcon className="w-4 h-4" />
+      </span>
+
+      {/* Column 2: Content - responsive layout */}
+      <div className="min-w-0 flex-1">
+        {/* Mobile layout - stacked vertically */}
+        <div className="md:hidden flex flex-col gap-1.5">
+          {/* Title row */}
+          <div className="flex items-center gap-2">
             <button
               onClick={handleTitleClick}
-              className="text-base font-medium text-gray-900 text-left cursor-pointer shrink-0"
+              className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
               title="View note"
             >
-              {truncate(note.title, 60)}
+              {note.title}
             </button>
             {note.version > 1 && (
               <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
             )}
-            {/* Description inline on mobile, hidden here on desktop */}
-            {previewText && (
-              <span className="text-sm text-gray-500 truncate min-w-0 md:hidden">
-                {previewText}
-              </span>
-            )}
           </div>
 
-          {/* Description/Preview - desktop only, on separate line */}
+          {/* Description */}
           {previewText && (
-            <p className="hidden md:block mt-1 text-sm text-gray-500 truncate">
+            <p className="text-sm text-gray-400 line-clamp-2">
               {previewText}
             </p>
           )}
+
+          {/* Tags row */}
+          {note.tags.length > 0 && (
+            <ContentCard.Tags
+              tags={note.tags}
+              onTagClick={onTagClick}
+              onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
+            />
+          )}
+
+          {/* Actions and date row */}
+          <div className="flex items-center justify-between">
+            {/* Actions - always visible on mobile */}
+            <div className="flex items-center gap-0.5">
+              {onTagAdd && tagSuggestions && (
+                <ContentCard.AddTagAction
+                  existingTags={note.tags}
+                  suggestions={tagSuggestions}
+                  onAdd={(tag) => onTagAdd(note, tag)}
+                />
+              )}
+              {view !== 'deleted' && (
+                <CopyContentButton contentType="note" id={note.id} />
+              )}
+              {onArchive && (
+                <ContentCard.ArchiveAction
+                  onArchive={() => onArchive(note)}
+                  entityName="note"
+                />
+              )}
+              {view === 'archived' && onUnarchive && (
+                <ContentCard.RestoreAction
+                  onRestore={() => onUnarchive(note)}
+                  entityName="note"
+                />
+              )}
+              {view === 'deleted' && onRestore && (
+                <ContentCard.RestoreAction
+                  onRestore={() => onRestore(note)}
+                  entityName="note"
+                />
+              )}
+              <ContentCard.DeleteAction
+                onDelete={() => onDelete(note)}
+                entityName="note"
+              />
+            </div>
+
+            {/* Date and archiving indicator */}
+            <div className="flex flex-col items-end gap-0.5">
+              <ContentCard.DateDisplay
+                sortBy={sortBy}
+                createdAt={note.created_at}
+                updatedAt={note.updated_at}
+                lastUsedAt={note.last_used_at}
+                archivedAt={note.archived_at}
+                deletedAt={note.deleted_at}
+                showLabel
+              />
+              {onCancelScheduledArchive && (
+                <ContentCard.ScheduledArchive
+                  archivedAt={note.archived_at}
+                  onCancel={() => onCancelScheduledArchive(note)}
+                />
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Row 2 (mobile): tags + actions + date */}
-        <div className="flex items-center gap-2 md:contents">
-          {/* Tags */}
-          {note.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 flex-1 md:flex-initial md:justify-end md:w-32 md:shrink-0">
-              {note.tags.map((tag) => (
-                <div key={tag} className="group/tag relative">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onTagClick?.(tag) }}
-                    className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
-                    title={`Filter by tag: ${tag}`}
-                  >
-                    {tag}
-                  </button>
-                  {onTagRemove && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onTagRemove(note, tag)
-                      }}
-                      className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/tag:opacity-100 transition-opacity flex items-center justify-center"
-                      title={`Remove tag: ${tag}`}
-                      aria-label={`Remove tag ${tag}`}
-                    >
-                      <CloseIcon className="w-2.5 h-2.5" />
-                    </button>
-                  )}
-                </div>
-              ))}
+        {/* Desktop layout - horizontal with hover actions */}
+        <div className="hidden md:block">
+          {/* Row 1: Title + tags + date */}
+          <div className="flex items-start gap-2">
+            {/* Left: Title and tags */}
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0 flex-1">
+              <button
+                onClick={handleTitleClick}
+                className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
+                title="View note"
+              >
+                {note.title}
+              </button>
+              {note.version > 1 && (
+                <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
+              )}
+              <ContentCard.Tags
+                tags={note.tags}
+                onTagClick={onTagClick}
+                onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
+              />
+            </div>
+
+            {/* Right: Date */}
+            <div className="shrink-0">
+              <ContentCard.DateDisplay
+                sortBy={sortBy}
+                createdAt={note.created_at}
+                updatedAt={note.updated_at}
+                lastUsedAt={note.last_used_at}
+                archivedAt={note.archived_at}
+                deletedAt={note.deleted_at}
+              />
+            </div>
+          </div>
+
+          {/* Row 2: Archiving indicator (if applicable) - right aligned */}
+          {onCancelScheduledArchive && (
+            <div className="flex justify-end mt-0.5">
+              <ContentCard.ScheduledArchive
+                archivedAt={note.archived_at}
+                onCancel={() => onCancelScheduledArchive(note)}
+              />
             </div>
           )}
 
-          {/* Actions and date */}
-          <div className="flex items-center gap-1 md:flex-col md:items-end shrink-0 ml-auto md:ml-0">
-            <div className="flex items-center">
-              {/* Edit button - shown in active and archived views */}
-              {view !== 'deleted' && onEdit && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onEdit(note) }}
-                  className="btn-icon"
-                  title="Edit note"
-                  aria-label="Edit note"
-                >
-                  {isLoading ? (
-                    <div className="spinner-sm" />
-                  ) : (
-                    <EditIcon />
-                  )}
-                </button>
-              )}
+          {/* Row 3: Description + actions (actions overlay on hover) */}
+          <div className="relative mt-1 min-h-[20px]">
+            {/* Description fills full width */}
+            <p className="text-sm text-gray-400 truncate pr-0 group-hover:pr-32 transition-[padding] duration-150">
+              {previewText || '\u00A0'}
+            </p>
 
-              {/* Archive button - shown in active view */}
-              {view === 'active' && onArchive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onArchive(note) }}
-                  className="btn-icon"
-                  title="Archive note"
-                  aria-label="Archive note"
-                >
-                  <ArchiveIcon className="h-4 w-4" />
-                </button>
-              )}
-
-              {/* Restore button - shown in archived view (unarchive action) */}
-              {view === 'archived' && onUnarchive && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onUnarchive(note) }}
-                  className="btn-icon"
-                  title="Restore note"
-                  aria-label="Restore note"
-                >
-                  <RestoreIcon />
-                </button>
-              )}
-
-              {/* Restore button - shown in deleted view */}
-              {view === 'deleted' && onRestore && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onRestore(note) }}
-                  className="btn-icon"
-                  title="Restore note"
-                  aria-label="Restore note"
-                >
-                  <RestoreIcon />
-                </button>
-              )}
-
-              {/* Delete button - shown in all views */}
-              {/* Use ConfirmDeleteButton for permanent delete in trash view */}
-              {view === 'deleted' ? (
-                <span onClick={(e) => e.stopPropagation()}>
-                  <ConfirmDeleteButton
-                    onConfirm={() => onDelete(note)}
-                    title="Delete permanently"
+            {/* Actions absolutely positioned, appear on hover */}
+            <div className="absolute right-0 top-0">
+              <ContentCard.Actions
+                overflowItems={[
+                  {
+                    key: 'archive',
+                    label: 'Archive',
+                    icon: <ArchiveIcon className="h-4 w-4" />,
+                    onClick: () => onArchive?.(note),
+                    hidden: !onArchive || view !== 'active',
+                  },
+                  {
+                    key: 'unarchive',
+                    label: 'Restore',
+                    icon: <RestoreIcon className="h-4 w-4" />,
+                    onClick: () => onUnarchive?.(note),
+                    hidden: view !== 'archived' || !onUnarchive,
+                  },
+                  {
+                    key: 'restore',
+                    label: 'Restore',
+                    icon: <RestoreIcon className="h-4 w-4" />,
+                    onClick: () => onRestore?.(note),
+                    hidden: view !== 'deleted' || !onRestore,
+                  },
+                  {
+                    key: 'delete',
+                    label: view === 'deleted' ? 'Delete Permanently' : 'Delete',
+                    icon: <TrashIcon className="h-4 w-4" />,
+                    onClick: () => onDelete(note),
+                    danger: true,
+                  },
+                ]}
+              >
+                {onTagAdd && tagSuggestions && (
+                  <ContentCard.AddTagAction
+                    existingTags={note.tags}
+                    suggestions={tagSuggestions}
+                    onAdd={(tag) => onTagAdd(note, tag)}
                   />
-                </span>
-              ) : (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(note) }}
-                  className="btn-icon-danger"
-                  title="Delete note"
-                  aria-label="Delete note"
-                >
-                  <TrashIcon />
-                </button>
-              )}
+                )}
+                {view !== 'deleted' && (
+                  <CopyContentButton contentType="note" id={note.id} />
+                )}
+                {onArchive && (
+                  <ContentCard.ArchiveAction
+                    onArchive={() => onArchive(note)}
+                    entityName="note"
+                  />
+                )}
+                {view === 'archived' && onUnarchive && (
+                  <ContentCard.RestoreAction
+                    onRestore={() => onUnarchive(note)}
+                    entityName="note"
+                  />
+                )}
+                {view === 'deleted' && onRestore && (
+                  <ContentCard.RestoreAction
+                    onRestore={() => onRestore(note)}
+                    entityName="note"
+                  />
+                )}
+                <ContentCard.DeleteAction
+                  onDelete={() => onDelete(note)}
+                  entityName="note"
+                />
+              </ContentCard.Actions>
             </div>
-            <span className="text-xs text-gray-400">
-              {getDateDisplay()}
-            </span>
           </div>
         </div>
       </div>
-    </div>
+    </ContentCard>
   )
 }

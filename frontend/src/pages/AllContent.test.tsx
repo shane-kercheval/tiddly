@@ -20,7 +20,7 @@ import type { ContentListItem, ContentListResponse } from '../types'
 // Mock data
 const mockBookmark: ContentListItem = {
   type: 'bookmark',
-  id: 1,
+  id: '1',
   title: 'Test Bookmark',
   description: 'A test bookmark description',
   tags: ['test', 'bookmark'],
@@ -33,11 +33,12 @@ const mockBookmark: ContentListItem = {
   last_used_at: '2024-01-01T00:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 const mockNote: ContentListItem = {
   type: 'note',
-  id: 2,
+  id: '2',
   title: 'Test Note',
   description: 'A test note description',
   tags: ['test', 'note'],
@@ -50,20 +51,39 @@ const mockNote: ContentListItem = {
   last_used_at: '2024-01-02T00:00:00Z',
   deleted_at: null,
   archived_at: null,
+  content_preview: null,
 }
 
 const mockArchivedBookmark: ContentListItem = {
   ...mockBookmark,
-  id: 3,
+  id: '3',
   title: 'Archived Bookmark',
   archived_at: '2024-01-05T00:00:00Z',
 }
 
 const mockDeletedNote: ContentListItem = {
   ...mockNote,
-  id: 4,
+  id: '4',
   title: 'Deleted Note',
   deleted_at: '2024-01-06T00:00:00Z',
+}
+
+const mockPrompt: ContentListItem = {
+  type: 'prompt',
+  id: '5',
+  title: 'Test Prompt',
+  description: 'A test prompt description',
+  tags: ['test', 'prompt'],
+  url: null,
+  version: null,
+  name: 'test-prompt',
+  arguments: [{ name: 'input', description: 'Input text', required: true }],
+  created_at: '2024-01-03T00:00:00Z',
+  updated_at: '2024-01-03T00:00:00Z',
+  last_used_at: '2024-01-03T00:00:00Z',
+  deleted_at: null,
+  archived_at: null,
+  content_preview: null,
 }
 
 // Mock response builders
@@ -115,22 +135,25 @@ const mockDeleteBookmark = vi.fn()
 const mockRestoreBookmark = vi.fn()
 const mockArchiveBookmark = vi.fn()
 const mockUnarchiveBookmark = vi.fn()
+const mockUpdateBookmark = vi.fn()
 
 vi.mock('../hooks/useBookmarkMutations', () => ({
   useDeleteBookmark: () => ({ mutateAsync: mockDeleteBookmark, isPending: false }),
   useRestoreBookmark: () => ({ mutateAsync: mockRestoreBookmark, isPending: false }),
   useArchiveBookmark: () => ({ mutateAsync: mockArchiveBookmark, isPending: false }),
   useUnarchiveBookmark: () => ({ mutateAsync: mockUnarchiveBookmark, isPending: false }),
+  useUpdateBookmark: () => ({ mutateAsync: mockUpdateBookmark, isPending: false }),
 }))
 
 const mockDeleteNote = vi.fn()
 const mockRestoreNote = vi.fn()
 const mockArchiveNote = vi.fn()
 const mockUnarchiveNote = vi.fn()
+const mockUpdateNote = vi.fn()
 
 vi.mock('../hooks/useNoteMutations', () => ({
   useCreateNote: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUpdateNote: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateNote: () => ({ mutateAsync: mockUpdateNote, isPending: false }),
   useDeleteNote: () => ({ mutateAsync: mockDeleteNote, isPending: false }),
   useRestoreNote: () => ({ mutateAsync: mockRestoreNote, isPending: false }),
   useArchiveNote: () => ({ mutateAsync: mockArchiveNote, isPending: false }),
@@ -141,10 +164,11 @@ const mockDeletePrompt = vi.fn()
 const mockRestorePrompt = vi.fn()
 const mockArchivePrompt = vi.fn()
 const mockUnarchivePrompt = vi.fn()
+const mockUpdatePrompt = vi.fn()
 
 vi.mock('../hooks/usePromptMutations', () => ({
   useCreatePrompt: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUpdatePrompt: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdatePrompt: () => ({ mutateAsync: mockUpdatePrompt, isPending: false }),
   useDeletePrompt: () => ({ mutateAsync: mockDeletePrompt, isPending: false }),
   useRestorePrompt: () => ({ mutateAsync: mockRestorePrompt, isPending: false }),
   useArchivePrompt: () => ({ mutateAsync: mockArchivePrompt, isPending: false }),
@@ -166,12 +190,15 @@ vi.mock('../hooks/useEffectiveSort', () => ({
     setSort: vi.fn(),
     availableSortOptions: ['updated_at', 'created_at', 'last_used_at', 'title'],
   }),
-  getViewKey: (view: string, listId?: number) => listId ? `list-${listId}` : view,
+  getViewKey: (view: string, filterId?: string) => filterId ? `filter-${filterId}` : view,
 }))
 
 vi.mock('../stores/tagsStore', () => ({
   useTagsStore: () => ({
-    tags: [{ name: 'test', count: 5 }, { name: 'example', count: 3 }],
+    tags: [
+      { name: 'test', content_count: 5, filter_count: 0 },
+      { name: 'example', content_count: 3, filter_count: 0 },
+    ],
   }),
 }))
 
@@ -211,21 +238,21 @@ vi.mock('../stores/contentTypeFilterStore', () => ({
   }),
 }))
 
-vi.mock('../stores/listsStore', () => ({
-  useListsStore: () => ({
-    lists: [
+vi.mock('../stores/filtersStore', () => ({
+  useFiltersStore: () => ({
+    filters: [
       {
-        id: 1,
+        id: '1',
         name: 'Reading List',
         content_types: ['bookmark'],
-        filter_expression: { groups: [{ tags: ['list-tag-1', 'list-tag-2'], operator: 'AND' }], group_operator: 'OR' },
+        filter_expression: { groups: [{ tags: ['filter-tag-1', 'filter-tag-2'], operator: 'AND' }], group_operator: 'OR' },
         default_sort_by: null,
         default_sort_ascending: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
       },
       {
-        id: 2,
+        id: '2',
         name: 'Ideas',
         content_types: ['note'],
         filter_expression: { groups: [], group_operator: 'OR' },
@@ -235,7 +262,7 @@ vi.mock('../stores/listsStore', () => ({
         updated_at: '2024-01-01T00:00:00Z',
       },
       {
-        id: 3,
+        id: '3',
         name: 'Mixed',
         content_types: ['bookmark', 'note'],
         filter_expression: { groups: [], group_operator: 'OR' },
@@ -264,9 +291,8 @@ function renderAtRoute(route: string): ReturnType<typeof render> {
         <Route path="/app/content" element={<AllContent />} />
         <Route path="/app/content/archived" element={<AllContent />} />
         <Route path="/app/content/trash" element={<AllContent />} />
-        <Route path="/app/content/lists/:listId" element={<AllContent />} />
+        <Route path="/app/content/filters/:filterId" element={<AllContent />} />
         <Route path="/app/notes/:id" element={<div data-testid="note-detail">Note Detail</div>} />
-        <Route path="/app/notes/:id/edit" element={<div data-testid="note-edit">Note Edit</div>} />
       </Routes>
     </MemoryRouter>
   )
@@ -347,9 +373,9 @@ describe('AllContent', () => {
       })
     })
 
-    it('shows bookmark-only empty state in custom list view', async () => {
+    it('shows bookmark-only empty state in custom filter view', async () => {
       mockContentQueryData = createMockResponse([])
-      renderAtRoute('/app/content/lists/1')
+      renderAtRoute('/app/content/filters/1')
 
       await waitFor(() => {
         expect(screen.getByText('No bookmarks yet')).toBeInTheDocument()
@@ -388,20 +414,20 @@ describe('AllContent', () => {
       })
     })
 
-    it('shows QuickAddMenu in custom list view with mixed content types', async () => {
+    it('shows QuickAddMenu in custom filter view with mixed content types', async () => {
       mockContentQueryData = createMockResponse([mockBookmark])
-      // List 3 has content_types: ['bookmark', 'note'] so it shows the menu trigger
-      renderAtRoute('/app/content/lists/3')
+      // Filter 3 has content_types: ['bookmark', 'note'] so it shows the menu trigger
+      renderAtRoute('/app/content/filters/3')
 
       await waitFor(() => {
         expect(screen.getByTestId('quick-add-menu-trigger')).toBeInTheDocument()
       })
     })
 
-    it('shows single add button in bookmark-only list view', async () => {
+    it('shows single add button in bookmark-only filter view', async () => {
       mockContentQueryData = createMockResponse([mockBookmark])
-      // List 1 has content_types: ['bookmark'] so it shows single add button
-      renderAtRoute('/app/content/lists/1')
+      // Filter 1 has content_types: ['bookmark'] so it shows single add button
+      renderAtRoute('/app/content/filters/1')
 
       await waitFor(() => {
         expect(screen.getByTestId('quick-add-single')).toBeInTheDocument()
@@ -415,10 +441,12 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
-      // Bookmark should have URL displayed
-      expect(screen.getByText('example.com')).toBeInTheDocument()
+      // Bookmark should have URL displayed (full URL without query params)
+      const urls = screen.getAllByText('https://example.com')
+      expect(urls.length).toBeGreaterThan(0)
     })
 
     it('renders NoteCard for note items', async () => {
@@ -426,7 +454,8 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
     })
 
@@ -435,8 +464,9 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Titles appear in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
     })
   })
@@ -448,11 +478,12 @@ describe('AllContent', () => {
         renderAtRoute('/app/content')
 
         await waitFor(() => {
-          expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+          // Title appears in both mobile and desktop layouts
+          expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
         })
 
-        // Archive button should be present
-        expect(screen.getByLabelText('Archive bookmark')).toBeInTheDocument()
+        // Archive button appears in both layouts
+        expect(screen.getAllByLabelText('Archive bookmark').length).toBeGreaterThan(0)
       })
 
       it('shows Archive button for notes', async () => {
@@ -460,10 +491,12 @@ describe('AllContent', () => {
         renderAtRoute('/app/content')
 
         await waitFor(() => {
-          expect(screen.getByText('Test Note')).toBeInTheDocument()
+          // Title appears in both mobile and desktop layouts
+          expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
         })
 
-        expect(screen.getByLabelText('Archive note')).toBeInTheDocument()
+        // Archive button appears in both layouts
+        expect(screen.getAllByLabelText('Archive note').length).toBeGreaterThan(0)
       })
     })
 
@@ -473,11 +506,12 @@ describe('AllContent', () => {
         renderAtRoute('/app/content/archived')
 
         await waitFor(() => {
-          expect(screen.getByText('Archived Bookmark')).toBeInTheDocument()
+          // Title appears in both mobile and desktop layouts
+          expect(screen.getAllByText('Archived Bookmark').length).toBeGreaterThan(0)
         })
 
         // In archived view, the button says "Restore" (for unarchive action)
-        expect(screen.getByLabelText('Restore bookmark')).toBeInTheDocument()
+        expect(screen.getAllByLabelText('Restore bookmark').length).toBeGreaterThan(0)
       })
     })
 
@@ -487,10 +521,12 @@ describe('AllContent', () => {
         renderAtRoute('/app/content/trash')
 
         await waitFor(() => {
-          expect(screen.getByText('Deleted Note')).toBeInTheDocument()
+          // Title appears in both mobile and desktop layouts
+          expect(screen.getAllByText('Deleted Note').length).toBeGreaterThan(0)
         })
 
-        expect(screen.getByLabelText('Restore note')).toBeInTheDocument()
+        // Restore button appears in both layouts
+        expect(screen.getAllByLabelText('Restore note').length).toBeGreaterThan(0)
       })
 
       it('allows card click to view in deleted view', async () => {
@@ -499,7 +535,8 @@ describe('AllContent', () => {
         const { container } = renderAtRoute('/app/content/trash')
 
         await waitFor(() => {
-          expect(screen.getByText('Deleted Note')).toBeInTheDocument()
+          // Title appears in both mobile and desktop layouts
+          expect(screen.getAllByText('Deleted Note').length).toBeGreaterThan(0)
         })
 
         // Card should have cursor-pointer class - deleted items are still viewable
@@ -527,11 +564,12 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
 
-      // Click on the note title/card to view it
-      await user.click(screen.getByText('Test Note'))
+      // Click on the note title/card to view it (click first match)
+      await user.click(screen.getAllByText('Test Note')[0])
 
       expect(mockNavigate).toHaveBeenCalledWith(
         '/app/notes/2',
@@ -549,7 +587,8 @@ describe('AllContent', () => {
       const { container } = renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
 
       // Click on the note card to view it (card click now goes to view, not edit)
@@ -572,10 +611,12 @@ describe('AllContent', () => {
       renderAtRoute('/app/content?q=test')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
 
-      await user.click(screen.getByText('Test Note'))
+      // Click first match
+      await user.click(screen.getAllByText('Test Note')[0])
 
       expect(mockNavigate).toHaveBeenCalledWith(
         '/app/notes/2',
@@ -592,7 +633,7 @@ describe('AllContent', () => {
     it('shows pagination controls when there are multiple pages', async () => {
       const manyItems = Array.from({ length: 20 }, (_, i) => ({
         ...mockBookmark,
-        id: i + 1,
+        id: String(i + 1),
         title: `Bookmark ${i + 1}`,
       }))
       mockContentQueryData = {
@@ -605,7 +646,8 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Bookmark 1')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Bookmark 1').length).toBeGreaterThan(0)
       })
 
       // Should show page indicator and navigation buttons
@@ -625,7 +667,8 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
 
       expect(screen.getByText('Page 1 of 2')).toBeInTheDocument()
@@ -639,12 +682,13 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
 
-      // Click on a tag
-      const tagButton = screen.getByRole('button', { name: 'test' })
-      await user.click(tagButton)
+      // Click on a tag (appears in both layouts, click first)
+      const tagButtons = screen.getAllByRole('button', { name: 'test' })
+      await user.click(tagButtons[0])
 
       expect(mockAddTag).toHaveBeenCalledWith('test')
     })
@@ -703,7 +747,8 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
 
       // Should show filter chips
@@ -717,7 +762,8 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
 
       // Click the bookmarks chip to toggle it
@@ -783,13 +829,15 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
       })
 
-      const archiveButton = screen.getByLabelText('Archive bookmark')
-      await user.click(archiveButton)
+      // Archive button appears in both layouts, click first
+      const archiveButtons = screen.getAllByLabelText('Archive bookmark')
+      await user.click(archiveButtons[0])
 
-      expect(mockArchiveBookmark).toHaveBeenCalledWith(1)
+      expect(mockArchiveBookmark).toHaveBeenCalledWith('1')
     })
 
     it('calls unarchiveBookmark mutation when unarchive is clicked', async () => {
@@ -799,14 +847,15 @@ describe('AllContent', () => {
       renderAtRoute('/app/content/archived')
 
       await waitFor(() => {
-        expect(screen.getByText('Archived Bookmark')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Archived Bookmark').length).toBeGreaterThan(0)
       })
 
-      // In archived view, the button label is "Restore bookmark"
-      const restoreButton = screen.getByLabelText('Restore bookmark')
-      await user.click(restoreButton)
+      // In archived view, the button label is "Restore bookmark" (appears in both layouts)
+      const restoreButtons = screen.getAllByLabelText('Restore bookmark')
+      await user.click(restoreButtons[0])
 
-      expect(mockUnarchiveBookmark).toHaveBeenCalledWith(3)
+      expect(mockUnarchiveBookmark).toHaveBeenCalledWith('3')
     })
   })
 
@@ -818,13 +867,15 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('Test Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
       })
 
-      const archiveButton = screen.getByLabelText('Archive note')
-      await user.click(archiveButton)
+      // Archive button appears in both layouts, click first
+      const archiveButtons = screen.getAllByLabelText('Archive note')
+      await user.click(archiveButtons[0])
 
-      expect(mockArchiveNote).toHaveBeenCalledWith(2)
+      expect(mockArchiveNote).toHaveBeenCalledWith('2')
     })
 
     it('calls restoreNote mutation when restore is clicked in trash', async () => {
@@ -834,13 +885,178 @@ describe('AllContent', () => {
       renderAtRoute('/app/content/trash')
 
       await waitFor(() => {
-        expect(screen.getByText('Deleted Note')).toBeInTheDocument()
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Deleted Note').length).toBeGreaterThan(0)
       })
 
-      const restoreButton = screen.getByLabelText('Restore note')
-      await user.click(restoreButton)
+      // Restore button appears in both layouts, click first
+      const restoreButtons = screen.getAllByLabelText('Restore note')
+      await user.click(restoreButtons[0])
 
-      expect(mockRestoreNote).toHaveBeenCalledWith(4)
+      expect(mockRestoreNote).toHaveBeenCalledWith('4')
+    })
+  })
+
+  describe('tag addition', () => {
+    it('calls updateBookmark mutation with correct tags when adding tag to bookmark', async () => {
+      const user = userEvent.setup()
+      mockUpdateBookmark.mockResolvedValue({ ...mockBookmark, tags: ['test', 'bookmark', 'example'] })
+      mockContentQueryData = createMockResponse([mockBookmark])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      // Click add tag button to open dropdown (appears in both layouts, click first)
+      const addTagButtons = screen.getAllByRole('button', { name: 'Add tag' })
+      await user.click(addTagButtons[0])
+
+      // Wait for dropdown to open (input appears)
+      await screen.findByPlaceholderText('Add tag...')
+
+      // Wait for and click the 'example' suggestion button (it's in tagsStore but not on this bookmark)
+      const suggestionButton = await screen.findByRole('button', { name: /^example/ })
+      await user.click(suggestionButton)
+
+      expect(mockUpdateBookmark).toHaveBeenCalledWith({
+        id: '1',
+        data: { tags: ['test', 'bookmark', 'example'] },
+      })
+    })
+
+    it('calls updateNote mutation with correct tags when adding tag to note', async () => {
+      const user = userEvent.setup()
+      mockUpdateNote.mockResolvedValue({ ...mockNote, tags: ['test', 'note', 'example'] })
+      mockContentQueryData = createMockResponse([mockNote])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
+      })
+
+      // Click add tag button to open dropdown (appears in both layouts, click first)
+      const addTagButtons = screen.getAllByRole('button', { name: 'Add tag' })
+      await user.click(addTagButtons[0])
+
+      // Wait for dropdown to open (input appears)
+      await screen.findByPlaceholderText('Add tag...')
+
+      // Wait for and click the 'example' suggestion button
+      const suggestionButton = await screen.findByRole('button', { name: /^example/ })
+      await user.click(suggestionButton)
+
+      expect(mockUpdateNote).toHaveBeenCalledWith({
+        id: '2',
+        data: { tags: ['test', 'note', 'example'] },
+      })
+    })
+
+    it('calls updatePrompt mutation with correct tags when adding tag to prompt', async () => {
+      const user = userEvent.setup()
+      mockUpdatePrompt.mockResolvedValue({ ...mockPrompt, tags: ['test', 'prompt', 'example'] })
+      mockContentQueryData = createMockResponse([mockPrompt])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Prompt').length).toBeGreaterThan(0)
+      })
+
+      // Click add tag button to open dropdown (appears in both layouts, click first)
+      const addTagButtons = screen.getAllByRole('button', { name: 'Add tag' })
+      await user.click(addTagButtons[0])
+
+      // Wait for dropdown to open (input appears)
+      await screen.findByPlaceholderText('Add tag...')
+
+      // Wait for and click the 'example' suggestion button
+      const suggestionButton = await screen.findByRole('button', { name: /^example/ })
+      await user.click(suggestionButton)
+
+      expect(mockUpdatePrompt).toHaveBeenCalledWith({
+        id: '5',
+        data: { tags: ['test', 'prompt', 'example'] },
+      })
+    })
+
+    it('does not show add tag button in deleted view', async () => {
+      mockContentQueryData = createMockResponse([mockDeletedNote])
+      renderAtRoute('/app/content/trash')
+
+      await waitFor(() => {
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Deleted Note').length).toBeGreaterThan(0)
+      })
+
+      expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('tag removal', () => {
+    it('calls updateBookmark mutation with correct tags when removing tag from bookmark', async () => {
+      const user = userEvent.setup()
+      mockUpdateBookmark.mockResolvedValue({ ...mockBookmark, tags: ['bookmark'] })
+      mockContentQueryData = createMockResponse([mockBookmark])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      // Click remove button on 'test' tag (appears in both layouts, click first)
+      const removeButtons = screen.getAllByRole('button', { name: /remove tag test/i })
+      await user.click(removeButtons[0])
+
+      expect(mockUpdateBookmark).toHaveBeenCalledWith({
+        id: '1',
+        data: { tags: ['bookmark'] },
+      })
+    })
+
+    it('calls updateNote mutation with correct tags when removing tag from note', async () => {
+      const user = userEvent.setup()
+      mockUpdateNote.mockResolvedValue({ ...mockNote, tags: ['note'] })
+      mockContentQueryData = createMockResponse([mockNote])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
+      })
+
+      // Click remove button on 'test' tag (appears in both layouts, click first)
+      const removeButtons = screen.getAllByRole('button', { name: /remove tag test/i })
+      await user.click(removeButtons[0])
+
+      expect(mockUpdateNote).toHaveBeenCalledWith({
+        id: '2',
+        data: { tags: ['note'] },
+      })
+    })
+
+    it('calls updatePrompt mutation with correct tags when removing tag from prompt', async () => {
+      const user = userEvent.setup()
+      mockUpdatePrompt.mockResolvedValue({ ...mockPrompt, tags: ['prompt'] })
+      mockContentQueryData = createMockResponse([mockPrompt])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        // Title appears in both mobile and desktop layouts
+        expect(screen.getAllByText('Test Prompt').length).toBeGreaterThan(0)
+      })
+
+      // Click remove button on 'test' tag (appears in both layouts, click first)
+      const removeButtons = screen.getAllByRole('button', { name: /remove tag test/i })
+      await user.click(removeButtons[0])
+
+      expect(mockUpdatePrompt).toHaveBeenCalledWith({
+        id: '5',
+        data: { tags: ['prompt'] },
+      })
     })
   })
 })

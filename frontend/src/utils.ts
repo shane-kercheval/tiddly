@@ -56,6 +56,30 @@ export function formatDate(dateString: string): string {
 }
 
 /**
+ * Format a date string to a short format without labels.
+ * Omits year if the date is in the current year.
+ * @param dateString - ISO date string
+ * @returns Formatted date like "Jan 28" or "Jan 28, 2024" if different year
+ */
+export function formatShortDate(dateString: string): string {
+  const date = new Date(dateString)
+  const currentYear = new Date().getFullYear()
+  const dateYear = date.getFullYear()
+
+  if (dateYear === currentYear) {
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    })
+  }
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+/**
  * Format a date string to a relative time (e.g., "2 days ago", "in 3 hours").
  * @param dateString - ISO date string
  * @returns Relative time string
@@ -168,6 +192,68 @@ export function getUrlWithoutProtocol(url: string): string {
   return url.replace(/^https?:\/\//, '').replace(/^www\./, '')
 }
 
+/**
+ * Google product favicon URLs.
+ * These are the official favicon URLs hosted by Google.
+ * If these break, the integration tests will catch it.
+ */
+export const GOOGLE_FAVICON_URLS = {
+  docs: 'https://ssl.gstatic.com/docs/documents/images/kix-favicon7.ico',
+  sheets: 'https://ssl.gstatic.com/docs/spreadsheets/favicon3.ico',
+  slides: 'https://ssl.gstatic.com/docs/presentations/images/favicon5.ico',
+  gmail: 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico',
+} as const
+
+export type GoogleProduct = keyof typeof GOOGLE_FAVICON_URLS
+
+/**
+ * Detect Google product from URL and return the appropriate favicon URL.
+ * Returns null if the URL is not a recognized Google product.
+ *
+ * @param url - The bookmark URL to check
+ * @returns The Google product favicon URL, or null if not a Google product
+ *
+ * @example
+ * getGoogleFaviconUrl('https://docs.google.com/document/d/123/edit')
+ * // => 'https://ssl.gstatic.com/docs/documents/images/kix-favicon7.ico'
+ *
+ * getGoogleFaviconUrl('https://github.com')
+ * // => null
+ */
+export function getGoogleFaviconUrl(url: string): string | null {
+  try {
+    const urlObj = new URL(url)
+    const hostname = urlObj.hostname
+    const pathname = urlObj.pathname
+
+    // Google Docs: docs.google.com/document/...
+    if (hostname === 'docs.google.com' && pathname.startsWith('/document')) {
+      return GOOGLE_FAVICON_URLS.docs
+    }
+
+    // Google Sheets: docs.google.com/spreadsheets/...
+    if (hostname === 'docs.google.com' && pathname.startsWith('/spreadsheets')) {
+      return GOOGLE_FAVICON_URLS.sheets
+    }
+
+    // Google Slides: docs.google.com/presentation/...
+    if (hostname === 'docs.google.com' && pathname.startsWith('/presentation')) {
+      return GOOGLE_FAVICON_URLS.slides
+    }
+
+    // Gmail: mail.google.com/...
+    if (hostname === 'mail.google.com') {
+      return GOOGLE_FAVICON_URLS.gmail
+    }
+
+    // Not a recognized Google product
+    return null
+  } catch {
+    // Invalid URL
+    return null
+  }
+}
+
 // ============================================================================
 // Tag Utilities
 // ============================================================================
@@ -175,7 +261,7 @@ export function getUrlWithoutProtocol(url: string): string {
 /**
  * Regex pattern for valid tags: lowercase alphanumeric with hyphens.
  *
- * Note: This validation is intentionally duplicated in the backend (backend/src/schemas/bookmark.py)
+ * Note: This validation is intentionally duplicated in the backend (backend/src/schemas/validators.py)
  * for security. Frontend validation provides immediate UX feedback. Keep both in sync if
  * changing the tag format rules.
  *
@@ -198,24 +284,24 @@ export function validateTag(tag: string): string | null {
 }
 
 /**
- * Normalize a tag to lowercase and trimmed.
+ * Normalize a tag to lowercase, trimmed, with underscores converted to hyphens.
  * @param tag - Tag to normalize
  * @returns Normalized tag
  */
 export function normalizeTag(tag: string): string {
-  return tag.toLowerCase().trim()
+  return tag.toLowerCase().trim().replace(/_/g, '-')
 }
 
 // ============================================================================
 // Sorting Utilities
 // ============================================================================
 
-import type { ContentList, TagCount } from './types'
+import type { ContentFilter, TagCount } from './types'
 
 export type TagSortOption = 'name-asc' | 'name-desc' | 'count-asc' | 'count-desc'
 
 /**
- * Sort tags by name or count.
+ * Sort tags by name or content count.
  * @param tags - Array of tags to sort
  * @param sortOption - Sort option (name-asc, name-desc, count-asc, count-desc)
  * @returns Sorted copy of tags array
@@ -228,9 +314,9 @@ export function sortTags(tags: TagCount[], sortOption: TagSortOption): TagCount[
       case 'name-desc':
         return b.name.localeCompare(a.name)
       case 'count-asc':
-        return a.count - b.count || a.name.localeCompare(b.name)
+        return a.content_count - b.content_count || a.name.localeCompare(b.name)
       case 'count-desc':
-        return b.count - a.count || a.name.localeCompare(b.name)
+        return b.content_count - a.content_count || a.name.localeCompare(b.name)
     }
   })
 }
@@ -240,25 +326,25 @@ export function sortTags(tags: TagCount[], sortOption: TagSortOption): TagCount[
 // ============================================================================
 
 /**
- * Extract tags from the first filter group of a content list.
- * Used for pre-populating tags when adding bookmarks from a custom list view.
+ * Extract tags from the first filter group of a content filter.
+ * Used for pre-populating tags when adding bookmarks from a custom filter view.
  *
- * @param list - The content list to extract tags from
+ * @param filter - The content filter to extract tags from
  * @returns Array of tags from the first filter group, or undefined if no tags
  *
  * @example
- * // List with filter: (react AND typescript) OR (vue)
- * getFirstGroupTags(list) // returns ['react', 'typescript']
+ * // Filter with expression: (react AND typescript) OR (vue)
+ * getFirstGroupTags(filter) // returns ['react', 'typescript']
  */
-export function getFirstGroupTags(list: ContentList | undefined): string[] | undefined {
-  const firstGroup = list?.filter_expression?.groups?.[0]
+export function getFirstGroupTags(filter: ContentFilter | undefined): string[] | undefined {
+  const firstGroup = filter?.filter_expression?.groups?.[0]
   return firstGroup?.tags?.length ? firstGroup.tags : undefined
 }
 
 /**
  * Archive preset options for scheduling auto-archive dates.
  */
-export type ArchivePreset = 'none' | '1-week' | '1-month' | 'end-of-month' | '6-months' | '1-year' | 'custom'
+export type ArchivePreset = 'none' | '1-week' | '1-month' | 'end-of-month' | '3-months' | '6-months' | '1-year' | 'custom'
 
 /**
  * Adds months to a date while handling overflow by clamping to the last day of the target month.
@@ -301,6 +387,9 @@ export function calculateArchivePresetDate(preset: ArchivePreset, referenceDate?
     case 'end-of-month':
       // Last day of current month at 8:00 AM
       date = new Date(now.getFullYear(), now.getMonth() + 1, 0, 8, 0, 0)
+      break
+    case '3-months':
+      date = addMonthsWithClamp(now, 3)
       break
     case '6-months':
       date = addMonthsWithClamp(now, 6)

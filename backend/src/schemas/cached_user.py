@@ -1,5 +1,6 @@
 """Cached user representation for auth caching."""
 from dataclasses import dataclass
+from uuid import UUID
 
 
 @dataclass
@@ -15,7 +16,7 @@ class CachedUser:
     the version, deserialization will fail or return stale/incorrect data.
 
     Safe attributes (available on both CachedUser and User ORM):
-    - id: int
+    - id: UUID
     - auth0_id: str
     - email: str | None
 
@@ -27,8 +28,9 @@ class CachedUser:
     Those only exist on User ORM objects.
     """
 
-    id: int
+    id: UUID
     auth0_id: str
     email: str | None
     consent_privacy_version: str | None
     consent_tos_version: str | None
+    tier: str

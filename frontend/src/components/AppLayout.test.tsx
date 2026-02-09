@@ -16,9 +16,13 @@ vi.mock('../stores/consentStore', () => ({
 }))
 
 // Mock the config module
-vi.mock('../config', () => ({
-  isDevMode: false,
-}))
+vi.mock('../config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../config')>()
+  return {
+    ...actual,
+    isDevMode: false,
+  }
+})
 
 // Mock auth status hook
 vi.mock('../hooks/useAuthStatus', () => ({
@@ -50,6 +54,7 @@ describe('AppLayout', () => {
       isAuthenticated: true,
       isLoading: false,
       error: null,
+      userId: 'test-user-id',
     })
   })
 
@@ -90,6 +95,7 @@ describe('AppLayout', () => {
         isAuthenticated: false,
         isLoading: true,
         error: null,
+        userId: null,
       })
 
       renderAppLayout()
@@ -109,6 +115,7 @@ describe('AppLayout', () => {
         isAuthenticated: false,
         isLoading: false,
         error: null,
+        userId: null,
       })
 
       renderAppLayout()

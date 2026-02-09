@@ -1,0 +1,191 @@
+# Prompt MCP Server Evaluation Configuration
+# Tests the edit_prompt_content tool's ability to make targeted edits with argument changes
+
+model:
+  name: "gpt-4.1-mini"
+  temperature: 0
+
+eval:
+  samples: 10
+  success_threshold: 0.8
+
+test_cases:
+  # Test 1: Remove a variable from template
+  # LLM must update both content AND arguments list (omitting the removed arg)
+  - id: "remove-variable"
+    input:
+      prompt_name: "eval-remove-var"
+      content: |
+        Review this {{ language }} code:
+
+        {{ code }}
+
+        Provide feedback on style and correctness.
+      arguments:
+        - name: "language"
+          description: "Programming language"
+          required: true
+        - name: "code"
+          description: "Code to review"
+          required: true
+      instruction: "Remove the language variable from this prompt. The prompt should just say 'Review this code:' without specifying a language."
+    expected:
+      tool_name: "edit_prompt_content"
+      final_must_contain: "{{ code }}"
+      final_must_not_contain: "{{ language }}"
+      expected_argument_names: ["code"]
+    metadata:
+      description: "Remove {{ language }} variable - must update arguments to exclude it"
+
+  # Test 2: Add a new variable to template
+  # LLM must add the variable to content AND include it in arguments list
+  - id: "add-variable"
+    input:
+      prompt_name: "eval-add-var"
+      content: |
+        Summarize the following article:
+
+        {{ article_text }}
+
+        Keep the summary concise.
+      arguments:
+        - name: "article_text"
+          description: "The article to summarize"
+          required: true
+      instruction: "Add an optional 'max_words' variable to control the summary length. REPLACE the line 'Keep the summary concise.' with 'Keep the summary under {{ max_words }} words.'"
+    expected:
+      tool_name: "edit_prompt_content"
+      final_must_contain: ["{{ article_text }}", "{{ max_words }}"]
+      final_must_not_contain: "Keep the summary concise"
+      expected_argument_names: ["article_text", "max_words"]
+    metadata:
+      description: "Add {{ max_words }} variable - must add to arguments list"
+
+  # Test 3: Rename a variable
+  # LLM must update the variable name in both content AND arguments
+  - id: "rename-variable"
+    input:
+      prompt_name: "eval-rename-var"
+      content: |
+        Translate the following text to {{ target_lang }}:
+
+        {{ text }}
+      arguments:
+        - name: "target_lang"
+          description: "Target language"
+          required: true
+        - name: "text"
+          description: "Text to translate"
+          required: true
+      instruction: "Rename the 'text' variable to 'source_text' for clarity."
+    expected:
+      tool_name: "edit_prompt_content"
+      final_must_contain: ["{{ target_lang }}", "{{ source_text }}"]
+      final_must_not_contain: "{{ text }}"
+      expected_argument_names: ["source_text", "target_lang"]
+    metadata:
+      description: "Rename {{ text }} to {{ source_text }} - must update arguments"
+
+  # Test 4: Simple content edit (no argument change)
+  # LLM should NOT need to provide arguments (they remain unchanged)
+  - id: "simple-edit-no-arg-change"
+    input:
+      prompt_name: "eval-simple-edit"
+      content: |
+        Anaylze the following data:
+
+        {{ data }}
+
+        Provide insights and recommendations.
+      arguments:
+        - name: "data"
+          description: "Data to analyze"
+          required: true
+      instruction: "Fix the typo 'Anaylze' - it should be 'Analyze'."
+    expected:
+      tool_name: "edit_prompt_content"
+      final_must_contain: ["Analyze the following data", "{{ data }}"]
+      final_must_not_contain: "Anaylze"
+      expected_argument_names: []
+    metadata:
+      description: "Fix typo without changing arguments"
+
+  # Test 5: Add variable with description
+  # LLM must provide a sensible description for the new argument
+  - id: "add-variable-with-description"
+    input:
+      prompt_name: "eval-add-var-desc"
+      content: |
+        Write a {{ tone }} email about:
+
+        {{ topic }}
+      arguments:
+        - name: "tone"
+          description: "Tone of the email (formal, casual, etc.)"
+          required: true
+        - name: "topic"
+          description: "Email topic"
+          required: true
+      instruction: "Add an optional 'recipient_name' variable. REPLACE 'Write a {{ tone }} email about:' with 'Dear {{ recipient_name }},\n\nWrite a {{ tone }} email about:'"
+    expected:
+      tool_name: "edit_prompt_content"
+      final_must_contain: ["{{ tone }}", "{{ topic }}", "{{ recipient_name }}"]
+      # No exclusion needed - adding a variable doesn't remove existing content
+      final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
+      expected_argument_names: ["recipient_name", "tone", "topic"]
+    metadata:
+      description: "Add {{ recipient_name }} with proper argument definition"
+
+  # Test 6: Remove one of multiple variables
+  # Tests that LLM correctly preserves other arguments while removing one
+  - id: "remove-one-of-many"
+    input:
+      prompt_name: "eval-remove-one"
+      content: |
+        Create a {{ format }} document about {{ topic }} for {{ audience }}.
+
+        Include examples and explanations.
+      arguments:
+        - name: "format"
+          description: "Document format (report, memo, guide)"
+          required: true
+        - name: "topic"
+          description: "Document topic"
+          required: true
+        - name: "audience"
+          description: "Target audience"
+          required: true
+      instruction: "Remove the 'audience' variable. The prompt should just say 'Create a {{ format }} document about {{ topic }}.' without the audience part."
+    expected:
+      tool_name: "edit_prompt_content"
+      final_must_contain: ["{{ format }}", "{{ topic }}"]
+      final_must_not_contain: "{{ audience }}"
+      expected_argument_names: ["format", "topic"]
+    metadata:
+      description: "Remove {{ audience }} while preserving {{ format }} and {{ topic }}"
+
+checks:
+  # Verify correct tool was selected
+  - type: "exact_match"
+    arguments:
+      actual: "$.output.value.tool_prediction.tool_name"
+      expected: "$.test_case.expected.tool_name"
+
+  # Verify final content contains expected text
+  - type: "contains"
+    arguments:
+      text: "$.output.value.final_content"
+      phrases: "$.test_case.expected.final_must_contain"
+
+  # Verify final content does not contain forbidden text
+  - type: "contains"
+    arguments:
+      text: "$.output.value.final_content"
+      phrases: "$.test_case.expected.final_must_not_contain"
+      negate: true
+
+  # Verify argument names match expected (sorted lists for order-independent comparison)
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.argument_names"
+      expected: "$.test_case.expected.expected_argument_names"

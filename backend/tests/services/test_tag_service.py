@@ -153,7 +153,7 @@ async def test__get_user_tags_with_counts__counts_only_active_bookmarks(
     # Get counts
     counts = await get_user_tags_with_counts(db_session, test_user.id)
 
-    count_dict = {c.name: c.count for c in counts}
+    count_dict = {c.name: c.content_count for c in counts}
     # shared: 1 (only active bookmark)
     assert count_dict["shared"] == 1
     # active-only: 1
@@ -187,33 +187,16 @@ async def test__get_user_tags_with_counts__includes_future_scheduled_bookmarks(
     # Get counts - future-scheduled bookmark should be counted
     counts = await get_user_tags_with_counts(db_session, test_user.id)
 
-    count_dict = {c.name: c.count for c in counts}
+    count_dict = {c.name: c.content_count for c in counts}
     assert count_dict["scheduled"] == 1  # Future-scheduled counts as active
 
 
-async def test__get_user_tags_with_counts__includes_zero_count_tags(
+async def test__get_user_tags_with_counts__excludes_orphan_tags_by_default(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test that tags with no active bookmarks appear with count 0."""
-    # Create a tag directly (orphaned)
-    orphan = Tag(user_id=test_user.id, name="orphan-tag")
-    db_session.add(orphan)
-    await db_session.flush()
-
-    counts = await get_user_tags_with_counts(db_session, test_user.id, include_zero_count=True)
-
-    assert len(counts) == 1
-    assert counts[0].name == "orphan-tag"
-    assert counts[0].count == 0
-
-
-async def test__get_user_tags_with_counts__excludes_zero_count_when_requested(
-    db_session: AsyncSession,
-    test_user: User,
-) -> None:
-    """Test that include_zero_count=False excludes tags with no active bookmarks."""
-    # Create orphan tag
+    """Test that tags with no active content are excluded by default."""
+    # Create orphan tag (no associated content)
     orphan = Tag(user_id=test_user.id, name="orphan-tag")
     db_session.add(orphan)
 
@@ -226,11 +209,148 @@ async def test__get_user_tags_with_counts__excludes_zero_count_when_requested(
     db_session.add(bookmark)
     await db_session.flush()
 
-    counts = await get_user_tags_with_counts(db_session, test_user.id, include_zero_count=False)
+    counts = await get_user_tags_with_counts(db_session, test_user.id)
 
     tag_names = {c.name for c in counts}
     assert "active-tag" in tag_names
     assert "orphan-tag" not in tag_names
+
+
+async def test__get_user_tags_with_counts__include_inactive_shows_orphan_tags(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that include_inactive=True includes tags with no active content."""
+    # Create orphan tag (no associated content)
+    orphan = Tag(user_id=test_user.id, name="orphan-tag")
+    db_session.add(orphan)
+
+    # Create tag with active bookmark
+    active_tag = (await get_or_create_tags(db_session, test_user.id, ["active-tag"]))[0]
+    await db_session.flush()
+
+    bookmark = Bookmark(user_id=test_user.id, url="https://example.com/")
+    bookmark.tag_objects = [active_tag]
+    db_session.add(bookmark)
+    await db_session.flush()
+
+    counts = await get_user_tags_with_counts(db_session, test_user.id, include_inactive=True)
+
+    tag_names = {c.name for c in counts}
+    assert "active-tag" in tag_names
+    assert "orphan-tag" in tag_names
+
+    # Verify orphan tag has count 0
+    orphan_count = next(c for c in counts if c.name == "orphan-tag")
+    assert orphan_count.content_count == 0
+
+
+async def test__get_user_tags_with_counts__include_inactive_shows_tags_from_deleted_content(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that include_inactive=True shows tags whose only content is deleted."""
+    from datetime import UTC, datetime
+
+    # Create tag and bookmark, then soft-delete the bookmark
+    tag = (await get_or_create_tags(db_session, test_user.id, ["deleted-content-tag"]))[0]
+    await db_session.flush()
+
+    bookmark = Bookmark(user_id=test_user.id, url="https://example.com/")
+    bookmark.tag_objects = [tag]
+    bookmark.deleted_at = datetime.now(UTC)  # Soft delete
+    db_session.add(bookmark)
+    await db_session.flush()
+
+    # Without include_inactive, tag should not appear
+    counts_default = await get_user_tags_with_counts(db_session, test_user.id)
+    assert len(counts_default) == 0
+
+    # With include_inactive, tag should appear with count 0
+    counts_with_inactive = await get_user_tags_with_counts(
+        db_session, test_user.id, include_inactive=True,
+    )
+    assert len(counts_with_inactive) == 1
+    assert counts_with_inactive[0].name == "deleted-content-tag"
+    assert counts_with_inactive[0].content_count == 0
+
+
+async def test__get_user_tags_with_counts__include_inactive_shows_tags_from_archived_content(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that include_inactive=True shows tags whose only content is archived."""
+    from datetime import UTC, datetime, timedelta
+
+    # Create tag and bookmark, then archive the bookmark
+    tag = (await get_or_create_tags(db_session, test_user.id, ["archived-content-tag"]))[0]
+    await db_session.flush()
+
+    bookmark = Bookmark(user_id=test_user.id, url="https://example.com/")
+    bookmark.tag_objects = [tag]
+    bookmark.archived_at = datetime.now(UTC) - timedelta(hours=1)  # Already archived
+    db_session.add(bookmark)
+    await db_session.flush()
+
+    # Without include_inactive, tag should not appear
+    counts_default = await get_user_tags_with_counts(db_session, test_user.id)
+    assert len(counts_default) == 0
+
+    # With include_inactive, tag should appear with count 0
+    counts_with_inactive = await get_user_tags_with_counts(
+        db_session, test_user.id, include_inactive=True,
+    )
+    assert len(counts_with_inactive) == 1
+    assert counts_with_inactive[0].name == "archived-content-tag"
+    assert counts_with_inactive[0].content_count == 0
+
+
+async def test__get_user_tags_with_counts__include_inactive_mixed_active_and_inactive(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test include_inactive with a mix of active and inactive tags."""
+    from datetime import UTC, datetime
+
+    # Create active tag with active bookmark
+    active_tag = (await get_or_create_tags(db_session, test_user.id, ["active-tag"]))[0]
+    await db_session.flush()
+
+    active_bookmark = Bookmark(user_id=test_user.id, url="https://active.com/")
+    active_bookmark.tag_objects = [active_tag]
+    db_session.add(active_bookmark)
+
+    # Create inactive tag with deleted bookmark
+    inactive_tag = (await get_or_create_tags(db_session, test_user.id, ["inactive-tag"]))[0]
+    await db_session.flush()
+
+    deleted_bookmark = Bookmark(user_id=test_user.id, url="https://deleted.com/")
+    deleted_bookmark.tag_objects = [inactive_tag]
+    deleted_bookmark.deleted_at = datetime.now(UTC)
+    db_session.add(deleted_bookmark)
+
+    # Create orphan tag (never associated with any content)
+    orphan_tag = Tag(user_id=test_user.id, name="orphan-tag")
+    db_session.add(orphan_tag)
+
+    await db_session.flush()
+
+    # Without include_inactive: only active-tag
+    counts_default = await get_user_tags_with_counts(db_session, test_user.id)
+    assert len(counts_default) == 1
+    assert counts_default[0].name == "active-tag"
+    assert counts_default[0].content_count == 1
+
+    # With include_inactive: all three tags
+    counts_with_inactive = await get_user_tags_with_counts(
+        db_session, test_user.id, include_inactive=True,
+    )
+    assert len(counts_with_inactive) == 3
+
+    tag_counts = {c.name: c.content_count for c in counts_with_inactive}
+    assert tag_counts["active-tag"] == 1
+    assert tag_counts["inactive-tag"] == 0
+    assert tag_counts["orphan-tag"] == 0
 
 
 async def test__get_user_tags_with_counts__sorted_by_count_then_name(
@@ -260,7 +380,7 @@ async def test__get_user_tags_with_counts__sorted_by_count_then_name(
 
     # common: 3, apple: 1, zebra: 1
     assert counts[0].name == "common"
-    assert counts[0].count == 3
+    assert counts[0].content_count == 3
     # apple and zebra both have count 1, should be alphabetical
     assert counts[1].name == "apple"
     assert counts[2].name == "zebra"
@@ -294,7 +414,7 @@ async def test__get_user_tags_with_counts__includes_prompt_tags(
     # Get counts
     counts = await get_user_tags_with_counts(db_session, test_user.id)
 
-    count_dict = {c.name: c.count for c in counts}
+    count_dict = {c.name: c.content_count for c in counts}
     # shared: 2 (1 bookmark + 1 prompt)
     assert count_dict["shared"] == 2
     # prompt-only: 1 (1 prompt)
@@ -344,7 +464,7 @@ async def test__get_user_tags_with_counts__excludes_archived_and_deleted_prompts
     # Get counts - only active prompt should be counted
     counts = await get_user_tags_with_counts(db_session, test_user.id)
 
-    count_dict = {c.name: c.count for c in counts}
+    count_dict = {c.name: c.content_count for c in counts}
     # Only the active prompt should count
     assert count_dict["prompt-shared"] == 1
 
@@ -573,6 +693,7 @@ async def test__bookmark_delete__removes_from_junction_but_preserves_tag(
     """Test that deleting a bookmark removes junction entries but keeps the tag."""
     # Create tag first
     persist_tag = (await get_or_create_tags(db_session, test_user.id, ["persist-tag"]))[0]
+    tag_id = persist_tag.id
     await db_session.flush()
 
     # Create bookmark with tag set at creation
@@ -583,14 +704,18 @@ async def test__bookmark_delete__removes_from_junction_but_preserves_tag(
 
     # Verify tag exists with count 1
     counts = await get_user_tags_with_counts(db_session, test_user.id)
-    assert counts[0].count == 1
+    assert counts[0].content_count == 1
 
     # Permanently delete the bookmark
     await db_session.delete(bookmark)
     await db_session.flush()
 
-    # Tag should still exist but with count 0
-    counts = await get_user_tags_with_counts(db_session, test_user.id, include_zero_count=True)
-    assert len(counts) == 1
-    assert counts[0].name == "persist-tag"
-    assert counts[0].count == 0
+    # Tag should still exist in database (orphaned)
+    result = await db_session.execute(select(Tag).where(Tag.id == tag_id))
+    tag = result.scalar_one_or_none()
+    assert tag is not None
+    assert tag.name == "persist-tag"
+
+    # But it should not appear in get_user_tags_with_counts (zero active content)
+    counts = await get_user_tags_with_counts(db_session, test_user.id)
+    assert len(counts) == 0
