@@ -290,10 +290,11 @@ async def test_get_user_history_invalid_action_returns_422(client: AsyncClient) 
     assert response.status_code == 422
 
 
-async def test_get_user_history_invalid_source_returns_422(client: AsyncClient) -> None:
-    """Test that invalid source value returns 422."""
-    response = await client.get("/history/", params={"source": "invalid"})
-    assert response.status_code == 422
+async def test_get_user_history_unrecognized_source_returns_empty(client: AsyncClient) -> None:
+    """Test that unrecognized source value is accepted (returns empty results)."""
+    response = await client.get("/history/", params={"source": "some-new-source"})
+    assert response.status_code == 200
+    assert response.json()["items"] == []
 
 
 async def test_get_user_history_invalid_date_format_returns_422(
