@@ -337,4 +337,59 @@ describe('MetadataChanges', () => {
     // Same tags, different order — no changes should be rendered
     expect(container.innerHTML).toBe('')
   })
+
+  it('test__handles_missing_field__in_before_metadata', () => {
+    // Schema evolution: older records may not have all fields
+    renderMetadata({
+      beforeMetadata: { title: 'Test', tags: [] },
+      afterMetadata: { title: 'Test', tags: [], url: 'https://new.com' },
+      entityType: 'bookmark',
+      action: 'update',
+    })
+
+    // url missing from before → treated as empty → shows change
+    expect(screen.getByText('URL:')).toBeInTheDocument()
+    expect(screen.getByText('(empty)')).toBeInTheDocument()
+    expect(screen.getByText('https://new.com')).toBeInTheDocument()
+  })
+
+  it('test__handles_missing_field__in_after_metadata', () => {
+    // Defensive: field exists in before but not after
+    renderMetadata({
+      beforeMetadata: { title: 'Test', tags: [], url: 'https://old.com' },
+      afterMetadata: { title: 'Test', tags: [] },
+      entityType: 'bookmark',
+      action: 'update',
+    })
+
+    // url missing from after → treated as empty → shows change
+    expect(screen.getByText('URL:')).toBeInTheDocument()
+    expect(screen.getByText('https://old.com')).toBeInTheDocument()
+    expect(screen.getByText('(empty)')).toBeInTheDocument()
+  })
+
+  it('test__treats_null_and_empty_string__as_equivalent', () => {
+    // null → "" should not show a false diff
+    const { container } = renderMetadata({
+      beforeMetadata: { title: null, description: null, tags: [], url: null },
+      afterMetadata: { title: '', description: '', tags: [], url: '' },
+      entityType: 'bookmark',
+      action: 'update',
+    })
+
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('test__handles_null_tags__gracefully', () => {
+    // Tags field is null instead of array — should not crash
+    const { container } = renderMetadata({
+      beforeMetadata: { title: 'Test', tags: null },
+      afterMetadata: { title: 'Test', tags: null },
+      entityType: 'note',
+      action: 'update',
+    })
+
+    // null tags on both sides → treated as empty arrays → no diff
+    expect(container.innerHTML).toBe('')
+  })
 })
