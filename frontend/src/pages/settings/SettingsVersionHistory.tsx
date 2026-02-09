@@ -450,12 +450,7 @@ export function SettingsVersionHistory(): ReactNode {
                     isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-500'
                   }`}>
                     <span className={isAuditAction(entry.action) ? 'text-gray-500' : 'text-gray-700'}>{formatAction(entry.action)}</span>
-                    <span>
-                      {formatSource(entry.source)}
-                      {entry.token_prefix && (
-                        <span className="text-gray-400 ml-1">({entry.token_prefix}...)</span>
-                      )}
-                    </span>
+                    <span>{formatSource(entry.source)}</span>
                     <span>{new Date(entry.created_at).toLocaleString()}</span>
                   </div>
                 </div>
@@ -523,11 +518,6 @@ export function SettingsVersionHistory(): ReactNode {
                         </div>
                         <div className={`px-3 py-2.5 text-sm ${isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-500'}`}>
                           {formatSource(entry.source)}
-                          {entry.token_prefix && (
-                            <span className="text-xs text-gray-400 ml-1">
-                              ({entry.token_prefix}...)
-                            </span>
-                          )}
                         </div>
                         <div className={`px-3 py-2.5 text-sm whitespace-nowrap ${isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-500'}`}>
                           {new Date(entry.created_at).toLocaleString()}
