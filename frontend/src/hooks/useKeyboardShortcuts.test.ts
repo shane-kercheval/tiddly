@@ -237,6 +237,54 @@ describe('useKeyboardShortcuts', () => {
       expect(onToggleSidebar).toHaveBeenCalled()
     })
 
+    it('should call onToggleHistorySidebar when Cmd+Shift+\\ is pressed', () => {
+      const onToggleHistorySidebar = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onToggleHistorySidebar }))
+
+      const keyEvent = new KeyboardEvent('keydown', { key: '\\', metaKey: true, shiftKey: true })
+      document.dispatchEvent(keyEvent)
+
+      expect(onToggleHistorySidebar).toHaveBeenCalled()
+    })
+
+    it('should call onToggleHistorySidebar when Ctrl+Shift+\\ is pressed (Windows/Linux)', () => {
+      const onToggleHistorySidebar = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onToggleHistorySidebar }))
+
+      const keyEvent = new KeyboardEvent('keydown', { key: '\\', ctrlKey: true, shiftKey: true })
+      document.dispatchEvent(keyEvent)
+
+      expect(onToggleHistorySidebar).toHaveBeenCalled()
+    })
+
+    it('should call onToggleHistorySidebar even when inside an input', () => {
+      const onToggleHistorySidebar = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onToggleHistorySidebar }))
+
+      const input = document.createElement('input')
+      document.body.appendChild(input)
+      input.focus()
+
+      const keyEvent = new KeyboardEvent('keydown', { key: '\\', metaKey: true, shiftKey: true })
+      document.dispatchEvent(keyEvent)
+
+      expect(onToggleHistorySidebar).toHaveBeenCalled()
+
+      document.body.removeChild(input)
+    })
+
+    it('should NOT call onToggleSidebar when Cmd+Shift+\\ is pressed (should call onToggleHistorySidebar instead)', () => {
+      const onToggleSidebar = vi.fn()
+      const onToggleHistorySidebar = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onToggleSidebar, onToggleHistorySidebar }))
+
+      const keyEvent = new KeyboardEvent('keydown', { key: '\\', metaKey: true, shiftKey: true })
+      document.dispatchEvent(keyEvent)
+
+      expect(onToggleSidebar).not.toHaveBeenCalled()
+      expect(onToggleHistorySidebar).toHaveBeenCalled()
+    })
+
     it('should call onToggleSidebar even when inside an input (like VS Code)', () => {
       const onToggleSidebar = vi.fn()
       renderHook(() => useKeyboardShortcuts({ onToggleSidebar }))

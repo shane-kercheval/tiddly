@@ -67,11 +67,16 @@ export function Layout(): ReactNode {
     return () => window.removeEventListener('resize', handleResize)
   }, [historySidebarOpen])
 
+  const toggleHistorySidebar = useHistorySidebarStore((state) => state.setOpen)
+
   // Global keyboard shortcuts (work on all pages)
   useKeyboardShortcuts({
     onShowShortcuts: () => setShowShortcuts(true),
     onToggleSidebar: toggleSidebar,
     onToggleWidth: toggleFullWidthLayout,
+    onToggleHistorySidebar: isDetailPage
+      ? () => toggleHistorySidebar(!historySidebarOpen)
+      : undefined,
     onEscape: () => {
       if (showShortcuts) setShowShortcuts(false)
     },
