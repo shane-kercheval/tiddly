@@ -142,15 +142,16 @@ Every history record captures where the change originated.
 
 ### Request Source
 
-Determined by the `X-Request-Source` header:
+Determined by the `X-Request-Source` header. Any value is accepted and stored as-is (lowercased). If the header is missing, `unknown` is stored as a default.
 
-| Header Value | Source | Description |
-|--------------|--------|-------------|
-| `web` | `WEB` | Web UI (claude.ai or similar) |
-| `api` | `API` | Direct API calls |
-| `mcp-content` | `MCP_CONTENT` | Content MCP server |
-| `mcp-prompt` | `MCP_PROMPT` | Prompt MCP server |
-| (missing/invalid) | `UNKNOWN` | Header not provided or unrecognized |
+Currently used values:
+
+| Header Value | Description |
+|--------------|-------------|
+| `web` | Web UI |
+| `mcp-content` | Content MCP server |
+| `mcp-prompt` | Prompt MCP server |
+| `iphone` | iPhone mobile app |
 
 ### Authentication Type
 

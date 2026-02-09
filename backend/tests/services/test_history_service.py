@@ -6,7 +6,7 @@ import pytest
 from diff_match_patch import diff_match_patch
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.request_context import AuthType, RequestContext, RequestSource
+from core.request_context import AuthType, RequestContext
 from models.content_history import ActionType, ContentHistory, EntityType
 from models.note import Note
 from models.user import User
@@ -33,7 +33,7 @@ async def test_user(db_session: AsyncSession) -> User:
 def request_context() -> RequestContext:
     """Create a test request context."""
     return RequestContext(
-        source=RequestSource.WEB,
+        source="web",
         auth_type=AuthType.AUTH0,
         token_prefix=None,
     )
@@ -43,7 +43,7 @@ def request_context() -> RequestContext:
 def pat_context() -> RequestContext:
     """Create a test request context with PAT auth."""
     return RequestContext(
-        source=RequestSource.MCP_CONTENT,
+        source="mcp-content",
         auth_type=AuthType.PAT,
         token_prefix="bm_test1234567",
     )
@@ -336,7 +336,7 @@ class TestHistoryServiceRecordAction:
             context=pat_context,
         )
 
-        assert history.source == RequestSource.MCP_CONTENT.value
+        assert history.source == "mcp-content"
         assert history.auth_type == AuthType.PAT.value
         assert history.token_prefix == "bm_test1234567"
 
@@ -1311,7 +1311,7 @@ class TestEmptyDiffHandling:
             content_snapshot=None,
             content_diff="",  # Empty string
             metadata_snapshot=metadata,
-            source=RequestSource.WEB.value,
+            source="web",
             auth_type=AuthType.AUTH0.value,
         )
         db_session.add(history)
@@ -1396,7 +1396,7 @@ class TestCorruptedDiffHandling:
             content_snapshot=None,
             content_diff="this_is_not_valid_patch_text!!!",  # Corrupted
             metadata_snapshot=metadata,
-            source=RequestSource.WEB.value,
+            source="web",
             auth_type=AuthType.AUTH0.value,
         )
         db_session.add(history)
@@ -1484,7 +1484,7 @@ class TestCorruptedDiffHandling:
             content_snapshot=None,
             content_diff="CORRUPTED_GARBAGE_DATA",
             metadata_snapshot=metadata,
-            source=RequestSource.WEB.value,
+            source="web",
             auth_type=AuthType.AUTH0.value,
         )
         db_session.add(history_v3)
@@ -1508,7 +1508,7 @@ class TestCorruptedDiffHandling:
             content_snapshot=None,
             content_diff=valid_diff,
             metadata_snapshot=metadata,
-            source=RequestSource.WEB.value,
+            source="web",
             auth_type=AuthType.AUTH0.value,
         )
         db_session.add(history_v4)

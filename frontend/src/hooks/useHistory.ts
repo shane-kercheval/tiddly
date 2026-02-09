@@ -12,7 +12,6 @@ import { api } from '../services/api'
 import type {
   HistoryEntityType,
   HistoryActionType,
-  HistorySourceType,
   HistoryListResponse,
   VersionDiffResponse,
   RestoreResponse,
@@ -22,7 +21,7 @@ import type {
 export interface UserHistoryParams {
   entityTypes?: HistoryEntityType[]
   actions?: HistoryActionType[]
-  sources?: HistorySourceType[]
+  sources?: string[]
   startDate?: string  // ISO 8601 datetime (UTC)
   endDate?: string    // ISO 8601 datetime (UTC)
   limit?: number

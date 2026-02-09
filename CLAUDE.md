@@ -181,7 +181,7 @@ All content changes (bookmarks, notes, prompts) are tracked in the `content_hist
 - Audit actions (NULL version, no content): DELETE, UNDELETE, ARCHIVE, UNARCHIVE
 
 **Source Tracking:**
-- Request source via `X-Request-Source` header: web, api, mcp-content, mcp-prompt, unknown
+- Request source via `X-Request-Source` header (any value accepted, stored as-is). Known values: web, mcp-content, mcp-prompt, iphone
 - Auth type: auth0, pat, dev
 - Token prefix for PAT requests (e.g., "bm_a3f8...") for audit trail
 

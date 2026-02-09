@@ -10,44 +10,14 @@ import { useEntityHistory, useVersionDiff, useRestoreToVersion } from '../hooks/
 import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
 import { CloseIcon, RestoreIcon } from './icons'
 import { VersionDiffPanel } from './VersionDiffPanel'
-import type { HistoryEntityType, HistoryActionType } from '../types'
+import { formatAction, formatSource, isAuditAction } from '../constants/historyLabels'
+import type { HistoryEntityType } from '../types'
 
 interface HistorySidebarProps {
   entityType: HistoryEntityType
   entityId: string
   onClose: () => void
   onRestored?: () => void
-}
-
-/** Format action type for display */
-function formatAction(action: HistoryActionType): string {
-  const labels: Record<HistoryActionType, string> = {
-    create: 'Created',
-    update: 'Updated',
-    delete: 'Deleted',
-    restore: 'Restored',
-    undelete: 'Undeleted',
-    archive: 'Archived',
-    unarchive: 'Unarchived',
-  }
-  return labels[action] ?? action
-}
-
-/** Check if action is an audit-only action (lifecycle state transition, no content change) */
-function isAuditAction(action: HistoryActionType): boolean {
-  return ['delete', 'undelete', 'archive', 'unarchive'].includes(action)
-}
-
-/** Format source for display */
-function formatSource(source: string): string {
-  const labels: Record<string, string> = {
-    web: 'Web',
-    api: 'API',
-    'mcp-content': 'MCP',
-    'mcp-prompt': 'MCP',
-    unknown: 'Unknown',
-  }
-  return labels[source] ?? source
 }
 
 /** Tailwind md breakpoint */

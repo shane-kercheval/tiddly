@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { historyKeys } from './useHistory'
-import type { HistoryEntityType, HistoryActionType, HistorySourceType } from '../types'
+import type { HistoryEntityType, HistoryActionType } from '../types'
 
 describe('historyKeys', () => {
   describe('user', () => {
@@ -112,7 +112,7 @@ describe('historyKeys', () => {
     it('should not mutate original arrays', () => {
       const originalEntityTypes: HistoryEntityType[] = ['note', 'bookmark']
       const originalActions: HistoryActionType[] = ['update', 'create']
-      const originalSources: HistorySourceType[] = ['api', 'web']
+      const originalSources: string[] = ['api', 'web']
 
       historyKeys.user({
         entityTypes: originalEntityTypes,

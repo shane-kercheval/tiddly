@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.request_context import AuthType, RequestSource
+from core.request_context import AuthType
 from core.tier_limits import TIER_LIMITS, Tier
 from models.bookmark import Bookmark
 from models.content_history import ActionType, ContentHistory, EntityType
@@ -48,7 +48,7 @@ def create_history_record(
         version=version,
         content_snapshot=f"Content v{version}",
         metadata_snapshot={"title": f"Test v{version}"},
-        source=RequestSource.WEB.value,
+        source="web",
         auth_type=AuthType.AUTH0.value,
         created_at=created_at,
     )

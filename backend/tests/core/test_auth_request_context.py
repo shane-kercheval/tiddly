@@ -7,6 +7,7 @@ from fastapi import Request
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.auth import _get_request_source
 from models.user import User
 
 if TYPE_CHECKING:
@@ -72,80 +73,66 @@ class TestGetRequestSource:
         mock_request_with_source: callable,
     ) -> None:
         """X-Request-Source: web sets source to WEB."""
-        from core.auth import RequestSource, _get_request_source
-
         request = mock_request_with_source("web")
         source = _get_request_source(request)
-        assert source == RequestSource.WEB
+        assert source == "web"
 
     def test__get_request_source__api_header(
         self,
         mock_request_with_source: callable,
     ) -> None:
         """X-Request-Source: api sets source to API."""
-        from core.auth import RequestSource, _get_request_source
-
         request = mock_request_with_source("api")
         source = _get_request_source(request)
-        assert source == RequestSource.API
+        assert source == "api"
 
     def test__get_request_source__mcp_content_header(
         self,
         mock_request_with_source: callable,
     ) -> None:
         """X-Request-Source: mcp-content sets source to MCP_CONTENT."""
-        from core.auth import RequestSource, _get_request_source
-
         request = mock_request_with_source("mcp-content")
         source = _get_request_source(request)
-        assert source == RequestSource.MCP_CONTENT
+        assert source == "mcp-content"
 
     def test__get_request_source__mcp_prompt_header(
         self,
         mock_request_with_source: callable,
     ) -> None:
         """X-Request-Source: mcp-prompt sets source to MCP_PROMPT."""
-        from core.auth import RequestSource, _get_request_source
-
         request = mock_request_with_source("mcp-prompt")
         source = _get_request_source(request)
-        assert source == RequestSource.MCP_PROMPT
+        assert source == "mcp-prompt"
 
     def test__get_request_source__missing_header_defaults_to_unknown(
         self,
         mock_request: Request,
     ) -> None:
         """Missing X-Request-Source header defaults to UNKNOWN."""
-        from core.auth import RequestSource, _get_request_source
-
         source = _get_request_source(mock_request)
-        assert source == RequestSource.UNKNOWN
+        assert source == "unknown"
 
-    def test__get_request_source__invalid_header_defaults_to_unknown(
+    def test__get_request_source__unrecognized_header_passes_through(
         self,
         mock_request_with_source: callable,
     ) -> None:
-        """Invalid X-Request-Source header defaults to UNKNOWN."""
-        from core.auth import RequestSource, _get_request_source
-
-        request = mock_request_with_source("invalid-source")
+        """Unrecognized X-Request-Source header is passed through as-is."""
+        request = mock_request_with_source("iphone")
         source = _get_request_source(request)
-        assert source == RequestSource.UNKNOWN
+        assert source == "iphone"
 
     def test__get_request_source__case_insensitive(
         self,
         mock_request_with_source: callable,
     ) -> None:
         """X-Request-Source header is case-insensitive."""
-        from core.auth import RequestSource, _get_request_source
-
         request = mock_request_with_source("WEB")
         source = _get_request_source(request)
-        assert source == RequestSource.WEB
+        assert source == "web"
 
         request = mock_request_with_source("MCP-Content")
         source = _get_request_source(request)
-        assert source == RequestSource.MCP_CONTENT
+        assert source == "mcp-content"
 
 
 class TestRequestContextWithAuth0:
@@ -187,7 +174,7 @@ class TestRequestContextWithAuth0:
         mock_request_with_source: callable,
     ) -> None:
         """Auth0 JWT uses X-Request-Source header for source."""
-        from core.auth import AuthType, RequestSource, _authenticate_user
+        from core.auth import AuthType, _authenticate_user
 
         request = mock_request_with_source("web")
         credentials = HTTPAuthorizationCredentials(
@@ -202,7 +189,7 @@ class TestRequestContextWithAuth0:
             )
 
         context = request.state.request_context
-        assert context.source == RequestSource.WEB
+        assert context.source == "web"
         assert context.auth_type == AuthType.AUTH0
 
 
@@ -306,7 +293,7 @@ class TestRequestContextWithPAT:
         mock_request_with_source: callable,
     ) -> None:
         """PAT uses X-Request-Source header for source."""
-        from core.auth import AuthType, RequestSource, _authenticate_user
+        from core.auth import AuthType, _authenticate_user
 
         request = mock_request_with_source("mcp-content")
         credentials = HTTPAuthorizationCredentials(
@@ -324,7 +311,7 @@ class TestRequestContextWithPAT:
             )
 
         context = request.state.request_context
-        assert context.source == RequestSource.MCP_CONTENT
+        assert context.source == "mcp-content"
         assert context.auth_type == AuthType.PAT
 
 
@@ -358,7 +345,7 @@ class TestRequestContextWithDevMode:
         mock_request_with_source: callable,
     ) -> None:
         """DEV_MODE uses X-Request-Source header for source."""
-        from core.auth import AuthType, RequestSource, _authenticate_user
+        from core.auth import AuthType, _authenticate_user
 
         request = mock_request_with_source("web")
         await _authenticate_user(
@@ -366,7 +353,7 @@ class TestRequestContextWithDevMode:
         )
 
         context = request.state.request_context
-        assert context.source == RequestSource.WEB
+        assert context.source == "web"
         assert context.auth_type == AuthType.DEV
 
 
@@ -378,10 +365,10 @@ class TestGetRequestContext:
         mock_request: Request,
     ) -> None:
         """get_request_context returns the context when set."""
-        from core.auth import AuthType, RequestContext, RequestSource, get_request_context
+        from core.auth import AuthType, RequestContext, get_request_context
 
         expected_context = RequestContext(
-            source=RequestSource.WEB,
+            source="web",
             auth_type=AuthType.AUTH0,
             token_prefix=None,
         )

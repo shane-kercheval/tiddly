@@ -13,16 +13,17 @@ import type { DropdownOption } from '../../components/ui'
 import { BookmarkIcon, NoteIcon, PromptIcon, CloseIconFilled } from '../../components/icons'
 import { VersionDiffPanel } from '../../components/VersionDiffPanel'
 import { CONTENT_TYPE_ICON_COLORS } from '../../constants/contentTypeStyles'
-import type { HistoryEntityType, HistoryActionType, HistorySourceType, HistoryEntry } from '../../types'
+import { formatAction, formatSource, isAuditAction } from '../../constants/historyLabels'
+import type { HistoryEntityType, HistoryActionType, HistoryEntry } from '../../types'
 
 /** Date preset options */
 type DatePreset = 'all' | 'last7' | 'last30' | 'custom'
 
 /** Display source types (MCP combines both mcp-content and mcp-prompt) */
-type DisplaySourceType = 'web' | 'api' | 'mcp' | 'unknown'
+type DisplaySourceType = 'web' | 'api' | 'mcp' | 'iphone' | 'unknown'
 
 /** Map display source to actual API source values */
-function displaySourceToApiSources(source: DisplaySourceType): HistorySourceType[] {
+function displaySourceToApiSources(source: DisplaySourceType): string[] {
   if (source === 'mcp') {
     return ['mcp-content', 'mcp-prompt']
   }
@@ -52,6 +53,7 @@ const SOURCE_OPTIONS: DropdownOption<DisplaySourceType>[] = [
   { value: 'web', label: 'Web' },
   { value: 'api', label: 'API' },
   { value: 'mcp', label: 'MCP' },
+  { value: 'iphone', label: 'iPhone' },
   { value: 'unknown', label: 'Unknown' },
 ]
 
@@ -62,37 +64,6 @@ const DATE_PRESET_OPTIONS: { value: DatePreset; label: string }[] = [
   { value: 'last30', label: 'Last 30 days' },
   { value: 'custom', label: 'Custom range' },
 ]
-
-/** Format action type for table display (past tense) */
-function formatActionTable(action: HistoryActionType): string {
-  const labels: Record<HistoryActionType, string> = {
-    create: 'Created',
-    update: 'Updated',
-    delete: 'Deleted',
-    restore: 'Restored',
-    undelete: 'Undeleted',
-    archive: 'Archived',
-    unarchive: 'Unarchived',
-  }
-  return labels[action]
-}
-
-/** Check if action is an audit-only action (lifecycle state transition, no content change) */
-function isAuditAction(action: HistoryActionType): boolean {
-  return ['delete', 'undelete', 'archive', 'unarchive'].includes(action)
-}
-
-/** Format source for table display (MCP variants combined) */
-function formatSourceTable(source: string): string {
-  const labels: Record<string, string> = {
-    web: 'Web',
-    api: 'API',
-    'mcp-content': 'MCP',
-    'mcp-prompt': 'MCP',
-    unknown: 'Unknown',
-  }
-  return labels[source] ?? source
-}
 
 /** Get colored icon for entity type */
 function getEntityIcon(type: HistoryEntityType): ReactNode {
@@ -478,9 +449,9 @@ export function SettingsVersionHistory(): ReactNode {
                   <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-xs ${
                     isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-500'
                   }`}>
-                    <span className={isAuditAction(entry.action) ? 'text-gray-500' : 'text-gray-700'}>{formatActionTable(entry.action)}</span>
+                    <span className={isAuditAction(entry.action) ? 'text-gray-500' : 'text-gray-700'}>{formatAction(entry.action)}</span>
                     <span>
-                      {formatSourceTable(entry.source)}
+                      {formatSource(entry.source)}
                       {entry.token_prefix && (
                         <span className="text-gray-400 ml-1">({entry.token_prefix}...)</span>
                       )}
@@ -548,10 +519,10 @@ export function SettingsVersionHistory(): ReactNode {
                           </div>
                         </div>
                         <div className={`px-3 py-2.5 text-sm ${isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-700'}`}>
-                          {formatActionTable(entry.action)}
+                          {formatAction(entry.action)}
                         </div>
                         <div className={`px-3 py-2.5 text-sm ${isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-500'}`}>
-                          {formatSourceTable(entry.source)}
+                          {formatSource(entry.source)}
                           {entry.token_prefix && (
                             <span className="text-xs text-gray-400 ml-1">
                               ({entry.token_prefix}...)

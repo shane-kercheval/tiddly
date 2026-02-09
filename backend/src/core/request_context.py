@@ -3,16 +3,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 
-class RequestSource(StrEnum):
-    """Source of the API request, determined by X-Request-Source header."""
-
-    WEB = "web"
-    API = "api"
-    MCP_CONTENT = "mcp-content"
-    MCP_PROMPT = "mcp-prompt"
-    UNKNOWN = "unknown"  # Default when header missing/unrecognized
-
-
 class AuthType(StrEnum):
     """Authentication method used for the request."""
 
@@ -29,6 +19,6 @@ class RequestContext:
     Used for audit trails in history recording.
     """
 
-    source: RequestSource
+    source: str
     auth_type: AuthType
     token_prefix: str | None = None  # Only set for PAT auth, e.g. "bm_a3f8..."

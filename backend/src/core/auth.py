@@ -20,7 +20,7 @@ from core.rate_limit_config import (
 )
 from core.rate_limiter import check_rate_limit
 # Import and re-export for backward compatibility
-from core.request_context import AuthType, RequestContext, RequestSource
+from core.request_context import AuthType, RequestContext
 from core.tier_limits import get_tier_safely
 from db.session import get_async_session
 from models.user import User
@@ -33,7 +33,6 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "AuthType",
     "RequestContext",
-    "RequestSource",
     "get_current_user",
     "get_current_user_auth0_only",
     "get_current_user_auth0_only_without_consent",
@@ -351,34 +350,22 @@ async def _apply_rate_limit(
         raise RateLimitExceededError(result)
 
 
-def _get_request_source(request: Request) -> RequestSource:
+def _get_request_source(request: Request) -> str:
     """
     Determine request source from X-Request-Source header.
 
-    The header is set by:
+    The header value is passed through as-is (lowercased). Known values:
     - Frontend: 'web'
     - MCP Content server: 'mcp-content'
     - MCP Prompt server: 'mcp-prompt'
     - CLI/scripts can optionally send 'api'
-    - Missing/unrecognized defaults to 'unknown'
+    - Missing header defaults to 'unknown'
 
     This is spoofable but acceptable - source tracking is for audit/telemetry,
     not access control.
     """
-    source_header = request.headers.get("x-request-source", "").lower()
-    source_map = {
-        "web": RequestSource.WEB,
-        "api": RequestSource.API,
-        "mcp-content": RequestSource.MCP_CONTENT,
-        "mcp-prompt": RequestSource.MCP_PROMPT,
-    }
-    source = source_map.get(source_header, RequestSource.UNKNOWN)
-
-    # Log unrecognized source values for monitoring (helps detect misconfigurations)
-    if source_header and source == RequestSource.UNKNOWN:
-        logger.debug("Unrecognized X-Request-Source header: %s", source_header)
-
-    return source
+    source = request.headers.get("x-request-source", "").strip().lower()
+    return source or "unknown"
 
 
 async def _authenticate_user(

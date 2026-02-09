@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.request_context import RequestContext, RequestSource
+from core.request_context import RequestContext
 from core.tier_limits import TierLimits
 from models.bookmark import Bookmark
 from models.content_history import ActionType, ContentHistory, EntityType
@@ -214,7 +214,7 @@ class HistoryService:
             content_snapshot=content_snapshot,
             content_diff=content_diff,
             metadata_snapshot=metadata,
-            source=context.source.value,
+            source=context.source,
             auth_type=context.auth_type.value,
             token_prefix=context.token_prefix,
         )
@@ -282,7 +282,7 @@ class HistoryService:
         user_id: UUID,
         entity_types: list[EntityType | str] | None = None,
         actions: list[ActionType | str] | None = None,
-        sources: list[RequestSource | str] | None = None,
+        sources: list[str] | None = None,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         limit: int = 50,
@@ -324,10 +324,7 @@ class HistoryService:
             conditions.append(ContentHistory.action.in_(action_values))
 
         if sources:
-            source_values = [
-                s.value if isinstance(s, RequestSource) else s for s in sources
-            ]
-            conditions.append(ContentHistory.source.in_(source_values))
+            conditions.append(ContentHistory.source.in_(sources))
 
         if start_date:
             conditions.append(ContentHistory.created_at >= start_date)

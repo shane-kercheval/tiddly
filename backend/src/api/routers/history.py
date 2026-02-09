@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_limits, get_current_user
 from core.auth import get_request_context
-from core.request_context import RequestSource
 from core.tier_limits import TierLimits
 from models.content_history import ActionType, EntityType
 from models.user import User
@@ -115,9 +114,9 @@ async def get_user_history(
         default=None,
         description="Filter by action types. Multiple values use OR logic.",
     ),
-    source: list[RequestSource] | None = Query(
+    source: list[str] | None = Query(
         default=None,
-        description="Filter by source (web, api, mcp-content, mcp-prompt, unknown).",
+        description="Filter by source (e.g. web, api, mcp-content, mcp-prompt).",
     ),
     start_date: datetime | None = Query(
         default=None,

@@ -6,7 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.request_context import AuthType, RequestContext, RequestSource
+from core.request_context import AuthType, RequestContext
 from core.tier_limits import get_tier_limits
 from models.content_history import ActionType, ContentHistory, EntityType
 from models.user import User
@@ -32,7 +32,7 @@ async def test_user(db_session: AsyncSession) -> User:
 
 
 def make_context(
-    source: RequestSource = RequestSource.WEB,
+    source: str = "web",
     auth_type: AuthType = AuthType.AUTH0,
     token_prefix: str | None = None,
 ) -> RequestContext:
@@ -103,7 +103,7 @@ class TestBookmarkHistoryIntegration:
         assert record.metadata_snapshot["title"] == "Test Bookmark"
         assert record.metadata_snapshot["url"] == "https://example.com/"  # URL normalized
         assert record.metadata_snapshot["tags"] == ["test"]
-        assert record.source == RequestSource.WEB.value
+        assert record.source == "web"
         assert record.auth_type == AuthType.AUTH0.value
 
     @pytest.mark.asyncio
@@ -346,7 +346,7 @@ class TestContextPropagation:
         test_user: User,
     ) -> None:
         """Web + Auth0 context is recorded."""
-        context = make_context(source=RequestSource.WEB, auth_type=AuthType.AUTH0)
+        context = make_context(source="web", auth_type=AuthType.AUTH0)
         service = BookmarkService()
         limits = get_tier_limits("free")
 
@@ -367,7 +367,7 @@ class TestContextPropagation:
     ) -> None:
         """API + PAT context with token prefix is recorded."""
         context = make_context(
-            source=RequestSource.API,
+            source="api",
             auth_type=AuthType.PAT,
             token_prefix="bm_test123...",
         )
@@ -391,7 +391,7 @@ class TestContextPropagation:
     ) -> None:
         """MCP-content source is recorded."""
         context = make_context(
-            source=RequestSource.MCP_CONTENT,
+            source="mcp-content",
             auth_type=AuthType.PAT,
             token_prefix="bm_mcp...",
         )
@@ -448,7 +448,7 @@ class TestNoteHistoryIntegration:
         assert record.content_diff is None
         assert record.metadata_snapshot["title"] == "Test Note"
         assert record.metadata_snapshot["tags"] == ["test"]
-        assert record.source == RequestSource.WEB.value
+        assert record.source == "web"
         assert record.auth_type == AuthType.AUTH0.value
 
     @pytest.mark.asyncio
