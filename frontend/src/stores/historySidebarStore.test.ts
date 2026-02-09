@@ -127,9 +127,76 @@ describe('historySidebarStore', () => {
     })
   })
 
-  describe('initial width from localStorage', () => {
-    it('should use default width when localStorage is empty', () => {
-      expect(useHistorySidebarStore.getState().width).toBe(DEFAULT_SIDEBAR_WIDTH)
+  describe('initialization from localStorage', () => {
+    // These tests use vi.resetModules() + dynamic import to test true
+    // initialization behavior, since the store is instantiated at import time.
+
+    it('should use default width when localStorage is empty', async () => {
+      vi.resetModules()
+      localStorage.clear()
+
+      const { useHistorySidebarStore: freshStore } = await import('./historySidebarStore')
+
+      expect(freshStore.getState().width).toBe(DEFAULT_SIDEBAR_WIDTH)
+    })
+
+    it('should initialize width from localStorage when present', async () => {
+      vi.resetModules()
+      localStorage.clear()
+      localStorage.setItem('history-sidebar-width', '650')
+
+      const { useHistorySidebarStore: freshStore } = await import('./historySidebarStore')
+
+      expect(freshStore.getState().width).toBe(650)
+    })
+
+    it('should fall back to default width when localStorage has invalid value', async () => {
+      vi.resetModules()
+      localStorage.clear()
+      localStorage.setItem('history-sidebar-width', 'not-a-number')
+
+      const { useHistorySidebarStore: freshStore } = await import('./historySidebarStore')
+
+      expect(freshStore.getState().width).toBe(DEFAULT_SIDEBAR_WIDTH)
+    })
+
+    it('should fall back to default width when localStorage value is below minimum', async () => {
+      vi.resetModules()
+      localStorage.clear()
+      localStorage.setItem('history-sidebar-width', '100')
+
+      const { useHistorySidebarStore: freshStore } = await import('./historySidebarStore')
+
+      expect(freshStore.getState().width).toBe(DEFAULT_SIDEBAR_WIDTH)
+    })
+
+    it('should start closed when localStorage is empty', async () => {
+      vi.resetModules()
+      localStorage.clear()
+
+      const { useHistorySidebarStore: freshStore } = await import('./historySidebarStore')
+
+      expect(freshStore.getState().isOpen).toBe(false)
+    })
+
+    it('should initialize open state from localStorage when true', async () => {
+      vi.resetModules()
+      localStorage.clear()
+      localStorage.setItem('history-sidebar-open', 'true')
+
+      const { useHistorySidebarStore: freshStore } = await import('./historySidebarStore')
+
+      expect(freshStore.getState().isOpen).toBe(true)
+    })
+
+    it('should initialize closed when localStorage has non-true value', async () => {
+      vi.resetModules()
+      localStorage.clear()
+      localStorage.setItem('history-sidebar-open', 'false')
+
+      const { useHistorySidebarStore: freshStore } = await import('./historySidebarStore')
+
+      expect(freshStore.getState().isOpen).toBe(false)
     })
   })
 })
