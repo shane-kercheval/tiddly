@@ -4,7 +4,7 @@
  * Provides:
  * - useUserHistory: Fetch all user history (for Settings page)
  * - useEntityHistory: Fetch history for a specific entity (for sidebar)
- * - useContentAtVersion: Fetch content at a specific version (for diff view)
+ * - useVersionDiff: Fetch diff between a version and its predecessor
  * - useRestoreToVersion: Restore entity to a previous version
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -14,7 +14,7 @@ import type {
   HistoryActionType,
   HistorySourceType,
   HistoryListResponse,
-  ContentAtVersionResponse,
+  VersionDiffResponse,
   RestoreResponse,
 } from '../types'
 
@@ -48,6 +48,8 @@ export const historyKeys = {
     [...historyKeys.all, entityType, entityId, params] as const,
   version: (entityType: HistoryEntityType, entityId: string, version: number) =>
     [...historyKeys.all, entityType, entityId, 'version', version] as const,
+  diff: (entityType: HistoryEntityType, entityId: string, version: number) =>
+    [...historyKeys.all, entityType, entityId, 'diff', version] as const,
 }
 
 /**
@@ -112,21 +114,22 @@ export function useEntityHistory(
 }
 
 /**
- * Fetch content at a specific version (for diff view).
+ * Fetch diff between a version and its predecessor.
  *
- * Reconstructs and returns the content at the specified version.
- * Returns null content for DELETE actions (this is valid).
+ * Returns before/after content and metadata in a single response.
+ * For version 1 (CREATE), before fields are null.
+ * For metadata-only changes, content fields are both null.
  */
-export function useContentAtVersion(
+export function useVersionDiff(
   entityType: HistoryEntityType,
   entityId: string,
   version: number | null
 ) {
-  return useQuery<ContentAtVersionResponse>({
-    queryKey: historyKeys.version(entityType, entityId, version ?? 0),
+  return useQuery<VersionDiffResponse>({
+    queryKey: historyKeys.diff(entityType, entityId, version ?? 0),
     queryFn: async () => {
-      const response = await api.get<ContentAtVersionResponse>(
-        `/history/${entityType}/${entityId}/version/${version}`
+      const response = await api.get<VersionDiffResponse>(
+        `/history/${entityType}/${entityId}/version/${version}/diff`
       )
       return response.data
     },

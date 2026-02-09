@@ -11,10 +11,10 @@ import { SettingsVersionHistory } from './SettingsVersionHistory'
 
 // Mock the history hooks
 const mockUseUserHistory = vi.fn()
-const mockUseContentAtVersion = vi.fn()
+const mockUseVersionDiff = vi.fn()
 vi.mock('../../hooks/useHistory', () => ({
   useUserHistory: (params: unknown) => mockUseUserHistory(params),
-  useContentAtVersion: () => mockUseContentAtVersion(),
+  useVersionDiff: () => mockUseVersionDiff(),
 }))
 
 function createQueryClient(): QueryClient {
@@ -44,8 +44,8 @@ describe('SettingsVersionHistory', () => {
       isLoading: false,
       error: null,
     })
-    // Default mock - no content loaded
-    mockUseContentAtVersion.mockReturnValue({
+    // Default mock - no diff data loaded
+    mockUseVersionDiff.mockReturnValue({
       data: null,
     })
   })

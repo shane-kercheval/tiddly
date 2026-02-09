@@ -6,10 +6,11 @@
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
-import { useEntityHistory, useContentAtVersion, useRestoreToVersion } from '../hooks/useHistory'
+import { useEntityHistory, useVersionDiff, useRestoreToVersion } from '../hooks/useHistory'
 import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
 import { CloseIcon, RestoreIcon } from './icons'
 import { DiffView } from './DiffView'
+import { MetadataChanges } from './MetadataChanges'
 import type { HistoryEntityType, HistoryActionType } from '../types'
 
 interface HistorySidebarProps {
@@ -154,19 +155,11 @@ export function HistorySidebar({
 
   const { data: history, isLoading } = useEntityHistory(entityType, entityId, { limit: 50 })
 
-  // Fetch content at the selected version (the "after" state)
-  const { data: versionContent } = useContentAtVersion(
+  // Fetch diff between selected version and its predecessor
+  const { data: diffData } = useVersionDiff(
     entityType,
     entityId,
     selectedVersion
-  )
-
-  // Fetch content at the previous version (the "before" state) for diff comparison
-  const previousVersion = selectedVersion !== null && selectedVersion > 1 ? selectedVersion - 1 : null
-  const { data: previousVersionContent } = useContentAtVersion(
-    entityType,
-    entityId,
-    previousVersion
   )
 
   const restoreMutation = useRestoreToVersion()
@@ -292,20 +285,30 @@ export function HistorySidebar({
                 {/* Inline diff/info view - shown below selected version */}
                 {selectedVersion === entry.version && entry.version !== null && (
                   <div className="border-t border-gray-200 bg-gray-50">
-                    {versionContent?.warnings && versionContent.warnings.length > 0 && (
+                    {diffData?.warnings && diffData.warnings.length > 0 && (
                       <div className="px-3 py-1 text-xs text-yellow-600 border-b border-gray-200">
                         Warning: Some changes could not be fully reconstructed
                       </div>
                     )}
-                    <DiffView
-                      oldContent={previousVersionContent?.content ?? ''}
-                      newContent={versionContent?.content ?? ''}
-                      isLoading={
-                        // Show spinner while waiting for required data
-                        // Check data existence directly rather than relying on React Query flags
-                        !versionContent || (previousVersion !== null && !previousVersionContent)
-                      }
-                    />
+                    {diffData ? (
+                      <>
+                        <MetadataChanges
+                          beforeMetadata={diffData.before_metadata}
+                          afterMetadata={diffData.after_metadata}
+                          entityType={entityType}
+                          action={entry.action}
+                        />
+                        {(diffData.before_content != null || diffData.after_content != null) && (
+                          <DiffView
+                            oldContent={diffData.before_content ?? ''}
+                            newContent={diffData.after_content ?? ''}
+                            isLoading={false}
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <DiffView oldContent="" newContent="" isLoading={true} />
+                    )}
                   </div>
                 )}
               </li>

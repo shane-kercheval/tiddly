@@ -560,6 +560,17 @@ export interface ContentAtVersionResponse {
   warnings: string[] | null
 }
 
+/** Diff between a version and its predecessor */
+export interface VersionDiffResponse {
+  entity_id: string
+  version: number
+  before_content: string | null
+  after_content: string | null
+  before_metadata: Record<string, unknown> | null
+  after_metadata: Record<string, unknown> | null
+  warnings: string[] | null
+}
+
 /** Response from restore operation */
 export interface RestoreResponse {
   message: string

@@ -17,11 +17,11 @@ import type { HistoryEntry } from '../types'
 
 // Mock the history hooks
 const mockUseEntityHistory = vi.fn()
-const mockUseContentAtVersion = vi.fn()
+const mockUseVersionDiff = vi.fn()
 const mockUseRestoreToVersion = vi.fn()
 vi.mock('../hooks/useHistory', () => ({
   useEntityHistory: (...args: unknown[]) => mockUseEntityHistory(...args),
-  useContentAtVersion: (...args: unknown[]) => mockUseContentAtVersion(...args),
+  useVersionDiff: (...args: unknown[]) => mockUseVersionDiff(...args),
   useRestoreToVersion: () => mockUseRestoreToVersion(),
 }))
 
@@ -71,7 +71,7 @@ function renderSidebar(): void {
 describe('HistorySidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockUseContentAtVersion.mockReturnValue({ data: null })
+    mockUseVersionDiff.mockReturnValue({ data: null })
     mockUseRestoreToVersion.mockReturnValue({ mutate: vi.fn(), isPending: false })
   })
 
@@ -238,8 +238,14 @@ describe('HistorySidebar', () => {
 
   describe('diff view interaction', () => {
     it('test__clicking_content_entry__opens_diff_view', () => {
-      mockUseContentAtVersion.mockReturnValue({
-        data: { content: 'test content', warnings: null },
+      mockUseVersionDiff.mockReturnValue({
+        data: {
+          before_content: 'old content',
+          after_content: 'test content',
+          before_metadata: { title: 'Test' },
+          after_metadata: { title: 'Test' },
+          warnings: null,
+        },
       })
 
       const entries = [
@@ -263,8 +269,14 @@ describe('HistorySidebar', () => {
     })
 
     it('test__clicking_audit_entry__closes_open_diff_view', () => {
-      mockUseContentAtVersion.mockReturnValue({
-        data: { content: 'test content', warnings: null },
+      mockUseVersionDiff.mockReturnValue({
+        data: {
+          before_content: 'old content',
+          after_content: 'test content',
+          before_metadata: { title: 'Test' },
+          after_metadata: { title: 'Test' },
+          warnings: null,
+        },
       })
 
       const entries = [

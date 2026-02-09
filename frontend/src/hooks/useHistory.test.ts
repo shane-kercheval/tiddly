@@ -142,4 +142,19 @@ describe('historyKeys', () => {
       expect(key).toEqual(['history', 'note', '456', 'version', 3])
     })
   })
+
+  describe('diff', () => {
+    it('should include entity type, id, and version in key', () => {
+      const key = historyKeys.diff('bookmark', '789', 5)
+
+      expect(key).toEqual(['history', 'bookmark', '789', 'diff', 5])
+    })
+
+    it('should produce different key from version key for same params', () => {
+      const versionKey = historyKeys.version('note', '123', 2)
+      const diffKey = historyKeys.diff('note', '123', 2)
+
+      expect(JSON.stringify(versionKey)).not.toEqual(JSON.stringify(diffKey))
+    })
+  })
 })

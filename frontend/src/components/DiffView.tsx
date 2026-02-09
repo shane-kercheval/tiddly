@@ -143,7 +143,7 @@ export function DiffView({
   if (oldContent === newContent) {
     return (
       <div className="p-3 text-sm text-gray-500">
-        No content changes in this version (metadata only).
+        No changes.
       </div>
     )
   }
