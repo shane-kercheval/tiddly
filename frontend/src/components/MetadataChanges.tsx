@@ -27,9 +27,9 @@ const FIELD_LABELS: Record<string, string> = {
 
 /** Known fields per entity type (controls which fields to check/display) */
 const FIELDS_BY_TYPE: Record<HistoryEntityType, string[]> = {
-  bookmark: ['title', 'description', 'tags', 'url'],
-  note: ['title', 'description', 'tags'],
-  prompt: ['title', 'description', 'tags', 'name', 'arguments'],
+  bookmark: ['title', 'url', 'tags', 'description'],
+  note: ['title', 'tags', 'description'],
+  prompt: ['title', 'name', 'tags', 'arguments', 'description'],
 }
 
 /** Normalize a string value: treat null/undefined/empty as equivalent */

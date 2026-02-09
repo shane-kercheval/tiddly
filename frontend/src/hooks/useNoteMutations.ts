@@ -23,6 +23,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { noteKeys } from './useNotesQuery'
 import { contentKeys } from './useContentQuery'
+import { historyKeys } from './useHistory'
 import { useTagsStore } from '../stores/tagsStore'
 import type { Note, NoteCreate, NoteUpdate, NoteListResponse, ContentListResponse } from '../types'
 
@@ -188,6 +189,7 @@ export function useCreateNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -229,6 +231,7 @@ export function useUpdateNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       // Only refresh tags if tags were modified (reduces flicker on save)
       if ('tags' in data) {
         fetchTags()
@@ -285,6 +288,7 @@ export function useDeleteNote() {
         queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
         queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       }
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -326,6 +330,7 @@ export function useRestoreNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -367,6 +372,7 @@ export function useArchiveNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -408,6 +414,7 @@ export function useUnarchiveNote() {
       queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })

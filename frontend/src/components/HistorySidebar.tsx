@@ -299,11 +299,14 @@ export function HistorySidebar({
                           action={entry.action}
                         />
                         {(diffData.before_content != null || diffData.after_content != null) && (
-                          <DiffView
-                            oldContent={diffData.before_content ?? ''}
-                            newContent={diffData.after_content ?? ''}
-                            isLoading={false}
-                          />
+                          <div className="space-y-1">
+                            <span className="text-sm font-medium text-gray-600 px-3 pt-2 block">Content:</span>
+                            <DiffView
+                              oldContent={diffData.before_content ?? ''}
+                              newContent={diffData.after_content ?? ''}
+                              isLoading={false}
+                            />
+                          </div>
                         )}
                       </>
                     ) : (

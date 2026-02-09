@@ -23,6 +23,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { promptKeys } from './usePromptsQuery'
 import { contentKeys } from './useContentQuery'
+import { historyKeys } from './useHistory'
 import { useTagsStore } from '../stores/tagsStore'
 import type { Prompt, PromptCreate, PromptUpdate, PromptListResponse, ContentListResponse } from '../types'
 
@@ -192,6 +193,7 @@ export function useCreatePrompt() {
       queryClient.invalidateQueries({ queryKey: promptKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -233,6 +235,7 @@ export function useUpdatePrompt() {
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       // Only refresh tags if tags were modified (reduces flicker on save)
       if ('tags' in data) {
         fetchTags()
@@ -289,6 +292,7 @@ export function useDeletePrompt() {
         queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
         queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       }
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -330,6 +334,7 @@ export function useRestorePrompt() {
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -371,6 +376,7 @@ export function useArchivePrompt() {
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -412,6 +418,7 @@ export function useUnarchivePrompt() {
       queryClient.invalidateQueries({ queryKey: promptKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
