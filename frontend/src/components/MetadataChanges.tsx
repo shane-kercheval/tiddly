@@ -51,9 +51,21 @@ function tagsEqual(a: unknown, b: unknown): boolean {
   return sortedA.length === sortedB.length && sortedA.every((tag, i) => tag === sortedB[i])
 }
 
-/** Check if arguments changed (simple equality check on serialized form) */
+/** Stable JSON stringify that sorts object keys to handle JSONB key reordering */
+function stableStringify(value: unknown): string {
+  if (value === null || value === undefined) return JSON.stringify(value)
+  if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']'
+  if (typeof value === 'object') {
+    const sorted = Object.keys(value as Record<string, unknown>).sort()
+      .map(k => JSON.stringify(k) + ':' + stableStringify((value as Record<string, unknown>)[k]))
+    return '{' + sorted.join(',') + '}'
+  }
+  return JSON.stringify(value)
+}
+
+/** Check if arguments changed (key-order-independent comparison) */
 function argumentsChanged(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) !== JSON.stringify(b)
+  return stableStringify(a) !== stableStringify(b)
 }
 
 /** Render a short field change with arrow notation */

@@ -492,6 +492,11 @@ export function SettingsVersionHistory(): ReactNode {
                 {/* Inline diff view - only for content actions */}
                 {selectedEntry?.id === entry.id && !isAuditAction(entry.action) && (
                   <div className="border-t border-gray-200 bg-gray-50">
+                    {diffData?.warnings && diffData.warnings.length > 0 && (
+                      <div className="px-3 py-1 text-xs text-yellow-600 border-b border-gray-200">
+                        Warning: Some changes could not be fully reconstructed
+                      </div>
+                    )}
                     {diffData ? (
                       <>
                         <MetadataChanges
@@ -580,6 +585,11 @@ export function SettingsVersionHistory(): ReactNode {
                       {/* Inline diff view - only for content actions */}
                       {selectedEntry?.id === entry.id && !isAuditAction(entry.action) && (
                         <div className="border-t border-gray-200 bg-gray-50">
+                          {diffData?.warnings && diffData.warnings.length > 0 && (
+                            <div className="px-3 py-1 text-xs text-yellow-600 border-b border-gray-200">
+                              Warning: Some changes could not be fully reconstructed
+                            </div>
+                          )}
                           {diffData ? (
                             <>
                               <MetadataChanges

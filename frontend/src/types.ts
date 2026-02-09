@@ -551,15 +551,6 @@ export interface HistoryListResponse {
   has_more: boolean
 }
 
-/** Content at a specific version */
-export interface ContentAtVersionResponse {
-  entity_id: string
-  version: number
-  content: string | null
-  metadata: Record<string, unknown> | null
-  warnings: string[] | null
-}
-
 /** Diff between a version and its predecessor */
 export interface VersionDiffResponse {
   entity_id: string

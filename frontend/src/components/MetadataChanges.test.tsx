@@ -303,6 +303,29 @@ describe('MetadataChanges', () => {
     expect(screen.getByText('2 arguments defined')).toBeInTheDocument()
   })
 
+  it('test__argument_key_reordering__does_not_show_false_diff', () => {
+    // JSONB round-trips can reorder keys within objects
+    const { container } = renderMetadata({
+      beforeMetadata: {
+        title: 'Test',
+        name: 'test',
+        tags: [],
+        arguments: [{ name: 'arg1', description: 'Desc', required: true }],
+      },
+      afterMetadata: {
+        title: 'Test',
+        name: 'test',
+        tags: [],
+        arguments: [{ required: true, name: 'arg1', description: 'Desc' }],
+      },
+      entityType: 'prompt',
+      action: 'update',
+    })
+
+    // Same data, different key order — no changes should be rendered
+    expect(container.innerHTML).toBe('')
+  })
+
   it('test__tag_reordering__does_not_show_false_diff', () => {
     const { container } = renderMetadata({
       beforeMetadata: { title: 'Test', tags: ['b', 'a', 'c'] },

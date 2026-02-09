@@ -46,8 +46,6 @@ export const historyKeys = {
   ] as const,
   entity: (entityType: HistoryEntityType, entityId: string, params: { limit?: number; offset?: number }) =>
     [...historyKeys.all, entityType, entityId, params] as const,
-  version: (entityType: HistoryEntityType, entityId: string, version: number) =>
-    [...historyKeys.all, entityType, entityId, 'version', version] as const,
   diff: (entityType: HistoryEntityType, entityId: string, version: number) =>
     [...historyKeys.all, entityType, entityId, 'diff', version] as const,
 }
