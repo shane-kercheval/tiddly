@@ -26,11 +26,13 @@ from api.helpers import (
     check_optimistic_lock_by_name,
     resolve_filter_and_sorting,
 )
+from core.auth import get_request_context
 from core.http_cache import check_not_modified, format_http_date
 from core.tier_limits import TierLimits
 from models.user import User
 from services.exceptions import FieldLimitExceededError
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
+from schemas.history import HistoryListResponse, HistoryResponse
 from schemas.errors import (
     ContentEmptyError,
     MinimalEntityData,
@@ -57,7 +59,10 @@ from services.content_edit_service import (
 from services.content_lines import apply_partial_read
 from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
+from services.history_service import history_service
 from services.prompt_service import NameConflictError, PromptService, validate_template
+from models.content_history import ActionType, EntityType
+from core.request_context import RequestContext
 from services.skill_converter import ClientType, prompt_to_skill_md
 from services.template_renderer import TemplateError, render_template
 
@@ -77,6 +82,7 @@ async def _perform_str_replace(
     data: PromptStrReplaceRequest,
     include_updated_entity: bool,
     limits: TierLimits,
+    context: RequestContext,
 ) -> StrReplaceResponse:
     """
     Core str-replace logic shared by ID and name-based endpoints.
@@ -91,6 +97,7 @@ async def _perform_str_replace(
         data: The str-replace request with old_str, new_str, and optional arguments.
         include_updated_entity: If True, return full entity; otherwise minimal data.
         limits: User's tier limits for field validation.
+        context: Request context for history recording.
 
     Returns:
         StrReplaceSuccess with full entity or minimal data.
@@ -107,6 +114,9 @@ async def _perform_str_replace(
                 message="Prompt has no content to edit",
             ).model_dump(),
         )
+
+    # Capture previous content for history
+    previous_content = prompt.content
 
     # Perform str_replace
     try:
@@ -125,6 +135,21 @@ async def _perform_str_replace(
                     for line, ctx in e.matches
                 ],
             ).model_dump(),
+        )
+
+    # Check for no-op (content unchanged AND no argument update requested)
+    if result.new_content == previous_content and data.arguments is None:
+        if include_updated_entity:
+            await db.refresh(prompt, attribute_names=["tag_objects"])
+            return StrReplaceSuccess(
+                match_type=result.match_type,
+                line=result.line,
+                data=PromptResponse.model_validate(prompt),
+            )
+        return StrReplaceSuccessMinimal(
+            match_type=result.match_type,
+            line=result.line,
+            data=MinimalEntityData(id=prompt.id, updated_at=prompt.updated_at),
         )
 
     # Determine which arguments to use for validation:
@@ -162,8 +187,23 @@ async def _perform_str_replace(
     await db.flush()
     await db.refresh(prompt)
 
+    # Record history for str-replace (content changed)
+    await db.refresh(prompt, attribute_names=["tag_objects"])
+    metadata = prompt_service._get_metadata_snapshot(prompt)
+    await history_service.record_action(
+        db=db,
+        user_id=prompt.user_id,
+        entity_type=EntityType.PROMPT,
+        entity_id=prompt.id,
+        action=ActionType.UPDATE,
+        current_content=prompt.content,
+        previous_content=previous_content,
+        metadata=metadata,
+        context=context,
+        limits=limits,
+    )
+
     if include_updated_entity:
-        await db.refresh(prompt, attribute_names=["tag_objects"])
         return StrReplaceSuccess(
             match_type=result.match_type,
             line=result.line,
@@ -181,14 +221,16 @@ prompt_service = PromptService()
 
 @router.post("/", response_model=PromptResponse, status_code=201)
 async def create_prompt(
+    request: Request,
     data: PromptCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
     limits: TierLimits = Depends(get_current_limits),
 ) -> PromptResponse:
     """Create a new prompt."""
+    context = get_request_context(request)
     try:
-        prompt = await prompt_service.create(db, current_user.id, data, limits)
+        prompt = await prompt_service.create(db, current_user.id, data, limits, context)
     except NameConflictError as e:
         raise HTTPException(
             status_code=409,
@@ -370,6 +412,7 @@ async def get_prompt_metadata_by_name(
 @router.patch("/name/{name}", response_model=PromptResponse)
 async def update_prompt_by_name(
     name: str,
+    request: Request,
     data: PromptUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -382,6 +425,7 @@ async def update_prompt_by_name(
     This endpoint is primarily used by the MCP server for prompt updates.
     To edit archived prompts, restore them first via the API or web UI.
     """
+    context = get_request_context(request)
     # Check for conflicts before updating
     await check_optimistic_lock_by_name(
         db, prompt_service, current_user.id, name,
@@ -395,7 +439,7 @@ async def update_prompt_by_name(
 
     try:
         updated_prompt = await prompt_service.update(
-            db, current_user.id, prompt.id, data, limits,
+            db, current_user.id, prompt.id, data, limits, context,
         )
     except NameConflictError as e:
         raise HTTPException(
@@ -416,6 +460,7 @@ async def update_prompt_by_name(
 )
 async def str_replace_prompt_by_name(
     name: str,
+    request: Request,
     data: PromptStrReplaceRequest,
     include_updated_entity: bool = Query(
         default=False,
@@ -441,6 +486,7 @@ async def str_replace_prompt_by_name(
     See PATCH /prompts/{id}/str-replace for full documentation on matching
     strategy, atomic content + arguments updates, and error responses.
     """
+    context = get_request_context(request)
     # Check for conflicts before modifying
     await check_optimistic_lock_by_name(
         db, prompt_service, current_user.id, name,
@@ -452,7 +498,7 @@ async def str_replace_prompt_by_name(
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
 
-    return await _perform_str_replace(db, prompt, data, include_updated_entity, limits)
+    return await _perform_str_replace(db, prompt, data, include_updated_entity, limits, context)
 
 
 def _build_skills_dict(
@@ -754,12 +800,14 @@ async def search_in_prompt(
 @router.patch("/{prompt_id}", response_model=PromptResponse)
 async def update_prompt(
     prompt_id: UUID,
+    request: Request,
     data: PromptUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
     limits: TierLimits = Depends(get_current_limits),
 ) -> PromptResponse:
     """Update a prompt."""
+    context = get_request_context(request)
     # Check for conflicts before updating
     await check_optimistic_lock(
         db, prompt_service, current_user.id, prompt_id,
@@ -768,7 +816,7 @@ async def update_prompt(
 
     try:
         prompt = await prompt_service.update(
-            db, current_user.id, prompt_id, data, limits,
+            db, current_user.id, prompt_id, data, limits, context,
         )
     except NameConflictError as e:
         raise HTTPException(
@@ -789,6 +837,7 @@ async def update_prompt(
 )
 async def str_replace_prompt(
     prompt_id: UUID,
+    request: Request,
     data: PromptStrReplaceRequest,
     include_updated_entity: bool = Query(
         default=False,
@@ -847,6 +896,7 @@ async def str_replace_prompt(
       (includes match locations with context to help construct unique match)
     - 400 with template validation error if result is invalid Jinja2
     """
+    context = get_request_context(request)
     # Check for conflicts before modifying
     await check_optimistic_lock(
         db, prompt_service, current_user.id, prompt_id,
@@ -858,15 +908,17 @@ async def str_replace_prompt(
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
 
-    return await _perform_str_replace(db, prompt, data, include_updated_entity, limits)
+    return await _perform_str_replace(db, prompt, data, include_updated_entity, limits, context)
 
 
 @router.delete("/{prompt_id}", status_code=204)
 async def delete_prompt(
     prompt_id: UUID,
+    request: Request,
     permanent: bool = Query(default=False, description="Permanently delete from DB if true"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> None:
     """
     Delete a prompt.
@@ -874,8 +926,9 @@ async def delete_prompt(
     By default, performs a soft delete (sets deleted_at timestamp).
     Use ?permanent=true from the trash view to permanently remove from database.
     """
+    context = get_request_context(request)
     deleted = await prompt_service.delete(
-        db, current_user.id, prompt_id, permanent=permanent,
+        db, current_user.id, prompt_id, permanent=permanent, context=context, limits=limits,
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Prompt not found")
@@ -884,8 +937,10 @@ async def delete_prompt(
 @router.post("/{prompt_id}/restore", response_model=PromptResponse)
 async def restore_prompt(
     prompt_id: UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> PromptResponse:
     """
     Restore a soft-deleted prompt to active state.
@@ -893,9 +948,10 @@ async def restore_prompt(
     Clears both deleted_at and archived_at timestamps, returning the prompt
     to active state (not archived).
     """
+    context = get_request_context(request)
     try:
         prompt = await prompt_service.restore(
-            db, current_user.id, prompt_id,
+            db, current_user.id, prompt_id, context, limits=limits,
         )
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -908,8 +964,10 @@ async def restore_prompt(
 @router.post("/{prompt_id}/archive", response_model=PromptResponse)
 async def archive_prompt(
     prompt_id: UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> PromptResponse:
     """
     Archive a prompt.
@@ -917,8 +975,9 @@ async def archive_prompt(
     Sets archived_at timestamp. This operation is idempotent - archiving an
     already-archived prompt returns success with the current state.
     """
+    context = get_request_context(request)
     prompt = await prompt_service.archive(
-        db, current_user.id, prompt_id,
+        db, current_user.id, prompt_id, context, limits=limits,
     )
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
@@ -928,17 +987,20 @@ async def archive_prompt(
 @router.post("/{prompt_id}/unarchive", response_model=PromptResponse)
 async def unarchive_prompt(
     prompt_id: UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> PromptResponse:
     """
     Unarchive a prompt.
 
     Clears archived_at timestamp, returning the prompt to active state.
     """
+    context = get_request_context(request)
     try:
         prompt = await prompt_service.unarchive(
-            db, current_user.id, prompt_id,
+            db, current_user.id, prompt_id, context, limits=limits,
         )
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1004,3 +1066,33 @@ async def render_prompt(
         raise HTTPException(status_code=400, detail=str(e))
 
     return PromptRenderResponse(rendered_content=rendered)
+
+
+@router.get("/{prompt_id}/history", response_model=HistoryListResponse)
+async def get_prompt_history(
+    prompt_id: UUID,
+    limit: int = Query(default=50, ge=1, le=100, description="Number of records to return"),
+    offset: int = Query(default=0, ge=0, description="Number of records to skip"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> HistoryListResponse:
+    """
+    Get history for a specific prompt.
+
+    Returns paginated history records for this prompt,
+    sorted by version descending (most recent first).
+
+    Returns empty list (not 404) if:
+    - Prompt was hard-deleted (history cascade-deleted)
+    - No history exists for this prompt_id
+    """
+    items, total = await history_service.get_entity_history(
+        db, current_user.id, EntityType.PROMPT, prompt_id, limit, offset,
+    )
+    return HistoryListResponse(
+        items=[HistoryResponse.model_validate(item) for item in items],
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + len(items) < total,
+    )

@@ -25,7 +25,7 @@ import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
-import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
+import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
 import { useLimits } from '../hooks/useLimits'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
@@ -103,6 +103,8 @@ interface BookmarkProps {
   fullWidth?: boolean
   /** Called to refresh the bookmark from server (for stale check). Returns the refreshed bookmark on success. */
   onRefresh?: () => Promise<BookmarkType | null>
+  /** Called when history button is clicked */
+  onShowHistory?: () => void
 }
 
 /**
@@ -135,6 +137,7 @@ export function Bookmark({
   viewState = 'active',
   fullWidth = false,
   onRefresh,
+  onShowHistory,
 }: BookmarkProps): ReactNode {
   const isCreate = !bookmark
 
@@ -174,6 +177,10 @@ export function Bookmark({
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
   // Skip useEffect sync for a specific updated_at when manually handling refresh (e.g., from StaleDialog)
   const skipSyncForUpdatedAtRef = useRef<string | null>(null)
+  // Track current content for detecting external changes (e.g., version restore) in the sync effect.
+  // Using a ref avoids stale closure issues and doesn't need to be in the effect's dependency array.
+  const currentContentRef = useRef(current.content)
+  currentContentRef.current = current.content
 
   const syncStateFromBookmark = useCallback(
     (nextBookmark: BookmarkType, resetEditor = false): void => {
@@ -208,7 +215,10 @@ export function Bookmark({
       skipSyncForUpdatedAtRef.current = null
       return
     }
-    syncStateFromBookmark(bookmark)
+    // Reset editor if content changed externally (e.g., version restore from history sidebar).
+    // After normal saves, currentContentRef already matches bookmark.content so no reset occurs.
+    const needsEditorReset = (bookmark.content ?? '') !== currentContentRef.current
+    syncStateFromBookmark(bookmark, needsEditorReset)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookmark?.id, bookmark?.updated_at, syncStateFromBookmark])
 
@@ -771,6 +781,20 @@ export function Bookmark({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* History button - existing bookmarks only */}
+          {!isCreate && onShowHistory && (
+            <button
+              type="button"
+              onClick={onShowHistory}
+              disabled={isSaving}
+              className="btn-secondary flex items-center gap-2"
+              title="View version history"
+            >
+              <HistoryIcon className="h-4 w-4" />
+              <span className="hidden md:inline">History</span>
+            </button>
+          )}
+
           {/* Archive button - active bookmarks only */}
           {viewState === 'active' && onArchive && (
             <button

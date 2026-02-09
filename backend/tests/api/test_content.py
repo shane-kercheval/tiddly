@@ -65,13 +65,9 @@ async def test__list_all_content__has_correct_type_fields(
     bookmark_item = next(item for item in data['items'] if item['type'] == 'bookmark')
     note_item = next(item for item in data['items'] if item['type'] == 'note')
 
-    # Bookmark has url, no version
+    # Bookmark has url, note does not
     assert bookmark_item['url'] == 'https://test.com/'
-    assert bookmark_item['version'] is None
-
-    # Note has version, no url
     assert note_item['url'] is None
-    assert note_item['version'] == 1
 
 
 async def test__list_all_content__view_active_excludes_deleted(
@@ -353,7 +349,6 @@ async def test__list_all_content__response_schema_is_correct(
     assert 'deleted_at' in item
     assert 'archived_at' in item
     assert 'url' in item
-    assert 'version' in item
 
 
 async def test__list_content__returns_length_and_preview(client: AsyncClient) -> None:

@@ -3196,6 +3196,37 @@ async def test_str_replace_bookmark_updates_updated_at(client: AsyncClient) -> N
     assert response.json()["data"]["updated_at"] > original_updated_at
 
 
+async def test_str_replace_bookmark_no_op_does_not_update_timestamp(client: AsyncClient) -> None:
+    """Test that str-replace with old_str == new_str does not update timestamp."""
+    response = await client.post(
+        "/bookmarks/",
+        json={
+            "url": "https://no-op-timestamp-test.com",
+            "title": "Test",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    bookmark_id = response.json()["id"]
+    original_updated_at = response.json()["updated_at"]
+
+    await asyncio.sleep(0.01)
+
+    # Perform str-replace with identical old and new strings (no-op)
+    response = await client.patch(
+        f"/bookmarks/{bookmark_id}/str-replace",
+        json={"old_str": "world", "new_str": "world"},
+    )
+    assert response.status_code == 200
+
+    # Timestamp should NOT have changed
+    assert response.json()["data"]["updated_at"] == original_updated_at
+
+    # Verify match info is still returned
+    assert response.json()["match_type"] == "exact"
+    assert "line" in response.json()
+
+
 async def test_str_replace_bookmark_works_on_archived(client: AsyncClient) -> None:
     """Test that str-replace works on archived bookmarks."""
     response = await client.post(

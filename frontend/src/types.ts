@@ -514,3 +514,54 @@ export interface UserLimits {
   rate_sensitive_per_minute: number
   rate_sensitive_per_day: number
 }
+
+// =============================================================================
+// History Types
+// =============================================================================
+
+/** Entity type for history records */
+export type HistoryEntityType = 'bookmark' | 'note' | 'prompt'
+
+/** Action types tracked in history */
+export type HistoryActionType = 'create' | 'update' | 'delete' | 'restore' | 'undelete' | 'archive' | 'unarchive'
+
+/** Single history record */
+export interface HistoryEntry {
+  id: string
+  entity_type: HistoryEntityType
+  entity_id: string
+  action: HistoryActionType
+  version: number | null
+  metadata_snapshot: Record<string, unknown> | null
+  source: string
+  auth_type: string
+  token_prefix: string | null
+  created_at: string
+}
+
+/** Paginated history list response */
+export interface HistoryListResponse {
+  items: HistoryEntry[]
+  total: number
+  offset: number
+  limit: number
+  has_more: boolean
+}
+
+/** Diff between a version and its predecessor */
+export interface VersionDiffResponse {
+  entity_id: string
+  version: number
+  before_content: string | null
+  after_content: string | null
+  before_metadata: Record<string, unknown> | null
+  after_metadata: Record<string, unknown> | null
+  warnings: string[] | null
+}
+
+/** Response from restore operation */
+export interface RestoreResponse {
+  message: string
+  version: number
+  warnings: string[] | null
+}

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from api.dependencies import get_current_user
-from core.tier_limits import Tier, get_tier_limits
+from core.tier_limits import get_tier_limits, get_tier_safely
 from models.user import User
 from schemas.user_limits import UserLimitsResponse
 
@@ -39,9 +39,9 @@ async def get_my_limits(
 
     Returns all limit values for the user's subscription tier.
     """
-    tier = Tier(current_user.tier)
+    tier = get_tier_safely(current_user.tier)
     limits = get_tier_limits(tier)
     return UserLimitsResponse(
-        tier=current_user.tier,
+        tier=tier.value,
         **asdict(limits),
     )

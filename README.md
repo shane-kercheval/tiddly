@@ -14,6 +14,7 @@ Notes, Bookmarks, and Prompt management system; + Remote MCP Servers.
 - **Keyboard shortcuts** - Quick actions for power users
 - **Archive** - Hide content without deleting them
 - **Soft delete & restore** - Delete content without permanent loss
+- **Version history** - Track all changes to bookmarks, notes, and prompts. View diffs, see who made changes, and restore any previous version
 - **Personal Access Tokens** - Programmatic API access for CLI tools and scripts
 
 ## Project Structure

@@ -23,7 +23,7 @@ import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
-import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
+import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
 import { useLimits } from '../hooks/useLimits'
@@ -89,6 +89,8 @@ interface NoteProps {
   fullWidth?: boolean
   /** Called to refresh the note from server (for stale check). Returns the refreshed note on success. */
   onRefresh?: () => Promise<NoteType | null>
+  /** Called when history button is clicked */
+  onShowHistory?: () => void
 }
 
 /**
@@ -108,6 +110,7 @@ export function Note({
   viewState = 'active',
   fullWidth = false,
   onRefresh,
+  onShowHistory,
 }: NoteProps): ReactNode {
   const isCreate = !note
 
@@ -156,6 +159,10 @@ export function Note({
   const [contentKey, setContentKey] = useState(0)
   // Skip useEffect sync for a specific updated_at when manually handling refresh (e.g., from StaleDialog)
   const skipSyncForUpdatedAtRef = useRef<string | null>(null)
+  // Track current content for detecting external changes (e.g., version restore) in the sync effect.
+  // Using a ref avoids stale closure issues and doesn't need to be in the effect's dependency array.
+  const currentContentRef = useRef(current.content)
+  currentContentRef.current = current.content
 
   const syncStateFromNote = useCallback((nextNote: NoteType, resetEditor = false): void => {
     const archiveState = nextNote.archived_at
@@ -188,7 +195,10 @@ export function Note({
       skipSyncForUpdatedAtRef.current = null
       return
     }
-    syncStateFromNote(note)
+    // Reset editor if content changed externally (e.g., version restore from history sidebar).
+    // After normal saves, currentContentRef already matches note.content so no reset occurs.
+    const needsEditorReset = (note.content ?? '') !== currentContentRef.current
+    syncStateFromNote(note, needsEditorReset)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note?.id, note?.updated_at, syncStateFromNote])
 
@@ -620,6 +630,20 @@ export function Note({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* History button - existing notes only */}
+          {!isCreate && onShowHistory && (
+            <button
+              type="button"
+              onClick={onShowHistory}
+              disabled={isSaving}
+              className="btn-secondary flex items-center gap-2"
+              title="View version history"
+            >
+              <HistoryIcon className="h-4 w-4" />
+              <span className="hidden md:inline">History</span>
+            </button>
+          )}
+
           {/* Archive button - active notes only */}
           {viewState === 'active' && onArchive && (
             <button

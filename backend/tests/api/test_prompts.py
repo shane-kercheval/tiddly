@@ -1961,6 +1961,36 @@ async def test_str_replace_prompt_updates_updated_at(client: AsyncClient) -> Non
     assert response.json()["data"]["updated_at"] > original_updated_at
 
 
+async def test_str_replace_prompt_no_op_does_not_update_timestamp(client: AsyncClient) -> None:
+    """Test that str-replace with old_str == new_str does not update timestamp."""
+    response = await client.post(
+        "/prompts/",
+        json={
+            "name": "no-op-timestamp-test-prompt",
+            "content": "Hello world",
+        },
+    )
+    assert response.status_code == 201
+    prompt_id = response.json()["id"]
+    original_updated_at = response.json()["updated_at"]
+
+    await asyncio.sleep(0.01)
+
+    # Perform str-replace with identical old and new strings (no-op)
+    response = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={"old_str": "world", "new_str": "world"},
+    )
+    assert response.status_code == 200
+
+    # Timestamp should NOT have changed
+    assert response.json()["data"]["updated_at"] == original_updated_at
+
+    # Verify match info is still returned
+    assert response.json()["match_type"] == "exact"
+    assert "line" in response.json()
+
+
 async def test_str_replace_prompt_works_on_archived(client: AsyncClient) -> None:
     """Test that str-replace works on archived prompts."""
     response = await client.post(

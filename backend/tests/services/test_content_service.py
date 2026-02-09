@@ -111,12 +111,10 @@ async def test__search_all_content__has_correct_type_discriminator(
     assert bookmark_item.type == 'bookmark'
     assert bookmark_item.id == bookmark.id
     assert bookmark_item.url == 'https://test.com/'
-    assert bookmark_item.version is None
 
     assert note_item.type == 'note'
     assert note_item.id == note.id
     assert note_item.url is None
-    assert note_item.version == 1
 
 
 # =============================================================================
@@ -655,7 +653,6 @@ async def test__search_all_content__content_item_fields_are_populated(
     assert bookmark_item.title == 'Full Bookmark'
     assert bookmark_item.description == 'A description'
     assert bookmark_item.url == 'https://test.com/'
-    assert bookmark_item.version is None
     assert bookmark_item.created_at is not None
     assert bookmark_item.updated_at is not None
     assert bookmark_item.last_used_at is not None
@@ -668,7 +665,6 @@ async def test__search_all_content__content_item_fields_are_populated(
     assert note_item.title == 'Full Note'
     assert note_item.description == 'Note description'
     assert note_item.url is None
-    assert note_item.version == 1
     assert note_item.created_at is not None
     assert 'note-tag' in note_item.tags
 
@@ -734,9 +730,8 @@ async def test__search_all_content__prompt_has_correct_fields(
     assert prompt_item.arguments[0]['name'] == 'code'
     assert prompt_item.arguments[0]['required'] is True
     assert set(prompt_item.tags) == {'code', 'review'}
-    # Prompt-specific: no url or version
+    # Prompt-specific: no url
     assert prompt_item.url is None
-    assert prompt_item.version is None
 
 
 async def test__search_all_content__content_types_filter_prompts_only(

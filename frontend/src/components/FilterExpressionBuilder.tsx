@@ -135,7 +135,7 @@ function GroupEditor({
           }}
           onKeyDown={handleKeyDown}
           placeholder="Add tag..."
-          className="w-full rounded border border-gray-200 px-2 py-1.5 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
+          className="h-[30px] w-full rounded border border-gray-200 px-2 py-1 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5"
         />
 
         {/* Suggestions dropdown */}

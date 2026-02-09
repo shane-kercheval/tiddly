@@ -23,6 +23,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { bookmarkKeys } from './useBookmarksQuery'
 import { contentKeys } from './useContentQuery'
+import { historyKeys } from './useHistory'
 import { useTagsStore } from '../stores/tagsStore'
 import type { Bookmark, BookmarkCreate, BookmarkUpdate, BookmarkListResponse, ContentListResponse } from '../types'
 
@@ -190,6 +191,7 @@ export function useCreateBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -231,6 +233,7 @@ export function useUpdateBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       // Only refresh tags if tags were modified (reduces flicker on save)
       if ('tags' in data) {
         fetchTags()
@@ -285,6 +288,7 @@ export function useDeleteBookmark() {
         queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
         queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
       }
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -326,6 +330,7 @@ export function useRestoreBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -367,6 +372,7 @@ export function useArchiveBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })
@@ -408,6 +414,7 @@ export function useUnarchiveBookmark() {
       queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
       queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
   })

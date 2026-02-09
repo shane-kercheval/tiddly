@@ -26,7 +26,7 @@ import { ArgumentsBuilder } from './ArgumentsBuilder'
 import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { PreviewPromptModal } from './PreviewPromptModal'
-import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon } from './icons'
+import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
 import { useLimits } from '../hooks/useLimits'
@@ -156,6 +156,8 @@ interface PromptProps {
   fullWidth?: boolean
   /** Called to refresh the prompt from server (for stale check). Returns the refreshed prompt on success. */
   onRefresh?: () => Promise<PromptType | null>
+  /** Called when history button is clicked */
+  onShowHistory?: () => void
 }
 
 /**
@@ -175,6 +177,7 @@ export function Prompt({
   viewState = 'active',
   fullWidth = false,
   onRefresh,
+  onShowHistory,
 }: PromptProps): ReactNode {
   const isCreate = !prompt
 
@@ -225,6 +228,10 @@ export function Prompt({
   const [contentKey, setContentKey] = useState(0)
   // Skip useEffect sync for a specific updated_at when manually handling refresh (e.g., from StaleDialog)
   const skipSyncForUpdatedAtRef = useRef<string | null>(null)
+  // Track current content for detecting external changes (e.g., version restore) in the sync effect.
+  // Using a ref avoids stale closure issues and doesn't need to be in the effect's dependency array.
+  const currentContentRef = useRef(current.content)
+  currentContentRef.current = current.content
 
   const syncStateFromPrompt = useCallback((nextPrompt: PromptType, resetEditor = false): void => {
     const archiveState = nextPrompt.archived_at
@@ -259,7 +266,10 @@ export function Prompt({
       skipSyncForUpdatedAtRef.current = null
       return
     }
-    syncStateFromPrompt(prompt)
+    // Reset editor if content changed externally (e.g., version restore from history sidebar).
+    // After normal saves, currentContentRef already matches prompt.content so no reset occurs.
+    const needsEditorReset = (prompt.content ?? '') !== currentContentRef.current
+    syncStateFromPrompt(prompt, needsEditorReset)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt?.id, prompt?.updated_at, syncStateFromPrompt])
 
@@ -829,6 +839,20 @@ export function Prompt({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* History button - existing prompts only */}
+          {!isCreate && onShowHistory && (
+            <button
+              type="button"
+              onClick={onShowHistory}
+              disabled={isSaving}
+              className="btn-secondary flex items-center gap-2"
+              title="View version history"
+            >
+              <HistoryIcon className="h-4 w-4" />
+              <span className="hidden md:inline">History</span>
+            </button>
+          )}
+
           {/* Archive button - active prompts only */}
           {viewState === 'active' && onArchive && (
             <button

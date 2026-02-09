@@ -79,11 +79,11 @@ class TestAuthenticationEnforcement:
         assert response.status_code == 401
 
     @pytest.mark.asyncio
-    async def test__valid_token__returns_user(
+    async def test__valid_token_user_a__returns_user(
         self,
         headers_user_a: dict[str, str],
     ) -> None:
-        """Requests with valid tokens succeed."""
+        """User A's token is valid and returns user data."""
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{API_URL}/users/me",
@@ -92,6 +92,45 @@ class TestAuthenticationEnforcement:
 
         assert response.status_code == 200
         assert "id" in response.json()
+
+    @pytest.mark.asyncio
+    async def test__valid_token_user_b__returns_user(
+        self,
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B's token is valid and returns user data."""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{API_URL}/users/me",
+                headers=headers_user_b,
+            )
+
+        assert response.status_code == 200
+        assert "id" in response.json()
+
+    @pytest.mark.asyncio
+    async def test__user_a_and_user_b__are_different_users(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User A and User B are distinct accounts (prevents false-positive IDOR tests)."""
+        async with httpx.AsyncClient() as client:
+            response_a = await client.get(
+                f"{API_URL}/users/me",
+                headers=headers_user_a,
+            )
+            response_b = await client.get(
+                f"{API_URL}/users/me",
+                headers=headers_user_b,
+            )
+
+        assert response_a.status_code == 200
+        assert response_b.status_code == 200
+        assert response_a.json()["id"] != response_b.json()["id"], (
+            "CONFIGURATION ERROR: User A and User B PATs resolve to the same user! "
+            "IDOR tests require two DIFFERENT user accounts."
+        )
 
 
 class TestBookmarkIDOR:
@@ -1451,6 +1490,229 @@ class TestPATRestrictedEndpoints:
             f"Got {response.status_code}: {response.text}"
         )
         assert "not available for API tokens" in response.json()["detail"]
+
+
+class TestHistoryIDOR:
+    """
+    Verify users cannot access other users' content history.
+
+    Tests history, diff, content-at-version, and restore endpoints
+    for proper tenant isolation.
+    OWASP Reference: A01:2021 - Broken Access Control
+    """
+
+    @pytest.mark.asyncio
+    async def test__cross_user_entity_history__returns_empty(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B cannot view User A's bookmark history."""
+        async with httpx.AsyncClient() as client:
+            # User A creates a bookmark (which generates history)
+            create_response = await client.post(
+                f"{API_URL}/bookmarks/",
+                headers=headers_user_a,
+                json={
+                    "url": "https://history-idor-test-entity.example.com/",
+                    "title": "History IDOR Test",
+                },
+            )
+
+            if create_response.status_code == 409:
+                pytest.skip("Bookmark already exists, skipping test")
+
+            assert create_response.status_code == 201
+            bookmark_id = create_response.json()["id"]
+
+            try:
+                # Verify User A can see history
+                history_a = await client.get(
+                    f"{API_URL}/history/bookmark/{bookmark_id}",
+                    headers=headers_user_a,
+                )
+                assert history_a.status_code == 200
+                assert history_a.json()["total"] > 0, "User A should have history"
+
+                # User B tries to access User A's bookmark history
+                history_b = await client.get(
+                    f"{API_URL}/history/bookmark/{bookmark_id}",
+                    headers=headers_user_b,
+                )
+
+                assert history_b.status_code == 200
+                assert history_b.json()["total"] == 0, (
+                    "SECURITY VULNERABILITY: User B can see User A's bookmark history! "
+                    f"Found {history_b.json()['total']} records"
+                )
+
+            finally:
+                await client.delete(
+                    f"{API_URL}/bookmarks/{bookmark_id}",
+                    headers=headers_user_a,
+                    params={"permanent": "true"},
+                )
+
+    @pytest.mark.asyncio
+    async def test__cross_user_version_diff__returns_404(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B cannot view diffs of User A's bookmark versions."""
+        async with httpx.AsyncClient() as client:
+            # User A creates a bookmark
+            create_response = await client.post(
+                f"{API_URL}/bookmarks/",
+                headers=headers_user_a,
+                json={
+                    "url": "https://history-idor-test-diff.example.com/",
+                    "title": "Diff IDOR Test",
+                },
+            )
+
+            if create_response.status_code == 409:
+                pytest.skip("Bookmark already exists, skipping test")
+
+            assert create_response.status_code == 201
+            bookmark_id = create_response.json()["id"]
+
+            try:
+                # Verify User A can see version 1 diff
+                diff_a = await client.get(
+                    f"{API_URL}/history/bookmark/{bookmark_id}/version/1/diff",
+                    headers=headers_user_a,
+                )
+                assert diff_a.status_code == 200
+
+                # User B tries to access User A's version diff
+                diff_b = await client.get(
+                    f"{API_URL}/history/bookmark/{bookmark_id}/version/1/diff",
+                    headers=headers_user_b,
+                )
+
+                assert diff_b.status_code == 404, (
+                    "SECURITY VULNERABILITY: User B accessed User A's version diff! "
+                    f"Status: {diff_b.status_code}, Body: {diff_b.text}"
+                )
+
+            finally:
+                await client.delete(
+                    f"{API_URL}/bookmarks/{bookmark_id}",
+                    headers=headers_user_a,
+                    params={"permanent": "true"},
+                )
+
+    @pytest.mark.asyncio
+    async def test__cross_user_content_at_version__returns_404(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B cannot reconstruct User A's content at a version."""
+        async with httpx.AsyncClient() as client:
+            # User A creates a bookmark
+            create_response = await client.post(
+                f"{API_URL}/bookmarks/",
+                headers=headers_user_a,
+                json={
+                    "url": "https://history-idor-test-content.example.com/",
+                    "title": "Content At Version IDOR Test",
+                    "content": "Secret content User B should not see",
+                },
+            )
+
+            if create_response.status_code == 409:
+                pytest.skip("Bookmark already exists, skipping test")
+
+            assert create_response.status_code == 201
+            bookmark_id = create_response.json()["id"]
+
+            try:
+                # Verify User A can reconstruct version 1
+                content_a = await client.get(
+                    f"{API_URL}/history/bookmark/{bookmark_id}/version/1",
+                    headers=headers_user_a,
+                )
+                assert content_a.status_code == 200
+
+                # User B tries to reconstruct User A's content
+                content_b = await client.get(
+                    f"{API_URL}/history/bookmark/{bookmark_id}/version/1",
+                    headers=headers_user_b,
+                )
+
+                assert content_b.status_code == 404, (
+                    "SECURITY VULNERABILITY: User B reconstructed User A's content! "
+                    f"Status: {content_b.status_code}, Body: {content_b.text}"
+                )
+
+            finally:
+                await client.delete(
+                    f"{API_URL}/bookmarks/{bookmark_id}",
+                    headers=headers_user_a,
+                    params={"permanent": "true"},
+                )
+
+    @pytest.mark.asyncio
+    async def test__cross_user_restore__returns_404(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B cannot restore User A's bookmark to a previous version."""
+        async with httpx.AsyncClient() as client:
+            # User A creates a bookmark
+            create_response = await client.post(
+                f"{API_URL}/bookmarks/",
+                headers=headers_user_a,
+                json={
+                    "url": "https://history-idor-test-restore.example.com/",
+                    "title": "Original Title",
+                },
+            )
+
+            if create_response.status_code == 409:
+                pytest.skip("Bookmark already exists, skipping test")
+
+            assert create_response.status_code == 201
+            bookmark_id = create_response.json()["id"]
+
+            try:
+                # User A updates the bookmark to create version 2
+                update_response = await client.patch(
+                    f"{API_URL}/bookmarks/{bookmark_id}",
+                    headers=headers_user_a,
+                    json={"title": "Updated Title"},
+                )
+                assert update_response.status_code == 200
+
+                # User B tries to restore User A's bookmark to version 1
+                restore_b = await client.post(
+                    f"{API_URL}/history/bookmark/{bookmark_id}/restore/1",
+                    headers=headers_user_b,
+                )
+
+                assert restore_b.status_code == 404, (
+                    "SECURITY VULNERABILITY: User B restored User A's bookmark! "
+                    f"Status: {restore_b.status_code}, Body: {restore_b.text}"
+                )
+
+                # Verify the bookmark was NOT restored
+                verify_response = await client.get(
+                    f"{API_URL}/bookmarks/{bookmark_id}",
+                    headers=headers_user_a,
+                )
+                assert verify_response.json()["title"] == "Updated Title", (
+                    "SECURITY VULNERABILITY: Bookmark was restored to version 1 by User B!"
+                )
+
+            finally:
+                await client.delete(
+                    f"{API_URL}/bookmarks/{bookmark_id}",
+                    headers=headers_user_a,
+                    params={"permanent": "true"},
+                )
 
 
 if __name__ == "__main__":

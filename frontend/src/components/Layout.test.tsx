@@ -81,16 +81,34 @@ vi.mock('../stores/sidebarStore', () => ({
   },
 }))
 
+// Track history sidebar state for tests
+let mockHistorySidebarOpen = false
+const mockHistorySidebarWidth = 384
+vi.mock('../stores/historySidebarStore', () => ({
+  useHistorySidebarStore: (selector?: (state: Record<string, unknown>) => unknown) => {
+    const state = {
+      isOpen: mockHistorySidebarOpen,
+      width: mockHistorySidebarWidth,
+      setOpen: vi.fn(),
+      setWidth: vi.fn(),
+    }
+    return selector ? selector(state) : state
+  },
+  MIN_SIDEBAR_WIDTH: 280,
+  MIN_CONTENT_WIDTH: 600,
+}))
+
 function TestPage(): ReactNode {
   return <div data-testid="test-page">Test Page Content</div>
 }
 
-function renderLayout(): void {
+function renderLayout(route = '/app/bookmarks'): void {
   render(
-    <MemoryRouter initialEntries={['/app/bookmarks']}>
+    <MemoryRouter initialEntries={[route]}>
       <Routes>
         <Route element={<Layout />}>
           <Route path="/app/bookmarks" element={<TestPage />} />
+          <Route path="/app/notes/:id" element={<TestPage />} />
         </Route>
       </Routes>
     </MemoryRouter>
@@ -100,6 +118,7 @@ function renderLayout(): void {
 describe('Layout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockHistorySidebarOpen = false
   })
 
   describe('centralized data fetching', () => {
@@ -143,6 +162,32 @@ describe('Layout', () => {
 
       // Sidebar contains the builtin "All Content" item (appears in both mobile and desktop sidebars)
       expect(screen.getAllByText('All Content').length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  describe('history sidebar margin', () => {
+    it('should not apply margin when history sidebar is closed', () => {
+      mockHistorySidebarOpen = false
+      renderLayout('/app/notes/abc-123')
+
+      const main = screen.getByRole('main')
+      expect(main.style.marginRight).toBe('0px')
+    })
+
+    it('should apply margin when history sidebar is open on detail page', () => {
+      mockHistorySidebarOpen = true
+      renderLayout('/app/notes/abc-123')
+
+      const main = screen.getByRole('main')
+      expect(main.style.marginRight).toBe(`${mockHistorySidebarWidth}px`)
+    })
+
+    it('should not apply margin on non-detail pages even when sidebar is open', () => {
+      mockHistorySidebarOpen = true
+      renderLayout('/app/bookmarks')
+
+      const main = screen.getByRole('main')
+      expect(main.style.marginRight).toBe('0px')
     })
   })
 })

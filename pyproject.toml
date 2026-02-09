@@ -11,6 +11,7 @@ dependencies = [
     "beautifulsoup4>=4.14.3",
     "click>=8.1.8",
     "cryptography>=46.0.3",
+    "diff-match-patch>=20241021",
     "fastapi>=0.124.2",
     "fastmcp>=2.14.1",
     "httpx[http2]>=0.28.1",
@@ -43,6 +44,8 @@ dev = [
     "respx>=0.22.0",
     "sik-llms>=0.3.28",
     "flex-evals>=0.3.22",
+    "py-spy>=0.4.1",
+    "pyinstrument>=5.1.2",
 ]
 
 [tool.hatch.metadata]

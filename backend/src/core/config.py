@@ -18,6 +18,8 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str
+    db_pool_size: int = Field(default=50, validation_alias="DB_POOL_SIZE")
+    db_max_overflow: int = Field(default=30, validation_alias="DB_MAX_OVERFLOW")
 
     # Auth0 - shared with frontend (VITE_ prefix for Vite exposure)
     auth0_domain: str = Field(default="", validation_alias="VITE_AUTH0_DOMAIN")

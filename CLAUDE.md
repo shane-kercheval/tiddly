@@ -172,6 +172,49 @@ The API supports HTTP caching via ETag and Last-Modified headers to reduce bandw
 - `services/base_entity_service.py`: get_updated_at() method
 - `services/prompt_service.py`: get_updated_at_by_name() method
 
+### Content Versioning
+
+All content changes (bookmarks, notes, prompts) are tracked in the `content_history` table:
+
+**Tracked Actions:**
+- Content actions (versioned): CREATE, UPDATE, RESTORE
+- Audit actions (NULL version, no content): DELETE, UNDELETE, ARCHIVE, UNARCHIVE
+
+**Source Tracking:**
+- Request source via `X-Request-Source` header (any value accepted, stored as-is). Known values: web, mcp-content, mcp-prompt, iphone
+- Auth type: auth0, pat, dev
+- Token prefix for PAT requests (e.g., "bm_a3f8...") for audit trail
+
+**Content Storage (Reverse Diffs):**
+- Uses Google's diff-match-patch algorithm with reverse diffs
+- Change type derived from columns: `version IS NULL` → audit, `action = 'create'` → create, `content_diff IS NOT NULL` → content change, else → metadata only
+- CREATE: `content_snapshot` set (full content), no diff
+- Content change: `content_diff` set; also `content_snapshot` at every 10th version (periodic snapshot)
+- Metadata only: neither content column set; `content_snapshot` at every 10th version (bounded reconstruction)
+- Audit: neither content column set, version is NULL
+- Reconstruction: find nearest record with `content_snapshot IS NOT NULL`, apply diffs backwards
+- Fallback: if no snapshot found, start from `entity.content`
+
+**API Endpoints:**
+- `GET /history` - All user history (paginated, filterable by entity_type)
+- `GET /history/{type}/{id}` - Entity history
+- `GET /history/{type}/{id}/version/{v}` - Reconstruct content at version
+- `POST /history/{type}/{id}/restore/{v}` - Restore to version
+- `GET /bookmarks/{id}/history` - Bookmark history (also for notes/prompts)
+
+**Retention:**
+- Tier-based limits: `history_retention_days`, `max_history_per_entity` in TierLimits
+- Count limits: enforced inline every 10th write (modulo check)
+- Time limits: enforced via nightly cron job (batched by tier)
+- Soft-delete expiry: entities deleted 30+ days are permanently removed with history
+
+**Implementation Files:**
+- `models/content_history.py`: ContentHistory model, ActionType, EntityType enums
+- `services/history_service.py`: HistoryService for recording and reconstruction
+- `schemas/history.py`: Pydantic schemas for API responses
+- `api/routers/history.py`: History API endpoints
+- `tasks/cleanup.py`: Nightly cleanup cron job
+
 ## Testing
 
 Backend tests use pytest with async support. The `conftest.py` sets up:

@@ -15,6 +15,7 @@ from api.dependencies import (
     get_current_user_auth0_only,
 )
 from api.helpers import check_optimistic_lock, resolve_filter_and_sorting
+from core.auth import get_request_context
 from core.http_cache import check_not_modified, format_http_date
 from core.tier_limits import TierLimits
 from models.user import User
@@ -27,6 +28,7 @@ from schemas.bookmark import (
     BookmarkUpdate,
     MetadataPreviewResponse,
 )
+from schemas.history import HistoryListResponse, HistoryResponse
 from schemas.content_search import ContentSearchMatch, ContentSearchResponse
 from schemas.errors import (
     ContentEmptyError,
@@ -42,6 +44,8 @@ from services.bookmark_service import (
     BookmarkService,
     DuplicateUrlError,
 )
+from services.history_service import history_service
+from models.content_history import ActionType, EntityType
 from services.content_edit_service import (
     MultipleMatchesError,
     NoMatchError,
@@ -100,14 +104,16 @@ async def fetch_metadata(
 
 @router.post("/", response_model=BookmarkResponse, status_code=201)
 async def create_bookmark(
+    request: Request,
     data: BookmarkCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
     limits: TierLimits = Depends(get_current_limits),
 ) -> BookmarkResponse:
     """Create a new bookmark."""
+    context = get_request_context(request)
     try:
-        bookmark = await bookmark_service.create(db, current_user.id, data, limits)
+        bookmark = await bookmark_service.create(db, current_user.id, data, limits, context)
     except ArchivedUrlExistsError as e:
         raise HTTPException(
             status_code=409,
@@ -374,12 +380,14 @@ async def search_in_bookmark(
 @router.patch("/{bookmark_id}", response_model=BookmarkResponse)
 async def update_bookmark(
     bookmark_id: UUID,
+    request: Request,
     data: BookmarkUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
     limits: TierLimits = Depends(get_current_limits),
 ) -> BookmarkResponse:
     """Update a bookmark."""
+    context = get_request_context(request)
     # Check for conflicts before updating
     await check_optimistic_lock(
         db, bookmark_service, current_user.id, bookmark_id,
@@ -387,7 +395,7 @@ async def update_bookmark(
     )
     try:
         bookmark = await bookmark_service.update(
-            db, current_user.id, bookmark_id, data, limits,
+            db, current_user.id, bookmark_id, data, limits, context,
         )
     except DuplicateUrlError as e:
         raise HTTPException(
@@ -408,6 +416,7 @@ async def update_bookmark(
 )
 async def str_replace_bookmark(
     bookmark_id: UUID,
+    request: Request,
     data: StrReplaceRequest,
     include_updated_entity: bool = Query(
         default=False,
@@ -443,6 +452,7 @@ async def str_replace_bookmark(
     - 400 with `error: "multiple_matches"` if text found in multiple locations
       (includes match locations with context to help construct unique match)
     """
+    context = get_request_context(request)
     # Check for conflicts before modifying
     await check_optimistic_lock(
         db, bookmark_service, current_user.id, bookmark_id,
@@ -463,6 +473,9 @@ async def str_replace_bookmark(
             ).model_dump(),
         )
 
+    # Capture previous content for history
+    previous_content = bookmark.content
+
     # Perform str_replace
     try:
         result = str_replace(bookmark.content, data.old_str, data.new_str)
@@ -482,6 +495,21 @@ async def str_replace_bookmark(
             ).model_dump(),
         )
 
+    # Check for no-op (content unchanged after replacement)
+    if result.new_content == previous_content:
+        if include_updated_entity:
+            await db.refresh(bookmark, attribute_names=["tag_objects"])
+            return StrReplaceSuccess(
+                match_type=result.match_type,
+                line=result.line,
+                data=BookmarkResponse.model_validate(bookmark),
+            )
+        return StrReplaceSuccessMinimal(
+            match_type=result.match_type,
+            line=result.line,
+            data=MinimalEntityData(id=bookmark.id, updated_at=bookmark.updated_at),
+        )
+
     # Validate new content length against tier limits
     if len(result.new_content) > limits.max_bookmark_content_length:
         raise FieldLimitExceededError(
@@ -494,8 +522,23 @@ async def str_replace_bookmark(
     await db.flush()
     await db.refresh(bookmark)
 
+    # Record history for str-replace (content changed)
+    await db.refresh(bookmark, attribute_names=["tag_objects"])
+    metadata = bookmark_service._get_metadata_snapshot(bookmark)
+    await history_service.record_action(
+        db=db,
+        user_id=current_user.id,
+        entity_type=EntityType.BOOKMARK,
+        entity_id=bookmark.id,
+        action=ActionType.UPDATE,
+        current_content=bookmark.content,
+        previous_content=previous_content,
+        metadata=metadata,
+        context=context,
+        limits=limits,
+    )
+
     if include_updated_entity:
-        await db.refresh(bookmark, attribute_names=["tag_objects"])
         return StrReplaceSuccess(
             match_type=result.match_type,
             line=result.line,
@@ -512,9 +555,11 @@ async def str_replace_bookmark(
 @router.delete("/{bookmark_id}", status_code=204)
 async def delete_bookmark(
     bookmark_id: UUID,
+    request: Request,
     permanent: bool = Query(default=False, description="If true, permanently delete. If false, soft delete."),  # noqa: E501
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> None:
     """
     Delete a bookmark.
@@ -522,8 +567,9 @@ async def delete_bookmark(
     By default, performs a soft delete (sets deleted_at timestamp).
     Use ?permanent=true from the trash view to permanently remove from database.
     """
+    context = get_request_context(request)
     deleted = await bookmark_service.delete(
-        db, current_user.id, bookmark_id, permanent=permanent,
+        db, current_user.id, bookmark_id, permanent=permanent, context=context, limits=limits,
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Bookmark not found")
@@ -532,8 +578,10 @@ async def delete_bookmark(
 @router.post("/{bookmark_id}/restore", response_model=BookmarkResponse)
 async def restore_bookmark(
     bookmark_id: UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> BookmarkResponse:
     """
     Restore a soft-deleted bookmark to active state.
@@ -541,9 +589,10 @@ async def restore_bookmark(
     Clears both deleted_at and archived_at timestamps, returning the bookmark
     to active state (not archived).
     """
+    context = get_request_context(request)
     try:
         bookmark = await bookmark_service.restore(
-            db, current_user.id, bookmark_id,
+            db, current_user.id, bookmark_id, context, limits=limits,
         )
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -558,8 +607,10 @@ async def restore_bookmark(
 @router.post("/{bookmark_id}/archive", response_model=BookmarkResponse)
 async def archive_bookmark(
     bookmark_id: UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> BookmarkResponse:
     """
     Archive a bookmark.
@@ -567,8 +618,9 @@ async def archive_bookmark(
     Sets archived_at timestamp. This operation is idempotent - archiving an
     already-archived bookmark returns success with the current state.
     """
+    context = get_request_context(request)
     bookmark = await bookmark_service.archive(
-        db, current_user.id, bookmark_id,
+        db, current_user.id, bookmark_id, context, limits=limits,
     )
     if bookmark is None:
         raise HTTPException(status_code=404, detail="Bookmark not found")
@@ -578,17 +630,20 @@ async def archive_bookmark(
 @router.post("/{bookmark_id}/unarchive", response_model=BookmarkResponse)
 async def unarchive_bookmark(
     bookmark_id: UUID,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> BookmarkResponse:
     """
     Unarchive a bookmark.
 
     Clears archived_at timestamp, returning the bookmark to active state.
     """
+    context = get_request_context(request)
     try:
         bookmark = await bookmark_service.unarchive(
-            db, current_user.id, bookmark_id,
+            db, current_user.id, bookmark_id, context, limits=limits,
         )
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -615,3 +670,33 @@ async def track_bookmark_usage(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Bookmark not found")
+
+
+@router.get("/{bookmark_id}/history", response_model=HistoryListResponse)
+async def get_bookmark_history(
+    bookmark_id: UUID,
+    limit: int = Query(default=50, ge=1, le=100, description="Number of records to return"),
+    offset: int = Query(default=0, ge=0, description="Number of records to skip"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> HistoryListResponse:
+    """
+    Get history for a specific bookmark.
+
+    Returns paginated history records for this bookmark,
+    sorted by version descending (most recent first).
+
+    Returns empty list (not 404) if:
+    - Bookmark was hard-deleted (history cascade-deleted)
+    - No history exists for this bookmark_id
+    """
+    items, total = await history_service.get_entity_history(
+        db, current_user.id, EntityType.BOOKMARK, bookmark_id, limit, offset,
+    )
+    return HistoryListResponse(
+        items=[HistoryResponse.model_validate(item) for item in items],
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=offset + len(items) < total,
+    )

@@ -157,7 +157,6 @@ def _row_to_content_item(row: Row, tags: list[str]) -> ContentListItem:
         content_length=row.content_length,
         content_preview=row.content_preview,
         url=row.url if row.type == "bookmark" else None,
-        version=row.version if row.type == "note" else None,
         name=row.name if row.type == "prompt" else None,
         arguments=row.arguments if row.type == "prompt" else None,
     )
@@ -251,7 +250,6 @@ async def search_all_content(
                 func.length(Bookmark.content).label("content_length"),
                 func.left(Bookmark.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
                 Bookmark.url.label("url"),
-                literal(None).label("version"),
                 literal(None).label("name"),
                 cast(literal(None), JSONB).label("arguments"),
                 # Computed sort_title: LOWER(COALESCE(NULLIF(title, ''), url))
@@ -292,7 +290,6 @@ async def search_all_content(
                 func.length(Note.content).label("content_length"),
                 func.left(Note.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
                 literal(None).label("url"),
-                Note.version.label("version"),
                 literal(None).label("name"),
                 cast(literal(None), JSONB).label("arguments"),
                 # Computed sort_title: LOWER(title) - notes always have title
@@ -332,7 +329,6 @@ async def search_all_content(
                 func.length(Prompt.content).label("content_length"),
                 func.left(Prompt.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
                 literal(None).label("url"),
-                literal(None).label("version"),
                 Prompt.name.label("name"),
                 Prompt.arguments.label("arguments"),
                 # Computed sort_title: LOWER(COALESCE(NULLIF(title, ''), name))

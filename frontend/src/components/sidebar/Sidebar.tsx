@@ -51,6 +51,12 @@ import {
   BookmarkIcon,
   NoteIcon,
   PromptIcon,
+  TagIcon,
+  KeyIcon,
+  AdjustmentsIcon,
+  SparklesIcon,
+  HistoryIcon,
+  HelpIcon,
 } from '../icons'
 import { Tooltip } from '../ui'
 import type {
@@ -514,6 +520,10 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   // Render a sidebar item based on type
   const renderItem = (item: SidebarItemComputed): ReactNode => {
     if (item.type === 'collection') {
+      // When collapsed, flatten collection and render items directly
+      if (isCollapsed) {
+        return item.items.map((child) => renderNavItem(child))
+      }
       return (
         <SortableCollectionItem
           key={getItemId(item)}
@@ -603,44 +613,116 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
 
           {/* Settings Section (not draggable) */}
           <div className="mt-4 border-t border-gray-200 pt-4">
-            <SidebarGroup
-              name="Settings"
-              icon={<SettingsIcon className="h-5 w-5" />}
-              isCollapsed={isCollapsed}
-              isGroupCollapsed={!isSettingsExpanded}
-              onToggle={() => toggleSection('settings')}
-            >
-              <SidebarNavItem
-                to="/app/settings/general"
-                label="General"
+            {isCollapsed ? (
+              /* When collapsed, show settings items flattened with their icons and tooltips */
+              <div className="space-y-0.5">
+                <Tooltip content="General" compact position="right" className="w-full">
+                  <SidebarNavItem
+                    to="/app/settings/general"
+                    label="General"
+                    isCollapsed={isCollapsed}
+                    onClick={onNavClick}
+                    icon={<AdjustmentsIcon className="h-4 w-4 text-gray-500" />}
+                  />
+                </Tooltip>
+                <Tooltip content="Tags" compact position="right" className="w-full">
+                  <SidebarNavItem
+                    to="/app/settings/tags"
+                    label="Tags"
+                    isCollapsed={isCollapsed}
+                    onClick={onNavClick}
+                    icon={<TagIcon className="h-4 w-4 text-gray-500" />}
+                  />
+                </Tooltip>
+                <Tooltip content="Personal Access Tokens" compact position="right" className="w-full">
+                  <SidebarNavItem
+                    to="/app/settings/tokens"
+                    label="Personal Access Tokens"
+                    isCollapsed={isCollapsed}
+                    onClick={onNavClick}
+                    icon={<KeyIcon className="h-4 w-4 text-gray-500" />}
+                  />
+                </Tooltip>
+                <Tooltip content="AI Integration" compact position="right" className="w-full">
+                  <SidebarNavItem
+                    to="/app/settings/mcp"
+                    label="AI Integration"
+                    isCollapsed={isCollapsed}
+                    onClick={onNavClick}
+                    icon={<SparklesIcon className="h-4 w-4 text-gray-500" />}
+                  />
+                </Tooltip>
+                <Tooltip content="Version History" compact position="right" className="w-full">
+                  <SidebarNavItem
+                    to="/app/settings/history"
+                    label="Version History"
+                    isCollapsed={isCollapsed}
+                    onClick={onNavClick}
+                    icon={<HistoryIcon className="h-4 w-4 text-gray-500" />}
+                  />
+                </Tooltip>
+                <Tooltip content="FAQ" compact position="right" className="w-full">
+                  <SidebarNavItem
+                    to="/app/settings/faq"
+                    label="FAQ"
+                    isCollapsed={isCollapsed}
+                    onClick={onNavClick}
+                    icon={<HelpIcon className="h-4 w-4 text-gray-500" />}
+                  />
+                </Tooltip>
+              </div>
+            ) : (
+              <SidebarGroup
+                name="Settings"
+                icon={<SettingsIcon className="h-5 w-5" />}
                 isCollapsed={isCollapsed}
-                onClick={onNavClick}
-              />
-              <SidebarNavItem
-                to="/app/settings/tags"
-                label="Tags"
-                isCollapsed={isCollapsed}
-                onClick={onNavClick}
-              />
-              <SidebarNavItem
-                to="/app/settings/tokens"
-                label="Personal Access Tokens"
-                isCollapsed={isCollapsed}
-                onClick={onNavClick}
-              />
-              <SidebarNavItem
-                to="/app/settings/mcp"
-                label="AI Integration"
-                isCollapsed={isCollapsed}
-                onClick={onNavClick}
-              />
-              <SidebarNavItem
-                to="/app/settings/faq"
-                label="FAQ"
-                isCollapsed={isCollapsed}
-                onClick={onNavClick}
-              />
-            </SidebarGroup>
+                isGroupCollapsed={!isSettingsExpanded}
+                onToggle={() => toggleSection('settings')}
+              >
+                <SidebarNavItem
+                  to="/app/settings/general"
+                  label="General"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<AdjustmentsIcon className="h-4 w-4 text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/tags"
+                  label="Tags"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<TagIcon className="h-4 w-4 text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/tokens"
+                  label="Personal Access Tokens"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<KeyIcon className="h-4 w-4 text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/mcp"
+                  label="AI Integration"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<SparklesIcon className="h-4 w-4 text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/history"
+                  label="Version History"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<HistoryIcon className="h-4 w-4 text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/faq"
+                  label="FAQ"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<HelpIcon className="h-4 w-4 text-gray-500" />}
+                />
+              </SidebarGroup>
+            )}
           </div>
         </nav>
 
@@ -740,8 +822,9 @@ export function Sidebar(): ReactNode {
 
       {/* Desktop sidebar */}
       <aside
+        id="desktop-sidebar"
         className={`hidden h-dvh flex-shrink-0 border-r border-gray-200 bg-white transition-all md:block ${
-          isCollapsed ? 'w-16' : 'w-72'
+          isCollapsed ? 'w-12' : 'w-72'
         }`}
       >
         <div className="h-full overflow-hidden">

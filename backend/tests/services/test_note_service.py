@@ -674,17 +674,6 @@ async def test__create_note__last_used_at_equals_created_at(
     assert note.last_used_at == note.created_at
 
 
-async def test__create_note__version_starts_at_one(
-    db_session: AsyncSession,
-    test_user: User,
-) -> None:
-    """Test that new notes have version=1."""
-    data = NoteCreate(title='New Note')
-    note = await note_service.create(db_session, test_user.id, data, DEFAULT_LIMITS)
-
-    assert note.version == 1
-
-
 # =============================================================================
 # Sort Tests
 # =============================================================================

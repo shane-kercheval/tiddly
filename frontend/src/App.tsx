@@ -17,6 +17,7 @@ import { SettingsTokens } from './pages/settings/SettingsTokens'
 import { SettingsMCP } from './pages/settings/SettingsMCP'
 import { SettingsTags } from './pages/settings/SettingsTags'
 import { SettingsFAQ } from './pages/settings/SettingsFAQ'
+import { SettingsVersionHistory } from './pages/settings/SettingsVersionHistory'
 
 /**
  * Root layout component that wraps the entire app with providers.
@@ -80,6 +81,7 @@ const router = createBrowserRouter([
                   { path: '/app/settings/tokens', element: <SettingsTokens /> },
                   { path: '/app/settings/mcp', element: <SettingsMCP /> },
                   { path: '/app/settings/tags', element: <SettingsTags /> },
+                  { path: '/app/settings/history', element: <SettingsVersionHistory /> },
                   { path: '/app/settings/faq', element: <SettingsFAQ /> },
                 ],
               },

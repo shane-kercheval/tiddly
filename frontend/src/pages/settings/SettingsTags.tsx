@@ -49,29 +49,34 @@ interface EditingState {
 interface PaginationProps {
   currentPage: number
   totalPages: number
+  totalItems: number
+  itemsPerPage: number
   onPageChange: (page: number) => void
 }
 
-function Pagination({ currentPage, totalPages, onPageChange }: PaginationProps): ReactNode {
+function Pagination({ currentPage, totalPages, totalItems, itemsPerPage, onPageChange }: PaginationProps): ReactNode {
   if (totalPages <= 1) return null
 
+  const startItem = (currentPage - 1) * itemsPerPage + 1
+  const endItem = Math.min(currentPage * itemsPerPage, totalItems)
+
   return (
-    <div className="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-4 py-3">
+    <div className="mt-4 flex items-center justify-between">
       <span className="text-sm text-gray-500">
-        Page {currentPage} of {totalPages}
+        Showing {startItem}-{endItem} of {totalItems}
       </span>
       <div className="flex gap-2">
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage <= 1}
-          className="rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="btn-secondary h-7"
         >
           Previous
         </button>
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage >= totalPages}
-          className="rounded border border-gray-300 bg-white px-3 py-1 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="btn-secondary h-7"
         >
           Next
         </button>
@@ -128,7 +133,7 @@ function TagRow({
   if (isEditing && editingState) {
     return (
       <tr className="border-b border-gray-100">
-        <td className="py-3 pl-4 pr-4">
+        <td className="px-3 py-1.5">
           <form onSubmit={handleSave} className="flex items-center gap-2">
             <input
               type="text"
@@ -152,9 +157,9 @@ function TagRow({
           )}
         </td>
         {showCount && (
-          <td className="py-3 pr-4 text-center text-sm text-gray-500">{formatTagUsage(tag)}</td>
+          <td className="px-3 py-1.5 text-center text-sm text-gray-500">{formatTagUsage(tag)}</td>
         )}
-        <td className="py-3 pr-4 text-right">
+        <td className="px-3 py-1.5 text-right">
           <div className="flex items-center justify-end gap-2">
             <button
               onClick={handleSave}
@@ -178,19 +183,19 @@ function TagRow({
 
   return (
     <tr className="border-b border-gray-100 hover:bg-gray-50">
-      <td className="py-3 pl-4 pr-4">
+      <td className="px-3 py-1.5">
         <span className="badge-secondary">
           {tag.name}
         </span>
       </td>
       {showCount && (
-        <td className="py-3 pr-4 text-center text-sm text-gray-500">{formatTagUsage(tag)}</td>
+        <td className="px-3 py-1.5 text-center text-sm text-gray-500">{formatTagUsage(tag)}</td>
       )}
-      <td className="py-3 pr-4 text-right">
+      <td className="px-3 py-1.5 text-right">
         <div className="flex items-center justify-end gap-1">
           <button
             onClick={onStartEdit}
-            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
             title="Rename tag"
           >
             <EditIcon />
@@ -361,7 +366,7 @@ export function SettingsTags(): ReactNode {
         <select
           value={sortOption}
           onChange={(e) => handleSortChange(e.target.value as TagSortOption)}
-          className="appearance-none cursor-pointer rounded-lg border border-gray-200 bg-gray-50/50 px-3 py-1.5 pr-8 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1.25rem_1.25rem] bg-[right_0.5rem_center] bg-no-repeat"
+          className="appearance-none cursor-pointer rounded-lg border border-gray-200 bg-gray-50/50 px-2.5 py-1 pr-7 text-sm focus:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900/5 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.375rem_center] bg-no-repeat"
         >
           <option value="name-asc">Name ↑</option>
           <option value="name-desc">Name ↓</option>
@@ -388,43 +393,47 @@ export function SettingsTags(): ReactNode {
             {activeTags.length === 0 ? (
               <p className="text-sm text-gray-500">No active tags.</p>
             ) : (
-              <div className="overflow-hidden rounded-lg border border-gray-200">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Tag
-                      </th>
-                      <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Usage
-                      </th>
-                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white px-4">
-                    {paginatedActiveTags.map((tag) => (
-                      <TagRow
-                        key={tag.name}
-                        tag={tag}
-                        isEditing={editingState?.tagName === tag.name}
-                        editingState={editingState?.tagName === tag.name ? editingState : null}
-                        onStartEdit={() => handleStartEdit(tag.name)}
-                        onCancelEdit={handleCancelEdit}
-                        onSaveEdit={handleSaveEdit}
-                        onEditChange={handleEditChange}
-                        onDelete={() => handleDelete(tag.name)}
-                      />
-                    ))}
-                  </tbody>
-                </table>
+              <>
+                <div className="overflow-hidden rounded-lg border border-gray-200">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                          Tag
+                        </th>
+                        <th scope="col" className="px-3 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                          Usage
+                        </th>
+                        <th scope="col" className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {paginatedActiveTags.map((tag) => (
+                        <TagRow
+                          key={tag.name}
+                          tag={tag}
+                          isEditing={editingState?.tagName === tag.name}
+                          editingState={editingState?.tagName === tag.name ? editingState : null}
+                          onStartEdit={() => handleStartEdit(tag.name)}
+                          onCancelEdit={handleCancelEdit}
+                          onSaveEdit={handleSaveEdit}
+                          onEditChange={handleEditChange}
+                          onDelete={() => handleDelete(tag.name)}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
                 <Pagination
                   currentPage={activeTagsPage}
                   totalPages={activeTagsTotalPages}
+                  totalItems={activeTags.length}
+                  itemsPerPage={ITEMS_PER_PAGE}
                   onPageChange={setActiveTagsPage}
                 />
-              </div>
+              </>
             )}
           </section>
 
@@ -438,18 +447,18 @@ export function SettingsTags(): ReactNode {
                 These tags are not used by any active content. They may be associated with archived or deleted items.
               </p>
               <div className="overflow-hidden rounded-lg border border-gray-200">
-                <table className="w-full">
+                <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                      <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
                         Tag
                       </th>
-                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+                      <th scope="col" className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide">
                         Actions
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white px-4">
+                  <tbody className="divide-y divide-gray-200 bg-white">
                     {paginatedUnusedTags.map((tag) => (
                       <TagRow
                         key={tag.name}
@@ -466,12 +475,14 @@ export function SettingsTags(): ReactNode {
                     ))}
                   </tbody>
                 </table>
-                <Pagination
-                  currentPage={unusedTagsPage}
-                  totalPages={unusedTagsTotalPages}
-                  onPageChange={setUnusedTagsPage}
-                />
               </div>
+              <Pagination
+                currentPage={unusedTagsPage}
+                totalPages={unusedTagsTotalPages}
+                totalItems={unusedTags.length}
+                itemsPerPage={ITEMS_PER_PAGE}
+                onPageChange={setUnusedTagsPage}
+              />
             </section>
           )}
         </>

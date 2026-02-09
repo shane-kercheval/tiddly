@@ -81,7 +81,7 @@ export function NoteCard({
 
           {/* Description */}
           {previewText && (
-            <p className="text-sm text-gray-500 line-clamp-2">
+            <p className="text-sm text-gray-400 line-clamp-2">
               {previewText}
             </p>
           )}
@@ -203,7 +203,7 @@ export function NoteCard({
           {/* Row 3: Description + actions (actions overlay on hover) */}
           <div className="relative mt-1 min-h-[20px]">
             {/* Description fills full width */}
-            <p className="text-sm text-gray-500 truncate pr-0 group-hover:pr-32 transition-[padding] duration-150">
+            <p className="text-sm text-gray-400 truncate pr-0 group-hover:pr-32 transition-[padding] duration-150">
               {previewText || '\u00A0'}
             </p>
 

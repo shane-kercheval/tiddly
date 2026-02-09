@@ -84,7 +84,6 @@ def sample_note() -> dict[str, Any]:
         "last_used_at": "2024-01-01T00:00:00Z",
         "deleted_at": None,
         "archived_at": None,
-        "version": 1,
     }
 
 
@@ -117,7 +116,6 @@ def sample_content_list(
         "deleted_at": sample_bookmark["deleted_at"],
         "archived_at": sample_bookmark["archived_at"],
         "url": sample_bookmark["url"],
-        "version": None,
     }
     note_item = {
         "type": "note",
@@ -131,7 +129,6 @@ def sample_content_list(
         "deleted_at": sample_note["deleted_at"],
         "archived_at": sample_note["archived_at"],
         "url": None,
-        "version": sample_note["version"],
     }
     return {
         "items": [bookmark_item, note_item],

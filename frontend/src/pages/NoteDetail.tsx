@@ -8,9 +8,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { Note as NoteComponent } from '../components/Note'
+import { HistorySidebar } from '../components/HistorySidebar'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { useNotes } from '../hooks/useNotes'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
@@ -25,6 +27,7 @@ import {
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
+import { useHistorySidebarStore } from '../stores/historySidebarStore'
 import type { Note as NoteType, NoteCreate, NoteUpdate } from '../types'
 
 type NoteViewState = 'active' | 'archived' | 'deleted'
@@ -56,6 +59,10 @@ export function NoteDetail(): ReactNode {
   const [isLoading, setIsLoading] = useState(!isCreate)
   const [error, setError] = useState<string | null>(null)
 
+  // History sidebar state (managed in store so Layout can apply margin)
+  const showHistory = useHistorySidebarStore((state) => state.isOpen)
+  const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
+
   // Get navigation state
   const locationState = location.state as { initialTags?: string[]; note?: NoteType } | undefined
   const { selectedTags } = useTagFilterStore()
@@ -65,6 +72,7 @@ export function NoteDetail(): ReactNode {
 
   // Navigation
   const { navigateBack } = useReturnNavigation()
+  const queryClient = useQueryClient()
 
   // Hooks
   const { fetchNote, trackNoteUsage } = useNotes()
@@ -147,6 +155,8 @@ export function NoteDetail(): ReactNode {
             data: data as NoteUpdate,
           })
           setNote(updatedNote)
+          // Invalidate history cache so sidebar shows latest version when opened
+          queryClient.invalidateQueries({ queryKey: ['history', 'note', noteId] })
         } catch (err) {
           // Don't show toast for 409 Conflict - the component handles it with ConflictDialog
           if (axios.isAxiosError(err) && err.response?.status === 409) {
@@ -158,7 +168,7 @@ export function NoteDetail(): ReactNode {
         }
       }
     },
-    [isCreate, noteId, createMutation, updateMutation, navigate]
+    [isCreate, noteId, createMutation, updateMutation, navigate, queryClient]
   )
 
   const handleArchive = useCallback(async (): Promise<void> => {
@@ -212,10 +222,26 @@ export function NoteDetail(): ReactNode {
       // skipCache: true ensures we bypass Safari's aggressive caching
       const refreshedNote = await fetchNote(noteId, { skipCache: true })
       setNote(refreshedNote)
+      // Invalidate history cache so sidebar shows latest version when opened
+      queryClient.invalidateQueries({ queryKey: ['history', 'note', noteId] })
       return refreshedNote
     } catch {
       toast.error('Failed to refresh note')
       return null
+    }
+  }, [noteId, fetchNote, queryClient])
+
+  // History sidebar handlers
+  const handleShowHistory = useCallback((): void => {
+    setShowHistory(true)
+  }, [setShowHistory])
+
+  const handleHistoryRestored = useCallback(async (): Promise<void> => {
+    // Refresh the note after a restore to show the restored content
+    if (noteId) {
+      const refreshedNote = await fetchNote(noteId, { skipCache: true })
+      setNote(refreshedNote)
+      toast.success('Note restored to previous version')
     }
   }, [noteId, fetchNote])
 
@@ -252,20 +278,31 @@ export function NoteDetail(): ReactNode {
   }
 
   return (
-    <NoteComponent
-      key={effectiveNote.id}
-      note={effectiveNote}
-      tagSuggestions={tagSuggestions}
-      onSave={handleSave}
-      onClose={handleBack}
-      isSaving={updateMutation.isPending}
-      onArchive={viewState === 'active' ? handleArchive : undefined}
-      onUnarchive={viewState === 'archived' ? handleUnarchive : undefined}
-      onDelete={handleDelete}
-      onRestore={viewState === 'deleted' ? handleRestore : undefined}
-      viewState={viewState}
-      fullWidth={fullWidthLayout}
-      onRefresh={handleRefresh}
-    />
+    <>
+      <NoteComponent
+        key={effectiveNote.id}
+        note={effectiveNote}
+        tagSuggestions={tagSuggestions}
+        onSave={handleSave}
+        onClose={handleBack}
+        isSaving={updateMutation.isPending}
+        onArchive={viewState === 'active' ? handleArchive : undefined}
+        onUnarchive={viewState === 'archived' ? handleUnarchive : undefined}
+        onDelete={handleDelete}
+        onRestore={viewState === 'deleted' ? handleRestore : undefined}
+        viewState={viewState}
+        fullWidth={fullWidthLayout}
+        onRefresh={handleRefresh}
+        onShowHistory={handleShowHistory}
+      />
+      {showHistory && noteId && (
+        <HistorySidebar
+          entityType="note"
+          entityId={noteId}
+          onClose={() => setShowHistory(false)}
+          onRestored={handleHistoryRestored}
+        />
+      )}
+    </>
   )
 }

@@ -9,6 +9,9 @@ import { useConsentStore } from '../stores/consentStore'
  */
 export const api = axios.create({
   baseURL: config.apiUrl,
+  headers: {
+    'X-Request-Source': 'web',  // Identifies requests from the web UI for source tracking
+  },
 })
 
 let isLoggingOut = false

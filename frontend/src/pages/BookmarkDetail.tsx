@@ -8,8 +8,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Bookmark as BookmarkComponent } from '../components/Bookmark'
+import { HistorySidebar } from '../components/HistorySidebar'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
@@ -23,6 +25,7 @@ import {
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
+import { useHistorySidebarStore } from '../stores/historySidebarStore'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate } from '../types'
 import { getApiErrorMessage } from '../utils'
 
@@ -53,12 +56,17 @@ export function BookmarkDetail(): ReactNode {
   const [isLoading, setIsLoading] = useState(!isCreate)
   const [error, setError] = useState<string | null>(null)
 
+  // History sidebar state (managed in store so Layout can apply margin)
+  const showHistory = useHistorySidebarStore((state) => state.isOpen)
+  const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
+
   const locationState = location.state as { initialTags?: string[]; initialUrl?: string } | undefined
   const { selectedTags } = useTagFilterStore()
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
   const initialUrl = locationState?.initialUrl
 
   const { navigateBack } = useReturnNavigation()
+  const queryClient = useQueryClient()
 
   const { fetchBookmark, fetchMetadata } = useBookmarks()
   const { tags: tagSuggestions } = useTagsStore()
@@ -166,6 +174,8 @@ export function BookmarkDetail(): ReactNode {
             data: data as BookmarkUpdate,
           })
           setBookmark(updatedBookmark)
+          // Invalidate history cache so sidebar shows latest version when opened
+          queryClient.invalidateQueries({ queryKey: ['history', 'bookmark', bookmarkId] })
         } catch (err) {
           if (err && typeof err === 'object' && 'response' in err) {
             const axiosError = err as { response?: { status?: number; data?: { detail?: string | { error?: string } } } }
@@ -186,7 +196,7 @@ export function BookmarkDetail(): ReactNode {
         }
       }
     },
-    [isCreate, bookmarkId, createMutation, updateMutation, navigateBack, unarchiveMutation]
+    [isCreate, bookmarkId, createMutation, updateMutation, navigateBack, unarchiveMutation, queryClient]
   )
 
   const handleClose = useCallback((): void => {
@@ -232,10 +242,26 @@ export function BookmarkDetail(): ReactNode {
       // skipCache: true ensures we bypass Safari's aggressive caching
       const refreshedBookmark = await fetchBookmark(bookmarkId, { skipCache: true })
       setBookmark(refreshedBookmark)
+      // Invalidate history cache so sidebar shows latest version when opened
+      queryClient.invalidateQueries({ queryKey: ['history', 'bookmark', bookmarkId] })
       return refreshedBookmark
     } catch {
       toast.error('Failed to refresh bookmark')
       return null
+    }
+  }, [bookmarkId, fetchBookmark, queryClient])
+
+  // History sidebar handlers
+  const handleShowHistory = useCallback((): void => {
+    setShowHistory(true)
+  }, [setShowHistory])
+
+  const handleHistoryRestored = useCallback(async (): Promise<void> => {
+    // Refresh the bookmark after a restore to show the restored content
+    if (bookmarkId) {
+      const refreshedBookmark = await fetchBookmark(bookmarkId, { skipCache: true })
+      setBookmark(refreshedBookmark)
+      toast.success('Bookmark restored to previous version')
     }
   }, [bookmarkId, fetchBookmark])
 
@@ -248,22 +274,33 @@ export function BookmarkDetail(): ReactNode {
   }
 
   return (
-    <BookmarkComponent
-      key={bookmark?.id ?? 'new'}
-      bookmark={bookmark ?? undefined}
-      tagSuggestions={tagSuggestions}
-      onSave={handleSave}
-      onClose={handleClose}
-      onFetchMetadata={fetchMetadata}
-      isSaving={createMutation.isPending || updateMutation.isPending}
-      initialUrl={initialUrl}
-      initialTags={initialTags}
-      onArchive={viewState === 'active' ? handleArchive : undefined}
-      onUnarchive={viewState === 'archived' ? handleUnarchive : undefined}
-      onDelete={handleDelete}
-      viewState={viewState}
-      fullWidth={fullWidthLayout}
-      onRefresh={handleRefresh}
-    />
+    <>
+      <BookmarkComponent
+        key={bookmark?.id ?? 'new'}
+        bookmark={bookmark ?? undefined}
+        tagSuggestions={tagSuggestions}
+        onSave={handleSave}
+        onClose={handleClose}
+        onFetchMetadata={fetchMetadata}
+        isSaving={createMutation.isPending || updateMutation.isPending}
+        initialUrl={initialUrl}
+        initialTags={initialTags}
+        onArchive={viewState === 'active' ? handleArchive : undefined}
+        onUnarchive={viewState === 'archived' ? handleUnarchive : undefined}
+        onDelete={handleDelete}
+        viewState={viewState}
+        fullWidth={fullWidthLayout}
+        onRefresh={handleRefresh}
+        onShowHistory={!isCreate ? handleShowHistory : undefined}
+      />
+      {showHistory && bookmarkId && (
+        <HistorySidebar
+          entityType="bookmark"
+          entityId={bookmarkId}
+          onClose={() => setShowHistory(false)}
+          onRestored={handleHistoryRestored}
+        />
+      )}
+    </>
   )
 }

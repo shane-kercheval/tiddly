@@ -1,10 +1,24 @@
 import '@testing-library/jest-dom'
 import { vi } from 'vitest'
 import type { ReactNode } from 'react'
+import { createElement } from 'react'
 
 if (!Range.prototype.getClientRects) {
   Range.prototype.getClientRects = () => ([] as unknown as DOMRectList)
 }
+
+// Mock react-diff-viewer-continued to avoid ESM module resolution issues in tests
+vi.mock('react-diff-viewer-continued', () => ({
+  default: ({ oldValue, newValue }: { oldValue: string; newValue: string }) =>
+    createElement('div', { 'data-testid': 'diff-viewer' }, `Diff: ${oldValue.length} -> ${newValue.length} chars`),
+  DiffMethod: {
+    CHARS: 'diffChars',
+    WORDS: 'diffWords',
+    LINES: 'diffLines',
+    SENTENCES: 'diffSentences',
+    CSS: 'diffCss',
+  },
+}))
 
 // Global mock for useLimits hook - provides default tier limits for all tests
 vi.mock('../hooks/useLimits', () => ({

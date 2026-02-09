@@ -8,8 +8,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Prompt as PromptComponent, SaveError } from '../components/Prompt'
+import { HistorySidebar } from '../components/HistorySidebar'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { usePrompts } from '../hooks/usePrompts'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
@@ -24,6 +26,7 @@ import {
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
+import { useHistorySidebarStore } from '../stores/historySidebarStore'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate } from '../types'
 
 type PromptViewState = 'active' | 'archived' | 'deleted'
@@ -55,6 +58,10 @@ export function PromptDetail(): ReactNode {
   const [isLoading, setIsLoading] = useState(!isCreate)
   const [error, setError] = useState<string | null>(null)
 
+  // History sidebar state (managed in store so Layout can apply margin)
+  const showHistory = useHistorySidebarStore((state) => state.isOpen)
+  const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
+
   // Get navigation state
   const locationState = location.state as { initialTags?: string[]; prompt?: PromptType } | undefined
   const { selectedTags } = useTagFilterStore()
@@ -64,6 +71,7 @@ export function PromptDetail(): ReactNode {
 
   // Navigation
   const { navigateBack } = useReturnNavigation()
+  const queryClient = useQueryClient()
 
   // Hooks
   const { fetchPrompt, trackPromptUsage } = usePrompts()
@@ -178,6 +186,8 @@ export function PromptDetail(): ReactNode {
             data: data as PromptUpdate,
           })
           setPrompt(updatedPrompt)
+          // Invalidate history cache so sidebar shows latest version when opened
+          queryClient.invalidateQueries({ queryKey: ['history', 'prompt', promptId] })
         } catch (err) {
           // Returns true for version conflict - component handles with ConflictDialog
           if (handleNameConflict(err)) {
@@ -189,7 +199,7 @@ export function PromptDetail(): ReactNode {
         }
       }
     },
-    [isCreate, promptId, createMutation, updateMutation, navigate]
+    [isCreate, promptId, createMutation, updateMutation, navigate, queryClient]
   )
 
   const handleArchive = useCallback(async (): Promise<void> => {
@@ -243,10 +253,26 @@ export function PromptDetail(): ReactNode {
       // skipCache: true ensures we bypass Safari's aggressive caching
       const refreshedPrompt = await fetchPrompt(promptId, { skipCache: true })
       setPrompt(refreshedPrompt)
+      // Invalidate history cache so sidebar shows latest version when opened
+      queryClient.invalidateQueries({ queryKey: ['history', 'prompt', promptId] })
       return refreshedPrompt
     } catch {
       toast.error('Failed to refresh prompt')
       return null
+    }
+  }, [promptId, fetchPrompt, queryClient])
+
+  // History sidebar handlers
+  const handleShowHistory = useCallback((): void => {
+    setShowHistory(true)
+  }, [setShowHistory])
+
+  const handleHistoryRestored = useCallback(async (): Promise<void> => {
+    // Refresh the prompt after a restore to show the restored content
+    if (promptId) {
+      const refreshedPrompt = await fetchPrompt(promptId, { skipCache: true })
+      setPrompt(refreshedPrompt)
+      toast.success('Prompt restored to previous version')
     }
   }, [promptId, fetchPrompt])
 
@@ -283,20 +309,31 @@ export function PromptDetail(): ReactNode {
   }
 
   return (
-    <PromptComponent
-      key={effectivePrompt.id}
-      prompt={effectivePrompt}
-      tagSuggestions={tagSuggestions}
-      onSave={handleSave}
-      onClose={handleBack}
-      isSaving={updateMutation.isPending}
-      onArchive={viewState === 'active' ? handleArchive : undefined}
-      onUnarchive={viewState === 'archived' ? handleUnarchive : undefined}
-      onDelete={handleDelete}
-      onRestore={viewState === 'deleted' ? handleRestore : undefined}
-      viewState={viewState}
-      fullWidth={fullWidthLayout}
-      onRefresh={handleRefresh}
-    />
+    <>
+      <PromptComponent
+        key={effectivePrompt.id}
+        prompt={effectivePrompt}
+        tagSuggestions={tagSuggestions}
+        onSave={handleSave}
+        onClose={handleBack}
+        isSaving={updateMutation.isPending}
+        onArchive={viewState === 'active' ? handleArchive : undefined}
+        onUnarchive={viewState === 'archived' ? handleUnarchive : undefined}
+        onDelete={handleDelete}
+        onRestore={viewState === 'deleted' ? handleRestore : undefined}
+        viewState={viewState}
+        fullWidth={fullWidthLayout}
+        onRefresh={handleRefresh}
+        onShowHistory={handleShowHistory}
+      />
+      {showHistory && promptId && (
+        <HistorySidebar
+          entityType="prompt"
+          entityId={promptId}
+          onClose={() => setShowHistory(false)}
+          onRestored={handleHistoryRestored}
+        />
+      )}
+    </>
   )
 }
