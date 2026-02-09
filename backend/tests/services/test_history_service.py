@@ -3632,3 +3632,70 @@ class TestGetVersionDiff:
             version=99,
         )
         assert result.found is False
+
+    @pytest.mark.asyncio
+    async def test__get_version_diff__corrupted_diff_returns_warning_not_error(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        test_note: Note,
+        request_context: RequestContext,
+    ) -> None:
+        """Corrupted (unparseable) diff text returns warning and None before_content, not an exception."""
+        entity_id = test_note.id
+        metadata = {"title": "Test", "tags": []}
+
+        # v1 CREATE
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.CREATE,
+            current_content="Hello",
+            previous_content=None,
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # v2 UPDATE
+        test_note.content = "World"
+        await db_session.flush()
+
+        await history_service.record_action(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            action=ActionType.UPDATE,
+            current_content="World",
+            previous_content="Hello",
+            metadata=metadata,
+            context=request_context,
+        )
+
+        # Corrupt v2's diff with garbage text
+        v2_record = await history_service.get_history_at_version(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            version=2,
+        )
+        assert v2_record is not None
+        v2_record.content_diff = "NOT_A_VALID_PATCH_FORMAT"
+        await db_session.flush()
+
+        result = await history_service.get_version_diff(
+            db=db_session,
+            user_id=test_user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            version=2,
+        )
+
+        assert result.found is True
+        assert result.after_content is not None  # Reconstruction still works
+        assert result.before_content is None  # Cannot derive — fallback to None
+        assert result.warnings is not None
+        assert any("corrupted" in w.lower() or "before-content" in w.lower() for w in result.warnings)

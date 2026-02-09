@@ -2443,3 +2443,42 @@ async def test_get_version_diff__cross_user_isolation(
         assert response.status_code == 404
 
     app.dependency_overrides.clear()
+
+
+async def test_get_version_diff__corrupted_diff_returns_warning_not_500(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Garbage diff text returns 200 with warning and null before_content, not 500."""
+    from sqlalchemy import select
+
+    from models.content_history import ContentHistory
+
+    response = await client.post(
+        "/notes/",
+        json={"title": "Corrupt Test", "content": "v1 content"},
+    )
+    assert response.status_code == 201
+    note_id = response.json()["id"]
+
+    await client.patch(f"/notes/{note_id}", json={"content": "v2 content"})
+
+    # Corrupt v2's diff with unparseable garbage
+    result = await db_session.execute(
+        select(ContentHistory).where(
+            ContentHistory.entity_id == UUID(note_id),
+            ContentHistory.version == 2,
+        ),
+    )
+    v2_history = result.scalar_one()
+    v2_history.content_diff = "TOTALLY_INVALID_GARBAGE"
+    await db_session.flush()
+
+    response = await client.get(f"/history/note/{note_id}/version/2/diff")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["after_content"] is not None
+    assert data["before_content"] is None
+    assert data["warnings"] is not None
+    assert len(data["warnings"]) > 0

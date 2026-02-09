@@ -546,6 +546,8 @@ class HistoryService:
             DiffResult with before/after content and metadata.
         """
         # 1. Get version N's history record
+        # Audit records (DELETE, UNDELETE, etc.) have NULL versions, so they
+        # are naturally excluded — get_history_at_version filters by int version.
         after_history = await self.get_history_at_version(
             db, user_id, entity_type, entity_id, version,
         )
@@ -574,21 +576,37 @@ class HistoryService:
             # 3. Derive "before" content from version N's reverse diff
             #    (only when content actually changed — not for CREATE)
             if content_diff_exists and version > 1:
-                patches = self.dmp.patch_fromText(after_history.content_diff)
-                patched_content, results = self.dmp.patch_apply(
-                    patches, after_content or "",
-                )
-                if not all(results):
-                    warning_msg = f"Partial patch failure deriving before-content at v{version}"
+                try:
+                    patches = self.dmp.patch_fromText(after_history.content_diff)
+                    patched_content, results = self.dmp.patch_apply(
+                        patches, after_content or "",
+                    )
+                    if not all(results):
+                        warning_msg = (
+                            f"Partial patch failure deriving before-content at v{version}"
+                        )
+                        if warnings is None:
+                            warnings = []
+                        warnings.append(warning_msg)
+                        logger.warning(
+                            "Before-content derivation partial failure for v%d: %s",
+                            version,
+                            results,
+                        )
+                    before_content = patched_content
+                except (ValueError, Exception) as e:
+                    warning_msg = (
+                        f"Corrupted diff at v{version}, cannot derive before-content: {e}"
+                    )
                     if warnings is None:
                         warnings = []
                     warnings.append(warning_msg)
                     logger.warning(
-                        "Before-content derivation partial failure for v%d: %s",
+                        "Corrupted diff deriving before-content for v%d: %s",
                         version,
-                        results,
+                        e,
                     )
-                before_content = patched_content
+                    # before_content remains None — after_content still valid
 
         # 4. Get "before" metadata from version N-1's record
         before_metadata: dict | None = None
