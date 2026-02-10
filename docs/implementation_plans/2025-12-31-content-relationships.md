@@ -186,10 +186,25 @@ async def validate_content_exists(
     and are valid relationship targets. The models have no default query scopes.
     """
     model = MODEL_MAP[content_type]
-    query = select(exists().where(model.id == content_id, model.user_id == user_id))
+    conditions = [model.id == content_id, model.user_id == user_id]
     if not allow_deleted:
-        query = query.where(model.deleted_at.is_(None))
-    return await db.scalar(query)
+        conditions.append(model.deleted_at.is_(None))
+    return await db.scalar(select(exists().where(*conditions)))
+
+
+# Canonical ordering for bidirectional types
+def canonical_pair(
+    type_a: str, id_a: UUID, type_b: str, id_b: UUID,
+) -> tuple[str, UUID, str, UUID]:
+    """
+    Normalize a pair to canonical order: (source_type, source_id, target_type, target_id).
+
+    Compares (type, str(id)) lexicographically. Used for bidirectional types
+    ('related') to ensure A→B and B→A produce the same stored row.
+    """
+    if (type_a, str(id_a)) <= (type_b, str(id_b)):
+        return type_a, id_a, type_b, id_b
+    return type_b, id_b, type_a, id_a
 
 
 # CRUD
@@ -536,9 +551,11 @@ class RelationshipListResponse(BaseModel):
 
 **Note on `include_content_info`:** Defaults to `True`. When enabled, the service layer queries bookmark/note/prompt tables to resolve titles. This requires conditional queries per content type due to the polymorphic design. The response uses `RelationshipWithContentResponse` including `source_deleted`/`target_deleted` and `source_archived`/`target_archived` flags so the frontend can render appropriate indicators. Callers that only need relationship structure can opt out with `include_content_info=false`.
 
-**Implementation constraint — batch by content type:** Collect all distinct bookmark IDs, note IDs, and prompt IDs from the relationship results, then issue one `SELECT ... WHERE id IN (...)` query per type (at most 3 queries total, regardless of relationship count). Map results into a lookup dict and populate the response fields. Do NOT query per-relationship (N+1). If an entity is not found in the batch query results (e.g., race condition with permanent delete), set the corresponding title to `null` and deleted flag to `true`. This is a transient state — the cleanup in Milestone 3 will remove the relationship on the next permanent delete.
+**Implementation constraint — batch by content type:** Collect all distinct bookmark IDs, note IDs, and prompt IDs from the relationship results, then issue one `SELECT ... WHERE id IN (...)` query per type (at most 3 queries total, regardless of relationship count). Select only the columns needed for content info (`id`, `title`, `url`, `deleted_at`, `archived_at`) — do not load full entity rows. Map results into a lookup dict and populate the response fields. Do NOT query per-relationship (N+1). If an entity is not found in the batch query results (e.g., race condition with permanent delete), set the corresponding title to `null` and deleted flag to `true`. This is a transient state — the cleanup in Milestone 3 will remove the relationship on the next permanent delete.
 
 **Query endpoint for non-existent content:** `GET /relationships/content/{type}/{id}` returns an empty list for non-existent content IDs. This is a query/filter endpoint, not a resource endpoint — the content ID is a filter parameter, so empty results (not 404) is the correct HTTP semantic.
+
+**Deterministic ordering:** Results are ordered by `created_at DESC, id DESC` to ensure stable pagination. No user-configurable sort — relationships are simple enough that a single ordering is sufficient.
 
 ### Testing Strategy
 - Test all CRUD endpoints
@@ -767,11 +784,20 @@ Create a reusable component that displays relationships for any content item.
 **New file: `frontend/src/components/RelatedContent.tsx`:**
 
 ```typescript
+interface LinkedItem {
+  type: ContentType;
+  id: string;
+  title: string | null;
+  url: string | null;
+  deleted: boolean;
+  archived: boolean;
+}
+
 interface RelatedContentProps {
   contentType: ContentType;
   contentId: string;
   onAddClick?: () => void;
-  onNavigate?: (type: ContentType, id: string) => void;
+  onNavigate?: (item: LinkedItem) => void;
   className?: string;
 }
 
@@ -801,7 +827,7 @@ function getLinkedItem(
   rel: RelationshipWithContent,
   selfType: ContentType,
   selfId: string,
-) {
+): LinkedItem {
   const isSelf = rel.source_type === selfType && rel.source_id === selfId;
   return {
     type: (isSelf ? rel.target_type : rel.source_type) as ContentType,
@@ -983,15 +1009,13 @@ Add RelatedContent component below note content:
     contentType="note"
     contentId={note.id}
     onAddClick={() => setShowAddRelationshipModal(true)}
-    onNavigate={(type, id) => {
-      if (type === 'bookmark') {
-        // URL comes from RelationshipWithContent.target_url or source_url
-        // depending on which side of the relationship this item is
-        window.open(linkedItemUrl, '_blank');
-      } else if (type === 'note') {
-        navigate(`/app/notes/${id}`);
-      } else if (type === 'prompt') {
-        navigate(`/app/prompts/${id}`);
+    onNavigate={(item) => {
+      if (item.type === 'bookmark') {
+        window.open(item.url!, '_blank');
+      } else if (item.type === 'note') {
+        navigate(`/app/notes/${item.id}`);
+      } else if (item.type === 'prompt') {
+        navigate(`/app/prompts/${item.id}`);
       }
     }}
   />
@@ -1050,15 +1074,12 @@ Use an **inline search/select pattern** instead of a nested modal, since the boo
       contentType="bookmark"
       contentId={bookmark.id}
       onAddClick={() => setShowInlineSearch(true)}
-      onNavigate={(type, id) => {
-        if (type === 'note') {
+      onNavigate={(item) => {
+        if (item.type === 'bookmark') {
+          window.open(item.url!, '_blank');
+        } else {
           onClose?.();
-          navigate(`/app/notes/${id}`);
-        } else if (type === 'bookmark') {
-          window.open(url, '_blank');
-        } else if (type === 'prompt') {
-          onClose?.();
-          navigate(`/app/prompts/${id}`);
+          navigate(`/app/${item.type}s/${item.id}`);
         }
       }}
     />
@@ -1117,13 +1138,13 @@ Add RelatedContent component below prompt content, following the same pattern as
     contentType="prompt"
     contentId={prompt.id}
     onAddClick={() => setShowAddRelationshipModal(true)}
-    onNavigate={(type, id) => {
-      if (type === 'bookmark') {
-        window.open(linkedItemUrl, '_blank');
-      } else if (type === 'note') {
-        navigate(`/app/notes/${id}`);
-      } else if (type === 'prompt') {
-        navigate(`/app/prompts/${id}`);
+    onNavigate={(item) => {
+      if (item.type === 'bookmark') {
+        window.open(item.url!, '_blank');
+      } else if (item.type === 'note') {
+        navigate(`/app/notes/${item.id}`);
+      } else if (item.type === 'prompt') {
+        navigate(`/app/prompts/${item.id}`);
       }
     }}
   />
@@ -1265,6 +1286,52 @@ async def delete_relationship(
 ### Risk Factors
 - None significant
 
+## Milestone 12: Orphan Detection Script
+
+### Goal
+Create a maintenance script in `backend/src/tasks/` that detects orphaned relationships (pointing to non-existent content). Follows the same pattern as the existing `cleanup.py` task.
+
+### Success Criteria
+- Script identifies relationships where source or target content no longer exists in any state (permanently deleted)
+- Reports orphan count and details (relationship IDs, content type/ID pairs)
+- Can optionally delete orphans with a `--delete` flag
+- Runnable as `python -m tasks.orphan_relationships`
+
+### Key Changes
+
+**New file: `backend/src/tasks/orphan_relationships.py`**
+
+```python
+"""
+Orphan relationship detection and cleanup.
+
+Identifies content_relationships rows where the source or target entity
+no longer exists (permanently deleted). This catches bugs in the delete
+path or incomplete cleanups.
+
+Usage:
+    python -m tasks.orphan_relationships           # Report only
+    python -m tasks.orphan_relationships --delete   # Report and delete
+"""
+```
+
+The script should:
+1. For each content type in `MODEL_MAP`, find relationship rows where the source/target ID does not exist in the corresponding entity table (using `NOT EXISTS` subquery)
+2. Report findings with counts per content type
+3. If `--delete` is passed, delete the orphaned relationships and report how many were removed
+
+### Testing Strategy
+- Test detection finds orphans when entity is missing
+- Test detection does not flag valid relationships
+- Test `--delete` mode removes orphans
+- Test dry-run mode (no `--delete`) only reports
+
+### Dependencies
+- Milestone 1 (database model)
+
+### Risk Factors
+- None significant — read-only by default
+
 ---
 
 ## Summary
@@ -1282,6 +1349,7 @@ async def delete_relationship(
 | 9 | Bookmark detail integration (inline pattern) | Low |
 | 10 | Prompt detail integration | Low |
 | 11 | MCP server integration | Low |
+| 12 | Orphan detection script | Low |
 
 ---
 
@@ -1307,6 +1375,10 @@ async def delete_relationship(
 
 | Test | Scenario | Expected |
 |------|----------|----------|
+| `test__canonical_pair__same_type_orders_by_id` | Same type, id_a > id_b | Returns (type, id_b, type, id_a) |
+| `test__canonical_pair__different_type_orders_by_type` | type_a > type_b lexicographically | Returns (type_b, id_b, type_a, id_a) |
+| `test__canonical_pair__already_canonical_unchanged` | Already in order | Returns input unchanged |
+| `test__canonical_pair__deterministic_uuid_format` | Various UUID formats | Consistent str(uuid) comparison |
 | `test__create_relationship__canonical_ordering` | Create with source > target lexicographically | Stored with swapped source/target |
 | `test__create_relationship__reverse_direction_deduplicates` | Create B→A when A→B exists | 409 Conflict (canonical ordering makes them identical) |
 | `test__create_relationship__duplicate_rejected` | Same source/target/type exists | 409 Conflict |
@@ -1393,6 +1465,7 @@ async def delete_relationship(
 | `test__api_query__success` | GET /relationships/content/{type}/{id} | Valid content | 200, list with content info (default) |
 | `test__api_query__without_content_info` | GET /relationships/content/{type}/{id}?include_content_info=false | Opt out of content info | Returns slim response without titles/status |
 | `test__api_query__pagination` | GET /relationships/content/{type}/{id}?offset=0&limit=2 | Paginated | Returns correct page with has_more flag |
+| `test__api_query__ordering` | GET /relationships/content/{type}/{id} | Multiple relationships | Ordered by created_at DESC, id DESC |
 
 ### Frontend: Component Tests
 
@@ -1435,6 +1508,11 @@ async def delete_relationship(
 19. **Query pagination:** Uses standard `offset`/`limit` params (default 50, max 100) with `has_more` flag, consistent with all other list endpoints
 20. **Concurrent insert handling:** Service catches `IntegrityError` from unique constraint and raises `DuplicateRelationshipError`
 21. **Unified search in modal:** `AddRelationshipModal` uses existing `GET /content/` endpoint (via `useContentQuery`) to search across all content types simultaneously
+22. **Canonical ordering implementation:** Extracted to a pure `canonical_pair()` function, unit tested independently, used in service layer and MCP idempotency filter
+23. **Pagination ordering:** Deterministic `ORDER BY created_at DESC, id DESC` — no user-configurable sort
+24. **Batch resolution columns:** Select only needed columns (`id`, `title`, `url`, `deleted_at`, `archived_at`) — do not load full entity rows
+25. **`onNavigate` signature:** Accepts full `LinkedItem` object (type, id, title, url, deleted, archived) so callers have all info needed for navigation
+26. **Orphan detection:** Built as `backend/src/tasks/orphan_relationships.py` maintenance script (Milestone 12), not deferred
 
 ---
 
@@ -1453,8 +1531,8 @@ async def delete_relationship(
 - Add subtask completion cascade logic (optional)
 
 **Operational tooling:**
-- Orphan detection query: admin/maintenance query to identify relationships pointing to non-existent content (detects bugs in delete path or incomplete cleanups)
 - Per-item relationship limit: if accumulation becomes a problem (e.g., thousands of relationships on a single item degrading batch resolution), add a configurable soft limit in the service layer with a clear error
+- Integrate orphan detection (Milestone 12) into the existing nightly cron alongside `cleanup.py`
 
 **Other enhancements:**
 - Relationship graph visualization
