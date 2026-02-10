@@ -2,31 +2,36 @@
 
 ## Overview
 
-Add a generic relationship system that allows linking any content types (bookmarks, notes) with typed relationships and optional descriptions. Designed to be extensible for future content types (e.g., todos).
+Add a generic relationship system that allows linking any content types (bookmarks, notes, prompts) with optional descriptions. Designed to be extensible for future content types (e.g., todos) and relationship types (e.g., `references`).
 
 ### Goals
-- Enable users to link related content across types (bookmark↔note, note↔note, bookmark↔bookmark)
-- Support multiple relationship types (`related`, `references`)
+- Enable users to link related content across types (bookmark↔note, note↔note, bookmark↔bookmark, prompt↔note, etc.)
+- Support bidirectional `related` relationship type (extensible to directional types like `references` later)
 - Allow optional descriptions explaining why items are linked
 - Provide clean UI for viewing and managing relationships
 
 ### Design Decisions
 - **Single polymorphic table** with `source_type`/`target_type` columns (no FK integrity, cleanup in service layer)
-- **Application-level cascade** — delete relationships when content is permanently deleted
+- **Application-level cascade** — delete relationships when content is permanently deleted (alongside existing history deletion in `BaseEntityService.delete()`)
 - **Description field** — optional text explaining the relationship
-- **Position field** — for ordering (reserved for future use with todos)
 - **Bidirectional queries** — `related` relationships queryable from either end
 - **Soft-deleted content** — relationships to soft-deleted content remain visible with indicator
+- **UUIDv7 primary keys** — consistent with all other content tables
+- **No content history tracking** — relationships are lightweight junction-like records, not versioned content
+- **Start with `related` only** — defer `references` (directional) to a future iteration to reduce initial complexity
 
-### Relationship Type Semantics
+### Relationship Type Semantics (v1)
 
 | Type | Directionality | Query Behavior | User Perception |
 |------|----------------|----------------|-----------------|
 | `related` | Bidirectional | Store A→B once; returns when querying from A OR B | "A and B are related" (symmetric) |
-| `references` | Directional | From A: shows as outgoing; From B: shows as incoming | "A references B" (asymmetric) |
 
-For `related`, source/target distinction is an implementation detail — users see symmetric relationship.
-For `references`, the frontend displays direction: "This note references..." vs "Referenced by..."
+For `related`, source/target distinction is an implementation detail — users see a symmetric relationship.
+
+**Future types** (add via check constraint migration):
+- `references` — Directional: "A references B" vs "Referenced by..."
+- `subtask` — Directional (source=parent, target=child)
+- `blocks` — Directional (source blocks target)
 
 ---
 
@@ -45,59 +50,61 @@ Create the `content_relationships` table with proper indexes and constraints.
 **New file: `backend/src/models/content_relationship.py`**
 
 ```python
-from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, ForeignKey,
-    UniqueConstraint, CheckConstraint, Index
-)
-from sqlalchemy.sql import func
-from backend.src.db.base import Base
+from uuid import UUID
 
-class ContentRelationship(Base):
+from sqlalchemy import CheckConstraint, Index, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from models.base import Base, TimestampMixin, UUIDv7Mixin
+
+
+class ContentRelationship(Base, UUIDv7Mixin, TimestampMixin):
     __tablename__ = "content_relationships"
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        nullable=False,
+        index=True,
+    )
 
     # Source content
-    source_type = Column(String(20), nullable=False)  # "bookmark", "note"
-    source_id = Column(Integer, nullable=False)
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    source_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
 
     # Target content
-    target_type = Column(String(20), nullable=False)
-    target_id = Column(Integer, nullable=False)
+    target_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    target_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
 
     # Relationship metadata
-    relationship_type = Column(String(30), nullable=False)  # "related", "references"
-    description = Column(Text, nullable=True)  # Optional: why are these linked?
-    position = Column(Integer, nullable=True)  # Reserved for future ordering (e.g., subtasks)
-
-    created_at = Column(DateTime(timezone=True), server_default=func.clock_timestamp())
+    relationship_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         # Prevent duplicate relationships
         UniqueConstraint(
             'user_id', 'source_type', 'source_id',
             'target_type', 'target_id', 'relationship_type',
-            name='uq_content_relationship'
+            name='uq_content_relationship',
         ),
-        # Validate content types (add more types here when implementing todos)
+        # Validate content types (add 'todo' when implementing todos)
         CheckConstraint(
-            "source_type IN ('bookmark', 'note')",
-            name='ck_source_type'
+            "source_type IN ('bookmark', 'note', 'prompt')",
+            name='ck_source_type',
         ),
         CheckConstraint(
-            "target_type IN ('bookmark', 'note')",
-            name='ck_target_type'
+            "target_type IN ('bookmark', 'note', 'prompt')",
+            name='ck_target_type',
         ),
-        # Validate relationship types (add 'subtask', 'blocks' when implementing todos)
+        # Validate relationship types (add 'references', 'subtask', 'blocks' later)
         CheckConstraint(
-            "relationship_type IN ('related', 'references')",
-            name='ck_relationship_type'
+            "relationship_type IN ('related')",
+            name='ck_relationship_type',
         ),
         # Prevent self-references
         CheckConstraint(
             "NOT (source_type = target_type AND source_id = target_id)",
-            name='ck_no_self_reference'
+            name='ck_no_self_reference',
         ),
         # Indexes for common queries
         Index('ix_content_rel_source', 'user_id', 'source_type', 'source_id'),
@@ -135,7 +142,7 @@ Create service layer for CRUD operations on relationships with proper validation
 - Can create, read, update, delete relationships
 - Validates content exists before creating relationship
 - Queries relationships for a given content item (both directions for `related`)
-- Provides cleanup method for when content is deleted
+- Provides cleanup method for when content is permanently deleted
 
 ### Key Changes
 
@@ -144,89 +151,86 @@ Create service layer for CRUD operations on relationships with proper validation
 Core functions:
 
 ```python
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+
 # Validation
 async def validate_content_exists(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     content_type: str,
-    content_id: int,
+    content_id: UUID,
     allow_deleted: bool = False,
 ) -> bool:
-    """Check if content exists and belongs to user. By default excludes permanently deleted."""
+    """Check if content exists and belongs to user. By default excludes soft-deleted."""
+
 
 # CRUD
 async def create_relationship(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     source_type: str,
-    source_id: int,
+    source_id: UUID,
     target_type: str,
-    target_id: int,
+    target_id: UUID,
     relationship_type: str,
     description: str | None = None,
-    position: int | None = None,
 ) -> ContentRelationship:
     """Create a new relationship. Validates both endpoints exist."""
 
+
 async def get_relationship(
     db: AsyncSession,
-    user_id: int,
-    relationship_id: int,
+    user_id: UUID,
+    relationship_id: UUID,
 ) -> ContentRelationship | None:
     """Get a single relationship by ID."""
 
+
 async def update_relationship(
     db: AsyncSession,
-    user_id: int,
-    relationship_id: int,
+    user_id: UUID,
+    relationship_id: UUID,
     description: str | None = ...,  # Use sentinel for "not provided"
-    position: int | None = ...,
 ) -> ContentRelationship | None:
-    """Update relationship metadata (description, position)."""
+    """Update relationship metadata (description)."""
+
 
 async def delete_relationship(
     db: AsyncSession,
-    user_id: int,
-    relationship_id: int,
+    user_id: UUID,
+    relationship_id: UUID,
 ) -> bool:
     """Delete a single relationship."""
+
 
 # Query
 async def get_relationships_for_content(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     content_type: str,
-    content_id: int,
+    content_id: UUID,
     relationship_type: str | None = None,
-    direction: Literal["outgoing", "incoming", "both"] = "both",
 ) -> list[ContentRelationship]:
     """
     Get relationships for a content item.
-    - outgoing: where this item is source
-    - incoming: where this item is target
-    - both: union of both (default, useful for 'related')
+    For 'related' type: queries both directions (where item is source OR target).
     """
 
-# Cleanup (called when content is deleted)
+
+# Cleanup (called when content is permanently deleted)
 async def delete_relationships_for_content(
     db: AsyncSession,
-    user_id: int,
+    user_id: UUID,
     content_type: str,
-    content_id: int,
+    content_id: UUID,
 ) -> int:
     """Delete all relationships where this content is source OR target. Returns count deleted."""
 ```
 
-**Relationship type semantics:**
-
-| Type | Directionality | Use Case |
-|------|----------------|----------|
-| `related` | Bidirectional | Loosely connected items (query from either side returns the relationship) |
-| `references` | Directional | Source references/cites target (e.g., note references a bookmark) |
-
-Future types when implementing todos:
-- `subtask` — Directional (source=parent, target=child)
-- `blocks` — Directional (source blocks target)
+**Note on directionality:** Since v1 only supports `related` (bidirectional), the `direction` parameter from the original plan is removed. When `references` is added later, a `direction` filter parameter can be introduced.
 
 **Exception classes (add to `backend/src/services/exceptions.py` or create new):**
 
@@ -249,12 +253,11 @@ class InvalidRelationshipError(RelationshipError):
 See [Comprehensive Test Scenarios](#comprehensive-test-scenarios) section for full test matrix.
 
 Key service tests:
-- Create with all content type combinations (bookmark→bookmark, bookmark→note, note→bookmark, note→note)
+- Create with all content type combinations (bookmark→bookmark, bookmark→note, note→bookmark, note→note, prompt→bookmark, etc.)
 - Duplicate relationship prevention for each combination
 - Self-reference prevention
 - Non-existent source/target content rejection
 - Bidirectional query for `related` (A→B returns when querying from B)
-- Directional query for `references`
 - Cleanup on permanent delete
 
 ### Dependencies
@@ -265,44 +268,62 @@ Key service tests:
 
 ---
 
-## Milestone 3: Integrate Cleanup with Existing Services
+## Milestone 3: Integrate Cleanup with BaseEntityService
 
 ### Goal
-Ensure relationships are cleaned up when content is permanently deleted.
+Ensure relationships are cleaned up when content is permanently deleted, alongside existing history cleanup.
 
 ### Success Criteria
-- Permanent delete of bookmark/note removes all its relationships
+- Permanent delete of bookmark/note/prompt removes all its relationships
 - Soft delete does NOT remove relationships (can be restored)
 - Relationship cleanup is transactional with content delete
 
 ### Key Changes
 
-**Update `backend/src/services/bookmark_service.py`:**
+**Update `backend/src/services/base_entity_service.py`:**
 
-In the `delete` method, when `permanent=True`:
+In the `delete` method, add relationship cleanup alongside the existing history deletion when `permanent=True`:
+
 ```python
-async def delete(self, db, user_id, bookmark_id, permanent=False):
-    # ... existing logic ...
+async def delete(
+    self,
+    db: AsyncSession,
+    user_id: UUID,
+    entity_id: UUID,
+    permanent: bool = False,
+    context: RequestContext | None = None,
+    limits: TierLimits | None = None,
+) -> bool:
+    entity = await self.get(
+        db, user_id, entity_id, include_deleted=permanent, include_archived=True,
+    )
+    if entity is None:
+        return False
+
     if permanent:
-        # Clean up relationships before deleting
-        await relationship_service.delete_relationships_for_content(
-            db, user_id, "bookmark", bookmark_id
+        # Hard delete: cascade-delete history first (application-level cascade)
+        await self._get_history_service().delete_entity_history(
+            db, user_id, self.entity_type, entity_id,
         )
-        await db.delete(bookmark)
+        # Clean up content relationships
+        await relationship_service.delete_relationships_for_content(
+            db, user_id, self.entity_type, entity_id,
+        )
+        await db.delete(entity)
     else:
-        bookmark.deleted_at = func.now()
-    await db.flush()
+        # Soft delete: existing logic unchanged
+        ...
+
     return True
 ```
 
-**Update `backend/src/services/note_service.py`:**
-
-Same pattern as bookmark_service.
+This approach hooks into `BaseEntityService` directly rather than modifying individual bookmark/note/prompt services, keeping the cleanup in one place and automatically covering all entity types (including prompts and any future types).
 
 ### Testing Strategy
 - Test permanent delete removes relationships
 - Test soft delete preserves relationships
 - Test restore still has relationships intact
+- Test cleanup covers bookmarks, notes, and prompts
 
 ### Dependencies
 - Milestone 2 (relationship service)
@@ -327,7 +348,13 @@ Create REST API for managing relationships.
 **New file: `backend/src/api/routers/relationships.py`**
 
 ```python
+from uuid import UUID
+
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
 router = APIRouter(prefix="/relationships", tags=["relationships"])
+
 
 # Create relationship
 @router.post("/", status_code=201)
@@ -338,41 +365,44 @@ async def create_relationship(
 ) -> RelationshipResponse:
     """Create a new relationship between content items."""
 
+
 # Get single relationship
 @router.get("/{relationship_id}")
 async def get_relationship(
-    relationship_id: int,
+    relationship_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> RelationshipResponse:
     """Get a relationship by ID."""
 
-# Update relationship (description, position)
+
+# Update relationship (description)
 @router.patch("/{relationship_id}")
 async def update_relationship(
-    relationship_id: int,
+    relationship_id: UUID,
     data: RelationshipUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> RelationshipResponse:
     """Update relationship metadata."""
 
+
 # Delete relationship
 @router.delete("/{relationship_id}", status_code=204)
 async def delete_relationship(
-    relationship_id: int,
+    relationship_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> None:
     """Delete a relationship."""
 
+
 # Query relationships for content
 @router.get("/content/{content_type}/{content_id}")
 async def get_content_relationships(
-    content_type: Literal["bookmark", "note"],
-    content_id: int,
+    content_type: Literal["bookmark", "note", "prompt"],
+    content_id: UUID,
     relationship_type: str | None = None,
-    direction: Literal["outgoing", "incoming", "both"] = "both",
     include_content_info: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -383,38 +413,44 @@ async def get_content_relationships(
 **New file: `backend/src/schemas/relationship.py`**
 
 ```python
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
 class RelationshipCreate(BaseModel):
-    source_type: Literal["bookmark", "note"]
-    source_id: int
-    target_type: Literal["bookmark", "note"]
-    target_id: int
-    relationship_type: Literal["related", "references"]
+    source_type: Literal["bookmark", "note", "prompt"]
+    source_id: UUID
+    target_type: Literal["bookmark", "note", "prompt"]
+    target_id: UUID
+    relationship_type: Literal["related"]
     description: str | None = None
-    position: int | None = None  # Reserved for future use
 
     @field_validator("description")
     @classmethod
-    def validate_description_length(cls, v):
+    def validate_description_length(cls, v: str | None) -> str | None:
         if v is not None and len(v) > 500:
             raise ValueError("Description must be 500 characters or less")
         return v
 
+
 class RelationshipUpdate(BaseModel):
     description: str | None = None
-    position: int | None = None
+
 
 class RelationshipResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: UUID
     source_type: str
-    source_id: int
+    source_id: UUID
     target_type: str
-    target_id: int
+    target_id: UUID
     relationship_type: str
     description: str | None
-    position: int | None
     created_at: datetime
+    updated_at: datetime
+
 
 class RelationshipWithContentResponse(RelationshipResponse):
     """Extended response with basic content info for display."""
@@ -422,28 +458,33 @@ class RelationshipWithContentResponse(RelationshipResponse):
     source_url: str | None = None  # For bookmarks
     target_title: str | None = None
     target_url: str | None = None  # For bookmarks
+    source_deleted: bool = False
+    target_deleted: bool = False
+    source_archived: bool = False
+    target_archived: bool = False
+
 
 class RelationshipListResponse(BaseModel):
-    items: list[RelationshipResponse]  # or RelationshipWithContentResponse
+    items: list[RelationshipWithContentResponse]
     total: int
 ```
 
 **Update `backend/src/api/main.py`:**
-- Register relationships router
+- `app.include_router(relationships.router)`
 
 **Error responses:**
 - 404: Content or relationship not found
 - 409: Duplicate relationship
 - 400: Invalid relationship (self-reference, invalid type)
 
+**Note on `include_content_info`:** When `True`, the service layer queries bookmark/note/prompt tables to resolve titles. This requires conditional queries per content type due to the polymorphic design. The response always uses `RelationshipWithContentResponse` when this flag is set, including `source_deleted`/`target_deleted` and `source_archived`/`target_archived` flags so the frontend can render appropriate indicators.
+
 ### Testing Strategy
 - Test all CRUD endpoints
 - Test validation errors (invalid types, self-reference)
 - Test 404 for missing content
 - Test 409 for duplicate relationships
-- Test query by relationship type
-- Test directional queries
-- Test `include_content_info` returns titles
+- Test `include_content_info` returns titles and status flags
 
 ### Dependencies
 - Milestone 2 (relationship service)
@@ -469,34 +510,32 @@ Add TypeScript types and API client methods for relationships.
 
 ```typescript
 // Content relationship types
-export type ContentType = 'bookmark' | 'note';
-export type RelationshipType = 'related' | 'references';
+export type ContentType = 'bookmark' | 'note' | 'prompt';
+export type RelationshipType = 'related';
 
 export interface RelationshipCreate {
   source_type: ContentType;
-  source_id: number;
+  source_id: string;
   target_type: ContentType;
-  target_id: number;
+  target_id: string;
   relationship_type: RelationshipType;
   description?: string | null;
-  position?: number | null;
 }
 
 export interface RelationshipUpdate {
   description?: string | null;
-  position?: number | null;
 }
 
 export interface Relationship {
-  id: number;
+  id: string;
   source_type: ContentType;
-  source_id: number;
+  source_id: string;
   target_type: ContentType;
-  target_id: number;
+  target_id: string;
   relationship_type: RelationshipType;
   description: string | null;
-  position: number | null;
   created_at: string;
+  updated_at: string;
 }
 
 export interface RelationshipWithContent extends Relationship {
@@ -504,10 +543,14 @@ export interface RelationshipWithContent extends Relationship {
   source_url: string | null;
   target_title: string | null;
   target_url: string | null;
+  source_deleted: boolean;
+  target_deleted: boolean;
+  source_archived: boolean;
+  target_archived: boolean;
 }
 
 export interface RelationshipListResponse {
-  items: Relationship[];
+  items: RelationshipWithContent[];
   total: number;
 }
 ```
@@ -529,26 +572,25 @@ export const relationshipsApi = {
   create: (data: RelationshipCreate) =>
     api.post<Relationship>('/relationships/', data),
 
-  get: (id: number) =>
+  get: (id: string) =>
     api.get<Relationship>(`/relationships/${id}`),
 
-  update: (id: number, data: RelationshipUpdate) =>
+  update: (id: string, data: RelationshipUpdate) =>
     api.patch<Relationship>(`/relationships/${id}`, data),
 
-  delete: (id: number) =>
+  delete: (id: string) =>
     api.delete(`/relationships/${id}`),
 
   getForContent: (
     contentType: ContentType,
-    contentId: number,
+    contentId: string,
     params?: {
       relationship_type?: RelationshipType;
-      direction?: 'outgoing' | 'incoming' | 'both';
       include_content_info?: boolean;
     }
   ) => api.get<RelationshipListResponse>(
     `/relationships/content/${contentType}/${contentId}`,
-    { params }
+    { params },
   ),
 };
 ```
@@ -558,22 +600,20 @@ export const relationshipsApi = {
 ```typescript
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { relationshipsApi } from '../services/relationships';
-import type { ContentType, RelationshipType, RelationshipCreate, RelationshipUpdate } from '../types';
+import type { ContentType, RelationshipCreate, RelationshipUpdate } from '../types';
 
 // Query keys
 export const relationshipKeys = {
   all: ['relationships'] as const,
-  forContent: (type: ContentType, id: number) =>
+  forContent: (type: ContentType, id: string) =>
     [...relationshipKeys.all, 'content', type, id] as const,
 };
 
 // Query hook for content relationships
 export function useContentRelationships(
   contentType: ContentType | null,
-  contentId: number | null,
+  contentId: string | null,
   options?: {
-    relationshipType?: RelationshipType;
-    direction?: 'outgoing' | 'incoming' | 'both';
     includeContentInfo?: boolean;
   }
 ) {
@@ -585,10 +625,8 @@ export function useContentRelationships(
       contentType!,
       contentId!,
       {
-        relationship_type: options?.relationshipType,
-        direction: options?.direction,
         include_content_info: options?.includeContentInfo,
-      }
+      },
     ).then(res => res.data),
     enabled: contentType !== null && contentId !== null,
     staleTime: 5 * 60 * 1000, // 5 minutes
@@ -605,25 +643,24 @@ export function useRelationshipMutations() {
     onSuccess: (_, variables) => {
       // Invalidate both source and target content relationship queries
       queryClient.invalidateQueries({
-        queryKey: relationshipKeys.forContent(variables.source_type, variables.source_id)
+        queryKey: relationshipKeys.forContent(variables.source_type, variables.source_id),
       });
       queryClient.invalidateQueries({
-        queryKey: relationshipKeys.forContent(variables.target_type, variables.target_id)
+        queryKey: relationshipKeys.forContent(variables.target_type, variables.target_id),
       });
     },
   });
 
   const update = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: RelationshipUpdate }) =>
+    mutationFn: ({ id, data }: { id: string; data: RelationshipUpdate }) =>
       relationshipsApi.update(id, data).then(res => res.data),
     onSuccess: () => {
-      // Invalidate all relationship queries (simpler than tracking specific ones)
       queryClient.invalidateQueries({ queryKey: relationshipKeys.all });
     },
   });
 
   const remove = useMutation({
-    mutationFn: (id: number) => relationshipsApi.delete(id),
+    mutationFn: (id: string) => relationshipsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: relationshipKeys.all });
     },
@@ -652,10 +689,10 @@ export function useRelationshipMutations() {
 Create a reusable component that displays relationships for any content item.
 
 ### Success Criteria
-- Shows related content grouped by relationship type
-- Displays content type icons, titles, and optional descriptions
+- Shows linked content with type icons, titles, and optional descriptions
 - Clickable links to related content
 - Delete button to remove relationship
+- Status indicators for soft-deleted and archived content
 - Empty state when no relationships
 
 ### Key Changes
@@ -665,9 +702,9 @@ Create a reusable component that displays relationships for any content item.
 ```typescript
 interface RelatedContentProps {
   contentType: ContentType;
-  contentId: number;
+  contentId: string;
   onAddClick?: () => void;
-  onNavigate?: (type: ContentType, id: number) => void;
+  onNavigate?: (type: ContentType, id: string) => void;
   className?: string;
 }
 
@@ -683,62 +720,56 @@ export function RelatedContent({
   });
   const { remove } = useRelationshipMutations();
 
-  // Group relationships by type
-  // Render each group with header
-  // Each item shows: icon, title, description (if present), delete button
+  // Render list of linked items
+  // Each item shows: icon (by type), title, description (if present), delete button
+  // Soft-deleted items: strikethrough + "(deleted)" badge
+  // Archived items: "(archived)" badge
 }
 ```
 
 **UI Design (ASCII mockup):**
 
 ```
-┌─────────────────────────────────────────────────┐
-│ Linked Content                           [+ Link]│
-├─────────────────────────────────────────────────┤
-│ Related                                          │
-│ ┌─────────────────────────────────────────────┐ │
-│ │ 📄 Project Requirements Doc           [×]   │ │
-│ │     "Background context for this task"      │ │
-│ └─────────────────────────────────────────────┘ │
-│ ┌─────────────────────────────────────────────┐ │
-│ │ 🔖 API Documentation                  [×]   │ │
-│ └─────────────────────────────────────────────┘ │
-│                                                  │
-│ References                                       │
-│ ┌─────────────────────────────────────────────┐ │
-│ │ 🔖 GitHub Issue #123                  [×]   │ │
-│ │     "Original feature request"              │ │
-│ └─────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────┘
++---------------------------------------------------+
+| Linked Content                           [+ Link] |
++---------------------------------------------------+
+| +-----------------------------------------------+ |
+| | [note] Project Requirements Doc          [x]   | |
+| |     "Background context for this task"         | |
+| +-----------------------------------------------+ |
+| +-----------------------------------------------+ |
+| | [bookmark] API Documentation             [x]   | |
+| +-----------------------------------------------+ |
+| +-----------------------------------------------+ |
+| | [prompt] Code Review Template            [x]   | |
+| +-----------------------------------------------+ |
++---------------------------------------------------+
 ```
 
 **Empty state:**
 ```
-┌─────────────────────────────────────────────────┐
-│ Linked Content                           [+ Link]│
-├─────────────────────────────────────────────────┤
-│                                                  │
-│     No linked content yet.                       │
-│     Click "+ Link" to connect related items.    │
-│                                                  │
-└─────────────────────────────────────────────────┘
++---------------------------------------------------+
+| Linked Content                           [+ Link] |
++---------------------------------------------------+
+|                                                    |
+|     No linked content yet.                         |
+|     Click "+ Link" to connect related items.       |
+|                                                    |
++---------------------------------------------------+
 ```
 
 **Content type icons:**
-- Bookmark: 🔖 or bookmark icon from existing UI
-- Note: 📄 or note icon from existing UI
-
-**Deleted content handling:**
-- If target content is soft-deleted, show with strikethrough and "(deleted)" indicator
-- Still clickable to restore? Or just informational?
+- Bookmark: bookmark icon from existing UI
+- Note: note/document icon from existing UI
+- Prompt: template/code icon from existing UI
 
 ### Testing Strategy
 - Component renders with mock relationship data
-- Groups relationships by type correctly
 - Delete button calls mutation
 - Empty state renders when no relationships
 - Loading state shows skeleton/spinner
 - Handles deleted content indicator
+- Handles archived content indicator
 
 ### Dependencies
 - Milestone 5 (frontend hooks)
@@ -757,7 +788,6 @@ Create modal UI for searching and linking content.
 ### Success Criteria
 - Modal with search input
 - Search results show content with type icons
-- Can select relationship type
 - Optional description field
 - Creates relationship on submit
 
@@ -770,7 +800,7 @@ interface AddRelationshipModalProps {
   isOpen: boolean;
   onClose: () => void;
   sourceType: ContentType;
-  sourceId: number;
+  sourceId: string;
   onSuccess?: () => void;
 }
 
@@ -783,21 +813,14 @@ export function AddRelationshipModal({
 }: AddRelationshipModalProps) {
   // State
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedContent, setSelectedContent] = useState<{type: ContentType; id: number} | null>(null);
-  const [relationshipType, setRelationshipType] = useState<RelationshipType>('related');
+  const [selectedContent, setSelectedContent] = useState<{type: ContentType; id: string} | null>(null);
   const [description, setDescription] = useState('');
 
-  // Search using existing /content endpoint
+  // Search using existing search endpoint
   const debouncedQuery = useDebouncedValue(searchQuery, 300);
-  const { data: searchResults } = useContentQuery({
-    q: debouncedQuery,
-    limit: 10,
-  }, { enabled: debouncedQuery.length > 0 });
+  // ... query with debouncedQuery
 
-  // Filter out current item from results
-  const filteredResults = searchResults?.items.filter(
-    item => !(item.type === sourceType && item.id === sourceId)
-  );
+  // Filter out current item and already-linked items from results
 
   // Create mutation
   const { create } = useRelationshipMutations();
@@ -809,7 +832,7 @@ export function AddRelationshipModal({
       source_id: sourceId,
       target_type: selectedContent.type,
       target_id: selectedContent.id,
-      relationship_type: relationshipType,
+      relationship_type: 'related',
       description: description || null,
     });
     onSuccess?.();
@@ -824,28 +847,22 @@ export function AddRelationshipModal({
 3. User types to search (debounced)
 4. Results appear with type icon, title, description preview
 5. User clicks result to select it (highlighted state)
-6. Relationship type dropdown (default: "related")
-7. Description textarea (optional, placeholder: "Why are these linked?")
-8. "Link" button to create (disabled until content selected)
-9. Success: modal closes, RelatedContent refreshes
-
-**Relationship type options:**
-- Related (default) — bidirectional loose connection
-- References — this item references the selected item
+6. Description textarea (optional, placeholder: "Why are these linked?")
+7. "Link" button to create (disabled until content selected)
+8. Success: modal closes, RelatedContent refreshes
 
 ### Testing Strategy
 - Modal opens/closes correctly
 - Search input triggers query
 - Results filtered to exclude current item
 - Selection highlights and updates state
-- Relationship type dropdown works
 - Description field captures input
 - Submit creates relationship and closes modal
 - Validation prevents submit without selection
 
 ### Dependencies
 - Milestone 6 (RelatedContent component)
-- Existing `/content` search endpoint
+- Existing search endpoint
 
 ### Risk Factors
 - UX for selecting from search results (clear selection feedback)
@@ -865,7 +882,7 @@ Add RelatedContent section to the note view/edit page.
 
 ### Key Changes
 
-**Update `frontend/src/components/NoteView.tsx`:**
+**Update note detail component:**
 
 Add RelatedContent component below note content:
 
@@ -882,6 +899,8 @@ Add RelatedContent component below note content:
         window.open(bookmarkUrl, '_blank');
       } else if (type === 'note') {
         navigate(`/app/notes/${id}`);
+      } else if (type === 'prompt') {
+        navigate(`/app/prompts/${id}`);
       }
     }}
   />
@@ -899,6 +918,7 @@ Add RelatedContent component below note content:
 **Navigation behavior:**
 - Linked bookmark → open URL in new tab (with usage tracking)
 - Linked note → navigate to `/app/notes/{id}`
+- Linked prompt → navigate to `/app/prompts/{id}`
 
 ### Testing Strategy
 - RelatedContent section appears in note view
@@ -918,18 +938,18 @@ Add RelatedContent component below note content:
 ## Milestone 9: Integrate into Bookmark Detail View
 
 ### Goal
-Add RelatedContent section to bookmark edit modal/view.
+Add RelatedContent section to bookmark edit view.
 
 ### Success Criteria
 - Bookmarks show linked content when viewing/editing
 - Can add/remove relationships
-- Works within modal context
+- Works within the existing bookmark edit context
 
 ### Key Changes
 
-**Update `frontend/src/components/BookmarkForm.tsx`:**
+**Update bookmark form/detail component:**
 
-When editing an existing bookmark (not creating new), show related content:
+Use an **inline search/select pattern** instead of a nested modal, since the bookmark edit is already rendered in a modal. The inline pattern renders the search input and results directly within the bookmark form, below the existing fields.
 
 ```tsx
 {/* Only show for existing bookmarks */}
@@ -938,38 +958,40 @@ When editing an existing bookmark (not creating new), show related content:
     <RelatedContent
       contentType="bookmark"
       contentId={bookmark.id}
-      onAddClick={() => setShowAddRelationshipModal(true)}
+      onAddClick={() => setShowInlineSearch(true)}
       onNavigate={(type, id) => {
         if (type === 'note') {
-          // Close bookmark modal first, then navigate
           onClose?.();
           navigate(`/app/notes/${id}`);
         } else if (type === 'bookmark') {
-          // Open bookmark URL in new tab
           window.open(url, '_blank');
+        } else if (type === 'prompt') {
+          onClose?.();
+          navigate(`/app/prompts/${id}`);
         }
       }}
     />
+
+    {/* Inline search/select for adding relationships */}
+    {showInlineSearch && (
+      <InlineRelationshipSearch
+        sourceType="bookmark"
+        sourceId={bookmark.id}
+        onComplete={() => setShowInlineSearch(false)}
+      />
+    )}
   </div>
 )}
-
-{/* Nested modal for adding relationships */}
-<AddRelationshipModal
-  isOpen={showAddRelationshipModal}
-  onClose={() => setShowAddRelationshipModal(false)}
-  sourceType="bookmark"
-  sourceId={bookmark?.id ?? 0}
-/>
 ```
 
 **Considerations:**
-- Bookmark edit is typically in a modal — adding relationship shouldn't open another modal on top
-- Solution: AddRelationshipModal replaces content within same modal, or use slide-over pattern
-- Alternative: Use inline search/select instead of modal
+- Avoid modal-within-modal — use inline search/select pattern instead
+- `InlineRelationshipSearch` can share search logic with `AddRelationshipModal` (extract shared hook or component)
+- Navigation from a linked item closes the bookmark modal first
 
 ### Testing Strategy
 - Related content appears when editing bookmark
-- Add relationship works within modal context
+- Inline search works within modal context
 - Navigation closes modal before navigating
 - Linking to another bookmark opens URL
 
@@ -977,8 +999,7 @@ When editing an existing bookmark (not creating new), show related content:
 - Milestone 8 (note integration pattern)
 
 ### Risk Factors
-- Modal-within-modal UX complexity
-- Consider inline pattern instead of nested modal
+- Inline search within modal may have limited vertical space — may need scrollable container
 
 ---
 
@@ -1001,29 +1022,30 @@ Add new tools:
 ```python
 @mcp.tool()
 async def get_content_relationships(
-    content_type: Literal["bookmark", "note"],
-    content_id: int,
+    content_type: Literal["bookmark", "note", "prompt"],
+    content_id: str,
     relationship_type: str | None = None,
 ) -> list[dict]:
     """
     Get relationships for a content item.
 
     Args:
-        content_type: Type of content ("bookmark" or "note")
-        content_id: ID of the content item
-        relationship_type: Optional filter by type ("related", "references", etc.)
+        content_type: Type of content ("bookmark", "note", or "prompt")
+        content_id: ID of the content item (UUID)
+        relationship_type: Optional filter by type ("related")
 
     Returns:
-        List of relationships with source/target info
+        List of relationships with source/target info and titles
     """
+
 
 @mcp.tool()
 async def create_relationship(
-    source_type: Literal["bookmark", "note"],
-    source_id: int,
-    target_type: Literal["bookmark", "note"],
-    target_id: int,
-    relationship_type: Literal["related", "references"],
+    source_type: Literal["bookmark", "note", "prompt"],
+    source_id: str,
+    target_type: Literal["bookmark", "note", "prompt"],
+    target_id: str,
+    relationship_type: Literal["related"],
     description: str | None = None,
 ) -> dict:
     """
@@ -1031,25 +1053,26 @@ async def create_relationship(
 
     Args:
         source_type: Type of source content
-        source_id: ID of source content
+        source_id: ID of source content (UUID)
         target_type: Type of target content
-        target_id: ID of target content
-        relationship_type: Type of relationship
+        target_id: ID of target content (UUID)
+        relationship_type: Type of relationship ("related")
         description: Optional description of why items are linked
 
     Returns:
         Created relationship
     """
 
+
 @mcp.tool()
 async def delete_relationship(
-    relationship_id: int,
+    relationship_id: str,
 ) -> bool:
     """
     Delete a relationship.
 
     Args:
-        relationship_id: ID of relationship to delete
+        relationship_id: ID of relationship to delete (UUID)
 
     Returns:
         True if deleted, False if not found
@@ -1060,7 +1083,7 @@ async def delete_relationship(
 
 ```markdown
 **Relationships:**
-- `get_content_relationships`: Get relationships for a bookmark or note
+- `get_content_relationships`: Get relationships for a bookmark, note, or prompt
 - `create_relationship`: Link two content items together
 - `delete_relationship`: Remove a relationship
 ```
@@ -1071,7 +1094,7 @@ async def delete_relationship(
 - Integration test with MCP client
 
 ### Dependencies
-- Milestone 4 (API endpoints — MCP calls same service layer)
+- Milestone 4 (API endpoints — MCP calls the API via httpx)
 
 ### Risk Factors
 - None significant
@@ -1084,13 +1107,13 @@ async def delete_relationship(
 |-----------|-------------|------------|
 | 1 | Database model & migration | Low |
 | 2 | Relationship service | Medium |
-| 3 | Cleanup integration | Low |
+| 3 | Cleanup integration with BaseEntityService | Low |
 | 4 | API endpoints | Medium |
 | 5 | Frontend types & API | Low |
 | 6 | RelatedContent component | Medium |
 | 7 | AddRelationshipModal | Medium |
 | 8 | Note detail integration | Low |
-| 9 | Bookmark detail integration | Low |
+| 9 | Bookmark detail integration (inline pattern) | Low |
 | 10 | MCP server integration | Low |
 
 ---
@@ -1105,8 +1128,13 @@ async def delete_relationship(
 |------|--------|--------|----------|
 | `test__create_relationship__bookmark_to_bookmark` | bookmark | bookmark | Success |
 | `test__create_relationship__bookmark_to_note` | bookmark | note | Success |
+| `test__create_relationship__bookmark_to_prompt` | bookmark | prompt | Success |
 | `test__create_relationship__note_to_bookmark` | note | bookmark | Success |
 | `test__create_relationship__note_to_note` | note | note | Success |
+| `test__create_relationship__note_to_prompt` | note | prompt | Success |
+| `test__create_relationship__prompt_to_bookmark` | prompt | bookmark | Success |
+| `test__create_relationship__prompt_to_note` | prompt | note | Success |
+| `test__create_relationship__prompt_to_prompt` | prompt | prompt | Success |
 
 #### Create Relationship — Validation
 
@@ -1116,10 +1144,9 @@ async def delete_relationship(
 | `test__create_relationship__duplicate_different_type_allowed` | Same source/target, different type | Success |
 | `test__create_relationship__self_reference_rejected_bookmark` | bookmark→same bookmark | 400 Bad Request |
 | `test__create_relationship__self_reference_rejected_note` | note→same note | 400 Bad Request |
-| `test__create_relationship__source_not_found_bookmark` | Non-existent bookmark as source | 404 Not Found |
-| `test__create_relationship__source_not_found_note` | Non-existent note as source | 404 Not Found |
-| `test__create_relationship__target_not_found_bookmark` | Non-existent bookmark as target | 404 Not Found |
-| `test__create_relationship__target_not_found_note` | Non-existent note as target | 404 Not Found |
+| `test__create_relationship__self_reference_rejected_prompt` | prompt→same prompt | 400 Bad Request |
+| `test__create_relationship__source_not_found` | Non-existent content as source | 404 Not Found |
+| `test__create_relationship__target_not_found` | Non-existent content as target | 404 Not Found |
 | `test__create_relationship__soft_deleted_source_rejected` | Soft-deleted content as source | 404 Not Found |
 | `test__create_relationship__soft_deleted_target_rejected` | Soft-deleted content as target | 404 Not Found |
 | `test__create_relationship__archived_source_allowed` | Archived content as source | Success |
@@ -1130,15 +1157,6 @@ async def delete_relationship(
 | `test__create_relationship__with_description` | Description provided | Success with description |
 | `test__create_relationship__different_user_content` | Source/target belongs to other user | 404 Not Found |
 
-#### Query Relationships — Direction
-
-| Test | Scenario | Expected |
-|------|----------|----------|
-| `test__get_relationships__outgoing_only` | Query with direction="outgoing" | Only where content is source |
-| `test__get_relationships__incoming_only` | Query with direction="incoming" | Only where content is target |
-| `test__get_relationships__both_directions` | Query with direction="both" (default) | Union of outgoing and incoming |
-| `test__get_relationships__empty_result` | Content has no relationships | Empty list |
-
 #### Query Relationships — Bidirectional (related type)
 
 | Test | Scenario | Expected |
@@ -1146,23 +1164,10 @@ async def delete_relationship(
 | `test__get_relationships__related_from_source` | A→B exists, query from A | Returns relationship |
 | `test__get_relationships__related_from_target` | A→B exists, query from B | Returns relationship |
 | `test__get_relationships__related_bidirectional` | A→B exists, query from both | Same relationship returned |
-
-#### Query Relationships — Directional (references type)
-
-| Test | Scenario | Expected |
-|------|----------|----------|
-| `test__get_relationships__references_outgoing` | A→B exists, query A outgoing | Returns relationship |
-| `test__get_relationships__references_incoming` | A→B exists, query B incoming | Returns relationship |
-| `test__get_relationships__references_wrong_direction` | A→B exists, query A incoming | Empty (or doesn't include this) |
-
-#### Query Relationships — Filtering
-
-| Test | Scenario | Expected |
-|------|----------|----------|
-| `test__get_relationships__filter_by_type_related` | Filter relationship_type="related" | Only related type |
-| `test__get_relationships__filter_by_type_references` | Filter relationship_type="references" | Only references type |
-| `test__get_relationships__include_content_info` | With include_content_info=true | Returns titles and URLs |
-| `test__get_relationships__content_info_deleted_target` | Target is soft-deleted | Title still returned (or null with indicator) |
+| `test__get_relationships__empty_result` | Content has no relationships | Empty list |
+| `test__get_relationships__include_content_info` | With include_content_info=true | Returns titles, URLs, and status flags |
+| `test__get_relationships__content_info_deleted_target` | Target is soft-deleted | `target_deleted: true` flag set |
+| `test__get_relationships__content_info_archived_target` | Target is archived | `target_archived: true` flag set |
 
 #### Delete Relationship
 
@@ -1177,7 +1182,6 @@ async def delete_relationship(
 | Test | Scenario | Expected |
 |------|----------|----------|
 | `test__update_relationship__description` | Update description only | Success, description updated |
-| `test__update_relationship__position` | Update position only | Success, position updated |
 | `test__update_relationship__clear_description` | Set description to null | Success, description cleared |
 | `test__update_relationship__not_found` | Update non-existent ID | 404 Not Found |
 
@@ -1191,7 +1195,8 @@ async def delete_relationship(
 | `test__delete_bookmark_permanent__removes_as_target` | Bookmark is target in relationships | All such relationships deleted |
 | `test__delete_note_permanent__removes_as_source` | Note is source in relationships | All such relationships deleted |
 | `test__delete_note_permanent__removes_as_target` | Note is target in relationships | All such relationships deleted |
-| `test__delete_bookmark_permanent__mixed_relationships` | Bookmark has both source and target rels | All relationships involving bookmark deleted |
+| `test__delete_prompt_permanent__removes_relationships` | Prompt has relationships | All relationships involving prompt deleted |
+| `test__delete_permanent__mixed_relationships` | Entity has both source and target rels | All relationships involving entity deleted |
 
 #### Soft Delete Preservation
 
@@ -1214,16 +1219,17 @@ async def delete_relationship(
 | `test__api_update__success` | PATCH /relationships/{id} | Valid update | 200, updated |
 | `test__api_delete__success` | DELETE /relationships/{id} | Exists | 204 |
 | `test__api_query__success` | GET /relationships/content/{type}/{id} | Valid content | 200, list |
-| `test__api_query__with_filters` | GET /relationships/content/{type}/{id}?... | With filters | Filtered results |
+| `test__api_query__with_content_info` | GET /relationships/content/{type}/{id}?include_content_info=true | With content info | Returns titles and status flags |
 
 ### Frontend: Component Tests
 
 | Test | Component | Scenario | Expected |
 |------|-----------|----------|----------|
-| `test__RelatedContent__renders_grouped` | RelatedContent | Multiple relationship types | Groups by type with headers |
+| `test__RelatedContent__renders_items` | RelatedContent | Multiple relationships | Shows items with icons and titles |
 | `test__RelatedContent__empty_state` | RelatedContent | No relationships | Shows empty message |
 | `test__RelatedContent__delete_button` | RelatedContent | Click delete | Calls mutation, refreshes |
 | `test__RelatedContent__deleted_indicator` | RelatedContent | Target is soft-deleted | Shows strikethrough/badge |
+| `test__RelatedContent__archived_indicator` | RelatedContent | Target is archived | Shows archived badge |
 | `test__AddRelationshipModal__search` | AddRelationshipModal | Type in search | Triggers debounced query |
 | `test__AddRelationshipModal__excludes_self` | AddRelationshipModal | Search results | Current item not in list |
 | `test__AddRelationshipModal__submit` | AddRelationshipModal | Select and submit | Creates relationship, closes |
@@ -1237,24 +1243,26 @@ async def delete_relationship(
 2. **Relationships on duplicate:** No — relationships are specific to original item
 3. **Maximum relationships:** No hard limit; add pagination if needed
 4. **Bidirectional storage:** Store once, query both directions for `related`
-
-## Open Questions
-
-1. **Can users create relationships TO soft-deleted content?**
-   - Recommendation: No — only allow linking to active or archived content
-   - Rationale: Prevents confusion about linking to soon-to-be-deleted items
-
-2. **Should we allow linking to archived content?**
-   - Recommendation: Yes — archived content is still accessible
-   - The UI should indicate "(archived)" state
+5. **Creating relationships to soft-deleted content:** No — only allow linking to active or archived content
+6. **Linking to archived content:** Yes — archived content is still accessible; UI shows "(archived)" indicator
+7. **Content history tracking for relationships:** No — relationships are lightweight and don't need versioning
+8. **Prompt support:** Yes — prompts are included as a valid content type from launch
+9. **`references` type:** Deferred — start with `related` only; add `references` in a future iteration via check constraint migration
+10. **`position` field:** Deferred — add when implementing todos; not needed for current use cases
 
 ---
 
 ## Future Enhancements (Out of Scope)
 
+**Directional relationship types:**
+- Add `references` to relationship type check constraint
+- Add `direction` query parameter to API
+- Update frontend to show "References" vs "Referenced by" labels
+
 **Todo Support (add when implementing todos):**
 - Add `todo` to content type check constraints
 - Add `subtask` and `blocks` to relationship type check constraints
+- Add `position` column for ordering
 - Implement `get_subtasks()` convenience method with position ordering
 - Add subtask completion cascade logic (optional)
 
@@ -1263,4 +1271,4 @@ async def delete_relationship(
 - Bulk relationship management
 - Relationship suggestions based on content similarity
 - Backlinks panel (show all content linking TO this item separately)
-- Relationship history/audit log
+- Relationship history/audit log (extend content history system)
