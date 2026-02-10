@@ -11,7 +11,8 @@ Add a generic relationship system that allows linking any content types (bookmar
 - Provide clean UI for viewing and managing relationships
 
 ### Design Decisions
-- **Single polymorphic table** with `source_type`/`target_type` columns (no FK integrity, cleanup in service layer)
+- **Single polymorphic table** with `source_type`/`target_type` columns (no FK to entity tables, cleanup in service layer)
+- **Canonical ordering for bidirectional types** — for `related`, source/target are normalized at insert time so `(source_type, source_id) < (target_type, target_id)` lexicographically, preventing duplicate A→B / B→A rows via the unique constraint
 - **Application-level cascade** — delete relationships when content is permanently deleted (alongside existing history deletion in `BaseEntityService.delete()`)
 - **Description field** — optional text explaining the relationship
 - **Bidirectional queries** — `related` relationships queryable from either end
@@ -52,7 +53,7 @@ Create the `content_relationships` table with proper indexes and constraints.
 ```python
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, Index, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -63,8 +64,7 @@ class ContentRelationship(Base, UUIDv7Mixin, TimestampMixin):
     __tablename__ = "content_relationships"
 
     user_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        nullable=False,
+        ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
     )
 
@@ -81,7 +81,10 @@ class ContentRelationship(Base, UUIDv7Mixin, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
-        # Prevent duplicate relationships
+        # Prevent duplicate relationships.
+        # For bidirectional types (e.g., 'related'), the service layer normalizes
+        # source/target to canonical order before insert, so this constraint
+        # naturally prevents both A→B and B→A from being stored.
         UniqueConstraint(
             'user_id', 'source_type', 'source_id',
             'target_type', 'target_id', 'relationship_type',
@@ -148,12 +151,16 @@ Create service layer for CRUD operations on relationships with proper validation
 
 **New file: `backend/src/services/relationship_service.py`**
 
+Use `EntityType` from `models.content_history` as the single source of truth for valid content type strings in validation and comparisons (the check constraint SQL strings must remain literals, but all service-layer logic should reference the enum).
+
 Core functions:
 
 ```python
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from models.content_history import EntityType
 
 
 # Validation
@@ -178,7 +185,15 @@ async def create_relationship(
     relationship_type: str,
     description: str | None = None,
 ) -> ContentRelationship:
-    """Create a new relationship. Validates both endpoints exist."""
+    """
+    Create a new relationship. Validates both endpoints exist.
+
+    For bidirectional types ('related'), normalizes source/target to canonical
+    order before insert: (source_type, source_id) < (target_type, target_id)
+    lexicographically. This ensures the unique constraint prevents both A→B
+    and B→A from being stored. When directional types (e.g., 'references')
+    are added later, skip normalization for those types.
+    """
 
 
 async def get_relationship(
@@ -254,6 +269,8 @@ See [Comprehensive Test Scenarios](#comprehensive-test-scenarios) section for fu
 
 Key service tests:
 - Create with all content type combinations (bookmark→bookmark, bookmark→note, note→bookmark, note→note, prompt→bookmark, etc.)
+- Canonical ordering: creating with source > target lexicographically swaps them in storage
+- Reverse duplicate prevention: creating B→A when A→B exists returns 409 (canonical ordering makes unique constraint catch this)
 - Duplicate relationship prevention for each combination
 - Self-reference prevention
 - Non-existent source/target content rejection
@@ -437,6 +454,13 @@ class RelationshipCreate(BaseModel):
 class RelationshipUpdate(BaseModel):
     description: str | None = None
 
+    @field_validator("description")
+    @classmethod
+    def validate_description_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 500:
+            raise ValueError("Description must be 500 characters or less")
+        return v
+
 
 class RelationshipResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -479,6 +503,8 @@ class RelationshipListResponse(BaseModel):
 
 **Note on `include_content_info`:** When `True`, the service layer queries bookmark/note/prompt tables to resolve titles. This requires conditional queries per content type due to the polymorphic design. The response always uses `RelationshipWithContentResponse` when this flag is set, including `source_deleted`/`target_deleted` and `source_archived`/`target_archived` flags so the frontend can render appropriate indicators.
 
+**Implementation constraint — batch by content type:** Collect all distinct bookmark IDs, note IDs, and prompt IDs from the relationship results, then issue one `SELECT ... WHERE id IN (...)` query per type (at most 3 queries total, regardless of relationship count). Map results into a lookup dict and populate the response fields. Do NOT query per-relationship (N+1).
+
 ### Testing Strategy
 - Test all CRUD endpoints
 - Test validation errors (invalid types, self-reference)
@@ -508,9 +534,12 @@ Add TypeScript types and API client methods for relationships.
 
 **Update `frontend/src/types.ts`:**
 
+Note: `ContentType` already exists in `types.ts` (line 246) — reuse it, do not redeclare.
+
 ```typescript
-// Content relationship types
-export type ContentType = 'bookmark' | 'note' | 'prompt';
+// ContentType already defined: export type ContentType = 'bookmark' | 'note' | 'prompt';
+
+// New relationship types
 export type RelationshipType = 'related';
 
 export interface RelationshipCreate {
@@ -895,8 +924,9 @@ Add RelatedContent component below note content:
     onAddClick={() => setShowAddRelationshipModal(true)}
     onNavigate={(type, id) => {
       if (type === 'bookmark') {
-        // Open bookmark URL in new tab
-        window.open(bookmarkUrl, '_blank');
+        // URL comes from RelationshipWithContent.target_url or source_url
+        // depending on which side of the relationship this item is
+        window.open(linkedItemUrl, '_blank');
       } else if (type === 'note') {
         navigate(`/app/notes/${id}`);
       } else if (type === 'prompt') {
@@ -1003,7 +1033,69 @@ Use an **inline search/select pattern** instead of a nested modal, since the boo
 
 ---
 
-## Milestone 10: MCP Server Integration
+## Milestone 10: Integrate into Prompt Detail View
+
+### Goal
+Add RelatedContent section to the prompt view/edit page.
+
+### Success Criteria
+- Prompts display linked content section
+- Can add/remove relationships from prompt view
+- Navigation to linked content works
+
+### Key Changes
+
+**Update prompt detail component:**
+
+Add RelatedContent component below prompt content, following the same pattern as note integration (Milestone 8):
+
+```tsx
+// After prompt content section
+<div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
+  <RelatedContent
+    contentType="prompt"
+    contentId={prompt.id}
+    onAddClick={() => setShowAddRelationshipModal(true)}
+    onNavigate={(type, id) => {
+      if (type === 'bookmark') {
+        window.open(linkedItemUrl, '_blank');
+      } else if (type === 'note') {
+        navigate(`/app/notes/${id}`);
+      } else if (type === 'prompt') {
+        navigate(`/app/prompts/${id}`);
+      }
+    }}
+  />
+</div>
+
+<AddRelationshipModal
+  isOpen={showAddRelationshipModal}
+  onClose={() => setShowAddRelationshipModal(false)}
+  sourceType="prompt"
+  sourceId={prompt.id}
+/>
+```
+
+**Navigation behavior:**
+- Linked bookmark → open URL in new tab
+- Linked note → navigate to `/app/notes/{id}`
+- Linked prompt → navigate to `/app/prompts/{id}`
+
+### Testing Strategy
+- RelatedContent section appears in prompt view
+- Add button opens modal
+- Adding relationship refreshes list
+- Navigation works for all content types
+
+### Dependencies
+- Milestone 8 (note integration pattern)
+
+### Risk Factors
+- None significant — follows same pattern as note integration
+
+---
+
+## Milestone 11: MCP Server Integration
 
 ### Goal
 Expose relationship management through MCP server for AI agent access.
@@ -1106,7 +1198,7 @@ async def delete_relationship(
 | Milestone | Description | Complexity |
 |-----------|-------------|------------|
 | 1 | Database model & migration | Low |
-| 2 | Relationship service | Medium |
+| 2 | Relationship service (with canonical ordering) | Medium |
 | 3 | Cleanup integration with BaseEntityService | Low |
 | 4 | API endpoints | Medium |
 | 5 | Frontend types & API | Low |
@@ -1114,7 +1206,8 @@ async def delete_relationship(
 | 7 | AddRelationshipModal | Medium |
 | 8 | Note detail integration | Low |
 | 9 | Bookmark detail integration (inline pattern) | Low |
-| 10 | MCP server integration | Low |
+| 10 | Prompt detail integration | Low |
+| 11 | MCP server integration | Low |
 
 ---
 
@@ -1140,6 +1233,8 @@ async def delete_relationship(
 
 | Test | Scenario | Expected |
 |------|----------|----------|
+| `test__create_relationship__canonical_ordering` | Create with source > target lexicographically | Stored with swapped source/target |
+| `test__create_relationship__reverse_direction_deduplicates` | Create B→A when A→B exists | 409 Conflict (canonical ordering makes them identical) |
 | `test__create_relationship__duplicate_rejected` | Same source/target/type exists | 409 Conflict |
 | `test__create_relationship__duplicate_different_type_allowed` | Same source/target, different type | Success |
 | `test__create_relationship__self_reference_rejected_bookmark` | bookmark→same bookmark | 400 Bad Request |
@@ -1183,6 +1278,7 @@ async def delete_relationship(
 |------|----------|----------|
 | `test__update_relationship__description` | Update description only | Success, description updated |
 | `test__update_relationship__clear_description` | Set description to null | Success, description cleared |
+| `test__update_relationship__description_max_length` | Description > 500 chars | 422 Validation Error |
 | `test__update_relationship__not_found` | Update non-existent ID | 404 Not Found |
 
 ### Backend: Cleanup Integration Tests
@@ -1242,13 +1338,16 @@ async def delete_relationship(
 1. **Soft-deleted content in relationships:** Yes, display with strikethrough/"(deleted)" indicator
 2. **Relationships on duplicate:** No — relationships are specific to original item
 3. **Maximum relationships:** No hard limit; add pagination if needed
-4. **Bidirectional storage:** Store once, query both directions for `related`
+4. **Bidirectional storage:** Store once, query both directions for `related`; use canonical ordering at insert time to prevent A→B / B→A duplication
 5. **Creating relationships to soft-deleted content:** No — only allow linking to active or archived content
 6. **Linking to archived content:** Yes — archived content is still accessible; UI shows "(archived)" indicator
 7. **Content history tracking for relationships:** No — relationships are lightweight and don't need versioning
 8. **Prompt support:** Yes — prompts are included as a valid content type from launch
 9. **`references` type:** Deferred — start with `related` only; add `references` in a future iteration via check constraint migration
 10. **`position` field:** Deferred — add when implementing todos; not needed for current use cases
+11. **`user_id` FK:** Uses `ForeignKey("users.id", ondelete="CASCADE")` consistent with all other models
+12. **Content type enum:** Service layer uses `EntityType` from `models.content_history` as single source of truth for valid content type strings
+13. **Content info resolution:** Batched by content type (at most 3 queries) — never per-relationship
 
 ---
 
