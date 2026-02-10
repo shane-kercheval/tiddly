@@ -179,7 +179,12 @@ async def validate_content_exists(
     content_id: UUID,
     allow_deleted: bool = False,
 ) -> bool:
-    """Check if content exists and belongs to user. By default excludes soft-deleted."""
+    """
+    Check if content exists and belongs to user. By default excludes soft-deleted.
+
+    Note: No archived_at filter needed — archived items have deleted_at IS NULL
+    and are valid relationship targets. The models have no default query scopes.
+    """
     model = MODEL_MAP[content_type]
     query = select(exists().where(model.id == content_id, model.user_id == user_id))
     if not allow_deleted:
@@ -206,6 +211,10 @@ async def create_relationship(
     lexicographically. This ensures the unique constraint prevents both A→B
     and B→A from being stored. When directional types (e.g., 'references')
     are added later, skip normalization for those types.
+
+    Catches IntegrityError from the unique constraint (concurrent insert race)
+    and raises DuplicateRelationshipError, consistent with how BookmarkService
+    handles DuplicateUrlError and PromptService handles NameConflictError.
     """
 
 
@@ -439,7 +448,9 @@ async def get_content_relationships(
     content_type: Literal["bookmark", "note", "prompt"],
     content_id: UUID,
     relationship_type: str | None = None,
-    include_content_info: bool = False,
+    include_content_info: bool = True,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> RelationshipListResponse:
@@ -510,6 +521,9 @@ class RelationshipWithContentResponse(RelationshipResponse):
 class RelationshipListResponse(BaseModel):
     items: list[RelationshipWithContentResponse]
     total: int
+    offset: int
+    limit: int
+    has_more: bool
 ```
 
 **Update `backend/src/api/main.py`:**
@@ -520,7 +534,7 @@ class RelationshipListResponse(BaseModel):
 - 409: Duplicate relationship
 - 400: Invalid relationship (self-reference, invalid type)
 
-**Note on `include_content_info`:** When `True`, the service layer queries bookmark/note/prompt tables to resolve titles. This requires conditional queries per content type due to the polymorphic design. The response always uses `RelationshipWithContentResponse` when this flag is set, including `source_deleted`/`target_deleted` and `source_archived`/`target_archived` flags so the frontend can render appropriate indicators.
+**Note on `include_content_info`:** Defaults to `True`. When enabled, the service layer queries bookmark/note/prompt tables to resolve titles. This requires conditional queries per content type due to the polymorphic design. The response uses `RelationshipWithContentResponse` including `source_deleted`/`target_deleted` and `source_archived`/`target_archived` flags so the frontend can render appropriate indicators. Callers that only need relationship structure can opt out with `include_content_info=false`.
 
 **Implementation constraint — batch by content type:** Collect all distinct bookmark IDs, note IDs, and prompt IDs from the relationship results, then issue one `SELECT ... WHERE id IN (...)` query per type (at most 3 queries total, regardless of relationship count). Map results into a lookup dict and populate the response fields. Do NOT query per-relationship (N+1). If an entity is not found in the batch query results (e.g., race condition with permanent delete), set the corresponding title to `null` and deleted flag to `true`. This is a transient state — the cleanup in Milestone 3 will remove the relationship on the next permanent delete.
 
@@ -602,6 +616,9 @@ export interface RelationshipWithContent extends Relationship {
 export interface RelationshipListResponse {
   items: RelationshipWithContent[];
   total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
 }
 ```
 
@@ -765,15 +782,35 @@ export function RelatedContent({
   onNavigate,
   className,
 }: RelatedContentProps) {
-  const { data, isLoading } = useContentRelationships(contentType, contentId, {
-    includeContentInfo: true,
-  });
+  const { data, isLoading } = useContentRelationships(contentType, contentId);
   const { remove } = useRelationshipMutations();
 
+  // Use getLinkedItem() to resolve "the other side" of each relationship
   // Render list of linked items
   // Each item shows: icon (by type), title, description (if present), delete button
   // Soft-deleted items: strikethrough + "(deleted)" badge
   // Archived items: "(archived)" badge
+}
+
+/**
+ * Resolve the "other side" of a relationship given the current content context.
+ * Canonical ordering means source/target may not match what the user submitted —
+ * this utility abstracts that away so callers always get the linked item's info.
+ */
+function getLinkedItem(
+  rel: RelationshipWithContent,
+  selfType: ContentType,
+  selfId: string,
+) {
+  const isSelf = rel.source_type === selfType && rel.source_id === selfId;
+  return {
+    type: (isSelf ? rel.target_type : rel.source_type) as ContentType,
+    id: isSelf ? rel.target_id : rel.source_id,
+    title: isSelf ? rel.target_title : rel.source_title,
+    url: isSelf ? rel.target_url : rel.source_url,
+    deleted: isSelf ? rel.target_deleted : rel.source_deleted,
+    archived: isSelf ? rel.target_archived : rel.source_archived,
+  };
 }
 ```
 
@@ -820,6 +857,8 @@ export function RelatedContent({
 - Loading state shows skeleton/spinner
 - Handles deleted content indicator
 - Handles archived content indicator
+- Resolves correct "other side" when current item is source
+- Resolves correct "other side" when current item is target (canonical ordering swapped)
 
 ### Dependencies
 - Milestone 5 (frontend hooks)
@@ -866,7 +905,8 @@ export function AddRelationshipModal({
   const [selectedContent, setSelectedContent] = useState<{type: ContentType; id: string} | null>(null);
   const [description, setDescription] = useState('');
 
-  // Search using existing search endpoint
+  // Search using the unified GET /content/ endpoint (via useContentQuery hook)
+  // which searches across all content types simultaneously
   const debouncedQuery = useDebouncedValue(searchQuery, 300);
   // ... query with debouncedQuery
 
@@ -912,7 +952,7 @@ export function AddRelationshipModal({
 
 ### Dependencies
 - Milestone 6 (RelatedContent component)
-- Existing search endpoint
+- Existing unified search endpoint (`GET /content/` via `useContentQuery` hook)
 
 ### Risk Factors
 - UX for selecting from search results (clear selection feedback)
@@ -1180,6 +1220,12 @@ async def create_relationship(
         raising ToolError. This provides idempotent "ensure link exists"
         semantics appropriate for AI agents. The REST API itself still
         returns 409 for explicit conflict reporting.
+
+        Implementation: on 409 from the API, query
+        GET /relationships/content/{source_type}/{source_id} to find and
+        return the existing relationship. Canonical ordering means the
+        submitted source/target may be swapped — filter results by matching
+        both endpoint IDs.
     """
 
 
@@ -1344,8 +1390,9 @@ async def delete_relationship(
 | `test__api_get__not_found` | GET /relationships/{id} | Missing | 404 |
 | `test__api_update__success` | PATCH /relationships/{id} | Valid update | 200, updated |
 | `test__api_delete__success` | DELETE /relationships/{id} | Exists | 204 |
-| `test__api_query__success` | GET /relationships/content/{type}/{id} | Valid content | 200, list |
-| `test__api_query__with_content_info` | GET /relationships/content/{type}/{id}?include_content_info=true | With content info | Returns titles and status flags |
+| `test__api_query__success` | GET /relationships/content/{type}/{id} | Valid content | 200, list with content info (default) |
+| `test__api_query__without_content_info` | GET /relationships/content/{type}/{id}?include_content_info=false | Opt out of content info | Returns slim response without titles/status |
+| `test__api_query__pagination` | GET /relationships/content/{type}/{id}?offset=0&limit=2 | Paginated | Returns correct page with has_more flag |
 
 ### Frontend: Component Tests
 
@@ -1356,6 +1403,8 @@ async def delete_relationship(
 | `test__RelatedContent__delete_button` | RelatedContent | Click delete | Calls mutation, refreshes |
 | `test__RelatedContent__deleted_indicator` | RelatedContent | Target is soft-deleted | Shows strikethrough/badge |
 | `test__RelatedContent__archived_indicator` | RelatedContent | Target is archived | Shows archived badge |
+| `test__RelatedContent__resolves_other_side_as_source` | RelatedContent | Current item is source | Shows target's title/type |
+| `test__RelatedContent__resolves_other_side_as_target` | RelatedContent | Current item is target (canonical swap) | Shows source's title/type |
 | `test__AddRelationshipModal__search` | AddRelationshipModal | Type in search | Triggers debounced query |
 | `test__AddRelationshipModal__excludes_self` | AddRelationshipModal | Search results | Current item not in list |
 | `test__AddRelationshipModal__submit` | AddRelationshipModal | Select and submit | Creates relationship, closes |
@@ -1382,6 +1431,10 @@ async def delete_relationship(
 15. **PATCH semantics:** Uses `model_dump(exclude_unset=True)` to distinguish "not provided" from "set to null", consistent with existing update patterns
 16. **MCP duplicate handling:** `create_relationship` returns existing relationship on 409 (idempotent) rather than raising ToolError; REST API still returns 409
 17. **Query for non-existent content:** Returns empty list (query/filter endpoint), not 404
+18. **`include_content_info` default:** Defaults to `true` — every known caller needs content info; slim response available via `include_content_info=false`
+19. **Query pagination:** Uses standard `offset`/`limit` params (default 50, max 100) with `has_more` flag, consistent with all other list endpoints
+20. **Concurrent insert handling:** Service catches `IntegrityError` from unique constraint and raises `DuplicateRelationshipError`
+21. **Unified search in modal:** `AddRelationshipModal` uses existing `GET /content/` endpoint (via `useContentQuery`) to search across all content types simultaneously
 
 ---
 
@@ -1398,6 +1451,10 @@ async def delete_relationship(
 - Add `position` column for ordering
 - Implement `get_subtasks()` convenience method with position ordering
 - Add subtask completion cascade logic (optional)
+
+**Operational tooling:**
+- Orphan detection query: admin/maintenance query to identify relationships pointing to non-existent content (detects bugs in delete path or incomplete cleanups)
+- Per-item relationship limit: if accumulation becomes a problem (e.g., thousands of relationships on a single item degrading batch resolution), add a configurable soft limit in the service layer with a clear error
 
 **Other enhancements:**
 - Relationship graph visualization
