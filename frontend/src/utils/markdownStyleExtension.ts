@@ -752,16 +752,9 @@ const markdownDecorationPlugin = ViewPlugin.fromClass(
  * Base theme for markdown styling.
  * Uses CSS variables for customization.
  */
-const markdownBaseTheme = EditorView.baseTheme({
-  // Base editor font - Inter (same as Obsidian)
-  '&': {
-    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-  },
-  '.cm-content': {
-    fontFamily: 'inherit',
-  },
+const markdownBaseTheme = EditorView.theme({
+  // Font-family and font-size are set dynamically via createFontTheme()
   '.cm-line': {
-    fontFamily: 'inherit',
     lineHeight: '1.5 !important',
   },
 
@@ -860,8 +853,8 @@ const markdownBaseTheme = EditorView.baseTheme({
   '.cm-md-code-start, .cm-md-code-end, .cm-md-code-content': {
     backgroundColor: '#f5f7f8',
     mixBlendMode: 'multiply',
-    fontFamily: '"Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-    fontSize: '0.9em',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important',
+    fontSize: '13px !important',
     marginRight: '4px',
   },
   // Code fence lines (``` and ```language) - dimmer gray
@@ -902,8 +895,8 @@ const markdownBaseTheme = EditorView.baseTheme({
     backgroundColor: '#eff6ff',
     mixBlendMode: 'multiply',
     color: '#2563eb',
-    fontFamily: '"Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-    fontSize: '0.9em',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important',
+    fontSize: '13px !important',
     padding: '0.1em 0.2em',
     borderRadius: '3px',
   },
@@ -1077,6 +1070,25 @@ const linkClickHandler = EditorView.domEventHandlers({
     return false
   },
 })
+
+/**
+ * Create a dynamic font theme for the editor.
+ * @param monoFont - If true, use JetBrains Mono at 14px; otherwise Inter at 15px.
+ */
+export function createFontTheme(monoFont: boolean): ReturnType<typeof EditorView.theme> {
+  const fontFamily = monoFont
+    ? '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important'
+    : '"Inter", ui-sans-serif, system-ui, -apple-system, sans-serif !important'
+  const fontSize = monoFont ? '14px !important' : '15px !important'
+
+  return EditorView.theme({
+    '&': { fontFamily, fontSize },
+    '.cm-content': { fontFamily, fontSize },
+    // Only fontFamily on .cm-line — fontSize is inherited from .cm-content
+    // so that header em-based sizes (1.75em, 1.5em, etc.) aren't overridden
+    '.cm-line': { fontFamily },
+  })
+}
 
 /**
  * Complete markdown styling extension.
