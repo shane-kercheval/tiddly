@@ -163,7 +163,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.content_history import EntityType
 
 
-# Validation
+# Validation — query models directly (not through services) to avoid circular
+# dependencies. Follows the same pattern as HistoryService._get_entity().
+MODEL_MAP: dict[str, type] = {
+    EntityType.BOOKMARK: Bookmark,
+    EntityType.NOTE: Note,
+    EntityType.PROMPT: Prompt,
+}
+
+
 async def validate_content_exists(
     db: AsyncSession,
     user_id: UUID,
@@ -172,6 +180,11 @@ async def validate_content_exists(
     allow_deleted: bool = False,
 ) -> bool:
     """Check if content exists and belongs to user. By default excludes soft-deleted."""
+    model = MODEL_MAP[content_type]
+    query = select(exists().where(model.id == content_id, model.user_id == user_id))
+    if not allow_deleted:
+        query = query.where(model.deleted_at.is_(None))
+    return await db.scalar(query)
 
 
 # CRUD
@@ -208,9 +221,15 @@ async def update_relationship(
     db: AsyncSession,
     user_id: UUID,
     relationship_id: UUID,
-    description: str | None = ...,  # Use sentinel for "not provided"
+    data: RelationshipUpdate,
 ) -> ContentRelationship | None:
-    """Update relationship metadata (description)."""
+    """
+    Update relationship metadata.
+
+    Uses data.model_dump(exclude_unset=True) to distinguish "not provided"
+    from "explicitly set to null", consistent with BookmarkService/NoteService/
+    PromptService update patterns.
+    """
 
 
 async def delete_relationship(
@@ -503,7 +522,9 @@ class RelationshipListResponse(BaseModel):
 
 **Note on `include_content_info`:** When `True`, the service layer queries bookmark/note/prompt tables to resolve titles. This requires conditional queries per content type due to the polymorphic design. The response always uses `RelationshipWithContentResponse` when this flag is set, including `source_deleted`/`target_deleted` and `source_archived`/`target_archived` flags so the frontend can render appropriate indicators.
 
-**Implementation constraint — batch by content type:** Collect all distinct bookmark IDs, note IDs, and prompt IDs from the relationship results, then issue one `SELECT ... WHERE id IN (...)` query per type (at most 3 queries total, regardless of relationship count). Map results into a lookup dict and populate the response fields. Do NOT query per-relationship (N+1).
+**Implementation constraint — batch by content type:** Collect all distinct bookmark IDs, note IDs, and prompt IDs from the relationship results, then issue one `SELECT ... WHERE id IN (...)` query per type (at most 3 queries total, regardless of relationship count). Map results into a lookup dict and populate the response fields. Do NOT query per-relationship (N+1). If an entity is not found in the batch query results (e.g., race condition with permanent delete), set the corresponding title to `null` and deleted flag to `true`. This is a transient state — the cleanup in Milestone 3 will remove the relationship on the next permanent delete.
+
+**Query endpoint for non-existent content:** `GET /relationships/content/{type}/{id}` returns an empty list for non-existent content IDs. This is a query/filter endpoint, not a resource endpoint — the content ID is a filter parameter, so empty results (not 404) is the correct HTTP semantic.
 
 ### Testing Strategy
 - Test all CRUD endpoints
@@ -1152,7 +1173,13 @@ async def create_relationship(
         description: Optional description of why items are linked
 
     Returns:
-        Created relationship
+        Created relationship (or existing relationship if duplicate)
+
+    Note:
+        On 409 (duplicate), returns the existing relationship instead of
+        raising ToolError. This provides idempotent "ensure link exists"
+        semantics appropriate for AI agents. The REST API itself still
+        returns 409 for explicit conflict reporting.
     """
 
 
@@ -1183,6 +1210,7 @@ async def delete_relationship(
 ### Testing Strategy
 - MCP tools return expected data
 - Error handling for invalid content IDs
+- `create_relationship` on duplicate returns existing relationship (idempotent)
 - Integration test with MCP client
 
 ### Dependencies
@@ -1263,6 +1291,7 @@ async def delete_relationship(
 | `test__get_relationships__include_content_info` | With include_content_info=true | Returns titles, URLs, and status flags |
 | `test__get_relationships__content_info_deleted_target` | Target is soft-deleted | `target_deleted: true` flag set |
 | `test__get_relationships__content_info_archived_target` | Target is archived | `target_archived: true` flag set |
+| `test__get_relationships__content_info_missing_entity` | Entity not found in batch (e.g., race with permanent delete) | title=null, deleted=true |
 
 #### Delete Relationship
 
@@ -1278,6 +1307,7 @@ async def delete_relationship(
 |------|----------|----------|
 | `test__update_relationship__description` | Update description only | Success, description updated |
 | `test__update_relationship__clear_description` | Set description to null | Success, description cleared |
+| `test__update_relationship__empty_body_no_change` | PATCH with `{}` | Success, description unchanged |
 | `test__update_relationship__description_max_length` | Description > 500 chars | 422 Validation Error |
 | `test__update_relationship__not_found` | Update non-existent ID | 404 Not Found |
 
@@ -1347,7 +1377,11 @@ async def delete_relationship(
 10. **`position` field:** Deferred — add when implementing todos; not needed for current use cases
 11. **`user_id` FK:** Uses `ForeignKey("users.id", ondelete="CASCADE")` consistent with all other models
 12. **Content type enum:** Service layer uses `EntityType` from `models.content_history` as single source of truth for valid content type strings
-13. **Content info resolution:** Batched by content type (at most 3 queries) — never per-relationship
+13. **Content info resolution:** Batched by content type (at most 3 queries) — never per-relationship; missing entities treated as deleted
+14. **Content validation dispatch:** Uses `MODEL_MAP` with direct model imports (not services) to avoid circular dependencies, matching `HistoryService._get_entity()` pattern
+15. **PATCH semantics:** Uses `model_dump(exclude_unset=True)` to distinguish "not provided" from "set to null", consistent with existing update patterns
+16. **MCP duplicate handling:** `create_relationship` returns existing relationship on 409 (idempotent) rather than raising ToolError; REST API still returns 409
+17. **Query for non-existent content:** Returns empty list (query/filter endpoint), not 404
 
 ---
 
