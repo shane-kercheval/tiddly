@@ -47,6 +47,36 @@ class FieldLimitExceededError(Exception):
         super().__init__(f"{field.capitalize()} exceeds limit of {limit} characters")
 
 
+class RelationshipError(Exception):
+    """Base class for relationship errors."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
+class ContentNotFoundError(RelationshipError):
+    """Referenced content does not exist or does not belong to the user."""
+
+    def __init__(self, content_type: str, content_id: UUID) -> None:
+        self.content_type = content_type
+        self.content_id = content_id
+        super().__init__(f"{content_type.capitalize()} {content_id} not found")
+
+
+class DuplicateRelationshipError(RelationshipError):
+    """Relationship already exists between the given content items."""
+
+    def __init__(self) -> None:
+        super().__init__("Relationship already exists")
+
+
+class InvalidRelationshipError(RelationshipError):
+    """Invalid relationship (e.g., self-reference, invalid type combination)."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class SidebarValidationError(Exception):
     """
     Base exception for sidebar validation errors.
