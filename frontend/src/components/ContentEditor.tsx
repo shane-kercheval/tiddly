@@ -42,6 +42,9 @@ const WRAP_TEXT_KEY = 'editor_wrap_text'
 /** localStorage key for line numbers preference */
 const LINE_NUMBERS_KEY = 'editor_line_numbers'
 
+/** localStorage key for mono font preference */
+const MONO_FONT_KEY = 'editor_mono_font'
+
 /**
  * Load wrap text preference from localStorage.
  * Defaults to true (wrap on) if not set.
@@ -85,6 +88,30 @@ function loadLineNumbersPreference(): boolean {
 function saveLineNumbersPreference(show: boolean): void {
   try {
     localStorage.setItem(LINE_NUMBERS_KEY, String(show))
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+/**
+ * Load mono font preference from localStorage.
+ * Defaults to false (Inter) if not set.
+ */
+function loadMonoFontPreference(): boolean {
+  try {
+    const stored = localStorage.getItem(MONO_FONT_KEY)
+    return stored === 'true'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Save mono font preference to localStorage.
+ */
+function saveMonoFontPreference(mono: boolean): void {
+  try {
+    localStorage.setItem(MONO_FONT_KEY, String(mono))
   } catch {
     // Ignore storage errors
   }
@@ -185,6 +212,15 @@ export function ContentEditor({
   const handleLineNumbersChange = useCallback((show: boolean): void => {
     setShowLineNumbers(show)
     saveLineNumbersPreference(show)
+  }, [])
+
+  // Mono font preference
+  const [monoFont, setMonoFont] = useState(loadMonoFontPreference)
+
+  // Handle mono font change
+  const handleMonoFontChange = useCallback((mono: boolean): void => {
+    setMonoFont(mono)
+    saveMonoFontPreference(mono)
   }, [])
 
   // Note: Option+Z (wrap toggle) handler moved to CodeMirrorEditor
@@ -297,6 +333,8 @@ export function ContentEditor({
           onWrapTextChange={handleWrapTextChange}
           showLineNumbers={showLineNumbers}
           onLineNumbersChange={handleLineNumbersChange}
+          monoFont={monoFont}
+          onMonoFontChange={handleMonoFontChange}
           noPadding={subtleBorder || !showBorder}
           copyContent={value}
           showJinjaTools={showJinjaTools}

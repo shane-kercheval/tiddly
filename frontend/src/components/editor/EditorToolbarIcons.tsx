@@ -145,6 +145,10 @@ export function LineNumbersIcon(): ReactNode {
   )
 }
 
+export function MonoFontIcon(): ReactNode {
+  return <span className="w-4 h-4 flex items-center justify-center text-[11px] font-mono font-bold">Aa</span>
+}
+
 export function ReadingIcon(): ReactNode {
   // Eye icon for reading/preview mode
   return (

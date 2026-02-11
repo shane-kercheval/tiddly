@@ -5,7 +5,7 @@
 import { create } from 'zustand'
 
 /** Default sidebar width in pixels */
-export const DEFAULT_SIDEBAR_WIDTH = 450
+export const DEFAULT_SIDEBAR_WIDTH = 400
 export const MIN_SIDEBAR_WIDTH = 280
 /** Minimum space reserved for content area (header buttons + padding) */
 export const MIN_CONTENT_WIDTH = 600

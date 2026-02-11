@@ -27,6 +27,7 @@ from core.config import get_settings
 from core.http_cache import ETagMiddleware
 from core.rate_limit_config import RateLimitExceededError
 from core.redis import RedisClient, set_redis_client
+from db.session import engine
 from services.exceptions import FieldLimitExceededError, QuotaExceededError
 
 
@@ -49,6 +50,9 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     set_auth_cache(auth_cache)
 
     yield
+
+    # Shutdown: Dispose database connection pool
+    await engine.dispose()
 
     # Shutdown: Clean up auth cache and Redis
     set_auth_cache(None)

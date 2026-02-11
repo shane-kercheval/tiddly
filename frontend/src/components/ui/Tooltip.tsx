@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom'
 import type { ReactNode } from 'react'
 
 interface TooltipProps {
-  content: string
+  content: ReactNode
   children: ReactNode
   /** Use compact styling for short labels (e.g., action buttons) */
   compact?: boolean

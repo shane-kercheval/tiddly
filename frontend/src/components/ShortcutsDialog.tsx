@@ -54,6 +54,7 @@ const leftColumnGroups: ShortcutGroup[] = [
       { keys: ['\u2318', '\u21E7', 'M'], description: 'Toggle reading mode' },
       { keys: ['\u2325', 'Z'], description: 'Toggle word wrap' },
       { keys: ['\u2325', 'L'], description: 'Toggle line numbers' },
+      { keys: ['\u2325', 'M'], description: 'Toggle monospace font' },
     ],
   },
 ]

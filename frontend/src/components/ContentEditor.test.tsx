@@ -12,14 +12,16 @@ import { ContentEditor } from './ContentEditor'
 
 // Mock CodeMirrorEditor since it has complex CodeMirror interactions
 vi.mock('./CodeMirrorEditor', () => ({
-  CodeMirrorEditor: ({ value, onChange, placeholder, disabled, wrapText }: {
+  CodeMirrorEditor: ({ value, onChange, placeholder, disabled, wrapText, monoFont, onMonoFontChange }: {
     value: string
     onChange: (value: string) => void
     placeholder?: string
     disabled?: boolean
     wrapText?: boolean
+    monoFont?: boolean
+    onMonoFontChange?: (mono: boolean) => void
   }) => (
-    <div data-testid="codemirror-mock" data-disabled={disabled} data-wrap={wrapText}>
+    <div data-testid="codemirror-mock" data-disabled={disabled} data-wrap={wrapText} data-mono-font={monoFont}>
       <textarea
         data-testid="codemirror-textarea"
         value={value}
@@ -27,6 +29,9 @@ vi.mock('./CodeMirrorEditor', () => ({
         placeholder={placeholder}
         disabled={disabled}
       />
+      {onMonoFontChange && (
+        <button data-testid="toggle-mono" onClick={() => onMonoFontChange(!monoFont)}>Toggle Mono</button>
+      )}
     </div>
   ),
 }))
@@ -107,6 +112,39 @@ describe('ContentEditor', () => {
       render(<ContentEditor {...defaultProps} />)
 
       expect(screen.getByTestId('codemirror-mock')).toHaveAttribute('data-wrap', 'true')
+    })
+  })
+
+  describe('mono font preference', () => {
+    it('should default to non-mono font (Inter)', () => {
+      render(<ContentEditor {...defaultProps} />)
+
+      expect(screen.getByTestId('codemirror-mock')).toHaveAttribute('data-mono-font', 'false')
+    })
+
+    it('should load mono font preference from localStorage', () => {
+      localStorageStore['editor_mono_font'] = 'true'
+
+      render(<ContentEditor {...defaultProps} />)
+
+      expect(screen.getByTestId('codemirror-mock')).toHaveAttribute('data-mono-font', 'true')
+    })
+
+    it('should default to false when localStorage has no value', () => {
+      render(<ContentEditor {...defaultProps} />)
+
+      expect(screen.getByTestId('codemirror-mock')).toHaveAttribute('data-mono-font', 'false')
+    })
+
+    it('should persist mono font preference to localStorage on toggle', async () => {
+      const user = userEvent.setup()
+
+      render(<ContentEditor {...defaultProps} />)
+
+      await user.click(screen.getByTestId('toggle-mono'))
+
+      expect(localStorageMock.setItem).toHaveBeenCalledWith('editor_mono_font', 'true')
+      expect(screen.getByTestId('codemirror-mock')).toHaveAttribute('data-mono-font', 'true')
     })
   })
 

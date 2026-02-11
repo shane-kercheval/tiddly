@@ -1,15 +1,15 @@
 # Deployment Guide
 
-Deploy Tiddly services to Railway using Railpack (Railway's auto-build system).
+Deploy Tiddly services to Railway using Docker.
 
 ## Architecture
 
-| Service | Description | Root Directory |
-|---------|-------------|----------------|
-| **api** | FastAPI backend | `/` |
-| **content-mcp** | Content MCP server (bookmarks/notes) | `/` |
-| **prompt-mcp** | Prompt MCP server (prompts capability) | `/` |
-| **frontend** | React SPA | `/frontend` |
+| Service | Description | Build |
+|---------|-------------|-------|
+| **api** | FastAPI backend | `Dockerfile.api` |
+| **content-mcp** | Content MCP server (bookmarks/notes) | Railpack |
+| **prompt-mcp** | Prompt MCP server (prompts capability) | Railpack |
+| **frontend** | React SPA | Railpack |
 | **Postgres** | PostgreSQL database | (managed by Railway) |
 | **Redis** | Rate limiting and auth cache | (managed by Railway) |
 
@@ -80,11 +80,13 @@ Click on each service → **Settings** tab → Configure as follows:
 - Enable **Wait for CI** (deploys only after GitHub Actions pass)
 
 **Settings → Build:**
-- Build Command: `uv sync --no-dev`
-- Watch Paths: `backend/**`, `pyproject.toml`
+- Builder: **Dockerfile**
+- Dockerfile Path: `/Dockerfile.api`
+- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`
 
 **Settings → Deploy:**
-- Start Command: `cd backend/src && uv run uvicorn api.main:app --host 0.0.0.0 --port $PORT`
+- No Custom Start Command needed (the Dockerfile handles this)
+- Pre-Deploy Command: `uv run alembic upgrade head` (runs database migrations automatically before each deployment)
 
 **Settings → Networking:**
 - Click **Generate Domain**
@@ -148,6 +150,7 @@ VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
 VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
 VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 VITE_FRONTEND_URL=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
+API_WORKERS=4
 ```
 
 **Note:** `VITE_API_URL` and `VITE_FRONTEND_URL` are used by the backend to generate helpful error messages (e.g., consent enforcement instructions).
@@ -162,6 +165,16 @@ To set DATABASE_URL:
 3. Go back to the **api** service → **Variables** tab
 4. Add `DATABASE_URL` and paste the copied value
 5. Change `postgresql://` to `postgresql+asyncpg://` at the start of the URL
+
+**Optional tuning variables** (defaults are fine for most cases, see [docs/connection-pool-tuning.md](docs/connection-pool-tuning.md)):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_WORKERS` | `1` | Uvicorn worker processes (set to `4` for Railway's 8 vCPU) |
+| `DB_POOL_SIZE` | `10` | Persistent DB connections per worker |
+| `DB_MAX_OVERFLOW` | `10` | Temporary DB connections per worker |
+| `DB_POOL_RECYCLE` | `3600` | Recycle connections older than N seconds |
+| `REDIS_POOL_SIZE` | `5` | Redis connections per worker |
 
 #### Content MCP Service Variables
 
@@ -302,19 +315,7 @@ To enable "Sign in with Google":
 4. Click **Create**
 5. Go to the **Applications** tab and enable the connection for your SPA application
 
-### Step 7: Configure Pre-Deploy Command (Migrations)
-
-Set up automatic database migrations for the **api** service:
-
-1. Click on the **api** service → **Settings** → **Deploy**
-2. Find **Pre-Deploy Command** and set:
-   ```
-   uv run alembic upgrade head
-   ```
-
-This runs migrations automatically before each deployment.
-
-### Step 8: Deploy
+### Step 7: Deploy
 
 Push your changes to `main` branch. With **Wait for CI** enabled, Railway will:
 1. Wait for GitHub Actions tests to pass
@@ -378,7 +379,7 @@ railway up -s prompt-mcp  # Deploy Prompt MCP
 
 ## Running Migrations
 
-Migrations run automatically via the pre-deploy command configured in Step 6.
+Migrations run automatically via the pre-deploy command configured in Step 4 (API Service).
 
 To run migrations manually (if needed):
 1. Go to Railway dashboard → **api** service → **Settings** → **Deploy**

@@ -11,7 +11,7 @@ import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import { keymap, EditorView } from '@codemirror/view'
-import { markdownStyleExtension } from '../utils/markdownStyleExtension'
+import { markdownStyleExtension, createFontTheme } from '../utils/markdownStyleExtension'
 import type { KeyBinding } from '@codemirror/view'
 import { Prec } from '@codemirror/state'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
@@ -36,6 +36,7 @@ import {
   JinjaIfTrimIcon,
   WrapIcon,
   LineNumbersIcon,
+  MonoFontIcon,
   ReadingIcon,
 } from './editor/EditorToolbarIcons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
@@ -78,6 +79,10 @@ interface CodeMirrorEditorProps {
   showLineNumbers?: boolean
   /** Called when line numbers preference changes */
   onLineNumbersChange?: (show: boolean) => void
+  /** Whether to use monospace font */
+  monoFont?: boolean
+  /** Called when mono font preference changes */
+  onMonoFontChange?: (mono: boolean) => void
   /** Remove padding to align text with other elements */
   noPadding?: boolean
   /** Whether to auto-focus on mount */
@@ -383,6 +388,8 @@ export function CodeMirrorEditor({
   onWrapTextChange,
   showLineNumbers = false,
   onLineNumbersChange,
+  monoFont = false,
+  onMonoFontChange,
   noPadding = false,
   autoFocus = false,
   copyContent,
@@ -456,12 +463,20 @@ export function CodeMirrorEditor({
         e.preventDefault()
         e.stopPropagation()
         onLineNumbersChange(!showLineNumbers)
+        return
+      }
+
+      // Option+M (Alt+M) - toggle monospace font (only when not in reading mode)
+      if (e.altKey && e.code === 'KeyM' && !effectiveReadingMode && onMonoFontChange) {
+        e.preventDefault()
+        e.stopPropagation()
+        onMonoFontChange(!monoFont)
       }
     }
 
     document.addEventListener('keydown', handleKeyDown, true)
     return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange, showLineNumbers, onLineNumbersChange])
+  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange, showLineNumbers, onLineNumbersChange, monoFont, onMonoFontChange])
 
   // Get the EditorView from ref
   const getView = useCallback((): EditorView | undefined => {
@@ -504,12 +519,13 @@ export function CodeMirrorEditor({
       markdown({ codeLanguages: languages }),
       Prec.highest(keymap.of(bindings)),
       markdownStyleExtension,
+      createFontTheme(monoFont),
     ]
     if (wrapText) {
       exts.push(EditorView.lineWrapping)
     }
     return exts
-  }, [wrapText])
+  }, [wrapText, monoFont])
 
   return (
     <div ref={containerRef} className={`w-full ${noPadding ? 'codemirror-no-padding' : ''}`}>
@@ -595,7 +611,7 @@ export function CodeMirrorEditor({
           <div className="w-px h-5 bg-gray-200 mx-1 md:hidden" />
           {/* Wrap toggle - always visible, only shown when not in reading mode */}
           {onWrapTextChange && !effectiveReadingMode && (
-            <Tooltip content="Toggle word wrap (⌥Z)" compact>
+            <Tooltip content={<>Toggle word wrap<br /><span className="opacity-75">⌥Z</span></>} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -619,7 +635,7 @@ export function CodeMirrorEditor({
 
           {/* Line numbers toggle - always visible, only shown when not in reading mode */}
           {onLineNumbersChange && !effectiveReadingMode && (
-            <Tooltip content="Toggle line numbers (⌥L)" compact>
+            <Tooltip content={<>Toggle line numbers<br /><span className="opacity-75">⌥L</span></>} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -641,8 +657,32 @@ export function CodeMirrorEditor({
             </Tooltip>
           )}
 
+          {/* Mono font toggle - only shown when not in reading mode */}
+          {onMonoFontChange && !effectiveReadingMode && (
+            <Tooltip content={<>Toggle monospace font<br /><span className="opacity-75">⌥M</span></>} compact>
+              <button
+                type="button"
+                tabIndex={-1}
+                disabled={disabled}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  if (!disabled) {
+                    onMonoFontChange(!monoFont)
+                  }
+                }}
+                className={`p-1.5 rounded transition-colors flex-shrink-0 ${
+                  monoFont
+                    ? 'text-gray-700 bg-gray-200'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+              >
+                <MonoFontIcon />
+              </button>
+            </Tooltip>
+          )}
+
           {/* Reading mode toggle - always visible */}
-          <Tooltip content="Toggle reading mode (⌘⇧M)" compact>
+          <Tooltip content={<>Toggle reading mode<br /><span className="opacity-75">⌘⇧M</span></>} compact>
             <button
               type="button"
               tabIndex={-1}
@@ -700,7 +740,7 @@ export function CodeMirrorEditor({
               foldGutter: false,
               highlightActiveLine: false,
             }}
-            className="text-sm"
+
           />
         </div>
       </div>
