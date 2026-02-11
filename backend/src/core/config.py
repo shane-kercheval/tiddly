@@ -18,8 +18,9 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str
-    db_pool_size: int = Field(default=50, validation_alias="DB_POOL_SIZE")
-    db_max_overflow: int = Field(default=30, validation_alias="DB_MAX_OVERFLOW")
+    db_pool_size: int = Field(default=10, validation_alias="DB_POOL_SIZE")
+    db_max_overflow: int = Field(default=10, validation_alias="DB_MAX_OVERFLOW")
+    db_pool_recycle: int = Field(default=3600, validation_alias="DB_POOL_RECYCLE")
 
     # Auth0 - shared with frontend (VITE_ prefix for Vite exposure)
     auth0_domain: str = Field(default="", validation_alias="VITE_AUTH0_DOMAIN")
@@ -48,7 +49,7 @@ class Settings(BaseSettings):
     # Redis - for rate limiting and auth caching
     redis_url: str = Field(default="redis://localhost:6379", validation_alias="REDIS_URL")
     redis_enabled: bool = Field(default=True, validation_alias="REDIS_ENABLED")
-    redis_pool_size: int = Field(default=20, validation_alias="REDIS_POOL_SIZE")
+    redis_pool_size: int = Field(default=5, validation_alias="REDIS_POOL_SIZE")
 
     # Note: Field length limits moved to core/tier_limits.py (tier-based)
 
