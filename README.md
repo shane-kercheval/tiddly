@@ -4,18 +4,17 @@ Notes, Bookmarks, and Prompt management system; + Remote MCP Servers.
 
 ## Features
 
-- **Bookmarks & Notes** - Manage both bookmarks and markdown notes in one place
+- **Bookmarks & Notes** - Manage bookmarks and notes using simple markdown editor
 - **Prompts** - Jinja2 templates with arguments, exposed via MCP for AI assistants
-- **MCP Servers** - AI agent access via Model Context Protocol (Claude, etc.)
+- **MCP Servers** - Connect agents to bookmarks/notes and/or prompts via Model Context Protocol
 - **Custom lists** - Create filtered views based on tag expressions
-- **Tag-based organization** - Filter content by tags with AND/OR matching
 - **URL metadata extraction** - Auto-fetch title, description, and page content from URLs
 - **Full-text search** - Search across title, description, URL, and content
 - **Keyboard shortcuts** - Quick actions for power users
-- **Archive** - Hide content without deleting them
-- **Soft delete & restore** - Delete content without permanent loss
-- **Version history** - Track all changes to bookmarks, notes, and prompts. View diffs, see who made changes, and restore any previous version
+- **Version history** - Track all changes to bookmarks, notes, and prompts. View diffs, see what made changes (e.g. agents via MCP), and restore any previous version
 - **Personal Access Tokens** - Programmatic API access for CLI tools and scripts
+
+For signup/login, go to [tiddly.me](https://tiddly.me/)
 
 ## Project Structure
 
