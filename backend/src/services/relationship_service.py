@@ -1,4 +1,5 @@
 """Service layer for content relationship CRUD operations."""
+from datetime import datetime, UTC
 from uuid import UUID
 
 from sqlalchemy import and_, delete, exists, func, or_, select
@@ -10,6 +11,7 @@ from models.content_history import EntityType
 from models.content_relationship import ContentRelationship
 from models.note import Note
 from models.prompt import Prompt
+from schemas.relationship import RelationshipWithContentResponse
 from services.exceptions import (
     ContentNotFoundError,
     DuplicateRelationshipError,
@@ -290,3 +292,107 @@ async def delete_relationships_for_content(
     )
     result = await db.execute(stmt)
     return result.rowcount
+
+
+# Column tuples for batch resolution queries — only fetch what's needed.
+_BOOKMARK_COLS = (
+    Bookmark.id, Bookmark.title, Bookmark.url, Bookmark.deleted_at, Bookmark.archived_at,
+)
+_NOTE_COLS = (Note.id, Note.title, Note.deleted_at, Note.archived_at)
+_PROMPT_COLS = (Prompt.id, Prompt.title, Prompt.deleted_at, Prompt.archived_at)
+
+
+async def enrich_with_content_info(
+    db: AsyncSession,
+    user_id: UUID,
+    rels: list[ContentRelationship],
+) -> list[RelationshipWithContentResponse]:
+    """
+    Batch-resolve content metadata for relationships.
+
+    Collects all distinct IDs per content type, issues one query per type
+    (at most 3 queries), then maps results into response objects.
+
+    Uses time-aware archived check: archived_at must be non-null AND in
+    the past/present to be considered archived (future = scheduled, not yet archived).
+    """
+    now = datetime.now(UTC)
+
+    # Collect IDs per content type from both source and target sides
+    ids_by_type: dict[str, set[UUID]] = {'bookmark': set(), 'note': set(), 'prompt': set()}
+    for rel in rels:
+        if rel.source_type in ids_by_type:
+            ids_by_type[rel.source_type].add(rel.source_id)
+        if rel.target_type in ids_by_type:
+            ids_by_type[rel.target_type].add(rel.target_id)
+
+    # Batch query per type — one query each, only if IDs exist
+    # Lookup: (type, id) -> {title, url, deleted, archived}
+    info: dict[tuple[str, UUID], dict[str, str | bool | None]] = {}
+
+    if ids_by_type['bookmark']:
+        stmt = (
+            select(*_BOOKMARK_COLS)
+            .where(Bookmark.user_id == user_id, Bookmark.id.in_(ids_by_type['bookmark']))
+        )
+        for row in (await db.execute(stmt)).all():
+            info[('bookmark', row.id)] = {
+                'title': row.title,
+                'url': str(row.url) if row.url else None,
+                'deleted': row.deleted_at is not None,
+                'archived': row.archived_at is not None and row.archived_at <= now,
+            }
+
+    if ids_by_type['note']:
+        stmt = (
+            select(*_NOTE_COLS)
+            .where(Note.user_id == user_id, Note.id.in_(ids_by_type['note']))
+        )
+        for row in (await db.execute(stmt)).all():
+            info[('note', row.id)] = {
+                'title': row.title,
+                'url': None,
+                'deleted': row.deleted_at is not None,
+                'archived': row.archived_at is not None and row.archived_at <= now,
+            }
+
+    if ids_by_type['prompt']:
+        stmt = (
+            select(*_PROMPT_COLS)
+            .where(Prompt.user_id == user_id, Prompt.id.in_(ids_by_type['prompt']))
+        )
+        for row in (await db.execute(stmt)).all():
+            info[('prompt', row.id)] = {
+                'title': row.title,
+                'url': None,
+                'deleted': row.deleted_at is not None,
+                'archived': row.archived_at is not None and row.archived_at <= now,
+            }
+
+    # Build enriched response objects
+    items: list[RelationshipWithContentResponse] = []
+    for rel in rels:
+        source_info = info.get((rel.source_type, rel.source_id))
+        target_info = info.get((rel.target_type, rel.target_id))
+
+        items.append(RelationshipWithContentResponse(
+            id=rel.id,
+            source_type=rel.source_type,
+            source_id=rel.source_id,
+            target_type=rel.target_type,
+            target_id=rel.target_id,
+            relationship_type=rel.relationship_type,
+            description=rel.description,
+            created_at=rel.created_at,
+            updated_at=rel.updated_at,
+            source_title=source_info['title'] if source_info else None,
+            source_url=source_info['url'] if source_info else None,
+            source_deleted=source_info['deleted'] if source_info else True,
+            source_archived=source_info['archived'] if source_info else False,
+            target_title=target_info['title'] if target_info else None,
+            target_url=target_info['url'] if target_info else None,
+            target_deleted=target_info['deleted'] if target_info else True,
+            target_archived=target_info['archived'] if target_info else False,
+        ))
+
+    return items

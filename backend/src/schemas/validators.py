@@ -158,9 +158,13 @@ MAX_RELATIONSHIP_DESCRIPTION_LENGTH = 500
 
 
 def validate_relationship_description(v: str | None) -> str | None:
-    """Validate relationship description length."""
-    if v is not None and len(v) > MAX_RELATIONSHIP_DESCRIPTION_LENGTH:
-        raise ValueError(
-            f'Description must be {MAX_RELATIONSHIP_DESCRIPTION_LENGTH} characters or less',
-        )
+    """Validate and normalize relationship description."""
+    if v is not None:
+        v = v.strip()
+        if not v:
+            return None
+        if len(v) > MAX_RELATIONSHIP_DESCRIPTION_LENGTH:
+            raise ValueError(
+                f'Description must be {MAX_RELATIONSHIP_DESCRIPTION_LENGTH} characters or less',
+            )
     return v

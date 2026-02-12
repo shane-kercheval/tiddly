@@ -1,4 +1,5 @@
 """Tests for relationship API endpoints."""
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -224,6 +225,42 @@ async def test__api_create__description_max_length(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test__api_create__empty_description_normalized_to_null(client: AsyncClient) -> None:
+    """Empty string description is normalized to null."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    response = await client.post('/relationships/', json={
+        'source_type': 'bookmark',
+        'source_id': bm['id'],
+        'target_type': 'note',
+        'target_id': note['id'],
+        'relationship_type': 'related',
+        'description': '',
+    })
+    assert response.status_code == 201
+    assert response.json()['description'] is None
+
+
+@pytest.mark.asyncio
+async def test__api_create__whitespace_description_normalized_to_null(client: AsyncClient) -> None:
+    """Whitespace-only description is normalized to null."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    response = await client.post('/relationships/', json={
+        'source_type': 'bookmark',
+        'source_id': bm['id'],
+        'target_type': 'note',
+        'target_id': note['id'],
+        'relationship_type': 'related',
+        'description': '   \t\n  ',
+    })
+    assert response.status_code == 201
+    assert response.json()['description'] is None
+
+
+@pytest.mark.asyncio
 async def test__api_create__soft_deleted_source_rejected(client: AsyncClient) -> None:
     """Cannot create relationship to soft-deleted content."""
     bm = await _create_bookmark(client)
@@ -366,6 +403,24 @@ async def test__api_update__empty_body_no_change(client: AsyncClient) -> None:
     response = await client.patch(f'/relationships/{rel["id"]}', json={})
     assert response.status_code == 200
     assert response.json()['description'] == 'Keep this'
+
+
+@pytest.mark.asyncio
+async def test__api_update__whitespace_description_normalized_to_null(client: AsyncClient) -> None:
+    """Whitespace-only description in update is normalized to null."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+    rel = await _create_relationship(
+        client, 'bookmark', bm['id'], 'note', note['id'],
+        description='Initial',
+    )
+
+    response = await client.patch(
+        f'/relationships/{rel["id"]}',
+        json={'description': '   '},
+    )
+    assert response.status_code == 200
+    assert response.json()['description'] is None
 
 
 @pytest.mark.asyncio
@@ -604,6 +659,41 @@ async def test__api_query__content_info_archived_target(client: AsyncClient) -> 
         assert item['source_archived'] is True
     else:
         assert item['target_archived'] is True
+
+
+@pytest.mark.asyncio
+async def test__api_query__future_archived_at_not_considered_archived(
+    client: AsyncClient, db_session: AsyncSession,
+) -> None:
+    """
+    A note with archived_at in the future should not be flagged as archived.
+
+    Future archived_at means "scheduled to archive" — not yet actually archived.
+    """
+    bm = await _create_bookmark(client)
+    note = await _create_note(client, title='Future Scheduled')
+    await _create_relationship(client, 'bookmark', bm['id'], 'note', note['id'])
+
+    # Set archived_at to a future date directly in the DB
+    future_time = datetime.now(UTC) + timedelta(days=7)
+    note_id = UUID(note['id'])
+    await db_session.execute(
+        Note.__table__.update()
+        .where(Note.id == note_id)
+        .values(archived_at=future_time),
+    )
+    await db_session.flush()
+
+    response = await client.get(f'/relationships/content/bookmark/{bm["id"]}')
+    items = response.json()['items']
+    assert len(items) == 1
+
+    item = items[0]
+    # Future archived_at should NOT be flagged as archived
+    if item['source_type'] == 'note':
+        assert item['source_archived'] is False
+    else:
+        assert item['target_archived'] is False
 
 
 @pytest.mark.asyncio

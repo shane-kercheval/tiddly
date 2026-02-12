@@ -1,4 +1,5 @@
 """Tests for the relationship service layer."""
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -19,6 +20,7 @@ from services.relationship_service import (
     create_relationship,
     delete_relationship,
     delete_relationships_for_content,
+    enrich_with_content_info,
     get_relationship,
     get_relationships_for_content,
     update_relationship,
@@ -1139,3 +1141,71 @@ class TestDeleteRelationshipsForContent:
             db_session, test_user.id, 'bookmark', bookmark_a.id,
         )
         assert len(results) == 1
+
+
+class TestEnrichWithContentInfo:
+    """Tests for enrich_with_content_info batch resolution."""
+
+    @pytest.mark.asyncio
+    async def test__enrich__future_archived_at_not_flagged_as_archived(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """A note with archived_at in the future should return archived=False."""
+        # Set archived_at to 7 days in the future (scheduled, not yet archived)
+        note_a.archived_at = datetime.now(UTC) + timedelta(days=7)
+        await db_session.flush()
+
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id,
+            'related',
+        )
+
+        rels, _ = await get_relationships_for_content(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        enriched = await enrich_with_content_info(db_session, test_user.id, rels)
+
+        assert len(enriched) == 1
+        item = enriched[0]
+        # Find the note side — should NOT be archived
+        if item.source_type == 'note':
+            assert item.source_archived is False
+        else:
+            assert item.target_archived is False
+
+    @pytest.mark.asyncio
+    async def test__enrich__past_archived_at_flagged_as_archived(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """A note with archived_at in the past should return archived=True."""
+        note_a.archived_at = datetime.now(UTC) - timedelta(days=1)
+        await db_session.flush()
+
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id,
+            'related',
+        )
+
+        rels, _ = await get_relationships_for_content(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        enriched = await enrich_with_content_info(db_session, test_user.id, rels)
+
+        assert len(enriched) == 1
+        item = enriched[0]
+        if item.source_type == 'note':
+            assert item.source_archived is True
+        else:
+            assert item.target_archived is True
+
+    @pytest.mark.asyncio
+    async def test__enrich__empty_list_returns_empty(
+        self, db_session: AsyncSession, test_user: User,
+    ) -> None:
+        """Enriching an empty list returns an empty list without DB queries."""
+        result = await enrich_with_content_info(db_session, test_user.id, [])
+        assert result == []
