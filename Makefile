@@ -7,7 +7,7 @@ export
 PYTHONPATH := backend/src
 
 # VM IP for host-accessible dev server (auto-detected, override with: make frontend-run-vm VM_IP=x.x.x.x)
-VM_IP ?= $(shell hostname -I | awk '{print $$1}')
+VM_IP ?= $(shell hostname -I 2>/dev/null | awk '{print $$1}' || ipconfig getifaddr en0 2>/dev/null || echo '0.0.0.0')
 
 ####
 # Backend Development
