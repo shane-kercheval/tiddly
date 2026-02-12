@@ -19,6 +19,7 @@ from core.tier_limits import TierLimits
 from models.content_history import ActionType, EntityType
 from models.tag import Tag
 from schemas.validators import validate_and_normalize_tags
+from services import relationship_service
 from services.exceptions import InvalidStateError
 from services.utils import build_tag_filter_from_expression, escape_ilike
 
@@ -447,6 +448,10 @@ class BaseEntityService(ABC, Generic[T]):
         if permanent:
             # Hard delete: cascade-delete history first (application-level cascade)
             await self._get_history_service().delete_entity_history(
+                db, user_id, self.entity_type, entity_id,
+            )
+            # Clean up content relationships
+            await relationship_service.delete_relationships_for_content(
                 db, user_id, self.entity_type, entity_id,
             )
             await db.delete(entity)
