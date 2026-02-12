@@ -46,6 +46,7 @@ const mockNote: Note = {
 // Mock hooks
 const mockFetchNote = vi.fn()
 const mockTrackNoteUsage = vi.fn()
+const mockTrackBookmarkUsage = vi.fn()
 const mockCreateMutateAsync = vi.fn()
 const mockUpdateMutateAsync = vi.fn()
 const mockDeleteMutateAsync = vi.fn()
@@ -66,6 +67,12 @@ vi.mock('../hooks/useNotes', () => ({
   useNotes: () => ({
     fetchNote: mockFetchNote,
     trackNoteUsage: mockTrackNoteUsage,
+  }),
+}))
+
+vi.mock('../hooks/useBookmarks', () => ({
+  useBookmarks: () => ({
+    trackBookmarkUsage: mockTrackBookmarkUsage,
   }),
 }))
 
@@ -118,6 +125,22 @@ vi.mock('../stores/tagFilterStore', () => ({
 vi.mock('../stores/uiPreferencesStore', () => ({
   useUIPreferencesStore: (selector: (state: { fullWidthLayout: boolean }) => boolean) =>
     selector({ fullWidthLayout: false }),
+}))
+
+// Mock relationship hooks (Note component uses these internally)
+vi.mock('../hooks/useRelationships', () => ({
+  useContentRelationships: () => ({ data: null, isLoading: false, isError: false }),
+  useRelationshipMutations: () => ({
+    create: { mutateAsync: vi.fn(), isPending: false },
+    update: { mutateAsync: vi.fn(), isPending: false },
+    remove: { mutate: vi.fn(), isPending: false },
+  }),
+}))
+
+// Mock content query hook (used by AddRelationshipModal inside Note)
+vi.mock('../hooks/useContentQuery', () => ({
+  useContentQuery: () => ({ data: null, isFetching: false }),
+  contentKeys: { all: ['content'], lists: () => ['content', 'list'], view: () => ['content', 'list', 'active'], list: () => ['content', 'list', 'active'] },
 }))
 
 // Mock ContentEditor to avoid Milkdown timer issues in tests

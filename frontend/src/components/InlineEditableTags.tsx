@@ -29,6 +29,8 @@ interface InlineEditableTagsProps {
   suggestions: TagCount[]
   /** Whether the input is disabled */
   disabled?: boolean
+  /** Whether to show the inline add button (default: true). Set false when using an external trigger. */
+  showAddButton?: boolean
 }
 
 /** Exposed methods via ref */
@@ -37,6 +39,8 @@ export interface InlineEditableTagsHandle {
   getPendingValue: () => string
   /** Clear the pending input */
   clearPending: () => void
+  /** Programmatically enter add mode (for external trigger buttons) */
+  startAdding: () => void
 }
 
 /**
@@ -45,7 +49,7 @@ export interface InlineEditableTagsHandle {
  * Styling uses badge pills with hover state revealing the remove button.
  */
 export const InlineEditableTags = forwardRef(function InlineEditableTags(
-  { value, onChange, suggestions, disabled = false }: InlineEditableTagsProps,
+  { value, onChange, suggestions, disabled = false, showAddButton = true }: InlineEditableTagsProps,
   ref: Ref<InlineEditableTagsHandle>
 ): ReactNode {
   const [isAddingTag, setIsAddingTag] = useState(false)
@@ -75,11 +79,17 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
     inputValueRef.current = inputValue
   }, [inputValue])
 
-  // Expose methods via ref for form submission
+  // Expose methods via ref for form submission and external triggers
   useImperativeHandle(ref, () => ({
     getPendingValue,
     clearPending,
-  }), [getPendingValue, clearPending])
+    startAdding: () => {
+      if (!disabled) {
+        setIsAddingTag(true)
+        openSuggestions()
+      }
+    },
+  }), [getPendingValue, clearPending, disabled, openSuggestions])
 
   // Focus input when entering add mode
   useEffect(() => {
@@ -153,7 +163,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
   }
 
   return (
-    <div ref={containerRef} className="relative inline-flex flex-wrap items-center gap-2 py-1">
+    <div ref={containerRef} className="relative inline-flex flex-wrap items-center gap-2">
       {/* Tag pills */}
       {value.map((tag) => (
         <Tag
@@ -163,8 +173,8 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
         />
       ))}
 
-      {/* Add button or input - always render to prevent layout shift, but disable interactions when disabled */}
-      {isAddingTag && !disabled ? (
+      {/* Add input (shown when in add mode, regardless of showAddButton) */}
+      {isAddingTag && !disabled && (
         <div className="relative">
           <input
             ref={inputRef}
@@ -206,7 +216,10 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
             </div>
           )}
         </div>
-      ) : (
+      )}
+
+      {/* Inline add button (only when showAddButton is true and not already adding) */}
+      {showAddButton && !isAddingTag && (
         <Tooltip content="Add tag" compact>
           <button
             type="button"

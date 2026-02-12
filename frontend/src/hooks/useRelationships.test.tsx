@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import type { ReactNode } from 'react'
 import {
   useContentRelationships,
@@ -11,6 +12,12 @@ import {
   relationshipKeys,
 } from './useRelationships'
 import { api } from '../services/api'
+
+vi.mock('react-hot-toast', () => ({
+  default: {
+    error: vi.fn(),
+  },
+}))
 
 vi.mock('../services/api', () => ({
   api: {
@@ -306,6 +313,24 @@ describe('useRelationshipMutations', () => {
       // Should invalidate all relationship queries
       expect(invalidateSpy).toHaveBeenCalledWith({
         queryKey: relationshipKeys.all,
+      })
+    })
+
+    it('should show error toast when remove fails', async () => {
+      const queryClient = createTestQueryClient()
+      mockDelete.mockRejectedValueOnce(new Error('Network error'))
+
+      const { result } = renderHook(
+        () => useRelationshipMutations(),
+        { wrapper: createWrapper(queryClient) },
+      )
+
+      await act(async () => {
+        result.current.remove.mutate('rel-1')
+      })
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('Failed to remove link')
       })
     })
   })

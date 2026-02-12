@@ -7,6 +7,7 @@
  * - useRelationshipMutations: create, update, and remove relationships
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { relationshipsApi } from '../services/relationships'
 import type { ContentType, RelationshipCreate, RelationshipUpdate } from '../types'
 
@@ -90,6 +91,9 @@ export function useRelationshipMutations() {
     mutationFn: (id: string) => relationshipsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: relationshipKeys.all })
+    },
+    onError: () => {
+      toast.error('Failed to remove link')
     },
   })
 

@@ -71,6 +71,22 @@ const localStorageMock = (() => {
 })()
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
+// Mock relationship hooks (Note uses useContentRelationships internally)
+vi.mock('../../hooks/useRelationships', () => ({
+  useContentRelationships: () => ({ data: null, isLoading: false, isError: false }),
+  useRelationshipMutations: () => ({
+    create: { mutateAsync: vi.fn(), isPending: false },
+    update: { mutateAsync: vi.fn(), isPending: false },
+    remove: { mutate: vi.fn(), isPending: false },
+  }),
+}))
+
+// Mock content query hook (used by AddRelationshipModal inside Note)
+vi.mock('../../hooks/useContentQuery', () => ({
+  useContentQuery: () => ({ data: null, isFetching: false }),
+  contentKeys: { all: ['content'], lists: () => ['content', 'list'], view: () => ['content', 'list', 'active'], list: () => ['content', 'list', 'active'] },
+}))
+
 // Import Note after mocks are set up
 import { Note } from '../Note'
 

@@ -21,9 +21,9 @@ import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEdita
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
-import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog, Tooltip } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
-import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon } from './icons'
+import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon, TagIcon, LinkIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
 import { useLimits } from '../hooks/useLimits'
@@ -32,6 +32,9 @@ import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useNotes } from '../hooks/useNotes'
+import { LinkedContentChips } from './LinkedContentChips'
+import { AddRelationshipModal } from './AddRelationshipModal'
+import type { LinkedItem } from '../utils/relationships'
 import type { Note as NoteType, NoteCreate, NoteUpdate, TagCount } from '../types'
 
 /** Conflict state for 409 responses */
@@ -91,6 +94,8 @@ interface NoteProps {
   onRefresh?: () => Promise<NoteType | null>
   /** Called when history button is clicked */
   onShowHistory?: () => void
+  /** Called when a linked content item is clicked for navigation */
+  onNavigateToLinked?: (item: LinkedItem) => void
 }
 
 /**
@@ -111,6 +116,7 @@ export function Note({
   fullWidth = false,
   onRefresh,
   onShowHistory,
+  onNavigateToLinked,
 }: NoteProps): ReactNode {
   const isCreate = !note
 
@@ -156,6 +162,7 @@ export function Note({
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
+  const [showAddRelationshipModal, setShowAddRelationshipModal] = useState(false)
   const [contentKey, setContentKey] = useState(0)
   // Skip useEffect sync for a specific updated_at when manually handling refresh (e.g., from StaleDialog)
   const skipSyncForUpdatedAtRef = useRef<string | null>(null)
@@ -737,37 +744,88 @@ export function Note({
             error={errors.description}
           />
 
-          {/* Metadata row: tags + auto-archive + timestamps */}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
-            <InlineEditableTags
-              ref={tagInputRef}
-              value={current.tags}
-              onChange={handleTagsChange}
-              suggestions={tagSuggestions}
-              disabled={isSaving || isReadOnly}
-            />
+          {/* Metadata: icons row + chips row */}
+          <div className="space-y-1.5 pb-1">
+            {/* Row 1: action icons + auto-archive + timestamps */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+              {/* Add tag button */}
+              <Tooltip content="Add tag" compact>
+                <button
+                  type="button"
+                  onClick={() => tagInputRef.current?.startAdding()}
+                  disabled={isSaving || isReadOnly}
+                  className={`inline-flex items-center h-5 px-1 text-gray-500 rounded transition-colors ${
+                    isSaving || isReadOnly ? 'cursor-not-allowed' : 'hover:text-gray-700 hover:bg-gray-100'
+                  }`}
+                  aria-label="Add tag"
+                >
+                  <TagIcon className="h-4 w-4" />
+                </button>
+              </Tooltip>
 
-            <span className="text-gray-300">·</span>
+              {/* Add link button (only for existing notes) */}
+              {note && (
+                <Tooltip content="Link content" compact>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddRelationshipModal(true)}
+                    disabled={isSaving || isReadOnly}
+                    className={`inline-flex items-center h-5 px-1 text-gray-500 rounded transition-colors ${
+                      isSaving || isReadOnly ? 'cursor-not-allowed' : 'hover:text-gray-700 hover:bg-gray-100'
+                    }`}
+                    aria-label="Link content"
+                  >
+                    <LinkIcon className="h-4 w-4" />
+                  </button>
+                </Tooltip>
+              )}
 
-            <InlineEditableArchiveSchedule
-              value={current.archivedAt}
-              onChange={handleArchiveScheduleChange}
-              preset={current.archivePreset}
-              onPresetChange={handleArchivePresetChange}
-              disabled={isSaving || isReadOnly}
-            />
+              <span className="text-gray-300">·</span>
 
-            {note && (
-              <>
-                <span className="text-gray-300">·</span>
-                <span>Created {formatDate(note.created_at)}</span>
-                {note.updated_at !== note.created_at && (
-                  <>
-                    <span className="text-gray-300">·</span>
-                    <span>Updated {formatDate(note.updated_at)}</span>
-                  </>
+              <InlineEditableArchiveSchedule
+                value={current.archivedAt}
+                onChange={handleArchiveScheduleChange}
+                preset={current.archivePreset}
+                onPresetChange={handleArchivePresetChange}
+                disabled={isSaving || isReadOnly}
+              />
+
+              {note && (
+                <>
+                  <span className="text-gray-300">·</span>
+                  <span>Created {formatDate(note.created_at)}</span>
+                  {note.updated_at !== note.created_at && (
+                    <>
+                      <span className="text-gray-300">·</span>
+                      <span>Updated {formatDate(note.updated_at)}</span>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Row 2: tag pills + linked content chips */}
+            {(current.tags.length > 0 || note) && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+                <InlineEditableTags
+                  ref={tagInputRef}
+                  value={current.tags}
+                  onChange={handleTagsChange}
+                  suggestions={tagSuggestions}
+                  disabled={isSaving || isReadOnly}
+                  showAddButton={false}
+                />
+
+                {note && (
+                  <LinkedContentChips
+                    contentType="note"
+                    contentId={note.id}
+                    onNavigate={onNavigateToLinked}
+                    disabled={isSaving || isReadOnly}
+                    showAddButton={false}
+                  />
                 )}
-              </>
+              </div>
             )}
           </div>
         </div>
@@ -832,6 +890,16 @@ export function Note({
           onLoadServerVersion={handleConflictLoadServerVersion}
           onSaveMyVersion={handleConflictSaveMyVersion}
           onDoNothing={handleConflictDoNothing}
+        />
+      )}
+
+      {/* Add relationship modal — mount only when open so state resets naturally */}
+      {note && showAddRelationshipModal && (
+        <AddRelationshipModal
+          isOpen={true}
+          onClose={() => setShowAddRelationshipModal(false)}
+          sourceType="note"
+          sourceId={note.id}
         />
       )}
     </form>
