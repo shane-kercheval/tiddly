@@ -39,16 +39,16 @@ bookmarks/
 ```bash
 # Setup
 cp .env.example .env
-make build          # Install backend dependencies
-make docker-up      # Start PostgreSQL
-make migrate        # Run database migrations
+make build              # Install backend dependencies
+make frontend-install   # Install frontend dependencies
+make docker-up          # Start PostgreSQL
+make migrate            # Run database migrations
 
 # Run backend
-make api-run        # API at http://localhost:8000/docs
+make api-run            # API at http://localhost:8000/docs
 
 # Run frontend (separate terminal)
-cd frontend && npm install && npm run dev
-# Frontend at http://localhost:5173
+make frontend-run       # Frontend at http://localhost:5173
 ```
 
 With default `VITE_DEV_MODE=true`, authentication is bypassed for local development.
