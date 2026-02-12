@@ -207,15 +207,20 @@ async def get_relationships_for_content(
     content_type: str,
     content_id: UUID,
     relationship_type: str | None = None,
-) -> list[ContentRelationship]:
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[ContentRelationship], int]:
     """
-    Get relationships for a content item.
+    Get relationships for a content item with pagination.
 
     For bidirectional types ('related'): queries both directions (where item
     is source OR target), since canonical ordering means the item could be
     stored in either position.
 
     Results are ordered by created_at DESC, id DESC for deterministic pagination.
+
+    Returns:
+        Tuple of (relationships, total_count).
     """
     # Build condition for matching this content as source or target
     is_source = and_(
@@ -227,23 +232,32 @@ async def get_relationships_for_content(
         ContentRelationship.target_id == content_id,
     )
 
+    base_where = [
+        ContentRelationship.user_id == user_id,
+        or_(is_source, is_target),
+    ]
+
+    if relationship_type is not None:
+        base_where.append(ContentRelationship.relationship_type == relationship_type)
+
+    # Count total
+    count_stmt = select(func.count(ContentRelationship.id)).where(*base_where)
+    total = await db.scalar(count_stmt) or 0
+
+    # Fetch page
     stmt = (
         select(ContentRelationship)
-        .where(
-            ContentRelationship.user_id == user_id,
-            or_(is_source, is_target),
-        )
+        .where(*base_where)
         .order_by(
             ContentRelationship.created_at.desc(),
             ContentRelationship.id.desc(),
         )
+        .offset(offset)
+        .limit(limit)
     )
 
-    if relationship_type is not None:
-        stmt = stmt.where(ContentRelationship.relationship_type == relationship_type)
-
     result = await db.execute(stmt)
-    return list(result.scalars().all())
+    return list(result.scalars().all()), total
 
 
 async def delete_relationships_for_content(

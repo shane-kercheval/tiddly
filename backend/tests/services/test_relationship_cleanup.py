@@ -229,7 +229,7 @@ class TestPermanentDeleteCascade:
 
         # Only the note↔prompt relationship should remain
         assert await _count_relationships(db_session, test_user.id) == 1
-        remaining = await get_relationships_for_content(
+        remaining, _ = await get_relationships_for_content(
             db_session, test_user.id, 'note', note_a.id,
         )
         assert len(remaining) == 1
@@ -343,7 +343,7 @@ class TestSoftDeletePreservesRelationships:
         await bookmark_service.delete(db_session, test_user.id, bookmark_a.id)
         await bookmark_service.restore(db_session, test_user.id, bookmark_a.id)
 
-        rels = await get_relationships_for_content(
+        rels, _ = await get_relationships_for_content(
             db_session, test_user.id, 'bookmark', bookmark_a.id,
         )
         assert len(rels) == 1
@@ -364,7 +364,7 @@ class TestSoftDeletePreservesRelationships:
         await note_service.delete(db_session, test_user.id, note_a.id)
         await note_service.restore(db_session, test_user.id, note_a.id)
 
-        rels = await get_relationships_for_content(
+        rels, _ = await get_relationships_for_content(
             db_session, test_user.id, 'note', note_a.id,
         )
         assert len(rels) == 1

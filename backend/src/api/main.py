@@ -17,6 +17,7 @@ from api.routers import (
     mcp,
     notes,
     prompts,
+    relationships,
     settings,
     tags,
     tokens,
@@ -190,4 +191,5 @@ app.include_router(tokens.router)
 app.include_router(filters.router)
 app.include_router(settings.router)
 app.include_router(history.router)
+app.include_router(relationships.router)
 app.include_router(mcp.router)

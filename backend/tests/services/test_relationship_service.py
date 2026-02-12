@@ -869,10 +869,11 @@ class TestGetRelationshipsForContent:
             'bookmark', bookmark_a.id, 'note', note_a.id,
             'related',
         )
-        results = await get_relationships_for_content(
+        results, total = await get_relationships_for_content(
             db_session, test_user.id, 'bookmark', bookmark_a.id,
         )
         assert len(results) == 1
+        assert total == 1
         assert results[0].id == rel.id
 
     @pytest.mark.asyncio
@@ -886,7 +887,7 @@ class TestGetRelationshipsForContent:
             'bookmark', bookmark_a.id, 'note', note_a.id,
             'related',
         )
-        results = await get_relationships_for_content(
+        results, _ = await get_relationships_for_content(
             db_session, test_user.id, 'note', note_a.id,
         )
         assert len(results) == 1
@@ -903,10 +904,10 @@ class TestGetRelationshipsForContent:
             'bookmark', bookmark_a.id, 'note', note_a.id,
             'related',
         )
-        from_source = await get_relationships_for_content(
+        from_source, _ = await get_relationships_for_content(
             db_session, test_user.id, 'bookmark', bookmark_a.id,
         )
-        from_target = await get_relationships_for_content(
+        from_target, _ = await get_relationships_for_content(
             db_session, test_user.id, 'note', note_a.id,
         )
         assert len(from_source) == 1
@@ -918,17 +919,18 @@ class TestGetRelationshipsForContent:
         self, db_session: AsyncSession, test_user: User, bookmark_a: Bookmark,
     ) -> None:
         """Returns empty list when no relationships exist."""
-        results = await get_relationships_for_content(
+        results, total = await get_relationships_for_content(
             db_session, test_user.id, 'bookmark', bookmark_a.id,
         )
         assert results == []
+        assert total == 0
 
     @pytest.mark.asyncio
     async def test__get_relationships__nonexistent_content_returns_empty(
         self, db_session: AsyncSession, test_user: User,
     ) -> None:
         """Returns empty list for non-existent content ID (not 404)."""
-        results = await get_relationships_for_content(
+        results, _ = await get_relationships_for_content(
             db_session, test_user.id, 'bookmark', uuid4(),
         )
         assert results == []
@@ -945,14 +947,14 @@ class TestGetRelationshipsForContent:
             'related',
         )
         # Filter for 'related' should return it
-        results = await get_relationships_for_content(
+        results, _ = await get_relationships_for_content(
             db_session, test_user.id, 'bookmark', bookmark_a.id,
             relationship_type='related',
         )
         assert len(results) == 1
 
         # Filter for non-existent type should return nothing
-        results = await get_relationships_for_content(
+        results, _ = await get_relationships_for_content(
             db_session, test_user.id, 'bookmark', bookmark_a.id,
             relationship_type='references',
         )
@@ -979,10 +981,11 @@ class TestGetRelationshipsForContent:
             'bookmark', bookmark_a.id, 'prompt', prompt_a.id,
             'related',
         )
-        results = await get_relationships_for_content(
+        results, total = await get_relationships_for_content(
             db_session, test_user.id, 'bookmark', bookmark_a.id,
         )
         assert len(results) == 3
+        assert total == 3
 
     @pytest.mark.asyncio
     async def test__get_relationships__ordered_by_created_at_desc(
@@ -1000,7 +1003,7 @@ class TestGetRelationshipsForContent:
             'bookmark', bookmark_a.id, 'note', note_b.id,
             'related',
         )
-        results = await get_relationships_for_content(
+        results, _ = await get_relationships_for_content(
             db_session, test_user.id, 'bookmark', bookmark_a.id,
         )
         # Most recently created first
@@ -1018,7 +1021,7 @@ class TestGetRelationshipsForContent:
             'bookmark', bookmark_a.id, 'note', note_a.id,
             'related',
         )
-        results = await get_relationships_for_content(
+        results, _ = await get_relationships_for_content(
             db_session, other_user.id, 'bookmark', bookmark_a.id,
         )
         assert results == []
@@ -1054,7 +1057,7 @@ class TestDeleteRelationshipsForContent:
         assert count == 2
 
         # Verify they're gone
-        results = await get_relationships_for_content(
+        results, _ = await get_relationships_for_content(
             db_session, test_user.id, 'bookmark', bookmark_a.id,
         )
         assert results == []
@@ -1132,7 +1135,7 @@ class TestDeleteRelationshipsForContent:
         assert count == 0
 
         # Original relationship still exists
-        results = await get_relationships_for_content(
+        results, _ = await get_relationships_for_content(
             db_session, test_user.id, 'bookmark', bookmark_a.id,
         )
         assert len(results) == 1
