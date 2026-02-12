@@ -565,3 +565,59 @@ export interface RestoreResponse {
   version: number
   warnings: string[] | null
 }
+
+// =============================================================================
+// Relationship Types
+// =============================================================================
+
+/** Valid relationship types */
+export type RelationshipType = 'related'
+
+/** Data for creating a new relationship */
+export interface RelationshipCreate {
+  source_type: ContentType
+  source_id: string
+  target_type: ContentType
+  target_id: string
+  relationship_type: RelationshipType
+  description?: string | null
+}
+
+/** Data for updating an existing relationship */
+export interface RelationshipUpdate {
+  description?: string | null
+}
+
+/** Relationship data returned from the API */
+export interface Relationship {
+  id: string
+  source_type: ContentType
+  source_id: string
+  target_type: ContentType
+  target_id: string
+  relationship_type: RelationshipType
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Extended relationship with content info for display */
+export interface RelationshipWithContent extends Relationship {
+  source_title: string | null
+  source_url: string | null
+  target_title: string | null
+  target_url: string | null
+  source_deleted: boolean
+  target_deleted: boolean
+  source_archived: boolean
+  target_archived: boolean
+}
+
+/** Paginated list response from GET /relationships/content/{type}/{id} */
+export interface RelationshipListResponse {
+  items: RelationshipWithContent[]
+  total: number
+  offset: number
+  limit: number
+  has_more: boolean
+}
