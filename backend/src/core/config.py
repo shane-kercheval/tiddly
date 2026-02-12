@@ -1,4 +1,5 @@
 """Application configuration using pydantic-settings."""
+import socket
 from functools import lru_cache
 from urllib.parse import urlparse
 
@@ -85,10 +86,27 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        """Parse comma-separated CORS origins string into a list."""
-        if not self.cors_origins_str:
-            return []
-        return [origin.strip() for origin in self.cors_origins_str.split(",") if origin.strip()]
+        """
+        Parse comma-separated CORS origins string into a list.
+
+        In dev mode, automatically includes origins for all local network IPs
+        so the frontend can be accessed from a VM host without manual CORS config.
+        """
+        origins = []
+        if self.cors_origins_str:
+            origins = [
+                origin.strip()
+                for origin in self.cors_origins_str.split(",")
+                if origin.strip()
+            ]
+
+        if self.dev_mode:
+            for ip in _get_local_ips():
+                origin = f"http://{ip}:5173"
+                if origin not in origins:
+                    origins.append(origin)
+
+        return origins
 
     @property
     def auth0_issuer(self) -> str:
@@ -99,6 +117,27 @@ class Settings(BaseSettings):
     def auth0_jwks_url(self) -> str:
         """Get the Auth0 JWKS URL for fetching public keys."""
         return f"https://{self.auth0_domain}/.well-known/jwks.json"
+
+
+def _get_local_ips() -> list[str]:
+    """
+    Return non-loopback IPv4 addresses for this machine.
+
+    Uses UDP connect trick to discover routable IPs — works reliably
+    across Linux distributions regardless of /etc/hosts configuration.
+    """
+    ips: list[str] = []
+    # Connect a UDP socket to a public IP (no traffic sent) to discover
+    # which local IP the OS would route through.
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(('8.8.8.8', 80))
+            addr = s.getsockname()[0]
+            if not addr.startswith('127.'):
+                ips.append(addr)
+    except OSError:
+        pass
+    return ips
 
 
 @lru_cache

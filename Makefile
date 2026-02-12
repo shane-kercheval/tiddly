@@ -6,6 +6,9 @@ export
 # Set PYTHONPATH for backend
 PYTHONPATH := backend/src
 
+# VM IP for host-accessible dev server (auto-detected, override with: make frontend-run-vm VM_IP=x.x.x.x)
+VM_IP ?= $(shell hostname -I 2>/dev/null | awk '{print $$1}' || ipconfig getifaddr en0 2>/dev/null || echo '0.0.0.0')
+
 ####
 # Backend Development
 ####
@@ -29,6 +32,9 @@ prompt-mcp-server:  ## Start Prompt MCP server (port 8002, requires API on 8000)
 ####
 frontend-run:  ## Start frontend dev server
 	cd frontend && npm run dev
+
+frontend-run-vm:  ## Start frontend dev server accessible from host
+	cd frontend && VITE_API_URL=http://$(VM_IP):8000 npm run dev -- --host
 
 frontend-install:  ## Install frontend dependencies
 	cd frontend && npm install
