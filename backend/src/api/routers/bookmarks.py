@@ -54,6 +54,7 @@ from services.content_edit_service import (
 from services.content_lines import apply_partial_read
 from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
+from services.relationship_service import enrich_with_content_info, get_relationships_for_content
 from services.url_scraper import scrape_url
 
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
@@ -250,6 +251,13 @@ async def get_bookmark(
 
     response_data = BookmarkResponse.model_validate(bookmark)
     apply_partial_read(response_data, start_line, end_line)
+
+    # Embed relationships
+    rels, _ = await get_relationships_for_content(db, current_user.id, 'bookmark', bookmark_id)
+    response_data.relationships = (
+        await enrich_with_content_info(db, current_user.id, rels) if rels else []
+    )
+
     return response_data
 
 

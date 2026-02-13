@@ -3299,3 +3299,65 @@ async def test_str_replace_bookmark_preserves_other_fields(client: AsyncClient) 
     assert data["description"] == "My Description"
     assert data["content"] == "Hello universe"
     assert data["tags"] == ["tag1", "tag2"]
+
+
+# =============================================================================
+# Embedded Relationships
+# =============================================================================
+
+
+async def test__get_bookmark__no_relationships_returns_empty_list(client: AsyncClient) -> None:
+    """GET /bookmarks/{id} returns empty relationships list when none exist."""
+    create_resp = await client.post(
+        "/bookmarks/",
+        json={"url": "https://rel-test-empty.com", "title": "No Rels"},
+    )
+    bookmark_id = create_resp.json()["id"]
+
+    response = await client.get(f"/bookmarks/{bookmark_id}")
+    assert response.status_code == 200
+    assert response.json()["relationships"] == []
+
+
+async def test__get_bookmark__with_relationships_returns_enriched(client: AsyncClient) -> None:
+    """GET /bookmarks/{id} returns enriched relationships when they exist."""
+    bm_resp = await client.post(
+        "/bookmarks/",
+        json={"url": "https://rel-test-src.com", "title": "Source BM"},
+    )
+    bm_id = bm_resp.json()["id"]
+
+    note_resp = await client.post("/notes/", json={"title": "Related Note"})
+    note_id = note_resp.json()["id"]
+
+    await client.post("/relationships/", json={
+        "source_type": "bookmark",
+        "source_id": bm_id,
+        "target_type": "note",
+        "target_id": note_id,
+        "relationship_type": "related",
+    })
+
+    response = await client.get(f"/bookmarks/{bm_id}")
+    assert response.status_code == 200
+
+    rels = response.json()["relationships"]
+    assert len(rels) == 1
+    assert rels[0]["target_title"] == "Related Note"
+    assert rels[0]["source_title"] == "Source BM"
+    assert rels[0]["target_deleted"] is False
+
+
+async def test__list_bookmarks__no_relationships_field(client: AsyncClient) -> None:
+    """GET /bookmarks/ list items should NOT include relationships field."""
+    await client.post(
+        "/bookmarks/",
+        json={"url": "https://rel-test-list.com", "title": "List Item"},
+    )
+
+    response = await client.get("/bookmarks/")
+    assert response.status_code == 200
+
+    items = response.json()["items"]
+    assert len(items) >= 1
+    assert "relationships" not in items[0]

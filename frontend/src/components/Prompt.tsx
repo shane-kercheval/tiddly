@@ -1044,6 +1044,7 @@ export function Prompt({
                   onNavigate={onNavigateToLinked}
                   disabled={isSaving || isReadOnly}
                   showAddButton={false}
+                  initialRelationships={prompt.relationships}
                 />
               )}
             </div>

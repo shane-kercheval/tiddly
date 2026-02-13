@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from schemas.content_metadata import ContentMetadata
+from schemas.relationship import RelationshipWithContentResponse
 from schemas.validators import normalize_preview, validate_and_normalize_tags
 
 
@@ -147,6 +148,7 @@ class BookmarkResponse(BookmarkListItem):
 
     content: str | None
     content_metadata: ContentMetadata | None = None
+    relationships: list[RelationshipWithContentResponse] = Field(default_factory=list)
 
 
 class BookmarkListResponse(BaseModel):

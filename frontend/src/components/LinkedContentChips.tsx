@@ -16,7 +16,7 @@ import { useContentSearch } from '../hooks/useContentSearch'
 import { LinkIcon } from './icons'
 import { Tooltip } from './ui'
 import { CONTENT_TYPE_ICONS, CONTENT_TYPE_LABELS, CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
-import type { ContentType } from '../types'
+import type { ContentType, RelationshipWithContent } from '../types'
 
 interface LinkedContentChipsProps {
   contentType: ContentType
@@ -25,6 +25,8 @@ interface LinkedContentChipsProps {
   disabled?: boolean
   /** Whether to show the inline add button (default: true). Set false when using an external trigger. */
   showAddButton?: boolean
+  /** Pre-fetched relationships from the entity GET response. Used as initialData to avoid a separate fetch. */
+  initialRelationships?: RelationshipWithContent[]
 }
 
 /** Exposed methods via ref */
@@ -47,6 +49,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     onNavigate,
     disabled,
     showAddButton = true,
+    initialRelationships,
   }: LinkedContentChipsProps,
   ref: Ref<LinkedContentChipsHandle>,
 ): ReactNode {
@@ -54,7 +57,14 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const { data, isLoading } = useContentRelationships(contentType, contentId)
+  const initialData = useMemo(
+    () => initialRelationships
+      ? { items: initialRelationships, total: initialRelationships.length, offset: 0, limit: 50, has_more: false }
+      : undefined,
+    [initialRelationships],
+  )
+
+  const { data, isLoading } = useContentRelationships(contentType, contentId, { initialData })
   const { create, remove } = useRelationshipMutations()
 
   const items = useMemo(

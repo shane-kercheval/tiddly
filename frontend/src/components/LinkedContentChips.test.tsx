@@ -366,6 +366,38 @@ describe('LinkedContentChips', () => {
     })
   })
 
+  describe('initialRelationships', () => {
+    it('should render chips from initialRelationships without API call', async () => {
+      const relationships = [
+        makeRelationship(),
+        makeRelationship({
+          id: 'rel-2',
+          target_type: 'prompt',
+          target_id: 'prompt-1',
+          target_title: 'My Prompt',
+        }),
+      ]
+
+      render(
+        <LinkedContentChips
+          contentType="note"
+          contentId="note-1"
+          initialRelationships={relationships}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      expect(await screen.findByText('My Bookmark')).toBeInTheDocument()
+      expect(screen.getByText('My Prompt')).toBeInTheDocument()
+
+      // Should NOT have made a GET request for relationships
+      const relCalls = mockGet.mock.calls.filter(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('/relationships/content/'),
+      )
+      expect(relCalls).toHaveLength(0)
+    })
+  })
+
   describe('inline search', () => {
     it('should show search results after typing', async () => {
       const user = userEvent.setup()

@@ -822,6 +822,7 @@ export function Note({
                   onNavigate={onNavigateToLinked}
                   disabled={isSaving || isReadOnly}
                   showAddButton={false}
+                  initialRelationships={note.relationships}
                 />
               )}
             </div>

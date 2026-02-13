@@ -1754,3 +1754,76 @@ async def test__get_context__tool_in_list(
     tools = await mcp_client.list_tools()
     tool_names = [t.name for t in tools]
     assert "get_context" in tool_names
+
+
+# --- create_relationship tests ---
+
+
+@pytest.mark.asyncio
+async def test__create_relationship__success(
+    mock_api,
+    mcp_client: Client,
+    sample_relationship: dict[str, Any],
+) -> None:
+    """Test create_relationship returns created relationship."""
+    mock_api.post("/relationships/").mock(
+        return_value=Response(201, json=sample_relationship),
+    )
+
+    result = await mcp_client.call_tool("create_relationship", {
+        "source_type": "bookmark",
+        "source_id": "550e8400-e29b-41d4-a716-446655440001",
+        "target_type": "note",
+        "target_id": "550e8400-e29b-41d4-a716-446655440002",
+    })
+
+    assert result.data["id"] == sample_relationship["id"]
+    assert result.data["relationship_type"] == "related"
+
+
+@pytest.mark.asyncio
+async def test__create_relationship__duplicate_returns_existing(
+    mock_api,
+    mcp_client: Client,
+    sample_relationship: dict[str, Any],
+    sample_relationship_list: dict[str, Any],
+) -> None:
+    """Test create_relationship with duplicate (409) returns existing relationship."""
+    mock_api.post("/relationships/").mock(
+        return_value=Response(409, json={
+            "detail": {"error_code": "DUPLICATE_RELATIONSHIP", "message": "Already exists"},
+        }),
+    )
+    mock_api.get("/relationships/content/bookmark/550e8400-e29b-41d4-a716-446655440001").mock(
+        return_value=Response(200, json=sample_relationship_list),
+    )
+
+    result = await mcp_client.call_tool("create_relationship", {
+        "source_type": "bookmark",
+        "source_id": "550e8400-e29b-41d4-a716-446655440001",
+        "target_type": "note",
+        "target_id": "550e8400-e29b-41d4-a716-446655440002",
+    })
+
+    assert result.data["id"] == sample_relationship["id"]
+
+
+@pytest.mark.asyncio
+async def test__create_relationship__not_found_raises_error(
+    mock_api,
+    mcp_client: Client,
+) -> None:
+    """Test create_relationship with 404 raises ToolError."""
+    mock_api.post("/relationships/").mock(
+        return_value=Response(404, json={"detail": "Content not found"}),
+    )
+
+    result = await mcp_client.call_tool("create_relationship", {
+        "source_type": "bookmark",
+        "source_id": "00000000-0000-0000-0000-000000000000",
+        "target_type": "note",
+        "target_id": "00000000-0000-0000-0000-000000000001",
+    }, raise_on_error=False)
+
+    assert result.is_error
+    assert "not found" in result.content[0].text.lower()

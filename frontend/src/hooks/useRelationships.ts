@@ -9,7 +9,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { relationshipsApi } from '../services/relationships'
-import type { ContentType, RelationshipCreate, RelationshipUpdate } from '../types'
+import type { ContentType, RelationshipCreate, RelationshipListResponse, RelationshipUpdate } from '../types'
 
 /**
  * Query key factory for relationship cache keys.
@@ -35,6 +35,8 @@ export function useContentRelationships(
   contentId: string | null,
   options?: {
     includeContentInfo?: boolean
+    /** Pre-fetched data from entity GET response to avoid an extra network request. */
+    initialData?: RelationshipListResponse
   }
 ) {
   const includeContentInfo = options?.includeContentInfo ?? true
@@ -52,6 +54,10 @@ export function useContentRelationships(
     ).then(res => res.data),
     enabled: contentType !== null && contentId !== null,
     staleTime: 5 * 60 * 1000,
+    initialData: options?.initialData,
+    // When initialData is provided (from embedded entity response), mark it as fresh
+    // so React Query respects staleTime and doesn't immediately refetch.
+    initialDataUpdatedAt: options?.initialData ? Date.now() : undefined,
   })
 }
 

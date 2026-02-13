@@ -992,6 +992,7 @@ export function Bookmark({
                   onNavigate={onNavigateToLinked}
                   disabled={isSaving || isReadOnly}
                   showAddButton={false}
+                  initialRelationships={bookmark.relationships}
                 />
               )}
             </div>

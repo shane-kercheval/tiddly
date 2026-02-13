@@ -30,6 +30,7 @@ export interface BookmarkListItem {
  */
 export interface Bookmark extends BookmarkListItem {
   content: string | null
+  relationships?: RelationshipWithContent[]
 }
 
 /** Data for creating a new bookmark */
@@ -103,6 +104,7 @@ export interface NoteListItem {
  */
 export interface Note extends NoteListItem {
   content: string | null
+  relationships?: RelationshipWithContent[]
 }
 
 /** Data for creating a new note */
@@ -420,6 +422,7 @@ export interface PromptListItem {
  */
 export interface Prompt extends PromptListItem {
   content: string | null
+  relationships?: RelationshipWithContent[]
 }
 
 /** Data for creating a new prompt */
