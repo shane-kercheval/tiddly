@@ -16,7 +16,7 @@ import { useContentSearch } from '../hooks/useContentSearch'
 import { LinkIcon } from './icons'
 import { Tooltip } from './ui'
 import { CONTENT_TYPE_ICONS, CONTENT_TYPE_LABELS, CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
-import type { ContentType, RelationshipWithContent } from '../types'
+import type { ContentListItem, ContentType, RelationshipWithContent } from '../types'
 
 interface LinkedContentChipsProps {
   contentType: ContentType
@@ -149,12 +149,12 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     setInputValue(e.target.value)
   }
 
-  const handleSelectItem = async (item: ReturnType<typeof selectItem>): Promise<void> => {
+  const handleSelectItem = async (item: ContentListItem): Promise<void> => {
     try {
       await create.mutateAsync({
         source_type: contentType,
         source_id: contentId,
-        target_type: item.type as ContentType,
+        target_type: item.type,
         target_id: item.id,
         relationship_type: 'related',
         description: null,
@@ -280,8 +280,8 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
               )}
 
               {results.map((item, index) => {
-                const Icon = CONTENT_TYPE_ICONS[item.type as ContentType]
-                const iconColor = CONTENT_TYPE_ICON_COLORS[item.type as ContentType]
+                const Icon = CONTENT_TYPE_ICONS[item.type]
+                const iconColor = CONTENT_TYPE_ICON_COLORS[item.type]
                 const displayTitle = item.title ?? 'Untitled'
 
                 return (

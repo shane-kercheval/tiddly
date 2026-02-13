@@ -35,7 +35,8 @@ export function useContentRelationships(
   contentId: string | null,
   options?: {
     includeContentInfo?: boolean
-    /** Pre-fetched data from entity GET response to avoid an extra network request. */
+    /** Pre-fetched data from entity GET response to avoid an extra network request.
+     *  Combined with staleTime, this prevents an immediate background refetch. */
     initialData?: RelationshipListResponse
   }
 ) {
@@ -55,9 +56,6 @@ export function useContentRelationships(
     enabled: contentType !== null && contentId !== null,
     staleTime: 5 * 60 * 1000,
     initialData: options?.initialData,
-    // When initialData is provided (from embedded entity response), mark it as fresh
-    // so React Query respects staleTime and doesn't immediately refetch.
-    initialDataUpdatedAt: options?.initialData ? Date.now() : undefined,
   })
 }
 
