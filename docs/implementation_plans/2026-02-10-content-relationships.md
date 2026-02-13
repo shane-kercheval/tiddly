@@ -767,266 +767,120 @@ export function useRelationshipMutations() {
 
 ---
 
-## Milestone 6: RelatedContent Display Component
+## Milestone 6: LinkedContentChips Display Component
 
 ### Goal
-Create a reusable component that displays relationships for any content item.
+Create an inline chip-based component that displays relationships for any content item, designed to sit in the metadata row alongside tags.
 
-### Success Criteria
-- Shows linked content with type icons, titles, and optional descriptions
-- Clickable links to related content
-- Delete button to remove relationship
-- Status indicators for soft-deleted and archived content
-- Empty state when no relationships
+### Status: **Implemented**
 
-### Key Changes
+### What Was Built
 
-**New file: `frontend/src/components/RelatedContent.tsx`:**
+**`frontend/src/components/LinkedContentChips.tsx`** — Inline chips showing linked content with type-colored icons and titles. Each chip is clickable for navigation, with hover-reveal remove buttons (same pattern as `Tag` component).
 
-```typescript
-interface LinkedItem {
-  type: ContentType;
-  id: string;
-  title: string | null;
-  url: string | null;
-  deleted: boolean;
-  archived: boolean;
-}
+**`frontend/src/utils/relationships.ts`** — Extracted `getLinkedItem()` utility and `LinkedItem` interface for resolving the "other side" of canonical-ordered relationships.
 
-interface RelatedContentProps {
-  contentType: ContentType;
-  contentId: string;
-  onAddClick?: () => void;
-  onNavigate?: (item: LinkedItem) => void;
-  className?: string;
-}
+**`frontend/src/constants/contentTypeStyles.ts`** — Shared `CONTENT_TYPE_ICONS`, `CONTENT_TYPE_LABELS`, `CONTENT_TYPE_ICON_COLORS` used for consistent styling across chips and dropdowns.
 
-export function RelatedContent({
-  contentType,
-  contentId,
-  onAddClick,
-  onNavigate,
-  className,
-}: RelatedContentProps) {
-  const { data, isLoading } = useContentRelationships(contentType, contentId);
-  const { remove } = useRelationshipMutations();
-
-  // Use getLinkedItem() to resolve "the other side" of each relationship
-  // Render list of linked items
-  // Each item shows: icon (by type), title, description (if present), delete button
-  // Soft-deleted items: strikethrough + "(deleted)" badge
-  // Archived items: "(archived)" badge
-}
-
-/**
- * Resolve the "other side" of a relationship given the current content context.
- * Canonical ordering means source/target may not match what the user submitted —
- * this utility abstracts that away so callers always get the linked item's info.
- */
-function getLinkedItem(
-  rel: RelationshipWithContent,
-  selfType: ContentType,
-  selfId: string,
-): LinkedItem {
-  const isSelf = rel.source_type === selfType && rel.source_id === selfId;
-  return {
-    type: (isSelf ? rel.target_type : rel.source_type) as ContentType,
-    id: isSelf ? rel.target_id : rel.source_id,
-    title: isSelf ? rel.target_title : rel.source_title,
-    url: isSelf ? rel.target_url : rel.source_url,
-    deleted: isSelf ? rel.target_deleted : rel.source_deleted,
-    archived: isSelf ? rel.target_archived : rel.source_archived,
-  };
-}
-```
-
-**UI Design (ASCII mockup):**
-
-```
-+---------------------------------------------------+
-| Linked Content                           [+ Link] |
-+---------------------------------------------------+
-| +-----------------------------------------------+ |
-| | [note] Project Requirements Doc          [x]   | |
-| |     "Background context for this task"         | |
-| +-----------------------------------------------+ |
-| +-----------------------------------------------+ |
-| | [bookmark] API Documentation             [x]   | |
-| +-----------------------------------------------+ |
-| +-----------------------------------------------+ |
-| | [prompt] Code Review Template            [x]   | |
-| +-----------------------------------------------+ |
-+---------------------------------------------------+
-```
-
-**Empty state:**
-```
-+---------------------------------------------------+
-| Linked Content                           [+ Link] |
-+---------------------------------------------------+
-|                                                    |
-|     No linked content yet.                         |
-|     Click "+ Link" to connect related items.       |
-|                                                    |
-+---------------------------------------------------+
-```
-
-**Content type icons:**
-- Bookmark: bookmark icon from existing UI
-- Note: note/document icon from existing UI
-- Prompt: template/code icon from existing UI
+**Key design decisions:**
+- Inline chips (not a section/card layout) — sits in the same flex row as tags
+- Type-colored chips match the existing tag pill visual pattern
+- Soft-deleted items: `opacity-60` + `line-through` on title
+- Archived items: `opacity-60` (no line-through)
+- No empty state message — chips simply don't render when there are none
 
 ### Testing Strategy
 - Component renders with mock relationship data
 - Delete button calls mutation
-- Empty state renders when no relationships
-- Loading state shows skeleton/spinner
-- Handles deleted content indicator
-- Handles archived content indicator
+- Handles deleted content indicator (line-through + opacity)
+- Handles archived content indicator (opacity only)
 - Resolves correct "other side" when current item is source
 - Resolves correct "other side" when current item is target (canonical ordering swapped)
+- Loading state returns null (doesn't render)
 
 ### Dependencies
 - Milestone 5 (frontend hooks)
 
 ### Risk Factors
-- Performance if many relationships (consider virtualization for 50+ items)
-- Fetching content titles adds latency (mitigated by `include_content_info`)
+- None significant
 
 ---
 
-## Milestone 7: AddRelationshipModal
+## Milestone 7: Inline Search for Linking Content
 
 ### Goal
-Create modal UI for searching and linking content.
+Provide a way for users to search and link content directly from the `LinkedContentChips` component.
 
-### Success Criteria
-- Modal with search input
-- Search results show content with type icons
-- Optional description field
-- Creates relationship on submit
+### Status: **Implemented** (originally as `AddRelationshipModal`, later replaced with inline search)
 
-### Key Changes
+### Evolution
 
-**New file: `frontend/src/components/AddRelationshipModal.tsx`:**
+**Original approach:** A modal (`AddRelationshipModal`) with search input, result selection, optional description textarea, and a "Link" button. This was implemented and shipped.
 
-```typescript
-interface AddRelationshipModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  sourceType: ContentType;
-  sourceId: string;
-  onSuccess?: () => void;
-}
+**Final approach:** The modal was replaced with an inline search dropdown embedded directly in `LinkedContentChips`, following the same `forwardRef` + `useImperativeHandle` + `startAdding()` pattern as `InlineEditableTags`. The description field was removed from the UI (stays in backend schema for future AI/programmatic use).
 
-export function AddRelationshipModal({
-  isOpen,
-  onClose,
-  sourceType,
-  sourceId,
-  onSuccess,
-}: AddRelationshipModalProps) {
-  // State
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedContent, setSelectedContent] = useState<{type: ContentType; id: string} | null>(null);
-  const [description, setDescription] = useState('');
+**Rationale:** The modal was too heavy for what's essentially "pick an item to link." Users weren't writing descriptions. The inline dropdown provides a faster, lighter interaction.
 
-  // Search using the unified GET /content/ endpoint (via useContentQuery hook)
-  // which searches across all content types simultaneously
-  const debouncedQuery = useDebouncedValue(searchQuery, 300);
-  // ... query with debouncedQuery
+### What Was Built
 
-  // Filter out current item and already-linked items from results
+**`frontend/src/hooks/useContentSearch.ts`** — Reusable hook encapsulating debounced content search with keyboard navigation. Analogous to `useTagAutocomplete` but hits the content API via `useDebouncedValue` + `useContentQuery`. Filters results to exclude self and already-linked items (`excludeKeys` set). Returns `selectItem`/`selectHighlighted` that return the `ContentListItem` for the caller to use for mutation.
 
-  // Create mutation
-  const { create } = useRelationshipMutations();
+**`frontend/src/components/LinkedContentChips.tsx`** (updated) — Now exposes `LinkedContentChipsHandle` with `startAdding()` via `useImperativeHandle`. When in add mode, renders an inline search input + dropdown after the chip list. Selection immediately creates a relationship (no description, no confirmation step). Shows toast on error (409 = "Already linked", other = "Failed to create link"). After successful link: stays in add mode, clears input, refocuses. Escape exits add mode. Click outside exits if input empty.
 
-  const handleSubmit = async () => {
-    if (!selectedContent) return;
-    await create.mutateAsync({
-      source_type: sourceType,
-      source_id: sourceId,
-      target_type: selectedContent.type,
-      target_id: selectedContent.id,
-      relationship_type: 'related',
-      description: description || null,
-    });
-    onSuccess?.();
-    onClose();
-  };
-}
-```
+**Deleted:**
+- `frontend/src/components/AddRelationshipModal.tsx`
+- `frontend/src/components/AddRelationshipModal.test.tsx`
 
-**UI Flow:**
-1. User clicks [+ Link] button on RelatedContent section
-2. Modal opens with search input focused
-3. User types to search (debounced)
-4. Results appear with type icon, title, description preview
-5. User clicks result to select it (highlighted state)
-6. Description textarea (optional, placeholder: "Why are these linked?")
-7. "Link" button to create (disabled until content selected)
-8. Success: modal closes, RelatedContent refreshes
+### UI Flow
+1. User clicks link icon button (or parent calls `ref.current.startAdding()`)
+2. Inline search input appears in the chip row
+3. User types to search (debounced 300ms)
+4. Dropdown shows results with type-colored icons
+5. User clicks result (or arrow-keys + Enter)
+6. Relationship created immediately, input clears, stays in add mode
+7. Escape or click-outside dismisses
 
 ### Testing Strategy
-- Modal opens/closes correctly
-- Search input triggers query
-- Results filtered to exclude current item
-- Selection highlights and updates state
-- Description field captures input
-- Submit creates relationship and closes modal
-- Validation prevents submit without selection
+- `useContentSearch.test.tsx`: filtering (self + already-linked), keyboard nav index, reset, debounce wiring
+- `LinkedContentChips.test.tsx`: `startAdding` via ref, search results display, selection creates relationship, keyboard escape, click-outside, error toasts, disabled state
 
 ### Dependencies
-- Milestone 6 (RelatedContent component)
+- Milestone 6 (LinkedContentChips component)
 - Existing unified search endpoint (`GET /content/` via `useContentQuery` hook)
 
 ### Risk Factors
-- UX for selecting from search results (clear selection feedback)
-- Modal focus management
+- None significant
 
 ---
 
 ## Milestone 8: Integrate into Note Detail View
 
 ### Goal
-Add RelatedContent section to the note view/edit page.
+Add linked content chips to the note metadata row.
 
-### Success Criteria
-- Notes display linked content section
-- Can add/remove relationships from note view
-- Navigation to linked content works
+### Status: **Implemented**
 
-### Key Changes
+### What Was Built
 
-**Update note detail component:**
-
-Add RelatedContent component below note content:
+**`frontend/src/components/Note.tsx`** (updated):
+- `LinkedContentChips` rendered in metadata row 2 alongside tags, with `ref={linkedChipsRef}` and `showAddButton={false}`
+- Link icon button in metadata row 1 calls `linkedChipsRef.current?.startAdding()` to trigger inline search
+- No modal state — everything is ref-driven
 
 ```tsx
-// After note content section
-<div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
-  <RelatedContent
-    contentType="note"
-    contentId={note.id}
-    onAddClick={() => setShowAddRelationshipModal(true)}
-    onNavigate={(item) => {
-      if (item.type === 'bookmark') {
-        window.open(item.url!, '_blank');
-      } else if (item.type === 'note') {
-        navigate(`/app/notes/${item.id}`);
-      } else if (item.type === 'prompt') {
-        navigate(`/app/prompts/${item.id}`);
-      }
-    }}
-  />
-</div>
+// Row 1: action icons
+<Tooltip content="Link content" compact>
+  <button onClick={() => linkedChipsRef.current?.startAdding()} ... />
+</Tooltip>
 
-{/* Add relationship modal */}
-<AddRelationshipModal
-  isOpen={showAddRelationshipModal}
-  onClose={() => setShowAddRelationshipModal(false)}
-  sourceType="note"
-  sourceId={note.id}
+// Row 2: tag pills + linked content chips
+<LinkedContentChips
+  ref={linkedChipsRef}
+  contentType="note"
+  contentId={note.id}
+  onNavigate={onNavigateToLinked}
+  disabled={isSaving || isReadOnly}
+  showAddButton={false}
 />
 ```
 
@@ -1036,125 +890,82 @@ Add RelatedContent component below note content:
 - Linked prompt → navigate to `/app/prompts/{id}`
 
 ### Testing Strategy
-- RelatedContent section appears in note view
-- Add button opens modal
-- Adding relationship refreshes list
-- Clicking linked note navigates correctly
-- Clicking linked bookmark opens URL
+- Linked content chips appear in note view
+- Link button triggers inline search via ref
+- Navigation works for all content types
 
 ### Dependencies
-- Milestone 7 (AddRelationshipModal)
+- Milestone 7 (inline search in LinkedContentChips)
 
 ### Risk Factors
-- Layout on mobile (may need collapsible section)
+- None significant
 
 ---
 
 ## Milestone 9: Integrate into Bookmark Detail View
 
 ### Goal
-Add RelatedContent section to bookmark edit view.
+Add linked content chips to the bookmark edit view.
 
 ### Success Criteria
-- Bookmarks show linked content when viewing/editing
-- Can add/remove relationships
-- Works within the existing bookmark edit context
+- Bookmarks show linked content chips when viewing/editing
+- Can add/remove relationships via inline search
+- Works within the existing bookmark edit context (which is a modal)
 
 ### Key Changes
 
-**Update bookmark form/detail component:**
-
-Use an **inline search/select pattern** instead of a nested modal, since the bookmark edit is already rendered in a modal. The inline pattern renders the search input and results directly within the bookmark form, below the existing fields.
+Follow the same pattern as Note integration (Milestone 8): add `LinkedContentChips` with `ref` to metadata row, link icon triggers `startAdding()`.
 
 ```tsx
-{/* Only show for existing bookmarks */}
 {bookmark && (
-  <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
-    <RelatedContent
-      contentType="bookmark"
-      contentId={bookmark.id}
-      onAddClick={() => setShowInlineSearch(true)}
-      onNavigate={(item) => {
-        if (item.type === 'bookmark') {
-          window.open(item.url!, '_blank');
-        } else {
-          onClose?.();
-          navigate(`/app/${item.type}s/${item.id}`);
-        }
-      }}
-    />
-
-    {/* Inline search/select for adding relationships */}
-    {showInlineSearch && (
-      <InlineRelationshipSearch
-        sourceType="bookmark"
-        sourceId={bookmark.id}
-        onComplete={() => setShowInlineSearch(false)}
-      />
-    )}
-  </div>
+  <LinkedContentChips
+    ref={linkedChipsRef}
+    contentType="bookmark"
+    contentId={bookmark.id}
+    onNavigate={onNavigateToLinked}
+    disabled={isSaving || isReadOnly}
+    showAddButton={false}
+  />
 )}
 ```
 
-**Considerations:**
-- Avoid modal-within-modal — use inline search/select pattern instead
-- `InlineRelationshipSearch` can share search logic with `AddRelationshipModal` (extract shared hook or component)
-- Navigation from a linked item closes the bookmark modal first
+The inline search dropdown works naturally within the bookmark modal — no modal-within-modal issue since the search is just an input + dropdown, not a modal.
 
 ### Testing Strategy
-- Related content appears when editing bookmark
+- Linked content chips appear when editing bookmark
 - Inline search works within modal context
-- Navigation closes modal before navigating
-- Linking to another bookmark opens URL
+- Navigation closes modal before navigating to linked item
 
 ### Dependencies
 - Milestone 8 (note integration pattern)
 
 ### Risk Factors
-- Inline search within modal may have limited vertical space — may need scrollable container
+- None significant
 
 ---
 
 ## Milestone 10: Integrate into Prompt Detail View
 
 ### Goal
-Add RelatedContent section to the prompt view/edit page.
+Add linked content chips to the prompt view/edit page.
 
 ### Success Criteria
-- Prompts display linked content section
-- Can add/remove relationships from prompt view
+- Prompts display linked content chips in metadata row
+- Can add/remove relationships via inline search
 - Navigation to linked content works
 
 ### Key Changes
 
-**Update prompt detail component:**
-
-Add RelatedContent component below prompt content, following the same pattern as note integration (Milestone 8):
+Follow the same pattern as Note integration (Milestone 8): add `LinkedContentChips` with `ref` to metadata row, link icon triggers `startAdding()`.
 
 ```tsx
-// After prompt content section
-<div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
-  <RelatedContent
-    contentType="prompt"
-    contentId={prompt.id}
-    onAddClick={() => setShowAddRelationshipModal(true)}
-    onNavigate={(item) => {
-      if (item.type === 'bookmark') {
-        window.open(item.url!, '_blank');
-      } else if (item.type === 'note') {
-        navigate(`/app/notes/${item.id}`);
-      } else if (item.type === 'prompt') {
-        navigate(`/app/prompts/${item.id}`);
-      }
-    }}
-  />
-</div>
-
-<AddRelationshipModal
-  isOpen={showAddRelationshipModal}
-  onClose={() => setShowAddRelationshipModal(false)}
-  sourceType="prompt"
-  sourceId={prompt.id}
+<LinkedContentChips
+  ref={linkedChipsRef}
+  contentType="prompt"
+  contentId={prompt.id}
+  onNavigate={onNavigateToLinked}
+  disabled={isSaving || isReadOnly}
+  showAddButton={false}
 />
 ```
 
@@ -1164,9 +975,8 @@ Add RelatedContent component below prompt content, following the same pattern as
 - Linked prompt → navigate to `/app/prompts/{id}`
 
 ### Testing Strategy
-- RelatedContent section appears in prompt view
-- Add button opens modal
-- Adding relationship refreshes list
+- Linked content chips appear in prompt view
+- Inline search triggers via link icon button
 - Navigation works for all content types
 
 ### Dependencies
@@ -1343,10 +1153,10 @@ The script should:
 | 3 | Cleanup integration with BaseEntityService | Low |
 | 4 | API endpoints | Medium |
 | 5 | Frontend types & API | Low |
-| 6 | RelatedContent component | Medium |
-| 7 | AddRelationshipModal | Medium |
+| 6 | LinkedContentChips component (inline chips) | Medium |
+| 7 | Inline search for linking (useContentSearch hook) | Medium |
 | 8 | Note detail integration | Low |
-| 9 | Bookmark detail integration (inline pattern) | Low |
+| 9 | Bookmark detail integration | Low |
 | 10 | Prompt detail integration | Low |
 | 11 | MCP server integration | Low |
 | 12 | Orphan detection script | Low |
@@ -1471,17 +1281,20 @@ The script should:
 
 | Test | Component | Scenario | Expected |
 |------|-----------|----------|----------|
-| `test__RelatedContent__renders_items` | RelatedContent | Multiple relationships | Shows items with icons and titles |
-| `test__RelatedContent__empty_state` | RelatedContent | No relationships | Shows empty message |
-| `test__RelatedContent__delete_button` | RelatedContent | Click delete | Calls mutation, refreshes |
-| `test__RelatedContent__deleted_indicator` | RelatedContent | Target is soft-deleted | Shows strikethrough/badge |
-| `test__RelatedContent__archived_indicator` | RelatedContent | Target is archived | Shows archived badge |
-| `test__RelatedContent__resolves_other_side_as_source` | RelatedContent | Current item is source | Shows target's title/type |
-| `test__RelatedContent__resolves_other_side_as_target` | RelatedContent | Current item is target (canonical swap) | Shows source's title/type |
-| `test__AddRelationshipModal__search` | AddRelationshipModal | Type in search | Triggers debounced query |
-| `test__AddRelationshipModal__excludes_self` | AddRelationshipModal | Search results | Current item not in list |
-| `test__AddRelationshipModal__submit` | AddRelationshipModal | Select and submit | Creates relationship, closes |
-| `test__AddRelationshipModal__validation` | AddRelationshipModal | Submit without selection | Button disabled |
+| `test__LinkedContentChips__renders_items` | LinkedContentChips | Multiple relationships | Shows chips with type icons and titles |
+| `test__LinkedContentChips__delete_button` | LinkedContentChips | Click remove | Calls mutation |
+| `test__LinkedContentChips__deleted_indicator` | LinkedContentChips | Target is soft-deleted | Shows line-through + opacity |
+| `test__LinkedContentChips__archived_indicator` | LinkedContentChips | Target is archived | Shows opacity (no line-through) |
+| `test__LinkedContentChips__resolves_other_side_as_source` | LinkedContentChips | Current item is source | Shows target's title/type |
+| `test__LinkedContentChips__resolves_other_side_as_target` | LinkedContentChips | Current item is target (canonical swap) | Shows source's title/type |
+| `test__LinkedContentChips__startAdding_via_ref` | LinkedContentChips | Call startAdding() via ref | Shows inline search input |
+| `test__LinkedContentChips__search_results` | LinkedContentChips | Type in inline search | Shows dropdown with results |
+| `test__LinkedContentChips__select_creates_relationship` | LinkedContentChips | Click search result | Calls create mutation |
+| `test__LinkedContentChips__escape_exits` | LinkedContentChips | Press Escape in search | Exits add mode |
+| `test__useContentSearch__filters_self` | useContentSearch | Source item in results | Excluded from results |
+| `test__useContentSearch__filters_linked` | useContentSearch | Already-linked items in results | Excluded from results |
+| `test__useContentSearch__keyboard_nav` | useContentSearch | Arrow keys | Highlight index moves correctly |
+| `test__useContentSearch__reset` | useContentSearch | Call reset() | Clears input, dropdown, highlight |
 
 ---
 
@@ -1507,12 +1320,14 @@ The script should:
 18. **`include_content_info` default:** Defaults to `true` — every known caller needs content info; slim response available via `include_content_info=false`
 19. **Query pagination:** Uses standard `offset`/`limit` params (default 50, max 100) with `has_more` flag, consistent with all other list endpoints
 20. **Concurrent insert handling:** Service catches `IntegrityError` from unique constraint and raises `DuplicateRelationshipError`
-21. **Unified search in modal:** `AddRelationshipModal` uses existing `GET /content/` endpoint (via `useContentQuery`) to search across all content types simultaneously
-22. **Canonical ordering implementation:** Extracted to a pure `canonical_pair()` function, unit tested independently, used in service layer and MCP idempotency filter
-23. **Pagination ordering:** Deterministic `ORDER BY created_at DESC, id DESC` — no user-configurable sort
-24. **Batch resolution columns:** Select only needed columns (`id`, `title`, `url`, `deleted_at`, `archived_at`) — do not load full entity rows
-25. **`onNavigate` signature:** Accepts full `LinkedItem` object (type, id, title, url, deleted, archived) so callers have all info needed for navigation
-26. **Orphan detection:** Built as `backend/src/tasks/orphan_relationships.py` maintenance script (Milestone 12), not deferred
+21. **Unified search:** Inline search uses existing `GET /content/` endpoint (via `useContentQuery`) to search across all content types simultaneously
+22. **Inline search over modal:** Replaced `AddRelationshipModal` with inline search dropdown in `LinkedContentChips` — modal was too heavy for "pick an item to link"; follows `InlineEditableTags` pattern (`forwardRef` + `startAdding()`)
+23. **Description removed from UI:** Users weren't writing descriptions. Field stays in backend schema for future AI/programmatic use via API and MCP
+24. **Canonical ordering implementation:** Extracted to a pure `canonical_pair()` function, unit tested independently, used in service layer and MCP idempotency filter
+25. **Pagination ordering:** Deterministic `ORDER BY created_at DESC, id DESC` — no user-configurable sort
+26. **Batch resolution columns:** Select only needed columns (`id`, `title`, `url`, `deleted_at`, `archived_at`) — do not load full entity rows
+27. **`onNavigate` signature:** Accepts full `LinkedItem` object (type, id, title, url, deleted, archived) so callers have all info needed for navigation
+28. **Orphan detection:** Built as `backend/src/tasks/orphan_relationships.py` maintenance script (Milestone 12), not deferred
 
 ---
 
