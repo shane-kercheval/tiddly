@@ -32,8 +32,7 @@ import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useNotes } from '../hooks/useNotes'
-import { LinkedContentChips } from './LinkedContentChips'
-import { AddRelationshipModal } from './AddRelationshipModal'
+import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedContentChips'
 import type { LinkedItem } from '../utils/relationships'
 import type { Note as NoteType, NoteCreate, NoteUpdate, TagCount } from '../types'
 
@@ -162,7 +161,7 @@ export function Note({
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
-  const [showAddRelationshipModal, setShowAddRelationshipModal] = useState(false)
+  const linkedChipsRef = useRef<LinkedContentChipsHandle>(null)
   const [contentKey, setContentKey] = useState(0)
   // Skip useEffect sync for a specific updated_at when manually handling refresh (e.g., from StaleDialog)
   const skipSyncForUpdatedAtRef = useRef<string | null>(null)
@@ -768,7 +767,7 @@ export function Note({
                 <Tooltip content="Link content" compact>
                   <button
                     type="button"
-                    onClick={() => setShowAddRelationshipModal(true)}
+                    onClick={() => linkedChipsRef.current?.startAdding()}
                     disabled={isSaving || isReadOnly}
                     className={`inline-flex items-center h-5 px-1 text-gray-500 rounded transition-colors ${
                       isSaving || isReadOnly ? 'cursor-not-allowed' : 'hover:text-gray-700 hover:bg-gray-100'
@@ -818,6 +817,7 @@ export function Note({
 
                 {note && (
                   <LinkedContentChips
+                    ref={linkedChipsRef}
                     contentType="note"
                     contentId={note.id}
                     onNavigate={onNavigateToLinked}
@@ -893,15 +893,6 @@ export function Note({
         />
       )}
 
-      {/* Add relationship modal — mount only when open so state resets naturally */}
-      {note && showAddRelationshipModal && (
-        <AddRelationshipModal
-          isOpen={true}
-          onClose={() => setShowAddRelationshipModal(false)}
-          sourceType="note"
-          sourceId={note.id}
-        />
-      )}
     </form>
   )
 }

@@ -63,7 +63,7 @@ vi.mock('../hooks/useRelationships', () => ({
   }),
 }))
 
-// Mock content query hook (used by AddRelationshipModal inside Note)
+// Mock content query hook (used by LinkedContentChips inline search)
 vi.mock('../hooks/useContentQuery', () => ({
   useContentQuery: () => ({ data: null, isFetching: false }),
   contentKeys: { all: ['content'], lists: () => ['content', 'list'], view: () => ['content', 'list', 'active'], list: () => ['content', 'list', 'active'] },
