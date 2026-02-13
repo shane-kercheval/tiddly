@@ -804,9 +804,6 @@ async def create_relationship(
                     )
                     if other_type == target_type and other_id == target_id:
                         return rel
-                # Fallback if canonical ordering swapped
-                if data.get("items"):
-                    return data["items"][0]
                 return {"message": "Relationship already exists"}
             except httpx.HTTPStatusError:
                 return {"message": "Relationship already exists"}

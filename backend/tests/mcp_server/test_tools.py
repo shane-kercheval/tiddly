@@ -1809,6 +1809,45 @@ async def test__create_relationship__duplicate_returns_existing(
 
 
 @pytest.mark.asyncio
+async def test__create_relationship__duplicate_no_match_returns_message(
+    mock_api,
+    mcp_client: Client,
+) -> None:
+    """Test 409 with no matching relationship in results returns message, not arbitrary item."""
+    mock_api.post("/relationships/").mock(
+        return_value=Response(409, json={
+            "detail": {"error_code": "DUPLICATE_RELATIONSHIP", "message": "Already exists"},
+        }),
+    )
+    # Return items that don't match the requested source/target pair
+    unrelated_item = {
+        "id": "770e8400-e29b-41d4-a716-446655440099",
+        "source_type": "bookmark",
+        "source_id": "550e8400-e29b-41d4-a716-446655440001",
+        "target_type": "note",
+        "target_id": "999e8400-e29b-41d4-a716-446655440099",
+        "relationship_type": "related",
+    }
+    mock_api.get("/relationships/content/bookmark/550e8400-e29b-41d4-a716-446655440001").mock(
+        return_value=Response(200, json={
+            "items": [unrelated_item],
+            "total": 1, "offset": 0, "limit": 50, "has_more": False,
+        }),
+    )
+
+    result = await mcp_client.call_tool("create_relationship", {
+        "source_type": "bookmark",
+        "source_id": "550e8400-e29b-41d4-a716-446655440001",
+        "target_type": "note",
+        "target_id": "550e8400-e29b-41d4-a716-446655440002",
+    })
+
+    # Should return message, NOT the unrelated item
+    assert result.data["message"] == "Relationship already exists"
+    assert "id" not in result.data
+
+
+@pytest.mark.asyncio
 async def test__create_relationship__not_found_raises_error(
     mock_api,
     mcp_client: Client,
