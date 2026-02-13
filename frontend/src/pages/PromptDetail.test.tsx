@@ -123,6 +123,29 @@ vi.mock('../stores/uiPreferencesStore', () => ({
     selector({ fullWidthLayout: false }),
 }))
 
+// Mock relationship hooks (Prompt uses LinkedContentChips which uses these internally)
+vi.mock('../hooks/useRelationships', () => ({
+  useContentRelationships: () => ({ data: null, isLoading: false, isError: false }),
+  useRelationshipMutations: () => ({
+    create: { mutateAsync: vi.fn(), isPending: false },
+    update: { mutateAsync: vi.fn(), isPending: false },
+    remove: { mutate: vi.fn(), isPending: false },
+  }),
+}))
+
+// Mock content query hook (used by LinkedContentChips inline search)
+vi.mock('../hooks/useContentQuery', () => ({
+  useContentQuery: () => ({ data: null, isFetching: false }),
+  contentKeys: { all: ['content'], lists: () => ['content', 'list'], view: () => ['content', 'list', 'active'], list: () => ['content', 'list', 'active'] },
+}))
+
+// Mock useBookmarks (used by useLinkedNavigation for trackBookmarkUsage)
+vi.mock('../hooks/useBookmarks', () => ({
+  useBookmarks: () => ({
+    trackBookmarkUsage: vi.fn(),
+  }),
+}))
+
 // Mock extractTemplateVariables to avoid validation failures from DEFAULT_PROMPT_CONTENT
 // The default content has template variables like {{ code_snippet }} which would fail validation
 vi.mock('../utils/extractTemplateVariables', () => ({

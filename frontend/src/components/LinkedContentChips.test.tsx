@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createRef } from 'react'
 import type { ReactNode } from 'react'
+import toast from 'react-hot-toast'
 import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedContentChips'
 import { api } from '../services/api'
 import type { RelationshipWithContent, RelationshipListResponse, ContentListItem, ContentListResponse } from '../types'
@@ -424,6 +425,50 @@ describe('LinkedContentChips', () => {
         target_id: 'bm-2',
         relationship_type: 'related',
         description: null,
+      })
+    })
+
+    it('should show "Already linked" toast on 409 error', async () => {
+      const user = userEvent.setup()
+      const items = [makeContentItem({ type: 'bookmark', id: 'bm-2', title: 'Target BM' })]
+      setupMockGet(items)
+      const error409 = Object.assign(new Error('Conflict'), {
+        isAxiosError: true,
+        response: { status: 409 },
+      })
+      mockPost.mockRejectedValueOnce(error409)
+
+      render(
+        <LinkedContentChips contentType="note" contentId="note-1" showAddButton />,
+        { wrapper: createWrapper() },
+      )
+
+      await user.click(await screen.findByLabelText('Link content'))
+      await user.type(screen.getByPlaceholderText('Search to link...'), 'target')
+      await user.click(await screen.findByText('Target BM'))
+
+      await vi.waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('Already linked')
+      })
+    })
+
+    it('should show "Failed to create link" toast on non-409 error', async () => {
+      const user = userEvent.setup()
+      const items = [makeContentItem({ type: 'bookmark', id: 'bm-2', title: 'Target BM' })]
+      setupMockGet(items)
+      mockPost.mockRejectedValueOnce(new Error('Network error'))
+
+      render(
+        <LinkedContentChips contentType="note" contentId="note-1" showAddButton />,
+        { wrapper: createWrapper() },
+      )
+
+      await user.click(await screen.findByLabelText('Link content'))
+      await user.type(screen.getByPlaceholderText('Search to link...'), 'target')
+      await user.click(await screen.findByText('Target BM'))
+
+      await vi.waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith('Failed to create link')
       })
     })
 

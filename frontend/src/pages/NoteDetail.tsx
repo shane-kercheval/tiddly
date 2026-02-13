@@ -15,8 +15,8 @@ import { Note as NoteComponent } from '../components/Note'
 import { HistorySidebar } from '../components/HistorySidebar'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { useNotes } from '../hooks/useNotes'
-import { useBookmarks } from '../hooks/useBookmarks'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
+import { useLinkedNavigation } from '../hooks/useLinkedNavigation'
 import {
   useCreateNote,
   useUpdateNote,
@@ -29,7 +29,6 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useHistorySidebarStore } from '../stores/historySidebarStore'
-import type { LinkedItem } from '../utils/relationships'
 import type { Note as NoteType, NoteCreate, NoteUpdate } from '../types'
 
 type NoteViewState = 'active' | 'archived' | 'deleted'
@@ -78,7 +77,7 @@ export function NoteDetail(): ReactNode {
 
   // Hooks
   const { fetchNote, trackNoteUsage } = useNotes()
-  const { trackBookmarkUsage } = useBookmarks()
+  const handleNavigateToLinked = useLinkedNavigation()
   const { tags: tagSuggestions } = useTagsStore()
   const fullWidthLayout = useUIPreferencesStore((state) => state.fullWidthLayout)
   const createMutation = useCreateNote()
@@ -233,18 +232,6 @@ export function NoteDetail(): ReactNode {
       return null
     }
   }, [noteId, fetchNote, queryClient])
-
-  // Navigate to a linked content item
-  const handleNavigateToLinked = useCallback((item: LinkedItem): void => {
-    if (item.type === 'bookmark' && item.url) {
-      trackBookmarkUsage(item.id)
-      window.open(item.url, '_blank', 'noopener,noreferrer')
-    } else if (item.type === 'note') {
-      navigate(`/app/notes/${item.id}`)
-    } else if (item.type === 'prompt') {
-      navigate(`/app/prompts/${item.id}`)
-    }
-  }, [navigate, trackBookmarkUsage])
 
   // History sidebar handlers
   const handleShowHistory = useCallback((): void => {

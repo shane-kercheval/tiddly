@@ -15,6 +15,7 @@ import { HistorySidebar } from '../components/HistorySidebar'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { usePrompts } from '../hooks/usePrompts'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
+import { useLinkedNavigation } from '../hooks/useLinkedNavigation'
 import {
   useCreatePrompt,
   useUpdatePrompt,
@@ -75,6 +76,7 @@ export function PromptDetail(): ReactNode {
 
   // Hooks
   const { fetchPrompt, trackPromptUsage } = usePrompts()
+  const handleNavigateToLinked = useLinkedNavigation()
   const { tags: tagSuggestions } = useTagsStore()
   const fullWidthLayout = useUIPreferencesStore((state) => state.fullWidthLayout)
   const createMutation = useCreatePrompt()
@@ -325,6 +327,7 @@ export function PromptDetail(): ReactNode {
         fullWidth={fullWidthLayout}
         onRefresh={handleRefresh}
         onShowHistory={handleShowHistory}
+        onNavigateToLinked={handleNavigateToLinked}
       />
       {showHistory && promptId && (
         <HistorySidebar

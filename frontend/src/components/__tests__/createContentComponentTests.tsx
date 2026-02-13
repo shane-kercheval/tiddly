@@ -149,6 +149,40 @@ export function createContentComponentTests<TItem, TProps>(
         expect(screen.getByText('Close')).toBeInTheDocument()
         expect(screen.getByText('Create')).toBeInTheDocument()
       })
+
+      it('should not show Link content button in create mode', () => {
+        render(
+          <TypedComponent
+            {...buildProps({
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+            })}
+          />
+        )
+
+        expect(screen.queryByLabelText('Link content')).not.toBeInTheDocument()
+      })
+
+      it('should allow adding tags when starting with no tags', async () => {
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+        render(
+          <TypedComponent
+            {...buildProps({
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+            })}
+          />
+        )
+
+        // Tag icon button should be present in create mode
+        const addTagButton = screen.getByLabelText('Add tag')
+        expect(addTagButton).toBeInTheDocument()
+
+        // Clicking it should mount the tag input (InlineEditableTags must be mounted for this to work)
+        await user.click(addTagButton)
+
+        expect(screen.getByPlaceholderText('Add tag...')).toBeInTheDocument()
+      })
     })
 
     describe('edit mode', () => {

@@ -804,29 +804,27 @@ export function Note({
             </div>
 
             {/* Row 2: tag pills + linked content chips */}
-            {(current.tags.length > 0 || note) && (
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
-                <InlineEditableTags
-                  ref={tagInputRef}
-                  value={current.tags}
-                  onChange={handleTagsChange}
-                  suggestions={tagSuggestions}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+              <InlineEditableTags
+                ref={tagInputRef}
+                value={current.tags}
+                onChange={handleTagsChange}
+                suggestions={tagSuggestions}
+                disabled={isSaving || isReadOnly}
+                showAddButton={false}
+              />
+
+              {note && (
+                <LinkedContentChips
+                  ref={linkedChipsRef}
+                  contentType="note"
+                  contentId={note.id}
+                  onNavigate={onNavigateToLinked}
                   disabled={isSaving || isReadOnly}
                   showAddButton={false}
                 />
-
-                {note && (
-                  <LinkedContentChips
-                    ref={linkedChipsRef}
-                    contentType="note"
-                    contentId={note.id}
-                    onNavigate={onNavigateToLinked}
-                    disabled={isSaving || isReadOnly}
-                    showAddButton={false}
-                  />
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
