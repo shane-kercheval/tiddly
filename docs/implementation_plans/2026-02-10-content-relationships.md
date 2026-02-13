@@ -990,108 +990,45 @@ Follow the same pattern as Note integration (Milestone 8): add `LinkedContentChi
 ## Milestone 11: MCP Server Integration
 
 ### Goal
-Expose relationship management through MCP server for AI agent access.
+Expose relationship creation through MCP server for AI agent access.
 
-### Success Criteria
-- MCP tools for querying relationships
-- MCP tools for creating/deleting relationships
-- Documentation updated
+### Status: **Implemented** (reduced scope — see Milestone 13)
 
-### Key Changes
+### What Was Built
 
-**Update `backend/src/mcp_server/server.py`:**
+**Scope reduction:** Originally planned three tools (`get_content_relationships`, `create_relationship`, `delete_relationship`). With Milestone 13 embedding relationships in entity GET responses, `get_item` now returns relationships automatically, making `get_content_relationships` unnecessary. `delete_relationship` was deferred — agents rarely need to remove links, and it can be added later if needed. Only `create_relationship` was implemented.
 
-Add new tools:
+**`backend/src/mcp_server/server.py`** — Added `create_relationship` tool:
 
 ```python
-@mcp.tool()
-async def get_content_relationships(
-    content_type: Literal["bookmark", "note", "prompt"],
-    content_id: str,
-    relationship_type: str | None = None,
-) -> list[dict]:
-    """
-    Get relationships for a content item.
-
-    Args:
-        content_type: Type of content ("bookmark", "note", or "prompt")
-        content_id: ID of the content item (UUID)
-        relationship_type: Optional filter by type ("related")
-
-    Returns:
-        List of relationships with source/target info and titles
-    """
-
-
-@mcp.tool()
+@mcp.tool(
+    description="Link two content items together. Idempotent: if the link already exists, returns the existing relationship.",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+)
 async def create_relationship(
-    source_type: Literal["bookmark", "note", "prompt"],
+    source_type: Literal["bookmark", "note"],
     source_id: str,
-    target_type: Literal["bookmark", "note", "prompt"],
+    target_type: Literal["bookmark", "note"],
     target_id: str,
-    relationship_type: Literal["related"],
-    description: str | None = None,
-) -> dict:
-    """
-    Create a relationship between two content items.
-
-    Args:
-        source_type: Type of source content
-        source_id: ID of source content (UUID)
-        target_type: Type of target content
-        target_id: ID of target content (UUID)
-        relationship_type: Type of relationship ("related")
-        description: Optional description of why items are linked
-
-    Returns:
-        Created relationship (or existing relationship if duplicate)
-
-    Note:
-        On 409 (duplicate), returns the existing relationship instead of
-        raising ToolError. This provides idempotent "ensure link exists"
-        semantics appropriate for AI agents. The REST API itself still
-        returns 409 for explicit conflict reporting.
-
-        Implementation: on 409 from the API, query
-        GET /relationships/content/{source_type}/{source_id} to find and
-        return the existing relationship. Canonical ordering means the
-        submitted source/target may be swapped — filter results by matching
-        both endpoint IDs.
-    """
-
-
-@mcp.tool()
-async def delete_relationship(
-    relationship_id: str,
-) -> bool:
-    """
-    Delete a relationship.
-
-    Args:
-        relationship_id: ID of relationship to delete (UUID)
-
-    Returns:
-        True if deleted, False if not found
-    """
+) -> dict[str, Any]:
 ```
 
-**Update MCP server instructions in `CLAUDE.md`:**
+**Key design decisions:**
+- Type parameters are `Literal["bookmark", "note"]` (not prompt) — prompts are managed via the separate Prompt MCP server
+- Hardcodes `relationship_type: "related"` and `description: null` — simplifies the tool interface since v1 only supports `related` and the description UI was removed
+- On 409 (duplicate): queries existing relationships and matches by both endpoint IDs (handles canonical ordering swap), returns existing relationship
+- On 404 (content not found): raises `ToolError` with descriptive message
 
-```markdown
-**Relationships:**
-- `get_content_relationships`: Get relationships for a bookmark, note, or prompt
-- `create_relationship`: Link two content items together
-- `delete_relationship`: Remove a relationship
-```
+**MCP instructions updated** to document the new tool and mention that `get_item` includes relationships.
 
 ### Testing Strategy
-- MCP tools return expected data
-- Error handling for invalid content IDs
-- `create_relationship` on duplicate returns existing relationship (idempotent)
-- Integration test with MCP client
+- `test__create_relationship__success`: creates relationship, returns data
+- `test__create_relationship__duplicate_returns_existing`: 409 handling returns existing (idempotent)
+- `test__create_relationship__not_found`: 404 raises ToolError
 
 ### Dependencies
 - Milestone 4 (API endpoints — MCP calls the API via httpx)
+- Milestone 13 (embedded relationships made `get_content_relationships` tool unnecessary)
 
 ### Risk Factors
 - None significant
@@ -1144,6 +1081,78 @@ The script should:
 
 ---
 
+## Milestone 13: Embed Relationships in Entity GET Responses
+
+### Goal
+Eliminate the extra network round-trip for relationships on detail pages by embedding enriched relationship data directly in single-entity GET responses.
+
+### Status: **Implemented**
+
+### Rationale
+
+The frontend always needs both entity data and relationships when viewing a detail page (LinkedContentChips renders on every detail view). This required two API calls: `GET /bookmarks/{id}` + `GET /relationships/content/bookmark/{id}`. Since most entities have 0 relationships and those with relationships rarely exceed 10, embedding the relationship data in the entity response eliminates a network round-trip with negligible payload cost. This also means the MCP `get_item` tool automatically includes relationships, reducing the MCP tool surface (see Milestone 11).
+
+### What Was Built
+
+**Backend schema changes:**
+
+`BookmarkResponse`, `NoteResponse`, `PromptResponse` — each gained:
+```python
+relationships: list[RelationshipWithContentResponse] = Field(default_factory=list)
+```
+Only on the single-entity Response schemas, NOT on ListItem schemas — list endpoints stay lean.
+
+**Backend router changes:**
+
+Each entity's GET handler (`bookmarks.py`, `notes.py`, `prompts.py` including get-by-name) fetches and enriches relationships after building the response:
+```python
+response_data = BookmarkResponse.model_validate(bookmark)
+rels, _ = await get_relationships_for_content(db, current_user.id, 'bookmark', bookmark_id)
+response_data.relationships = (
+    await enrich_with_content_info(db, current_user.id, rels) if rels else []
+)
+```
+
+**Frontend type changes:**
+
+`Bookmark`, `Note`, `Prompt` interfaces gained `relationships?: RelationshipWithContent[]`.
+
+**Frontend component changes:**
+
+`LinkedContentChips` gained an `initialRelationships` prop. When provided, it converts to `initialData` for the `useContentRelationships` React Query hook with `initialDataUpdatedAt: Date.now()`. This tells React Query the data is fresh, skipping the initial fetch while still allowing cache invalidation after mutations (add/remove relationship) to trigger a refetch from the dedicated relationships endpoint.
+
+The `useContentRelationships` hook was NOT removed — it still manages the query lifecycle, cache keys, and refetch-on-invalidation. Only the initial network request is eliminated.
+
+**Detail page threading:**
+
+`Bookmark.tsx`, `Note.tsx`, `Prompt.tsx` pass `entity.relationships` to `LinkedContentChips` as `initialRelationships`.
+
+### Testing Strategy
+
+**Backend:**
+- Entity GET with no relationships → `relationships: []`
+- Entity GET with relationships → `relationships` contains enriched items with titles, urls, deleted/archived flags
+- Relationships field NOT present on list endpoint responses
+- Prompt by-name endpoint also embeds relationships
+
+**Frontend:**
+- `initialRelationships` renders chips without making a separate API call
+
+**MCP:**
+- `create_relationship` success → returns relationship data
+- `create_relationship` duplicate (409) → queries existing, returns it (idempotent)
+- `create_relationship` with invalid content ID (404) → raises ToolError
+
+### Dependencies
+- Milestone 4 (API endpoints)
+- Milestone 5 (frontend types & hooks)
+- Milestone 6 (LinkedContentChips component)
+
+### Risk Factors
+- None significant — additive change to existing response schemas
+
+---
+
 ## Summary
 
 | Milestone | Description | Complexity |
@@ -1158,8 +1167,9 @@ The script should:
 | 8 | Note detail integration | Low |
 | 9 | Bookmark detail integration | Low |
 | 10 | Prompt detail integration | Low |
-| 11 | MCP server integration | Low |
+| 11 | MCP server integration (`create_relationship` only) | Low |
 | 12 | Orphan detection script | Low |
+| 13 | Embed relationships in entity GET responses | Low |
 
 ---
 
@@ -1328,6 +1338,10 @@ The script should:
 26. **Batch resolution columns:** Select only needed columns (`id`, `title`, `url`, `deleted_at`, `archived_at`) — do not load full entity rows
 27. **`onNavigate` signature:** Accepts full `LinkedItem` object (type, id, title, url, deleted, archived) so callers have all info needed for navigation
 28. **Orphan detection:** Built as `backend/src/tasks/orphan_relationships.py` maintenance script (Milestone 12), not deferred
+29. **Embedded relationships in entity GET:** Single-entity GET responses include enriched `relationships` array; list endpoints do not. Eliminates a network round-trip for detail pages with negligible payload cost
+30. **React Query `initialData` for embedded relationships:** Frontend passes embedded relationships as `initialData` with `initialDataUpdatedAt: Date.now()` — skips the initial fetch but still refetches on cache invalidation after mutations. The `useContentRelationships` hook was kept (not removed) because it manages the query lifecycle for post-mutation cache invalidation
+31. **MCP tool scope reduction:** Only `create_relationship` was added to the content MCP server. `get_content_relationships` became unnecessary after embedding relationships in `get_item` responses. `delete_relationship` was deferred — agents rarely need to remove links
+32. **MCP `create_relationship` type constraint:** Uses `Literal["bookmark", "note"]` (excludes prompt) — prompts are managed via the separate Prompt MCP server
 
 ---
 
@@ -1348,6 +1362,10 @@ The script should:
 **Operational tooling:**
 - Per-item relationship limit: if accumulation becomes a problem (e.g., thousands of relationships on a single item degrading batch resolution), add a configurable soft limit in the service layer with a clear error
 - Integrate orphan detection (Milestone 12) into the existing nightly cron alongside `cleanup.py`
+
+**MCP tooling:**
+- `delete_relationship` MCP tool — add if agents need to remove links programmatically
+- `create_relationship` for Prompt MCP server — add prompt-to-content linking from the prompt MCP server if needed
 
 **Other enhancements:**
 - Relationship graph visualization
