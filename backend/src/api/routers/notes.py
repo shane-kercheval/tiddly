@@ -44,7 +44,7 @@ from services.content_edit_service import (
 from services.content_lines import apply_partial_read
 from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
-from services.relationship_service import enrich_with_content_info, get_relationships_for_content
+from services.relationship_service import embed_relationships
 from services.history_service import history_service
 from services.note_service import NoteService
 from models.content_history import ActionType, EntityType
@@ -192,10 +192,7 @@ async def get_note(
     apply_partial_read(response_data, start_line, end_line)
 
     # Embed relationships
-    rels, _ = await get_relationships_for_content(db, current_user.id, 'note', note_id)
-    response_data.relationships = (
-        await enrich_with_content_info(db, current_user.id, rels) if rels else []
-    )
+    response_data.relationships = await embed_relationships(db, current_user.id, 'note', note_id)
 
     return response_data
 

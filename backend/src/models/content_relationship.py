@@ -20,7 +20,6 @@ class ContentRelationship(Base, UUIDv7Mixin, TimestampMixin):
 
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
-        index=True,
     )
 
     # Source content (polymorphic — no FK to entity tables)

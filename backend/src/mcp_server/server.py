@@ -789,7 +789,7 @@ async def create_relationship(
             try:
                 data = await api_get(
                     client,
-                    f"/relationships/content/{source_type}/{source_id}",
+                    f"/relationships/content/{source_type}/{source_id}?limit=100",
                     token,
                 )
                 for rel in data.get("items", []):

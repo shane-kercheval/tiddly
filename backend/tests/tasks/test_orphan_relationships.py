@@ -543,17 +543,18 @@ class TestCleanupOrphanedRelationships:
         assert await count_relationships(db_session, user.id) == 0
 
     @pytest.mark.asyncio
-    async def test__cross_user__entity_exists_for_other_user__not_orphaned(
+    async def test__cross_user__entity_exists_for_other_user__is_orphaned(
         self,
         db_session: AsyncSession,
         user: User,
     ) -> None:
         """
-        Entity belonging to another user still exists in DB.
+        Entity belonging to another user exists in DB but not for the
+        relationship's user.
 
-        The NOT EXISTS query checks entity existence globally (no user_id
-        filter), so a relationship pointing to another user's entity is
-        NOT considered orphaned — the row exists in the entity table.
+        The NOT EXISTS query checks entity existence scoped to user_id,
+        so a relationship pointing to another user's entity IS considered
+        orphaned — the entity doesn't belong to the relationship's user.
         """
         other_user = User(
             auth0_id=f"test-other-{uuid4()}",
@@ -583,11 +584,10 @@ class TestCleanupOrphanedRelationships:
 
         stats = await cleanup_orphaned_relationships(db_session, delete=True)
 
-        # NOT orphaned — the bookmark exists in the DB
-        assert stats.total_deleted == 0
-        assert stats.orphaned_source == 0
-        assert stats.orphaned_target == 0
-        assert await count_relationships(db_session, user.id) == 1
+        # Orphaned — the bookmark belongs to another user
+        assert stats.total_deleted == 1
+        assert stats.orphaned_target == 1
+        assert await count_relationships(db_session, user.id) == 0
 
     @pytest.mark.asyncio
     async def test__soft_deleted_entity__not_treated_as_orphan(

@@ -59,9 +59,10 @@ async def find_orphaned_relationships(db: AsyncSession) -> list[ContentRelations
     all_orphans: list[ContentRelationship] = []
 
     for content_type, model in MODEL_MAP.items():
-        # Source orphans: source entity doesn't exist
+        # Source orphans: source entity doesn't exist for this user
         source_exists = select(model.id).where(
             model.id == ContentRelationship.source_id,
+            model.user_id == ContentRelationship.user_id,
         ).exists()
         source_stmt = select(ContentRelationship).where(
             ContentRelationship.source_type == content_type,
@@ -73,9 +74,10 @@ async def find_orphaned_relationships(db: AsyncSession) -> list[ContentRelations
                 orphan_ids.add(rel.id)
                 all_orphans.append(rel)
 
-        # Target orphans: target entity doesn't exist
+        # Target orphans: target entity doesn't exist for this user
         target_exists = select(model.id).where(
             model.id == ContentRelationship.target_id,
+            model.user_id == ContentRelationship.user_id,
         ).exists()
         target_stmt = select(ContentRelationship).where(
             ContentRelationship.target_type == content_type,
@@ -118,9 +120,10 @@ async def cleanup_orphaned_relationships(
     stats = OrphanStats()
 
     for content_type, model in MODEL_MAP.items():
-        # Source orphans: source entity of this type doesn't exist
+        # Source orphans: source entity of this type doesn't exist for this user
         source_exists = select(model.id).where(
             model.id == ContentRelationship.source_id,
+            model.user_id == ContentRelationship.user_id,
         ).exists()
 
         if delete:
@@ -152,9 +155,10 @@ async def cleanup_orphaned_relationships(
                 content_type,
             )
 
-        # Target orphans: target entity of this type doesn't exist
+        # Target orphans: target entity of this type doesn't exist for this user
         target_exists = select(model.id).where(
             model.id == ContentRelationship.target_id,
+            model.user_id == ContentRelationship.user_id,
         ).exists()
 
         if delete:

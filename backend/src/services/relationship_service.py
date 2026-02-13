@@ -396,3 +396,14 @@ async def enrich_with_content_info(
         ))
 
     return items
+
+
+async def embed_relationships(
+    db: AsyncSession,
+    user_id: UUID,
+    content_type: str,
+    content_id: UUID,
+) -> list[RelationshipWithContentResponse]:
+    """Fetch and enrich relationships for embedding in entity GET responses."""
+    rels, _ = await get_relationships_for_content(db, user_id, content_type, content_id)
+    return await enrich_with_content_info(db, user_id, rels) if rels else []
