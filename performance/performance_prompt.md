@@ -98,7 +98,7 @@ Each operation is tested at concurrency levels 10, 50, and 100 (100 iterations e
 
 ### Early Exit
 
-After both benchmark runs complete, check results before proceeding to profiling. **If any operation shows >5x P95 regression versus baseline, or >10% error rate, stop here.** Fix the issue before spending time on profiling.
+After both benchmark runs complete, check results before proceeding to profiling. **If any operation has a non-zero error rate, stop here.** Errors indicate something is broken, and they contaminate latency measurements (failed requests skew the stats). Fix the errors before continuing.
 
 ---
 
@@ -418,7 +418,7 @@ After generating reports:
 - [ ] Branch changes reviewed and documented (affected endpoints + code paths identified)
 - [ ] API benchmark: 1KB content completed
 - [ ] API benchmark: 50KB content completed
-- [ ] Early exit check passed (no >5x P95 regressions or >10% error rates)
+- [ ] Early exit check passed (no errors in any operation)
 - [ ] Profiling: 1KB content completed
 - [ ] Profiling: 50KB content completed
 - [ ] Benchmark report generated with regression analysis
