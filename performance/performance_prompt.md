@@ -22,6 +22,11 @@ Before running any benchmarks:
    **Do NOT commit these changes.** Revert after benchmarking.
 4. **Close other heavy processes** to reduce noise (browsers, IDEs with indexing, etc.)
 5. **Verify the API is reachable:** `curl http://localhost:8000/health`
+6. **Check for unarchived profiling results.** If `performance/profiling/results/` contains `.html` or `.txt` files from a previous run, verify they've been archived (a corresponding `results_*.zip` should exist in `performance/profiling/`). If not archived, archive them first:
+   ```bash
+   cd performance/profiling && zip -r results_PREV_BRANCH.zip results/ && cd ../..
+   ```
+   New profiling runs overwrite these files by name, so unarchived results will be lost.
 
 ---
 
@@ -47,7 +52,7 @@ From this review, build a list of:
 - **Affected endpoints** — which API endpoints are most likely to have changed performance characteristics
 - **Affected code paths** — which backend functions/modules changed and should be scrutinized in profiling results
 
-These lists guide the targeted analysis in Phase 4.
+Record these findings — they will be included in the benchmark report (Phase 5a, "Branch Changes Summary" section) and guide the targeted analysis in Phase 4.
 
 ---
 
@@ -84,6 +89,17 @@ For each entity type (Notes, Bookmarks, Prompts) x 7 operations:
 
 Each operation is tested at concurrency levels 10, 50, and 100 (100 iterations each).
 
+### Script Behavior Notes
+
+- **Warmup is automatic.** The benchmark script warms the DB connection pool and ORM models before timing starts. No manual warmup needed.
+- **Cleanup is automatic.** Test items are created and deleted within each run. Leftovers from crashed runs are cleaned up at the start of each run.
+- **Runs are independent.** The 1KB and 50KB runs can be executed in either order. Each run cleans up after itself.
+- **On failure:** If a run fails partway through, cleanup runs via `finally` blocks. Restart the failed run from scratch — partial results are not usable.
+
+### Early Exit
+
+After both benchmark runs complete, check results before proceeding to profiling. **If any operation shows >5x P95 regression versus baseline, or >10% error rate, stop here.** Fix the issue before spending time on profiling.
+
 ---
 
 ## Phase 3: Profiling (Flame Graphs)
@@ -108,6 +124,20 @@ Profiling saves results to `performance/profiling/results/`:
 - **HTML files** (`{operation}_{size}kb.html`): Interactive flame graphs for visual inspection
 - **Text files** (`{operation}_{size}kb.txt`): Machine-readable call trees for comparison
 
+**Note:** Each operation profiles a single request via pyinstrument. This is intentional — profiling maps the full call tree and time distribution within one request, not statistical latency (that's Phase 2's job). Single-request profiling is sufficient to identify bottlenecks, N+1 queries, and hot functions.
+
+### Comparing to Previous Profiling Results
+
+Previous profiling results are archived as zip files in `performance/profiling/` (e.g., `results_main.zip`, `results_content_versioning.zip`). To compare against a baseline:
+
+```bash
+# Extract baseline results to a temporary directory
+mkdir -p /tmp/profiling_baseline
+unzip performance/profiling/results_main.zip -d /tmp/profiling_baseline
+```
+
+Then compare the text reports side-by-side (e.g., `diff /tmp/profiling_baseline/results/create_note_1kb.txt performance/profiling/results/create_note_1kb.txt`). Look for new functions appearing in hot paths, or existing functions consuming a larger percentage of total time.
+
 ### Operations Profiled (7 per entity x 3 entities = 21 total per content size)
 
 - `create_{entity}` — Full creation code path
@@ -127,7 +157,11 @@ Profiling saves results to `performance/profiling/results/`:
 For EACH content size (1KB, 50KB), produce an analysis covering:
 
 **Regression Detection:**
-- Compare against the most recent prior results in `performance/api/results/` and any `performance/api/results_*/` directories that contain baseline runs from earlier branches
+- Compare against baseline results using this priority order:
+  1. `performance/api/results_main/` — main branch baseline (preferred)
+  2. The earliest results in `performance/api/results/` — original baseline
+  3. Any `performance/api/results_*/` directory from the parent branch
+  4. If no baseline exists, skip regression analysis and establish this run as the baseline for future comparisons
 - Flag any operation where P95 latency increased by **>15%** from baseline
 - Flag any operation where throughput (RPS) decreased by **>15%** from baseline
 - Flag any operation where error rate increased from 0%
@@ -149,6 +183,7 @@ For EACH content size (1KB, 50KB), produce an analysis covering:
 - Compare create/update latencies to read/list/search latencies
 - Write operations are expected to be slower (history recording, diff computation)
 - Flag if write overhead exceeds **3x** the corresponding read operation at same concurrency
+- This ratio is most meaningful at 1KB where fixed overhead (history recording, diff computation) is exposed. At 50KB, content processing dominates both reads and writes, compressing the ratio.
 
 ### 4b. Profiling Analysis
 
@@ -157,6 +192,7 @@ Read the text profile reports (`performance/profiling/results/*.txt`) and analyz
 **Top Time Consumers:**
 - For each operation, identify the top 3 functions by cumulative time
 - Flag any single function consuming **>40%** of total request time
+- If baseline profiling results are available (see Phase 3 "Comparing to Previous Profiling Results"), compare the top functions and their percentages. Flag any function whose share of total time increased by >10 percentage points, or any new function appearing in the top 3 that wasn't there before.
 
 **Targeted Code Path Analysis:**
 Using the affected code paths identified in Phase 1, specifically examine:
@@ -193,6 +229,10 @@ Use this exact format:
 **Commit:** (output of `git rev-parse --short HEAD`)
 **Baseline:** (which past results were compared against, if any)
 **Environment:** Local dev (VITE_DEV_MODE=true, no auth overhead)
+
+## Branch Changes Summary
+
+(From Phase 1: brief description of what changed, affected endpoints, affected code paths)
 
 ## Test Parameters
 
@@ -241,6 +281,14 @@ Use this exact format:
 - **Key findings:** (2-5 bullet points)
 - **Recommendations:** (if any)
 ~~~
+
+### Decision Framework
+
+The overall assessment determines the merge decision:
+
+- **PASS:** No regressions or threshold violations. Merge freely.
+- **PASS WITH WARNINGS:** Regressions 10-25%, or absolute thresholds exceeded at high concurrency only. Document the regressions and justification in the PR description before merging.
+- **FAIL:** Any regression >25%, new errors under load, or scaling ratio dramatically worsened. Must fix before merge.
 
 ### 5b. Profiling Report
 
@@ -329,9 +377,16 @@ After generating reports:
    cd performance/profiling && zip -r results_${BRANCH_DIR}.zip results/ && cd ../..
    ```
 
-3. **Revert tier limit changes** in `backend/src/core/tier_limits.py`
+3. **Clean up working directories** after archiving:
+   ```bash
+   # Remove raw benchmark files from the working directory (they're now in the branch-specific archive)
+   rm -f performance/api/results/benchmark_api_*.md
+   # Profiling results/ is overwritten per run (same filenames), so no cleanup needed
+   ```
 
-4. **Do NOT commit** tier limit changes or raw benchmark data files. The summary reports and archives are the durable artifacts.
+4. **Revert tier limit changes** in `backend/src/core/tier_limits.py`
+
+5. **Do NOT commit** tier limit changes. The branch-specific archive directories (`results_<branch>/`), summary reports, and profiling zips are the durable artifacts that get committed.
 
 ---
 
