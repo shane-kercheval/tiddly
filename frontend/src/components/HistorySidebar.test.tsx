@@ -56,7 +56,7 @@ function createQueryClient(): QueryClient {
   })
 }
 
-function renderSidebar(): void {
+function renderSidebar(props: { isDeleted?: boolean } = {}): void {
   render(
     <QueryClientProvider client={createQueryClient()}>
       <HistorySidebar
@@ -64,6 +64,7 @@ function renderSidebar(): void {
         entityId="entity-1"
         onClose={vi.fn()}
         onRestored={vi.fn()}
+        {...props}
       />
     </QueryClientProvider>
   )
@@ -119,14 +120,14 @@ describe('HistorySidebar', () => {
 
       renderSidebar()
 
-      // Content actions show version badges
-      expect(screen.getByText('v2')).toBeInTheDocument()
+      // Latest content version shows "Current", older shows version badge
+      expect(screen.getByText('Current')).toBeInTheDocument()
       expect(screen.getByText('v1')).toBeInTheDocument()
 
       // Audit actions should NOT show version badges (no v for null versions)
-      // Total version badges should be exactly 2 (v1 and v2)
+      // Only v1 should have a version badge (v2 shows as "Current")
       const versionBadges = screen.getAllByText(/^v\d+$/)
-      expect(versionBadges).toHaveLength(2)
+      expect(versionBadges).toHaveLength(1)
     })
 
     it('test__audit_actions__do_not_show_restore_button', () => {
@@ -163,7 +164,7 @@ describe('HistorySidebar', () => {
 
       renderSidebar()
 
-      expect(screen.getByText('v3')).toBeInTheDocument()
+      expect(screen.getByText('Current')).toBeInTheDocument()
       expect(screen.getByText('v2')).toBeInTheDocument()
       expect(screen.getByText('v1')).toBeInTheDocument()
     })
@@ -257,12 +258,12 @@ describe('HistorySidebar', () => {
 
       renderSidebar()
 
-      // Click on v2 entry
-      fireEvent.click(screen.getByText('v2'))
+      // Click on Current (v2) entry
+      fireEvent.click(screen.getByText('Current'))
 
       // The entry should be highlighted (bg-blue-50 class)
-      const v2Element = screen.getByText('v2').closest('[class*="bg-blue-50"]')
-      expect(v2Element).toBeInTheDocument()
+      const currentElement = screen.getByText('Current').closest('[class*="bg-blue-50"]')
+      expect(currentElement).toBeInTheDocument()
     })
 
     it('test__metadata_only_payload__shows_metadata_changes_without_content_diff', () => {
@@ -287,7 +288,7 @@ describe('HistorySidebar', () => {
       })
 
       renderSidebar()
-      fireEvent.click(screen.getByText('v2'))
+      fireEvent.click(screen.getByText('Current'))
 
       // Metadata changes rendered
       expect(screen.getByText('Title:')).toBeInTheDocument()
@@ -320,7 +321,7 @@ describe('HistorySidebar', () => {
       })
 
       renderSidebar()
-      fireEvent.click(screen.getByText('v2'))
+      fireEvent.click(screen.getByText('Current'))
 
       // Metadata changes rendered
       expect(screen.getByText('Title:')).toBeInTheDocument()
@@ -351,7 +352,7 @@ describe('HistorySidebar', () => {
       })
 
       renderSidebar()
-      fireEvent.click(screen.getByText('v2'))
+      fireEvent.click(screen.getByText('Current'))
 
       expect(screen.getByText('Warning: Some changes could not be fully reconstructed')).toBeInTheDocument()
     })
@@ -380,9 +381,9 @@ describe('HistorySidebar', () => {
 
       renderSidebar()
 
-      // Click on v3 to open diff
-      fireEvent.click(screen.getByText('v3'))
-      expect(screen.getByText('v3').closest('[class*="bg-blue-50"]')).toBeInTheDocument()
+      // Click on Current (v3) to open diff
+      fireEvent.click(screen.getByText('Current'))
+      expect(screen.getByText('Current').closest('[class*="bg-blue-50"]')).toBeInTheDocument()
 
       // Click on the audit entry (bg-gray-50/50 row without version badge)
       // The audit entry has the 'bg-gray-50/50' class (audit styling)
@@ -391,7 +392,7 @@ describe('HistorySidebar', () => {
       const auditDot = dots[1]
       const auditRow = auditDot.closest('[class*="bg-gray-50"]')!
       fireEvent.click(auditRow)
-      expect(screen.getByText('v3').closest('[class*="bg-blue-50"]')).toBeNull()
+      expect(screen.getByText('Current').closest('[class*="bg-blue-50"]')).toBeNull()
     })
   })
 
@@ -427,6 +428,49 @@ describe('HistorySidebar', () => {
       renderSidebar()
 
       expect(screen.queryByTestId('change-indicators')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('deleted entity', () => {
+    it('test__is_deleted__hides_all_restore_buttons', () => {
+      const entries = [
+        createEntry({ id: '1', action: 'delete', version: null }),
+        createEntry({ id: '2', action: 'update', version: 3 }),
+        createEntry({ id: '3', action: 'update', version: 2 }),
+        createEntry({ id: '4', action: 'create', version: 1 }),
+      ]
+
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: entries, total: entries.length, offset: 0, limit: 50, has_more: false },
+        isLoading: false,
+      })
+
+      renderSidebar({ isDeleted: true })
+
+      expect(screen.queryByText('Restore')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('audit entries with versions', () => {
+    it('test__audit_actions_with_version__do_not_show_restore_button', () => {
+      // Legacy data where archive/unarchive entries have version numbers
+      const entries = [
+        createEntry({ id: '1', action: 'unarchive', version: 4 }),
+        createEntry({ id: '2', action: 'archive', version: 3 }),
+        createEntry({ id: '3', action: 'update', version: 2 }),
+        createEntry({ id: '4', action: 'create', version: 1 }),
+      ]
+
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: entries, total: entries.length, offset: 0, limit: 50, has_more: false },
+        isLoading: false,
+      })
+
+      renderSidebar()
+
+      // Only v2 and v1 should have restore buttons (not archive/unarchive even with versions)
+      const restoreButtons = screen.getAllByText('Restore')
+      expect(restoreButtons).toHaveLength(2)
     })
   })
 })

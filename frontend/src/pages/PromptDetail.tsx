@@ -335,6 +335,7 @@ export function PromptDetail(): ReactNode {
           entityId={promptId}
           onClose={() => setShowHistory(false)}
           onRestored={handleHistoryRestored}
+          isDeleted={viewState === 'deleted'}
         />
       )}
     </>

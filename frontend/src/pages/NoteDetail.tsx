@@ -304,6 +304,7 @@ export function NoteDetail(): ReactNode {
           entityId={noteId}
           onClose={() => setShowHistory(false)}
           onRestored={handleHistoryRestored}
+          isDeleted={viewState === 'deleted'}
         />
       )}
     </>

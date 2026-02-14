@@ -302,6 +302,7 @@ export function BookmarkDetail(): ReactNode {
           entityId={bookmarkId}
           onClose={() => setShowHistory(false)}
           onRestored={handleHistoryRestored}
+          isDeleted={viewState === 'deleted'}
         />
       )}
     </>
