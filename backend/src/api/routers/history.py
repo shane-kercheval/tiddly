@@ -132,10 +132,13 @@ async def _build_update_from_history(
             db, user_id, metadata["tags"],
         )
 
-    # Restore relationships if present in snapshot (absent in older snapshots = skip)
+    # Restore relationships if present in snapshot (absent in older snapshots = skip).
+    # Strip snapshot-only fields (e.g. target_title) that aren't on RelationshipInput.
     if "relationships" in metadata:
+        rel_fields = {"target_type", "target_id", "relationship_type", "description"}
         common_fields["relationships"] = [
-            RelationshipInput(**rel) for rel in metadata["relationships"]
+            RelationshipInput(**{k: v for k, v in rel.items() if k in rel_fields})
+            for rel in metadata["relationships"]
         ]
 
     if entity_type == EntityType.BOOKMARK:

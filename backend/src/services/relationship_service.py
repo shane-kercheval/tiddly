@@ -438,21 +438,16 @@ async def _batch_fetch_titles(
         model = MODEL_MAP.get(content_type)
         if not model:
             continue
-        stmt = select(model.id, model.title).where(
+        # Bookmark: fall back to url; Prompt: fall back to name
+        columns: list = [model.id, model.title]
+        if content_type == EntityType.BOOKMARK:
+            columns.append(model.url)
+        elif content_type == EntityType.PROMPT:
+            columns.append(model.name)
+        stmt = select(*columns).where(
             model.user_id == user_id,
             model.id.in_(ids),
         )
-        # Bookmark: fall back to url; Prompt: fall back to name
-        if content_type == EntityType.BOOKMARK:
-            stmt = select(model.id, model.title, model.url).where(
-                model.user_id == user_id,
-                model.id.in_(ids),
-            )
-        elif content_type == EntityType.PROMPT:
-            stmt = select(model.id, model.title, model.name).where(
-                model.user_id == user_id,
-                model.id.in_(ids),
-            )
 
         result = await db.execute(stmt)
         for row in result.all():

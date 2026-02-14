@@ -5,6 +5,7 @@
  * components: display item derivation, add/remove handlers, and new item cache.
  */
 import { useCallback, useMemo, useRef } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 import { getLinkedItem } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { ContentType, ContentListItem, RelationshipInputPayload, RelationshipWithContent } from '../types'
@@ -14,7 +15,7 @@ interface UseRelationshipStateParams<S extends { relationships: RelationshipInpu
   entityId: string | undefined
   serverRelationships: RelationshipWithContent[] | undefined
   currentRelationships: RelationshipInputPayload[]
-  setCurrent: React.Dispatch<React.SetStateAction<S>>
+  setCurrent: Dispatch<SetStateAction<S>>
 }
 
 interface UseRelationshipStateResult {
