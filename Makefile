@@ -1,4 +1,4 @@
-.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp
+.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp api-run-bench
 
 -include .env
 export
@@ -17,6 +17,9 @@ build:  ## Install backend dependencies
 
 api-run:  ## Start API server with hot-reload
 	PYTHONPATH=$(PYTHONPATH) uv run uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+
+api-run-bench:  ## Start API server for benchmarking (4 workers, no reload)
+	PYTHONPATH=$(PYTHONPATH) VITE_DEV_MODE=true uv run uvicorn api.main:app --workers 4 --host 0.0.0.0 --port 8000
 
 ####
 # MCP Servers

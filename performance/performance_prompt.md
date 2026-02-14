@@ -9,7 +9,7 @@ Run this before merging a feature branch. It produces standardized benchmark and
 Before running any benchmarks:
 
 1. **Docker services must be running:** `make docker-up`
-2. **API server must be running in dev mode:** `VITE_DEV_MODE=true make run`
+2. **API server must be running in benchmark mode:** `make api-run-bench` (runs 4 uvicorn workers with no reload, matching production). This is a blocking command — run it in a separate terminal or use `run_in_background`.
 3. **Tier limits must be raised** for load testing. In `backend/src/core/tier_limits.py`, temporarily set:
    ```python
    Tier.FREE: TierLimits(
@@ -83,11 +83,12 @@ uv run python performance/api/benchmark.py --content-size 50 --concurrency 10,50
 
 Both runs automatically save markdown reports to `performance/api/results/` with filenames like `benchmark_api_1kb_YYYYMMDD_HHMMSS.md` and `benchmark_api_50kb_YYYYMMDD_HHMMSS.md`.
 
-### Operations Tested (21 per content size)
+### Operations Tested (24 per content size)
 
-For each entity type (Notes, Bookmarks, Prompts) x 7 operations:
+For each entity type (Notes, Bookmarks, Prompts) x 8 operations:
 - **Create** — INSERT + content history record + any new hooks added by the branch
 - **Update** — UPDATE + diff computation + content history record
+- **Update w/ Rels** — UPDATE with relationships payload (exercises `sync_relationships_for_entity`, `get_relationships_snapshot`, `embed_relationships`)
 - **Read** — Single-item GET (includes all embedded data: tags, relationships, etc.)
 - **List** — Paginated list (limit=20)
 - **Search** — Text search with query parameter (limit=20)
@@ -148,11 +149,12 @@ unzip performance/profiling/2026-02-05-main.zip -d /tmp/profiling_baseline
 
 Then compare the text reports side-by-side (e.g., `diff /tmp/profiling_baseline/results/create_note_1kb.txt performance/profiling/results/create_note_1kb.txt`). Look for new functions appearing in hot paths, or existing functions consuming a larger percentage of total time.
 
-### Operations Profiled (7 per entity x 3 entities = 21 total per content size)
+### Operations Profiled (8 per entity x 3 entities = 24 total per content size)
 
 - `create_{entity}` — Full creation code path
 - `read_{entity}` — Single-item fetch with all embedded data
 - `update_{entity}` — Content update with history recording
+- `update_{entity}_with_relationships` — Content update with relationship sync
 - `list_{entity}` — Paginated listing
 - `search_{entity}` — Text search
 - `soft_delete_{entity}` — Logical deletion
@@ -324,7 +326,7 @@ Use this exact format:
 |-----------|-------|
 | Content sizes | 1KB, 50KB |
 | Entities profiled | Notes, Bookmarks, Prompts |
-| Operations per entity | Create, Read, Update, List, Search, Soft Delete, Hard Delete |
+| Operations per entity | Create, Read, Update, Update w/ Rels, List, Search, Soft Delete, Hard Delete |
 
 ## Timing Summary
 

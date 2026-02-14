@@ -77,7 +77,7 @@ async def test_endpoint(
             result = await measure_concurrent(client, endpoint, n)
             print(
                 f"  {n:5} | {result['p50']:7.1f}ms | {result['p95']:7.1f}ms | "
-                f"{result['max']:7.1f}ms | {result['mean']:7.1f}ms"
+                f"{result['max']:7.1f}ms | {result['mean']:7.1f}ms",
             )
             await asyncio.sleep(0.1)
 

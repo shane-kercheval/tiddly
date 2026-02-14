@@ -183,7 +183,8 @@ class ApiBenchmark:
             return latency_ms, False, None
 
     async def warmup(self, client: httpx.AsyncClient, max_concurrency: int) -> None:
-        """Warm up connections and caches before benchmarking.
+        """
+        Warm up connections and caches before benchmarking.
 
         This performs both sequential warmup (for code paths, JIT, caches) and
         concurrent warmup (to pre-fill the database connection pool).
@@ -316,7 +317,8 @@ class ApiBenchmark:
     async def _cleanup_leftover_benchmark_items(
         self, client: httpx.AsyncClient,
     ) -> None:
-        """Clean up leftover items from previous benchmark runs.
+        """
+        Clean up leftover items from previous benchmark runs.
 
         This handles cases where a previous run crashed or was interrupted,
         leaving test items in the database. We search for items with
@@ -491,6 +493,47 @@ class ApiBenchmark:
 
         return await self._run_concurrent(client, "Update Note", concurrency, make_request)
 
+    async def benchmark_update_notes_with_rels(
+        self, client: httpx.AsyncClient, concurrency: int,
+    ) -> BenchmarkResult:
+        """Benchmark note updates with relationships (exercises relationship sync)."""
+        await self._ensure_notes_exist(client)
+        await self._ensure_bookmarks_exist(client)
+
+        if not self.created_note_ids or not self.created_bookmark_ids:
+            return self._empty_result("Update Note w/ Rels", concurrency)
+
+        note_ids = list(self.created_note_ids)
+        bookmark_ids = list(self.created_bookmark_ids)
+        counter = count(1)
+        content = self.content
+
+        def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
+            n = next(counter)
+            note_id = note_ids[n % len(note_ids)]
+            rels = [
+                {
+                    "target_type": "bookmark",
+                    "target_id": bookmark_ids[n % len(bookmark_ids)],
+                    "relationship_type": "related",
+                },
+                {
+                    "target_type": "bookmark",
+                    "target_id": bookmark_ids[(n + 1) % len(bookmark_ids)],
+                    "relationship_type": "related",
+                },
+            ]
+            return (
+                "PATCH",
+                f"/notes/{note_id}",
+                {"content": f"Updated Note w/ Rels v{n}\n\n{content}", "relationships": rels},
+                None,
+            )
+
+        return await self._run_concurrent(
+            client, "Update Note w/ Rels", concurrency, make_request,
+        )
+
     async def benchmark_read_notes(
         self, client: httpx.AsyncClient, concurrency: int,
     ) -> BenchmarkResult:
@@ -645,6 +688,47 @@ class ApiBenchmark:
 
         return await self._run_concurrent(
             client, "Update Bookmark", concurrency, make_request,
+        )
+
+    async def benchmark_update_bookmarks_with_rels(
+        self, client: httpx.AsyncClient, concurrency: int,
+    ) -> BenchmarkResult:
+        """Benchmark bookmark updates with relationships (exercises relationship sync)."""
+        await self._ensure_bookmarks_exist(client)
+        await self._ensure_notes_exist(client)
+
+        if not self.created_bookmark_ids or not self.created_note_ids:
+            return self._empty_result("Update Bookmark w/ Rels", concurrency)
+
+        bookmark_ids = list(self.created_bookmark_ids)
+        note_ids = list(self.created_note_ids)
+        counter = count(1)
+        content = self.content
+
+        def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
+            n = next(counter)
+            bookmark_id = bookmark_ids[n % len(bookmark_ids)]
+            rels = [
+                {
+                    "target_type": "note",
+                    "target_id": note_ids[n % len(note_ids)],
+                    "relationship_type": "related",
+                },
+                {
+                    "target_type": "note",
+                    "target_id": note_ids[(n + 1) % len(note_ids)],
+                    "relationship_type": "related",
+                },
+            ]
+            return (
+                "PATCH",
+                f"/bookmarks/{bookmark_id}",
+                {"content": f"Updated w/ Rels v{n}\n\n{content}", "relationships": rels},
+                None,
+            )
+
+        return await self._run_concurrent(
+            client, "Update Bookmark w/ Rels", concurrency, make_request,
         )
 
     async def benchmark_read_bookmarks(
@@ -815,6 +899,50 @@ class ApiBenchmark:
             )
 
         return await self._run_concurrent(client, "Update Prompt", concurrency, make_request)
+
+    async def benchmark_update_prompts_with_rels(
+        self, client: httpx.AsyncClient, concurrency: int,
+    ) -> BenchmarkResult:
+        """Benchmark prompt updates with relationships (exercises relationship sync)."""
+        await self._ensure_prompts_exist(client)
+        await self._ensure_notes_exist(client)
+
+        if not self.created_prompt_ids or not self.created_note_ids:
+            return self._empty_result("Update Prompt w/ Rels", concurrency)
+
+        prompt_ids = list(self.created_prompt_ids)
+        note_ids = list(self.created_note_ids)
+        counter = count(1)
+        content = self.content
+
+        def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
+            n = next(counter)
+            prompt_id = prompt_ids[n % len(prompt_ids)]
+            rels = [
+                {
+                    "target_type": "note",
+                    "target_id": note_ids[n % len(note_ids)],
+                    "relationship_type": "related",
+                },
+                {
+                    "target_type": "note",
+                    "target_id": note_ids[(n + 1) % len(note_ids)],
+                    "relationship_type": "related",
+                },
+            ]
+            return (
+                "PATCH",
+                f"/prompts/{prompt_id}",
+                {
+                    "content": f"Updated v{n}: {{{{ topic }}}} {{{{ style }}}}\n\n{content}",
+                    "relationships": rels,
+                },
+                None,
+            )
+
+        return await self._run_concurrent(
+            client, "Update Prompt w/ Rels", concurrency, make_request,
+        )
 
     async def benchmark_read_prompts(
         self, client: httpx.AsyncClient, concurrency: int,
@@ -998,6 +1126,11 @@ class ApiBenchmark:
                     results.append(result)
                     print(f"P95: {result.p95_ms}ms, {result.throughput_rps} req/s")
 
+                    print("  Update Notes w/ Rels...", end=" ", flush=True)
+                    result = await self.benchmark_update_notes_with_rels(client, concurrency)
+                    results.append(result)
+                    print(f"P95: {result.p95_ms}ms, {result.throughput_rps} req/s")
+
                     print("  Read Notes...", end=" ", flush=True)
                     result = await self.benchmark_read_notes(client, concurrency)
                     results.append(result)
@@ -1034,6 +1167,11 @@ class ApiBenchmark:
                     results.append(result)
                     print(f"P95: {result.p95_ms}ms, {result.throughput_rps} req/s")
 
+                    print("  Update Bookmarks w/ Rels...", end=" ", flush=True)
+                    result = await self.benchmark_update_bookmarks_with_rels(client, concurrency)
+                    results.append(result)
+                    print(f"P95: {result.p95_ms}ms, {result.throughput_rps} req/s")
+
                     print("  Read Bookmarks...", end=" ", flush=True)
                     result = await self.benchmark_read_bookmarks(client, concurrency)
                     results.append(result)
@@ -1067,6 +1205,11 @@ class ApiBenchmark:
 
                     print("  Update Prompts...", end=" ", flush=True)
                     result = await self.benchmark_update_prompts(client, concurrency)
+                    results.append(result)
+                    print(f"P95: {result.p95_ms}ms, {result.throughput_rps} req/s")
+
+                    print("  Update Prompts w/ Rels...", end=" ", flush=True)
+                    result = await self.benchmark_update_prompts_with_rels(client, concurrency)
                     results.append(result)
                     print(f"P95: {result.p95_ms}ms, {result.throughput_rps} req/s")
 
