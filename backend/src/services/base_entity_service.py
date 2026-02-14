@@ -169,24 +169,30 @@ class BaseEntityService(ABC, Generic[T]):
                 metadata[field] = value
         return metadata
 
-    def _get_metadata_snapshot(self, entity: T) -> dict:
+    async def _get_metadata_snapshot(self, db: AsyncSession, user_id: UUID, entity: T) -> dict:
         """
         Extract non-content fields for history metadata snapshot.
 
-        Returns common fields (title, description, tags). Subclasses should
-        override to add entity-specific fields (e.g., url for bookmarks).
+        Returns common fields (title, description, tags, relationships).
+        Subclasses should override to add entity-specific fields (e.g., url for bookmarks).
 
         Args:
+            db: Database session.
+            user_id: User ID for relationship queries.
             entity: The entity to extract metadata from.
 
         Returns:
             Dictionary of metadata fields.
         """
-        return {
+        snapshot = {
             "title": getattr(entity, "title", None),
             "description": getattr(entity, "description", None),
             "tags": [t.name for t in entity.tag_objects] if hasattr(entity, "tag_objects") else [],
         }
+        snapshot["relationships"] = await relationship_service.get_relationships_snapshot(
+            db, user_id, self.entity_type, entity.id,
+        )
+        return snapshot
 
     def _get_history_service(self) -> "HistoryService":
         """Get the history service instance. Lazy import to avoid circular dependency."""

@@ -16,6 +16,7 @@ from models.tag import bookmark_tags
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate
 from services.base_entity_service import BaseEntityService
 from services.exceptions import FieldLimitExceededError, InvalidStateError, QuotaExceededError
+from services import relationship_service
 from services.tag_service import get_or_create_tags, update_bookmark_tags
 
 logger = logging.getLogger(__name__)
@@ -57,9 +58,11 @@ class BookmarkService(BaseEntityService[Bookmark]):
         """Return the EntityType for bookmarks."""
         return EntityType.BOOKMARK
 
-    def _get_metadata_snapshot(self, entity: Bookmark) -> dict:
+    async def _get_metadata_snapshot(
+        self, db: AsyncSession, user_id: UUID, entity: Bookmark,
+    ) -> dict:
         """Extract bookmark metadata including URL."""
-        base = super()._get_metadata_snapshot(entity)
+        base = await super()._get_metadata_snapshot(db, user_id, entity)
         base["url"] = entity.url
         return base
 
@@ -239,6 +242,16 @@ class BookmarkService(BaseEntityService[Bookmark]):
         bookmark.last_used_at = bookmark.created_at
         await db.flush()
 
+        # Sync relationships (entity must exist for validation)
+        if data.relationships:
+            desired = [r.model_dump() for r in data.relationships]
+            # Convert target_id UUIDs to strings for sync function
+            for item in desired:
+                item["target_id"] = str(item["target_id"])
+            await relationship_service.sync_relationships_for_entity(
+                db, user_id, self.entity_type, bookmark.id, desired,
+            )
+
         # Record history for CREATE action
         if context:
             await self._get_history_service().record_action(
@@ -249,7 +262,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
                 action=ActionType.CREATE,
                 current_content=bookmark.content,
                 previous_content=None,
-                metadata=self._get_metadata_snapshot(bookmark),
+                metadata=await self._get_metadata_snapshot(db, user_id, bookmark),
                 context=context,
                 limits=limits,
             )
@@ -291,7 +304,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
 
         # Capture state before modification for diff and no-op detection
         previous_content = bookmark.content
-        previous_metadata = self._get_metadata_snapshot(bookmark)
+        previous_metadata = await self._get_metadata_snapshot(db, user_id, bookmark)
 
         update_data = data.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
 
@@ -301,6 +314,9 @@ class BookmarkService(BaseEntityService[Bookmark]):
 
         # Handle tag updates separately
         new_tags = update_data.pop("tags", None)
+
+        # Handle relationship updates separately (None = no change, [] = clear all)
+        new_relationships = update_data.pop("relationships", None)
 
         # Validate field lengths for fields being updated
         self._validate_field_limits(
@@ -318,6 +334,18 @@ class BookmarkService(BaseEntityService[Bookmark]):
         if new_tags is not None:
             await update_bookmark_tags(db, bookmark, new_tags)
 
+        # Sync relationships if provided
+        if new_relationships is not None:
+            desired = [
+                r.model_dump() if hasattr(r, "model_dump") else r
+                for r in new_relationships
+            ]
+            for item in desired:
+                item["target_id"] = str(item["target_id"])
+            await relationship_service.sync_relationships_for_entity(
+                db, user_id, self.entity_type, bookmark.id, desired,
+            )
+
         bookmark.updated_at = func.clock_timestamp()
 
         try:
@@ -330,7 +358,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
         await self._refresh_with_tags(db, bookmark)
 
         # Only record history if something actually changed
-        current_metadata = self._get_metadata_snapshot(bookmark)
+        current_metadata = await self._get_metadata_snapshot(db, user_id, bookmark)
         content_changed = bookmark.content != previous_content
         metadata_changed = current_metadata != previous_metadata
 

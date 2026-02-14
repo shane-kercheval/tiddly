@@ -746,3 +746,252 @@ async def test__api_query__content_info_missing_entity(
     else:
         assert item['target_title'] is None
         assert item['target_deleted'] is True
+
+
+# =============================================================================
+# Standalone endpoint history recording
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_create_relationship__records_history_on_source(
+    client: AsyncClient,
+) -> None:
+    """POST /relationships/ records a history entry on the source entity."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    await _create_relationship(client, 'bookmark', bm['id'], 'note', note['id'])
+
+    # Check history on the source entity (bookmark)
+    response = await client.get(f'/history/bookmark/{bm["id"]}')
+    assert response.status_code == 200
+    data = response.json()
+
+    # Should have CREATE (from bookmark creation) + UPDATE (from relationship creation)
+    assert data['total'] >= 2
+    actions = [item['action'] for item in data['items']]
+    assert 'update' in actions
+
+
+@pytest.mark.asyncio
+async def test__api_delete_relationship__records_history_on_source(
+    client: AsyncClient,
+) -> None:
+    """DELETE /relationships/{id} records a history entry on the canonical source entity."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    rel = await _create_relationship(client, 'bookmark', bm['id'], 'note', note['id'])
+
+    # Delete the relationship
+    response = await client.delete(f'/relationships/{rel["id"]}')
+    assert response.status_code == 204
+
+    # Check history on the source entity (bookmark, which is the canonical source)
+    response = await client.get(f'/history/bookmark/{bm["id"]}')
+    assert response.status_code == 200
+    data = response.json()
+
+    # Should have CREATE + UPDATE (add rel) + UPDATE (remove rel)
+    assert data['total'] >= 3
+
+
+# =============================================================================
+# Entity create/update with relationships via API
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_create_bookmark_with_relationships(client: AsyncClient) -> None:
+    """POST /bookmarks/ with relationships creates them and includes in response."""
+    note = await _create_note(client)
+
+    response = await client.post('/bookmarks/', json={
+        'url': f'https://example.com/{uuid4().hex[:8]}',
+        'title': 'BM with Links',
+        'relationships': [
+            {'target_type': 'note', 'target_id': note['id']},
+        ],
+    })
+    assert response.status_code == 201
+    data = response.json()
+    assert len(data['relationships']) == 1
+
+
+@pytest.mark.asyncio
+async def test__api_update_bookmark_with_relationships(client: AsyncClient) -> None:
+    """PUT /bookmarks/{id} with relationships syncs them."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    response = await client.patch(f'/bookmarks/{bm["id"]}', json={
+        'relationships': [
+            {'target_type': 'note', 'target_id': note['id']},
+        ],
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data['relationships']) == 1
+
+    # Remove all
+    response = await client.patch(f'/bookmarks/{bm["id"]}', json={
+        'relationships': [],
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data['relationships']) == 0
+
+
+@pytest.mark.asyncio
+async def test__api_update_bookmark_relationships_none__no_change(client: AsyncClient) -> None:
+    """PUT /bookmarks/{id} with relationships omitted (None) leaves them unchanged."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    # Add a relationship
+    await client.patch(f'/bookmarks/{bm["id"]}', json={
+        'relationships': [
+            {'target_type': 'note', 'target_id': note['id']},
+        ],
+    })
+
+    # Update title only (relationships not in payload = None)
+    response = await client.patch(f'/bookmarks/{bm["id"]}', json={
+        'title': 'New Title',
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data['relationships']) == 1  # Still there
+
+
+@pytest.mark.asyncio
+async def test__api_create_note_with_relationships(client: AsyncClient) -> None:
+    """POST /notes/ with relationships creates them."""
+    bm = await _create_bookmark(client)
+
+    response = await client.post('/notes/', json={
+        'title': 'Note with Link',
+        'relationships': [
+            {'target_type': 'bookmark', 'target_id': bm['id']},
+        ],
+    })
+    assert response.status_code == 201
+    data = response.json()
+    assert len(data['relationships']) == 1
+
+
+@pytest.mark.asyncio
+async def test__api_create_prompt_with_relationships(client: AsyncClient) -> None:
+    """POST /prompts/ with relationships creates them."""
+    note = await _create_note(client)
+
+    response = await client.post('/prompts/', json={
+        'name': f'test-rel-{uuid4().hex[:8]}',
+        'title': 'Prompt with Link',
+        'content': 'Test content',
+        'relationships': [
+            {'target_type': 'note', 'target_id': note['id']},
+        ],
+    })
+    assert response.status_code == 201
+    data = response.json()
+    assert len(data['relationships']) == 1
+
+
+# =============================================================================
+# History restore with relationships
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_restore_version__restores_relationships(client: AsyncClient) -> None:
+    """Restoring to a version restores the relationship set from that point."""
+    note = await _create_note(client)
+    prompt = await _create_prompt(client)
+
+    # Create bookmark with note link
+    bm_resp = await client.post('/bookmarks/', json={
+        'url': f'https://example.com/{uuid4().hex[:8]}',
+        'title': 'BM',
+        'content': 'v1 content',
+        'relationships': [
+            {'target_type': 'note', 'target_id': note['id']},
+        ],
+    })
+    assert bm_resp.status_code == 201
+    bm = bm_resp.json()
+
+    # Update: change to prompt link
+    update_resp = await client.patch(f'/bookmarks/{bm["id"]}', json={
+        'content': 'v2 content',
+        'relationships': [
+            {'target_type': 'prompt', 'target_id': prompt['id']},
+        ],
+    })
+    assert update_resp.status_code == 200
+    assert len(update_resp.json()['relationships']) == 1
+
+    # Restore to version 1 (should restore note link)
+    restore_resp = await client.post(f'/history/bookmark/{bm["id"]}/restore/1')
+    assert restore_resp.status_code == 200
+
+    # Fetch bookmark and verify relationships restored
+    get_resp = await client.get(f'/bookmarks/{bm["id"]}')
+    data = get_resp.json()
+
+    # Should have the note relationship back (from v1)
+    rel_types = set()
+    for rel in data['relationships']:
+        if rel['source_type'] == 'note' or rel['target_type'] == 'note':
+            rel_types.add('note')
+        if rel['source_type'] == 'prompt' or rel['target_type'] == 'prompt':
+            rel_types.add('prompt')
+    assert 'note' in rel_types
+    # prompt link should be gone (wasn't in v1)
+
+
+@pytest.mark.asyncio
+async def test__api_restore_version__handles_deleted_targets(client: AsyncClient) -> None:
+    """Restoring relationships when a target has been permanently deleted succeeds, skipping missing targets."""
+    note1 = await _create_note(client, title="Keep Note")
+    note2 = await _create_note(client, title="Will Delete")
+
+    # Create bookmark with both notes linked
+    bm_resp = await client.post('/bookmarks/', json={
+        'url': f'https://example.com/{uuid4().hex[:8]}',
+        'title': 'BM',
+        'content': 'v1',
+        'relationships': [
+            {'target_type': 'note', 'target_id': note1['id']},
+            {'target_type': 'note', 'target_id': note2['id']},
+        ],
+    })
+    bm = bm_resp.json()
+
+    # Update bookmark (new version)
+    await client.patch(f'/bookmarks/{bm["id"]}', json={
+        'content': 'v2',
+        'relationships': [],
+    })
+
+    # Permanently delete note2
+    await client.delete(f'/notes/{note2["id"]}')
+    await client.delete(f'/notes/{note2["id"]}', params={'permanent': 'true'})
+
+    # Restore to version 1 — note2 is gone, should succeed with note1 only
+    restore_resp = await client.post(f'/history/bookmark/{bm["id"]}/restore/1')
+    assert restore_resp.status_code == 200
+
+    # Verify note1 link is restored, note2 is skipped
+    get_resp = await client.get(f'/bookmarks/{bm["id"]}')
+    data = get_resp.json()
+    assert len(data['relationships']) >= 1
+    # note1 should be in relationships
+    rel_target_ids = set()
+    for rel in data['relationships']:
+        if rel['source_type'] == 'note':
+            rel_target_ids.add(rel['source_id'])
+        elif rel['target_type'] == 'note':
+            rel_target_ids.add(rel['target_id'])
+    assert note1['id'] in rel_target_ids

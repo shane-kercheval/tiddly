@@ -34,8 +34,9 @@ import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useBookmarks } from '../hooks/useBookmarks'
+import { getLinkedItem, toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
-import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
+import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, ContentListItem, RelationshipInputPayload, TagCount } from '../types'
 import type { ArchivePreset } from '../utils'
 
 /** Conflict state for 409 responses */
@@ -56,6 +57,7 @@ interface BookmarkState {
   description: string
   content: string
   tags: string[]
+  relationships: RelationshipInputPayload[]
   archivedAt: string
   archivePreset: ArchivePreset
 }
@@ -170,6 +172,9 @@ export function Bookmark({
       description: bookmark?.description ?? '',
       content: bookmark?.content ?? '',
       tags: bookmark?.tags ?? initialTags ?? [],
+      relationships: bookmark?.relationships
+        ? toRelationshipInputs(bookmark.relationships, 'bookmark', bookmark.id)
+        : [],
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
     }
@@ -198,12 +203,16 @@ export function Bookmark({
       description: nextBookmark.description ?? '',
       content: nextBookmark.content ?? '',
       tags: nextBookmark.tags ?? [],
+      relationships: nextBookmark.relationships
+        ? toRelationshipInputs(nextBookmark.relationships, 'bookmark', nextBookmark.id)
+        : [],
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
     }
     setOriginal(newState)
     setCurrent(newState)
     setConflictState(null)
+    newLinkedItemsCacheRef.current.clear()
     if (resetEditor) {
       setContentKey((prev) => prev + 1)
     }
@@ -241,6 +250,8 @@ export function Bookmark({
   const urlInputRef = useRef<HTMLInputElement>(null)
   // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
   const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
+  // Cache display info for newly added linked items (from search, not yet persisted)
+  const newLinkedItemsCacheRef = useRef(new Map<string, LinkedItem>())
 
   // Read-only mode for deleted bookmarks
   const isReadOnly = viewState === 'deleted'
@@ -255,9 +266,37 @@ export function Bookmark({
       current.content !== original.content ||
       current.tags.length !== original.tags.length ||
       current.tags.some((tag, i) => tag !== original.tags[i]) ||
+      !relationshipsEqual(current.relationships, original.relationships) ||
       current.archivedAt !== original.archivedAt,
     [current, original]
   )
+
+  // Derive linked items display data from current relationships
+  const linkedItems = useMemo((): LinkedItem[] => {
+    // Build lookup from server-side relationship data (has titles, urls, etc.)
+    const enriched = new Map<string, LinkedItem>()
+    if (bookmark?.relationships) {
+      for (const rel of bookmark.relationships) {
+        const item = getLinkedItem(rel, 'bookmark', bookmark.id)
+        enriched.set(`${item.type}:${item.id}`, item)
+      }
+    }
+    return current.relationships.map((rel) => {
+      const key = `${rel.target_type}:${rel.target_id}`
+      return enriched.get(key)
+        ?? newLinkedItemsCacheRef.current.get(key)
+        ?? {
+          relationshipId: '',
+          type: rel.target_type,
+          id: rel.target_id,
+          title: null,
+          url: null,
+          deleted: false,
+          archived: false,
+          description: rel.description ?? null,
+        }
+    })
+  }, [bookmark?.relationships, bookmark?.id, current.relationships])
 
   // Compute validity for save button
   const isValid = useMemo(() => {
@@ -319,6 +358,9 @@ export function Bookmark({
     if (JSON.stringify(tagsToSubmit) !== JSON.stringify(bookmark.tags ?? [])) {
       updates.tags = tagsToSubmit
     }
+    if (!relationshipsEqual(current.relationships, original.relationships)) {
+      updates.relationships = current.relationships
+    }
     const newArchivedAt = current.archivedAt || null
     const oldArchivedAt = bookmark.archived_at || null
     if (newArchivedAt !== oldArchivedAt) {
@@ -326,7 +368,7 @@ export function Bookmark({
     }
 
     return { updates, tagsToSubmit }
-  }, [bookmark, current])
+  }, [bookmark, current, original.relationships])
 
   // Auto-focus URL for new bookmarks only (if no initialUrl)
   useEffect(() => {
@@ -582,6 +624,7 @@ export function Bookmark({
           description: current.description || undefined,
           content: current.content || undefined,
           tags: tagsToSubmit,
+          relationships: current.relationships.length > 0 ? current.relationships : undefined,
           archived_at: current.archivedAt || undefined,
         }
         // For creates, onSave navigates away - prevent blocker from showing
@@ -671,6 +714,36 @@ export function Bookmark({
 
   const handleArchivePresetChange = useCallback((archivePreset: ArchivePreset): void => {
     setCurrent((prev) => ({ ...prev, archivePreset }))
+  }, [])
+
+  const handleAddRelationship = useCallback((item: ContentListItem): void => {
+    newLinkedItemsCacheRef.current.set(`${item.type}:${item.id}`, {
+      relationshipId: '',
+      type: item.type,
+      id: item.id,
+      title: item.title,
+      url: item.url,
+      deleted: !!item.deleted_at,
+      archived: !!item.archived_at,
+      description: null,
+    })
+    setCurrent((prev) => ({
+      ...prev,
+      relationships: [...prev.relationships, {
+        target_type: item.type,
+        target_id: item.id,
+        relationship_type: 'related' as const,
+      }],
+    }))
+  }, [])
+
+  const handleRemoveRelationship = useCallback((item: LinkedItem): void => {
+    setCurrent((prev) => ({
+      ...prev,
+      relationships: prev.relationships.filter(
+        (rel) => !(rel.target_type === item.type && rel.target_id === item.id),
+      ),
+    }))
   }, [])
 
   // Conflict resolution handlers
@@ -932,22 +1005,20 @@ export function Bookmark({
                 </button>
               </Tooltip>
 
-              {/* Add link button (only for existing bookmarks) */}
-              {bookmark && (
-                <Tooltip content="Link content" compact>
-                  <button
-                    type="button"
-                    onClick={() => linkedChipsRef.current?.startAdding()}
-                    disabled={isSaving || isReadOnly}
-                    className={`inline-flex items-center h-5 px-1 text-gray-500 rounded transition-colors ${
-                      isSaving || isReadOnly ? 'cursor-not-allowed' : 'hover:text-gray-700 hover:bg-gray-100'
-                    }`}
-                    aria-label="Link content"
-                  >
-                    <LinkIcon className="h-4 w-4" />
-                  </button>
-                </Tooltip>
-              )}
+              {/* Add link button */}
+              <Tooltip content="Link content" compact>
+                <button
+                  type="button"
+                  onClick={() => linkedChipsRef.current?.startAdding()}
+                  disabled={isSaving || isReadOnly}
+                  className={`inline-flex items-center h-5 px-1 text-gray-500 rounded transition-colors ${
+                    isSaving || isReadOnly ? 'cursor-not-allowed' : 'hover:text-gray-700 hover:bg-gray-100'
+                  }`}
+                  aria-label="Link content"
+                >
+                  <LinkIcon className="h-4 w-4" />
+                </button>
+              </Tooltip>
 
               <span className="text-gray-300">·</span>
 
@@ -984,17 +1055,17 @@ export function Bookmark({
                 showAddButton={false}
               />
 
-              {bookmark && (
-                <LinkedContentChips
-                  ref={linkedChipsRef}
-                  contentType="bookmark"
-                  contentId={bookmark.id}
-                  onNavigate={onNavigateToLinked}
-                  disabled={isSaving || isReadOnly}
-                  showAddButton={false}
-                  initialRelationships={bookmark.relationships}
-                />
-              )}
+              <LinkedContentChips
+                ref={linkedChipsRef}
+                contentType="bookmark"
+                contentId={bookmark?.id ?? null}
+                items={linkedItems}
+                onAdd={handleAddRelationship}
+                onRemove={handleRemoveRelationship}
+                onNavigate={onNavigateToLinked}
+                disabled={isSaving || isReadOnly}
+                showAddButton={false}
+              />
             </div>
           </div>
         </div>

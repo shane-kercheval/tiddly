@@ -1,7 +1,7 @@
 /**
  * Utilities for content relationships.
  */
-import type { ContentType, RelationshipWithContent } from '../types'
+import type { ContentType, RelationshipInputPayload, RelationshipWithContent } from '../types'
 
 export interface LinkedItem {
   relationshipId: string
@@ -36,4 +36,47 @@ export function getLinkedItem(
     archived: isSelf ? rel.target_archived : rel.source_archived,
     description: rel.description,
   }
+}
+
+/**
+ * Convert RelationshipWithContent[] (from entity GET response) to
+ * RelationshipInputPayload[] for use in entity state.
+ *
+ * Resolves canonical ordering so the result always has the "other" entity as target.
+ */
+export function toRelationshipInputs(
+  rels: RelationshipWithContent[],
+  selfType: ContentType,
+  selfId: string,
+): RelationshipInputPayload[] {
+  return rels.map((rel) => {
+    const isSelf = rel.source_type === selfType && rel.source_id === selfId
+    return {
+      target_type: (isSelf ? rel.target_type : rel.source_type) as ContentType,
+      target_id: isSelf ? rel.target_id : rel.source_id,
+      relationship_type: 'related' as const,
+      description: rel.description,
+    }
+  })
+}
+
+/**
+ * Compare two RelationshipInputPayload[] for equality.
+ *
+ * Sorts by (target_type, target_id) before comparison to handle order differences.
+ */
+export function relationshipsEqual(
+  a: RelationshipInputPayload[],
+  b: RelationshipInputPayload[],
+): boolean {
+  if (a.length !== b.length) return false
+  const sortKey = (r: RelationshipInputPayload): string => `${r.target_type}:${r.target_id}`
+  const sortedA = [...a].sort((x, y) => sortKey(x).localeCompare(sortKey(y)))
+  const sortedB = [...b].sort((x, y) => sortKey(x).localeCompare(sortKey(y)))
+  return sortedA.every((r, i) =>
+    r.target_type === sortedB[i].target_type &&
+    r.target_id === sortedB[i].target_id &&
+    r.relationship_type === sortedB[i].relationship_type &&
+    (r.description ?? null) === (sortedB[i].description ?? null)
+  )
 }

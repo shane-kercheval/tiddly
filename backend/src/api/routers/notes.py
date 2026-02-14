@@ -65,7 +65,9 @@ async def create_note(
     """Create a new note."""
     context = get_request_context(request)
     note = await note_service.create(db, current_user.id, data, limits, context)
-    return NoteResponse.model_validate(note)
+    response_data = NoteResponse.model_validate(note)
+    response_data.relationships = await embed_relationships(db, current_user.id, 'note', note.id)
+    return response_data
 
 
 @router.get("/", response_model=NoteListResponse)
@@ -343,7 +345,9 @@ async def update_note(
     )
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
-    return NoteResponse.model_validate(note)
+    response_data = NoteResponse.model_validate(note)
+    response_data.relationships = await embed_relationships(db, current_user.id, 'note', note.id)
+    return response_data
 
 
 @router.patch(
@@ -460,7 +464,7 @@ async def str_replace_note(
 
     # Record history for str-replace (content changed)
     await db.refresh(note, attribute_names=["tag_objects"])
-    metadata = note_service._get_metadata_snapshot(note)
+    metadata = await note_service._get_metadata_snapshot(db, current_user.id, note)
     await history_service.record_action(
         db=db,
         user_id=current_user.id,

@@ -40,6 +40,7 @@ export interface BookmarkCreate {
   description?: string | null
   content?: string | null
   tags?: string[]
+  relationships?: RelationshipInputPayload[]
   archived_at?: string | null  // ISO 8601 datetime string for scheduling auto-archive
 }
 
@@ -50,6 +51,7 @@ export interface BookmarkUpdate {
   description?: string | null
   content?: string | null
   tags?: string[]
+  relationships?: RelationshipInputPayload[]
   archived_at?: string | null  // ISO 8601 datetime string, or null to cancel schedule
   expected_updated_at?: string  // ISO 8601 timestamp for optimistic locking. If provided and entity was modified after this time, returns 409 Conflict.
 }
@@ -113,6 +115,7 @@ export interface NoteCreate {
   description?: string | null
   content?: string | null
   tags?: string[]
+  relationships?: RelationshipInputPayload[]
   archived_at?: string | null  // ISO 8601 datetime string for scheduling auto-archive
 }
 
@@ -122,6 +125,7 @@ export interface NoteUpdate {
   description?: string | null
   content?: string | null
   tags?: string[]
+  relationships?: RelationshipInputPayload[]
   archived_at?: string | null  // ISO 8601 datetime string, or null to cancel schedule
   expected_updated_at?: string  // ISO 8601 timestamp for optimistic locking. If provided and entity was modified after this time, returns 409 Conflict.
 }
@@ -433,6 +437,7 @@ export interface PromptCreate {
   content?: string | null
   arguments?: PromptArgument[]
   tags?: string[]
+  relationships?: RelationshipInputPayload[]
   archived_at?: string | null
 }
 
@@ -444,6 +449,7 @@ export interface PromptUpdate {
   content?: string | null
   arguments?: PromptArgument[]
   tags?: string[]
+  relationships?: RelationshipInputPayload[]
   archived_at?: string | null
   expected_updated_at?: string  // ISO 8601 timestamp for optimistic locking. If provided and entity was modified after this time, returns 409 Conflict.
 }
@@ -572,6 +578,14 @@ export interface RestoreResponse {
 // =============================================================================
 // Relationship Types
 // =============================================================================
+
+/** Relationship input for entity create/update payloads (target only, source is implicit) */
+export interface RelationshipInputPayload {
+  target_type: ContentType
+  target_id: string
+  relationship_type: 'related'
+  description?: string | null
+}
 
 /** Valid relationship types */
 export type RelationshipType = 'related'

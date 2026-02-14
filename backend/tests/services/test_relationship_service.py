@@ -23,6 +23,8 @@ from services.relationship_service import (
     enrich_with_content_info,
     get_relationship,
     get_relationships_for_content,
+    get_relationships_snapshot,
+    sync_relationships_for_entity,
     update_relationship,
     validate_content_exists,
 )
@@ -1209,3 +1211,336 @@ class TestEnrichWithContentInfo:
         """Enriching an empty list returns an empty list without DB queries."""
         result = await enrich_with_content_info(db_session, test_user.id, [])
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# get_relationships_snapshot
+# ---------------------------------------------------------------------------
+
+
+class TestGetRelationshipsSnapshot:
+    """Tests for get_relationships_snapshot()."""
+
+    @pytest.mark.asyncio
+    async def test__snapshot__empty_when_no_relationships(
+        self, db_session: AsyncSession, test_user: User, bookmark_a: Bookmark,
+    ) -> None:
+        """Snapshot of entity with no relationships returns empty list."""
+        result = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test__snapshot__returns_target_perspective(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """Snapshot from bookmark's perspective shows note as target."""
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+        )
+        result = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert len(result) == 1
+        assert result[0]['target_type'] == 'note'
+        assert result[0]['target_id'] == str(note_a.id)
+        assert result[0]['relationship_type'] == 'related'
+        assert result[0]['description'] is None
+
+    @pytest.mark.asyncio
+    async def test__snapshot__perspective_when_entity_is_on_target_side(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """When entity is stored as target (due to canonical ordering), snapshot still resolves correctly."""
+        # note > bookmark lexicographically, so canonical stores bookmark as source
+        # Querying from note's perspective should still show bookmark as "target"
+        await create_relationship(
+            db_session, test_user.id,
+            'note', note_a.id, 'bookmark', bookmark_a.id, 'related',
+        )
+        result = await get_relationships_snapshot(
+            db_session, test_user.id, 'note', note_a.id,
+        )
+        assert len(result) == 1
+        assert result[0]['target_type'] == 'bookmark'
+        assert result[0]['target_id'] == str(bookmark_a.id)
+
+    @pytest.mark.asyncio
+    async def test__snapshot__sorted_deterministically(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note, note_b: Note, prompt_a: Prompt,
+    ) -> None:
+        """Multiple relationships are sorted by (target_type, target_id, relationship_type)."""
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'prompt', prompt_a.id, 'related',
+        )
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+        )
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_b.id, 'related',
+        )
+
+        result = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+
+        assert len(result) == 3
+        # note < prompt lexicographically, then sorted by target_id within type
+        types = [r['target_type'] for r in result]
+        assert types[0] == 'note'
+        assert types[1] == 'note'
+        assert types[2] == 'prompt'
+
+    @pytest.mark.asyncio
+    async def test__snapshot__includes_description(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """Snapshot includes description field."""
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+            description='See also',
+        )
+        result = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert result[0]['description'] == 'See also'
+
+    @pytest.mark.asyncio
+    async def test__snapshot__stable_across_calls(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note, note_b: Note,
+    ) -> None:
+        """Calling snapshot twice returns identical results (stable sorting)."""
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_b.id, 'related',
+        )
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+        )
+
+        snap1 = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        snap2 = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert snap1 == snap2
+
+
+# ---------------------------------------------------------------------------
+# sync_relationships_for_entity
+# ---------------------------------------------------------------------------
+
+
+class TestSyncRelationshipsForEntity:
+    """Tests for sync_relationships_for_entity()."""
+
+    @pytest.mark.asyncio
+    async def test__sync__adds_new_relationships(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """Syncing with a desired set creates new relationships."""
+        desired = [
+            {'target_type': 'note', 'target_id': str(note_a.id), 'relationship_type': 'related'},
+        ]
+        await sync_relationships_for_entity(
+            db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
+        )
+
+        rels, count = await get_relationships_for_content(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert count == 1
+
+    @pytest.mark.asyncio
+    async def test__sync__removes_extra_relationships(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note, note_b: Note,
+    ) -> None:
+        """Syncing with a smaller set removes extra relationships."""
+        # Create two relationships
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+        )
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_b.id, 'related',
+        )
+
+        # Sync to keep only note_a
+        desired = [
+            {'target_type': 'note', 'target_id': str(note_a.id), 'relationship_type': 'related'},
+        ]
+        await sync_relationships_for_entity(
+            db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
+        )
+
+        snapshot = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert len(snapshot) == 1
+        assert snapshot[0]['target_id'] == str(note_a.id)
+
+    @pytest.mark.asyncio
+    async def test__sync__empty_list_clears_all(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """Syncing with empty list removes all relationships."""
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+        )
+        await sync_relationships_for_entity(
+            db_session, test_user.id, 'bookmark', bookmark_a.id, [],
+        )
+
+        snapshot = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert snapshot == []
+
+    @pytest.mark.asyncio
+    async def test__sync__noop_when_already_matching(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """Syncing with the same set produces no changes."""
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+        )
+
+        desired = [
+            {'target_type': 'note', 'target_id': str(note_a.id), 'relationship_type': 'related'},
+        ]
+        await sync_relationships_for_entity(
+            db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
+        )
+
+        snapshot = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert len(snapshot) == 1
+
+    @pytest.mark.asyncio
+    async def test__sync__mixed_adds_and_removes(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note, note_b: Note, prompt_a: Prompt,
+    ) -> None:
+        """Syncing can add and remove in one operation."""
+        # Start with note_a
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+        )
+
+        # Sync to note_b + prompt_a (remove note_a, add note_b + prompt_a)
+        desired = [
+            {'target_type': 'note', 'target_id': str(note_b.id), 'relationship_type': 'related'},
+            {'target_type': 'prompt', 'target_id': str(prompt_a.id), 'relationship_type': 'related'},
+        ]
+        await sync_relationships_for_entity(
+            db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
+        )
+
+        snapshot = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert len(snapshot) == 2
+        target_ids = {s['target_id'] for s in snapshot}
+        assert str(note_b.id) in target_ids
+        assert str(prompt_a.id) in target_ids
+
+    @pytest.mark.asyncio
+    async def test__sync__updates_description_for_existing(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """Syncing updates description when relationship already exists but description changed."""
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+            description='Old desc',
+        )
+
+        desired = [
+            {
+                'target_type': 'note',
+                'target_id': str(note_a.id),
+                'relationship_type': 'related',
+                'description': 'New desc',
+            },
+        ]
+        await sync_relationships_for_entity(
+            db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
+        )
+
+        snapshot = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert snapshot[0]['description'] == 'New desc'
+
+    @pytest.mark.asyncio
+    async def test__sync__skips_nonexistent_targets(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """Syncing gracefully skips targets that don't exist (ContentNotFoundError caught per-item)."""
+        fake_id = str(uuid4())
+        desired = [
+            {'target_type': 'note', 'target_id': str(note_a.id), 'relationship_type': 'related'},
+            {'target_type': 'note', 'target_id': fake_id, 'relationship_type': 'related'},
+        ]
+        await sync_relationships_for_entity(
+            db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
+        )
+
+        # Only the valid one should be created
+        snapshot = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert len(snapshot) == 1
+        assert snapshot[0]['target_id'] == str(note_a.id)
+
+    @pytest.mark.asyncio
+    async def test__sync__handles_duplicate_gracefully(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """If a relationship already exists (race condition), sync catches DuplicateRelationshipError."""
+        # Pre-create the relationship
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+        )
+
+        # Sync from note_a's perspective (will try to create the same link in reverse,
+        # which canonical ordering makes duplicate)
+        desired = [
+            {'target_type': 'bookmark', 'target_id': str(bookmark_a.id), 'relationship_type': 'related'},
+        ]
+        # Should not raise
+        await sync_relationships_for_entity(
+            db_session, test_user.id, 'note', note_a.id, desired,
+        )
+
+        # Relationship still exists
+        snapshot = await get_relationships_snapshot(
+            db_session, test_user.id, 'note', note_a.id,
+        )
+        assert len(snapshot) == 1

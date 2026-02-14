@@ -398,6 +398,167 @@ async def enrich_with_content_info(
     return items
 
 
+async def get_relationships_snapshot(
+    db: AsyncSession,
+    user_id: UUID,
+    entity_type: str,
+    entity_id: UUID,
+) -> list[dict]:
+    """
+    Return a stable, sorted list of dicts representing relationships from the entity's perspective.
+
+    Used for metadata history snapshots. Each returned dict has:
+    target_type, target_id, relationship_type, description.
+
+    Resolves perspective since the querying entity may be stored as either
+    source or target due to canonical ordering.
+    """
+    # Single efficient SELECT — no pagination, no COUNT
+    is_source = and_(
+        ContentRelationship.source_type == entity_type,
+        ContentRelationship.source_id == entity_id,
+    )
+    is_target = and_(
+        ContentRelationship.target_type == entity_type,
+        ContentRelationship.target_id == entity_id,
+    )
+    stmt = (
+        select(ContentRelationship)
+        .where(
+            ContentRelationship.user_id == user_id,
+            or_(is_source, is_target),
+        )
+    )
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+
+    snapshot: list[dict] = []
+    for rel in rows:
+        if rel.source_type == entity_type and rel.source_id == entity_id:
+            other_type, other_id = rel.target_type, rel.target_id
+        else:
+            other_type, other_id = rel.source_type, rel.source_id
+        snapshot.append({
+            "target_type": other_type,
+            "target_id": str(other_id),
+            "relationship_type": rel.relationship_type,
+            "description": rel.description,
+        })
+
+    # Sort deterministically for stable before/after comparison
+    snapshot.sort(key=lambda r: (r["target_type"], r["target_id"], r["relationship_type"]))
+    return snapshot
+
+
+async def sync_relationships_for_entity(
+    db: AsyncSession,
+    user_id: UUID,
+    entity_type: str,
+    entity_id: UUID,
+    desired: list[dict],
+) -> None:
+    """
+    Sync relationships for an entity to match the desired set.
+
+    Computes diff between current relationships and desired, creates new ones
+    and deletes removed ones.
+
+    Args:
+        db: Database session.
+        user_id: User ID.
+        entity_type: Type of the entity ('bookmark', 'note', 'prompt').
+        entity_id: ID of the entity.
+        desired: List of dicts with target_type, target_id, relationship_type, description.
+    """
+    # Fetch current relationships (single SELECT, no pagination)
+    is_source = and_(
+        ContentRelationship.source_type == entity_type,
+        ContentRelationship.source_id == entity_id,
+    )
+    is_target = and_(
+        ContentRelationship.target_type == entity_type,
+        ContentRelationship.target_id == entity_id,
+    )
+    stmt = (
+        select(ContentRelationship)
+        .where(
+            ContentRelationship.user_id == user_id,
+            or_(is_source, is_target),
+        )
+    )
+    result = await db.execute(stmt)
+    current_rels = list(result.scalars().all())
+
+    # Build current set: key = (target_type, target_id, rel_type)
+    # Also track relationship objects and descriptions by key
+    current_by_key: dict[tuple[str, str, str], ContentRelationship] = {}
+    current_descriptions: dict[tuple[str, str, str], str | None] = {}
+    for rel in current_rels:
+        if rel.source_type == entity_type and rel.source_id == entity_id:
+            other_type, other_id = rel.target_type, str(rel.target_id)
+        else:
+            other_type, other_id = rel.source_type, str(rel.source_id)
+        key = (other_type, other_id, rel.relationship_type)
+        current_by_key[key] = rel
+        current_descriptions[key] = rel.description
+
+    # Build desired set
+    desired_by_key: dict[tuple[str, str, str], dict] = {}
+    for item in desired:
+        key = (
+            item["target_type"],
+            str(item["target_id"]),
+            item.get("relationship_type", "related"),
+        )
+        desired_by_key[key] = item
+
+    current_keys = set(current_by_key.keys())
+    desired_keys = set(desired_by_key.keys())
+
+    to_add = desired_keys - current_keys
+    to_remove = current_keys - desired_keys
+    in_both = current_keys & desired_keys
+
+    # Delete removed relationships
+    for key in to_remove:
+        rel = current_by_key[key]
+        await db.delete(rel)
+
+    if to_remove:
+        await db.flush()
+
+    # Create new relationships — catch ContentNotFoundError per-item
+    for key in to_add:
+        item = desired_by_key[key]
+        target_type, target_id_str, rel_type = key
+        try:
+            await create_relationship(
+                db, user_id,
+                entity_type, entity_id,
+                target_type, UUID(target_id_str),
+                rel_type,
+                item.get("description"),
+            )
+        except ContentNotFoundError:
+            # Target may have been permanently deleted — skip gracefully
+            pass
+        except DuplicateRelationshipError:
+            # Already exists (possible race) — skip
+            pass
+
+    # Update descriptions for items in both sets if changed
+    for key in in_both:
+        item = desired_by_key[key]
+        new_desc = item.get("description")
+        if new_desc != current_descriptions[key]:
+            rel = current_by_key[key]
+            rel.description = new_desc
+            rel.updated_at = func.clock_timestamp()
+
+    if in_both:
+        await db.flush()
+
+
 async def embed_relationships(
     db: AsyncSession,
     user_id: UUID,

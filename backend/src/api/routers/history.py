@@ -21,6 +21,7 @@ from schemas.history import (
 )
 from schemas.note import NoteUpdate
 from schemas.prompt import PromptArgument, PromptUpdate
+from schemas.relationship import RelationshipInput
 from services.bookmark_service import BookmarkService, DuplicateUrlError
 from services.history_service import HistoryService, history_service
 from services.note_service import NoteService
@@ -81,6 +82,12 @@ def _build_update_from_history(
         common_fields["description"] = metadata["description"]
     if "tags" in metadata:
         common_fields["tags"] = metadata["tags"]
+
+    # Restore relationships if present in snapshot (absent in older snapshots = skip)
+    if "relationships" in metadata:
+        common_fields["relationships"] = [
+            RelationshipInput(**rel) for rel in metadata["relationships"]
+        ]
 
     if entity_type == EntityType.BOOKMARK:
         if "url" in metadata:

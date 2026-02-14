@@ -1,11 +1,15 @@
 """Relationship CRUD endpoints."""
+import logging
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_async_session, get_current_user
+from api.dependencies import get_async_session, get_current_limits, get_current_user
+from core.auth import get_request_context
+from core.tier_limits import TierLimits
+from models.content_history import ActionType, EntityType
 from models.user import User
 from schemas.relationship import (
     RelationshipCreate,
@@ -14,21 +18,66 @@ from schemas.relationship import (
     RelationshipUpdate,
     RelationshipWithContentResponse,
 )
+from services.bookmark_service import BookmarkService
 from services.exceptions import (
     ContentNotFoundError,
     DuplicateRelationshipError,
     InvalidRelationshipError,
 )
+from services.history_service import history_service
+from services.note_service import NoteService
+from services.prompt_service import PromptService
 from services import relationship_service
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/relationships", tags=["relationships"])
+
+# Service instances for history recording
+_entity_services = {
+    EntityType.BOOKMARK: BookmarkService(),
+    EntityType.NOTE: NoteService(),
+    EntityType.PROMPT: PromptService(),
+}
+
+
+async def _record_relationship_history(
+    db: AsyncSession,
+    user_id: UUID,
+    entity_type: str,
+    entity_id: UUID,
+    limits: TierLimits,
+    request: Request,
+) -> None:
+    """Record a metadata-only history entry for a relationship change on an entity."""
+    et = EntityType(entity_type)
+    service = _entity_services[et]
+    entity = await service.get(db, user_id, entity_id, include_archived=True)
+    if entity is None:
+        return
+    context = get_request_context(request)
+    current_metadata = await service._get_metadata_snapshot(db, user_id, entity)
+    await history_service.record_action(
+        db=db,
+        user_id=user_id,
+        entity_type=et,
+        entity_id=entity_id,
+        action=ActionType.UPDATE,
+        current_content=entity.content,
+        previous_content=entity.content,  # No content change
+        metadata=current_metadata,
+        context=context,
+        limits=limits,
+    )
 
 
 @router.post("/", response_model=RelationshipResponse, status_code=201)
 async def create_relationship(
+    request: Request,
     data: RelationshipCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> RelationshipResponse:
     """Create a new relationship between content items."""
     try:
@@ -54,6 +103,15 @@ async def create_relationship(
         )
     except InvalidRelationshipError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Record history on the source entity as specified by the caller
+    try:
+        await _record_relationship_history(
+            db, current_user.id, data.source_type, data.source_id, limits, request,
+        )
+    except Exception:
+        logger.warning("Failed to record relationship history on create", exc_info=True)
+
     return RelationshipResponse.model_validate(rel)
 
 
@@ -141,13 +199,32 @@ async def update_relationship(
 
 @router.delete("/{relationship_id}", status_code=204)
 async def delete_relationship(
+    request: Request,
     relationship_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> None:
     """Delete a relationship."""
+    # Fetch the relationship before deleting to know which entity to record history on
+    rel = await relationship_service.get_relationship(db, current_user.id, relationship_id)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="Relationship not found")
+
+    # Record history on the canonical source entity before deletion
+    source_type = rel.source_type
+    source_id = rel.source_id
+
     deleted = await relationship_service.delete_relationship(
         db, current_user.id, relationship_id,
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Relationship not found")
+
+    # Record history on the source entity
+    try:
+        await _record_relationship_history(
+            db, current_user.id, source_type, source_id, limits, request,
+        )
+    except Exception:
+        logger.warning("Failed to record relationship history on delete", exc_info=True)

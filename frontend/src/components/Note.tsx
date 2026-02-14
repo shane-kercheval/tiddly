@@ -33,8 +33,9 @@ import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useNotes } from '../hooks/useNotes'
 import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedContentChips'
+import { getLinkedItem, toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
-import type { Note as NoteType, NoteCreate, NoteUpdate, TagCount } from '../types'
+import type { Note as NoteType, NoteCreate, NoteUpdate, ContentListItem, RelationshipInputPayload, TagCount } from '../types'
 
 /** Conflict state for 409 responses */
 interface ConflictState {
@@ -53,6 +54,7 @@ interface NoteState {
   description: string
   content: string
   tags: string[]
+  relationships: RelationshipInputPayload[]
   archivedAt: string
   archivePreset: ArchivePreset
 }
@@ -151,6 +153,9 @@ export function Note({
       description: note?.description ?? '',
       content: note?.content ?? '',
       tags: note?.tags ?? initialTags ?? [],
+      relationships: note?.relationships
+        ? toRelationshipInputs(note.relationships, 'note', note.id)
+        : [],
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
     }
@@ -179,12 +184,16 @@ export function Note({
       description: nextNote.description ?? '',
       content: nextNote.content ?? '',
       tags: nextNote.tags ?? [],
+      relationships: nextNote.relationships
+        ? toRelationshipInputs(nextNote.relationships, 'note', nextNote.id)
+        : [],
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
     }
     setOriginal(newState)
     setCurrent(newState)
     setConflictState(null)
+    newLinkedItemsCacheRef.current.clear()
     if (resetEditor) {
       setContentKey((prev) => prev + 1)
     }
@@ -214,6 +223,8 @@ export function Note({
   const titleInputRef = useRef<HTMLInputElement>(null)
   // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
   const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
+  // Cache display info for newly added linked items (from search, not yet persisted)
+  const newLinkedItemsCacheRef = useRef(new Map<string, LinkedItem>())
 
   // Read-only mode for deleted notes
   const isReadOnly = viewState === 'deleted'
@@ -228,9 +239,36 @@ export function Note({
       current.content !== original.content ||
       current.tags.length !== original.tags.length ||
       current.tags.some((tag, i) => tag !== original.tags[i]) ||
+      !relationshipsEqual(current.relationships, original.relationships) ||
       current.archivedAt !== original.archivedAt,
     [current, original]
   )
+
+  // Derive linked items display data from current relationships
+  const linkedItems = useMemo((): LinkedItem[] => {
+    const enriched = new Map<string, LinkedItem>()
+    if (note?.relationships) {
+      for (const rel of note.relationships) {
+        const item = getLinkedItem(rel, 'note', note.id)
+        enriched.set(`${item.type}:${item.id}`, item)
+      }
+    }
+    return current.relationships.map((rel) => {
+      const key = `${rel.target_type}:${rel.target_id}`
+      return enriched.get(key)
+        ?? newLinkedItemsCacheRef.current.get(key)
+        ?? {
+          relationshipId: '',
+          type: rel.target_type,
+          id: rel.target_id,
+          title: null,
+          url: null,
+          deleted: false,
+          archived: false,
+          description: rel.description ?? null,
+        }
+    })
+  }, [note?.relationships, note?.id, current.relationships])
 
   // Compute validity for save button (doesn't show error messages, just checks if saveable)
   const isValid = useMemo(
@@ -288,6 +326,9 @@ export function Note({
     if (JSON.stringify(tagsToSubmit) !== JSON.stringify(note.tags ?? [])) {
       updates.tags = tagsToSubmit
     }
+    if (!relationshipsEqual(current.relationships, original.relationships)) {
+      updates.relationships = current.relationships
+    }
     const newArchivedAt = current.archivedAt || null
     const oldArchivedAt = note.archived_at || null
     if (newArchivedAt !== oldArchivedAt) {
@@ -295,7 +336,7 @@ export function Note({
     }
 
     return { updates, tagsToSubmit }
-  }, [note, current])
+  }, [note, current, original.relationships])
 
   // Auto-focus title for new notes only
   useEffect(() => {
@@ -433,6 +474,7 @@ export function Note({
           description: current.description || undefined,
           content: current.content || undefined,
           tags: tagsToSubmit,
+          relationships: current.relationships.length > 0 ? current.relationships : undefined,
           archived_at: current.archivedAt || undefined,
         }
         // For creates, onSave navigates away - prevent blocker from showing
@@ -518,6 +560,36 @@ export function Note({
 
   const handleArchivePresetChange = useCallback((archivePreset: ArchivePreset): void => {
     setCurrent((prev) => ({ ...prev, archivePreset }))
+  }, [])
+
+  const handleAddRelationship = useCallback((item: ContentListItem): void => {
+    newLinkedItemsCacheRef.current.set(`${item.type}:${item.id}`, {
+      relationshipId: '',
+      type: item.type,
+      id: item.id,
+      title: item.title,
+      url: item.url,
+      deleted: !!item.deleted_at,
+      archived: !!item.archived_at,
+      description: null,
+    })
+    setCurrent((prev) => ({
+      ...prev,
+      relationships: [...prev.relationships, {
+        target_type: item.type,
+        target_id: item.id,
+        relationship_type: 'related' as const,
+      }],
+    }))
+  }, [])
+
+  const handleRemoveRelationship = useCallback((item: LinkedItem): void => {
+    setCurrent((prev) => ({
+      ...prev,
+      relationships: prev.relationships.filter(
+        (rel) => !(rel.target_type === item.type && rel.target_id === item.id),
+      ),
+    }))
   }, [])
 
   // Conflict resolution handlers
@@ -762,22 +834,20 @@ export function Note({
                 </button>
               </Tooltip>
 
-              {/* Add link button (only for existing notes) */}
-              {note && (
-                <Tooltip content="Link content" compact>
-                  <button
-                    type="button"
-                    onClick={() => linkedChipsRef.current?.startAdding()}
-                    disabled={isSaving || isReadOnly}
-                    className={`inline-flex items-center h-5 px-1 text-gray-500 rounded transition-colors ${
-                      isSaving || isReadOnly ? 'cursor-not-allowed' : 'hover:text-gray-700 hover:bg-gray-100'
-                    }`}
-                    aria-label="Link content"
-                  >
-                    <LinkIcon className="h-4 w-4" />
-                  </button>
-                </Tooltip>
-              )}
+              {/* Add link button */}
+              <Tooltip content="Link content" compact>
+                <button
+                  type="button"
+                  onClick={() => linkedChipsRef.current?.startAdding()}
+                  disabled={isSaving || isReadOnly}
+                  className={`inline-flex items-center h-5 px-1 text-gray-500 rounded transition-colors ${
+                    isSaving || isReadOnly ? 'cursor-not-allowed' : 'hover:text-gray-700 hover:bg-gray-100'
+                  }`}
+                  aria-label="Link content"
+                >
+                  <LinkIcon className="h-4 w-4" />
+                </button>
+              </Tooltip>
 
               <span className="text-gray-300">·</span>
 
@@ -814,17 +884,17 @@ export function Note({
                 showAddButton={false}
               />
 
-              {note && (
-                <LinkedContentChips
-                  ref={linkedChipsRef}
-                  contentType="note"
-                  contentId={note.id}
-                  onNavigate={onNavigateToLinked}
-                  disabled={isSaving || isReadOnly}
-                  showAddButton={false}
-                  initialRelationships={note.relationships}
-                />
-              )}
+              <LinkedContentChips
+                ref={linkedChipsRef}
+                contentType="note"
+                contentId={note?.id ?? null}
+                items={linkedItems}
+                onAdd={handleAddRelationship}
+                onRemove={handleRemoveRelationship}
+                onNavigate={onNavigateToLinked}
+                disabled={isSaving || isReadOnly}
+                showAddButton={false}
+              />
             </div>
           </div>
         </div>

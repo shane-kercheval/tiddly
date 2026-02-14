@@ -8,6 +8,26 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from schemas.validators import validate_relationship_description
 
 
+class RelationshipInput(BaseModel):
+    """
+    Schema for relationship data in entity create/update payloads.
+
+    The saving entity is the implicit source; only target is specified
+    (like how tags are just strings in entity payloads).
+    """
+
+    target_type: Literal['bookmark', 'note', 'prompt']
+    target_id: UUID
+    relationship_type: Literal['related'] = 'related'
+    description: str | None = None
+
+    @field_validator('description')
+    @classmethod
+    def validate_description_length(cls, v: str | None) -> str | None:
+        """Validate description is at most 500 characters."""
+        return validate_relationship_description(v)
+
+
 class RelationshipCreate(BaseModel):
     """Schema for creating a new relationship between content items."""
 

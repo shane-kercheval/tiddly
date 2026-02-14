@@ -127,16 +127,6 @@ vi.mock('../stores/uiPreferencesStore', () => ({
     selector({ fullWidthLayout: false }),
 }))
 
-// Mock relationship hooks (Note component uses these internally)
-vi.mock('../hooks/useRelationships', () => ({
-  useContentRelationships: () => ({ data: null, isLoading: false, isError: false }),
-  useRelationshipMutations: () => ({
-    create: { mutateAsync: vi.fn(), isPending: false },
-    update: { mutateAsync: vi.fn(), isPending: false },
-    remove: { mutate: vi.fn(), isPending: false },
-  }),
-}))
-
 // Mock content query hook (used by LinkedContentChips inline search)
 vi.mock('../hooks/useContentQuery', () => ({
   useContentQuery: () => ({ data: null, isFetching: false }),

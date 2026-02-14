@@ -12,6 +12,7 @@ from models.content_history import ActionType, EntityType
 from models.note import Note
 from models.tag import note_tags
 from schemas.note import NoteCreate, NoteUpdate
+from services import relationship_service
 from services.base_entity_service import BaseEntityService
 from services.exceptions import FieldLimitExceededError, QuotaExceededError
 from services.tag_service import get_or_create_tags, update_note_tags
@@ -171,6 +172,15 @@ class NoteService(BaseEntityService[Note]):
         note.last_used_at = note.created_at
         await db.flush()
 
+        # Sync relationships (entity must exist for validation)
+        if data.relationships:
+            desired = [r.model_dump() for r in data.relationships]
+            for item in desired:
+                item["target_id"] = str(item["target_id"])
+            await relationship_service.sync_relationships_for_entity(
+                db, user_id, self.entity_type, note.id, desired,
+            )
+
         # Record history for CREATE action
         if context:
             await self._get_history_service().record_action(
@@ -181,7 +191,7 @@ class NoteService(BaseEntityService[Note]):
                 action=ActionType.CREATE,
                 current_content=note.content,
                 previous_content=None,
-                metadata=self._get_metadata_snapshot(note),
+                metadata=await self._get_metadata_snapshot(db, user_id, note),
                 context=context,
                 limits=limits,
             )
@@ -222,10 +232,13 @@ class NoteService(BaseEntityService[Note]):
 
         # Capture state before modification for diff and no-op detection
         previous_content = note.content
-        previous_metadata = self._get_metadata_snapshot(note)
+        previous_metadata = await self._get_metadata_snapshot(db, user_id, note)
 
         update_data = data.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
         new_tags = update_data.pop("tags", None)
+
+        # Handle relationship updates separately (None = no change, [] = clear all)
+        new_relationships = update_data.pop("relationships", None)
 
         # Validate field lengths for fields being updated
         self._validate_field_limits(
@@ -242,13 +255,25 @@ class NoteService(BaseEntityService[Note]):
         if new_tags is not None:
             await update_note_tags(db, note, new_tags)
 
+        # Sync relationships if provided
+        if new_relationships is not None:
+            desired = [
+                r.model_dump() if hasattr(r, "model_dump") else r
+                for r in new_relationships
+            ]
+            for item in desired:
+                item["target_id"] = str(item["target_id"])
+            await relationship_service.sync_relationships_for_entity(
+                db, user_id, self.entity_type, note.id, desired,
+            )
+
         note.updated_at = func.clock_timestamp()
 
         await db.flush()
         await self._refresh_with_tags(db, note)
 
         # Only record history if something actually changed
-        current_metadata = self._get_metadata_snapshot(note)
+        current_metadata = await self._get_metadata_snapshot(db, user_id, note)
         content_changed = note.content != previous_content
         metadata_changed = current_metadata != previous_metadata
 

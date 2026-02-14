@@ -150,7 +150,7 @@ export function createContentComponentTests<TItem, TProps>(
         expect(screen.getByText('Create')).toBeInTheDocument()
       })
 
-      it('should not show Link content button in create mode', () => {
+      it('should show Link content button in create mode', () => {
         render(
           <TypedComponent
             {...buildProps({
@@ -160,7 +160,7 @@ export function createContentComponentTests<TItem, TProps>(
           />
         )
 
-        expect(screen.queryByLabelText('Link content')).not.toBeInTheDocument()
+        expect(screen.getByLabelText('Link content')).toBeInTheDocument()
       })
 
       it('should allow adding tags when starting with no tags', async () => {

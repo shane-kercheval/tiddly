@@ -1,32 +1,35 @@
 /**
  * LinkedContentChips - Inline chip display + inline search for linked content.
  *
+ * Stateless display + search component. The parent owns the relationship state
+ * and provides items + callbacks. No API calls are made by this component.
+ *
  * Designed to sit in the metadata row alongside tags, auto-archive, etc.
  * Each chip shows a content type icon + title, colored by type.
  * Exposes startAdding() via ref for external triggers (same pattern as InlineEditableTags).
  */
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo } from 'react'
 import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
-import toast from 'react-hot-toast'
-import axios from 'axios'
-import { useContentRelationships, useRelationshipMutations } from '../hooks/useRelationships'
-import { getLinkedItem } from '../utils/relationships'
-import type { LinkedItem } from '../utils/relationships'
 import { useContentSearch } from '../hooks/useContentSearch'
 import { LinkIcon } from './icons'
 import { Tooltip } from './ui'
 import { CONTENT_TYPE_ICONS, CONTENT_TYPE_LABELS, CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
-import type { ContentListItem, ContentType, RelationshipWithContent } from '../types'
+import type { ContentListItem, ContentType } from '../types'
+import type { LinkedItem } from '../utils/relationships'
 
 interface LinkedContentChipsProps {
   contentType: ContentType
-  contentId: string
+  contentId: string | null  // null in create mode
+  /** Display items (resolved by parent from relationship state) */
+  items: LinkedItem[]
+  /** Called when user selects an item from search to add */
+  onAdd: (item: ContentListItem) => void
+  /** Called when user clicks remove on a chip */
+  onRemove: (item: LinkedItem) => void
   onNavigate?: (item: LinkedItem) => void
   disabled?: boolean
   /** Whether to show the inline add button (default: true). Set false when using an external trigger. */
   showAddButton?: boolean
-  /** Pre-fetched relationships from the entity GET response. Used as initialData to avoid a separate fetch. */
-  initialRelationships?: RelationshipWithContent[]
 }
 
 /** Exposed methods via ref */
@@ -46,10 +49,12 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
   {
     contentType,
     contentId,
+    items,
+    onAdd,
+    onRemove,
     onNavigate,
     disabled,
     showAddButton = true,
-    initialRelationships,
   }: LinkedContentChipsProps,
   ref: Ref<LinkedContentChipsHandle>,
 ): ReactNode {
@@ -57,22 +62,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const initialData = useMemo(
-    () => initialRelationships
-      ? { items: initialRelationships, total: initialRelationships.length, offset: 0, limit: 50, has_more: false }
-      : undefined,
-    [initialRelationships],
-  )
-
-  const { data, isLoading } = useContentRelationships(contentType, contentId, { initialData })
-  const { create, remove } = useRelationshipMutations()
-
-  const items = useMemo(
-    () => data?.items.map((rel) => getLinkedItem(rel, contentType, contentId)) ?? [],
-    [data?.items, contentType, contentId],
-  )
-
-  // Build exclude keys from existing relationships
+  // Build exclude keys from existing items
   const excludeKeys = useMemo(() => {
     const keys = new Set<string>()
     for (const item of items) {
@@ -81,7 +71,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     return keys
   }, [items])
 
-  const sourceKey = `${contentType}:${contentId}`
+  const sourceKey = contentId ? `${contentType}:${contentId}` : `${contentType}:new`
 
   const {
     inputValue,
@@ -149,25 +139,10 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     setInputValue(e.target.value)
   }
 
-  const handleSelectItem = async (item: ContentListItem): Promise<void> => {
-    try {
-      await create.mutateAsync({
-        source_type: contentType,
-        source_id: contentId,
-        target_type: item.type,
-        target_id: item.id,
-        relationship_type: 'related',
-        description: null,
-      })
-      // Stay in add mode, refocus input
-      inputRef.current?.focus()
-    } catch (err) {
-      if (axios.isAxiosError(err) && err.response?.status === 409) {
-        toast.error('Already linked')
-      } else {
-        toast.error('Failed to create link')
-      }
-    }
+  const handleSelectItem = (item: ContentListItem): void => {
+    onAdd(item)
+    // Stay in add mode, refocus input
+    inputRef.current?.focus()
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
@@ -196,8 +171,6 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     handleSelectItem(item)
   }
 
-  if (isLoading) return null
-
   return (
     <div ref={containerRef} className="relative inline-flex flex-wrap items-center gap-2">
       {items.map((item) => {
@@ -215,8 +188,11 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
           </span>
         )
 
+        // Use a stable key: relationshipId if it exists, otherwise target_type:target_id
+        const key = item.relationshipId || `${item.type}:${item.id}`
+
         return (
-          <div key={item.relationshipId} className="group/link relative inline-flex items-baseline">
+          <div key={key} className="group/link relative inline-flex items-baseline">
             {onNavigate && !item.deleted ? (
               <button
                 type="button"
@@ -236,7 +212,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation()
-                  remove.mutate(item.relationshipId)
+                  onRemove(item)
                 }}
                 className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/link:opacity-100 transition-opacity flex items-center justify-center"
                 title="Remove link"

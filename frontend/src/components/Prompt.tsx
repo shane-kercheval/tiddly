@@ -37,8 +37,9 @@ import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { usePrompts } from '../hooks/usePrompts'
+import { getLinkedItem, toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
-import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, TagCount } from '../types'
+import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, ContentListItem, RelationshipInputPayload, TagCount } from '../types'
 
 /** Conflict state for 409 responses */
 interface ConflictState {
@@ -107,6 +108,7 @@ interface PromptState {
   content: string
   arguments: PromptArgument[]
   tags: string[]
+  relationships: RelationshipInputPayload[]
   archivedAt: string
   archivePreset: ArchivePreset
 }
@@ -219,6 +221,9 @@ export function Prompt({
       content: prompt?.content ?? (isCreate ? DEFAULT_PROMPT_CONTENT : ''),
       arguments: prompt?.arguments ?? [],
       tags: prompt?.tags ?? initialTags ?? [],
+      relationships: prompt?.relationships
+        ? toRelationshipInputs(prompt.relationships, 'prompt', prompt.id)
+        : [],
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
     }
@@ -249,12 +254,16 @@ export function Prompt({
       content: nextPrompt.content ?? '',
       arguments: nextPrompt.arguments ?? [],
       tags: nextPrompt.tags ?? [],
+      relationships: nextPrompt.relationships
+        ? toRelationshipInputs(nextPrompt.relationships, 'prompt', nextPrompt.id)
+        : [],
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
     }
     setOriginal(newState)
     setCurrent(newState)
     setConflictState(null)
+    newLinkedItemsCacheRef.current.clear()
     if (resetEditor) {
       setContentKey((prev) => prev + 1)
     }
@@ -285,6 +294,8 @@ export function Prompt({
   const nameInputRef = useRef<HTMLInputElement>(null)
   // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
   const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
+  // Cache display info for newly added linked items (from search, not yet persisted)
+  const newLinkedItemsCacheRef = useRef(new Map<string, LinkedItem>())
 
   // Read-only mode for deleted prompts
   const isReadOnly = viewState === 'deleted'
@@ -302,9 +313,36 @@ export function Prompt({
       current.tags.some((tag, i) => tag !== original.tags[i]) ||
       current.arguments.length !== original.arguments.length ||
       JSON.stringify(current.arguments) !== JSON.stringify(original.arguments) ||
+      !relationshipsEqual(current.relationships, original.relationships) ||
       current.archivedAt !== original.archivedAt,
     [current, original]
   )
+
+  // Derive linked items display data from current relationships
+  const linkedItems = useMemo((): LinkedItem[] => {
+    const enriched = new Map<string, LinkedItem>()
+    if (prompt?.relationships) {
+      for (const rel of prompt.relationships) {
+        const item = getLinkedItem(rel, 'prompt', prompt.id)
+        enriched.set(`${item.type}:${item.id}`, item)
+      }
+    }
+    return current.relationships.map((rel) => {
+      const key = `${rel.target_type}:${rel.target_id}`
+      return enriched.get(key)
+        ?? newLinkedItemsCacheRef.current.get(key)
+        ?? {
+          relationshipId: '',
+          type: rel.target_type,
+          id: rel.target_id,
+          title: null,
+          url: null,
+          deleted: false,
+          archived: false,
+          description: rel.description ?? null,
+        }
+    })
+  }, [prompt?.relationships, prompt?.id, current.relationships])
 
   // Compute validity for save button (doesn't show error messages, just checks if saveable)
   const isValid = useMemo(() => {
@@ -380,6 +418,9 @@ export function Prompt({
     if (JSON.stringify(tagsToSubmit) !== JSON.stringify(prompt.tags ?? [])) {
       updates.tags = tagsToSubmit
     }
+    if (!relationshipsEqual(current.relationships, original.relationships)) {
+      updates.relationships = current.relationships
+    }
     const newArchivedAt = current.archivedAt || null
     const oldArchivedAt = prompt.archived_at || null
     if (newArchivedAt !== oldArchivedAt) {
@@ -387,7 +428,7 @@ export function Prompt({
     }
 
     return { updates, tagsToSubmit, cleanedArgs }
-  }, [prompt, current])
+  }, [prompt, current, original.relationships])
 
   // Auto-focus name for new prompts only
   useEffect(() => {
@@ -591,6 +632,7 @@ export function Prompt({
           content: current.content || undefined,
           arguments: cleanedArgs.length > 0 ? cleanedArgs : undefined,
           tags: tagsToSubmit,
+          relationships: current.relationships.length > 0 ? current.relationships : undefined,
           archived_at: current.archivedAt || undefined,
         }
         // For creates, onSave navigates away - prevent blocker from showing
@@ -624,6 +666,7 @@ export function Prompt({
         content: current.content,
         arguments: cleanedArgs,
         tags: tagsToSubmit,
+        relationships: current.relationships,
         archivedAt: current.archivedAt,
         archivePreset: current.archivePreset,
       })
@@ -705,6 +748,36 @@ export function Prompt({
     setErrors((prev) => (prev.arguments ? { ...prev, arguments: undefined } : prev))
   }, [])
 
+  const handleAddRelationship = useCallback((item: ContentListItem): void => {
+    newLinkedItemsCacheRef.current.set(`${item.type}:${item.id}`, {
+      relationshipId: '',
+      type: item.type,
+      id: item.id,
+      title: item.title,
+      url: item.url,
+      deleted: !!item.deleted_at,
+      archived: !!item.archived_at,
+      description: null,
+    })
+    setCurrent((prev) => ({
+      ...prev,
+      relationships: [...prev.relationships, {
+        target_type: item.type,
+        target_id: item.id,
+        relationship_type: 'related' as const,
+      }],
+    }))
+  }, [])
+
+  const handleRemoveRelationship = useCallback((item: LinkedItem): void => {
+    setCurrent((prev) => ({
+      ...prev,
+      relationships: prev.relationships.filter(
+        (rel) => !(rel.target_type === item.type && rel.target_id === item.id),
+      ),
+    }))
+  }, [])
+
   // Conflict resolution handlers
   const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
     const refreshed = await onRefresh?.()
@@ -739,6 +812,7 @@ export function Prompt({
         content: current.content,
         arguments: cleanedArgs,
         tags: tagsToSubmit,
+        relationships: current.relationships,
         archivedAt: current.archivedAt,
         archivePreset: current.archivePreset,
       })
@@ -984,22 +1058,20 @@ export function Prompt({
                 </button>
               </Tooltip>
 
-              {/* Add link button (only for existing prompts) */}
-              {prompt && (
-                <Tooltip content="Link content" compact>
-                  <button
-                    type="button"
-                    onClick={() => linkedChipsRef.current?.startAdding()}
-                    disabled={isSaving || isReadOnly}
-                    className={`inline-flex items-center h-5 px-1 text-gray-500 rounded transition-colors ${
-                      isSaving || isReadOnly ? 'cursor-not-allowed' : 'hover:text-gray-700 hover:bg-gray-100'
-                    }`}
-                    aria-label="Link content"
-                  >
-                    <LinkIcon className="h-4 w-4" />
-                  </button>
-                </Tooltip>
-              )}
+              {/* Add link button */}
+              <Tooltip content="Link content" compact>
+                <button
+                  type="button"
+                  onClick={() => linkedChipsRef.current?.startAdding()}
+                  disabled={isSaving || isReadOnly}
+                  className={`inline-flex items-center h-5 px-1 text-gray-500 rounded transition-colors ${
+                    isSaving || isReadOnly ? 'cursor-not-allowed' : 'hover:text-gray-700 hover:bg-gray-100'
+                  }`}
+                  aria-label="Link content"
+                >
+                  <LinkIcon className="h-4 w-4" />
+                </button>
+              </Tooltip>
 
               <span className="text-gray-300">·</span>
 
@@ -1036,17 +1108,17 @@ export function Prompt({
                 showAddButton={false}
               />
 
-              {prompt && (
-                <LinkedContentChips
-                  ref={linkedChipsRef}
-                  contentType="prompt"
-                  contentId={prompt.id}
-                  onNavigate={onNavigateToLinked}
-                  disabled={isSaving || isReadOnly}
-                  showAddButton={false}
-                  initialRelationships={prompt.relationships}
-                />
-              )}
+              <LinkedContentChips
+                ref={linkedChipsRef}
+                contentType="prompt"
+                contentId={prompt?.id ?? null}
+                items={linkedItems}
+                onAdd={handleAddRelationship}
+                onRemove={handleRemoveRelationship}
+                onNavigate={onNavigateToLinked}
+                disabled={isSaving || isReadOnly}
+                showAddButton={false}
+              />
             </div>
           </div>
         </div>
