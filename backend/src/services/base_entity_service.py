@@ -208,8 +208,15 @@ class BaseEntityService(ABC, Generic[T]):
             curr_names = sorted(t.get("name", "") for t in (curr or []))
             return prev_names != curr_names
         if key == "relationships":
-            prev_set = {(r.get("target_type"), str(r.get("target_id"))) for r in (prev or [])}
-            curr_set = {(r.get("target_type"), str(r.get("target_id"))) for r in (curr or [])}
+            def _rel_key(r: dict) -> tuple:
+                return (
+                    r.get("target_type"),
+                    str(r.get("target_id")),
+                    r.get("relationship_type"),
+                    r.get("description"),
+                )
+            prev_set = {_rel_key(r) for r in (prev or [])}
+            curr_set = {_rel_key(r) for r in (curr or [])}
             return prev_set != curr_set
         if key == "arguments":
             prev_sorted = sorted((prev or []), key=lambda a: a.get("name", ""))

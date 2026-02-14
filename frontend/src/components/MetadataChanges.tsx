@@ -101,12 +101,17 @@ function relationshipKey(r: RelationshipSnapshot): string {
   return `${r.target_type}:${r.target_id}`
 }
 
-/** Check if two relationship arrays are equivalent */
+/** Build a full comparison key including metadata (description, relationship_type) */
+function relationshipFullKey(r: RelationshipSnapshot): string {
+  return `${r.target_type}:${r.target_id}:${r.relationship_type ?? ''}:${r.description ?? ''}`
+}
+
+/** Check if two relationship arrays are equivalent (including metadata) */
 function relationshipsEqual(a: unknown, b: unknown): boolean {
   const normA = normalizeRelationships(a)
   const normB = normalizeRelationships(b)
   if (normA.length !== normB.length) return false
-  return normA.every((r, i) => relationshipKey(r) === relationshipKey(normB[i]))
+  return normA.every((r, i) => relationshipFullKey(r) === relationshipFullKey(normB[i]))
 }
 
 /** Format a relationship for display as a chip label */
@@ -161,10 +166,19 @@ function RelationshipChanges({ before, after }: {
   before: RelationshipSnapshot[]
   after: RelationshipSnapshot[]
 }): ReactNode {
-  const beforeKeys = new Set(before.map(relationshipKey))
-  const afterKeys = new Set(after.map(relationshipKey))
-  const removed = before.filter(r => !afterKeys.has(relationshipKey(r)))
-  const added = after.filter(r => !beforeKeys.has(relationshipKey(r)))
+  const beforeMap = new Map(before.map(r => [relationshipKey(r), r]))
+  const afterMap = new Map(after.map(r => [relationshipKey(r), r]))
+  const removed = before.filter(r => !afterMap.has(relationshipKey(r)))
+  const added = after.filter(r => !beforeMap.has(relationshipKey(r)))
+
+  // Modified: same link identity but different metadata (description or relationship_type)
+  const modified: { before: RelationshipSnapshot, after: RelationshipSnapshot }[] = []
+  for (const [key, afterRel] of afterMap) {
+    const beforeRel = beforeMap.get(key)
+    if (beforeRel && relationshipFullKey(beforeRel) !== relationshipFullKey(afterRel)) {
+      modified.push({ before: beforeRel, after: afterRel })
+    }
+  }
 
   return (
     <div className="flex items-baseline gap-2 text-sm flex-wrap">
@@ -177,6 +191,11 @@ function RelationshipChanges({ before, after }: {
       {added.map(r => (
         <span key={`add-${relationshipKey(r)}`} className="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-green-200">
           + {formatRelationshipLabel(r)}
+        </span>
+      ))}
+      {modified.map(({ before: b, after: a }) => (
+        <span key={`mod-${relationshipKey(a)}`} className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-200">
+          ~ {formatRelationshipLabel(a)}{a.description !== b.description && ` (${a.description || 'no description'})`}
         </span>
       ))}
     </div>

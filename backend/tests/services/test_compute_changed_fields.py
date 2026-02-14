@@ -56,6 +56,44 @@ class TestComputeChangedFields:
         result = BaseEntityService._compute_changed_fields(prev, curr, content_changed=False)
         assert result == ["relationships"]
 
+    def test__compute_changed_fields__relationship_description_change(self) -> None:
+        """Relationship description change is detected."""
+        prev = {
+            "relationships": [
+                {"target_type": "note", "target_id": "abc", "relationship_type": "related", "description": None},
+            ],
+        }
+        curr = {
+            "relationships": [
+                {"target_type": "note", "target_id": "abc", "relationship_type": "related", "description": "Updated"},
+            ],
+        }
+        result = BaseEntityService._compute_changed_fields(prev, curr, content_changed=False)
+        assert result == ["relationships"]
+
+    def test__compute_changed_fields__relationship_type_change(self) -> None:
+        """Relationship type change is detected."""
+        prev = {
+            "relationships": [
+                {"target_type": "note", "target_id": "abc", "relationship_type": "related", "description": None},
+            ],
+        }
+        curr = {
+            "relationships": [
+                {"target_type": "note", "target_id": "abc", "relationship_type": "references", "description": None},
+            ],
+        }
+        result = BaseEntityService._compute_changed_fields(prev, curr, content_changed=False)
+        assert result == ["relationships"]
+
+    def test__compute_changed_fields__relationship_same_metadata_no_change(self) -> None:
+        """Same relationships with same metadata are not a change."""
+        rel = {"target_type": "note", "target_id": "abc", "relationship_type": "related", "description": "desc"}
+        prev = {"relationships": [rel]}
+        curr = {"relationships": [dict(rel)]}
+        result = BaseEntityService._compute_changed_fields(prev, curr, content_changed=False)
+        assert result == []
+
     def test__compute_changed_fields__arguments_only(self) -> None:
         """Only arguments changed returns ['arguments']."""
         prev = {"name": "p", "arguments": [{"name": "a", "required": True}]}

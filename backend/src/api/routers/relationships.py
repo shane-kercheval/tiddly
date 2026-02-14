@@ -1,5 +1,4 @@
 """Relationship CRUD endpoints."""
-import logging
 from typing import Literal
 from uuid import UUID
 
@@ -28,8 +27,6 @@ from services.history_service import history_service
 from services.note_service import NoteService
 from services.prompt_service import PromptService
 from services import relationship_service
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/relationships", tags=["relationships"])
 
@@ -106,12 +103,9 @@ async def create_relationship(
         raise HTTPException(status_code=400, detail=str(e))
 
     # Record history on the source entity as specified by the caller
-    try:
-        await _record_relationship_history(
-            db, current_user.id, data.source_type, data.source_id, limits, request,
-        )
-    except Exception:
-        logger.warning("Failed to record relationship history on create", exc_info=True)
+    await _record_relationship_history(
+        db, current_user.id, data.source_type, data.source_id, limits, request,
+    )
 
     return RelationshipResponse.model_validate(rel)
 
@@ -178,10 +172,12 @@ async def get_relationship(
 
 @router.patch("/{relationship_id}", response_model=RelationshipResponse)
 async def update_relationship(
+    request: Request,
     relationship_id: UUID,
     data: RelationshipUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits),
 ) -> RelationshipResponse:
     """Update relationship metadata."""
     # Use exclude_unset to distinguish "not provided" from "set to null"
@@ -195,6 +191,12 @@ async def update_relationship(
     )
     if rel is None:
         raise HTTPException(status_code=404, detail="Relationship not found")
+
+    # Record history on the source entity
+    await _record_relationship_history(
+        db, current_user.id, rel.source_type, rel.source_id, limits, request,
+    )
+
     return RelationshipResponse.model_validate(rel)
 
 
@@ -221,9 +223,6 @@ async def delete_relationship(
     await db.flush()
 
     # Record history on the source entity
-    try:
-        await _record_relationship_history(
-            db, current_user.id, source_type, source_id, limits, request,
-        )
-    except Exception:
-        logger.warning("Failed to record relationship history on delete", exc_info=True)
+    await _record_relationship_history(
+        db, current_user.id, source_type, source_id, limits, request,
+    )

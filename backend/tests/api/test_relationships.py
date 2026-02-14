@@ -797,6 +797,32 @@ async def test__api_delete_relationship__records_history_on_source(
     assert data['total'] >= 3
 
 
+@pytest.mark.asyncio
+async def test__api_update_relationship__records_history_on_source(
+    client: AsyncClient,
+) -> None:
+    """PATCH /relationships/{id} records a history entry on the source entity."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    rel = await _create_relationship(client, 'bookmark', bm['id'], 'note', note['id'])
+
+    # Get history count before update
+    response = await client.get(f'/history/bookmark/{bm["id"]}')
+    count_before = response.json()['total']
+
+    # Update description
+    response = await client.patch(
+        f'/relationships/{rel["id"]}',
+        json={'description': 'New description'},
+    )
+    assert response.status_code == 200
+
+    # Check history — should have one more entry
+    response = await client.get(f'/history/bookmark/{bm["id"]}')
+    assert response.json()['total'] == count_before + 1
+
+
 # =============================================================================
 # Entity create/update with relationships via API
 # =============================================================================
