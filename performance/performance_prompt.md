@@ -22,9 +22,9 @@ Before running any benchmarks:
    **Do NOT commit these changes.** Revert after benchmarking.
 4. **Close other heavy processes** to reduce noise (browsers, IDEs with indexing, etc.)
 5. **Verify the API is reachable:** `curl http://localhost:8000/health`
-6. **Check for unarchived profiling results.** If `performance/profiling/results/` contains `.html` or `.txt` files from a previous run, verify they've been archived (a corresponding `results_*.zip` should exist in `performance/profiling/`). If not archived, archive them first:
+6. **Check for unarchived profiling results.** If `performance/profiling/results/` contains `.html` or `.txt` files from a previous run, verify they've been archived (a corresponding `.zip` should exist in `performance/profiling/`). If not archived, archive them first:
    ```bash
-   cd performance/profiling && zip -r results_PREV_BRANCH.zip results/ && cd ../..
+   cd performance/profiling && zip -r YYYY-MM-DD-branch-name.zip results/ && cd ../..
    ```
    New profiling runs overwrite these files by name, so unarchived results will be lost.
 
@@ -128,12 +128,15 @@ Profiling saves results to `performance/profiling/results/`:
 
 ### Comparing to Previous Profiling Results
 
-Previous profiling results are archived as zip files in `performance/profiling/` (e.g., `results_main.zip`, `results_content_versioning.zip`). To compare against a baseline:
+Previous profiling results are archived as dated zip files in `performance/profiling/` (e.g., `2026-02-05-main.zip`, `2026-02-05-content-versioning.zip`). To compare against a baseline:
 
 ```bash
-# Extract baseline results to a temporary directory
+# List available baselines
+ls performance/profiling/*.zip
+
+# Extract the most relevant baseline to a temporary directory
 mkdir -p /tmp/profiling_baseline
-unzip performance/profiling/results_main.zip -d /tmp/profiling_baseline
+unzip performance/profiling/2026-02-05-main.zip -d /tmp/profiling_baseline
 ```
 
 Then compare the text reports side-by-side (e.g., `diff /tmp/profiling_baseline/results/create_note_1kb.txt performance/profiling/results/create_note_1kb.txt`). Look for new functions appearing in hot paths, or existing functions consuming a larger percentage of total time.
@@ -371,10 +374,11 @@ After generating reports:
    cp performance/api/results/benchmark_report_*.md performance/api/results_${BRANCH_DIR}/
    ```
 
-2. **Archive profiling results** for this branch:
+2. **Archive profiling results** for this branch (naming convention: `YYYY-MM-DD-branch-name.zip`):
    ```bash
-   BRANCH_DIR=$(git branch --show-current | tr '-' '_')
-   cd performance/profiling && zip -r results_${BRANCH_DIR}.zip results/ && cd ../..
+   BRANCH_NAME=$(git branch --show-current)
+   DATE=$(date +%Y-%m-%d)
+   cd performance/profiling && zip -r ${DATE}-${BRANCH_NAME}.zip results/ && cd ../..
    ```
 
 3. **Clean up working directories** after archiving:
