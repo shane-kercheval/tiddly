@@ -135,7 +135,7 @@ Previous profiling results are archived as dated zip files in `performance/profi
 ls performance/profiling/*.zip
 
 # Extract the most relevant baseline to a temporary directory
-mkdir -p /tmp/profiling_baseline
+rm -rf /tmp/profiling_baseline && mkdir -p /tmp/profiling_baseline
 unzip performance/profiling/2026-02-05-main.zip -d /tmp/profiling_baseline
 ```
 
@@ -231,6 +231,7 @@ Use this exact format:
 **Branch:** (current branch name)
 **Commit:** (output of `git rev-parse --short HEAD`)
 **Baseline:** (which past results were compared against, if any)
+**Profiling:** See profiling_report_<BRANCH>_YYYYMMDD.md
 **Environment:** Local dev (VITE_DEV_MODE=true, no auth overhead)
 
 ## Branch Changes Summary
@@ -256,9 +257,9 @@ Use this exact format:
 
 ## Regression Analysis
 
-| Operation | Size | Conc | Baseline P95 | Current P95 | Delta | Delta % | Status |
-|-----------|------|------|-------------|-------------|-------|---------|--------|
-(For each operation that changed >10%, list the comparison. Omit this section if no baseline exists.)
+| Operation | Size | Conc | Baseline P95 | Current P95 | Delta % | Baseline RPS | Current RPS | RPS Delta % | Status |
+|-----------|------|------|-------------|-------------|---------|-------------|-------------|-------------|--------|
+(For each operation that changed >10% on P95 or RPS, list the comparison. Omit this section if no baseline exists.)
 
 **Status key:** OK (<10% change), Warning (10-25% change), Regression (>25% change), Improvement (>10% faster)
 
@@ -305,6 +306,7 @@ Use this exact format:
 **Date:** YYYY-MM-DD HH:MM:SS
 **Branch:** (current branch name)
 **Commit:** (short hash)
+**Benchmarks:** See benchmark_report_<BRANCH>_YYYYMMDD.md
 **Method:** pyinstrument via ASGITransport (in-process, no network overhead)
 
 ## Test Parameters
@@ -359,6 +361,14 @@ Use this exact format:
 - **Recommendations:** (if any)
 ~~~
 
+### Profiling Decision Framework
+
+Profiling is advisory — it informs but does not independently block a merge. The benchmark report's PASS/WARNINGS/FAIL is the merge gate. Profiling findings should influence that assessment:
+
+- **CLEAN:** No action needed. Profiling confirms no hidden bottlenecks.
+- **MINOR CONCERNS:** Document in the PR description. Examples: a function's share of total time grew but remains <30%, or an extra DB round-trip was added but stays within the 4-query budget.
+- **SIGNIFICANT CONCERNS:** Investigate before merge. Examples: N+1 query pattern discovered, a new function dominates >40% of request time, or DB round-trips exceed budget. Escalate to the benchmark report's assessment — if profiling reveals a structural issue, the benchmark verdict should reflect it (e.g., upgrade PASS to PASS WITH WARNINGS).
+
 ---
 
 ## Phase 6: Archive Results
@@ -388,9 +398,17 @@ After generating reports:
    # Profiling results/ is overwritten per run (same filenames), so no cleanup needed
    ```
 
-4. **Revert tier limit changes** in `backend/src/core/tier_limits.py`
+4. **Revert tier limit changes** in `backend/src/core/tier_limits.py` and verify:
+   ```bash
+   git diff backend/src/core/tier_limits.py
+   ```
+   This should show the revert (or no diff if already reverted). Confirm the file is not staged (`git diff --cached` should not include it).
 
-5. **Do NOT commit** tier limit changes. The branch-specific archive directories (`results_<branch>/`), summary reports, and profiling zips are the durable artifacts that get committed.
+5. **Do NOT commit** tier limit changes. The durable artifacts that get committed are:
+   - `performance/api/results_<branch>/` — raw benchmark files + summary report
+   - `performance/api/results/benchmark_report_*.md` — summary report (also in branch archive)
+   - `performance/profiling/<date>-<branch>.zip` — profiling archive
+   - `performance/profiling/results/` — transient working directory, overwritten each run, not committed (gitignored)
 
 ---
 
@@ -400,6 +418,7 @@ After generating reports:
 - [ ] Branch changes reviewed and documented (affected endpoints + code paths identified)
 - [ ] API benchmark: 1KB content completed
 - [ ] API benchmark: 50KB content completed
+- [ ] Early exit check passed (no >5x P95 regressions or >10% error rates)
 - [ ] Profiling: 1KB content completed
 - [ ] Profiling: 50KB content completed
 - [ ] Benchmark report generated with regression analysis

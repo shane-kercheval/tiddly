@@ -1,0 +1,4 @@
+# Transient profiling output — overwritten each run.
+# Durable results are archived as dated zips in performance/profiling/.
+*.html
+*.txt
