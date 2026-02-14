@@ -26,6 +26,7 @@ from services.bookmark_service import BookmarkService, DuplicateUrlError
 from services.history_service import HistoryService, history_service
 from services.note_service import NoteService
 from services.prompt_service import NameConflictError, PromptService
+from services.tag_service import resolve_tag_ids_to_names
 
 router = APIRouter(prefix="/history", tags=["history"])
 
@@ -47,7 +48,53 @@ def _get_service_for_entity_type(
     return services[entity_type]
 
 
-def _build_update_from_history(
+async def _resolve_tags_from_snapshot(
+    db: AsyncSession,
+    user_id: UUID,
+    tags_snapshot: list,
+) -> list[str]:
+    """
+    Resolve tags from a metadata snapshot to current tag names.
+
+    Handles both formats:
+    - New format: [{"id": "uuid", "name": "python"}, ...] — resolve by ID,
+      fall back to snapshot name if tag was deleted.
+    - Old format: ["python", ...] — use names directly.
+
+    Args:
+        db: Database session.
+        user_id: User ID to scope tags.
+        tags_snapshot: Tags from the metadata snapshot.
+
+    Returns:
+        List of tag name strings for the update schema.
+    """
+    if not tags_snapshot:
+        return []
+
+    # Detect format: old (list of strings) vs new (list of dicts with id+name)
+    if isinstance(tags_snapshot[0], str):
+        return tags_snapshot
+
+    # New format: resolve IDs to current names
+    tag_ids = [UUID(t["id"]) for t in tags_snapshot if "id" in t]
+    id_to_name = await resolve_tag_ids_to_names(db, user_id, tag_ids)
+
+    resolved: list[str] = []
+    for t in tags_snapshot:
+        tag_id = UUID(t["id"]) if "id" in t else None
+        if tag_id and tag_id in id_to_name:
+            # Tag still exists — use its current name (follows renames)
+            resolved.append(id_to_name[tag_id])
+        else:
+            # Tag was deleted — fall back to snapshot name
+            resolved.append(t["name"])
+    return resolved
+
+
+async def _build_update_from_history(
+    db: AsyncSession,
+    user_id: UUID,
     entity_type: EntityType,
     content: str | None,
     metadata: dict,
@@ -60,8 +107,8 @@ def _build_update_from_history(
     - Missing fields in metadata (from older schema): omitted from update,
       preserving the entity's current value for that field
 
-    Tags are restored by name. The service layer creates missing tags
-    automatically (existing behavior).
+    Tags are resolved by ID to follow renames. Falls back to snapshot name
+    for deleted tags or old-format snapshots (plain strings).
 
     IMPORTANT: Only include fields that actually exist in metadata. If we pass
     a field with value None, the service's model_dump(exclude_unset=True) will
@@ -81,7 +128,9 @@ def _build_update_from_history(
     if "description" in metadata:
         common_fields["description"] = metadata["description"]
     if "tags" in metadata:
-        common_fields["tags"] = metadata["tags"]
+        common_fields["tags"] = await _resolve_tags_from_snapshot(
+            db, user_id, metadata["tags"],
+        )
 
     # Restore relationships if present in snapshot (absent in older snapshots = skip)
     if "relationships" in metadata:
@@ -380,8 +429,9 @@ async def restore_to_version(
     # Update entity with restored content and metadata
     # Records a RESTORE action in history
     # Service handles validation (URL/name uniqueness, etc.)
-    update_data = _build_update_from_history(
-        entity_type, result.content, history.metadata_snapshot or {},
+    update_data = await _build_update_from_history(
+        db, current_user.id, entity_type, result.content,
+        history.metadata_snapshot or {},
     )
     try:
         await service.update(

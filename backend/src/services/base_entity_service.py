@@ -187,7 +187,13 @@ class BaseEntityService(ABC, Generic[T]):
         snapshot = {
             "title": getattr(entity, "title", None),
             "description": getattr(entity, "description", None),
-            "tags": [t.name for t in entity.tag_objects] if hasattr(entity, "tag_objects") else [],
+            "tags": (
+                sorted(
+                    [{"id": str(t.id), "name": t.name} for t in entity.tag_objects],
+                    key=lambda t: t["name"],
+                )
+                if hasattr(entity, "tag_objects") else []
+            ),
         }
         snapshot["relationships"] = await relationship_service.get_relationships_snapshot(
             db, user_id, self.entity_type, entity.id,

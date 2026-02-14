@@ -103,7 +103,9 @@ class TestBookmarkHistoryIntegration:
         assert record.content_diff is None
         assert record.metadata_snapshot["title"] == "Test Bookmark"
         assert record.metadata_snapshot["url"] == "https://example.com/"  # URL normalized
-        assert record.metadata_snapshot["tags"] == ["test"]
+        assert len(record.metadata_snapshot["tags"]) == 1
+        assert record.metadata_snapshot["tags"][0]["name"] == "test"
+        assert "id" in record.metadata_snapshot["tags"][0]
         assert record.source == "web"
         assert record.auth_type == AuthType.AUTH0.value
 
@@ -448,7 +450,9 @@ class TestNoteHistoryIntegration:
         assert record.content_snapshot == "Initial content"
         assert record.content_diff is None
         assert record.metadata_snapshot["title"] == "Test Note"
-        assert record.metadata_snapshot["tags"] == ["test"]
+        assert len(record.metadata_snapshot["tags"]) == 1
+        assert record.metadata_snapshot["tags"][0]["name"] == "test"
+        assert "id" in record.metadata_snapshot["tags"][0]
         assert record.source == "web"
         assert record.auth_type == AuthType.AUTH0.value
 

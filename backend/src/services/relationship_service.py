@@ -414,6 +414,57 @@ def _resolve_other_side(
     return rel.source_type, rel.source_id
 
 
+async def _batch_fetch_titles(
+    db: AsyncSession,
+    user_id: UUID,
+    targets: list[tuple[str, UUID]],
+) -> dict[tuple[str, UUID], str]:
+    """
+    Batch-fetch display titles for a list of (entity_type, entity_id) pairs.
+
+    Returns a mapping from (type, id) to title string. Bookmarks fall back to URL
+    when title is empty; prompts fall back to name.
+    """
+    if not targets:
+        return {}
+
+    # Group by type for per-model queries
+    by_type: dict[str, list[UUID]] = {}
+    for t, eid in targets:
+        by_type.setdefault(t, []).append(eid)
+
+    titles: dict[tuple[str, UUID], str] = {}
+    for content_type, ids in by_type.items():
+        model = MODEL_MAP.get(content_type)
+        if not model:
+            continue
+        stmt = select(model.id, model.title).where(
+            model.user_id == user_id,
+            model.id.in_(ids),
+        )
+        # Bookmark: fall back to url; Prompt: fall back to name
+        if content_type == EntityType.BOOKMARK:
+            stmt = select(model.id, model.title, model.url).where(
+                model.user_id == user_id,
+                model.id.in_(ids),
+            )
+        elif content_type == EntityType.PROMPT:
+            stmt = select(model.id, model.title, model.name).where(
+                model.user_id == user_id,
+                model.id.in_(ids),
+            )
+
+        result = await db.execute(stmt)
+        for row in result.all():
+            entity_id = row[0]
+            title = row[1] or ""
+            if not title and content_type in (EntityType.BOOKMARK, EntityType.PROMPT):
+                title = row[2] or ""
+            titles[(content_type, entity_id)] = title
+
+    return titles
+
+
 async def get_relationships_snapshot(
     db: AsyncSession,
     user_id: UUID,
@@ -424,10 +475,11 @@ async def get_relationships_snapshot(
     Return a stable, sorted list of dicts representing relationships from the entity's perspective.
 
     Used for metadata history snapshots. Each returned dict has:
-    target_type, target_id, relationship_type, description.
+    target_type, target_id, target_title, relationship_type, description.
 
     Resolves perspective since the querying entity may be stored as either
-    source or target due to canonical ordering.
+    source or target due to canonical ordering. Batch-fetches target titles
+    so they are preserved in history even if the target is later deleted.
     """
     # Single efficient SELECT — no pagination, no COUNT
     is_source = and_(
@@ -448,18 +500,35 @@ async def get_relationships_snapshot(
     result = await db.execute(stmt)
     rows = list(result.scalars().all())
 
-    snapshot: list[dict] = []
+    if not rows:
+        return []
+
+    # Resolve perspective for each relationship
+    resolved: list[tuple[str, UUID, ContentRelationship]] = []
     for rel in rows:
         other_type, other_id = _resolve_other_side(rel, entity_type, entity_id)
+        resolved.append((other_type, other_id, rel))
+
+    # Batch-fetch titles for all targets
+    targets = [(t, eid) for t, eid, _ in resolved]
+    titles = await _batch_fetch_titles(db, user_id, targets)
+
+    snapshot: list[dict] = []
+    for other_type, other_id, rel in resolved:
         snapshot.append({
             "target_type": other_type,
             "target_id": str(other_id),
+            "target_title": titles.get((other_type, other_id), ""),
             "relationship_type": rel.relationship_type,
             "description": rel.description,
         })
 
-    # Sort deterministically for stable before/after comparison
-    snapshot.sort(key=lambda r: (r["target_type"], r["target_id"], r["relationship_type"]))
+    # Sort by type then title (case-insensitive) for stable, user-meaningful ordering
+    snapshot.sort(key=lambda r: (
+        r["target_type"],
+        r["target_title"].lower(),
+        r["target_id"],
+    ))
     return snapshot
 
 
