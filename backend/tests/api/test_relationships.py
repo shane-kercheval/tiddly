@@ -773,6 +773,10 @@ async def test__api_create_relationship__records_history_on_source(
     actions = [item['action'] for item in data['items']]
     assert 'update' in actions
 
+    # The relationship history entry should have changed_fields = ["relationships"]
+    update_entry = next(item for item in data['items'] if item['action'] == 'update')
+    assert update_entry['changed_fields'] == ['relationships']
+
 
 @pytest.mark.asyncio
 async def test__api_delete_relationship__records_history_on_source(
@@ -820,7 +824,12 @@ async def test__api_update_relationship__records_history_on_source(
 
     # Check history — should have one more entry
     response = await client.get(f'/history/bookmark/{bm["id"]}')
-    assert response.json()['total'] == count_before + 1
+    data = response.json()
+    assert data['total'] == count_before + 1
+
+    # The newest entry should have changed_fields = ["relationships"]
+    newest = data['items'][0]
+    assert newest['changed_fields'] == ['relationships']
 
 
 # =============================================================================

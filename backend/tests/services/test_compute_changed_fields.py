@@ -145,6 +145,33 @@ class TestComputeChangedFields:
         result = BaseEntityService._compute_changed_fields(None, curr, content_changed=False)
         assert result == []
 
+    def test__compute_changed_fields__create_with_relationships(self) -> None:
+        """CREATE with non-empty relationships includes 'relationships' in changed_fields."""
+        curr = {
+            "title": "Title",
+            "tags": [],
+            "relationships": [
+                {"target_type": "note", "target_id": "abc", "relationship_type": "related", "description": None},
+            ],
+        }
+        result = BaseEntityService._compute_changed_fields(None, curr, content_changed=True)
+        assert "relationships" in result
+        assert result == ["content", "relationships", "title"]
+
+    def test__compute_changed_fields__tags_mixed_format(self) -> None:
+        """Tag comparison handles both string and dict formats."""
+        prev = {"tags": ["python", "web"]}
+        curr = {"tags": [{"id": "1", "name": "python"}, {"id": "2", "name": "web"}]}
+        result = BaseEntityService._compute_changed_fields(prev, curr, content_changed=False)
+        assert result == []
+
+    def test__compute_changed_fields__tags_mixed_format_with_change(self) -> None:
+        """Tag comparison detects changes across mixed formats."""
+        prev = {"tags": ["python"]}
+        curr = {"tags": [{"id": "1", "name": "rust"}]}
+        result = BaseEntityService._compute_changed_fields(prev, curr, content_changed=False)
+        assert result == ["tags"]
+
     def test__compute_changed_fields__ignores_underscore_prefixed_keys(self) -> None:
         """Keys starting with underscore are ignored."""
         prev = {"title": "Old", "_internal": "x"}

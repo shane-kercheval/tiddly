@@ -12,6 +12,9 @@ interface ChangeIndicatorsProps {
   changed: string[] | null | undefined
 }
 
+/** Human-readable overrides for field names in tooltips */
+const TOOLTIP_LABELS: Record<string, string> = { url: 'URL' }
+
 /** Field groups: maps changed_fields values to icon + tooltip */
 const FIELD_GROUPS: {
   fields: string[]
@@ -44,9 +47,8 @@ export function ChangeIndicators({ changed }: ChangeIndicatorsProps): ReactNode 
   return (
     <span className="inline-flex items-center gap-1" data-testid="change-indicators">
       {matchedGroups.map(({ matchedFields, icon: Icon, label }) => {
-        const FIELD_LABELS: Record<string, string> = { url: 'URL' }
         const tooltip = matchedFields
-          .map(f => FIELD_LABELS[f] ?? f.charAt(0).toUpperCase() + f.slice(1))
+          .map(f => TOOLTIP_LABELS[f] ?? f.charAt(0).toUpperCase() + f.slice(1))
           .join(', ')
 
         return (

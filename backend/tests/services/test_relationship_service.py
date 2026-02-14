@@ -1520,6 +1520,21 @@ class TestSyncRelationshipsForEntity:
         assert snapshot[0]['target_id'] == str(note_a.id)
 
     @pytest.mark.asyncio
+    async def test__sync__raises_on_nonexistent_target_by_default(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark,
+    ) -> None:
+        """Syncing with default skip_missing_targets=False raises ContentNotFoundError."""
+        fake_id = uuid4()
+        desired = [
+            RelationshipInput(target_type='note', target_id=fake_id, relationship_type='related'),
+        ]
+        with pytest.raises(ContentNotFoundError):
+            await sync_relationships_for_entity(
+                db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
+            )
+
+    @pytest.mark.asyncio
     async def test__sync__handles_duplicate_gracefully(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,

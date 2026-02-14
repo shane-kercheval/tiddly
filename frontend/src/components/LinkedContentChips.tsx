@@ -214,7 +214,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
                   e.stopPropagation()
                   onRemove(item)
                 }}
-                className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/link:opacity-100 transition-opacity flex items-center justify-center"
+                className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/link:opacity-100 group-focus-within/link:opacity-100 transition-opacity flex items-center justify-center"
                 title="Remove link"
                 aria-label={`Remove link to ${displayTitle}`}
               >
@@ -241,12 +241,17 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder="Search to link..."
+            role="combobox"
+            aria-expanded={showDropdown && inputValue.length >= 1}
+            aria-controls="linked-content-listbox"
+            aria-autocomplete="list"
+            aria-activedescendant={highlightedIndex >= 0 ? `linked-content-option-${highlightedIndex}` : undefined}
             className="min-w-[120px] w-36 text-xs px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400/20"
           />
 
           {/* Results dropdown */}
           {showDropdown && inputValue.length >= 1 && (
-            <div className="absolute left-0 top-full mt-1 z-10 max-h-48 w-64 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
+            <div id="linked-content-listbox" role="listbox" className="absolute left-0 top-full mt-1 z-10 max-h-48 w-64 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
               {isSearching && results.length === 0 && (
                 <p className="text-xs text-gray-400 py-3 text-center">Searching...</p>
               )}
@@ -263,7 +268,9 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
                 return (
                   <button
                     key={`${item.type}-${item.id}`}
+                    id={`linked-content-option-${index}`}
                     type="button"
+                    role="option"
                     onClick={() => handleResultClick(index)}
                     aria-selected={index === highlightedIndex}
                     className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${

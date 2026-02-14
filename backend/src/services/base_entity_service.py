@@ -204,8 +204,10 @@ class BaseEntityService(ABC, Generic[T]):
     def _metadata_field_changed(key: str, prev: Any, curr: Any) -> bool:
         """Check if a single metadata field changed between previous and current values."""
         if key == "tags":
-            prev_names = sorted(t.get("name", "") for t in (prev or []))
-            curr_names = sorted(t.get("name", "") for t in (curr or []))
+            def _tag_name(t: Any) -> str:
+                return t.get("name", "") if isinstance(t, dict) else str(t)
+            prev_names = sorted(_tag_name(t) for t in (prev or []))
+            curr_names = sorted(_tag_name(t) for t in (curr or []))
             return prev_names != curr_names
         if key == "relationships":
             def _rel_key(r: dict) -> tuple:
