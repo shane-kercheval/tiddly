@@ -701,7 +701,8 @@ class ApiBenchmark:
             return self._empty_result("Update Bookmark w/ Rels", concurrency)
 
         bookmark_ids = list(self.created_bookmark_ids)
-        note_ids = list(self.created_note_ids)
+        # Use first 50 note IDs only — later entries may be soft-deleted
+        note_ids = list(self.created_note_ids[:50])
         counter = count(1)
         content = self.content
 
@@ -911,7 +912,8 @@ class ApiBenchmark:
             return self._empty_result("Update Prompt w/ Rels", concurrency)
 
         prompt_ids = list(self.created_prompt_ids)
-        note_ids = list(self.created_note_ids)
+        # Use first 50 note IDs only — later entries may be soft-deleted
+        note_ids = list(self.created_note_ids[:50])
         counter = count(1)
         content = self.content
 
