@@ -20,8 +20,15 @@ Before running any benchmarks:
    )
    ```
    **Do NOT commit these changes.** Revert after benchmarking.
-4. **Close other heavy processes** to reduce noise (browsers, IDEs with indexing, etc.)
-5. **Verify the API is reachable:** `curl http://localhost:8000/health`
+4. **Minimize background noise.** Recommend the user close heavy processes (browsers, IDEs with indexing, Docker Desktop dashboard, Spotlight indexing, etc.) or restart their machine before running benchmarks. Background activity introduces variance that can mask or fake regressions.
+5. **Capture machine specs** for the report. Run:
+   ```bash
+   sysctl -n machdep.cpu.brand_string  # CPU
+   sysctl -n hw.memsize | awk '{print $0/1073741824 " GB"}'  # RAM
+   sw_vers  # macOS version
+   ```
+   On Linux, use `lscpu`, `free -h`, and `uname -r` instead. Record these — they go in the report's Environment section.
+6. **Verify the API is reachable:** `curl http://localhost:8000/health`
 6. **Check for unarchived profiling results.** If `performance/profiling/results/` contains `.html` or `.txt` files from a previous run, verify they've been archived (a corresponding `.zip` should exist in `performance/profiling/`). If not archived, archive them first:
    ```bash
    cd performance/profiling && zip -r YYYY-MM-DD-branch-name.zip results/ && cd ../..
@@ -233,6 +240,7 @@ Use this exact format:
 **Baseline:** (which past results were compared against, if any)
 **Profiling:** See profiling_report_<BRANCH>_YYYYMMDD.md
 **Environment:** Local dev (VITE_DEV_MODE=true, no auth overhead)
+**Machine:** (CPU, RAM, OS version from Phase 0 step 5)
 
 ## Branch Changes Summary
 
@@ -307,6 +315,7 @@ Use this exact format:
 **Branch:** (current branch name)
 **Commit:** (short hash)
 **Benchmarks:** See benchmark_report_<BRANCH>_YYYYMMDD.md
+**Machine:** (CPU, RAM, OS version from Phase 0 step 5)
 **Method:** pyinstrument via ASGITransport (in-process, no network overhead)
 
 ## Test Parameters
