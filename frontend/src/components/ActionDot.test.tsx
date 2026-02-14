@@ -49,4 +49,11 @@ describe('ActionDot', () => {
     const dot = screen.getByTestId('action-dot')
     expect(dot.className).toContain('rounded-full')
   })
+
+  it('test__action_dot__has_accessible_label', () => {
+    render(<ActionDot action="update" />)
+    const dot = screen.getByTestId('action-dot')
+    expect(dot).toHaveAttribute('role', 'img')
+    expect(dot).toHaveAttribute('aria-label', 'Updated')
+  })
 })

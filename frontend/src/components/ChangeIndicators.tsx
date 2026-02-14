@@ -44,8 +44,9 @@ export function ChangeIndicators({ changed }: ChangeIndicatorsProps): ReactNode 
   return (
     <span className="inline-flex items-center gap-1" data-testid="change-indicators">
       {matchedGroups.map(({ matchedFields, icon: Icon, label }) => {
+        const FIELD_LABELS: Record<string, string> = { url: 'URL' }
         const tooltip = matchedFields
-          .map(f => f.charAt(0).toUpperCase() + f.slice(1))
+          .map(f => FIELD_LABELS[f] ?? f.charAt(0).toUpperCase() + f.slice(1))
           .join(', ')
 
         return (

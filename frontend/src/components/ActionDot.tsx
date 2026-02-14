@@ -20,6 +20,8 @@ export function ActionDot({ action }: ActionDotProps): ReactNode {
     <Tooltip content={formatAction(action)} compact delay={0}>
       <span
         className={`inline-block h-2.5 w-2.5 rounded-full shrink-0 ${style}`}
+        role="img"
+        aria-label={formatAction(action)}
         data-testid="action-dot"
       />
     </Tooltip>
