@@ -58,11 +58,11 @@ class BookmarkService(BaseEntityService[Bookmark]):
         """Return the EntityType for bookmarks."""
         return EntityType.BOOKMARK
 
-    async def _get_metadata_snapshot(
+    async def get_metadata_snapshot(
         self, db: AsyncSession, user_id: UUID, entity: Bookmark,
     ) -> dict:
         """Extract bookmark metadata including URL."""
-        base = await super()._get_metadata_snapshot(db, user_id, entity)
+        base = await super().get_metadata_snapshot(db, user_id, entity)
         base["url"] = entity.url
         return base
 
@@ -244,12 +244,8 @@ class BookmarkService(BaseEntityService[Bookmark]):
 
         # Sync relationships (entity must exist for validation)
         if data.relationships:
-            desired = [r.model_dump() for r in data.relationships]
-            # Convert target_id UUIDs to strings for sync function
-            for item in desired:
-                item["target_id"] = str(item["target_id"])
             await relationship_service.sync_relationships_for_entity(
-                db, user_id, self.entity_type, bookmark.id, desired,
+                db, user_id, self.entity_type, bookmark.id, data.relationships,
             )
 
         # Record history for CREATE action
@@ -262,7 +258,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
                 action=ActionType.CREATE,
                 current_content=bookmark.content,
                 previous_content=None,
-                metadata=await self._get_metadata_snapshot(db, user_id, bookmark),
+                metadata=await self.get_metadata_snapshot(db, user_id, bookmark),
                 context=context,
                 limits=limits,
             )
@@ -304,7 +300,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
 
         # Capture state before modification for diff and no-op detection
         previous_content = bookmark.content
-        previous_metadata = await self._get_metadata_snapshot(db, user_id, bookmark)
+        previous_metadata = await self.get_metadata_snapshot(db, user_id, bookmark)
 
         update_data = data.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
 
@@ -334,16 +330,14 @@ class BookmarkService(BaseEntityService[Bookmark]):
         if new_tags is not None:
             await update_bookmark_tags(db, bookmark, new_tags)
 
-        # Sync relationships if provided
+        # Sync relationships if provided.
+        # Guard uses new_relationships (popped from model_dump(exclude_unset=True)) to
+        # distinguish "not provided" from "set to []". Value uses data.relationships for
+        # typed RelationshipInput objects (both are always in sync).
         if new_relationships is not None:
-            desired = [
-                r.model_dump() if hasattr(r, "model_dump") else r
-                for r in new_relationships
-            ]
-            for item in desired:
-                item["target_id"] = str(item["target_id"])
             await relationship_service.sync_relationships_for_entity(
-                db, user_id, self.entity_type, bookmark.id, desired,
+                db, user_id, self.entity_type, bookmark.id, data.relationships,
+                skip_missing_targets=(action == ActionType.RESTORE),
             )
 
         bookmark.updated_at = func.clock_timestamp()
@@ -358,7 +352,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
         await self._refresh_with_tags(db, bookmark)
 
         # Only record history if something actually changed
-        current_metadata = await self._get_metadata_snapshot(db, user_id, bookmark)
+        current_metadata = await self.get_metadata_snapshot(db, user_id, bookmark)
         content_changed = bookmark.content != previous_content
         metadata_changed = current_metadata != previous_metadata
 

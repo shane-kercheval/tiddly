@@ -539,7 +539,7 @@ async def str_replace_bookmark(
 
     # Record history for str-replace (content changed)
     await db.refresh(bookmark, attribute_names=["tag_objects"])
-    metadata = await bookmark_service._get_metadata_snapshot(db, current_user.id, bookmark)
+    metadata = await bookmark_service.get_metadata_snapshot(db, current_user.id, bookmark)
     await history_service.record_action(
         db=db,
         user_id=current_user.id,

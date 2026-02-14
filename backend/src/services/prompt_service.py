@@ -109,11 +109,11 @@ class PromptService(BaseEntityService[Prompt]):
         """Return the EntityType for prompts."""
         return EntityType.PROMPT
 
-    async def _get_metadata_snapshot(
+    async def get_metadata_snapshot(
         self, db: AsyncSession, user_id: UUID, entity: Prompt,
     ) -> dict:
         """Extract prompt metadata including name and arguments."""
-        base = await super()._get_metadata_snapshot(db, user_id, entity)
+        base = await super().get_metadata_snapshot(db, user_id, entity)
         base["name"] = entity.name
         base["arguments"] = entity.arguments
         return base
@@ -299,11 +299,8 @@ class PromptService(BaseEntityService[Prompt]):
 
         # Sync relationships (entity must exist for validation)
         if data.relationships:
-            desired = [r.model_dump() for r in data.relationships]
-            for item in desired:
-                item["target_id"] = str(item["target_id"])
             await relationship_service.sync_relationships_for_entity(
-                db, user_id, self.entity_type, prompt.id, desired,
+                db, user_id, self.entity_type, prompt.id, data.relationships,
             )
 
         # Record history for CREATE action
@@ -316,14 +313,14 @@ class PromptService(BaseEntityService[Prompt]):
                 action=ActionType.CREATE,
                 current_content=prompt.content,
                 previous_content=None,
-                metadata=await self._get_metadata_snapshot(db, user_id, prompt),
+                metadata=await self.get_metadata_snapshot(db, user_id, prompt),
                 context=context,
                 limits=limits,
             )
 
         return prompt
 
-    async def update(  # noqa: PLR0912
+    async def update(
         self,
         db: AsyncSession,
         user_id: UUID,
@@ -359,7 +356,7 @@ class PromptService(BaseEntityService[Prompt]):
 
         # Capture state before modification for diff and no-op detection
         previous_content = prompt.content
-        previous_metadata = await self._get_metadata_snapshot(db, user_id, prompt)
+        previous_metadata = await self.get_metadata_snapshot(db, user_id, prompt)
 
         update_data = data.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
         new_tags = update_data.pop("tags", None)
@@ -408,16 +405,14 @@ class PromptService(BaseEntityService[Prompt]):
         if new_tags is not None:
             await update_prompt_tags(db, prompt, new_tags)
 
-        # Sync relationships if provided
+        # Sync relationships if provided.
+        # Guard uses new_relationships (popped from model_dump(exclude_unset=True)) to
+        # distinguish "not provided" from "set to []". Value uses data.relationships for
+        # typed RelationshipInput objects (both are always in sync).
         if new_relationships is not None:
-            desired = [
-                r.model_dump() if hasattr(r, "model_dump") else r
-                for r in new_relationships
-            ]
-            for item in desired:
-                item["target_id"] = str(item["target_id"])
             await relationship_service.sync_relationships_for_entity(
-                db, user_id, self.entity_type, prompt.id, desired,
+                db, user_id, self.entity_type, prompt.id, data.relationships,
+                skip_missing_targets=(action == ActionType.RESTORE),
             )
 
         # Only bump updated_at if there were actual changes
@@ -440,7 +435,7 @@ class PromptService(BaseEntityService[Prompt]):
         await self._refresh_with_tags(db, prompt)
 
         # Only record history if something actually changed
-        current_metadata = await self._get_metadata_snapshot(db, user_id, prompt)
+        current_metadata = await self.get_metadata_snapshot(db, user_id, prompt)
         content_changed = prompt.content != previous_content
         metadata_changed = current_metadata != previous_metadata
 

@@ -169,7 +169,7 @@ class BaseEntityService(ABC, Generic[T]):
                 metadata[field] = value
         return metadata
 
-    async def _get_metadata_snapshot(self, db: AsyncSession, user_id: UUID, entity: T) -> dict:
+    async def get_metadata_snapshot(self, db: AsyncSession, user_id: UUID, entity: T) -> dict:
         """
         Extract non-content fields for history metadata snapshot.
 

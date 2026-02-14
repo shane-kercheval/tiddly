@@ -174,11 +174,8 @@ class NoteService(BaseEntityService[Note]):
 
         # Sync relationships (entity must exist for validation)
         if data.relationships:
-            desired = [r.model_dump() for r in data.relationships]
-            for item in desired:
-                item["target_id"] = str(item["target_id"])
             await relationship_service.sync_relationships_for_entity(
-                db, user_id, self.entity_type, note.id, desired,
+                db, user_id, self.entity_type, note.id, data.relationships,
             )
 
         # Record history for CREATE action
@@ -191,7 +188,7 @@ class NoteService(BaseEntityService[Note]):
                 action=ActionType.CREATE,
                 current_content=note.content,
                 previous_content=None,
-                metadata=await self._get_metadata_snapshot(db, user_id, note),
+                metadata=await self.get_metadata_snapshot(db, user_id, note),
                 context=context,
                 limits=limits,
             )
@@ -232,7 +229,7 @@ class NoteService(BaseEntityService[Note]):
 
         # Capture state before modification for diff and no-op detection
         previous_content = note.content
-        previous_metadata = await self._get_metadata_snapshot(db, user_id, note)
+        previous_metadata = await self.get_metadata_snapshot(db, user_id, note)
 
         update_data = data.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
         new_tags = update_data.pop("tags", None)
@@ -255,16 +252,14 @@ class NoteService(BaseEntityService[Note]):
         if new_tags is not None:
             await update_note_tags(db, note, new_tags)
 
-        # Sync relationships if provided
+        # Sync relationships if provided.
+        # Guard uses new_relationships (popped from model_dump(exclude_unset=True)) to
+        # distinguish "not provided" from "set to []". Value uses data.relationships for
+        # typed RelationshipInput objects (both are always in sync).
         if new_relationships is not None:
-            desired = [
-                r.model_dump() if hasattr(r, "model_dump") else r
-                for r in new_relationships
-            ]
-            for item in desired:
-                item["target_id"] = str(item["target_id"])
             await relationship_service.sync_relationships_for_entity(
-                db, user_id, self.entity_type, note.id, desired,
+                db, user_id, self.entity_type, note.id, data.relationships,
+                skip_missing_targets=(action == ActionType.RESTORE),
             )
 
         note.updated_at = func.clock_timestamp()
@@ -273,7 +268,7 @@ class NoteService(BaseEntityService[Note]):
         await self._refresh_with_tags(db, note)
 
         # Only record history if something actually changed
-        current_metadata = await self._get_metadata_snapshot(db, user_id, note)
+        current_metadata = await self.get_metadata_snapshot(db, user_id, note)
         content_changed = note.content != previous_content
         metadata_changed = current_metadata != previous_metadata
 

@@ -11,7 +11,7 @@ from models.content_history import EntityType
 from models.content_relationship import ContentRelationship
 from models.note import Note
 from models.prompt import Prompt
-from schemas.relationship import RelationshipWithContentResponse
+from schemas.relationship import RelationshipInput, RelationshipWithContentResponse
 from services.exceptions import (
     ContentNotFoundError,
     DuplicateRelationshipError,
@@ -135,11 +135,16 @@ async def create_relationship(
         relationship_type=relationship_type,
         description=description,
     )
-    db.add(rel)
     try:
-        await db.flush()
+        # Use savepoint so IntegrityError rollback is scoped and doesn't
+        # nuke the outer transaction when called mid-update (e.g. from sync).
+        # add + flush must be inside the savepoint — begin_nested() unconditionally
+        # flushes pending state on entry, so anything added before would be flushed
+        # outside the savepoint's protection.
+        async with db.begin_nested():
+            db.add(rel)
+            await db.flush()
     except IntegrityError as e:
-        await db.rollback()
         if "uq_content_relationship" in str(e):
             raise DuplicateRelationshipError from e
         raise
@@ -398,6 +403,17 @@ async def enrich_with_content_info(
     return items
 
 
+def _resolve_other_side(
+    rel: ContentRelationship,
+    entity_type: str,
+    entity_id: UUID,
+) -> tuple[str, UUID]:
+    """Resolve the 'other' side of a relationship from the entity's perspective."""
+    if rel.source_type == entity_type and rel.source_id == entity_id:
+        return rel.target_type, rel.target_id
+    return rel.source_type, rel.source_id
+
+
 async def get_relationships_snapshot(
     db: AsyncSession,
     user_id: UUID,
@@ -434,10 +450,7 @@ async def get_relationships_snapshot(
 
     snapshot: list[dict] = []
     for rel in rows:
-        if rel.source_type == entity_type and rel.source_id == entity_id:
-            other_type, other_id = rel.target_type, rel.target_id
-        else:
-            other_type, other_id = rel.source_type, rel.source_id
+        other_type, other_id = _resolve_other_side(rel, entity_type, entity_id)
         snapshot.append({
             "target_type": other_type,
             "target_id": str(other_id),
@@ -455,7 +468,9 @@ async def sync_relationships_for_entity(
     user_id: UUID,
     entity_type: str,
     entity_id: UUID,
-    desired: list[dict],
+    desired: list[RelationshipInput],
+    *,
+    skip_missing_targets: bool = False,
 ) -> None:
     """
     Sync relationships for an entity to match the desired set.
@@ -468,7 +483,9 @@ async def sync_relationships_for_entity(
         user_id: User ID.
         entity_type: Type of the entity ('bookmark', 'note', 'prompt').
         entity_id: ID of the entity.
-        desired: List of dicts with target_type, target_id, relationship_type, description.
+        desired: List of RelationshipInput objects specifying the desired relationship set.
+        skip_missing_targets: If True, silently skip targets that don't exist (for
+            restore). If False (default), let ContentNotFoundError propagate.
     """
     # Fetch current relationships (single SELECT, no pagination)
     is_source = and_(
@@ -494,22 +511,15 @@ async def sync_relationships_for_entity(
     current_by_key: dict[tuple[str, str, str], ContentRelationship] = {}
     current_descriptions: dict[tuple[str, str, str], str | None] = {}
     for rel in current_rels:
-        if rel.source_type == entity_type and rel.source_id == entity_id:
-            other_type, other_id = rel.target_type, str(rel.target_id)
-        else:
-            other_type, other_id = rel.source_type, str(rel.source_id)
-        key = (other_type, other_id, rel.relationship_type)
+        other_type, other_id = _resolve_other_side(rel, entity_type, entity_id)
+        key = (other_type, str(other_id), rel.relationship_type)
         current_by_key[key] = rel
         current_descriptions[key] = rel.description
 
-    # Build desired set
-    desired_by_key: dict[tuple[str, str, str], dict] = {}
+    # Build desired set from RelationshipInput objects
+    desired_by_key: dict[tuple[str, str, str], RelationshipInput] = {}
     for item in desired:
-        key = (
-            item["target_type"],
-            str(item["target_id"]),
-            item.get("relationship_type", "related"),
-        )
+        key = (item.target_type, str(item.target_id), item.relationship_type)
         desired_by_key[key] = item
 
     current_keys = set(current_by_key.keys())
@@ -527,7 +537,7 @@ async def sync_relationships_for_entity(
     if to_remove:
         await db.flush()
 
-    # Create new relationships — catch ContentNotFoundError per-item
+    # Create new relationships
     for key in to_add:
         item = desired_by_key[key]
         target_type, target_id_str, rel_type = key
@@ -537,11 +547,12 @@ async def sync_relationships_for_entity(
                 entity_type, entity_id,
                 target_type, UUID(target_id_str),
                 rel_type,
-                item.get("description"),
+                item.description,
             )
         except ContentNotFoundError:
+            if not skip_missing_targets:
+                raise
             # Target may have been permanently deleted — skip gracefully
-            pass
         except DuplicateRelationshipError:
             # Already exists (possible race) — skip
             pass
@@ -549,10 +560,9 @@ async def sync_relationships_for_entity(
     # Update descriptions for items in both sets if changed
     for key in in_both:
         item = desired_by_key[key]
-        new_desc = item.get("description")
-        if new_desc != current_descriptions[key]:
+        if item.description != current_descriptions[key]:
             rel = current_by_key[key]
-            rel.description = new_desc
+            rel.description = item.description
             rel.updated_at = func.clock_timestamp()
 
     if in_both:

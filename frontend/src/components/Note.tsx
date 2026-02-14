@@ -33,9 +33,10 @@ import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useNotes } from '../hooks/useNotes'
 import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedContentChips'
-import { getLinkedItem, toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
+import { useRelationshipState } from '../hooks/useRelationshipState'
+import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
-import type { Note as NoteType, NoteCreate, NoteUpdate, ContentListItem, RelationshipInputPayload, TagCount } from '../types'
+import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload, TagCount } from '../types'
 
 /** Conflict state for 409 responses */
 interface ConflictState {
@@ -175,6 +176,16 @@ export function Note({
   const currentContentRef = useRef(current.content)
   currentContentRef.current = current.content
 
+  // Relationship state management (display items, add/remove handlers, cache)
+  // Must be called before syncStateFromNote which depends on clearNewItemsCache
+  const { linkedItems, handleAddRelationship, handleRemoveRelationship, clearNewItemsCache } = useRelationshipState({
+    contentType: 'note',
+    entityId: note?.id,
+    serverRelationships: note?.relationships,
+    currentRelationships: current.relationships,
+    setCurrent,
+  })
+
   const syncStateFromNote = useCallback((nextNote: NoteType, resetEditor = false): void => {
     const archiveState = nextNote.archived_at
       ? { archivedAt: nextNote.archived_at, archivePreset: 'custom' as ArchivePreset }
@@ -193,11 +204,11 @@ export function Note({
     setOriginal(newState)
     setCurrent(newState)
     setConflictState(null)
-    newLinkedItemsCacheRef.current.clear()
+    clearNewItemsCache()
     if (resetEditor) {
       setContentKey((prev) => prev + 1)
     }
-  }, [])
+  }, [clearNewItemsCache])
 
   // Sync internal state when note prop changes (e.g., after refresh from conflict resolution)
   // This is intentional - deriving form state from props when they change is a valid pattern
@@ -223,8 +234,6 @@ export function Note({
   const titleInputRef = useRef<HTMLInputElement>(null)
   // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
   const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
-  // Cache display info for newly added linked items (from search, not yet persisted)
-  const newLinkedItemsCacheRef = useRef(new Map<string, LinkedItem>())
 
   // Read-only mode for deleted notes
   const isReadOnly = viewState === 'deleted'
@@ -243,32 +252,6 @@ export function Note({
       current.archivedAt !== original.archivedAt,
     [current, original]
   )
-
-  // Derive linked items display data from current relationships
-  const linkedItems = useMemo((): LinkedItem[] => {
-    const enriched = new Map<string, LinkedItem>()
-    if (note?.relationships) {
-      for (const rel of note.relationships) {
-        const item = getLinkedItem(rel, 'note', note.id)
-        enriched.set(`${item.type}:${item.id}`, item)
-      }
-    }
-    return current.relationships.map((rel) => {
-      const key = `${rel.target_type}:${rel.target_id}`
-      return enriched.get(key)
-        ?? newLinkedItemsCacheRef.current.get(key)
-        ?? {
-          relationshipId: '',
-          type: rel.target_type,
-          id: rel.target_id,
-          title: null,
-          url: null,
-          deleted: false,
-          archived: false,
-          description: rel.description ?? null,
-        }
-    })
-  }, [note?.relationships, note?.id, current.relationships])
 
   // Compute validity for save button (doesn't show error messages, just checks if saveable)
   const isValid = useMemo(
@@ -560,36 +543,6 @@ export function Note({
 
   const handleArchivePresetChange = useCallback((archivePreset: ArchivePreset): void => {
     setCurrent((prev) => ({ ...prev, archivePreset }))
-  }, [])
-
-  const handleAddRelationship = useCallback((item: ContentListItem): void => {
-    newLinkedItemsCacheRef.current.set(`${item.type}:${item.id}`, {
-      relationshipId: '',
-      type: item.type,
-      id: item.id,
-      title: item.title,
-      url: item.url,
-      deleted: !!item.deleted_at,
-      archived: !!item.archived_at,
-      description: null,
-    })
-    setCurrent((prev) => ({
-      ...prev,
-      relationships: [...prev.relationships, {
-        target_type: item.type,
-        target_id: item.id,
-        relationship_type: 'related' as const,
-      }],
-    }))
-  }, [])
-
-  const handleRemoveRelationship = useCallback((item: LinkedItem): void => {
-    setCurrent((prev) => ({
-      ...prev,
-      relationships: prev.relationships.filter(
-        (rel) => !(rel.target_type === item.type && rel.target_id === item.id),
-      ),
-    }))
   }, [])
 
   // Conflict resolution handlers

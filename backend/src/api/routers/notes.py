@@ -464,7 +464,7 @@ async def str_replace_note(
 
     # Record history for str-replace (content changed)
     await db.refresh(note, attribute_names=["tag_objects"])
-    metadata = await note_service._get_metadata_snapshot(db, current_user.id, note)
+    metadata = await note_service.get_metadata_snapshot(db, current_user.id, note)
     await history_service.record_action(
         db=db,
         user_id=current_user.id,

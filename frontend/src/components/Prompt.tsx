@@ -37,9 +37,10 @@ import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { usePrompts } from '../hooks/usePrompts'
-import { getLinkedItem, toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
+import { useRelationshipState } from '../hooks/useRelationshipState'
+import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
-import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, ContentListItem, RelationshipInputPayload, TagCount } from '../types'
+import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, RelationshipInputPayload, TagCount } from '../types'
 
 /** Conflict state for 409 responses */
 interface ConflictState {
@@ -243,6 +244,16 @@ export function Prompt({
   const currentContentRef = useRef(current.content)
   currentContentRef.current = current.content
 
+  // Relationship state management (display items, add/remove handlers, cache)
+  // Must be called before syncStateFromPrompt which depends on clearNewItemsCache
+  const { linkedItems, handleAddRelationship, handleRemoveRelationship, clearNewItemsCache } = useRelationshipState({
+    contentType: 'prompt',
+    entityId: prompt?.id,
+    serverRelationships: prompt?.relationships,
+    currentRelationships: current.relationships,
+    setCurrent,
+  })
+
   const syncStateFromPrompt = useCallback((nextPrompt: PromptType, resetEditor = false): void => {
     const archiveState = nextPrompt.archived_at
       ? { archivedAt: nextPrompt.archived_at, archivePreset: 'custom' as ArchivePreset }
@@ -263,11 +274,11 @@ export function Prompt({
     setOriginal(newState)
     setCurrent(newState)
     setConflictState(null)
-    newLinkedItemsCacheRef.current.clear()
+    clearNewItemsCache()
     if (resetEditor) {
       setContentKey((prev) => prev + 1)
     }
-  }, [])
+  }, [clearNewItemsCache])
 
   // Sync internal state when prompt prop changes (e.g., after refresh from conflict resolution)
   // This is intentional - deriving form state from props when they change is a valid pattern
@@ -294,8 +305,6 @@ export function Prompt({
   const nameInputRef = useRef<HTMLInputElement>(null)
   // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
   const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
-  // Cache display info for newly added linked items (from search, not yet persisted)
-  const newLinkedItemsCacheRef = useRef(new Map<string, LinkedItem>())
 
   // Read-only mode for deleted prompts
   const isReadOnly = viewState === 'deleted'
@@ -317,32 +326,6 @@ export function Prompt({
       current.archivedAt !== original.archivedAt,
     [current, original]
   )
-
-  // Derive linked items display data from current relationships
-  const linkedItems = useMemo((): LinkedItem[] => {
-    const enriched = new Map<string, LinkedItem>()
-    if (prompt?.relationships) {
-      for (const rel of prompt.relationships) {
-        const item = getLinkedItem(rel, 'prompt', prompt.id)
-        enriched.set(`${item.type}:${item.id}`, item)
-      }
-    }
-    return current.relationships.map((rel) => {
-      const key = `${rel.target_type}:${rel.target_id}`
-      return enriched.get(key)
-        ?? newLinkedItemsCacheRef.current.get(key)
-        ?? {
-          relationshipId: '',
-          type: rel.target_type,
-          id: rel.target_id,
-          title: null,
-          url: null,
-          deleted: false,
-          archived: false,
-          description: rel.description ?? null,
-        }
-    })
-  }, [prompt?.relationships, prompt?.id, current.relationships])
 
   // Compute validity for save button (doesn't show error messages, just checks if saveable)
   const isValid = useMemo(() => {
@@ -746,36 +729,6 @@ export function Prompt({
   const handleArgumentsChange = useCallback((args: PromptArgument[]): void => {
     setCurrent((prev) => ({ ...prev, arguments: args }))
     setErrors((prev) => (prev.arguments ? { ...prev, arguments: undefined } : prev))
-  }, [])
-
-  const handleAddRelationship = useCallback((item: ContentListItem): void => {
-    newLinkedItemsCacheRef.current.set(`${item.type}:${item.id}`, {
-      relationshipId: '',
-      type: item.type,
-      id: item.id,
-      title: item.title,
-      url: item.url,
-      deleted: !!item.deleted_at,
-      archived: !!item.archived_at,
-      description: null,
-    })
-    setCurrent((prev) => ({
-      ...prev,
-      relationships: [...prev.relationships, {
-        target_type: item.type,
-        target_id: item.id,
-        relationship_type: 'related' as const,
-      }],
-    }))
-  }, [])
-
-  const handleRemoveRelationship = useCallback((item: LinkedItem): void => {
-    setCurrent((prev) => ({
-      ...prev,
-      relationships: prev.relationships.filter(
-        (rel) => !(rel.target_type === item.type && rel.target_id === item.id),
-      ),
-    }))
   }, [])
 
   // Conflict resolution handlers

@@ -190,7 +190,7 @@ async def _perform_str_replace(
 
     # Record history for str-replace (content changed)
     await db.refresh(prompt, attribute_names=["tag_objects"])
-    metadata = await prompt_service._get_metadata_snapshot(db, prompt.user_id, prompt)
+    metadata = await prompt_service.get_metadata_snapshot(db, prompt.user_id, prompt)
     await history_service.record_action(
         db=db,
         user_id=prompt.user_id,

@@ -56,7 +56,7 @@ async def _record_relationship_history(
     if entity is None:
         return
     context = get_request_context(request)
-    current_metadata = await service._get_metadata_snapshot(db, user_id, entity)
+    current_metadata = await service.get_metadata_snapshot(db, user_id, entity)
     await history_service.record_action(
         db=db,
         user_id=user_id,
@@ -211,15 +211,13 @@ async def delete_relationship(
     if rel is None:
         raise HTTPException(status_code=404, detail="Relationship not found")
 
-    # Record history on the canonical source entity before deletion
+    # Capture source info before deletion for history recording
     source_type = rel.source_type
     source_id = rel.source_id
 
-    deleted = await relationship_service.delete_relationship(
-        db, current_user.id, relationship_id,
-    )
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Relationship not found")
+    # Delete directly — we already have the object, no need to re-fetch
+    await db.delete(rel)
+    await db.flush()
 
     # Record history on the source entity
     try:

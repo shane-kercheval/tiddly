@@ -10,6 +10,7 @@ from models.bookmark import Bookmark
 from models.note import Note
 from models.prompt import Prompt
 from models.user import User
+from schemas.relationship import RelationshipInput
 from services.exceptions import (
     ContentNotFoundError,
     DuplicateRelationshipError,
@@ -1354,7 +1355,7 @@ class TestSyncRelationshipsForEntity:
     ) -> None:
         """Syncing with a desired set creates new relationships."""
         desired = [
-            {'target_type': 'note', 'target_id': str(note_a.id), 'relationship_type': 'related'},
+            RelationshipInput(target_type='note', target_id=note_a.id, relationship_type='related'),
         ]
         await sync_relationships_for_entity(
             db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
@@ -1383,7 +1384,7 @@ class TestSyncRelationshipsForEntity:
 
         # Sync to keep only note_a
         desired = [
-            {'target_type': 'note', 'target_id': str(note_a.id), 'relationship_type': 'related'},
+            RelationshipInput(target_type='note', target_id=note_a.id, relationship_type='related'),
         ]
         await sync_relationships_for_entity(
             db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
@@ -1426,7 +1427,7 @@ class TestSyncRelationshipsForEntity:
         )
 
         desired = [
-            {'target_type': 'note', 'target_id': str(note_a.id), 'relationship_type': 'related'},
+            RelationshipInput(target_type='note', target_id=note_a.id, relationship_type='related'),
         ]
         await sync_relationships_for_entity(
             db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
@@ -1451,8 +1452,8 @@ class TestSyncRelationshipsForEntity:
 
         # Sync to note_b + prompt_a (remove note_a, add note_b + prompt_a)
         desired = [
-            {'target_type': 'note', 'target_id': str(note_b.id), 'relationship_type': 'related'},
-            {'target_type': 'prompt', 'target_id': str(prompt_a.id), 'relationship_type': 'related'},
+            RelationshipInput(target_type='note', target_id=note_b.id, relationship_type='related'),
+            RelationshipInput(target_type='prompt', target_id=prompt_a.id, relationship_type='related'),
         ]
         await sync_relationships_for_entity(
             db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
@@ -1479,12 +1480,12 @@ class TestSyncRelationshipsForEntity:
         )
 
         desired = [
-            {
-                'target_type': 'note',
-                'target_id': str(note_a.id),
-                'relationship_type': 'related',
-                'description': 'New desc',
-            },
+            RelationshipInput(
+                target_type='note',
+                target_id=note_a.id,
+                relationship_type='related',
+                description='New desc',
+            ),
         ]
         await sync_relationships_for_entity(
             db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
@@ -1501,13 +1502,14 @@ class TestSyncRelationshipsForEntity:
         bookmark_a: Bookmark, note_a: Note,
     ) -> None:
         """Syncing gracefully skips targets that don't exist (ContentNotFoundError caught per-item)."""
-        fake_id = str(uuid4())
+        fake_id = uuid4()
         desired = [
-            {'target_type': 'note', 'target_id': str(note_a.id), 'relationship_type': 'related'},
-            {'target_type': 'note', 'target_id': fake_id, 'relationship_type': 'related'},
+            RelationshipInput(target_type='note', target_id=note_a.id, relationship_type='related'),
+            RelationshipInput(target_type='note', target_id=fake_id, relationship_type='related'),
         ]
         await sync_relationships_for_entity(
             db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
+            skip_missing_targets=True,
         )
 
         # Only the valid one should be created
@@ -1532,7 +1534,7 @@ class TestSyncRelationshipsForEntity:
         # Sync from note_a's perspective (will try to create the same link in reverse,
         # which canonical ordering makes duplicate)
         desired = [
-            {'target_type': 'bookmark', 'target_id': str(bookmark_a.id), 'relationship_type': 'related'},
+            RelationshipInput(target_type='bookmark', target_id=bookmark_a.id, relationship_type='related'),
         ]
         # Should not raise
         await sync_relationships_for_entity(
