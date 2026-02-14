@@ -35,6 +35,7 @@ def low_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
         rate_write_per_day=100,
         rate_sensitive_per_minute=2,
         rate_sensitive_per_day=100,
+        max_relationships_per_entity=50,
         history_retention_days=30,
         max_history_per_entity=100,
     )

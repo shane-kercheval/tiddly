@@ -239,6 +239,8 @@ LOW_TIER_LIMITS = TierLimits(
     rate_write_per_day=10,
     rate_sensitive_per_minute=2,
     rate_sensitive_per_day=5,
+    # Relationship limits - low values for testing
+    max_relationships_per_entity=3,
     # History retention - low values for testing
     history_retention_days=7,
     max_history_per_entity=5,

@@ -176,6 +176,7 @@ class NoteService(BaseEntityService[Note]):
         if data.relationships:
             await relationship_service.sync_relationships_for_entity(
                 db, user_id, self.entity_type, note.id, data.relationships,
+                max_per_entity=limits.max_relationships_per_entity if limits else None,
             )
 
         # Record history for CREATE action
@@ -264,6 +265,7 @@ class NoteService(BaseEntityService[Note]):
             await relationship_service.sync_relationships_for_entity(
                 db, user_id, self.entity_type, note.id, data.relationships,
                 skip_missing_targets=(action == ActionType.RESTORE),
+                max_per_entity=limits.max_relationships_per_entity if limits else None,
             )
 
         note.updated_at = func.clock_timestamp()
@@ -274,9 +276,9 @@ class NoteService(BaseEntityService[Note]):
         # Only record history if something actually changed.
         # Reuse the previous relationship snapshot when relationships weren't in the
         # payload — they're guaranteed unchanged, so skip the redundant DB queries.
+        rels_override = previous_metadata["relationships"] if new_relationships is None else None
         current_metadata = await self.get_metadata_snapshot(
-            db, user_id, note,
-            relationships_override=previous_metadata["relationships"] if new_relationships is None else None,
+            db, user_id, note, relationships_override=rels_override,
         )
         content_changed = note.content != previous_content
         metadata_changed = current_metadata != previous_metadata

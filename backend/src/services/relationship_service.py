@@ -16,6 +16,7 @@ from services.exceptions import (
     ContentNotFoundError,
     DuplicateRelationshipError,
     InvalidRelationshipError,
+    QuotaExceededError,
 )
 
 # Map EntityType values to model classes for validation queries.
@@ -81,6 +82,28 @@ def canonical_pair(
     return type_b, id_b, type_a, id_a
 
 
+async def _count_relationships_for_entity(
+    db: AsyncSession,
+    user_id: UUID,
+    content_type: str,
+    content_id: UUID,
+) -> int:
+    """Count total relationships where this entity is source or target."""
+    is_source = and_(
+        ContentRelationship.source_type == content_type,
+        ContentRelationship.source_id == content_id,
+    )
+    is_target = and_(
+        ContentRelationship.target_type == content_type,
+        ContentRelationship.target_id == content_id,
+    )
+    stmt = select(func.count(ContentRelationship.id)).where(
+        ContentRelationship.user_id == user_id,
+        or_(is_source, is_target),
+    )
+    return await db.scalar(stmt) or 0
+
+
 async def create_relationship(
     db: AsyncSession,
     user_id: UUID,
@@ -90,6 +113,8 @@ async def create_relationship(
     target_id: UUID,
     relationship_type: str,
     description: str | None = None,
+    *,
+    max_per_entity: int | None = None,
 ) -> ContentRelationship:
     """
     Create a new relationship. Validates both endpoints exist.
@@ -101,6 +126,7 @@ async def create_relationship(
         InvalidRelationshipError: If content/relationship type is invalid or self-reference.
         ContentNotFoundError: If source or target does not exist.
         DuplicateRelationshipError: If relationship already exists.
+        QuotaExceededError: If the source entity already has max_per_entity relationships.
     """
     # Validate input types
     if source_type not in VALID_CONTENT_TYPES:
@@ -113,6 +139,15 @@ async def create_relationship(
     # Validate not self-referencing
     if source_type == target_type and source_id == target_id:
         raise InvalidRelationshipError("Cannot create a relationship to the same content")
+
+    # Check per-entity relationship limit (before canonical reordering, since
+    # the limit applies to the entity the caller is editing)
+    if max_per_entity is not None:
+        current_count = await _count_relationships_for_entity(
+            db, user_id, source_type, source_id,
+        )
+        if current_count >= max_per_entity:
+            raise QuotaExceededError("relationships", current_count, max_per_entity)
 
     # Normalize for bidirectional types
     if relationship_type in BIDIRECTIONAL_TYPES:
@@ -491,6 +526,7 @@ async def get_relationships_snapshot(
             ContentRelationship.user_id == user_id,
             or_(is_source, is_target),
         )
+        .limit(200)
     )
     result = await db.execute(stmt)
     rows = list(result.scalars().all())
@@ -535,6 +571,7 @@ async def sync_relationships_for_entity(
     desired: list[RelationshipInput],
     *,
     skip_missing_targets: bool = False,
+    max_per_entity: int | None = None,
 ) -> None:
     """
     Sync relationships for an entity to match the desired set.
@@ -550,7 +587,11 @@ async def sync_relationships_for_entity(
         desired: List of RelationshipInput objects specifying the desired relationship set.
         skip_missing_targets: If True, silently skip targets that don't exist (for
             restore). If False (default), let ContentNotFoundError propagate.
+        max_per_entity: Maximum relationships allowed per entity. If the desired set
+            exceeds this limit, raises QuotaExceededError.
     """
+    if max_per_entity is not None and len(desired) > max_per_entity:
+        raise QuotaExceededError("relationships", len(desired), max_per_entity)
     # Fetch current relationships (single SELECT, no pagination)
     is_source = and_(
         ContentRelationship.source_type == entity_type,
@@ -639,10 +680,7 @@ async def embed_relationships(
     content_type: str,
     content_id: UUID,
 ) -> list[RelationshipWithContentResponse]:
-    """Fetch and enrich all relationships for embedding in entity GET responses.
-
-    Uses a single unpaginated SELECT (no COUNT) with a safety cap of 200.
-    """
+    """Fetch and enrich all relationships for embedding in entity GET responses."""
     is_source = and_(
         ContentRelationship.source_type == content_type,
         ContentRelationship.source_id == content_id,

@@ -2337,6 +2337,7 @@ class TestCountBasedPruning:
             rate_write_per_day=500,
             rate_sensitive_per_minute=10,
             rate_sensitive_per_day=100,
+            max_relationships_per_entity=50,
             history_retention_days=30,
             max_history_per_entity=5,  # Low limit for testing
         )
@@ -2917,6 +2918,7 @@ class TestAuditActions:
             rate_write_per_day=500,
             rate_sensitive_per_minute=10,
             rate_sensitive_per_day=100,
+            max_relationships_per_entity=50,
             history_retention_days=30,
             max_history_per_entity=5,
         )

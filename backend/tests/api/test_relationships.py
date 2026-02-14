@@ -1030,3 +1030,48 @@ async def test__api_restore_version__handles_deleted_targets(client: AsyncClient
         elif rel['target_type'] == 'note':
             rel_target_ids.add(rel['target_id'])
     assert note1['id'] in rel_target_ids
+
+
+
+# =============================================================================
+# Relationship limit enforcement
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_create_relationship__enforces_limit(
+    client: AsyncClient,
+) -> None:
+    """Creating relationships beyond the per-entity limit returns 402."""
+    from unittest.mock import patch
+    from core.tier_limits import TIER_LIMITS, Tier
+
+    bm = await _create_bookmark(client)
+    notes = [await _create_note(client, title=f'Note {i}') for i in range(4)]
+
+    # Patch only the relationship limit (keep all other limits at production values)
+    patched_limits = TIER_LIMITS[Tier.FREE].__class__(
+        **{**vars(TIER_LIMITS[Tier.FREE]), 'max_relationships_per_entity': 3},
+    )
+    with patch.dict("core.tier_limits.TIER_LIMITS", {Tier.FREE: patched_limits}):
+        # Create relationships up to the limit of 3
+        for i in range(3):
+            resp = await client.post('/relationships/', json={
+                'source_type': 'bookmark',
+                'source_id': bm['id'],
+                'target_type': 'note',
+                'target_id': notes[i]['id'],
+                'relationship_type': 'related',
+            })
+            assert resp.status_code == 201
+
+        # 4th should fail
+        resp = await client.post('/relationships/', json={
+            'source_type': 'bookmark',
+            'source_id': bm['id'],
+            'target_type': 'note',
+            'target_id': notes[3]['id'],
+            'relationship_type': 'related',
+        })
+        assert resp.status_code == 402
+        assert resp.json()['error_code'] == 'QUOTA_EXCEEDED'

@@ -88,6 +88,7 @@ async def create_relationship(
             data.target_id,
             data.relationship_type,
             data.description,
+            max_per_entity=limits.max_relationships_per_entity,
         )
     except ContentNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

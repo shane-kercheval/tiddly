@@ -15,6 +15,7 @@ from services.exceptions import (
     ContentNotFoundError,
     DuplicateRelationshipError,
     InvalidRelationshipError,
+    QuotaExceededError,
 )
 from services.relationship_service import (
     canonical_pair,
@@ -645,6 +646,43 @@ class TestCreateRelationship:
                 'bookmark', bookmark_a.id, 'note', note_a.id,
                 'invalid',
             )
+
+    @pytest.mark.asyncio
+    async def test__create__enforces_max_per_entity(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note, note_b: Note,
+    ) -> None:
+        """Exceeding max_per_entity raises QuotaExceededError."""
+        # Create one relationship to reach the limit of 1
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+            max_per_entity=1,
+        )
+        # Second should fail
+        with pytest.raises(QuotaExceededError, match="Relationship"):
+            await create_relationship(
+                db_session, test_user.id,
+                'bookmark', bookmark_a.id, 'note', note_b.id, 'related',
+                max_per_entity=1,
+            )
+
+    @pytest.mark.asyncio
+    async def test__create__no_limit_when_max_per_entity_is_none(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note, note_b: Note,
+    ) -> None:
+        """No limit enforced when max_per_entity is None (default)."""
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+        )
+        # Should succeed without limit
+        rel = await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_b.id, 'related',
+        )
+        assert rel is not None
 
 
 # ---------------------------------------------------------------------------
@@ -1561,3 +1599,37 @@ class TestSyncRelationshipsForEntity:
             db_session, test_user.id, 'note', note_a.id,
         )
         assert len(snapshot) == 1
+
+    @pytest.mark.asyncio
+    async def test__sync__enforces_max_per_entity(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note, note_b: Note,
+    ) -> None:
+        """Sync rejects desired set that exceeds max_per_entity."""
+        desired = [
+            RelationshipInput(target_type='note', target_id=note_a.id, relationship_type='related'),
+            RelationshipInput(target_type='note', target_id=note_b.id, relationship_type='related'),
+        ]
+        with pytest.raises(QuotaExceededError, match="Relationship"):
+            await sync_relationships_for_entity(
+                db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
+                max_per_entity=1,
+            )
+
+    @pytest.mark.asyncio
+    async def test__sync__no_limit_when_max_per_entity_is_none(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note, note_b: Note,
+    ) -> None:
+        """No limit enforced when max_per_entity is None (default)."""
+        desired = [
+            RelationshipInput(target_type='note', target_id=note_a.id, relationship_type='related'),
+            RelationshipInput(target_type='note', target_id=note_b.id, relationship_type='related'),
+        ]
+        await sync_relationships_for_entity(
+            db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
+        )
+        snapshot = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert len(snapshot) == 2
