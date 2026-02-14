@@ -59,10 +59,14 @@ class BookmarkService(BaseEntityService[Bookmark]):
         return EntityType.BOOKMARK
 
     async def get_metadata_snapshot(
-        self, db: AsyncSession, user_id: UUID, entity: Bookmark,
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        entity: Bookmark,
+        **kwargs: Any,
     ) -> dict:
         """Extract bookmark metadata including URL."""
-        base = await super().get_metadata_snapshot(db, user_id, entity)
+        base = await super().get_metadata_snapshot(db, user_id, entity, **kwargs)
         base["url"] = entity.url
         return base
 
@@ -355,8 +359,13 @@ class BookmarkService(BaseEntityService[Bookmark]):
             raise
         await self._refresh_with_tags(db, bookmark)
 
-        # Only record history if something actually changed
-        current_metadata = await self.get_metadata_snapshot(db, user_id, bookmark)
+        # Only record history if something actually changed.
+        # Reuse the previous relationship snapshot when relationships weren't in the
+        # payload — they're guaranteed unchanged, so skip the redundant DB queries.
+        current_metadata = await self.get_metadata_snapshot(
+            db, user_id, bookmark,
+            relationships_override=previous_metadata["relationships"] if new_relationships is None else None,
+        )
         content_changed = bookmark.content != previous_content
         metadata_changed = current_metadata != previous_metadata
 

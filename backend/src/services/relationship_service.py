@@ -639,6 +639,30 @@ async def embed_relationships(
     content_type: str,
     content_id: UUID,
 ) -> list[RelationshipWithContentResponse]:
-    """Fetch and enrich relationships for embedding in entity GET responses."""
-    rels, _ = await get_relationships_for_content(db, user_id, content_type, content_id)
+    """Fetch and enrich all relationships for embedding in entity GET responses.
+
+    Uses a single unpaginated SELECT (no COUNT) with a safety cap of 200.
+    """
+    is_source = and_(
+        ContentRelationship.source_type == content_type,
+        ContentRelationship.source_id == content_id,
+    )
+    is_target = and_(
+        ContentRelationship.target_type == content_type,
+        ContentRelationship.target_id == content_id,
+    )
+    stmt = (
+        select(ContentRelationship)
+        .where(
+            ContentRelationship.user_id == user_id,
+            or_(is_source, is_target),
+        )
+        .order_by(
+            ContentRelationship.created_at.desc(),
+            ContentRelationship.id.desc(),
+        )
+        .limit(200)
+    )
+    result = await db.execute(stmt)
+    rels = list(result.scalars().all())
     return await enrich_with_content_info(db, user_id, rels) if rels else []

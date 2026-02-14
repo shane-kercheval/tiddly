@@ -271,8 +271,13 @@ class NoteService(BaseEntityService[Note]):
         await db.flush()
         await self._refresh_with_tags(db, note)
 
-        # Only record history if something actually changed
-        current_metadata = await self.get_metadata_snapshot(db, user_id, note)
+        # Only record history if something actually changed.
+        # Reuse the previous relationship snapshot when relationships weren't in the
+        # payload — they're guaranteed unchanged, so skip the redundant DB queries.
+        current_metadata = await self.get_metadata_snapshot(
+            db, user_id, note,
+            relationships_override=previous_metadata["relationships"] if new_relationships is None else None,
+        )
         content_changed = note.content != previous_content
         metadata_changed = current_metadata != previous_metadata
 

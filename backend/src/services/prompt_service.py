@@ -110,10 +110,14 @@ class PromptService(BaseEntityService[Prompt]):
         return EntityType.PROMPT
 
     async def get_metadata_snapshot(
-        self, db: AsyncSession, user_id: UUID, entity: Prompt,
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        entity: Prompt,
+        **kwargs: Any,
     ) -> dict:
         """Extract prompt metadata including name and arguments."""
-        base = await super().get_metadata_snapshot(db, user_id, entity)
+        base = await super().get_metadata_snapshot(db, user_id, entity, **kwargs)
         base["name"] = entity.name
         base["arguments"] = entity.arguments
         return base
@@ -438,8 +442,13 @@ class PromptService(BaseEntityService[Prompt]):
 
         await self._refresh_with_tags(db, prompt)
 
-        # Only record history if something actually changed
-        current_metadata = await self.get_metadata_snapshot(db, user_id, prompt)
+        # Only record history if something actually changed.
+        # Reuse the previous relationship snapshot when relationships weren't in the
+        # payload — they're guaranteed unchanged, so skip the redundant DB queries.
+        current_metadata = await self.get_metadata_snapshot(
+            db, user_id, prompt,
+            relationships_override=previous_metadata["relationships"] if new_relationships is None else None,
+        )
         content_changed = prompt.content != previous_content
         metadata_changed = current_metadata != previous_metadata
 

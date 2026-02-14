@@ -169,7 +169,14 @@ class BaseEntityService(ABC, Generic[T]):
                 metadata[field] = value
         return metadata
 
-    async def get_metadata_snapshot(self, db: AsyncSession, user_id: UUID, entity: T) -> dict:
+    async def get_metadata_snapshot(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        entity: T,
+        *,
+        relationships_override: list[dict] | None = None,
+    ) -> dict:
         """
         Extract non-content fields for history metadata snapshot.
 
@@ -180,6 +187,8 @@ class BaseEntityService(ABC, Generic[T]):
             db: Database session.
             user_id: User ID for relationship queries.
             entity: The entity to extract metadata from.
+            relationships_override: If provided, use this instead of querying the database.
+                Used to skip redundant queries when relationships are known unchanged.
 
         Returns:
             Dictionary of metadata fields.
@@ -195,9 +204,12 @@ class BaseEntityService(ABC, Generic[T]):
                 if hasattr(entity, "tag_objects") else []
             ),
         }
-        snapshot["relationships"] = await relationship_service.get_relationships_snapshot(
-            db, user_id, self.entity_type, entity.id,
-        )
+        if relationships_override is not None:
+            snapshot["relationships"] = relationships_override
+        else:
+            snapshot["relationships"] = await relationship_service.get_relationships_snapshot(
+                db, user_id, self.entity_type, entity.id,
+            )
         return snapshot
 
     @staticmethod
