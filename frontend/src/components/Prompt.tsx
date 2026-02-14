@@ -1077,7 +1077,7 @@ export function Prompt({
         </div>
 
         {/* Arguments section */}
-        <div className="mt-6">
+        <div className="mt-3">
           <ArgumentsBuilder
             arguments={current.arguments}
             onChange={handleArgumentsChange}

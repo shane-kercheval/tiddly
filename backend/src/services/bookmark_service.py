@@ -250,6 +250,7 @@ class BookmarkService(BaseEntityService[Bookmark]):
 
         # Record history for CREATE action
         if context:
+            metadata = await self.get_metadata_snapshot(db, user_id, bookmark)
             await self._get_history_service().record_action(
                 db=db,
                 user_id=user_id,
@@ -258,9 +259,12 @@ class BookmarkService(BaseEntityService[Bookmark]):
                 action=ActionType.CREATE,
                 current_content=bookmark.content,
                 previous_content=None,
-                metadata=await self.get_metadata_snapshot(db, user_id, bookmark),
+                metadata=metadata,
                 context=context,
                 limits=limits,
+                changed_fields=self._compute_changed_fields(
+                    None, metadata, bool(bookmark.content),
+                ),
             )
 
         return bookmark
@@ -368,6 +372,9 @@ class BookmarkService(BaseEntityService[Bookmark]):
                 metadata=current_metadata,
                 context=context,
                 limits=limits,
+                changed_fields=self._compute_changed_fields(
+                    previous_metadata, current_metadata, content_changed,
+                ),
             )
 
         return bookmark

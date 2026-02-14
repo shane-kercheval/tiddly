@@ -11,6 +11,8 @@ import { useUserHistory, useVersionDiff } from '../../hooks/useHistory'
 import { MultiSelectDropdown } from '../../components/ui'
 import type { DropdownOption } from '../../components/ui'
 import { BookmarkIcon, NoteIcon, PromptIcon, CloseIconFilled } from '../../components/icons'
+import { ActionDot } from '../../components/ActionDot'
+import { ChangeIndicators } from '../../components/ChangeIndicators'
 import { VersionDiffPanel } from '../../components/VersionDiffPanel'
 import { CONTENT_TYPE_ICON_COLORS } from '../../constants/contentTypeStyles'
 import { formatAction, formatSource, isAuditAction } from '../../constants/historyLabels'
@@ -444,12 +446,13 @@ export function SettingsVersionHistory(): ReactNode {
                       ) : (
                         <span className="text-xs text-gray-400 italic shrink-0">audit</span>
                       )}
+                      <ChangeIndicators changed={entry.changed_fields} />
                     </div>
                   </div>
                   <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-xs ${
                     isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-500'
                   }`}>
-                    <span className={isAuditAction(entry.action) ? 'text-gray-500' : 'text-gray-700'}>{formatAction(entry.action)}</span>
+                    <span className="inline-flex items-center gap-1"><ActionDot action={entry.action} />{formatAction(entry.action)}</span>
                     <span>{formatSource(entry.source)}</span>
                     <span>{new Date(entry.created_at).toLocaleString()}</span>
                   </div>
@@ -475,7 +478,7 @@ export function SettingsVersionHistory(): ReactNode {
               <thead className="bg-gray-50">
                 <tr>
                   <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Item</th>
-                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-24">Action</th>
+                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-28">Action</th>
                   <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-20">Source</th>
                   <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-44">Date</th>
                 </tr>
@@ -489,7 +492,7 @@ export function SettingsVersionHistory(): ReactNode {
                     >
                       {/* Clickable row content */}
                       <div
-                        className={`grid grid-cols-[1fr_6rem_5rem_11rem] transition-colors ${
+                        className={`grid grid-cols-[1fr_7rem_5rem_11rem] transition-colors ${
                           isAuditAction(entry.action) ? 'bg-gray-50/50' : 'cursor-pointer hover:bg-gray-50'
                         } ${
                           selectedEntry?.id === entry.id ? 'bg-blue-50' : ''
@@ -511,9 +514,11 @@ export function SettingsVersionHistory(): ReactNode {
                             ) : (
                               <span className="text-xs text-gray-400 italic shrink-0">audit</span>
                             )}
+                            <ChangeIndicators changed={entry.changed_fields} />
                           </div>
                         </div>
-                        <div className={`px-3 py-2.5 text-sm ${isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-700'}`}>
+                        <div className="px-3 py-2.5 text-sm text-gray-500 flex items-center gap-1.5">
+                          <ActionDot action={entry.action} />
                           {formatAction(entry.action)}
                         </div>
                         <div className={`px-3 py-2.5 text-sm ${isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-500'}`}>

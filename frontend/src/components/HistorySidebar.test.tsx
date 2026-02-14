@@ -2,7 +2,7 @@
  * Tests for HistorySidebar component.
  *
  * Focuses on audit event handling:
- * - formatAction labels for all action types
+ * - Action dots rendered for all entries
  * - Audit actions (null version) don't show version badge
  * - Audit actions don't show restore button
  * - Content actions show version badge and diff view
@@ -41,6 +41,7 @@ function createEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
     action: 'update',
     version: 2,
     metadata_snapshot: { title: 'Test' },
+    changed_fields: null,
     source: 'web',
     auth_type: 'auth0',
     token_prefix: null,
@@ -75,8 +76,8 @@ describe('HistorySidebar', () => {
     mockUseRestoreToVersion.mockReturnValue({ mutate: vi.fn(), isPending: false })
   })
 
-  describe('formatAction labels', () => {
-    it('test__format_action__displays_correct_labels_for_all_action_types', () => {
+  describe('action dots', () => {
+    it('test__action_dots__rendered_for_all_entries', () => {
       const entries = [
         createEntry({ id: '1', action: 'create', version: 1 }),
         createEntry({ id: '2', action: 'update', version: 2 }),
@@ -94,13 +95,9 @@ describe('HistorySidebar', () => {
 
       renderSidebar()
 
-      expect(screen.getByText('Created')).toBeInTheDocument()
-      expect(screen.getByText('Updated')).toBeInTheDocument()
-      expect(screen.getByText('Restored')).toBeInTheDocument()
-      expect(screen.getByText('Deleted')).toBeInTheDocument()
-      expect(screen.getByText('Undeleted')).toBeInTheDocument()
-      expect(screen.getByText('Archived')).toBeInTheDocument()
-      expect(screen.getByText('Unarchived')).toBeInTheDocument()
+      // Each entry should have an action dot
+      const dots = screen.getAllByTestId('action-dot')
+      expect(dots).toHaveLength(7)
     })
   })
 
@@ -387,9 +384,49 @@ describe('HistorySidebar', () => {
       fireEvent.click(screen.getByText('v3'))
       expect(screen.getByText('v3').closest('[class*="bg-blue-50"]')).toBeInTheDocument()
 
-      // Click on the audit entry (Deleted) - should close v3's diff
-      fireEvent.click(screen.getByText('Deleted'))
+      // Click on the audit entry (bg-gray-50/50 row without version badge)
+      // The audit entry has the 'bg-gray-50/50' class (audit styling)
+      const dots = screen.getAllByTestId('action-dot')
+      // dots[0] = update (v3), dots[1] = delete (audit), dots[2] = create (v1)
+      const auditDot = dots[1]
+      const auditRow = auditDot.closest('[class*="bg-gray-50"]')!
+      fireEvent.click(auditRow)
       expect(screen.getByText('v3').closest('[class*="bg-blue-50"]')).toBeNull()
+    })
+  })
+
+  describe('change indicators', () => {
+    it('test__change_indicators__shown_when_changed_fields_present', () => {
+      const entries = [
+        createEntry({ id: '1', action: 'update', version: 2, changed_fields: ['content', 'title'] }),
+        createEntry({ id: '2', action: 'create', version: 1, changed_fields: ['content', 'title', 'url'] }),
+      ]
+
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: entries, total: entries.length, offset: 0, limit: 50, has_more: false },
+        isLoading: false,
+      })
+
+      renderSidebar()
+
+      // Both entries have changed_fields, so indicators should render
+      const indicators = screen.getAllByTestId('change-indicators')
+      expect(indicators).toHaveLength(2)
+    })
+
+    it('test__change_indicators__not_shown_for_null_changed_fields', () => {
+      const entries = [
+        createEntry({ id: '1', action: 'delete', version: null, changed_fields: null }),
+      ]
+
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: entries, total: entries.length, offset: 0, limit: 50, has_more: false },
+        isLoading: false,
+      })
+
+      renderSidebar()
+
+      expect(screen.queryByTestId('change-indicators')).not.toBeInTheDocument()
     })
   })
 })

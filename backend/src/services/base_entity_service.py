@@ -200,6 +200,68 @@ class BaseEntityService(ABC, Generic[T]):
         )
         return snapshot
 
+    @staticmethod
+    def _metadata_field_changed(key: str, prev: Any, curr: Any) -> bool:
+        """Check if a single metadata field changed between previous and current values."""
+        if key == "tags":
+            prev_names = sorted(t.get("name", "") for t in (prev or []))
+            curr_names = sorted(t.get("name", "") for t in (curr or []))
+            return prev_names != curr_names
+        if key == "relationships":
+            prev_set = {(r.get("target_type"), str(r.get("target_id"))) for r in (prev or [])}
+            curr_set = {(r.get("target_type"), str(r.get("target_id"))) for r in (curr or [])}
+            return prev_set != curr_set
+        if key == "arguments":
+            prev_sorted = sorted((prev or []), key=lambda a: a.get("name", ""))
+            curr_sorted = sorted((curr or []), key=lambda a: a.get("name", ""))
+            return prev_sorted != curr_sorted
+        return prev != curr
+
+    @staticmethod
+    def _compute_changed_fields(
+        previous_metadata: dict | None,
+        current_metadata: dict,
+        content_changed: bool,
+    ) -> list[str]:
+        """
+        Compute which fields changed between previous and current state.
+
+        For CREATE (previous_metadata is None), includes all non-empty/non-default fields.
+
+        Args:
+            previous_metadata: Metadata before the change (None for CREATE).
+            current_metadata: Metadata after the change.
+            content_changed: Whether entity content changed.
+
+        Returns:
+            Sorted list of changed field names.
+        """
+        changed: set[str] = set()
+
+        if content_changed:
+            changed.add("content")
+
+        if previous_metadata is None:
+            # CREATE: include all non-empty fields
+            for key, value in current_metadata.items():
+                if key.startswith("_"):
+                    continue
+                if value is None or value in ("", []):
+                    continue
+                changed.add(key)
+            return sorted(changed)
+
+        # Compare each metadata field
+        for key in set(previous_metadata.keys()) | set(current_metadata.keys()):
+            if key.startswith("_"):
+                continue
+            prev = previous_metadata.get(key)
+            curr = current_metadata.get(key)
+            if BaseEntityService._metadata_field_changed(key, prev, curr):
+                changed.add(key)
+
+        return sorted(changed)
+
     def _get_history_service(self) -> "HistoryService":
         """Get the history service instance. Lazy import to avoid circular dependency."""
         from services.history_service import history_service

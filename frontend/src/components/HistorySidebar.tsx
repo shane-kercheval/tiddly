@@ -9,6 +9,8 @@ import type { ReactNode } from 'react'
 import { useEntityHistory, useVersionDiff, useRestoreToVersion } from '../hooks/useHistory'
 import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
 import { CloseIcon, RestoreIcon } from './icons'
+import { ActionDot } from './ActionDot'
+import { ChangeIndicators } from './ChangeIndicators'
 import { VersionDiffPanel } from './VersionDiffPanel'
 import { formatAction, formatSource, isAuditAction } from '../constants/historyLabels'
 import type { HistoryEntityType } from '../types'
@@ -220,15 +222,16 @@ export function HistorySidebar({
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        {entry.version !== null && (
+                        <ActionDot action={entry.action} />
+                        {entry.version !== null ? (
                           <span className="font-medium text-gray-900">v{entry.version}</span>
+                        ) : (
+                          <span className="text-sm text-gray-500">{formatAction(entry.action)}</span>
                         )}
-                        <span className="text-sm text-gray-500">
-                          {formatAction(entry.action)}
-                        </span>
                         <span className="text-xs text-gray-400">
                           {formatSource(entry.source)}
                         </span>
+                        <ChangeIndicators changed={entry.changed_fields} />
                       </div>
                       <div className="text-xs text-gray-400 mt-0.5">
                         {new Date(entry.created_at).toLocaleString()}

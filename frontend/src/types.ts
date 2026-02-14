@@ -542,6 +542,7 @@ export interface HistoryEntry {
   action: HistoryActionType
   version: number | null
   metadata_snapshot: Record<string, unknown> | null
+  changed_fields: string[] | null
   source: string
   auth_type: string
   token_prefix: string | null

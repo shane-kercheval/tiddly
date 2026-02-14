@@ -18,6 +18,7 @@ class HistoryResponse(BaseModel):
     action: ActionType
     version: int | None  # None for audit events (lifecycle state transitions)
     metadata_snapshot: dict | None
+    changed_fields: list[str] | None = None  # Which fields changed (e.g. ["content", "title"])
     source: str
     auth_type: str
     token_prefix: str | None

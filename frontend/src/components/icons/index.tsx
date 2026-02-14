@@ -365,3 +365,28 @@ export const SparklesIcon = ({ className = 'h-5 w-5' }: IconProps): ReactNode =>
     />
   </svg>
 )
+
+/** Content change icon (document with pencil — body text changed) */
+export const ContentChangeIcon = ({ className = 'h-3.5 w-3.5' }: IconProps): ReactNode => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zM16.862 4.487L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
+    />
+  </svg>
+)
+
+/** Title change icon (heading "H" indicator) */
+export const TitleChangeIcon = ({ className = 'h-3.5 w-3.5' }: IconProps): ReactNode => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h8" />
+  </svg>
+)
+
+/** Description change icon (text lines / paragraph) */
+export const DescriptionChangeIcon = ({ className = 'h-3.5 w-3.5' }: IconProps): ReactNode => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h10" />
+  </svg>
+)

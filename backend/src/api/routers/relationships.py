@@ -68,6 +68,7 @@ async def _record_relationship_history(
         metadata=current_metadata,
         context=context,
         limits=limits,
+        changed_fields=["relationships"],
     )
 
 

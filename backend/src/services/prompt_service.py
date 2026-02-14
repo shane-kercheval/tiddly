@@ -305,6 +305,7 @@ class PromptService(BaseEntityService[Prompt]):
 
         # Record history for CREATE action
         if context:
+            metadata = await self.get_metadata_snapshot(db, user_id, prompt)
             await self._get_history_service().record_action(
                 db=db,
                 user_id=user_id,
@@ -313,9 +314,12 @@ class PromptService(BaseEntityService[Prompt]):
                 action=ActionType.CREATE,
                 current_content=prompt.content,
                 previous_content=None,
-                metadata=await self.get_metadata_snapshot(db, user_id, prompt),
+                metadata=metadata,
                 context=context,
                 limits=limits,
+                changed_fields=self._compute_changed_fields(
+                    None, metadata, bool(prompt.content),
+                ),
             )
 
         return prompt
@@ -451,6 +455,9 @@ class PromptService(BaseEntityService[Prompt]):
                 metadata=current_metadata,
                 context=context,
                 limits=limits,
+                changed_fields=self._compute_changed_fields(
+                    previous_metadata, current_metadata, content_changed,
+                ),
             )
 
         return prompt

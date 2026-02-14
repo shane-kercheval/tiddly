@@ -85,6 +85,10 @@ class ContentHistory(Base, UUIDv7Mixin):
     # Metadata snapshot (see class docstring for full vs minimal metadata per action type)
     metadata_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # Which fields changed in this action (e.g. ["content", "title", "tags"])
+    # NULL for old records (before this feature) and audit actions
+    changed_fields: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+
     # Source tracking (who/what initiated this change)
     source: Mapped[str] = mapped_column(String(20), nullable=False)
     auth_type: Mapped[str] = mapped_column(String(10), nullable=False)
