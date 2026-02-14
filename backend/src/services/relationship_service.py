@@ -38,6 +38,10 @@ VALID_RELATIONSHIP_TYPES = frozenset({"related"})
 # These types use canonical ordering to prevent duplicate A→B / B→A rows.
 BIDIRECTIONAL_TYPES = frozenset({"related"})
 
+# Safety cap for relationship queries that don't paginate (embed, snapshot).
+# Sits above the tier limit (e.g. 50) as a hard DB-level guard.
+_RELATIONSHIP_QUERY_CAP = 200
+
 
 async def validate_content_exists(
     db: AsyncSession,
@@ -140,20 +144,38 @@ async def create_relationship(
     if source_type == target_type and source_id == target_id:
         raise InvalidRelationshipError("Cannot create a relationship to the same content")
 
-    # Check per-entity relationship limit (before canonical reordering, since
-    # the limit applies to the entity the caller is editing)
-    if max_per_entity is not None:
-        current_count = await _count_relationships_for_entity(
-            db, user_id, source_type, source_id,
-        )
-        if current_count >= max_per_entity:
-            raise QuotaExceededError("relationships", current_count, max_per_entity)
+    # Save original source for quota check (before canonical reordering)
+    original_source_type, original_source_id = source_type, source_id
 
     # Normalize for bidirectional types
     if relationship_type in BIDIRECTIONAL_TYPES:
         source_type, source_id, target_type, target_id = canonical_pair(
             source_type, source_id, target_type, target_id,
         )
+
+    # Check for duplicate before quota — duplicates should always return 409,
+    # even when the entity is at its relationship limit.
+    existing = await db.scalar(
+        select(exists().where(
+            ContentRelationship.user_id == user_id,
+            ContentRelationship.source_type == source_type,
+            ContentRelationship.source_id == source_id,
+            ContentRelationship.target_type == target_type,
+            ContentRelationship.target_id == target_id,
+            ContentRelationship.relationship_type == relationship_type,
+        )),
+    )
+    if existing:
+        raise DuplicateRelationshipError
+
+    # Check per-entity relationship limit (uses original source, since
+    # the limit applies to the entity the caller is editing)
+    if max_per_entity is not None:
+        current_count = await _count_relationships_for_entity(
+            db, user_id, original_source_type, original_source_id,
+        )
+        if current_count >= max_per_entity:
+            raise QuotaExceededError("relationships", current_count, max_per_entity)
 
     # Validate both endpoints exist
     if not await validate_content_exists(db, user_id, source_type, source_id):
@@ -526,7 +548,7 @@ async def get_relationships_snapshot(
             ContentRelationship.user_id == user_id,
             or_(is_source, is_target),
         )
-        .limit(200)
+        .limit(_RELATIONSHIP_QUERY_CAP)
     )
     result = await db.execute(stmt)
     rows = list(result.scalars().all())
@@ -588,9 +610,15 @@ async def sync_relationships_for_entity(
         skip_missing_targets: If True, silently skip targets that don't exist (for
             restore). If False (default), let ContentNotFoundError propagate.
         max_per_entity: Maximum relationships allowed per entity. If the desired set
-            exceeds this limit, raises QuotaExceededError.
+            exceeds this limit, raises QuotaExceededError. Skipped during restore
+            (skip_missing_targets=True) since historical snapshots may exceed
+            current limits.
     """
-    if max_per_entity is not None and len(desired) > max_per_entity:
+    if (
+        max_per_entity is not None
+        and not skip_missing_targets
+        and len(desired) > max_per_entity
+    ):
         raise QuotaExceededError("relationships", len(desired), max_per_entity)
     # Fetch current relationships (single SELECT, no pagination)
     is_source = and_(
@@ -699,7 +727,7 @@ async def embed_relationships(
             ContentRelationship.created_at.desc(),
             ContentRelationship.id.desc(),
         )
-        .limit(200)
+        .limit(_RELATIONSHIP_QUERY_CAP)
     )
     result = await db.execute(stmt)
     rels = list(result.scalars().all())

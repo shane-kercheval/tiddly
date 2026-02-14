@@ -668,6 +668,25 @@ class TestCreateRelationship:
             )
 
     @pytest.mark.asyncio
+    async def test__create__duplicate_at_limit_raises_duplicate_not_quota(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """Retrying an existing relationship at the limit returns duplicate, not quota."""
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+            max_per_entity=1,
+        )
+        # At limit (1/1), retrying the same relationship should raise Duplicate, not Quota
+        with pytest.raises(DuplicateRelationshipError):
+            await create_relationship(
+                db_session, test_user.id,
+                'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+                max_per_entity=1,
+            )
+
+    @pytest.mark.asyncio
     async def test__create__no_limit_when_max_per_entity_is_none(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note,
@@ -1628,6 +1647,27 @@ class TestSyncRelationshipsForEntity:
         ]
         await sync_relationships_for_entity(
             db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
+        )
+        snapshot = await get_relationships_snapshot(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        assert len(snapshot) == 2
+
+    @pytest.mark.asyncio
+    async def test__sync__skips_limit_during_restore(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note, note_b: Note,
+    ) -> None:
+        """Restore (skip_missing_targets=True) bypasses the per-entity limit."""
+        desired = [
+            RelationshipInput(target_type='note', target_id=note_a.id, relationship_type='related'),
+            RelationshipInput(target_type='note', target_id=note_b.id, relationship_type='related'),
+        ]
+        # Would fail with max_per_entity=1 normally, but restore skips the check
+        await sync_relationships_for_entity(
+            db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
+            skip_missing_targets=True,
+            max_per_entity=1,
         )
         snapshot = await get_relationships_snapshot(
             db_session, test_user.id, 'bookmark', bookmark_a.id,
