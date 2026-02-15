@@ -8,8 +8,7 @@ import type { ReactNode } from 'react'
 import { Modal } from './Modal'
 import { useCopyFeedback } from '../../hooks/useCopyFeedback'
 import { CopyIcon, CheckIcon } from '../icons'
-
-type EntityType = 'note' | 'bookmark' | 'prompt'
+import type { ContentType } from '../../types'
 
 interface StaleDialogProps {
   /** Whether the dialog is open */
@@ -17,7 +16,7 @@ interface StaleDialogProps {
   /** Whether the user has unsaved local changes */
   isDirty: boolean
   /** The type of entity (for message) */
-  entityType: EntityType
+  entityType: ContentType
   /** The user's current editor content (for copy when dirty) */
   currentContent?: string
   /** Called when user chooses to load the server version */
@@ -147,7 +146,7 @@ interface DeletedDialogProps {
   /** Whether the dialog is open */
   isOpen: boolean
   /** The type of entity (for message) */
-  entityType: EntityType
+  entityType: ContentType
   /** Called when user chooses to go back */
   onGoBack: () => void
 }
