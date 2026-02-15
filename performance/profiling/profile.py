@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate HTML profile reports for API endpoints.
+"""
+Generate HTML profile reports for API endpoints.
 
 Usage:
     uv run python performance/profiling/profile.py
@@ -132,6 +133,36 @@ async def profile_notes(
             content_size_kb=content_size_kb,
         )
 
+        # Update with relationships — create a bookmark to link to
+        rel_bookmark = await profile_and_save(
+            client, "POST", "/bookmarks/",
+            json={
+                "url": f"https://profile-rel-target-{time.time_ns()}.com/page",
+                "title": "Profile Rel Target Bookmark",
+                "content": "Relationship target",
+            },
+            name="setup_rel_target_bookmark_for_note",
+            content_size_kb=content_size_kb,
+        )
+        rel_bookmark_id = rel_bookmark["id"] if rel_bookmark else None
+        if rel_bookmark_id:
+            created_ids.append(("bookmark", rel_bookmark_id))
+            await profile_and_save(
+                client, "PATCH", f"/notes/{note_id}",
+                json={
+                    "content": f"Updated with rels\n\n{content}",
+                    "relationships": [
+                        {
+                            "target_type": "bookmark",
+                            "target_id": rel_bookmark_id,
+                            "relationship_type": "related",
+                        },
+                    ],
+                },
+                name="update_note_with_relationships",
+                content_size_kb=content_size_kb,
+            )
+
         # Soft delete
         await profile_and_save(
             client, "DELETE", f"/notes/{note_id}",
@@ -208,6 +239,35 @@ async def profile_bookmarks(
             name="update_bookmark",
             content_size_kb=content_size_kb,
         )
+
+        # Update with relationships — create a note to link to
+        rel_note = await profile_and_save(
+            client, "POST", "/notes/",
+            json={
+                "title": "Profile Rel Target Note",
+                "content": "Relationship target",
+            },
+            name="setup_rel_target_note_for_bookmark",
+            content_size_kb=content_size_kb,
+        )
+        rel_note_id = rel_note["id"] if rel_note else None
+        if rel_note_id:
+            created_ids.append(("note", rel_note_id))
+            await profile_and_save(
+                client, "PATCH", f"/bookmarks/{bookmark_id}",
+                json={
+                    "content": f"Updated with rels\n\n{content}",
+                    "relationships": [
+                        {
+                            "target_type": "note",
+                            "target_id": rel_note_id,
+                            "relationship_type": "related",
+                        },
+                    ],
+                },
+                name="update_bookmark_with_relationships",
+                content_size_kb=content_size_kb,
+            )
 
         # Soft delete
         await profile_and_save(
@@ -286,6 +346,35 @@ async def profile_prompts(
             name="update_prompt",
             content_size_kb=content_size_kb,
         )
+
+        # Update with relationships — create a note to link to
+        rel_note = await profile_and_save(
+            client, "POST", "/notes/",
+            json={
+                "title": "Profile Rel Target Note",
+                "content": "Relationship target",
+            },
+            name="setup_rel_target_note_for_prompt",
+            content_size_kb=content_size_kb,
+        )
+        rel_note_id = rel_note["id"] if rel_note else None
+        if rel_note_id:
+            created_ids.append(("note", rel_note_id))
+            await profile_and_save(
+                client, "PATCH", f"/prompts/{prompt_id}",
+                json={
+                    "content": f"Updated w/ rels {{{{ topic }}}} {{{{ style }}}}\n\n{content}",
+                    "relationships": [
+                        {
+                            "target_type": "note",
+                            "target_id": rel_note_id,
+                            "relationship_type": "related",
+                        },
+                    ],
+                },
+                name="update_prompt_with_relationships",
+                content_size_kb=content_size_kb,
+            )
 
         # Soft delete
         await profile_and_save(

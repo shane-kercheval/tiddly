@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from schemas.content_metadata import ContentMetadata
+from schemas.relationship import RelationshipInput, RelationshipWithContentResponse
 from schemas.validators import normalize_preview, validate_and_normalize_tags
 
 
@@ -19,6 +20,7 @@ class BookmarkCreate(BaseModel):
     description: str | None = None
     content: str | None = None  # User-provided or scraped content
     tags: list[str] = []
+    relationships: list[RelationshipInput] = Field(default_factory=list)
     archived_at: datetime | None = Field(
         default=None,
         description="Schedule auto-archive at this time. Accepts ISO 8601 format with timezone "
@@ -44,6 +46,7 @@ class BookmarkUpdate(BaseModel):
     description: str | None = None
     content: str | None = None
     tags: list[str] | None = None
+    relationships: list[RelationshipInput] | None = None
     archived_at: datetime | None = Field(
         default=None,
         description="Schedule auto-archive at this time. Omit to leave unchanged; "
@@ -147,6 +150,7 @@ class BookmarkResponse(BookmarkListItem):
 
     content: str | None
     content_metadata: ContentMetadata | None = None
+    relationships: list[RelationshipWithContentResponse] = Field(default_factory=list)
 
 
 class BookmarkListResponse(BaseModel):

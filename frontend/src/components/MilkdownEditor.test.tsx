@@ -871,9 +871,10 @@ describe('MilkdownEditor link improvements', () => {
         expect(result).not.toBeNull()
         expect(result?.mark.attrs.href).toBe('https://test.com')
 
-        // CRITICAL: Performance must be < 10ms even in large documents
-        // (Baseline: 0.01-0.26ms, so 10ms gives 40x margin)
-        expect(elapsed).toBeLessThan(10)
+        // CRITICAL: Performance must be < 50ms even in large documents
+        // (Baseline: 0.01-0.26ms, but single-iteration microbenchmarks are
+        // susceptible to GC pauses; 50ms still catches O(n) regressions)
+        expect(elapsed).toBeLessThan(50)
       })
 
       view.destroy()

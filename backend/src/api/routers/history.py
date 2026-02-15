@@ -21,10 +21,12 @@ from schemas.history import (
 )
 from schemas.note import NoteUpdate
 from schemas.prompt import PromptArgument, PromptUpdate
+from schemas.relationship import RelationshipInput
 from services.bookmark_service import BookmarkService, DuplicateUrlError
 from services.history_service import HistoryService, history_service
 from services.note_service import NoteService
 from services.prompt_service import NameConflictError, PromptService
+from services.tag_service import resolve_tag_ids_to_names
 
 router = APIRouter(prefix="/history", tags=["history"])
 
@@ -46,7 +48,53 @@ def _get_service_for_entity_type(
     return services[entity_type]
 
 
-def _build_update_from_history(
+async def _resolve_tags_from_snapshot(
+    db: AsyncSession,
+    user_id: UUID,
+    tags_snapshot: list,
+) -> list[str]:
+    """
+    Resolve tags from a metadata snapshot to current tag names.
+
+    Handles both formats:
+    - New format: [{"id": "uuid", "name": "python"}, ...] — resolve by ID,
+      fall back to snapshot name if tag was deleted.
+    - Old format: ["python", ...] — use names directly.
+
+    Args:
+        db: Database session.
+        user_id: User ID to scope tags.
+        tags_snapshot: Tags from the metadata snapshot.
+
+    Returns:
+        List of tag name strings for the update schema.
+    """
+    if not tags_snapshot:
+        return []
+
+    # Detect format: old (list of strings) vs new (list of dicts with id+name)
+    if isinstance(tags_snapshot[0], str):
+        return tags_snapshot
+
+    # New format: resolve IDs to current names
+    tag_ids = [UUID(t["id"]) for t in tags_snapshot if "id" in t]
+    id_to_name = await resolve_tag_ids_to_names(db, user_id, tag_ids)
+
+    resolved: list[str] = []
+    for t in tags_snapshot:
+        tag_id = UUID(t["id"]) if "id" in t else None
+        if tag_id and tag_id in id_to_name:
+            # Tag still exists — use its current name (follows renames)
+            resolved.append(id_to_name[tag_id])
+        else:
+            # Tag was deleted — fall back to snapshot name
+            resolved.append(t["name"])
+    return resolved
+
+
+async def _build_update_from_history(
+    db: AsyncSession,
+    user_id: UUID,
     entity_type: EntityType,
     content: str | None,
     metadata: dict,
@@ -59,8 +107,8 @@ def _build_update_from_history(
     - Missing fields in metadata (from older schema): omitted from update,
       preserving the entity's current value for that field
 
-    Tags are restored by name. The service layer creates missing tags
-    automatically (existing behavior).
+    Tags are resolved by ID to follow renames. Falls back to snapshot name
+    for deleted tags or old-format snapshots (plain strings).
 
     IMPORTANT: Only include fields that actually exist in metadata. If we pass
     a field with value None, the service's model_dump(exclude_unset=True) will
@@ -80,7 +128,18 @@ def _build_update_from_history(
     if "description" in metadata:
         common_fields["description"] = metadata["description"]
     if "tags" in metadata:
-        common_fields["tags"] = metadata["tags"]
+        common_fields["tags"] = await _resolve_tags_from_snapshot(
+            db, user_id, metadata["tags"],
+        )
+
+    # Restore relationships if present in snapshot (absent in older snapshots = skip).
+    # Strip snapshot-only fields (e.g. target_title) that aren't on RelationshipInput.
+    if "relationships" in metadata:
+        rel_fields = {"target_type", "target_id", "relationship_type", "description"}
+        common_fields["relationships"] = [
+            RelationshipInput(**{k: v for k, v in rel.items() if k in rel_fields})
+            for rel in metadata["relationships"]
+        ]
 
     if entity_type == EntityType.BOOKMARK:
         if "url" in metadata:
@@ -106,9 +165,9 @@ def _build_update_from_history(
 
 @router.get("/", response_model=HistoryListResponse)
 async def get_user_history(
-    entity_type: list[EntityType] | None = Query(
+    content_type: list[EntityType] | None = Query(
         default=None,
-        description="Filter by entity types. Multiple values use OR logic.",
+        description="Filter by content types. Multiple values use OR logic.",
     ),
     action: list[ActionType] | None = Query(
         default=None,
@@ -138,7 +197,7 @@ async def get_user_history(
     sorted by created_at descending (most recent first).
 
     Filters:
-    - entity_type: Filter by content types (OR logic within)
+    - content_type: Filter by content types (OR logic within)
     - action: Filter by action types (OR logic within)
     - source: Filter by request source (OR logic within)
     - start_date/end_date: Filter by date range (inclusive)
@@ -165,7 +224,7 @@ async def get_user_history(
     items, total = await history_service.get_user_history(
         db,
         current_user.id,
-        entity_types=entity_type,
+        entity_types=content_type,
         actions=action,
         sources=source,
         start_date=start_date,
@@ -182,28 +241,28 @@ async def get_user_history(
     )
 
 
-@router.get("/{entity_type}/{entity_id}", response_model=HistoryListResponse)
+@router.get("/{content_type}/{content_id}", response_model=HistoryListResponse)
 async def get_entity_history(
-    entity_type: EntityType,
-    entity_id: UUID,
+    content_type: EntityType,
+    content_id: UUID,
     limit: int = Query(default=50, ge=1, le=100, description="Number of records to return"),
     offset: int = Query(default=0, ge=0, description="Number of records to skip"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> HistoryListResponse:
     """
-    Get history for a specific entity.
+    Get history for a specific content item.
 
-    Returns paginated history records for the specified entity,
+    Returns paginated history records for the specified content item,
     sorted by created_at descending (most recent first).
 
     Returns empty list (not 404) if:
-    - Entity was hard-deleted (history cascade-deleted)
-    - Entity never existed
-    - No history exists for this entity_id
+    - Content was hard-deleted (history cascade-deleted)
+    - Content never existed
+    - No history exists for this content_id
     """
     items, total = await history_service.get_entity_history(
-        db, current_user.id, entity_type, entity_id, limit, offset,
+        db, current_user.id, content_type, content_id, limit, offset,
     )
     return HistoryListResponse(
         items=[HistoryResponse.model_validate(item) for item in items],
@@ -215,12 +274,12 @@ async def get_entity_history(
 
 
 @router.get(
-    "/{entity_type}/{entity_id}/version/{version}/diff",
+    "/{content_type}/{content_id}/version/{version}/diff",
     response_model=VersionDiffResponse,
 )
 async def get_version_diff(
-    entity_type: EntityType,
-    entity_id: UUID,
+    content_type: EntityType,
+    content_id: UUID,
     version: int,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -234,16 +293,16 @@ async def get_version_diff(
 
     Returns:
     - 200 with diff data
-    - 404 if version doesn't exist or entity was hard-deleted
+    - 404 if version doesn't exist or content was hard-deleted
     """
     result = await history_service.get_version_diff(
-        db, current_user.id, entity_type, entity_id, version,
+        db, current_user.id, content_type, content_id, version,
     )
     if not result.found:
         raise HTTPException(status_code=404, detail="Version not found")
 
     return VersionDiffResponse(
-        entity_id=entity_id,
+        content_id=content_id,
         version=version,
         before_content=result.before_content,
         after_content=result.after_content,
@@ -254,12 +313,12 @@ async def get_version_diff(
 
 
 @router.get(
-    "/{entity_type}/{entity_id}/version/{version}",
+    "/{content_type}/{content_id}/version/{version}",
     response_model=ContentAtVersionResponse,
 )
 async def get_content_at_version(
-    entity_type: EntityType,
-    entity_id: UUID,
+    content_type: EntityType,
+    content_id: UUID,
     version: int,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -267,29 +326,29 @@ async def get_content_at_version(
     """
     Reconstruct content at a specific version.
 
-    Uses the entity's current content as anchor and applies reverse diffs
+    Uses the content item's current content as anchor and applies reverse diffs
     to reconstruct the content at the specified version.
 
     Returns:
     - 200 with content if version exists
-    - 404 if version doesn't exist or entity was hard-deleted
+    - 404 if version doesn't exist or content was hard-deleted
 
     The response includes any reconstruction warnings if diff application
     encountered issues (partial patch failures).
     """
     result = await history_service.reconstruct_content_at_version(
-        db, current_user.id, entity_type, entity_id, version,
+        db, current_user.id, content_type, content_id, version,
     )
     if not result.found:
         raise HTTPException(status_code=404, detail="Version not found")
 
     # Get metadata from that version's history record
     history = await history_service.get_history_at_version(
-        db, current_user.id, entity_type, entity_id, version,
+        db, current_user.id, content_type, content_id, version,
     )
 
     return ContentAtVersionResponse(
-        entity_id=entity_id,
+        content_id=content_id,
         version=version,
         content=result.content,  # May be None for DELETE actions - that's valid
         metadata=history.metadata_snapshot if history else None,
@@ -298,40 +357,40 @@ async def get_content_at_version(
 
 
 @router.post(
-    "/{entity_type}/{entity_id}/restore/{version}",
+    "/{content_type}/{content_id}/restore/{version}",
     response_model=RestoreResponse,
 )
 async def restore_to_version(
     request: Request,
-    entity_type: EntityType,
-    entity_id: UUID,
+    content_type: EntityType,
+    content_id: UUID,
     version: int = Path(..., ge=1, description="Version to restore to (must be >= 1)"),
     current_user: User = Depends(get_current_user),
     limits: TierLimits = Depends(get_current_limits),
     db: AsyncSession = Depends(get_async_session),
 ) -> RestoreResponse:
     """
-    Restore entity to a previous version.
+    Restore content item to a previous version.
 
     Restores content and metadata from the specified version by creating a new
-    RESTORE history entry. Delegates to the entity-specific service for
+    RESTORE history entry. Delegates to the content-specific service for
     validation (URL/name uniqueness, field limits, etc.).
 
-    Soft-deleted entities must be undeleted first via the restore (undelete) endpoint.
+    Soft-deleted content must be undeleted first via the restore (undelete) endpoint.
     Audit versions (delete/undelete/archive/unarchive) cannot be restored to.
 
     Returns:
     - 200 with restore confirmation and any warnings
     - 400 if trying to restore to current version or to an audit version
-    - 404 if entity not found, soft-deleted, or version doesn't exist
-    - 409 if restored URL/name conflicts with another entity
+    - 404 if content not found, soft-deleted, or version doesn't exist
+    - 409 if restored URL/name conflicts with another content item
     """
     context = get_request_context(request)
-    service = _get_service_for_entity_type(entity_type)
+    service = _get_service_for_entity_type(content_type)
 
     # Check if trying to restore to current version (no-op, return error)
     latest_version = await history_service.get_latest_version(
-        db, current_user.id, entity_type, entity_id,
+        db, current_user.id, content_type, content_id,
     )
     if latest_version is not None and version == latest_version:
         raise HTTPException(
@@ -339,18 +398,18 @@ async def restore_to_version(
             detail="Cannot restore to current version",
         )
 
-    # Check if entity exists and is not soft-deleted
+    # Check if content exists and is not soft-deleted
     entity = await service.get(
-        db, current_user.id, entity_id, include_deleted=True, include_archived=True,
+        db, current_user.id, content_id, include_deleted=True, include_archived=True,
     )
     if entity is None:
-        raise HTTPException(status_code=404, detail="Entity not found")
+        raise HTTPException(status_code=404, detail="Content not found")
     if entity.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Entity not found")
+        raise HTTPException(status_code=404, detail="Content not found")
 
     # Get the target version's history record
     history = await history_service.get_history_at_version(
-        db, current_user.id, entity_type, entity_id, version,
+        db, current_user.id, content_type, content_id, version,
     )
     if history is None:
         raise HTTPException(status_code=404, detail="Version not found")
@@ -365,20 +424,21 @@ async def restore_to_version(
 
     # Reconstruct content at the specified version
     result = await history_service.reconstruct_content_at_version(
-        db, current_user.id, entity_type, entity_id, version,
+        db, current_user.id, content_type, content_id, version,
     )
     if not result.found:
         raise HTTPException(status_code=404, detail="Version not found")
 
-    # Update entity with restored content and metadata
+    # Update content with restored data and metadata
     # Records a RESTORE action in history
     # Service handles validation (URL/name uniqueness, etc.)
-    update_data = _build_update_from_history(
-        entity_type, result.content, history.metadata_snapshot or {},
+    update_data = await _build_update_from_history(
+        db, current_user.id, content_type, result.content,
+        history.metadata_snapshot or {},
     )
     try:
         await service.update(
-            db, current_user.id, entity_id, update_data, limits, context,
+            db, current_user.id, content_id, update_data, limits, context,
             action=ActionType.RESTORE,
         )
     except DuplicateUrlError:

@@ -12,6 +12,8 @@
  *
  * Danger/delete actions use Tailwind's built-in red classes directly.
  */
+import type { ReactNode } from 'react'
+import { BookmarkIcon, NoteIcon, PromptIcon } from '../components/icons'
 import type { ContentType } from '../types'
 
 /**
@@ -32,6 +34,24 @@ export const CONTENT_TYPE_BADGE_STYLES: Record<ContentType, string> = {
   bookmark: 'bg-brand-bookmark-light text-brand-bookmark',
   note: 'bg-brand-note-light text-brand-note',
   prompt: 'bg-brand-prompt-light text-brand-prompt',
+}
+
+/**
+ * Icon components for each content type.
+ */
+export const CONTENT_TYPE_ICONS: Record<ContentType, (props: { className?: string }) => ReactNode> = {
+  bookmark: BookmarkIcon,
+  note: NoteIcon,
+  prompt: PromptIcon,
+}
+
+/**
+ * Human-readable labels for each content type.
+ */
+export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
+  bookmark: 'Bookmark',
+  note: 'Note',
+  prompt: 'Prompt',
 }
 
 /**

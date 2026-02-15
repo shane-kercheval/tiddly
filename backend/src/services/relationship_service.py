@@ -1,0 +1,734 @@
+"""Service layer for content relationship CRUD operations."""
+from datetime import datetime, UTC
+from uuid import UUID
+
+from sqlalchemy import and_, delete, exists, func, or_, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from models.bookmark import Bookmark
+from models.content_history import EntityType
+from models.content_relationship import ContentRelationship
+from models.note import Note
+from models.prompt import Prompt
+from schemas.relationship import RelationshipInput, RelationshipWithContentResponse
+from services.exceptions import (
+    ContentNotFoundError,
+    DuplicateRelationshipError,
+    InvalidRelationshipError,
+    QuotaExceededError,
+)
+
+# Map EntityType values to model classes for validation queries.
+# Uses direct model imports (not services) to avoid circular dependencies,
+# following the same pattern as HistoryService._get_entity().
+MODEL_MAP: dict[str, type[Bookmark] | type[Note] | type[Prompt]] = {
+    EntityType.BOOKMARK: Bookmark,
+    EntityType.NOTE: Note,
+    EntityType.PROMPT: Prompt,
+}
+
+# Valid content types, derived from EntityType (single source of truth).
+VALID_CONTENT_TYPES = frozenset(EntityType)
+
+# Valid relationship types. Add 'references', 'subtask', 'blocks' later.
+VALID_RELATIONSHIP_TYPES = frozenset({"related"})
+
+# Bidirectional relationship types where source/target are interchangeable.
+# These types use canonical ordering to prevent duplicate A→B / B→A rows.
+BIDIRECTIONAL_TYPES = frozenset({"related"})
+
+# Safety cap for relationship queries that don't paginate (embed, snapshot).
+# Sits above the tier limit (e.g. 50) as a hard DB-level guard.
+_RELATIONSHIP_QUERY_CAP = 200
+
+
+async def validate_content_exists(
+    db: AsyncSession,
+    user_id: UUID,
+    content_type: str,
+    content_id: UUID,
+) -> bool:
+    """
+    Check if content exists and belongs to user. Excludes soft-deleted content.
+
+    Archived items are valid relationship targets (archived_at is independent
+    of deleted_at, and archived content is still accessible).
+    """
+    model = MODEL_MAP.get(content_type)
+    if model is None:
+        return False
+    stmt = select(
+        exists().where(
+            model.id == content_id,
+            model.user_id == user_id,
+            model.deleted_at.is_(None),
+        ),
+    )
+    result = await db.scalar(stmt)
+    return bool(result)
+
+
+def canonical_pair(
+    type_a: str,
+    id_a: UUID,
+    type_b: str,
+    id_b: UUID,
+) -> tuple[str, UUID, str, UUID]:
+    """
+    Normalize a pair to canonical order: (source_type, source_id, target_type, target_id).
+
+    Compares (type, str(id)) lexicographically. Used for bidirectional types
+    ('related') to ensure A→B and B→A produce the same stored row.
+    """
+    if (type_a, str(id_a)) <= (type_b, str(id_b)):
+        return type_a, id_a, type_b, id_b
+    return type_b, id_b, type_a, id_a
+
+
+async def _count_relationships_for_entity(
+    db: AsyncSession,
+    user_id: UUID,
+    content_type: str,
+    content_id: UUID,
+) -> int:
+    """Count total relationships where this entity is source or target."""
+    is_source = and_(
+        ContentRelationship.source_type == content_type,
+        ContentRelationship.source_id == content_id,
+    )
+    is_target = and_(
+        ContentRelationship.target_type == content_type,
+        ContentRelationship.target_id == content_id,
+    )
+    stmt = select(func.count(ContentRelationship.id)).where(
+        ContentRelationship.user_id == user_id,
+        or_(is_source, is_target),
+    )
+    return await db.scalar(stmt) or 0
+
+
+async def create_relationship(
+    db: AsyncSession,
+    user_id: UUID,
+    source_type: str,
+    source_id: UUID,
+    target_type: str,
+    target_id: UUID,
+    relationship_type: str,
+    description: str | None = None,
+    *,
+    max_per_entity: int | None = None,
+) -> ContentRelationship:
+    """
+    Create a new relationship. Validates both endpoints exist.
+
+    For bidirectional types ('related'), normalizes source/target to canonical
+    order before insert so the unique constraint prevents both A→B and B→A.
+
+    Raises:
+        InvalidRelationshipError: If content/relationship type is invalid or self-reference.
+        ContentNotFoundError: If source or target does not exist.
+        DuplicateRelationshipError: If relationship already exists.
+        QuotaExceededError: If the source entity already has max_per_entity relationships.
+    """
+    # Validate input types
+    if source_type not in VALID_CONTENT_TYPES:
+        raise InvalidRelationshipError(f"Invalid source type: {source_type}")
+    if target_type not in VALID_CONTENT_TYPES:
+        raise InvalidRelationshipError(f"Invalid target type: {target_type}")
+    if relationship_type not in VALID_RELATIONSHIP_TYPES:
+        raise InvalidRelationshipError(f"Invalid relationship type: {relationship_type}")
+
+    # Validate not self-referencing
+    if source_type == target_type and source_id == target_id:
+        raise InvalidRelationshipError("Cannot create a relationship to the same content")
+
+    # Save original source for quota check (before canonical reordering)
+    original_source_type, original_source_id = source_type, source_id
+
+    # Normalize for bidirectional types
+    if relationship_type in BIDIRECTIONAL_TYPES:
+        source_type, source_id, target_type, target_id = canonical_pair(
+            source_type, source_id, target_type, target_id,
+        )
+
+    # Check for duplicate before quota — duplicates should always return 409,
+    # even when the entity is at its relationship limit.
+    existing = await db.scalar(
+        select(exists().where(
+            ContentRelationship.user_id == user_id,
+            ContentRelationship.source_type == source_type,
+            ContentRelationship.source_id == source_id,
+            ContentRelationship.target_type == target_type,
+            ContentRelationship.target_id == target_id,
+            ContentRelationship.relationship_type == relationship_type,
+        )),
+    )
+    if existing:
+        raise DuplicateRelationshipError
+
+    # Check per-entity relationship limit (uses original source, since
+    # the limit applies to the entity the caller is editing)
+    if max_per_entity is not None:
+        current_count = await _count_relationships_for_entity(
+            db, user_id, original_source_type, original_source_id,
+        )
+        if current_count >= max_per_entity:
+            raise QuotaExceededError("relationships", current_count, max_per_entity)
+
+    # Validate both endpoints exist
+    if not await validate_content_exists(db, user_id, source_type, source_id):
+        raise ContentNotFoundError(source_type, source_id)
+    if not await validate_content_exists(db, user_id, target_type, target_id):
+        raise ContentNotFoundError(target_type, target_id)
+
+    rel = ContentRelationship(
+        user_id=user_id,
+        source_type=source_type,
+        source_id=source_id,
+        target_type=target_type,
+        target_id=target_id,
+        relationship_type=relationship_type,
+        description=description,
+    )
+    try:
+        # Use savepoint so IntegrityError rollback is scoped and doesn't
+        # nuke the outer transaction when called mid-update (e.g. from sync).
+        # add + flush must be inside the savepoint — begin_nested() unconditionally
+        # flushes pending state on entry, so anything added before would be flushed
+        # outside the savepoint's protection.
+        async with db.begin_nested():
+            db.add(rel)
+            await db.flush()
+    except IntegrityError as e:
+        if "uq_content_relationship" in str(e):
+            raise DuplicateRelationshipError from e
+        raise
+    await db.refresh(rel)
+    return rel
+
+
+async def get_relationship(
+    db: AsyncSession,
+    user_id: UUID,
+    relationship_id: UUID,
+) -> ContentRelationship | None:
+    """Get a single relationship by ID, scoped to user."""
+    stmt = select(ContentRelationship).where(
+        ContentRelationship.id == relationship_id,
+        ContentRelationship.user_id == user_id,
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def update_relationship(
+    db: AsyncSession,
+    user_id: UUID,
+    relationship_id: UUID,
+    *,
+    description: str | None = ...,  # type: ignore[assignment]
+) -> ContentRelationship | None:
+    """
+    Update relationship metadata (currently only description).
+
+    Uses sentinel default (...) to distinguish "not provided" from "explicitly
+    set to None", consistent with existing service update patterns.
+
+    Returns None if relationship not found.
+    """
+    rel = await get_relationship(db, user_id, relationship_id)
+    if rel is None:
+        return None
+
+    if description is not ...:
+        rel.description = description
+        rel.updated_at = func.clock_timestamp()
+
+    await db.flush()
+    await db.refresh(rel)
+    return rel
+
+
+async def delete_relationship(
+    db: AsyncSession,
+    user_id: UUID,
+    relationship_id: UUID,
+) -> bool:
+    """Delete a single relationship. Returns True if deleted, False if not found."""
+    rel = await get_relationship(db, user_id, relationship_id)
+    if rel is None:
+        return False
+    await db.delete(rel)
+    await db.flush()
+    return True
+
+
+async def get_relationships_for_content(
+    db: AsyncSession,
+    user_id: UUID,
+    content_type: str,
+    content_id: UUID,
+    relationship_type: str | None = None,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[ContentRelationship], int]:
+    """
+    Get relationships for a content item with pagination.
+
+    For bidirectional types ('related'): queries both directions (where item
+    is source OR target), since canonical ordering means the item could be
+    stored in either position.
+
+    Results are ordered by created_at DESC, id DESC for deterministic pagination.
+
+    Returns:
+        Tuple of (relationships, total_count).
+    """
+    # Build condition for matching this content as source or target
+    is_source = and_(
+        ContentRelationship.source_type == content_type,
+        ContentRelationship.source_id == content_id,
+    )
+    is_target = and_(
+        ContentRelationship.target_type == content_type,
+        ContentRelationship.target_id == content_id,
+    )
+
+    base_where = [
+        ContentRelationship.user_id == user_id,
+        or_(is_source, is_target),
+    ]
+
+    if relationship_type is not None:
+        base_where.append(ContentRelationship.relationship_type == relationship_type)
+
+    # Count total
+    count_stmt = select(func.count(ContentRelationship.id)).where(*base_where)
+    total = await db.scalar(count_stmt) or 0
+
+    # Fetch page
+    stmt = (
+        select(ContentRelationship)
+        .where(*base_where)
+        .order_by(
+            ContentRelationship.created_at.desc(),
+            ContentRelationship.id.desc(),
+        )
+        .offset(offset)
+        .limit(limit)
+    )
+
+    result = await db.execute(stmt)
+    return list(result.scalars().all()), total
+
+
+async def delete_relationships_for_content(
+    db: AsyncSession,
+    user_id: UUID,
+    content_type: str,
+    content_id: UUID,
+) -> int:
+    """
+    Delete all relationships where this content is source OR target.
+
+    Called when content is permanently deleted (application-level cascade).
+    Returns the count of deleted relationships.
+    """
+    is_source = and_(
+        ContentRelationship.source_type == content_type,
+        ContentRelationship.source_id == content_id,
+    )
+    is_target = and_(
+        ContentRelationship.target_type == content_type,
+        ContentRelationship.target_id == content_id,
+    )
+
+    stmt = (
+        delete(ContentRelationship)
+        .where(
+            ContentRelationship.user_id == user_id,
+            or_(is_source, is_target),
+        )
+    )
+    result = await db.execute(stmt)
+    return result.rowcount
+
+
+# Column tuples for batch resolution queries — only fetch what's needed.
+_BOOKMARK_COLS = (
+    Bookmark.id, Bookmark.title, Bookmark.url, Bookmark.deleted_at, Bookmark.archived_at,
+)
+_NOTE_COLS = (Note.id, Note.title, Note.deleted_at, Note.archived_at)
+_PROMPT_COLS = (Prompt.id, Prompt.title, Prompt.deleted_at, Prompt.archived_at)
+
+
+async def enrich_with_content_info(
+    db: AsyncSession,
+    user_id: UUID,
+    rels: list[ContentRelationship],
+) -> list[RelationshipWithContentResponse]:
+    """
+    Batch-resolve content metadata for relationships.
+
+    Collects all distinct IDs per content type, issues one query per type
+    (at most 3 queries), then maps results into response objects.
+
+    Uses time-aware archived check: archived_at must be non-null AND in
+    the past/present to be considered archived (future = scheduled, not yet archived).
+    """
+    now = datetime.now(UTC)
+
+    # Collect IDs per content type from both source and target sides
+    ids_by_type: dict[str, set[UUID]] = {'bookmark': set(), 'note': set(), 'prompt': set()}
+    for rel in rels:
+        if rel.source_type in ids_by_type:
+            ids_by_type[rel.source_type].add(rel.source_id)
+        if rel.target_type in ids_by_type:
+            ids_by_type[rel.target_type].add(rel.target_id)
+
+    # Batch query per type — one query each, only if IDs exist
+    # Lookup: (type, id) -> {title, url, deleted, archived}
+    info: dict[tuple[str, UUID], dict[str, str | bool | None]] = {}
+
+    if ids_by_type['bookmark']:
+        stmt = (
+            select(*_BOOKMARK_COLS)
+            .where(Bookmark.user_id == user_id, Bookmark.id.in_(ids_by_type['bookmark']))
+        )
+        for row in (await db.execute(stmt)).all():
+            info[('bookmark', row.id)] = {
+                'title': row.title,
+                'url': str(row.url) if row.url else None,
+                'deleted': row.deleted_at is not None,
+                'archived': row.archived_at is not None and row.archived_at <= now,
+            }
+
+    if ids_by_type['note']:
+        stmt = (
+            select(*_NOTE_COLS)
+            .where(Note.user_id == user_id, Note.id.in_(ids_by_type['note']))
+        )
+        for row in (await db.execute(stmt)).all():
+            info[('note', row.id)] = {
+                'title': row.title,
+                'url': None,
+                'deleted': row.deleted_at is not None,
+                'archived': row.archived_at is not None and row.archived_at <= now,
+            }
+
+    if ids_by_type['prompt']:
+        stmt = (
+            select(*_PROMPT_COLS)
+            .where(Prompt.user_id == user_id, Prompt.id.in_(ids_by_type['prompt']))
+        )
+        for row in (await db.execute(stmt)).all():
+            info[('prompt', row.id)] = {
+                'title': row.title,
+                'url': None,
+                'deleted': row.deleted_at is not None,
+                'archived': row.archived_at is not None and row.archived_at <= now,
+            }
+
+    # Build enriched response objects
+    items: list[RelationshipWithContentResponse] = []
+    for rel in rels:
+        source_info = info.get((rel.source_type, rel.source_id))
+        target_info = info.get((rel.target_type, rel.target_id))
+
+        items.append(RelationshipWithContentResponse(
+            id=rel.id,
+            source_type=rel.source_type,
+            source_id=rel.source_id,
+            target_type=rel.target_type,
+            target_id=rel.target_id,
+            relationship_type=rel.relationship_type,
+            description=rel.description,
+            created_at=rel.created_at,
+            updated_at=rel.updated_at,
+            source_title=source_info['title'] if source_info else None,
+            source_url=source_info['url'] if source_info else None,
+            source_deleted=source_info['deleted'] if source_info else True,
+            source_archived=source_info['archived'] if source_info else False,
+            target_title=target_info['title'] if target_info else None,
+            target_url=target_info['url'] if target_info else None,
+            target_deleted=target_info['deleted'] if target_info else True,
+            target_archived=target_info['archived'] if target_info else False,
+        ))
+
+    return items
+
+
+def _resolve_other_side(
+    rel: ContentRelationship,
+    entity_type: str,
+    entity_id: UUID,
+) -> tuple[str, UUID]:
+    """Resolve the 'other' side of a relationship from the entity's perspective."""
+    if rel.source_type == entity_type and rel.source_id == entity_id:
+        return rel.target_type, rel.target_id
+    return rel.source_type, rel.source_id
+
+
+async def _batch_fetch_titles(
+    db: AsyncSession,
+    user_id: UUID,
+    targets: list[tuple[str, UUID]],
+) -> dict[tuple[str, UUID], str]:
+    """
+    Batch-fetch display titles for a list of (entity_type, entity_id) pairs.
+
+    Returns a mapping from (type, id) to title string. Bookmarks fall back to URL
+    when title is empty; prompts fall back to name.
+    """
+    if not targets:
+        return {}
+
+    # Group by type for per-model queries
+    by_type: dict[str, list[UUID]] = {}
+    for t, eid in targets:
+        by_type.setdefault(t, []).append(eid)
+
+    titles: dict[tuple[str, UUID], str] = {}
+    for content_type, ids in by_type.items():
+        model = MODEL_MAP.get(content_type)
+        if not model:
+            continue
+        # Bookmark: fall back to url; Prompt: fall back to name
+        columns: list = [model.id, model.title]
+        if content_type == EntityType.BOOKMARK:
+            columns.append(model.url)
+        elif content_type == EntityType.PROMPT:
+            columns.append(model.name)
+        stmt = select(*columns).where(
+            model.user_id == user_id,
+            model.id.in_(ids),
+        )
+
+        result = await db.execute(stmt)
+        for row in result.all():
+            entity_id = row[0]
+            title = row[1] or ""
+            if not title and content_type in (EntityType.BOOKMARK, EntityType.PROMPT):
+                title = row[2] or ""
+            titles[(content_type, entity_id)] = title
+
+    return titles
+
+
+async def get_relationships_snapshot(
+    db: AsyncSession,
+    user_id: UUID,
+    entity_type: str,
+    entity_id: UUID,
+) -> list[dict]:
+    """
+    Return a stable, sorted list of dicts representing relationships from the entity's perspective.
+
+    Used for metadata history snapshots. Each returned dict has:
+    target_type, target_id, target_title, relationship_type, description.
+
+    Resolves perspective since the querying entity may be stored as either
+    source or target due to canonical ordering. Batch-fetches target titles
+    so they are preserved in history even if the target is later deleted.
+    """
+    # Single efficient SELECT — no pagination, no COUNT
+    is_source = and_(
+        ContentRelationship.source_type == entity_type,
+        ContentRelationship.source_id == entity_id,
+    )
+    is_target = and_(
+        ContentRelationship.target_type == entity_type,
+        ContentRelationship.target_id == entity_id,
+    )
+    stmt = (
+        select(ContentRelationship)
+        .where(
+            ContentRelationship.user_id == user_id,
+            or_(is_source, is_target),
+        )
+        .limit(_RELATIONSHIP_QUERY_CAP)
+    )
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+
+    if not rows:
+        return []
+
+    # Resolve perspective for each relationship
+    resolved: list[tuple[str, UUID, ContentRelationship]] = []
+    for rel in rows:
+        other_type, other_id = _resolve_other_side(rel, entity_type, entity_id)
+        resolved.append((other_type, other_id, rel))
+
+    # Batch-fetch titles for all targets
+    targets = [(t, eid) for t, eid, _ in resolved]
+    titles = await _batch_fetch_titles(db, user_id, targets)
+
+    snapshot: list[dict] = []
+    for other_type, other_id, rel in resolved:
+        snapshot.append({
+            "target_type": other_type,
+            "target_id": str(other_id),
+            "target_title": titles.get((other_type, other_id), ""),
+            "relationship_type": rel.relationship_type,
+            "description": rel.description,
+        })
+
+    # Sort by type then title (case-insensitive) for stable, user-meaningful ordering
+    snapshot.sort(key=lambda r: (
+        r["target_type"],
+        r["target_title"].lower(),
+        r["target_id"],
+    ))
+    return snapshot
+
+
+async def sync_relationships_for_entity(
+    db: AsyncSession,
+    user_id: UUID,
+    entity_type: str,
+    entity_id: UUID,
+    desired: list[RelationshipInput],
+    *,
+    skip_missing_targets: bool = False,
+    max_per_entity: int | None = None,
+) -> None:
+    """
+    Sync relationships for an entity to match the desired set.
+
+    Computes diff between current relationships and desired, creates new ones
+    and deletes removed ones.
+
+    Args:
+        db: Database session.
+        user_id: User ID.
+        entity_type: Type of the entity ('bookmark', 'note', 'prompt').
+        entity_id: ID of the entity.
+        desired: List of RelationshipInput objects specifying the desired relationship set.
+        skip_missing_targets: If True, silently skip targets that don't exist (for
+            restore). If False (default), let ContentNotFoundError propagate.
+        max_per_entity: Maximum relationships allowed per entity. If the desired set
+            exceeds this limit, raises QuotaExceededError. Skipped during restore
+            (skip_missing_targets=True) since historical snapshots may exceed
+            current limits.
+    """
+    if (
+        max_per_entity is not None
+        and not skip_missing_targets
+        and len(desired) > max_per_entity
+    ):
+        raise QuotaExceededError("relationships", len(desired), max_per_entity)
+    # Fetch current relationships (single SELECT, no pagination)
+    is_source = and_(
+        ContentRelationship.source_type == entity_type,
+        ContentRelationship.source_id == entity_id,
+    )
+    is_target = and_(
+        ContentRelationship.target_type == entity_type,
+        ContentRelationship.target_id == entity_id,
+    )
+    stmt = (
+        select(ContentRelationship)
+        .where(
+            ContentRelationship.user_id == user_id,
+            or_(is_source, is_target),
+        )
+    )
+    result = await db.execute(stmt)
+    current_rels = list(result.scalars().all())
+
+    # Build current set: key = (target_type, target_id, rel_type)
+    # Also track relationship objects and descriptions by key
+    current_by_key: dict[tuple[str, str, str], ContentRelationship] = {}
+    current_descriptions: dict[tuple[str, str, str], str | None] = {}
+    for rel in current_rels:
+        other_type, other_id = _resolve_other_side(rel, entity_type, entity_id)
+        key = (other_type, str(other_id), rel.relationship_type)
+        current_by_key[key] = rel
+        current_descriptions[key] = rel.description
+
+    # Build desired set from RelationshipInput objects
+    desired_by_key: dict[tuple[str, str, str], RelationshipInput] = {}
+    for item in desired:
+        key = (item.target_type, str(item.target_id), item.relationship_type)
+        desired_by_key[key] = item
+
+    current_keys = set(current_by_key.keys())
+    desired_keys = set(desired_by_key.keys())
+
+    to_add = desired_keys - current_keys
+    to_remove = current_keys - desired_keys
+    in_both = current_keys & desired_keys
+
+    # Delete removed relationships
+    for key in to_remove:
+        rel = current_by_key[key]
+        await db.delete(rel)
+
+    if to_remove:
+        await db.flush()
+
+    # Create new relationships
+    for key in to_add:
+        item = desired_by_key[key]
+        target_type, target_id_str, rel_type = key
+        try:
+            await create_relationship(
+                db, user_id,
+                entity_type, entity_id,
+                target_type, UUID(target_id_str),
+                rel_type,
+                item.description,
+            )
+        except ContentNotFoundError:
+            if not skip_missing_targets:
+                raise
+            # Target may have been permanently deleted — skip gracefully
+        except DuplicateRelationshipError:
+            # Already exists (possible race) — skip
+            pass
+
+    # Update descriptions for items in both sets if changed
+    for key in in_both:
+        item = desired_by_key[key]
+        if item.description != current_descriptions[key]:
+            rel = current_by_key[key]
+            rel.description = item.description
+            rel.updated_at = func.clock_timestamp()
+
+    if in_both:
+        await db.flush()
+
+
+async def embed_relationships(
+    db: AsyncSession,
+    user_id: UUID,
+    content_type: str,
+    content_id: UUID,
+) -> list[RelationshipWithContentResponse]:
+    """Fetch and enrich all relationships for embedding in entity GET responses."""
+    is_source = and_(
+        ContentRelationship.source_type == content_type,
+        ContentRelationship.source_id == content_id,
+    )
+    is_target = and_(
+        ContentRelationship.target_type == content_type,
+        ContentRelationship.target_id == content_id,
+    )
+    stmt = (
+        select(ContentRelationship)
+        .where(
+            ContentRelationship.user_id == user_id,
+            or_(is_source, is_target),
+        )
+        .order_by(
+            ContentRelationship.created_at.desc(),
+            ContentRelationship.id.desc(),
+        )
+        .limit(_RELATIONSHIP_QUERY_CAP)
+    )
+    result = await db.execute(stmt)
+    rels = list(result.scalars().all())
+    return await enrich_with_content_info(db, user_id, rels) if rels else []

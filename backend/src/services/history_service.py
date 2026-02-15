@@ -65,6 +65,7 @@ class HistoryService:
         metadata: dict,
         context: RequestContext,
         limits: TierLimits | None = None,
+        changed_fields: list[str] | None = None,
     ) -> ContentHistory:
         """
         Record a history entry for an action.
@@ -87,6 +88,7 @@ class HistoryService:
             metadata: Non-content metadata (title, tags, etc.).
             context: Request context with source/auth info.
             limits: User's tier limits for count-based pruning. If None, pruning is skipped.
+            changed_fields: List of field names that changed (e.g. ["content", "title"]).
 
         Returns:
             The created ContentHistory record.
@@ -111,6 +113,7 @@ class HistoryService:
                         previous_content,
                         metadata,
                         context,
+                        changed_fields,
                     )
                     break  # Success - exit retry loop
             except IntegrityError as e:
@@ -168,6 +171,7 @@ class HistoryService:
         previous_content: str | None,
         metadata: dict,
         context: RequestContext,
+        changed_fields: list[str] | None = None,
     ) -> ContentHistory:
         """Internal implementation of record_action."""
         # Convert enums to strings if needed
@@ -214,6 +218,7 @@ class HistoryService:
             content_snapshot=content_snapshot,
             content_diff=content_diff,
             metadata_snapshot=metadata,
+            changed_fields=changed_fields,
             source=context.source,
             auth_type=context.auth_type.value,
             token_prefix=context.token_prefix,

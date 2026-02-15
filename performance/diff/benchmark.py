@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 
 from diff_match_patch import diff_match_patch
 
@@ -314,7 +314,7 @@ def generate_markdown_report(
 
     # Find P95 for reconstruction with 10 diffs at 50KB
     p95_recon = next(
-        (r.p95_ms for r in reconstruction_results if r.content_size == "50KB" and "10_diffs" in r.change_type), None
+        (r.p95_ms for r in reconstruction_results if r.content_size == "50KB" and "10_diffs" in r.change_type), None,
     )
     if p95_recon:
         decision = "Interval 10 OK" if p95_recon < 20 else "Reduce to 5"
@@ -328,7 +328,7 @@ def generate_markdown_report(
 
     # Content size where 50% changes exceed 50ms
     slow_50pct_threshold = next(
-        (r.content_size for r in diff_results if r.change_type == "50%" and r.p95_ms > 50), None
+        (r.content_size for r in diff_results if r.change_type == "50%" and r.p95_ms > 50), None,
     )
     if slow_50pct_threshold:
         lines.append(f"| 50% change exceeds 50ms at | Note size | {slow_50pct_threshold} | Store snapshot instead |")

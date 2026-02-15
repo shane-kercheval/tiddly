@@ -8,12 +8,12 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MetadataChanges } from './MetadataChanges'
-import type { HistoryEntityType, HistoryActionType } from '../types'
+import type { ContentType, HistoryActionType } from '../types'
 
 function renderMetadata(props: {
   beforeMetadata: Record<string, unknown> | null
   afterMetadata: Record<string, unknown> | null
-  entityType: HistoryEntityType
+  entityType: ContentType
   action: HistoryActionType
 }): ReturnType<typeof render> {
   return render(<MetadataChanges {...props} />)
@@ -391,5 +391,328 @@ describe('MetadataChanges', () => {
 
     // null tags on both sides → treated as empty arrays → no diff
     expect(container.innerHTML).toBe('')
+  })
+
+  // --- Tag {id, name} format ---
+
+  it('test__renders_tag_changes__with_new_object_format', () => {
+    renderMetadata({
+      beforeMetadata: { title: 'Test', tags: [{ id: '1', name: 'old-tag' }] },
+      afterMetadata: { title: 'Test', tags: [{ id: '2', name: 'new-tag' }] },
+      entityType: 'note',
+      action: 'update',
+    })
+
+    expect(screen.getByText('- old-tag')).toBeInTheDocument()
+    expect(screen.getByText('+ new-tag')).toBeInTheDocument()
+  })
+
+  it('test__renders_initial_tags__with_new_object_format', () => {
+    renderMetadata({
+      beforeMetadata: null,
+      afterMetadata: {
+        title: 'My Note',
+        tags: [{ id: '1', name: 'alpha' }, { id: '2', name: 'beta' }],
+      },
+      entityType: 'note',
+      action: 'create',
+    })
+
+    expect(screen.getByText('Tags:')).toBeInTheDocument()
+    expect(screen.getByText('alpha')).toBeInTheDocument()
+    expect(screen.getByText('beta')).toBeInTheDocument()
+  })
+
+  it('test__tag_object_format_reordering__does_not_show_false_diff', () => {
+    const { container } = renderMetadata({
+      beforeMetadata: { title: 'Test', tags: [{ id: '2', name: 'b' }, { id: '1', name: 'a' }] },
+      afterMetadata: { title: 'Test', tags: [{ id: '1', name: 'a' }, { id: '2', name: 'b' }] },
+      entityType: 'note',
+      action: 'update',
+    })
+
+    expect(container.innerHTML).toBe('')
+  })
+
+  // --- Relationship changes ---
+
+  it('test__renders_relationship_additions__as_green_chips', () => {
+    renderMetadata({
+      beforeMetadata: { title: 'Test', tags: [], relationships: [] },
+      afterMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'note', target_id: 'abcd1234-0000', target_title: 'My Note', relationship_type: 'related' },
+        ],
+      },
+      entityType: 'bookmark',
+      action: 'update',
+    })
+
+    expect(screen.getByText('Links:')).toBeInTheDocument()
+    const addedChip = screen.getByText('+ note: My Note')
+    expect(addedChip).toBeInTheDocument()
+    expect(addedChip.closest('span')).toHaveClass('text-green-700')
+  })
+
+  it('test__renders_relationship_removals__as_red_chips', () => {
+    renderMetadata({
+      beforeMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'prompt', target_id: 'ffff0000-1111', target_title: 'Old Prompt', relationship_type: 'related' },
+        ],
+      },
+      afterMetadata: { title: 'Test', tags: [], relationships: [] },
+      entityType: 'bookmark',
+      action: 'update',
+    })
+
+    const removedChip = screen.getByText('- prompt: Old Prompt')
+    expect(removedChip).toBeInTheDocument()
+    expect(removedChip.closest('span')).toHaveClass('text-red-700')
+  })
+
+  it('test__renders_relationship_additions_and_removals_together', () => {
+    renderMetadata({
+      beforeMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'note', target_id: '11111111-0000', target_title: 'Old Note', relationship_type: 'related' },
+        ],
+      },
+      afterMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'bookmark', target_id: '22222222-0000', target_title: 'New Bookmark', relationship_type: 'related' },
+        ],
+      },
+      entityType: 'note',
+      action: 'update',
+    })
+
+    expect(screen.getByText('- note: Old Note')).toBeInTheDocument()
+    expect(screen.getByText('+ bookmark: New Bookmark')).toBeInTheDocument()
+  })
+
+  it('test__renders_initial_relationships__for_create_v1', () => {
+    renderMetadata({
+      beforeMetadata: null,
+      afterMetadata: {
+        title: 'My Note',
+        tags: [],
+        relationships: [
+          { target_type: 'bookmark', target_id: 'aabbccdd-0000', target_title: 'Example Site', relationship_type: 'related' },
+        ],
+      },
+      entityType: 'note',
+      action: 'create',
+    })
+
+    expect(screen.getByText('Links:')).toBeInTheDocument()
+    const chip = screen.getByText('bookmark: Example Site')
+    expect(chip).toBeInTheDocument()
+    // Initial values use gray styling, no +/- prefix
+    expect(chip.closest('span')).toHaveClass('bg-gray-100')
+  })
+
+  it('test__relationship_falls_back_to_short_id__when_no_title', () => {
+    renderMetadata({
+      beforeMetadata: { title: 'Test', tags: [], relationships: [] },
+      afterMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'note', target_id: 'abcd1234-0000-0000-0000-000000000000', relationship_type: 'related' },
+        ],
+      },
+      entityType: 'bookmark',
+      action: 'update',
+    })
+
+    // No target_title → falls back to short ID
+    expect(screen.getByText('+ note: abcd1234...')).toBeInTheDocument()
+  })
+
+  it('test__relationship_reordering__does_not_show_false_diff', () => {
+    const relA = { target_type: 'note', target_id: '11111111-0000', target_title: 'Note A', relationship_type: 'related' }
+    const relB = { target_type: 'bookmark', target_id: '22222222-0000', target_title: 'Bookmark B', relationship_type: 'related' }
+    const { container } = renderMetadata({
+      beforeMetadata: { title: 'Test', tags: [], relationships: [relA, relB] },
+      afterMetadata: { title: 'Test', tags: [], relationships: [relB, relA] },
+      entityType: 'note',
+      action: 'update',
+    })
+
+    // Same relationships, different order — no changes should be rendered
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('test__handles_missing_relationships_field__backward_compat', () => {
+    // Older metadata snapshots may not have relationships key at all
+    const { container } = renderMetadata({
+      beforeMetadata: { title: 'Test', tags: [] },
+      afterMetadata: { title: 'Test', tags: [] },
+      entityType: 'bookmark',
+      action: 'update',
+    })
+
+    // Missing on both sides → treated as empty arrays → no diff
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('test__handles_null_relationships__gracefully', () => {
+    const { container } = renderMetadata({
+      beforeMetadata: { title: 'Test', tags: [], relationships: null },
+      afterMetadata: { title: 'Test', tags: [], relationships: null },
+      entityType: 'note',
+      action: 'update',
+    })
+
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('test__relationship_description_change__shows_modified_chip', () => {
+    renderMetadata({
+      beforeMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'note', target_id: '11111111-0000', target_title: 'My Note', relationship_type: 'related', description: 'Old desc' },
+        ],
+      },
+      afterMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'note', target_id: '11111111-0000', target_title: 'My Note', relationship_type: 'related', description: 'New desc' },
+        ],
+      },
+      entityType: 'bookmark',
+      action: 'update',
+    })
+
+    // Modified relationship shown with ~ prefix and blue styling
+    const chip = screen.getByText(/~ note: My Note/)
+    expect(chip).toBeInTheDocument()
+    expect(chip.closest('span')).toHaveClass('text-blue-700')
+  })
+
+  it('test__relationship_description_added__shows_modified_chip', () => {
+    renderMetadata({
+      beforeMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'note', target_id: '11111111-0000', target_title: 'My Note', relationship_type: 'related', description: null },
+        ],
+      },
+      afterMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'note', target_id: '11111111-0000', target_title: 'My Note', relationship_type: 'related', description: 'Added desc' },
+        ],
+      },
+      entityType: 'bookmark',
+      action: 'update',
+    })
+
+    expect(screen.getByText(/~ note: My Note/)).toBeInTheDocument()
+  })
+
+  it('test__relationship_description_removed__shows_modified_chip', () => {
+    renderMetadata({
+      beforeMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'note', target_id: '11111111-0000', target_title: 'My Note', relationship_type: 'related', description: 'Had desc' },
+        ],
+      },
+      afterMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'note', target_id: '11111111-0000', target_title: 'My Note', relationship_type: 'related', description: null },
+        ],
+      },
+      entityType: 'bookmark',
+      action: 'update',
+    })
+
+    const chip = screen.getByText(/~ note: My Note/)
+    expect(chip).toBeInTheDocument()
+    expect(chip).toHaveTextContent('no description')
+  })
+
+  it('test__relationship_same_description__no_false_diff', () => {
+    const rel = { target_type: 'note', target_id: '11111111-0000', target_title: 'My Note', relationship_type: 'related', description: 'Same' }
+    const { container } = renderMetadata({
+      beforeMetadata: { title: 'Test', tags: [], relationships: [rel] },
+      afterMetadata: { title: 'Test', tags: [], relationships: [{ ...rel }] },
+      entityType: 'bookmark',
+      action: 'update',
+    })
+
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('test__relationship_mixed_changes__added_removed_modified', () => {
+    renderMetadata({
+      beforeMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'note', target_id: '11111111-0000', target_title: 'Kept Note', relationship_type: 'related', description: 'Old' },
+          { target_type: 'bookmark', target_id: '22222222-0000', target_title: 'Removed BM', relationship_type: 'related' },
+        ],
+      },
+      afterMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'note', target_id: '11111111-0000', target_title: 'Kept Note', relationship_type: 'related', description: 'New' },
+          { target_type: 'prompt', target_id: '33333333-0000', target_title: 'Added Prompt', relationship_type: 'related' },
+        ],
+      },
+      entityType: 'bookmark',
+      action: 'update',
+    })
+
+    // Removed
+    expect(screen.getByText('- bookmark: Removed BM')).toBeInTheDocument()
+    // Added
+    expect(screen.getByText('+ prompt: Added Prompt')).toBeInTheDocument()
+    // Modified
+    expect(screen.getByText(/~ note: Kept Note/)).toBeInTheDocument()
+  })
+
+  it('test__relationships_sorted_by_type_then_title__in_display', () => {
+    renderMetadata({
+      beforeMetadata: { title: 'Test', tags: [], relationships: [] },
+      afterMetadata: {
+        title: 'Test',
+        tags: [],
+        relationships: [
+          { target_type: 'prompt', target_id: '33333333-0000', target_title: 'Zebra Prompt', relationship_type: 'related' },
+          { target_type: 'bookmark', target_id: '11111111-0000', target_title: 'Alpha Site', relationship_type: 'related' },
+          { target_type: 'note', target_id: '22222222-0000', target_title: 'Middle Note', relationship_type: 'related' },
+        ],
+      },
+      entityType: 'note',
+      action: 'update',
+    })
+
+    // Sorted by type (bookmark, note, prompt) then title within type
+    const chips = screen.getAllByText(/^\+/)
+    expect(chips).toHaveLength(3)
+    expect(chips[0]).toHaveTextContent('+ bookmark: Alpha Site')
+    expect(chips[1]).toHaveTextContent('+ note: Middle Note')
+    expect(chips[2]).toHaveTextContent('+ prompt: Zebra Prompt')
   })
 })

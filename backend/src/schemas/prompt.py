@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from schemas.content_metadata import ContentMetadata
+from schemas.relationship import RelationshipInput, RelationshipWithContentResponse
 from schemas.validators import (
     check_duplicate_argument_names,
     normalize_preview,
@@ -38,6 +39,7 @@ class PromptCreate(BaseModel):
     content: str  # Jinja2 template (required)
     arguments: list[PromptArgument] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    relationships: list[RelationshipInput] = Field(default_factory=list)
     archived_at: datetime | None = Field(
         default=None,
         description="Schedule auto-archive at this time. Accepts ISO 8601 format with timezone "
@@ -75,6 +77,7 @@ class PromptUpdate(BaseModel):
     content: str | None = None
     arguments: list[PromptArgument] | None = None
     tags: list[str] | None = None
+    relationships: list[RelationshipInput] | None = None
     archived_at: datetime | None = Field(
         default=None,
         description="Schedule auto-archive at this time. Omit to leave unchanged; "
@@ -192,6 +195,7 @@ class PromptResponse(PromptListItem):
 
     content: str | None
     content_metadata: ContentMetadata | None = None
+    relationships: list[RelationshipWithContentResponse] = Field(default_factory=list)
 
 
 class PromptListResponse(BaseModel):

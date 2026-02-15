@@ -16,6 +16,7 @@ import { HistorySidebar } from '../components/HistorySidebar'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { useNotes } from '../hooks/useNotes'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
+import { useLinkedNavigation } from '../hooks/useLinkedNavigation'
 import {
   useCreateNote,
   useUpdateNote,
@@ -76,6 +77,7 @@ export function NoteDetail(): ReactNode {
 
   // Hooks
   const { fetchNote, trackNoteUsage } = useNotes()
+  const handleNavigateToLinked = useLinkedNavigation()
   const { tags: tagSuggestions } = useTagsStore()
   const fullWidthLayout = useUIPreferencesStore((state) => state.fullWidthLayout)
   const createMutation = useCreateNote()
@@ -294,6 +296,7 @@ export function NoteDetail(): ReactNode {
         fullWidth={fullWidthLayout}
         onRefresh={handleRefresh}
         onShowHistory={handleShowHistory}
+        onNavigateToLinked={handleNavigateToLinked}
       />
       {showHistory && noteId && (
         <HistorySidebar
@@ -301,6 +304,7 @@ export function NoteDetail(): ReactNode {
           entityId={noteId}
           onClose={() => setShowHistory(false)}
           onRestored={handleHistoryRestored}
+          isDeleted={viewState === 'deleted'}
         />
       )}
     </>

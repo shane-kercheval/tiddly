@@ -76,7 +76,8 @@ URL but can be user-provided. For notes, it's user-written markdown.
 - `list_tags`: Get all tags with usage counts
 
 **Read & Edit:**
-- `get_item`: Get item by ID. Use `include_content=false` to check size before loading large content.
+- `get_item`: Get item by ID. Includes `relationships` array with linked content info.
+  Use `include_content=false` to check size before loading large content.
 - `edit_content`: Edit the `content` field using string replacement (NOT title/description)
 - `search_in_content`: Search within item's text fields for matches with context
 
@@ -87,6 +88,9 @@ URL but can be user-provided. For notes, it's user-written markdown.
 **Create:**
 - `create_bookmark`: Save a new URL (metadata auto-fetched if not provided)
 - `create_note`: Create a new note with markdown content
+
+**Relationships:**
+- `create_relationship`: Link two content items together. Idempotent: if the link already exists, returns it.
 
 ## Search Response Structure
 
@@ -737,6 +741,77 @@ async def create_note(
     try:
         return await api_post(client, "/notes/", token, payload)
     except httpx.HTTPStatusError as e:
+        _raise_tool_error(parse_http_error(e))
+    except httpx.RequestError as e:
+        raise ToolError(f"API unavailable: {e}")
+
+
+@mcp.tool(
+    description=(
+        "Link two content items together. "
+        "Idempotent: if the link already exists, returns the existing relationship."
+    ),
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+)
+async def create_relationship(
+    source_type: Annotated[
+        Literal["bookmark", "note"],
+        Field(description="Type of the source item"),
+    ],
+    source_id: Annotated[str, Field(description="ID of the source item (UUID)")],
+    target_type: Annotated[
+        Literal["bookmark", "note"],
+        Field(description="Type of the target item"),
+    ],
+    target_id: Annotated[str, Field(description="ID of the target item (UUID)")],
+) -> dict[str, Any]:
+    """
+    Create a 'related' link between two content items.
+
+    Idempotent: if the link already exists, returns the existing relationship.
+    """
+    client = await _get_http_client()
+    token = _get_token()
+
+    payload = {
+        "source_type": source_type,
+        "source_id": source_id,
+        "target_type": target_type,
+        "target_id": target_id,
+        "relationship_type": "related",
+    }
+
+    try:
+        return await api_post(client, "/relationships/", token, payload)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 409:
+            # Duplicate — find and return the existing relationship
+            try:
+                data = await api_get(
+                    client,
+                    f"/relationships/content/{source_type}/{source_id}?limit=100",
+                    token,
+                )
+                for rel in data.get("items", []):
+                    is_source = rel["source_id"] == source_id
+                    other_type = (
+                        rel["target_type"] if is_source
+                        else rel["source_type"]
+                    )
+                    other_id = (
+                        rel["target_id"] if is_source
+                        else rel["source_id"]
+                    )
+                    if other_type == target_type and other_id == target_id:
+                        return rel
+                return {"message": "Relationship already exists"}
+            except httpx.HTTPStatusError:
+                return {"message": "Relationship already exists"}
+        if e.response.status_code == 404:
+            raise ToolError(
+                "One or both content items not found. "
+                "Verify the IDs and types are correct.",
+            )
         _raise_tool_error(parse_http_error(e))
     except httpx.RequestError as e:
         raise ToolError(f"API unavailable: {e}")

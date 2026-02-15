@@ -71,6 +71,12 @@ const localStorageMock = (() => {
 })()
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
+// Mock content query hook (used by LinkedContentChips inline search)
+vi.mock('../../hooks/useContentQuery', () => ({
+  useContentQuery: () => ({ data: null, isFetching: false }),
+  contentKeys: { all: ['content'], lists: () => ['content', 'list'], view: () => ['content', 'list', 'active'], list: () => ['content', 'list', 'active'] },
+}))
+
 // Import Note after mocks are set up
 import { Note } from '../Note'
 

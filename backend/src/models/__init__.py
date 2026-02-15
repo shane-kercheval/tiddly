@@ -4,6 +4,7 @@ from models.base import ArchivableMixin, Base, TimestampMixin
 from models.bookmark import Bookmark
 from models.content_filter import ContentFilter
 from models.content_history import ActionType, ContentHistory, EntityType
+from models.content_relationship import ContentRelationship
 from models.filter_group import FilterGroup
 from models.note import Note
 from models.prompt import Prompt
@@ -20,6 +21,7 @@ __all__ = [
     "Bookmark",
     "ContentFilter",
     "ContentHistory",
+    "ContentRelationship",
     "EntityType",
     "FilterGroup",
     "Note",

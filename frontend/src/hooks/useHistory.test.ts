@@ -8,18 +8,18 @@
  */
 import { describe, it, expect } from 'vitest'
 import { historyKeys } from './useHistory'
-import type { HistoryEntityType, HistoryActionType } from '../types'
+import type { ContentType, HistoryActionType } from '../types'
 
 describe('historyKeys', () => {
   describe('user', () => {
     it('should produce same query key regardless of array order', () => {
       const key1 = historyKeys.user({
-        entityTypes: ['bookmark', 'note'],
+        contentTypes: ['bookmark', 'note'],
         actions: ['update', 'create'],
         sources: ['web', 'api'],
       })
       const key2 = historyKeys.user({
-        entityTypes: ['note', 'bookmark'],
+        contentTypes: ['note', 'bookmark'],
         actions: ['create', 'update'],
         sources: ['api', 'web'],
       })
@@ -30,7 +30,7 @@ describe('historyKeys', () => {
 
     it('should include all filter params in query key', () => {
       const key = historyKeys.user({
-        entityTypes: ['bookmark'],
+        contentTypes: ['bookmark'],
         actions: ['create'],
         sources: ['web'],
         startDate: '2024-01-01T00:00:00Z',
@@ -43,7 +43,7 @@ describe('historyKeys', () => {
         'history',
         'user',
         {
-          entityTypes: ['bookmark'],
+          contentTypes: ['bookmark'],
           actions: ['create'],
           sources: ['web'],
           startDate: '2024-01-01T00:00:00Z',
@@ -63,7 +63,7 @@ describe('historyKeys', () => {
         'history',
         'user',
         {
-          entityTypes: undefined,
+          contentTypes: undefined,
           actions: undefined,
           sources: undefined,
           limit: 50,
@@ -73,14 +73,14 @@ describe('historyKeys', () => {
 
     it('should normalize empty arrays to undefined (same key as no filter)', () => {
       const keyWithEmptyArrays = historyKeys.user({
-        entityTypes: [],
+        contentTypes: [],
         actions: [],
         sources: [],
         limit: 50,
       })
 
       const keyWithUndefined = historyKeys.user({
-        entityTypes: undefined,
+        contentTypes: undefined,
         actions: undefined,
         sources: undefined,
         limit: 50,
@@ -91,31 +91,31 @@ describe('historyKeys', () => {
 
       // Both should have undefined for the array fields
       const params = keyWithEmptyArrays[2] as Record<string, unknown>
-      expect(params.entityTypes).toBeUndefined()
+      expect(params.contentTypes).toBeUndefined()
       expect(params.actions).toBeUndefined()
       expect(params.sources).toBeUndefined()
     })
 
     it('should sort arrays of multiple elements', () => {
       const key = historyKeys.user({
-        entityTypes: ['prompt', 'bookmark', 'note'],
+        contentTypes: ['prompt', 'bookmark', 'note'],
         actions: ['update', 'delete', 'archive', 'create'],
         sources: ['mcp-prompt', 'api', 'web', 'mcp-content'],
       })
 
       const params = key[2] as Record<string, unknown>
-      expect(params.entityTypes).toEqual(['bookmark', 'note', 'prompt'])
+      expect(params.contentTypes).toEqual(['bookmark', 'note', 'prompt'])
       expect(params.actions).toEqual(['archive', 'create', 'delete', 'update'])
       expect(params.sources).toEqual(['api', 'mcp-content', 'mcp-prompt', 'web'])
     })
 
     it('should not mutate original arrays', () => {
-      const originalEntityTypes: HistoryEntityType[] = ['note', 'bookmark']
+      const originalEntityTypes: ContentType[] = ['note', 'bookmark']
       const originalActions: HistoryActionType[] = ['update', 'create']
       const originalSources: string[] = ['api', 'web']
 
       historyKeys.user({
-        entityTypes: originalEntityTypes,
+        contentTypes: originalEntityTypes,
         actions: originalActions,
         sources: originalSources,
       })

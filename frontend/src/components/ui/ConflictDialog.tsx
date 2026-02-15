@@ -28,7 +28,7 @@ interface ConflictDialogProps {
  *
  * Shows four options:
  * - Copy My Content: Copies current editor content to clipboard
- * - Load Server Version: Discard local changes and load the latest version
+ * - Load Latest Version: Discard local changes and load the latest version
  * - Save My Version: Force save local changes (requires confirmation)
  * - Do Nothing: Close dialog, keep local changes in editor (unsaved)
  */
@@ -176,13 +176,13 @@ export function ConflictDialog({
             Copy your current content to clipboard before choosing an action
           </p>
 
-          {/* Load Server Version */}
+          {/* Load Latest Version */}
           <button
             type="button"
             onClick={onLoadServerVersion}
             className="btn-primary w-full mt-3"
           >
-            Load Server Version
+            Load Latest Version
           </button>
           <p className="text-xs text-gray-500 text-center">
             Discard your changes and load the latest version

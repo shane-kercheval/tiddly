@@ -59,6 +59,7 @@ from services.content_edit_service import (
 from services.content_lines import apply_partial_read
 from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
+from services.relationship_service import embed_relationships
 from services.history_service import history_service
 from services.prompt_service import NameConflictError, PromptService, validate_template
 from models.content_history import ActionType, EntityType
@@ -189,7 +190,7 @@ async def _perform_str_replace(
 
     # Record history for str-replace (content changed)
     await db.refresh(prompt, attribute_names=["tag_objects"])
-    metadata = prompt_service._get_metadata_snapshot(prompt)
+    metadata = await prompt_service.get_metadata_snapshot(db, prompt.user_id, prompt)
     await history_service.record_action(
         db=db,
         user_id=prompt.user_id,
@@ -239,7 +240,11 @@ async def create_prompt(
     except ValueError as e:
         # Template validation errors
         raise HTTPException(status_code=400, detail=str(e))
-    return PromptResponse.model_validate(prompt)
+    response_data = PromptResponse.model_validate(prompt)
+    response_data.relationships = await embed_relationships(
+        db, current_user.id, 'prompt', prompt.id,
+    )
+    return response_data
 
 
 @router.get("/", response_model=PromptListResponse)
@@ -363,6 +368,12 @@ async def get_prompt_by_name(
 
     response_data = PromptResponse.model_validate(prompt)
     apply_partial_read(response_data, start_line, end_line)
+
+    # Embed relationships
+    response_data.relationships = await embed_relationships(
+        db, current_user.id, 'prompt', prompt.id,
+    )
+
     return response_data
 
 
@@ -451,7 +462,11 @@ async def update_prompt_by_name(
         raise HTTPException(status_code=400, detail=str(e))
     if updated_prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
-    return PromptResponse.model_validate(updated_prompt)
+    response_data = PromptResponse.model_validate(updated_prompt)
+    response_data.relationships = await embed_relationships(
+        db, current_user.id, 'prompt', updated_prompt.id,
+    )
+    return response_data
 
 
 @router.patch(
@@ -670,6 +685,12 @@ async def get_prompt(
 
     response_data = PromptResponse.model_validate(prompt)
     apply_partial_read(response_data, start_line, end_line)
+
+    # Embed relationships
+    response_data.relationships = await embed_relationships(
+        db, current_user.id, 'prompt', prompt_id,
+    )
+
     return response_data
 
 
@@ -828,7 +849,11 @@ async def update_prompt(
         raise HTTPException(status_code=400, detail=str(e))
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
-    return PromptResponse.model_validate(prompt)
+    response_data = PromptResponse.model_validate(prompt)
+    response_data.relationships = await embed_relationships(
+        db, current_user.id, 'prompt', prompt.id,
+    )
+    return response_data
 
 
 @router.patch(

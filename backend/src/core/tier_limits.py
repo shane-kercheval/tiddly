@@ -46,6 +46,9 @@ class TierLimits:
     rate_sensitive_per_minute: int
     rate_sensitive_per_day: int
 
+    # Relationship limits
+    max_relationships_per_entity: int  # Max links per content item
+
     # History retention limits
     history_retention_days: int  # How long to keep history records
     max_history_per_entity: int  # Max versions per entity
@@ -72,6 +75,7 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         rate_write_per_day=4000,
         rate_sensitive_per_minute=30,
         rate_sensitive_per_day=250,
+        max_relationships_per_entity=50,
         history_retention_days=30,
         max_history_per_entity=100,
     ),

@@ -1832,3 +1832,60 @@ async def test_user_cannot_str_replace_other_users_note(
     )
     note = result.scalar_one()
     assert note.content == "Original content that should not be modified"
+
+
+# =============================================================================
+# Embedded Relationships
+# =============================================================================
+
+
+async def test__get_note__no_relationships_returns_empty_list(client: AsyncClient) -> None:
+    """GET /notes/{id} returns empty relationships list when none exist."""
+    create_resp = await client.post("/notes/", json={"title": "No Rels Note"})
+    note_id = create_resp.json()["id"]
+
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+    assert response.json()["relationships"] == []
+
+
+async def test__get_note__with_relationships_returns_enriched(client: AsyncClient) -> None:
+    """GET /notes/{id} returns enriched relationships when they exist."""
+    note_resp = await client.post("/notes/", json={"title": "Source Note"})
+    note_id = note_resp.json()["id"]
+
+    bm_resp = await client.post(
+        "/bookmarks/",
+        json={"url": "https://note-rel-test.com", "title": "Linked BM"},
+    )
+    bm_id = bm_resp.json()["id"]
+
+    await client.post("/relationships/", json={
+        "source_type": "note",
+        "source_id": note_id,
+        "target_type": "bookmark",
+        "target_id": bm_id,
+        "relationship_type": "related",
+    })
+
+    response = await client.get(f"/notes/{note_id}")
+    assert response.status_code == 200
+
+    rels = response.json()["relationships"]
+    assert len(rels) == 1
+    # Canonical ordering may swap source/target; verify both titles present
+    titles = {rels[0]["source_title"], rels[0]["target_title"]}
+    assert "Linked BM" in titles
+    assert "Source Note" in titles
+
+
+async def test__list_notes__no_relationships_field(client: AsyncClient) -> None:
+    """GET /notes/ list items should NOT include relationships field."""
+    await client.post("/notes/", json={"title": "List Note"})
+
+    response = await client.get("/notes/")
+    assert response.status_code == 200
+
+    items = response.json()["items"]
+    assert len(items) >= 1
+    assert "relationships" not in items[0]

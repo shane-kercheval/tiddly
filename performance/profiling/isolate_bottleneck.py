@@ -67,8 +67,7 @@ async def test_app_variant(
             await client.get("/health")
 
         # Measure
-        result = await measure_concurrent(client, "/health", concurrency)
-        return result
+        return await measure_concurrent(client, "/health", concurrency)
 
 
 def create_app_no_middleware():

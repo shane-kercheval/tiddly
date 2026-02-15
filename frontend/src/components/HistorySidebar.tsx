@@ -8,16 +8,29 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useEntityHistory, useVersionDiff, useRestoreToVersion } from '../hooks/useHistory'
 import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
-import { CloseIcon, RestoreIcon } from './icons'
+import { CloseIcon, RestoreIcon, HelpIcon } from './icons'
+import type { ContentType, HistoryActionType } from '../types'
+import { Tooltip } from './ui/Tooltip'
+import { ActionDot } from './ActionDot'
+import { ChangeIndicators } from './ChangeIndicators'
 import { VersionDiffPanel } from './VersionDiffPanel'
 import { formatAction, formatSource, isAuditAction } from '../constants/historyLabels'
-import type { HistoryEntityType } from '../types'
 
 interface HistorySidebarProps {
-  entityType: HistoryEntityType
+  entityType: ContentType
   entityId: string
   onClose: () => void
   onRestored?: () => void
+  /** When true, hides all restore buttons (e.g. entity is soft-deleted) */
+  isDeleted?: boolean
+}
+
+/** Tooltip text explaining why audit actions don't support restore */
+const AUDIT_TOOLTIPS: Partial<Record<HistoryActionType, string>> = {
+  archive: 'Archived items can be restored from the Archives section.',
+  unarchive: 'To archive this item, use the archive action from the item menu.',
+  delete: 'Deleted items can be restored from the Trash section.',
+  undelete: 'To delete this item, use the delete action from the item menu.',
 }
 
 /** Tailwind md breakpoint */
@@ -36,6 +49,7 @@ export function HistorySidebar({
   entityId,
   onClose,
   onRestored,
+  isDeleted = false,
 }: HistorySidebarProps): ReactNode {
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [confirmingRestore, setConfirmingRestore] = useState<number | null>(null)
@@ -140,7 +154,7 @@ export function HistorySidebar({
     if (confirmingRestore === version) {
       // Second click - execute restore
       restoreMutation.mutate(
-        { entityType, entityId, version },
+        { contentType: entityType, contentId: entityId, version },
         {
           onSuccess: () => {
             setConfirmingRestore(null)
@@ -183,7 +197,15 @@ export function HistorySidebar({
       )}
       {/* Header - matches item header height (pt-3 pb-3) for alignment */}
       <div className="flex items-center justify-between py-3 px-4 border-b border-gray-200 shrink-0">
-        <h2 className="text-lg font-semibold text-gray-900">Version History</h2>
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-lg font-semibold text-gray-900">Version History</h2>
+          <Tooltip
+            content="Restoring a version replaces your current content with how it looked after that version was saved — it does not undo that version's changes. A new version is created, so no history is lost."
+            position="bottom"
+          >
+            <HelpIcon className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+          </Tooltip>
+        </div>
         <button
           onClick={onClose}
           className="h-[30px] w-[30px] flex items-center justify-center text-gray-500 hover:text-gray-700 rounded-md hover:bg-gray-100"
@@ -220,22 +242,25 @@ export function HistorySidebar({
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        {entry.version !== null && (
-                          <span className="font-medium text-gray-900">v{entry.version}</span>
+                        <ActionDot action={entry.action} />
+                        {entry.version !== null ? (
+                          <span className="font-medium text-gray-900">
+                            {entry.version === latestVersion ? 'Current' : `v${entry.version}`}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-500">{formatAction(entry.action)}</span>
                         )}
-                        <span className="text-sm text-gray-500">
-                          {formatAction(entry.action)}
-                        </span>
                         <span className="text-xs text-gray-400">
                           {formatSource(entry.source)}
                         </span>
+                        <ChangeIndicators changed={entry.changed_fields} />
                       </div>
                       <div className="text-xs text-gray-400 mt-0.5">
                         {new Date(entry.created_at).toLocaleString()}
                       </div>
                     </div>
-                    {/* Show "Restore" button on older content versions (not audit actions) */}
-                    {entry.version !== null && entry.version < latestVersion && (
+                    {/* Show "Restore" button on older content versions (not audit actions, not deleted entities) */}
+                    {!isDeleted && entry.version !== null && entry.version < latestVersion && !isAuditAction(entry.action) && (
                       <button
                         onClick={(e) => handleRestoreClick(entry.version!, e)}
                         disabled={restoreMutation.isPending}
@@ -248,6 +273,16 @@ export function HistorySidebar({
                         <RestoreIcon className="w-3.5 h-3.5" />
                         {confirmingRestore === entry.version ? 'Confirm' : 'Restore'}
                       </button>
+                    )}
+                    {/* Info tooltip on audit entries explaining how to undo the action */}
+                    {isAuditAction(entry.action) && AUDIT_TOOLTIPS[entry.action] && (
+                      <Tooltip
+                        content={AUDIT_TOOLTIPS[entry.action]}
+                        position="left"
+                        compact
+                      >
+                        <HelpIcon className="h-4 w-4 text-gray-300 hover:text-gray-500 cursor-help shrink-0" />
+                      </Tooltip>
                     )}
                   </div>
                 </div>

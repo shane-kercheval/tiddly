@@ -469,7 +469,7 @@ describe('useStaleCheck', () => {
   })
 
   it('should not set stale if loadedUpdatedAt changes during fetch (refresh race condition)', async () => {
-    // Scenario: User clicks "Load Server Version" which refreshes the entity,
+    // Scenario: User clicks "Load Latest Version" which refreshes the entity,
     // updating loadedUpdatedAt. Meanwhile, an old stale-check fetch resolves.
     // The old fetch should NOT trigger isStale because loadedUpdatedAt changed.
 
@@ -503,7 +503,7 @@ describe('useStaleCheck', () => {
 
     expect(slowFetchUpdatedAt).toHaveBeenCalledWith('entity-1')
 
-    // User refreshes the entity (e.g., clicked "Load Server Version")
+    // User refreshes the entity (e.g., clicked "Load Latest Version")
     // This updates loadedUpdatedAt to the server's current value
     rerender({
       entityId: 'entity-1', // Same entity

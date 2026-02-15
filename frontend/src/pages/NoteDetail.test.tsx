@@ -46,6 +46,7 @@ const mockNote: Note = {
 // Mock hooks
 const mockFetchNote = vi.fn()
 const mockTrackNoteUsage = vi.fn()
+const mockTrackBookmarkUsage = vi.fn()
 const mockCreateMutateAsync = vi.fn()
 const mockUpdateMutateAsync = vi.fn()
 const mockDeleteMutateAsync = vi.fn()
@@ -66,6 +67,12 @@ vi.mock('../hooks/useNotes', () => ({
   useNotes: () => ({
     fetchNote: mockFetchNote,
     trackNoteUsage: mockTrackNoteUsage,
+  }),
+}))
+
+vi.mock('../hooks/useBookmarks', () => ({
+  useBookmarks: () => ({
+    trackBookmarkUsage: mockTrackBookmarkUsage,
   }),
 }))
 
@@ -118,6 +125,12 @@ vi.mock('../stores/tagFilterStore', () => ({
 vi.mock('../stores/uiPreferencesStore', () => ({
   useUIPreferencesStore: (selector: (state: { fullWidthLayout: boolean }) => boolean) =>
     selector({ fullWidthLayout: false }),
+}))
+
+// Mock content query hook (used by LinkedContentChips inline search)
+vi.mock('../hooks/useContentQuery', () => ({
+  useContentQuery: () => ({ data: null, isFetching: false }),
+  contentKeys: { all: ['content'], lists: () => ['content', 'list'], view: () => ['content', 'list', 'active'], list: () => ['content', 'list', 'active'] },
 }))
 
 // Mock ContentEditor to avoid Milkdown timer issues in tests

@@ -12,6 +12,7 @@ from models.content_history import ActionType, EntityType
 from models.note import Note
 from models.tag import note_tags
 from schemas.note import NoteCreate, NoteUpdate
+from services import relationship_service
 from services.base_entity_service import BaseEntityService
 from services.exceptions import FieldLimitExceededError, QuotaExceededError
 from services.tag_service import get_or_create_tags, update_note_tags
@@ -171,8 +172,16 @@ class NoteService(BaseEntityService[Note]):
         note.last_used_at = note.created_at
         await db.flush()
 
+        # Sync relationships (entity must exist for validation)
+        if data.relationships:
+            await relationship_service.sync_relationships_for_entity(
+                db, user_id, self.entity_type, note.id, data.relationships,
+                max_per_entity=limits.max_relationships_per_entity if limits else None,
+            )
+
         # Record history for CREATE action
         if context:
+            metadata = await self.get_metadata_snapshot(db, user_id, note)
             await self._get_history_service().record_action(
                 db=db,
                 user_id=user_id,
@@ -181,9 +190,12 @@ class NoteService(BaseEntityService[Note]):
                 action=ActionType.CREATE,
                 current_content=note.content,
                 previous_content=None,
-                metadata=self._get_metadata_snapshot(note),
+                metadata=metadata,
                 context=context,
                 limits=limits,
+                changed_fields=self._compute_changed_fields(
+                    None, metadata, bool(note.content),
+                ),
             )
 
         return note
@@ -222,10 +234,13 @@ class NoteService(BaseEntityService[Note]):
 
         # Capture state before modification for diff and no-op detection
         previous_content = note.content
-        previous_metadata = self._get_metadata_snapshot(note)
+        previous_metadata = await self.get_metadata_snapshot(db, user_id, note)
 
         update_data = data.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
         new_tags = update_data.pop("tags", None)
+
+        # Handle relationship updates separately (None = no change, [] = clear all)
+        new_relationships = update_data.pop("relationships", None)
 
         # Validate field lengths for fields being updated
         self._validate_field_limits(
@@ -242,13 +257,29 @@ class NoteService(BaseEntityService[Note]):
         if new_tags is not None:
             await update_note_tags(db, note, new_tags)
 
+        # Sync relationships if provided.
+        # Guard uses new_relationships (popped from model_dump(exclude_unset=True)) to
+        # distinguish "not provided" from "set to []". Value uses data.relationships for
+        # typed RelationshipInput objects (both are always in sync).
+        if new_relationships is not None:
+            await relationship_service.sync_relationships_for_entity(
+                db, user_id, self.entity_type, note.id, data.relationships,
+                skip_missing_targets=(action == ActionType.RESTORE),
+                max_per_entity=limits.max_relationships_per_entity if limits else None,
+            )
+
         note.updated_at = func.clock_timestamp()
 
         await db.flush()
         await self._refresh_with_tags(db, note)
 
-        # Only record history if something actually changed
-        current_metadata = self._get_metadata_snapshot(note)
+        # Only record history if something actually changed.
+        # Reuse the previous relationship snapshot when relationships weren't in the
+        # payload — they're guaranteed unchanged, so skip the redundant DB queries.
+        rels_override = previous_metadata["relationships"] if new_relationships is None else None
+        current_metadata = await self.get_metadata_snapshot(
+            db, user_id, note, relationships_override=rels_override,
+        )
         content_changed = note.content != previous_content
         metadata_changed = current_metadata != previous_metadata
 
@@ -264,6 +295,9 @@ class NoteService(BaseEntityService[Note]):
                 metadata=current_metadata,
                 context=context,
                 limits=limits,
+                changed_fields=self._compute_changed_fields(
+                    previous_metadata, current_metadata, content_changed,
+                ),
             )
 
         return note

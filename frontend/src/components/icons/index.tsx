@@ -315,6 +315,13 @@ export const MoreIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
   </svg>
 )
 
+/** Link/chain icon for content relationships */
+export const LinkIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+  </svg>
+)
+
 /** External link icon (arrow pointing up-right) */
 export const ExternalLinkIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -356,5 +363,30 @@ export const SparklesIcon = ({ className = 'h-5 w-5' }: IconProps): ReactNode =>
       strokeLinejoin="round"
       d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"
     />
+  </svg>
+)
+
+/** Content change icon (document with pencil — body text changed) */
+export const ContentChangeIcon = ({ className = 'h-5 w-5' }: IconProps): ReactNode => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zM16.862 4.487L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
+    />
+  </svg>
+)
+
+/** Title change icon (heading "H" indicator) */
+export const TitleChangeIcon = ({ className = 'h-5 w-5' }: IconProps): ReactNode => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h8" />
+  </svg>
+)
+
+/** Description change icon (text lines / paragraph) */
+export const DescriptionChangeIcon = ({ className = 'h-5 w-5' }: IconProps): ReactNode => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h10" />
   </svg>
 )

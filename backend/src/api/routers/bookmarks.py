@@ -54,6 +54,7 @@ from services.content_edit_service import (
 from services.content_lines import apply_partial_read
 from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
+from services.relationship_service import embed_relationships
 from services.url_scraper import scrape_url
 
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
@@ -131,7 +132,11 @@ async def create_bookmark(
                 "error_code": "ACTIVE_URL_EXISTS",
             },
         )
-    return BookmarkResponse.model_validate(bookmark)
+    response_data = BookmarkResponse.model_validate(bookmark)
+    response_data.relationships = await embed_relationships(
+        db, current_user.id, 'bookmark', bookmark.id,
+    )
+    return response_data
 
 
 @router.get("/", response_model=BookmarkListResponse)
@@ -250,6 +255,12 @@ async def get_bookmark(
 
     response_data = BookmarkResponse.model_validate(bookmark)
     apply_partial_read(response_data, start_line, end_line)
+
+    # Embed relationships
+    response_data.relationships = await embed_relationships(
+        db, current_user.id, 'bookmark', bookmark_id,
+    )
+
     return response_data
 
 
@@ -407,7 +418,11 @@ async def update_bookmark(
         )
     if bookmark is None:
         raise HTTPException(status_code=404, detail="Bookmark not found")
-    return BookmarkResponse.model_validate(bookmark)
+    response_data = BookmarkResponse.model_validate(bookmark)
+    response_data.relationships = await embed_relationships(
+        db, current_user.id, 'bookmark', bookmark.id,
+    )
+    return response_data
 
 
 @router.patch(
@@ -524,7 +539,7 @@ async def str_replace_bookmark(
 
     # Record history for str-replace (content changed)
     await db.refresh(bookmark, attribute_names=["tag_objects"])
-    metadata = bookmark_service._get_metadata_snapshot(bookmark)
+    metadata = await bookmark_service.get_metadata_snapshot(db, current_user.id, bookmark)
     await history_service.record_action(
         db=db,
         user_id=current_user.id,

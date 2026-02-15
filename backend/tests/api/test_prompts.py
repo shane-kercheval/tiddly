@@ -2804,3 +2804,94 @@ async def test__str_replace_by_name__template_validation(client: AsyncClient) ->
     )
     assert response.status_code == 400
     assert "undefined" in response.json()["detail"].lower()
+
+
+# =============================================================================
+# Embedded Relationships
+# =============================================================================
+
+
+async def test__get_prompt__no_relationships_returns_empty_list(client: AsyncClient) -> None:
+    """GET /prompts/{id} returns empty relationships list when none exist."""
+    create_resp = await client.post(
+        "/prompts/",
+        json={"name": "no-rels-prompt", "content": "test", "title": "No Rels"},
+    )
+    prompt_id = create_resp.json()["id"]
+
+    response = await client.get(f"/prompts/{prompt_id}")
+    assert response.status_code == 200
+    assert response.json()["relationships"] == []
+
+
+async def test__get_prompt__with_relationships_returns_enriched(client: AsyncClient) -> None:
+    """GET /prompts/{id} returns enriched relationships when they exist."""
+    prompt_resp = await client.post(
+        "/prompts/",
+        json={"name": "rel-test-prompt", "content": "test", "title": "Source Prompt"},
+    )
+    prompt_id = prompt_resp.json()["id"]
+
+    note_resp = await client.post("/notes/", json={"title": "Linked Note"})
+    note_id = note_resp.json()["id"]
+
+    await client.post("/relationships/", json={
+        "source_type": "prompt",
+        "source_id": prompt_id,
+        "target_type": "note",
+        "target_id": note_id,
+        "relationship_type": "related",
+    })
+
+    response = await client.get(f"/prompts/{prompt_id}")
+    assert response.status_code == 200
+
+    rels = response.json()["relationships"]
+    assert len(rels) == 1
+    # Canonical ordering may swap source/target; verify both titles present
+    titles = {rels[0]["source_title"], rels[0]["target_title"]}
+    assert "Linked Note" in titles
+    assert "Source Prompt" in titles
+
+
+async def test__get_prompt_by_name__with_relationships_returns_enriched(client: AsyncClient) -> None:
+    """GET /prompts/name/{name} returns enriched relationships."""
+    prompt_resp = await client.post(
+        "/prompts/",
+        json={"name": "named-rel-prompt", "content": "test", "title": "Named Prompt"},
+    )
+    prompt_id = prompt_resp.json()["id"]
+
+    note_resp = await client.post("/notes/", json={"title": "Linked Note 2"})
+    note_id = note_resp.json()["id"]
+
+    await client.post("/relationships/", json={
+        "source_type": "prompt",
+        "source_id": prompt_id,
+        "target_type": "note",
+        "target_id": note_id,
+        "relationship_type": "related",
+    })
+
+    response = await client.get("/prompts/name/named-rel-prompt")
+    assert response.status_code == 200
+
+    rels = response.json()["relationships"]
+    assert len(rels) == 1
+    titles = {rels[0]["source_title"], rels[0]["target_title"]}
+    assert "Linked Note 2" in titles
+
+
+async def test__list_prompts__no_relationships_field(client: AsyncClient) -> None:
+    """GET /prompts/ list items should NOT include relationships field."""
+    await client.post(
+        "/prompts/",
+        json={"name": "list-rel-prompt", "content": "test", "title": "List Item"},
+    )
+
+    response = await client.get("/prompts/")
+    assert response.status_code == 200
+
+    items = response.json()["items"]
+    assert len(items) >= 1
+    assert "relationships" not in items[0]

@@ -13,6 +13,7 @@ from models.user import User
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate
 from schemas.note import NoteCreate, NoteUpdate
 from schemas.prompt import PromptArgument, PromptCreate, PromptUpdate
+from schemas.relationship import RelationshipInput
 from services.bookmark_service import BookmarkService
 from services.note_service import NoteService
 from services.prompt_service import PromptService
@@ -102,7 +103,9 @@ class TestBookmarkHistoryIntegration:
         assert record.content_diff is None
         assert record.metadata_snapshot["title"] == "Test Bookmark"
         assert record.metadata_snapshot["url"] == "https://example.com/"  # URL normalized
-        assert record.metadata_snapshot["tags"] == ["test"]
+        assert len(record.metadata_snapshot["tags"]) == 1
+        assert record.metadata_snapshot["tags"][0]["name"] == "test"
+        assert "id" in record.metadata_snapshot["tags"][0]
         assert record.source == "web"
         assert record.auth_type == AuthType.AUTH0.value
 
@@ -447,7 +450,9 @@ class TestNoteHistoryIntegration:
         assert record.content_snapshot == "Initial content"
         assert record.content_diff is None
         assert record.metadata_snapshot["title"] == "Test Note"
-        assert record.metadata_snapshot["tags"] == ["test"]
+        assert len(record.metadata_snapshot["tags"]) == 1
+        assert record.metadata_snapshot["tags"][0]["name"] == "test"
+        assert "id" in record.metadata_snapshot["tags"][0]
         assert record.source == "web"
         assert record.auth_type == AuthType.AUTH0.value
 
@@ -1264,6 +1269,7 @@ class TestStrReplaceHistory:
             rate_write_per_day=10000,
             rate_sensitive_per_minute=1000,
             rate_sensitive_per_day=10000,
+            max_relationships_per_entity=50,
             history_retention_days=30,
             max_history_per_entity=max_history,
         )
@@ -1487,3 +1493,245 @@ class TestUpdateActionParameter:
         history = await get_entity_history(db_session, test_user.id, EntityType.BOOKMARK, bookmark.id)
         assert len(history) == 2
         assert history[1].action == ActionType.UPDATE.value
+
+
+# =============================================================================
+# Relationship history integration
+# =============================================================================
+
+
+class TestRelationshipHistoryIntegration:
+    """Tests for history recording when relationships change via entity create/update."""
+
+    @pytest.fixture
+    def limits(self) -> dict:
+        return get_tier_limits("free")
+
+    @pytest.fixture
+    def context(self) -> RequestContext:
+        return make_context()
+
+    @pytest.mark.asyncio
+    async def test__create_bookmark_with_relationships__snapshot_includes_relationships(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Creating a bookmark with relationships includes them in the history metadata snapshot."""
+        service = BookmarkService()
+        note_service = NoteService()
+
+        # Create a note first (target)
+        note = await note_service.create(
+            db_session, test_user.id,
+            NoteCreate(title="Target Note"),
+            limits, context,
+        )
+
+        # Create bookmark with relationship to the note
+        data = BookmarkCreate(
+            url="https://example.com",
+            title="BM with Link",
+            relationships=[
+                RelationshipInput(target_type='note', target_id=note.id),
+            ],
+        )
+        bookmark = await service.create(db_session, test_user.id, data, limits, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.BOOKMARK, bookmark.id)
+
+        assert len(history) == 1
+        metadata = history[0].metadata_snapshot
+        assert 'relationships' in metadata
+        assert len(metadata['relationships']) == 1
+        assert metadata['relationships'][0]['target_type'] == 'note'
+        assert metadata['relationships'][0]['target_id'] == str(note.id)
+
+    @pytest.mark.asyncio
+    async def test__update_bookmark_add_relationship__records_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Adding a relationship via update records a versioned history entry."""
+        service = BookmarkService()
+        note_service = NoteService()
+
+        note = await note_service.create(
+            db_session, test_user.id,
+            NoteCreate(title="Link Target"),
+            limits, context,
+        )
+        bookmark = await service.create(
+            db_session, test_user.id,
+            BookmarkCreate(url="https://example.com", title="BM"),
+            limits, context,
+        )
+
+        # Update: add relationship
+        update = BookmarkUpdate(
+            relationships=[
+                RelationshipInput(target_type='note', target_id=note.id),
+            ],
+        )
+        await service.update(db_session, test_user.id, bookmark.id, update, limits, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.BOOKMARK, bookmark.id)
+        assert len(history) == 2
+
+        update_record = history[1]
+        assert update_record.action == ActionType.UPDATE.value
+        assert update_record.version == 2
+        assert len(update_record.metadata_snapshot['relationships']) == 1
+
+    @pytest.mark.asyncio
+    async def test__update_bookmark_remove_relationship__records_history(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Removing all relationships via update (empty list) records a versioned history entry."""
+        service = BookmarkService()
+        note_service = NoteService()
+
+        note = await note_service.create(
+            db_session, test_user.id,
+            NoteCreate(title="Target"),
+            limits, context,
+        )
+        bookmark = await service.create(
+            db_session, test_user.id,
+            BookmarkCreate(
+                url="https://example.com",
+                relationships=[
+                    RelationshipInput(target_type='note', target_id=note.id),
+                ],
+            ),
+            limits, context,
+        )
+
+        # Update: clear all relationships
+        update = BookmarkUpdate(relationships=[])
+        await service.update(db_session, test_user.id, bookmark.id, update, limits, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.BOOKMARK, bookmark.id)
+        assert len(history) == 2
+
+        update_record = history[1]
+        assert update_record.metadata_snapshot['relationships'] == []
+
+    @pytest.mark.asyncio
+    async def test__update_with_relationships_none__no_change(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Update with relationships=None does not modify relationships and skips history."""
+        service = BookmarkService()
+        note_service = NoteService()
+
+        note = await note_service.create(
+            db_session, test_user.id,
+            NoteCreate(title="Target"),
+            limits, context,
+        )
+        bookmark = await service.create(
+            db_session, test_user.id,
+            BookmarkCreate(
+                url="https://example.com",
+                relationships=[
+                    RelationshipInput(target_type='note', target_id=note.id),
+                ],
+            ),
+            limits, context,
+        )
+
+        # Update with relationships=None (no change)
+        update = BookmarkUpdate(title="Same BM")
+        assert update.relationships is None
+        await service.update(db_session, test_user.id, bookmark.id, update, limits, context)
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.BOOKMARK, bookmark.id)
+        # No update history since title wasn't actually changing is ambiguous,
+        # but relationships should still be there
+        # The title IS changing (None -> "Same BM"), so there should be 2 records
+        assert len(history) == 2
+        # Relationships unchanged
+        assert len(history[1].metadata_snapshot['relationships']) == 1
+
+    @pytest.mark.asyncio
+    async def test__create_note_with_relationships__snapshot_includes_relationships(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Creating a note with relationships includes them in the metadata snapshot."""
+        service = NoteService()
+        bm_service = BookmarkService()
+
+        bookmark = await bm_service.create(
+            db_session, test_user.id,
+            BookmarkCreate(url="https://example.com", title="Target BM"),
+            limits, context,
+        )
+
+        note = await service.create(
+            db_session, test_user.id,
+            NoteCreate(
+                title="Note with Link",
+                relationships=[
+                    RelationshipInput(target_type='bookmark', target_id=bookmark.id),
+                ],
+            ),
+            limits, context,
+        )
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
+        assert len(history) == 1
+        assert len(history[0].metadata_snapshot['relationships']) == 1
+        assert history[0].metadata_snapshot['relationships'][0]['target_type'] == 'bookmark'
+
+    @pytest.mark.asyncio
+    async def test__create_prompt_with_relationships__snapshot_includes_relationships(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        limits: dict,
+        context: RequestContext,
+    ) -> None:
+        """Creating a prompt with relationships includes them in the metadata snapshot."""
+        service = PromptService()
+        note_service = NoteService()
+
+        note = await note_service.create(
+            db_session, test_user.id,
+            NoteCreate(title="Target Note"),
+            limits, context,
+        )
+
+        prompt = await service.create(
+            db_session, test_user.id,
+            PromptCreate(
+                name="test-with-rel",
+                title="Prompt with Link",
+                content="Content",
+                relationships=[
+                    RelationshipInput(target_type='note', target_id=note.id),
+                ],
+            ),
+            limits, context,
+        )
+
+        history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
+        assert len(history) == 1
+        assert len(history[0].metadata_snapshot['relationships']) == 1

@@ -19,6 +19,7 @@ from core.tier_limits import TierLimits
 from models.content_history import ActionType, EntityType
 from models.tag import Tag
 from schemas.validators import validate_and_normalize_tags
+from services import relationship_service
 from services.exceptions import InvalidStateError
 from services.utils import build_tag_filter_from_expression, escape_ilike
 
@@ -168,24 +169,119 @@ class BaseEntityService(ABC, Generic[T]):
                 metadata[field] = value
         return metadata
 
-    def _get_metadata_snapshot(self, entity: T) -> dict:
+    async def get_metadata_snapshot(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        entity: T,
+        *,
+        relationships_override: list[dict] | None = None,
+    ) -> dict:
         """
         Extract non-content fields for history metadata snapshot.
 
-        Returns common fields (title, description, tags). Subclasses should
-        override to add entity-specific fields (e.g., url for bookmarks).
+        Returns common fields (title, description, tags, relationships).
+        Subclasses should override to add entity-specific fields (e.g., url for bookmarks).
 
         Args:
+            db: Database session.
+            user_id: User ID for relationship queries.
             entity: The entity to extract metadata from.
+            relationships_override: If provided, use this instead of querying the database.
+                Used to skip redundant queries when relationships are known unchanged.
 
         Returns:
             Dictionary of metadata fields.
         """
-        return {
+        snapshot = {
             "title": getattr(entity, "title", None),
             "description": getattr(entity, "description", None),
-            "tags": [t.name for t in entity.tag_objects] if hasattr(entity, "tag_objects") else [],
+            "tags": (
+                sorted(
+                    [{"id": str(t.id), "name": t.name} for t in entity.tag_objects],
+                    key=lambda t: t["name"],
+                )
+                if hasattr(entity, "tag_objects") else []
+            ),
         }
+        if relationships_override is not None:
+            snapshot["relationships"] = relationships_override
+        else:
+            snapshot["relationships"] = await relationship_service.get_relationships_snapshot(
+                db, user_id, self.entity_type, entity.id,
+            )
+        return snapshot
+
+    @staticmethod
+    def _metadata_field_changed(key: str, prev: Any, curr: Any) -> bool:
+        """Check if a single metadata field changed between previous and current values."""
+        if key == "tags":
+            def _tag_name(t: Any) -> str:
+                return t.get("name", "") if isinstance(t, dict) else str(t)
+            prev_names = sorted(_tag_name(t) for t in (prev or []))
+            curr_names = sorted(_tag_name(t) for t in (curr or []))
+            return prev_names != curr_names
+        if key == "relationships":
+            def _rel_key(r: dict) -> tuple:
+                return (
+                    r.get("target_type"),
+                    str(r.get("target_id")),
+                    r.get("relationship_type"),
+                    r.get("description"),
+                )
+            prev_set = {_rel_key(r) for r in (prev or [])}
+            curr_set = {_rel_key(r) for r in (curr or [])}
+            return prev_set != curr_set
+        if key == "arguments":
+            prev_sorted = sorted((prev or []), key=lambda a: a.get("name", ""))
+            curr_sorted = sorted((curr or []), key=lambda a: a.get("name", ""))
+            return prev_sorted != curr_sorted
+        return prev != curr
+
+    @staticmethod
+    def _compute_changed_fields(
+        previous_metadata: dict | None,
+        current_metadata: dict,
+        content_changed: bool,
+    ) -> list[str]:
+        """
+        Compute which fields changed between previous and current state.
+
+        For CREATE (previous_metadata is None), includes all non-empty/non-default fields.
+
+        Args:
+            previous_metadata: Metadata before the change (None for CREATE).
+            current_metadata: Metadata after the change.
+            content_changed: Whether entity content changed.
+
+        Returns:
+            Sorted list of changed field names.
+        """
+        changed: set[str] = set()
+
+        if content_changed:
+            changed.add("content")
+
+        if previous_metadata is None:
+            # CREATE: include all non-empty fields
+            for key, value in current_metadata.items():
+                if key.startswith("_"):
+                    continue
+                if value is None or value in ("", []):
+                    continue
+                changed.add(key)
+            return sorted(changed)
+
+        # Compare each metadata field
+        for key in set(previous_metadata.keys()) | set(current_metadata.keys()):
+            if key.startswith("_"):
+                continue
+            prev = previous_metadata.get(key)
+            curr = current_metadata.get(key)
+            if BaseEntityService._metadata_field_changed(key, prev, curr):
+                changed.add(key)
+
+        return sorted(changed)
 
     def _get_history_service(self) -> "HistoryService":
         """Get the history service instance. Lazy import to avoid circular dependency."""
@@ -447,6 +543,10 @@ class BaseEntityService(ABC, Generic[T]):
         if permanent:
             # Hard delete: cascade-delete history first (application-level cascade)
             await self._get_history_service().delete_entity_history(
+                db, user_id, self.entity_type, entity_id,
+            )
+            # Clean up content relationships
+            await relationship_service.delete_relationships_for_content(
                 db, user_id, self.entity_type, entity_id,
             )
             await db.delete(entity)

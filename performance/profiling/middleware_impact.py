@@ -17,7 +17,6 @@ Tests these configurations:
 7. All middleware combined
 """
 import asyncio
-import hashlib
 import statistics
 import subprocess
 import sys

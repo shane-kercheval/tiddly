@@ -42,7 +42,7 @@ describe('ConflictDialog', () => {
       render(<ConflictDialog {...defaultProps} />)
 
       expect(screen.getByRole('button', { name: 'Copy My Content' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Load Latest Version' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Save My Version' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Do Nothing' })).toBeInTheDocument()
     })
@@ -94,13 +94,13 @@ describe('ConflictDialog', () => {
     })
   })
 
-  describe('Load Server Version button', () => {
+  describe('Load Latest Version button', () => {
     it('should call onLoadServerVersion when clicked', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       const onLoadServerVersion = vi.fn()
       render(<ConflictDialog {...defaultProps} onLoadServerVersion={onLoadServerVersion} />)
 
-      await user.click(screen.getByRole('button', { name: 'Load Server Version' }))
+      await user.click(screen.getByRole('button', { name: 'Load Latest Version' }))
 
       expect(onLoadServerVersion).toHaveBeenCalledTimes(1)
     })
@@ -219,7 +219,7 @@ describe('ConflictDialog', () => {
       expect(screen.getByText('Copy your current content to clipboard before choosing an action')).toBeInTheDocument()
     })
 
-    it('should show helper text for Load Server Version', () => {
+    it('should show helper text for Load Latest Version', () => {
       render(<ConflictDialog {...defaultProps} />)
 
       expect(screen.getByText('Discard your changes and load the latest version')).toBeInTheDocument()
@@ -243,7 +243,7 @@ describe('ConflictDialog', () => {
       render(<ConflictDialog {...defaultProps} />)
 
       const copyButton = screen.getByRole('button', { name: 'Copy My Content' })
-      const loadButton = screen.getByRole('button', { name: 'Load Server Version' })
+      const loadButton = screen.getByRole('button', { name: 'Load Latest Version' })
       const saveButton = screen.getByRole('button', { name: 'Save My Version' })
       const doNothingButton = screen.getByRole('button', { name: 'Do Nothing' })
 
@@ -255,10 +255,10 @@ describe('ConflictDialog', () => {
   })
 
   describe('button styling', () => {
-    it('should have primary styling on Load Server Version button', () => {
+    it('should have primary styling on Load Latest Version button', () => {
       render(<ConflictDialog {...defaultProps} />)
 
-      const button = screen.getByRole('button', { name: 'Load Server Version' })
+      const button = screen.getByRole('button', { name: 'Load Latest Version' })
       expect(button.className).toContain('btn-primary')
     })
 

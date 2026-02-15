@@ -1,5 +1,6 @@
 """SQLAlchemy declarative base with common mixins."""
 from datetime import UTC, datetime
+from typing import Any, ClassVar
 from uuid import UUID
 
 from sqlalchemy import DateTime, and_, func
@@ -11,9 +12,16 @@ from uuid6 import uuid7
 
 
 class Base(DeclarativeBase):
-    """Base class for all SQLAlchemy models."""
+    """
+    Base class for all SQLAlchemy models.
 
-    pass
+    eager_defaults=True causes INSERT/UPDATE to use RETURNING, eagerly fetching
+    server-generated column values (e.g., server_default, onupdate) instead of
+    expiring them. Required for async SQLAlchemy when columns use server-side
+    expressions like func.clock_timestamp().
+    """
+
+    __mapper_args__: ClassVar[dict[str, Any]] = {"eager_defaults": True}
 
 
 class UUIDv7Mixin:

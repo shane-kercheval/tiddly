@@ -147,6 +147,33 @@ async def get_or_create_tags(
     return tags
 
 
+async def resolve_tag_ids_to_names(
+    db: AsyncSession,
+    user_id: UUID,
+    tag_ids: list[UUID],
+) -> dict[UUID, str]:
+    """
+    Batch-resolve tag IDs to their current names.
+
+    Args:
+        db: Database session.
+        user_id: User ID to scope tags.
+        tag_ids: List of tag UUIDs to resolve.
+
+    Returns:
+        Mapping from tag ID to current tag name. Missing/deleted tags are omitted.
+    """
+    if not tag_ids:
+        return {}
+    result = await db.execute(
+        select(Tag.id, Tag.name).where(
+            Tag.user_id == user_id,
+            Tag.id.in_(tag_ids),
+        ),
+    )
+    return {row.id: row.name for row in result}
+
+
 async def get_user_tags_with_counts(
     db: AsyncSession,
     user_id: UUID,

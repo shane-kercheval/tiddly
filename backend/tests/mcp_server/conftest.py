@@ -253,3 +253,39 @@ def sample_search_in_content_empty() -> dict[str, Any]:
         "matches": [],
         "total_matches": 0,
     }
+
+
+@pytest.fixture
+def sample_relationship() -> dict[str, Any]:
+    """Sample relationship response data."""
+    return {
+        "id": "660e8400-e29b-41d4-a716-446655440010",
+        "source_type": "bookmark",
+        "source_id": "550e8400-e29b-41d4-a716-446655440001",
+        "target_type": "note",
+        "target_id": "550e8400-e29b-41d4-a716-446655440002",
+        "relationship_type": "related",
+        "description": None,
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+        "source_title": "Example Site",
+        "source_url": "https://example.com",
+        "target_title": "Test Note",
+        "target_url": None,
+        "source_deleted": False,
+        "target_deleted": False,
+        "source_archived": False,
+        "target_archived": False,
+    }
+
+
+@pytest.fixture
+def sample_relationship_list(sample_relationship: dict[str, Any]) -> dict[str, Any]:
+    """Sample paginated relationship list response."""
+    return {
+        "items": [sample_relationship],
+        "total": 1,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }

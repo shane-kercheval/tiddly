@@ -114,7 +114,7 @@ describe('SettingsVersionHistory', () => {
       await waitFor(() => {
         expect(mockUseUserHistory).toHaveBeenCalledWith(
           expect.objectContaining({
-            entityTypes: ['bookmark'],
+            contentTypes: ['bookmark'],
           })
         )
       })
@@ -368,7 +368,7 @@ describe('SettingsVersionHistory', () => {
       await waitFor(() => {
         expect(mockUseUserHistory).toHaveBeenCalledWith(
           expect.objectContaining({
-            entityTypes: expect.arrayContaining(['bookmark', 'note', 'prompt']),
+            contentTypes: expect.arrayContaining(['bookmark', 'note', 'prompt']),
           })
         )
       })
@@ -399,7 +399,7 @@ describe('SettingsVersionHistory', () => {
       await waitFor(() => {
         expect(mockUseUserHistory).toHaveBeenCalledWith(
           expect.objectContaining({
-            entityTypes: undefined,
+            contentTypes: undefined,
           })
         )
       })
@@ -464,14 +464,15 @@ describe('SettingsVersionHistory', () => {
   describe('pagination reset', () => {
     const mockHistoryItem = {
       id: '1',
-      entity_type: 'bookmark' as const,
-      entity_id: 'entity-1',
+      content_type: 'bookmark' as const,
+      content_id: 'entity-1',
       action: 'create' as const,
       version: 1,
       metadata_snapshot: { title: 'Test' },
       source: 'web',
       auth_type: 'auth0',
       token_prefix: null,
+      changed_fields: null,
       created_at: '2024-01-01T00:00:00Z',
     }
 
@@ -590,7 +591,7 @@ describe('SettingsVersionHistory', () => {
       await waitFor(() => {
         expect(mockUseUserHistory).toHaveBeenCalledWith(
           expect.objectContaining({
-            entityTypes: undefined,
+            contentTypes: undefined,
             actions: undefined,
             sources: undefined,
           })
@@ -637,40 +638,43 @@ describe('SettingsVersionHistory', () => {
   describe('audit event handling', () => {
     const contentEntry = {
       id: '1',
-      entity_type: 'bookmark' as const,
-      entity_id: 'entity-1',
+      content_type: 'bookmark' as const,
+      content_id: 'entity-1',
       action: 'update' as const,
       version: 2,
       metadata_snapshot: { title: 'Test Bookmark' },
       source: 'web',
       auth_type: 'auth0',
       token_prefix: null,
+      changed_fields: null,
       created_at: '2024-01-02T00:00:00Z',
     }
 
     const auditEntry = {
       id: '2',
-      entity_type: 'bookmark' as const,
-      entity_id: 'entity-1',
+      content_type: 'bookmark' as const,
+      content_id: 'entity-1',
       action: 'delete' as const,
       version: null,
       metadata_snapshot: { title: 'Test Bookmark' },
       source: 'web',
       auth_type: 'auth0',
       token_prefix: null,
+      changed_fields: null,
       created_at: '2024-01-03T00:00:00Z',
     }
 
     const createEntry = {
       id: '3',
-      entity_type: 'bookmark' as const,
-      entity_id: 'entity-1',
+      content_type: 'bookmark' as const,
+      content_id: 'entity-1',
       action: 'create' as const,
       version: 1,
       metadata_snapshot: { title: 'Test Bookmark' },
       source: 'web',
       auth_type: 'auth0',
       token_prefix: null,
+      changed_fields: null,
       created_at: '2024-01-01T00:00:00Z',
     }
 

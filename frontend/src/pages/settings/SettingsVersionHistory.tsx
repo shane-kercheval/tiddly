@@ -11,10 +11,12 @@ import { useUserHistory, useVersionDiff } from '../../hooks/useHistory'
 import { MultiSelectDropdown } from '../../components/ui'
 import type { DropdownOption } from '../../components/ui'
 import { BookmarkIcon, NoteIcon, PromptIcon, CloseIconFilled } from '../../components/icons'
+import { ActionDot } from '../../components/ActionDot'
+import { ChangeIndicators } from '../../components/ChangeIndicators'
 import { VersionDiffPanel } from '../../components/VersionDiffPanel'
 import { CONTENT_TYPE_ICON_COLORS } from '../../constants/contentTypeStyles'
 import { formatAction, formatSource, isAuditAction } from '../../constants/historyLabels'
-import type { HistoryEntityType, HistoryActionType, HistoryEntry } from '../../types'
+import type { ContentType, HistoryActionType, HistoryEntry } from '../../types'
 
 /** Date preset options */
 type DatePreset = 'all' | 'last7' | 'last30' | 'custom'
@@ -31,7 +33,7 @@ function displaySourceToApiSources(source: DisplaySourceType): string[] {
 }
 
 /** Dropdown options for entity type filter */
-const ENTITY_TYPE_OPTIONS: DropdownOption<HistoryEntityType>[] = [
+const ENTITY_TYPE_OPTIONS: DropdownOption<ContentType>[] = [
   { value: 'bookmark', label: 'Bookmarks', icon: <BookmarkIcon className={`h-4 w-4 ${CONTENT_TYPE_ICON_COLORS.bookmark}`} /> },
   { value: 'note', label: 'Notes', icon: <NoteIcon className={`h-4 w-4 ${CONTENT_TYPE_ICON_COLORS.note}`} /> },
   { value: 'prompt', label: 'Prompts', icon: <PromptIcon className={`h-4 w-4 ${CONTENT_TYPE_ICON_COLORS.prompt}`} /> },
@@ -66,7 +68,7 @@ const DATE_PRESET_OPTIONS: { value: DatePreset; label: string }[] = [
 ]
 
 /** Get colored icon for entity type */
-function getEntityIcon(type: HistoryEntityType): ReactNode {
+function getEntityIcon(type: ContentType): ReactNode {
   switch (type) {
     case 'bookmark':
       return <BookmarkIcon className={`w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.bookmark}`} />
@@ -86,7 +88,7 @@ function getItemTitle(metadata: Record<string, unknown> | null): string {
 }
 
 /** Get link path for entity */
-function getEntityPath(type: HistoryEntityType, id: string): string {
+function getEntityPath(type: ContentType, id: string): string {
   switch (type) {
     case 'bookmark':
       return `/app/bookmarks/${id}`
@@ -101,7 +103,7 @@ function getEntityPath(type: HistoryEntityType, id: string): string {
 
 export function SettingsVersionHistory(): ReactNode {
   // Filter state - empty arrays mean "show all"
-  const [entityTypeFilter, setEntityTypeFilter] = useState<HistoryEntityType[]>([])
+  const [entityTypeFilter, setEntityTypeFilter] = useState<ContentType[]>([])
   const [actionFilter, setActionFilter] = useState<HistoryActionType[]>([])
   const [sourceFilter, setSourceFilter] = useState<DisplaySourceType[]>([])
   const [datePreset, setDatePreset] = useState<DatePreset>('all')
@@ -136,7 +138,7 @@ export function SettingsVersionHistory(): ReactNode {
   }, [datePreset, customStartDate, customEndDate])
 
   // Toggle helpers - each resets pagination
-  const toggleEntityType = (type: HistoryEntityType): void => {
+  const toggleEntityType = (type: ContentType): void => {
     setEntityTypeFilter(prev =>
       prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
     )
@@ -213,7 +215,7 @@ export function SettingsVersionHistory(): ReactNode {
   }
 
   const { data: history, isLoading, error } = useUserHistory({
-    entityTypes: entityTypeFilter.length > 0 ? entityTypeFilter : undefined,
+    contentTypes: entityTypeFilter.length > 0 ? entityTypeFilter : undefined,
     actions: actionFilter.length > 0 ? actionFilter : undefined,
     sources: apiSources,
     startDate,
@@ -227,8 +229,8 @@ export function SettingsVersionHistory(): ReactNode {
     ? selectedEntry.version
     : null
   const { data: diffData } = useVersionDiff(
-    selectedEntry?.entity_type ?? 'bookmark',
-    selectedEntry?.entity_id ?? '',
+    selectedEntry?.content_type ?? 'bookmark',
+    selectedEntry?.content_id ?? '',
     selectedVersion
   )
 
@@ -431,9 +433,9 @@ export function SettingsVersionHistory(): ReactNode {
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      {getEntityIcon(entry.entity_type)}
+                      {getEntityIcon(entry.content_type)}
                       <Link
-                        to={getEntityPath(entry.entity_type, entry.entity_id)}
+                        to={getEntityPath(entry.content_type, entry.content_id)}
                         className="text-blue-600 hover:text-blue-800 hover:underline text-sm font-medium truncate"
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -444,12 +446,13 @@ export function SettingsVersionHistory(): ReactNode {
                       ) : (
                         <span className="text-xs text-gray-400 italic shrink-0">audit</span>
                       )}
+                      <ChangeIndicators changed={entry.changed_fields} />
                     </div>
                   </div>
                   <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-xs ${
                     isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-500'
                   }`}>
-                    <span className={isAuditAction(entry.action) ? 'text-gray-500' : 'text-gray-700'}>{formatAction(entry.action)}</span>
+                    <span className="inline-flex items-center gap-1"><ActionDot action={entry.action} />{formatAction(entry.action)}</span>
                     <span>{formatSource(entry.source)}</span>
                     <span>{new Date(entry.created_at).toLocaleString()}</span>
                   </div>
@@ -459,7 +462,7 @@ export function SettingsVersionHistory(): ReactNode {
                   <div className="border-t border-gray-200 bg-gray-50">
                     <VersionDiffPanel
                       diffData={diffData ?? null}
-                      entityType={entry.entity_type}
+                      entityType={entry.content_type}
                       action={entry.action}
                       maxHeight={400}
                     />
@@ -475,7 +478,7 @@ export function SettingsVersionHistory(): ReactNode {
               <thead className="bg-gray-50">
                 <tr>
                   <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Item</th>
-                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-24">Action</th>
+                  <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-28">Action</th>
                   <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-20">Source</th>
                   <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide w-44">Date</th>
                 </tr>
@@ -489,7 +492,7 @@ export function SettingsVersionHistory(): ReactNode {
                     >
                       {/* Clickable row content */}
                       <div
-                        className={`grid grid-cols-[1fr_6rem_5rem_11rem] transition-colors ${
+                        className={`grid grid-cols-[1fr_7rem_5rem_11rem] transition-colors ${
                           isAuditAction(entry.action) ? 'bg-gray-50/50' : 'cursor-pointer hover:bg-gray-50'
                         } ${
                           selectedEntry?.id === entry.id ? 'bg-blue-50' : ''
@@ -498,9 +501,9 @@ export function SettingsVersionHistory(): ReactNode {
                       >
                         <div className="px-3 py-2.5 min-w-0">
                           <div className="flex items-center gap-2 min-w-0">
-                            <span className="shrink-0">{getEntityIcon(entry.entity_type)}</span>
+                            <span className="shrink-0">{getEntityIcon(entry.content_type)}</span>
                             <Link
-                              to={getEntityPath(entry.entity_type, entry.entity_id)}
+                              to={getEntityPath(entry.content_type, entry.content_id)}
                               className="text-blue-600 hover:text-blue-800 hover:underline text-sm font-medium truncate"
                               onClick={(e) => e.stopPropagation()}
                             >
@@ -511,9 +514,11 @@ export function SettingsVersionHistory(): ReactNode {
                             ) : (
                               <span className="text-xs text-gray-400 italic shrink-0">audit</span>
                             )}
+                            <ChangeIndicators changed={entry.changed_fields} />
                           </div>
                         </div>
-                        <div className={`px-3 py-2.5 text-sm ${isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-700'}`}>
+                        <div className="px-3 py-2.5 text-sm text-gray-500 flex items-center gap-1.5">
+                          <ActionDot action={entry.action} />
                           {formatAction(entry.action)}
                         </div>
                         <div className={`px-3 py-2.5 text-sm ${isAuditAction(entry.action) ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -528,7 +533,7 @@ export function SettingsVersionHistory(): ReactNode {
                         <div className="border-t border-gray-200 bg-gray-50">
                           <VersionDiffPanel
                             diffData={diffData ?? null}
-                            entityType={entry.entity_type}
+                            entityType={entry.content_type}
                             action={entry.action}
                           />
                         </div>

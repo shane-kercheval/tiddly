@@ -23,9 +23,10 @@ import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEdita
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
-import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog } from './ui'
+import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedContentChips'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog, Tooltip } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
-import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon } from './icons'
+import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon, TagIcon, LinkIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
 import { useLimits } from '../hooks/useLimits'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
@@ -33,7 +34,10 @@ import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useBookmarks } from '../hooks/useBookmarks'
-import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, TagCount } from '../types'
+import { useRelationshipState } from '../hooks/useRelationshipState'
+import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
+import type { LinkedItem } from '../utils/relationships'
+import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount } from '../types'
 import type { ArchivePreset } from '../utils'
 
 /** Conflict state for 409 responses */
@@ -54,6 +58,7 @@ interface BookmarkState {
   description: string
   content: string
   tags: string[]
+  relationships: RelationshipInputPayload[]
   archivedAt: string
   archivePreset: ArchivePreset
 }
@@ -105,6 +110,8 @@ interface BookmarkProps {
   onRefresh?: () => Promise<BookmarkType | null>
   /** Called when history button is clicked */
   onShowHistory?: () => void
+  /** Called when a linked content item is clicked for navigation */
+  onNavigateToLinked?: (item: LinkedItem) => void
 }
 
 /**
@@ -138,6 +145,7 @@ export function Bookmark({
   fullWidth = false,
   onRefresh,
   onShowHistory,
+  onNavigateToLinked,
 }: BookmarkProps): ReactNode {
   const isCreate = !bookmark
 
@@ -165,6 +173,9 @@ export function Bookmark({
       description: bookmark?.description ?? '',
       content: bookmark?.content ?? '',
       tags: bookmark?.tags ?? initialTags ?? [],
+      relationships: bookmark?.relationships
+        ? toRelationshipInputs(bookmark.relationships, 'bookmark', bookmark.id)
+        : [],
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
     }
@@ -182,6 +193,16 @@ export function Bookmark({
   const currentContentRef = useRef(current.content)
   currentContentRef.current = current.content
 
+  // Relationship state management (display items, add/remove handlers, cache)
+  // Must be called before syncStateFromBookmark which depends on clearNewItemsCache
+  const { linkedItems, handleAddRelationship, handleRemoveRelationship, clearNewItemsCache } = useRelationshipState({
+    contentType: 'bookmark',
+    entityId: bookmark?.id,
+    serverRelationships: bookmark?.relationships,
+    currentRelationships: current.relationships,
+    setCurrent,
+  })
+
   const syncStateFromBookmark = useCallback(
     (nextBookmark: BookmarkType, resetEditor = false): void => {
     const archiveState = nextBookmark.archived_at
@@ -193,22 +214,26 @@ export function Bookmark({
       description: nextBookmark.description ?? '',
       content: nextBookmark.content ?? '',
       tags: nextBookmark.tags ?? [],
+      relationships: nextBookmark.relationships
+        ? toRelationshipInputs(nextBookmark.relationships, 'bookmark', nextBookmark.id)
+        : [],
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
     }
     setOriginal(newState)
     setCurrent(newState)
     setConflictState(null)
+    clearNewItemsCache()
     if (resetEditor) {
       setContentKey((prev) => prev + 1)
     }
-  }, [])
+  }, [clearNewItemsCache])
 
   // Sync internal state when bookmark prop changes (e.g., after refresh from conflict resolution)
   // This is intentional - deriving form state from props when they change is a valid pattern
   useEffect(() => {
     if (!bookmark) return
-    // Skip if we just manually handled the sync for this specific version (e.g., StaleDialog "Load Server Version")
+    // Skip if we just manually handled the sync for this specific version (e.g., StaleDialog "Load Latest Version")
     // This prevents a race condition where this effect runs without resetEditor after
     // the manual sync already ran with resetEditor, causing the editor not to refresh
     if (skipSyncForUpdatedAtRef.current === bookmark.updated_at) {
@@ -231,6 +256,7 @@ export function Bookmark({
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
+  const linkedChipsRef = useRef<LinkedContentChipsHandle>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const urlInputRef = useRef<HTMLInputElement>(null)
   // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
@@ -249,6 +275,7 @@ export function Bookmark({
       current.content !== original.content ||
       current.tags.length !== original.tags.length ||
       current.tags.some((tag, i) => tag !== original.tags[i]) ||
+      !relationshipsEqual(current.relationships, original.relationships) ||
       current.archivedAt !== original.archivedAt,
     [current, original]
   )
@@ -313,6 +340,9 @@ export function Bookmark({
     if (JSON.stringify(tagsToSubmit) !== JSON.stringify(bookmark.tags ?? [])) {
       updates.tags = tagsToSubmit
     }
+    if (!relationshipsEqual(current.relationships, original.relationships)) {
+      updates.relationships = current.relationships
+    }
     const newArchivedAt = current.archivedAt || null
     const oldArchivedAt = bookmark.archived_at || null
     if (newArchivedAt !== oldArchivedAt) {
@@ -320,7 +350,7 @@ export function Bookmark({
     }
 
     return { updates, tagsToSubmit }
-  }, [bookmark, current])
+  }, [bookmark, current, original.relationships])
 
   // Auto-focus URL for new bookmarks only (if no initialUrl)
   useEffect(() => {
@@ -576,6 +606,7 @@ export function Bookmark({
           description: current.description || undefined,
           content: current.content || undefined,
           tags: tagsToSubmit,
+          relationships: current.relationships.length > 0 ? current.relationships : undefined,
           archived_at: current.archivedAt || undefined,
         }
         // For creates, onSave navigates away - prevent blocker from showing
@@ -907,38 +938,87 @@ export function Bookmark({
             error={errors.description}
           />
 
-          {/* Metadata row: tags + archive schedule + timestamps */}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
-            <InlineEditableTags
-              ref={tagInputRef}
-              value={current.tags}
-              onChange={handleTagsChange}
-              suggestions={tagSuggestions}
-              disabled={isSaving || isReadOnly}
-            />
+          {/* Metadata: icons row + chips row */}
+          <div className="space-y-1.5 pb-1">
+            {/* Row 1: action icons + auto-archive + timestamps */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+              {/* Add tag button */}
+              <Tooltip content="Add tag" compact>
+                <button
+                  type="button"
+                  onClick={() => tagInputRef.current?.startAdding()}
+                  disabled={isSaving || isReadOnly}
+                  className={`inline-flex items-center h-5 px-1 text-gray-500 rounded transition-colors ${
+                    isSaving || isReadOnly ? 'cursor-not-allowed' : 'hover:text-gray-700 hover:bg-gray-100'
+                  }`}
+                  aria-label="Add tag"
+                >
+                  <TagIcon className="h-4 w-4" />
+                </button>
+              </Tooltip>
 
-            <span className="text-gray-300">·</span>
+              {/* Add link button */}
+              <Tooltip content="Link content" compact>
+                <button
+                  type="button"
+                  onClick={() => linkedChipsRef.current?.startAdding()}
+                  disabled={isSaving || isReadOnly}
+                  className={`inline-flex items-center h-5 px-1 text-gray-500 rounded transition-colors ${
+                    isSaving || isReadOnly ? 'cursor-not-allowed' : 'hover:text-gray-700 hover:bg-gray-100'
+                  }`}
+                  aria-label="Link content"
+                >
+                  <LinkIcon className="h-4 w-4" />
+                </button>
+              </Tooltip>
 
-            <InlineEditableArchiveSchedule
-              value={current.archivedAt}
-              onChange={handleArchiveScheduleChange}
-              preset={current.archivePreset}
-              onPresetChange={handleArchivePresetChange}
-              disabled={isSaving || isReadOnly}
-            />
+              <span className="text-gray-300">·</span>
 
-            {bookmark && (
-              <>
-                <span className="text-gray-300">·</span>
-                <span>Created {formatDate(bookmark.created_at)}</span>
-                {bookmark.updated_at !== bookmark.created_at && (
-                  <>
-                    <span className="text-gray-300">·</span>
-                    <span>Updated {formatDate(bookmark.updated_at)}</span>
-                  </>
-                )}
-              </>
-            )}
+              <InlineEditableArchiveSchedule
+                value={current.archivedAt}
+                onChange={handleArchiveScheduleChange}
+                preset={current.archivePreset}
+                onPresetChange={handleArchivePresetChange}
+                disabled={isSaving || isReadOnly}
+              />
+
+              {bookmark && (
+                <>
+                  <span className="text-gray-300">·</span>
+                  <span>Created {formatDate(bookmark.created_at)}</span>
+                  {bookmark.updated_at !== bookmark.created_at && (
+                    <>
+                      <span className="text-gray-300">·</span>
+                      <span>Updated {formatDate(bookmark.updated_at)}</span>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Row 2: tag pills + linked content chips */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+              <InlineEditableTags
+                ref={tagInputRef}
+                value={current.tags}
+                onChange={handleTagsChange}
+                suggestions={tagSuggestions}
+                disabled={isSaving || isReadOnly}
+                showAddButton={false}
+              />
+
+              <LinkedContentChips
+                ref={linkedChipsRef}
+                contentType="bookmark"
+                contentId={bookmark?.id ?? null}
+                items={linkedItems}
+                onAdd={handleAddRelationship}
+                onRemove={handleRemoveRelationship}
+                onNavigate={onNavigateToLinked}
+                disabled={isSaving || isReadOnly}
+                showAddButton={false}
+              />
+            </div>
           </div>
         </div>
 

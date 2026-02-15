@@ -53,6 +53,12 @@ vi.mock('./CodeMirrorEditor', () => ({
   },
 }))
 
+// Mock content query hook (used by LinkedContentChips inline search)
+vi.mock('../hooks/useContentQuery', () => ({
+  useContentQuery: () => ({ data: null, isFetching: false }),
+  contentKeys: { all: ['content'], lists: () => ['content', 'list'], view: () => ['content', 'list', 'active'], list: () => ['content', 'list', 'active'] },
+}))
+
 // Mock localStorage
 const localStorageMock = (() => {
   let store: Record<string, string> = {}
@@ -519,7 +525,7 @@ createContentComponentTests({
   })
 
   describe('load server version', () => {
-    it('should remount editor when Load Server Version is clicked', async () => {
+    it('should remount editor when Load Latest Version is clicked', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       vi.mocked(axios.isAxiosError).mockReturnValue(true)
       const error409 = new Error('Conflict') as Error & {
@@ -564,7 +570,7 @@ createContentComponentTests({
         expect(screen.getByText('Save Conflict')).toBeInTheDocument()
       })
 
-      await user.click(screen.getByRole('button', { name: 'Load Server Version' }))
+      await user.click(screen.getByRole('button', { name: 'Load Latest Version' }))
 
       await waitFor(() => {
         expect(screen.getByDisplayValue('Server content')).toBeInTheDocument()
@@ -652,12 +658,12 @@ createContentComponentTests({
       await waitFor(() => {
         expect(screen.getByText('Save Conflict')).toBeInTheDocument()
       })
-      expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Load Latest Version' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Save My Version' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Do Nothing' })).toBeInTheDocument()
     })
 
-    it('should call onRefresh when Load Server Version is clicked', async () => {
+    it('should call onRefresh when Load Latest Version is clicked', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockRejectedValue(create409Error())
       const mockOnRefresh = vi.fn().mockResolvedValue(mockPrompt)
@@ -678,10 +684,10 @@ createContentComponentTests({
       await user.click(screen.getByText('Save'))
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Load Latest Version' })).toBeInTheDocument()
       })
 
-      await user.click(screen.getByRole('button', { name: 'Load Server Version' }))
+      await user.click(screen.getByRole('button', { name: 'Load Latest Version' }))
 
       expect(mockOnRefresh).toHaveBeenCalledTimes(1)
     })

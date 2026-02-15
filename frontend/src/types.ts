@@ -30,6 +30,7 @@ export interface BookmarkListItem {
  */
 export interface Bookmark extends BookmarkListItem {
   content: string | null
+  relationships?: RelationshipWithContent[]
 }
 
 /** Data for creating a new bookmark */
@@ -39,6 +40,7 @@ export interface BookmarkCreate {
   description?: string | null
   content?: string | null
   tags?: string[]
+  relationships?: RelationshipInputPayload[]
   archived_at?: string | null  // ISO 8601 datetime string for scheduling auto-archive
 }
 
@@ -49,6 +51,7 @@ export interface BookmarkUpdate {
   description?: string | null
   content?: string | null
   tags?: string[]
+  relationships?: RelationshipInputPayload[]
   archived_at?: string | null  // ISO 8601 datetime string, or null to cancel schedule
   expected_updated_at?: string  // ISO 8601 timestamp for optimistic locking. If provided and entity was modified after this time, returns 409 Conflict.
 }
@@ -103,6 +106,7 @@ export interface NoteListItem {
  */
 export interface Note extends NoteListItem {
   content: string | null
+  relationships?: RelationshipWithContent[]
 }
 
 /** Data for creating a new note */
@@ -111,6 +115,7 @@ export interface NoteCreate {
   description?: string | null
   content?: string | null
   tags?: string[]
+  relationships?: RelationshipInputPayload[]
   archived_at?: string | null  // ISO 8601 datetime string for scheduling auto-archive
 }
 
@@ -120,6 +125,7 @@ export interface NoteUpdate {
   description?: string | null
   content?: string | null
   tags?: string[]
+  relationships?: RelationshipInputPayload[]
   archived_at?: string | null  // ISO 8601 datetime string, or null to cancel schedule
   expected_updated_at?: string  // ISO 8601 timestamp for optimistic locking. If provided and entity was modified after this time, returns 409 Conflict.
 }
@@ -420,6 +426,7 @@ export interface PromptListItem {
  */
 export interface Prompt extends PromptListItem {
   content: string | null
+  relationships?: RelationshipWithContent[]
 }
 
 /** Data for creating a new prompt */
@@ -430,6 +437,7 @@ export interface PromptCreate {
   content?: string | null
   arguments?: PromptArgument[]
   tags?: string[]
+  relationships?: RelationshipInputPayload[]
   archived_at?: string | null
 }
 
@@ -441,6 +449,7 @@ export interface PromptUpdate {
   content?: string | null
   arguments?: PromptArgument[]
   tags?: string[]
+  relationships?: RelationshipInputPayload[]
   archived_at?: string | null
   expected_updated_at?: string  // ISO 8601 timestamp for optimistic locking. If provided and entity was modified after this time, returns 409 Conflict.
 }
@@ -519,20 +528,18 @@ export interface UserLimits {
 // History Types
 // =============================================================================
 
-/** Entity type for history records */
-export type HistoryEntityType = 'bookmark' | 'note' | 'prompt'
-
 /** Action types tracked in history */
 export type HistoryActionType = 'create' | 'update' | 'delete' | 'restore' | 'undelete' | 'archive' | 'unarchive'
 
 /** Single history record */
 export interface HistoryEntry {
   id: string
-  entity_type: HistoryEntityType
-  entity_id: string
+  content_type: ContentType
+  content_id: string
   action: HistoryActionType
   version: number | null
   metadata_snapshot: Record<string, unknown> | null
+  changed_fields: string[] | null
   source: string
   auth_type: string
   token_prefix: string | null
@@ -550,7 +557,7 @@ export interface HistoryListResponse {
 
 /** Diff between a version and its predecessor */
 export interface VersionDiffResponse {
-  entity_id: string
+  content_id: string
   version: number
   before_content: string | null
   after_content: string | null
@@ -564,4 +571,68 @@ export interface RestoreResponse {
   message: string
   version: number
   warnings: string[] | null
+}
+
+// =============================================================================
+// Relationship Types
+// =============================================================================
+
+/** Relationship input for entity create/update payloads (target only, source is implicit) */
+export interface RelationshipInputPayload {
+  target_type: ContentType
+  target_id: string
+  relationship_type: 'related'
+  description?: string | null
+}
+
+/** Valid relationship types */
+export type RelationshipType = 'related'
+
+/** Data for creating a new relationship */
+export interface RelationshipCreate {
+  source_type: ContentType
+  source_id: string
+  target_type: ContentType
+  target_id: string
+  relationship_type: RelationshipType
+  description?: string | null
+}
+
+/** Data for updating an existing relationship */
+export interface RelationshipUpdate {
+  description?: string | null
+}
+
+/** Relationship data returned from the API */
+export interface Relationship {
+  id: string
+  source_type: ContentType
+  source_id: string
+  target_type: ContentType
+  target_id: string
+  relationship_type: RelationshipType
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Extended relationship with content info for display */
+export interface RelationshipWithContent extends Relationship {
+  source_title: string | null
+  source_url: string | null
+  target_title: string | null
+  target_url: string | null
+  source_deleted: boolean
+  target_deleted: boolean
+  source_archived: boolean
+  target_archived: boolean
+}
+
+/** Paginated list response from GET /relationships/content/{type}/{id} */
+export interface RelationshipListResponse {
+  items: RelationshipWithContent[]
+  total: number
+  offset: number
+  limit: number
+  has_more: boolean
 }

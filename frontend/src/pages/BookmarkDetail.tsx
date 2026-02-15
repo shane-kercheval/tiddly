@@ -15,6 +15,7 @@ import { HistorySidebar } from '../components/HistorySidebar'
 import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
+import { useLinkedNavigation } from '../hooks/useLinkedNavigation'
 import {
   useCreateBookmark,
   useUpdateBookmark,
@@ -69,6 +70,7 @@ export function BookmarkDetail(): ReactNode {
   const queryClient = useQueryClient()
 
   const { fetchBookmark, fetchMetadata } = useBookmarks()
+  const handleNavigateToLinked = useLinkedNavigation()
   const { tags: tagSuggestions } = useTagsStore()
   const fullWidthLayout = useUIPreferencesStore((state) => state.fullWidthLayout)
   const createMutation = useCreateBookmark()
@@ -292,6 +294,7 @@ export function BookmarkDetail(): ReactNode {
         fullWidth={fullWidthLayout}
         onRefresh={handleRefresh}
         onShowHistory={!isCreate ? handleShowHistory : undefined}
+        onNavigateToLinked={handleNavigateToLinked}
       />
       {showHistory && bookmarkId && (
         <HistorySidebar
@@ -299,6 +302,7 @@ export function BookmarkDetail(): ReactNode {
           entityId={bookmarkId}
           onClose={() => setShowHistory(false)}
           onRestored={handleHistoryRestored}
+          isDeleted={viewState === 'deleted'}
         />
       )}
     </>

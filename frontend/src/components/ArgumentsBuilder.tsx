@@ -54,7 +54,7 @@ export function ArgumentsBuilder({
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
+    <div className="rounded-xl border border-gray-200 bg-white p-3">
       <div className="flex items-center justify-between mb-2">
         <label className="label">Arguments</label>
         <button
