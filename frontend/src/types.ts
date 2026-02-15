@@ -528,17 +528,14 @@ export interface UserLimits {
 // History Types
 // =============================================================================
 
-/** Entity type for history records */
-export type HistoryEntityType = 'bookmark' | 'note' | 'prompt'
-
 /** Action types tracked in history */
 export type HistoryActionType = 'create' | 'update' | 'delete' | 'restore' | 'undelete' | 'archive' | 'unarchive'
 
 /** Single history record */
 export interface HistoryEntry {
   id: string
-  entity_type: HistoryEntityType
-  entity_id: string
+  content_type: ContentType
+  content_id: string
   action: HistoryActionType
   version: number | null
   metadata_snapshot: Record<string, unknown> | null
@@ -560,7 +557,7 @@ export interface HistoryListResponse {
 
 /** Diff between a version and its predecessor */
 export interface VersionDiffResponse {
-  entity_id: string
+  content_id: string
   version: number
   before_content: string | null
   after_content: string | null

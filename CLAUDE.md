@@ -196,10 +196,10 @@ All content changes (bookmarks, notes, prompts) are tracked in the `content_hist
 - Fallback: if no snapshot found, start from `entity.content`
 
 **API Endpoints:**
-- `GET /history` - All user history (paginated, filterable by entity_type)
-- `GET /history/{type}/{id}` - Entity history
-- `GET /history/{type}/{id}/version/{v}` - Reconstruct content at version
-- `POST /history/{type}/{id}/restore/{v}` - Restore to version
+- `GET /history` - All user history (paginated, filterable by content_type)
+- `GET /history/{content_type}/{content_id}` - Entity history
+- `GET /history/{content_type}/{content_id}/version/{v}` - Reconstruct content at version
+- `POST /history/{content_type}/{content_id}/restore/{v}` - Restore to version
 - `GET /bookmarks/{id}/history` - Bookmark history (also for notes/prompts)
 
 **Retention:**

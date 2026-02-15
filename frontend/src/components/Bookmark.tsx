@@ -233,7 +233,7 @@ export function Bookmark({
   // This is intentional - deriving form state from props when they change is a valid pattern
   useEffect(() => {
     if (!bookmark) return
-    // Skip if we just manually handled the sync for this specific version (e.g., StaleDialog "Load Server Version")
+    // Skip if we just manually handled the sync for this specific version (e.g., StaleDialog "Load Latest Version")
     // This prevents a race condition where this effect runs without resetEditor after
     // the manual sync already ran with resetEditor, causing the editor not to refresh
     if (skipSyncForUpdatedAtRef.current === bookmark.updated_at) {

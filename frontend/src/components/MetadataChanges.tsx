@@ -6,12 +6,12 @@
  */
 import type { ReactNode } from 'react'
 import { DiffView } from './DiffView'
-import type { HistoryEntityType, HistoryActionType } from '../types'
+import type { ContentType, HistoryActionType } from '../types'
 
 interface MetadataChangesProps {
   beforeMetadata: Record<string, unknown> | null
   afterMetadata: Record<string, unknown> | null
-  entityType: HistoryEntityType
+  entityType: ContentType
   action: HistoryActionType
 }
 
@@ -35,7 +35,7 @@ const FIELD_LABELS: Record<string, string> = {
 }
 
 /** Known fields per entity type (controls which fields to check/display) */
-const FIELDS_BY_TYPE: Record<HistoryEntityType, string[]> = {
+const FIELDS_BY_TYPE: Record<ContentType, string[]> = {
   bookmark: ['title', 'url', 'tags', 'relationships', 'description'],
   note: ['title', 'tags', 'relationships', 'description'],
   prompt: ['title', 'name', 'tags', 'arguments', 'relationships', 'description'],

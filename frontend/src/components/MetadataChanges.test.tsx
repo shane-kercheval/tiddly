@@ -8,12 +8,12 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MetadataChanges } from './MetadataChanges'
-import type { HistoryEntityType, HistoryActionType } from '../types'
+import type { ContentType, HistoryActionType } from '../types'
 
 function renderMetadata(props: {
   beforeMetadata: Record<string, unknown> | null
   afterMetadata: Record<string, unknown> | null
-  entityType: HistoryEntityType
+  entityType: ContentType
   action: HistoryActionType
 }): ReturnType<typeof render> {
   return render(<MetadataChanges {...props} />)

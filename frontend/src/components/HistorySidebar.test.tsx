@@ -36,8 +36,8 @@ vi.mock('../stores/historySidebarStore', () => ({
 function createEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
   return {
     id: 'entry-1',
-    entity_type: 'bookmark',
-    entity_id: 'entity-1',
+    content_type: 'bookmark',
+    content_id: 'entity-1',
     action: 'update',
     version: 2,
     metadata_snapshot: { title: 'Test' },

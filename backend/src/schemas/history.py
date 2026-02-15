@@ -2,7 +2,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from models.content_history import ActionType, EntityType
 
@@ -13,8 +13,8 @@ class HistoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    entity_type: EntityType
-    entity_id: UUID
+    content_type: EntityType = Field(validation_alias="entity_type")
+    content_id: UUID = Field(validation_alias="entity_id")
     action: ActionType
     version: int | None  # None for audit events (lifecycle state transitions)
     metadata_snapshot: dict | None
@@ -38,7 +38,7 @@ class HistoryListResponse(BaseModel):
 class ContentAtVersionResponse(BaseModel):
     """Schema for reconstructed content at a specific version."""
 
-    entity_id: UUID
+    content_id: UUID
     version: int
     content: str | None  # None is valid for DELETE actions
     metadata: dict | None  # metadata_snapshot from the history record
@@ -48,7 +48,7 @@ class ContentAtVersionResponse(BaseModel):
 class VersionDiffResponse(BaseModel):
     """Schema for diff between a version and its predecessor."""
 
-    entity_id: UUID
+    content_id: UUID
     version: int
     before_content: str | None
     after_content: str | None

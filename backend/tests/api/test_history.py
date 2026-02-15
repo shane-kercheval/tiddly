@@ -72,9 +72,9 @@ async def test_get_user_history_empty(client: AsyncClient) -> None:
     assert data["has_more"] is False
 
 
-async def test_get_user_history_with_all_entity_types(client: AsyncClient) -> None:
-    """Test getting user history includes all entity types."""
-    # Create one of each entity type
+async def test_get_user_history_with_all_content_types(client: AsyncClient) -> None:
+    """Test getting user history includes all content types."""
+    # Create one of each content type
     await client.post("/bookmarks/", json={"url": "https://example.com"})
     await client.post("/notes/", json={"title": "Test", "content": "Content"})
     await client.post(
@@ -89,18 +89,18 @@ async def test_get_user_history_with_all_entity_types(client: AsyncClient) -> No
     data = response.json()
     assert data["total"] == 3
 
-    # Verify all entity types are present
-    entity_types = {item["entity_type"] for item in data["items"]}
-    assert entity_types == {"bookmark", "note", "prompt"}
+    # Verify all content types are present
+    content_types = {item["content_type"] for item in data["items"]}
+    assert content_types == {"bookmark", "note", "prompt"}
 
 
-@pytest.mark.parametrize("entity_type", ["bookmark", "note", "prompt"])
-async def test_get_user_history_filter_by_entity_type(
+@pytest.mark.parametrize("content_type", ["bookmark", "note", "prompt"])
+async def test_get_user_history_filter_by_content_type(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
 ) -> None:
-    """Test filtering user history by entity type."""
-    # Create one of each entity type
+    """Test filtering user history by content type."""
+    # Create one of each content type
     await client.post("/bookmarks/", json={"url": "https://example.com"})
     await client.post("/notes/", json={"title": "Test", "content": "Content"})
     await client.post(
@@ -108,20 +108,20 @@ async def test_get_user_history_filter_by_entity_type(
         json={"name": "test-prompt", "content": "Hello", "arguments": []},
     )
 
-    # Filter by specific entity type
-    response = await client.get("/history/", params={"entity_type": entity_type})
+    # Filter by specific content type
+    response = await client.get("/history/", params={"content_type": content_type})
     assert response.status_code == 200
 
     data = response.json()
     assert data["total"] == 1
-    assert data["items"][0]["entity_type"] == entity_type
+    assert data["items"][0]["content_type"] == content_type
 
 
-async def test_get_user_history_filter_by_multiple_entity_types(
+async def test_get_user_history_filter_by_multiple_content_types(
     client: AsyncClient,
 ) -> None:
-    """Test filtering user history by multiple entity types (OR logic)."""
-    # Create one of each entity type
+    """Test filtering user history by multiple content types (OR logic)."""
+    # Create one of each content type
     await client.post("/bookmarks/", json={"url": "https://example.com"})
     await client.post("/notes/", json={"title": "Test", "content": "Content"})
     await client.post(
@@ -132,14 +132,14 @@ async def test_get_user_history_filter_by_multiple_entity_types(
     # Filter by bookmark and note (should return 2)
     response = await client.get(
         "/history/",
-        params=[("entity_type", "bookmark"), ("entity_type", "note")],
+        params=[("content_type", "bookmark"), ("content_type", "note")],
     )
     assert response.status_code == 200
 
     data = response.json()
     assert data["total"] == 2
-    entity_types = {item["entity_type"] for item in data["items"]}
-    assert entity_types == {"bookmark", "note"}
+    content_types = {item["content_type"] for item in data["items"]}
+    assert content_types == {"bookmark", "note"}
 
 
 async def test_get_user_history_filter_by_action(client: AsyncClient) -> None:
@@ -264,23 +264,23 @@ async def test_get_user_history_filter_combined(client: AsyncClient) -> None:
     # Create note
     await client.post("/notes/", json={"title": "Test", "content": "Content"})
 
-    # Filter by bookmark entity_type AND update action (should return 1)
+    # Filter by bookmark content_type AND update action (should return 1)
     response = await client.get(
         "/history/",
-        params={"entity_type": "bookmark", "action": "update"},
+        params={"content_type": "bookmark", "action": "update"},
     )
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 1
-    assert data["items"][0]["entity_type"] == "bookmark"
+    assert data["items"][0]["content_type"] == "bookmark"
     assert data["items"][0]["action"] == "update"
 
 
-async def test_get_user_history_invalid_entity_type_returns_422(
+async def test_get_user_history_invalid_content_type_returns_422(
     client: AsyncClient,
 ) -> None:
-    """Test that invalid entity_type value returns 422."""
-    response = await client.get("/history/", params={"entity_type": "invalid"})
+    """Test that invalid content_type value returns 422."""
+    response = await client.get("/history/", params={"content_type": "invalid"})
     assert response.status_code == 422
 
 
@@ -375,19 +375,19 @@ async def test_get_user_history_pagination_with_filters(client: AsyncClient) -> 
     # Filter by bookmark only, with pagination
     response = await client.get(
         "/history/",
-        params={"entity_type": "bookmark", "limit": 2, "offset": 0},
+        params={"content_type": "bookmark", "limit": 2, "offset": 0},
     )
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 3  # Total matching filter, not total in DB
     assert len(data["items"]) == 2
     assert data["has_more"] is True
-    assert all(item["entity_type"] == "bookmark" for item in data["items"])
+    assert all(item["content_type"] == "bookmark" for item in data["items"])
 
     # Get second page
     response = await client.get(
         "/history/",
-        params={"entity_type": "bookmark", "limit": 2, "offset": 2},
+        params={"content_type": "bookmark", "limit": 2, "offset": 2},
     )
     data = response.json()
     assert data["total"] == 3
@@ -473,16 +473,16 @@ async def test_get_user_history_offset_beyond_total(client: AsyncClient) -> None
     assert data["has_more"] is False
 
 
-# --- /history/{entity_type}/{entity_id} endpoint tests (parametrized) ---
+# --- /history/{content_type}/{content_id} endpoint tests (parametrized) ---
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload", "update_payload"),
+    ("content_type", "create_endpoint", "create_payload", "update_payload"),
     ENTITY_TEST_DATA,
 )
 async def test_get_entity_history(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
     update_payload: dict,
@@ -490,14 +490,14 @@ async def test_get_entity_history(
     """Test getting history for a specific entity."""
     # Create entity
     response = await client.post(create_endpoint, json=create_payload)
-    assert response.status_code == 201, f"Failed to create {entity_type}: {response.json()}"
-    entity_id = response.json()["id"]
+    assert response.status_code == 201, f"Failed to create {content_type}: {response.json()}"
+    content_id = response.json()["id"]
 
     # Update to create more history
-    await client.patch(f"{create_endpoint}{entity_id}", json=update_payload)
+    await client.patch(f"{create_endpoint}{content_id}", json=update_payload)
 
     # Get entity history
-    response = await client.get(f"/history/{entity_type}/{entity_id}")
+    response = await client.get(f"/history/{content_type}/{content_id}")
     assert response.status_code == 200
 
     data = response.json()
@@ -506,19 +506,19 @@ async def test_get_entity_history(
 
     # Items should be sorted by created_at descending (most recent first)
     assert data["items"][0]["version"] == 2
-    assert data["items"][0]["entity_type"] == entity_type
+    assert data["items"][0]["content_type"] == content_type
     assert data["items"][1]["version"] == 1
 
 
-@pytest.mark.parametrize("entity_type", ["bookmark", "note", "prompt"])
+@pytest.mark.parametrize("content_type", ["bookmark", "note", "prompt"])
 async def test_get_entity_history_empty_for_nonexistent(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
 ) -> None:
     """Test getting history for non-existent entity returns empty list."""
     fake_uuid = "00000000-0000-0000-0000-000000000000"
 
-    response = await client.get(f"/history/{entity_type}/{fake_uuid}")
+    response = await client.get(f"/history/{content_type}/{fake_uuid}")
     assert response.status_code == 200
 
     data = response.json()
@@ -527,25 +527,25 @@ async def test_get_entity_history_empty_for_nonexistent(
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     ENTITY_CREATE_DATA,
 )
 async def test_get_entity_history_soft_deleted(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
     """Test getting history for soft-deleted entity returns history."""
     # Create entity
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Soft delete
-    await client.delete(f"{create_endpoint}{entity_id}")
+    await client.delete(f"{create_endpoint}{content_id}")
 
     # Get entity history - should still return history
-    response = await client.get(f"/history/{entity_type}/{entity_id}")
+    response = await client.get(f"/history/{content_type}/{content_id}")
     assert response.status_code == 200
 
     data = response.json()
@@ -555,28 +555,28 @@ async def test_get_entity_history_soft_deleted(
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     ENTITY_CREATE_DATA,
 )
 async def test_get_entity_history_hard_deleted(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
     """Test getting history for hard-deleted entity returns empty list."""
     # Create entity
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Soft delete first
-    await client.delete(f"{create_endpoint}{entity_id}")
+    await client.delete(f"{create_endpoint}{content_id}")
 
     # Hard delete
-    await client.delete(f"{create_endpoint}{entity_id}", params={"permanent": True})
+    await client.delete(f"{create_endpoint}{content_id}", params={"permanent": True})
 
     # Get entity history - should return empty (history cascade-deleted)
-    response = await client.get(f"/history/{entity_type}/{entity_id}")
+    response = await client.get(f"/history/{content_type}/{content_id}")
     assert response.status_code == 200
 
     data = response.json()
@@ -585,29 +585,29 @@ async def test_get_entity_history_hard_deleted(
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     ENTITY_CREATE_DATA,
 )
 async def test_get_entity_history_pagination(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
     """Test pagination of entity history."""
     # Create entity and update multiple times
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     for i in range(4):
         await client.patch(
-            f"{create_endpoint}{entity_id}",
+            f"{create_endpoint}{content_id}",
             json={"content": f"Version {i + 2}"},
         )
 
     # Get first page
     response = await client.get(
-        f"/history/{entity_type}/{entity_id}",
+        f"/history/{content_type}/{content_id}",
         params={"limit": 2, "offset": 0},
     )
     data = response.json()
@@ -616,16 +616,16 @@ async def test_get_entity_history_pagination(
     assert data["has_more"] is True
 
 
-# --- /history/{entity_type}/{entity_id}/version/{version} endpoint tests (parametrized) ---
+# --- /history/{content_type}/{content_id}/version/{version} endpoint tests (parametrized) ---
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload", "update_payload"),
+    ("content_type", "create_endpoint", "create_payload", "update_payload"),
     ENTITY_TEST_DATA,
 )
 async def test_get_content_at_version(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
     update_payload: dict,
@@ -633,17 +633,17 @@ async def test_get_content_at_version(
     """Test getting content at a specific version."""
     # Create entity
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Update the entity
-    await client.patch(f"{create_endpoint}{entity_id}", json=update_payload)
+    await client.patch(f"{create_endpoint}{content_id}", json=update_payload)
 
     # Get content at version 1 (original)
-    response = await client.get(f"/history/{entity_type}/{entity_id}/version/1")
+    response = await client.get(f"/history/{content_type}/{content_id}/version/1")
     assert response.status_code == 200
 
     data = response.json()
-    assert data["entity_id"] == entity_id
+    assert data["content_id"] == content_id
     assert data["version"] == 1
     assert data["content"] == "Initial content"
     assert data["metadata"] is not None
@@ -651,22 +651,22 @@ async def test_get_content_at_version(
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     ENTITY_CREATE_DATA,
 )
 async def test_get_content_at_version_latest(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
     """Test getting content at the latest version."""
     # Create entity
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Get content at version 1 (latest and only version)
-    response = await client.get(f"/history/{entity_type}/{entity_id}/version/1")
+    response = await client.get(f"/history/{content_type}/{content_id}/version/1")
     assert response.status_code == 200
 
     data = response.json()
@@ -674,78 +674,78 @@ async def test_get_content_at_version_latest(
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     ENTITY_CREATE_DATA,
 )
 async def test_get_content_at_version_not_found(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
     """Test getting content at non-existent version returns 404."""
     # Create entity
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Try to get version 999
-    response = await client.get(f"/history/{entity_type}/{entity_id}/version/999")
+    response = await client.get(f"/history/{content_type}/{content_id}/version/999")
     assert response.status_code == 404
     assert response.json()["detail"] == "Version not found"
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     ENTITY_CREATE_DATA,
 )
 async def test_get_content_at_version_hard_deleted(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
     """Test getting content at version for hard-deleted entity returns 404."""
     # Create entity
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Soft delete
-    await client.delete(f"{create_endpoint}{entity_id}")
+    await client.delete(f"{create_endpoint}{content_id}")
 
     # Hard delete
-    await client.delete(f"{create_endpoint}{entity_id}", params={"permanent": True})
+    await client.delete(f"{create_endpoint}{content_id}", params={"permanent": True})
 
     # Try to get version
-    response = await client.get(f"/history/{entity_type}/{entity_id}/version/1")
+    response = await client.get(f"/history/{content_type}/{content_id}/version/1")
     assert response.status_code == 404
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     ENTITY_CREATE_DATA,
 )
 async def test_get_content_at_version_after_delete(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
     """Test that DELETE is an audit event (no version) and v1 is still retrievable."""
     # Create entity
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Soft delete (creates audit record with NULL version)
-    await client.delete(f"{create_endpoint}{entity_id}")
+    await client.delete(f"{create_endpoint}{content_id}")
 
     # v1 (CREATE) should still be retrievable
-    response = await client.get(f"/history/{entity_type}/{entity_id}/version/1")
+    response = await client.get(f"/history/{content_type}/{content_id}/version/1")
     assert response.status_code == 200
     data = response.json()
     assert data["content"] == "Initial content"
 
     # v2 should not exist (DELETE has NULL version, not v2)
-    response = await client.get(f"/history/{entity_type}/{entity_id}/version/2")
+    response = await client.get(f"/history/{content_type}/{content_id}/version/2")
     assert response.status_code == 404
 
 
@@ -765,7 +765,7 @@ async def test_bookmark_history_endpoint(client: AsyncClient) -> None:
 
     data = response.json()
     assert data["total"] == 1
-    assert data["items"][0]["entity_type"] == "bookmark"
+    assert data["items"][0]["content_type"] == "bookmark"
     assert data["items"][0]["metadata_snapshot"]["url"] == "https://example.com/"
 
 
@@ -782,7 +782,7 @@ async def test_note_history_endpoint(client: AsyncClient) -> None:
 
     data = response.json()
     assert data["total"] == 1
-    assert data["items"][0]["entity_type"] == "note"
+    assert data["items"][0]["content_type"] == "note"
     assert data["items"][0]["metadata_snapshot"]["title"] == "Test Note"
 
 
@@ -804,7 +804,7 @@ async def test_prompt_history_endpoint(client: AsyncClient) -> None:
 
     data = response.json()
     assert data["total"] == 1
-    assert data["items"][0]["entity_type"] == "prompt"
+    assert data["items"][0]["content_type"] == "prompt"
     assert data["items"][0]["metadata_snapshot"]["name"] == "my-prompt"
     assert data["items"][0]["metadata_snapshot"]["arguments"] == [
         {"name": "name", "description": "The name", "required": None},
@@ -834,8 +834,8 @@ async def test_history_response_includes_all_fields(client: AsyncClient) -> None
 
     # Verify all expected fields are present
     assert "id" in item
-    assert "entity_type" in item
-    assert "entity_id" in item
+    assert "content_type" in item
+    assert "content_id" in item
     assert "action" in item
     assert "version" in item
     assert "diff_type" not in item
@@ -847,7 +847,7 @@ async def test_history_response_includes_all_fields(client: AsyncClient) -> None
 
     # Verify UUID formats
     UUID(item["id"])
-    UUID(item["entity_id"])
+    UUID(item["content_id"])
 
 
 async def test_content_at_version_response_includes_all_fields(client: AsyncClient) -> None:
@@ -864,14 +864,14 @@ async def test_content_at_version_response_includes_all_fields(client: AsyncClie
     data = response.json()
 
     # Verify all expected fields
-    assert "entity_id" in data
+    assert "content_id" in data
     assert "version" in data
     assert "content" in data
     assert "metadata" in data
     assert "warnings" in data
 
     # Verify values
-    assert data["entity_id"] == bookmark_id
+    assert data["content_id"] == bookmark_id
     assert data["version"] == 1
     assert data["content"] == "Content"
     assert data["metadata"]["title"] == "Test"
@@ -881,16 +881,16 @@ async def test_content_at_version_response_includes_all_fields(client: AsyncClie
 # --- Invalid entity type tests ---
 
 
-async def test_get_entity_history_invalid_entity_type(client: AsyncClient) -> None:
-    """Test getting history with invalid entity type returns 422."""
+async def test_get_entity_history_invalid_content_type(client: AsyncClient) -> None:
+    """Test getting history with invalid content type returns 422."""
     fake_uuid = "00000000-0000-0000-0000-000000000000"
 
     response = await client.get(f"/history/invalid/{fake_uuid}")
     assert response.status_code == 422  # Validation error
 
 
-async def test_get_content_at_version_invalid_entity_type(client: AsyncClient) -> None:
-    """Test getting content at version with invalid entity type returns 422."""
+async def test_get_content_at_version_invalid_content_type(client: AsyncClient) -> None:
+    """Test getting content at version with invalid content type returns 422."""
     fake_uuid = "00000000-0000-0000-0000-000000000000"
 
     response = await client.get(f"/history/invalid/{fake_uuid}/version/1")
@@ -1118,12 +1118,12 @@ async def test_pat_can_access_history(
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload", "update_payload"),
+    ("content_type", "create_endpoint", "create_payload", "update_payload"),
     ENTITY_TEST_DATA,
 )
 async def test_restore_to_version_basic(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
     update_payload: dict,
@@ -1132,17 +1132,17 @@ async def test_restore_to_version_basic(
     # Create entity (v1)
     response = await client.post(create_endpoint, json=create_payload)
     assert response.status_code == 201
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Update to create v2
-    await client.patch(f"{create_endpoint}{entity_id}", json=update_payload)
+    await client.patch(f"{create_endpoint}{content_id}", json=update_payload)
 
     # Verify current content is updated
-    response = await client.get(f"{create_endpoint}{entity_id}")
+    response = await client.get(f"{create_endpoint}{content_id}")
     assert response.json()["content"] == "Updated content"
 
     # Restore to v1
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/1")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/1")
     assert response.status_code == 200
 
     data = response.json()
@@ -1151,17 +1151,17 @@ async def test_restore_to_version_basic(
     assert data["warnings"] is None
 
     # Verify content is restored to v1
-    response = await client.get(f"{create_endpoint}{entity_id}")
+    response = await client.get(f"{create_endpoint}{content_id}")
     assert response.json()["content"] == "Initial content"
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload", "update_payload"),
+    ("content_type", "create_endpoint", "create_payload", "update_payload"),
     ENTITY_TEST_DATA,
 )
 async def test_restore_creates_new_history_entry(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
     update_payload: dict,
@@ -1169,17 +1169,17 @@ async def test_restore_creates_new_history_entry(
     """Test that restore creates a new RESTORE history entry."""
     # Create entity (v1)
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Update to create v2
-    await client.patch(f"{create_endpoint}{entity_id}", json=update_payload)
+    await client.patch(f"{create_endpoint}{content_id}", json=update_payload)
 
     # Restore to v1 (creates v3)
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/1")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/1")
     assert response.status_code == 200
 
     # Verify history now has 3 entries
-    response = await client.get(f"/history/{entity_type}/{entity_id}")
+    response = await client.get(f"/history/{content_type}/{content_id}")
     data = response.json()
     assert data["total"] == 3
 
@@ -1190,85 +1190,85 @@ async def test_restore_creates_new_history_entry(
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     ENTITY_CREATE_DATA,
 )
 async def test_restore_to_current_version_returns_400(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
     """Test that restoring to the current version returns 400."""
     # Create entity (v1)
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Try to restore to v1 (current version)
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/1")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/1")
     assert response.status_code == 400
     assert response.json()["detail"] == "Cannot restore to current version"
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     ENTITY_CREATE_DATA,
 )
 async def test_restore_nonexistent_version_returns_404(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
     """Test that restoring to a non-existent version returns 404."""
     # Create entity (v1)
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Try to restore to v999
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/999")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/999")
     assert response.status_code == 404
     assert response.json()["detail"] == "Version not found"
 
 
-@pytest.mark.parametrize("entity_type", ["bookmark", "note", "prompt"])
+@pytest.mark.parametrize("content_type", ["bookmark", "note", "prompt"])
 async def test_restore_nonexistent_entity_returns_404(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
 ) -> None:
     """Test that restoring a non-existent entity returns 404."""
     fake_uuid = "00000000-0000-0000-0000-000000000000"
 
-    response = await client.post(f"/history/{entity_type}/{fake_uuid}/restore/1")
+    response = await client.post(f"/history/{content_type}/{fake_uuid}/restore/1")
     assert response.status_code == 404
-    assert response.json()["detail"] == "Entity not found"
+    assert response.json()["detail"] == "Content not found"
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     ENTITY_CREATE_DATA,
 )
 async def test_restore_soft_deleted_entity_returns_404(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
     """Test that restoring a soft-deleted entity returns 404 (must undelete first)."""
     # Create entity (v1)
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Update to create v2
-    await client.patch(f"{create_endpoint}{entity_id}", json={"content": "Updated"})
+    await client.patch(f"{create_endpoint}{content_id}", json={"content": "Updated"})
 
     # Soft delete (audit event, NULL version)
-    await client.delete(f"{create_endpoint}{entity_id}")
+    await client.delete(f"{create_endpoint}{content_id}")
 
     # Try to restore to v1 - should fail because entity is soft-deleted
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/1")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/1")
     assert response.status_code == 404
-    assert response.json()["detail"] == "Entity not found"
+    assert response.json()["detail"] == "Content not found"
 
 
 @pytest.mark.parametrize("audit_action", ["delete", "undelete", "archive", "unarchive"])
@@ -1315,29 +1315,29 @@ async def test_restore_to_audit_version_returns_400(
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     ENTITY_CREATE_DATA,
 )
 async def test_restore_to_version_records_restore_action(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
     """Test that restoring to a version records a RESTORE action (not UPDATE)."""
     # Create entity (v1)
     response = await client.post(create_endpoint, json=create_payload)
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Update to create v2
-    await client.patch(f"{create_endpoint}{entity_id}", json={"content": "Updated"})
+    await client.patch(f"{create_endpoint}{content_id}", json={"content": "Updated"})
 
     # Restore to v1 (creates v3)
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/1")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/1")
     assert response.status_code == 200
 
     # Verify the latest history entry is a RESTORE action
-    response = await client.get(f"/history/{entity_type}/{entity_id}")
+    response = await client.get(f"/history/{content_type}/{content_id}")
     data = response.json()
     assert data["total"] == 3
 
@@ -1347,7 +1347,7 @@ async def test_restore_to_version_records_restore_action(
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload", "update_payload"),
+    ("content_type", "create_endpoint", "create_payload", "update_payload"),
     [
         pytest.param(
             "bookmark", "/bookmarks/",
@@ -1371,7 +1371,7 @@ async def test_restore_to_version_records_restore_action(
 )
 async def test_restore_archived_entity_preserves_archive_state(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
     update_payload: dict,
@@ -1380,22 +1380,22 @@ async def test_restore_archived_entity_preserves_archive_state(
     # Create entity (v1)
     response = await client.post(create_endpoint, json=create_payload)
     assert response.status_code == 201
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Update to create v2
-    await client.patch(f"{create_endpoint}{entity_id}", json=update_payload)
+    await client.patch(f"{create_endpoint}{content_id}", json=update_payload)
 
     # Archive the entity
     past_time = datetime(2020, 1, 1, tzinfo=UTC).isoformat()
-    await client.patch(f"{create_endpoint}{entity_id}", json={"archived_at": past_time})
+    await client.patch(f"{create_endpoint}{content_id}", json={"archived_at": past_time})
 
     # Restore to v1
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/1")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/1")
     assert response.status_code == 200
 
     # Verify content is restored but still archived
     response = await client.get(
-        f"{create_endpoint}{entity_id}", params={"include_archived": True},
+        f"{create_endpoint}{content_id}", params={"include_archived": True},
     )
     assert response.status_code == 200
     data = response.json()
@@ -1404,7 +1404,7 @@ async def test_restore_archived_entity_preserves_archive_state(
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "base_payload", "original_tags", "new_tags"),
+    ("content_type", "create_endpoint", "base_payload", "original_tags", "new_tags"),
     [
         pytest.param(
             "bookmark", "/bookmarks/",
@@ -1431,7 +1431,7 @@ async def test_restore_archived_entity_preserves_archive_state(
 )
 async def test_restore_restores_metadata(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     base_payload: dict,
     original_tags: list[str],
@@ -1447,11 +1447,11 @@ async def test_restore_restores_metadata(
     }
     response = await client.post(create_endpoint, json=create_payload)
     assert response.status_code == 201
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Update metadata
     await client.patch(
-        f"{create_endpoint}{entity_id}",
+        f"{create_endpoint}{content_id}",
         json={
             "title": "New Title",
             "description": "New Description",
@@ -1460,17 +1460,17 @@ async def test_restore_restores_metadata(
     )
 
     # Verify metadata changed
-    response = await client.get(f"{create_endpoint}{entity_id}")
+    response = await client.get(f"{create_endpoint}{content_id}")
     assert response.json()["title"] == "New Title"
     assert response.json()["description"] == "New Description"
     assert set(response.json()["tags"]) == set(new_tags)
 
     # Restore to v1
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/1")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/1")
     assert response.status_code == 200
 
     # Verify metadata is restored
-    response = await client.get(f"{create_endpoint}{entity_id}")
+    response = await client.get(f"{create_endpoint}{content_id}")
     data = response.json()
     assert data["title"] == "Original Title"
     assert data["description"] == "Original Description"
@@ -1594,7 +1594,7 @@ async def test_restore_prompt_name_conflict_returns_409(client: AsyncClient) -> 
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     [
         pytest.param(
             "bookmark", "/bookmarks/",
@@ -1615,7 +1615,7 @@ async def test_restore_prompt_name_conflict_returns_409(client: AsyncClient) -> 
 )
 async def test_restore_hard_deleted_entity_returns_404(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
@@ -1623,22 +1623,22 @@ async def test_restore_hard_deleted_entity_returns_404(
     # Create entity
     response = await client.post(create_endpoint, json=create_payload)
     assert response.status_code == 201
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Soft delete
-    await client.delete(f"{create_endpoint}{entity_id}")
+    await client.delete(f"{create_endpoint}{content_id}")
 
     # Hard delete
-    await client.delete(f"{create_endpoint}{entity_id}", params={"permanent": True})
+    await client.delete(f"{create_endpoint}{content_id}", params={"permanent": True})
 
     # Try to restore - should fail with 404
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/1")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/1")
     assert response.status_code == 404
-    assert response.json()["detail"] == "Entity not found"
+    assert response.json()["detail"] == "Content not found"
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     [
         pytest.param(
             "bookmark", "/bookmarks/",
@@ -1659,7 +1659,7 @@ async def test_restore_hard_deleted_entity_returns_404(
 )
 async def test_sequential_restores_maintain_chain_integrity(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
@@ -1667,33 +1667,33 @@ async def test_sequential_restores_maintain_chain_integrity(
     # Create entity: v1 = "A"
     response = await client.post(create_endpoint, json=create_payload)
     assert response.status_code == 201
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # v2 = "B"
-    await client.patch(f"{create_endpoint}{entity_id}", json={"content": "B"})
+    await client.patch(f"{create_endpoint}{content_id}", json={"content": "B"})
 
     # v3 = "C"
-    await client.patch(f"{create_endpoint}{entity_id}", json={"content": "C"})
+    await client.patch(f"{create_endpoint}{content_id}", json={"content": "C"})
 
     # Restore to v1 -> creates v4 = "A"
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/1")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/1")
     assert response.status_code == 200
 
     # Restore to v2 -> creates v5 = "B"
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/2")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/2")
     assert response.status_code == 200
 
     # Restore to v4 -> creates v6 = "A"
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/4")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/4")
     assert response.status_code == 200
 
     # Verify history has 6 entries
-    response = await client.get(f"/history/{entity_type}/{entity_id}")
+    response = await client.get(f"/history/{content_type}/{content_id}")
     assert response.json()["total"] == 6
 
     # Verify all versions are independently reconstructable
     for version in range(1, 7):
-        response = await client.get(f"/history/{entity_type}/{entity_id}/version/{version}")
+        response = await client.get(f"/history/{content_type}/{content_id}/version/{version}")
         assert response.status_code == 200
         content = response.json()["content"]
         if version in [1, 4, 6]:
@@ -1705,7 +1705,7 @@ async def test_sequential_restores_maintain_chain_integrity(
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload"),
+    ("content_type", "create_endpoint", "create_payload"),
     [
         pytest.param(
             "bookmark", "/bookmarks/",
@@ -1726,7 +1726,7 @@ async def test_sequential_restores_maintain_chain_integrity(
 )
 async def test_restore_invalid_version_zero_returns_422(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
 ) -> None:
@@ -1734,15 +1734,15 @@ async def test_restore_invalid_version_zero_returns_422(
     # Create entity
     response = await client.post(create_endpoint, json=create_payload)
     assert response.status_code == 201
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Try to restore to v0 (invalid)
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/0")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/0")
     assert response.status_code == 422  # FastAPI validation error
 
 
 @pytest.mark.parametrize(
-    ("entity_type", "create_endpoint", "create_payload", "tag_name"),
+    ("content_type", "create_endpoint", "create_payload", "tag_name"),
     [
         pytest.param(
             "bookmark", "/bookmarks/",
@@ -1766,7 +1766,7 @@ async def test_restore_invalid_version_zero_returns_422(
 )
 async def test_restore_creates_tags_if_missing(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_endpoint: str,
     create_payload: dict,
     tag_name: str,
@@ -1776,21 +1776,21 @@ async def test_restore_creates_tags_if_missing(
     payload_with_tag = {**create_payload, "tags": [tag_name]}
     response = await client.post(create_endpoint, json=payload_with_tag)
     assert response.status_code == 201
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Remove tag
-    await client.patch(f"{create_endpoint}{entity_id}", json={"tags": []})
+    await client.patch(f"{create_endpoint}{content_id}", json={"tags": []})
 
     # Verify tag is removed
-    response = await client.get(f"{create_endpoint}{entity_id}")
+    response = await client.get(f"{create_endpoint}{content_id}")
     assert response.json()["tags"] == []
 
     # Restore to v1 - tag should be restored
-    response = await client.post(f"/history/{entity_type}/{entity_id}/restore/1")
+    response = await client.post(f"/history/{content_type}/{content_id}/restore/1")
     assert response.status_code == 200
 
     # Verify tag is back
-    response = await client.get(f"{create_endpoint}{entity_id}")
+    response = await client.get(f"{create_endpoint}{content_id}")
     assert tag_name in response.json()["tags"]
 
 
@@ -2185,10 +2185,10 @@ async def test_restore_with_reconstruction_warnings_propagates_to_response(
 # --- Version Diff Endpoint Tests ---
 
 
-@pytest.mark.parametrize(("entity_type", "create_url", "create_payload", "update_payload"), ENTITY_TEST_DATA)
+@pytest.mark.parametrize(("content_type", "create_url", "create_payload", "update_payload"), ENTITY_TEST_DATA)
 async def test_get_version_diff__returns_before_and_after_content(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_url: str,
     create_payload: dict,
     update_payload: dict,
@@ -2197,23 +2197,23 @@ async def test_get_version_diff__returns_before_and_after_content(
     # Create entity (v1)
     response = await client.post(create_url, json=create_payload)
     assert response.status_code == 201
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
     # Update content (v2)
-    if entity_type == "prompt":
+    if content_type == "prompt":
         response = await client.patch(
             f"{create_url}name/test-prompt", json=update_payload,
         )
     else:
-        response = await client.patch(f"{create_url}{entity_id}", json=update_payload)
+        response = await client.patch(f"{create_url}{content_id}", json=update_payload)
     assert response.status_code == 200
 
     # Get diff at v2
-    response = await client.get(f"/history/{entity_type}/{entity_id}/version/2/diff")
+    response = await client.get(f"/history/{content_type}/{content_id}/version/2/diff")
     assert response.status_code == 200
 
     data = response.json()
-    assert data["entity_id"] == entity_id
+    assert data["content_id"] == content_id
     assert data["version"] == 2
     assert data["after_content"] == "Updated content"
     assert data["before_content"] == "Initial content"
@@ -2222,19 +2222,19 @@ async def test_get_version_diff__returns_before_and_after_content(
     assert data["warnings"] is None
 
 
-@pytest.mark.parametrize(("entity_type", "create_url", "create_payload"), ENTITY_CREATE_DATA)
+@pytest.mark.parametrize(("content_type", "create_url", "create_payload"), ENTITY_CREATE_DATA)
 async def test_get_version_diff__version_1_create(
     client: AsyncClient,
-    entity_type: str,
+    content_type: str,
     create_url: str,
     create_payload: dict,
 ) -> None:
     """Version 1 (CREATE) has null before fields and populated after fields."""
     response = await client.post(create_url, json=create_payload)
     assert response.status_code == 201
-    entity_id = response.json()["id"]
+    content_id = response.json()["id"]
 
-    response = await client.get(f"/history/{entity_type}/{entity_id}/version/1/diff")
+    response = await client.get(f"/history/{content_type}/{content_id}/version/1/diff")
     assert response.status_code == 200
 
     data = response.json()

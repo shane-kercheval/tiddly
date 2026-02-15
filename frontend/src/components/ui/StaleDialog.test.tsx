@@ -38,10 +38,10 @@ describe('StaleDialog', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
 
-    it('should render Load Server Version and Continue Editing buttons', () => {
+    it('should render Load Latest Version and Continue Editing buttons', () => {
       render(<StaleDialog {...defaultProps} />)
 
-      expect(screen.getByRole('button', { name: 'Load Server Version' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Load Latest Version' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Continue Editing' })).toBeInTheDocument()
     })
 
@@ -142,11 +142,11 @@ describe('StaleDialog', () => {
   })
 
   describe('interactions', () => {
-    it('should call onLoadServerVersion when Load Server Version button is clicked', async () => {
+    it('should call onLoadServerVersion when Load Latest Version button is clicked', async () => {
       const onLoadServerVersion = vi.fn()
       render(<StaleDialog {...defaultProps} onLoadServerVersion={onLoadServerVersion} />)
 
-      await userEvent.click(screen.getByRole('button', { name: 'Load Server Version' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Load Latest Version' }))
 
       expect(onLoadServerVersion).toHaveBeenCalledTimes(1)
     })
@@ -178,10 +178,10 @@ describe('StaleDialog', () => {
   })
 
   describe('button styling', () => {
-    it('should have primary styling on Load Server Version button', () => {
+    it('should have primary styling on Load Latest Version button', () => {
       render(<StaleDialog {...defaultProps} />)
 
-      const button = screen.getByRole('button', { name: 'Load Server Version' })
+      const button = screen.getByRole('button', { name: 'Load Latest Version' })
       expect(button.className).toContain('btn-primary')
     })
 
@@ -197,7 +197,7 @@ describe('StaleDialog', () => {
     it('should have type="button" on all buttons to prevent form submission', () => {
       render(<StaleDialog {...defaultProps} />)
 
-      const loadButton = screen.getByRole('button', { name: 'Load Server Version' })
+      const loadButton = screen.getByRole('button', { name: 'Load Latest Version' })
       const continueButton = screen.getByRole('button', { name: 'Continue Editing' })
 
       expect(loadButton).toHaveAttribute('type', 'button')
@@ -206,7 +206,7 @@ describe('StaleDialog', () => {
   })
 
   describe('helper text', () => {
-    it('should show helper text for Load Server Version', () => {
+    it('should show helper text for Load Latest Version', () => {
       render(<StaleDialog {...defaultProps} />)
 
       expect(screen.getByText('Discard your changes and load the latest version')).toBeInTheDocument()

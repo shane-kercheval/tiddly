@@ -7,11 +7,11 @@
 import type { ReactNode } from 'react'
 import { DiffView } from './DiffView'
 import { MetadataChanges } from './MetadataChanges'
-import type { HistoryEntityType, HistoryActionType, VersionDiffResponse } from '../types'
+import type { ContentType, HistoryActionType, VersionDiffResponse } from '../types'
 
 interface VersionDiffPanelProps {
   diffData: VersionDiffResponse | null
-  entityType: HistoryEntityType
+  entityType: ContentType
   action: HistoryActionType
   maxHeight?: number
 }

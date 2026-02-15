@@ -9,16 +9,15 @@ import type { ReactNode } from 'react'
 import { useEntityHistory, useVersionDiff, useRestoreToVersion } from '../hooks/useHistory'
 import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
 import { CloseIcon, RestoreIcon, HelpIcon } from './icons'
-import type { HistoryActionType } from '../types'
+import type { ContentType, HistoryActionType } from '../types'
 import { Tooltip } from './ui/Tooltip'
 import { ActionDot } from './ActionDot'
 import { ChangeIndicators } from './ChangeIndicators'
 import { VersionDiffPanel } from './VersionDiffPanel'
 import { formatAction, formatSource, isAuditAction } from '../constants/historyLabels'
-import type { HistoryEntityType } from '../types'
 
 interface HistorySidebarProps {
-  entityType: HistoryEntityType
+  entityType: ContentType
   entityId: string
   onClose: () => void
   onRestored?: () => void
@@ -155,7 +154,7 @@ export function HistorySidebar({
     if (confirmingRestore === version) {
       // Second click - execute restore
       restoreMutation.mutate(
-        { entityType, entityId, version },
+        { contentType: entityType, contentId: entityId, version },
         {
           onSuccess: () => {
             setConfirmingRestore(null)

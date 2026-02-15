@@ -30,7 +30,7 @@ interface StaleDialogProps {
  * StaleDialog warns users that the entity was modified elsewhere.
  *
  * Shows two options:
- * - Load Server Version: Discard local changes and load the latest version
+ * - Load Latest Version: Discard local changes and load the latest version
  * - Continue Editing: Dismiss dialog and keep local content
  *
  * When user has unsaved changes, also shows Copy My Content button.
@@ -121,7 +121,7 @@ export function StaleDialog({
             onClick={onLoadServerVersion}
             className={`btn-primary w-full ${isDirty && currentContent ? 'mt-3' : ''}`}
           >
-            Load Server Version
+            Load Latest Version
           </button>
           <p className="text-xs text-gray-500 text-center">
             Discard your changes and load the latest version
