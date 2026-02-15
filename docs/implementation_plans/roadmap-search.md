@@ -94,10 +94,6 @@ Encrypted content drops out of search results. No current work needed — this i
 - API: add `relevance` to `sort_by` enum (only valid when `query` is provided)
 - `ts_headline` for search result snippets
 
-### Effort
-
-1-2 days. No new dependencies.
-
 ---
 
 ## Phase 2: pgvector for Semantic Search
@@ -162,10 +158,6 @@ When Phase 2 ships, existing content has no embeddings. A one-time batch job is 
 - Service layer: vector search function (cosine similarity, scoped to user_id)
 - Wire into search endpoint alongside FTS
 
-### Effort
-
-3-5 days. New dependency on pgvector extension + embedding API.
-
 ---
 
 ## Phase 3: Hybrid Search with Reciprocal Rank Fusion (RRF)
@@ -209,10 +201,6 @@ Additional signals to layer in later: recency boost, usage frequency (`last_used
 - RRF scoring logic
 - Search endpoint uses hybrid by default when query is provided (no user-facing toggle)
 
-### Effort
-
-2-3 days. No new dependencies (uses Phase 1 + Phase 2).
-
 ---
 
 ## Phase 4: Similar Content Suggestions
@@ -244,10 +232,6 @@ An entity's embedding doesn't change until its content changes, so similarity re
 - Similar content endpoint
 - UI integration (TBD — sidebar, suggestion dropdown, or both)
 
-### Effort
-
-2-3 days. No new dependencies (uses Phase 2 embeddings).
-
 ---
 
 ## Phase 5: Content Chunking
@@ -276,10 +260,6 @@ Defer until there's evidence that single-embedding-per-item (Phase 2) isn't prov
 - Async embedding pipeline (chunking + embedding 10+ chunks per item warrants background processing)
 - Search integration: chunk-level results → entity-level deduplication
 
-### Effort
-
-1-2 weeks. Significant complexity increase (async pipeline, chunk management on content updates, stale chunk cleanup).
-
 ---
 
 ## Phase 6: LLM-Enhanced Search (Future)
@@ -299,10 +279,6 @@ At scale (100K searches/day): query expansion ~$100-500/month, HyDE ~$200-1000/m
 ### When to do this
 
 Defer until hybrid search (Phase 3) is in production and there's evidence that search quality needs improvement for vague queries. This adds latency (LLM call before search) and cost per query.
-
-### Effort
-
-3-5 days per feature. New dependency on LLM API for search-time calls.
 
 ---
 
