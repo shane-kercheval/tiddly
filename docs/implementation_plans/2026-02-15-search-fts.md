@@ -2,7 +2,7 @@
 
 **Reference:** `docs/implementation_plans/roadmap-search.md` — Phase 1
 
-**Goal:** Replace ILIKE with PostgreSQL FTS for ranked, language-aware keyword search. Zero new infrastructure. Retain ILIKE for bookmark URL substring matching and as a fallback for individual entity search when FTS returns zero results (not for unified search).
+**Goal:** Replace ILIKE with PostgreSQL FTS for ranked, language-aware keyword search. Zero new infrastructure. Retain ILIKE for bookmark URL substring matching and as a fallback when FTS returns zero results.
 
 ---
 
@@ -20,7 +20,7 @@ After this milestone:
 
 ### Implementation Outline
 
-Create a single Alembic migration (follow existing pattern in `backend/src/db/migrations/versions/`).
+Create a single Alembic migration. Run `make migration` (which runs `alembic revision --autogenerate`) to generate the migration file — autogenerate will detect the new `search_vector` column from the SQLAlchemy model changes. Then **manually edit** the generated file to add all trigger functions, triggers, GIN indexes, and backfill SQL via `op.execute()`. Autogenerate cannot detect these — only the column addition.
 
 **Why triggers instead of generated columns:** A `GENERATED ALWAYS AS ... STORED` column recomputes on every row UPDATE, regardless of which column changed. This means `last_used_at` bumps, archive/unarchive, and soft-delete would all re-run `to_tsvector` on up to 100KB of content for no reason. A trigger with `IS DISTINCT FROM` checks skips recomputation when only non-content fields change.
 
@@ -175,16 +175,26 @@ Without consolidation, every FTS feature (tsvector matching, ts_rank, empty tsqu
 
 ### Implementation Outline
 
-**1. Verify `search_all_content()` can serve individual endpoints**
+**1. Add missing fields to `ContentListItem` and unified subqueries**
+
+`BookmarkListItem` has `summary: str | None` but `ContentListItem` does not, and the bookmark subquery in `search_all_content()` doesn't project it. Before individual endpoints can delegate to `search_all_content()`, fix this gap:
+
+- Add `summary: str | None = None` to `ContentListItem` in `schemas/content.py`
+- Add `Bookmark.summary.label("summary")` to the bookmark subquery in `search_all_content()`
+- Add `literal(None).label("summary")` to the note and prompt subqueries
+
+Verify no other fields are missing by comparing `BookmarkListItem`, `NoteListItem`, and `PromptListItem` against `ContentListItem`.
+
+**2. Verify `search_all_content()` can serve individual endpoints**
 
 `search_all_content()` already accepts `content_types` and works with a single type. With `content_types=["bookmark"]`, the UNION degenerates to a single subquery. Verify this produces equivalent results to `BookmarkService.search()` for the same inputs (same filters, same sort, same pagination).
 
 Key differences to handle:
 - **Tags**: `search_all_content()` fetches tags via `get_tags_for_items()` (batch post-query), while `BaseEntityService.search()` uses `selectinload(model.tag_objects)`. The unified approach is fine — the response schemas just need `tags: list[str]`, not full tag objects.
-- **Sort columns**: `search_all_content()` already computes `sort_title` per type with the same COALESCE/NULLIF/LOWER logic as the individual services. Verify equivalence.
+- **Sort columns**: `search_all_content()` already computes `sort_title` inline per type with the same COALESCE/NULLIF/LOWER logic as `_get_sort_columns()` in each entity service. Verify these expressions are identical, then remove `_get_sort_columns()` when removing the old search path.
 - **Response shape**: `search_all_content()` returns `ContentListItem` objects. Individual endpoints return entity model instances. The router mapping needs to bridge this.
 
-**2. Update individual routers to call `search_all_content()`**
+**3. Update individual routers to call `search_all_content()`**
 
 In `bookmarks.py`, `notes.py`, `prompts.py` — change the list endpoint to call `search_all_content()` with the appropriate type filter:
 
@@ -223,7 +233,7 @@ async def list_bookmarks(
     )
 ```
 
-**3. Create response mapping functions**
+**4. Create response mapping functions**
 
 Each entity router needs a mapping function from `ContentListItem` to its entity-specific list item schema:
 
@@ -234,6 +244,7 @@ def _content_item_to_bookmark_list_item(item: ContentListItem) -> BookmarkListIt
         id=item.id,
         title=item.title,
         description=item.description,
+        summary=item.summary,
         url=item.url,
         tags=item.tags,
         created_at=item.created_at,
@@ -248,15 +259,16 @@ def _content_item_to_bookmark_list_item(item: ContentListItem) -> BookmarkListIt
 
 Alternatively, if the entity list item schemas are similar enough to `ContentListItem`, consider whether the individual endpoints can just return `ContentListItem` directly (with the `type` field). This is a schema design decision.
 
-**4. Remove duplicated code**
+**5. Remove duplicated code (only after all existing tests pass on the new path)**
 
-After verification:
-- Remove `BaseEntityService.search()` (keep `get()`, `get_metadata()`, and other CRUD methods)
-- Remove `_build_text_search_filter()` from each entity service
+This is the second step within this milestone. Do NOT remove old code until the full test suite passes through the new path. Wire up the new path first, verify equivalence, then delete.
+
+- Remove `BaseEntityService.search()` and its `include_content` parameter (no router uses `include_content` — it's dead code)
+- Remove the abstract `_build_text_search_filter()` from `BaseEntityService` and all concrete implementations (`BookmarkService`, `NoteService`, `PromptService`)
 - Remove `_apply_view_filter()`, `_apply_tag_filter()`, `_apply_sorting()` from `BaseEntityService` (these are now handled by `search_all_content()` and `_apply_entity_filters()`)
-- Keep `_get_sort_columns()` only if still needed elsewhere
+- Remove `_get_sort_columns()` from each entity service — the sort logic already exists as inline `sort_title` computations in `search_all_content()`'s subqueries (verified in step 2)
 
-**5. Verify MCP behavior**
+**6. Verify MCP behavior**
 
 The MCP `search_items` tool routes `type="bookmark"` to `GET /bookmarks/` and `type=None` to `GET /content/`. After this change, `GET /bookmarks/` calls `search_all_content(content_types=["bookmark"])` — the same code path as `GET /content/` with a type filter. Verify the MCP response shape is unchanged.
 
@@ -272,6 +284,7 @@ The MCP `search_items` tool routes `type="bookmark"` to `GET /bookmarks/` and `t
 **Response mapping:**
 - `test__list_bookmarks__response_schema_matches` — BookmarkListItem fields are correctly populated from ContentListItem
 - `test__list_bookmarks__url_field_present` — Bookmark-specific `url` field is populated
+- `test__list_bookmarks__summary_field_present` — Bookmark-specific `summary` field is populated from ContentListItem
 - `test__list_notes__name_field_absent` — Note responses don't include bookmark-specific fields
 
 **Existing test suite:**
@@ -351,7 +364,18 @@ if total == 0 and tsquery_is_non_empty:
     ...
 ```
 
-Since all search goes through `search_all_content()` now, the fallback is implemented once. The fallback rebuilds the entity subqueries with ILIKE conditions (the current `text_search_fields` pattern). This covers partial words, code symbols, and non-English text.
+Since all search goes through `search_all_content()` now, the fallback is implemented once.
+
+**Implementation approach:** Extract the per-entity subquery construction into a helper function that accepts a search filter builder (FTS or ILIKE). Currently, each entity's subquery is ~20 lines of column projection + filters built inline. Refactor into something like:
+
+```python
+def _build_entity_subquery(model, search_mode, query, ...):
+    """Build a single entity subquery with either FTS or ILIKE search."""
+    # Shared column projection (type, id, title, description, ...)
+    # search_mode determines the WHERE clause for text search
+```
+
+Call it once for the primary FTS pass. If FTS returns 0 results, call it again with `search_mode="ilike"` to rebuild the subqueries with ILIKE conditions. This avoids duplicating the ~20 lines of column projection per entity type. The ILIKE fallback uses the same field lists as the current `text_search_fields` pattern.
 
 **4. Add `ts_rank` to UNION subqueries**
 
@@ -536,6 +560,7 @@ The Content MCP server calls the REST API via HTTP. Since FTS is a backend chang
 - `backend/src/services/content_service.py` — may need minor adjustments to support single-type usage cleanly
 - `backend/src/services/base_entity_service.py` — remove `search()`, `_build_text_search_filter()`, and related helper methods
 - `backend/src/services/bookmark_service.py`, `note_service.py`, `prompt_service.py` — remove `_build_text_search_filter()`, `_get_sort_columns()`
+- `backend/src/schemas/content.py` — add `summary: str | None = None` to `ContentListItem`
 - `backend/tests/` — verify all existing search tests pass through new path
 
 **Milestone 3 (FTS):**
