@@ -281,14 +281,23 @@ The MCP `search_items` tool routes `type="bookmark"` to `GET /bookmarks/` and `t
 - `test__list_bookmarks__same_tag_filter_behavior` — Tag filtering (all/any) produces same results
 - `test__list_bookmarks__same_filter_expression_behavior` — Content filter expressions produce same results
 
-**Response mapping:**
-- `test__list_bookmarks__response_schema_matches` — BookmarkListItem fields are correctly populated from ContentListItem
+**Response field verification (new tests — existing tests don't cover these for individual endpoints):**
+- `test__list_bookmarks__response_includes_content_metrics_and_summary` — Verify `content_length`, `content_preview`, and `summary` are present and correct in the response. These fields now come from UNION subquery + row mapping instead of SQLAlchemy model attributes — a missing field in the mapping would be a silent data regression.
+- `test__list_notes__response_includes_content_metrics` — Same for notes (`content_length`, `content_preview`)
+- `test__list_prompts__response_includes_content_metrics` — Same for prompts
 - `test__list_bookmarks__url_field_present` — Bookmark-specific `url` field is populated
 - `test__list_bookmarks__summary_field_present` — Bookmark-specific `summary` field is populated from ContentListItem
 - `test__list_notes__name_field_absent` — Note responses don't include bookmark-specific fields
 
+**Filter expression at API level (new test — no existing API-level coverage):**
+- `test__list_bookmarks__filter_id_applies_expression` — Verify `filter_id` parameter correctly applies tag filter expressions through the new path. Service-level tests exist but no API test covers this wiring.
+
+**Sort equivalence with title fallback (new tests — untested at API level):**
+- `test__list_bookmarks__sort_by_title_falls_back_to_url` — Bookmarks with no title sort by URL. Verifies the inline `sort_title` computation matches the old `_get_sort_columns()` behavior.
+- `test__list_prompts__sort_by_title_falls_back_to_name` — Prompts with no title sort by name.
+
 **Existing test suite:**
-- All existing list/search tests for bookmarks, notes, prompts, and content should continue passing. These are the primary regression tests.
+- All existing list/search tests for bookmarks, notes, prompts, and content should continue passing. These are the primary regression tests. The unified path (`search_all_content()` + `/content/` endpoint) already has stronger test coverage than the individual endpoints.
 
 **MCP:**
 - `test__mcp_search_items__bookmark_type_filter` — MCP search with `type="bookmark"` returns same results as before
