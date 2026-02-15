@@ -43,6 +43,8 @@ BEGIN
       setweight(to_tsvector('english', coalesce(NEW.description, '')), 'B') ||
       setweight(to_tsvector('english', coalesce(NEW.summary, '')), 'B') ||
       setweight(to_tsvector('english', coalesce(NEW.content, '')), 'C');
+  ELSE
+    NEW.search_vector := OLD.search_vector;
   END IF;
   RETURN NEW;
 END
@@ -71,6 +73,8 @@ BEGIN
       setweight(to_tsvector('english', coalesce(NEW.title, '')), 'A') ||
       setweight(to_tsvector('english', coalesce(NEW.description, '')), 'B') ||
       setweight(to_tsvector('english', coalesce(NEW.content, '')), 'C');
+  ELSE
+    NEW.search_vector := OLD.search_vector;
   END IF;
   RETURN NEW;
 END
@@ -100,6 +104,8 @@ BEGIN
       setweight(to_tsvector('english', coalesce(NEW.title, '')), 'A') ||
       setweight(to_tsvector('english', coalesce(NEW.description, '')), 'B') ||
       setweight(to_tsvector('english', coalesce(NEW.content, '')), 'C');
+  ELSE
+    NEW.search_vector := OLD.search_vector;
   END IF;
   RETURN NEW;
 END
@@ -119,6 +125,8 @@ UPDATE bookmarks SET title = title;
 UPDATE notes SET title = title;
 UPDATE prompts SET name = name;
 ```
+
+**Backfill side effect warning:** Check how `updated_at` is managed (database trigger, SQLAlchemy `onupdate`, or application code). If a database-level trigger bumps `updated_at` on every write, the backfill will change `updated_at` for every row to the migration timestamp. If this is the case, either temporarily disable the `updated_at` trigger during backfill, or backfill by setting `search_vector` directly via raw SQL instead of relying on the no-op update.
 
 **GIN index note:** Use standard `CREATE INDEX` (not `CONCURRENTLY`) — at current scale the brief lock is acceptable. Add a code comment noting `CONCURRENTLY` as an option for larger tables.
 
