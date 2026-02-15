@@ -183,7 +183,7 @@ Without consolidation, every FTS feature (tsvector matching, ts_rank, empty tsqu
 - Add `Bookmark.summary.label("summary")` to the bookmark subquery in `search_all_content()`
 - Add `literal(None).label("summary")` to the note and prompt subqueries
 
-Verify no other fields are missing by comparing `BookmarkListItem`, `NoteListItem`, and `PromptListItem` against `ContentListItem`.
+Verify no other fields are missing by comparing `BookmarkListItem`, `NoteListItem`, and `PromptListItem` against `ContentListItem`. As of this writing, `summary` is the only gap — `ContentListItem` already has `url`, `name`, and `arguments`. `NoteListItem` is a pure subset. But check anyway in case schemas have drifted since this plan was written.
 
 **2. Verify `search_all_content()` can serve individual endpoints**
 
