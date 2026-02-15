@@ -20,7 +20,7 @@ After this milestone:
 
 ### Implementation Outline
 
-Create a single Alembic migration (follow existing pattern in `backend/src/db/migrations/versions/`).
+Create the migration using `make migration message="add search_vector columns triggers and indexes"` — never create migration files manually. This runs `alembic revision --autogenerate`, which will detect the new `search_vector` column from the SQLAlchemy model changes. The agent must then edit the generated migration file to add the trigger functions, trigger creation, backfill statements, and GIN indexes via `op.execute()`, since Alembic autogenerate does not detect these.
 
 **Why triggers instead of generated columns:** A `GENERATED ALWAYS AS ... STORED` column recomputes on every row UPDATE, regardless of which column changed. This means `last_used_at` bumps, archive/unarchive, and soft-delete would all re-run `to_tsvector` on up to 100KB of content for no reason. A trigger with `IS DISTINCT FROM` checks skips recomputation when only non-content fields change.
 
@@ -493,6 +493,10 @@ Apply the same empty tsquery guard as Milestone 2: if `websearch_to_tsquery` pro
 - `ts_rank`: https://www.postgresql.org/docs/current/textsearch-controls.html#TEXTSEARCH-RANKING
 - `ts_headline`: https://www.postgresql.org/docs/current/textsearch-controls.html#TEXTSEARCH-HEADLINE
 - SQLAlchemy TSVector: https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#full-text-search
+
+### Migration Rules
+- **Never create migration files manually.** Always use `make migration message="description"` to autogenerate, then edit the generated file to add raw SQL (triggers, backfill, etc.) that autogenerate can't detect.
+- Run `make migrate` to apply migrations. Run `make backend-tests` to verify.
 
 ### Important Implementation Details
 - Use `websearch_to_tsquery` (not `plainto_tsquery` or `to_tsquery`) — it handles Google-like syntax safely without injection risks
