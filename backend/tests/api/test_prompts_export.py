@@ -101,8 +101,8 @@ async def test__export_skills__basic_claude_desktop(client: AsyncClient) -> None
     assert response.headers["content-type"] == "application/zip"
 
     files = _extract_zip(response.content)
-    assert "desktop-skill/SKILL.md" in files
-    assert "Desktop content" in files["desktop-skill/SKILL.md"]
+    assert "desktop-skill.md" in files
+    assert "Desktop content" in files["desktop-skill.md"]
 
 
 async def test__export_skills__basic_codex(client: AsyncClient) -> None:

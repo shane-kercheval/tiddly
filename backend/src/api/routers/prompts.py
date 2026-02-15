@@ -552,12 +552,12 @@ def _create_tar_gz(prompts: list["Prompt"], client: ClientType) -> io.BytesIO:
 
 
 def _create_zip(prompts: list["Prompt"], client: ClientType) -> io.BytesIO:
-    """Create a zip archive containing SKILL.md files for each prompt."""
+    """Create a zip archive containing flat .md skill files for each prompt."""
     skills = _build_skills_dict(prompts, client)
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for directory_name, content in skills.items():
-            zf.writestr(f"{directory_name}/SKILL.md", content)
+        for skill_name, content in skills.items():
+            zf.writestr(f"{skill_name}.md", content)
     buffer.seek(0)
     return buffer
 

@@ -12,6 +12,15 @@ from services.skill_converter import (
 )
 
 
+def _parse_frontmatter(content: str) -> dict:
+    """Parse YAML frontmatter from SKILL.md content."""
+    lines = content.split("\n")
+    frontmatter_start = lines.index("---") + 1
+    frontmatter_end = lines.index("---", frontmatter_start)
+    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
+    return yaml.safe_load(frontmatter_text)
+
+
 def _create_mock_prompt(
     name: str = "test-prompt",
     title: str | None = "Test Title",
@@ -71,12 +80,7 @@ def test__prompt_to_skill_md__required_and_optional_arguments() -> None:
 
     result = prompt_to_skill_md(prompt, "claude-code")
 
-    # Parse YAML frontmatter to check description
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert "Requires: required_arg." in parsed["description"]
     assert "Optional: optional_arg." in parsed["description"]
@@ -113,11 +117,7 @@ def test__prompt_to_skill_md__no_arguments() -> None:
 
     assert "## Template Variables" not in result.content
     # Description should not have Requires/Optional
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert "Requires:" not in parsed["description"]
     assert "Optional:" not in parsed["description"]
@@ -133,11 +133,7 @@ def test__prompt_to_skill_md__no_description_uses_title() -> None:
 
     result = prompt_to_skill_md(prompt, "claude-code")
 
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert parsed["description"] == "Fallback Title"
 
@@ -152,11 +148,7 @@ def test__prompt_to_skill_md__no_title_or_description_uses_generic() -> None:
 
     result = prompt_to_skill_md(prompt, "claude-code")
 
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert parsed["description"] == "Skill: my-skill"
 
@@ -202,11 +194,7 @@ def test__prompt_to_skill_md__yaml_frontmatter_valid() -> None:
     # Should start with ---
     assert result.content.startswith("---\n")
 
-    # Parse and validate frontmatter
-    lines = result.content.split("\n")
-    frontmatter_end = lines.index("---", 1)
-    frontmatter_text = "\n".join(lines[1:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert "name" in parsed
     assert "description" in parsed
@@ -228,11 +216,7 @@ def test__prompt_to_skill_md__name_truncation_claude_code() -> None:
     assert result.directory_name == "a" * 64
 
     # Verify frontmatter name also truncated
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert len(parsed["name"]) == 64
 
@@ -260,11 +244,7 @@ def test__prompt_to_skill_md__description_truncation_claude_code() -> None:
 
     result = prompt_to_skill_md(prompt, "claude-code")
 
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert len(parsed["description"]) == 1024
 
@@ -276,11 +256,7 @@ def test__prompt_to_skill_md__description_truncation_codex() -> None:
 
     result = prompt_to_skill_md(prompt, "codex")
 
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert len(parsed["description"]) == 500
 
@@ -292,11 +268,7 @@ def test__prompt_to_skill_md__description_single_line_codex() -> None:
 
     result = prompt_to_skill_md(prompt, "codex")
 
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     # No newlines, tabs, or multiple spaces
     assert "\n" not in parsed["description"]
@@ -312,11 +284,7 @@ def test__prompt_to_skill_md__description_multiline_claude_code() -> None:
 
     result = prompt_to_skill_md(prompt, "claude-code")
 
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert parsed["description"] == "Line one\nLine two"
 
@@ -335,12 +303,7 @@ def test__prompt_to_skill_md__yaml_escaping_colon() -> None:
 
     result = prompt_to_skill_md(prompt, "claude-code")
 
-    # Should be parseable
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert "Key: value and more: stuff" in parsed["description"]
 
@@ -354,11 +317,7 @@ def test__prompt_to_skill_md__yaml_escaping_hash() -> None:
 
     result = prompt_to_skill_md(prompt, "claude-code")
 
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert "#hashtag" in parsed["description"]
 
@@ -372,11 +331,7 @@ def test__prompt_to_skill_md__yaml_escaping_quotes() -> None:
 
     result = prompt_to_skill_md(prompt, "claude-code")
 
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert '"double"' in parsed["description"]
     assert "'single'" in parsed["description"]
@@ -393,11 +348,7 @@ def test__prompt_to_skill_md__directory_name_matches_frontmatter() -> None:
 
     result = prompt_to_skill_md(prompt, "claude-code")
 
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert result.directory_name == parsed["name"]
 
@@ -412,11 +363,7 @@ def test__prompt_to_skill_md__directory_name_truncated() -> None:
     assert len(result.directory_name) == 64
 
     # Verify it matches frontmatter
-    lines = result.content.split("\n")
-    frontmatter_start = lines.index("---") + 1
-    frontmatter_end = lines.index("---", frontmatter_start)
-    frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-    parsed = yaml.safe_load(frontmatter_text)
+    parsed = _parse_frontmatter(result.content)
 
     assert result.directory_name == parsed["name"]
 
@@ -432,9 +379,10 @@ def test__client_constraints__all_clients_defined() -> None:
 
     for client in expected_clients:
         assert client in CLIENT_CONSTRAINTS
-        assert "name_max" in CLIENT_CONSTRAINTS[client]
-        assert "desc_max" in CLIENT_CONSTRAINTS[client]
-        assert "desc_single_line" in CLIENT_CONSTRAINTS[client]
+        constraints = CLIENT_CONSTRAINTS[client]
+        assert isinstance(constraints.name_max, int)
+        assert isinstance(constraints.desc_max, int)
+        assert isinstance(constraints.desc_single_line, bool)
 
 
 def test__prompt_to_skill_md__claude_desktop_same_as_claude_code() -> None:
@@ -451,9 +399,5 @@ def test__prompt_to_skill_md__claude_desktop_same_as_claude_code() -> None:
 
     # Parse both frontmatters
     for result in [code_result, desktop_result]:
-        lines = result.content.split("\n")
-        frontmatter_start = lines.index("---") + 1
-        frontmatter_end = lines.index("---", frontmatter_start)
-        frontmatter_text = "\n".join(lines[frontmatter_start:frontmatter_end])
-        parsed = yaml.safe_load(frontmatter_text)
+        parsed = _parse_frontmatter(result.content)
         assert len(parsed["description"]) == 1024

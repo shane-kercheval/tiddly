@@ -1144,10 +1144,13 @@ function ClaudeDesktopSkillsInstructions({ exportUrl }: ClaudeDesktopSkillsInstr
           Step 4: Upload to Claude Desktop
         </h3>
         <ol className="list-decimal list-inside text-gray-600 space-y-2">
-          <li>Open Claude Desktop</li>
-          <li>Go to <strong>Settings → Capabilities → Skills</strong></li>
-          <li>Click &quot;Upload skill&quot; and select the downloaded <code className="bg-gray-100 px-1 rounded">skills.zip</code> file</li>
+          <li>Unzip the downloaded <code className="bg-gray-100 px-1 rounded">skills.zip</code> file</li>
+          <li>Open Claude Desktop and go to <strong>Settings → Capabilities</strong></li>
+          <li>Drag and drop <strong>individual</strong> <code className="bg-gray-100 px-1 rounded">.md</code> files from the unzipped folder onto the Capabilities screen, or click <strong>+ Add</strong> to select them one at a time</li>
         </ol>
+        <p className="mt-2 text-sm text-gray-500">
+          Claude Desktop only accepts one skill per upload — repeat for each <code className="bg-gray-100 px-1 rounded">.md</code> file.
+        </p>
       </div>
 
       {/* Step 5: Use Your Skills */}
@@ -1430,7 +1433,7 @@ export function SettingsMCP(): ReactNode {
         <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
           <h2 className="text-sm font-semibold text-gray-900 mb-2">What are Skills?</h2>
           <p className="text-sm text-gray-600">
-            Skills are reusable instructions (SKILL.md files) that AI assistants can auto-invoke based on context
+            Skills are reusable instruction files that AI assistants can auto-invoke based on context
             or invoke manually via slash commands. Export your prompts as skills and sync them to your AI client.
             Skills follow the <a href="https://agentskills.io/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Agent Skills Standard</a>.
           </p>

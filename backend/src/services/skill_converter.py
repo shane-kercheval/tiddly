@@ -10,11 +10,20 @@ if TYPE_CHECKING:
 
 ClientType = Literal["claude-code", "claude-desktop", "codex"]
 
-# Client-specific constraints per Agent Skills Standard and platform docs
-CLIENT_CONSTRAINTS: dict[str, dict[str, int | bool]] = {
-    "claude-code": {"name_max": 64, "desc_max": 1024, "desc_single_line": False},
-    "claude-desktop": {"name_max": 64, "desc_max": 1024, "desc_single_line": False},
-    "codex": {"name_max": 100, "desc_max": 500, "desc_single_line": True},
+
+@dataclass(frozen=True)
+class ClientConstraints:
+    """Client-specific constraints per Agent Skills Standard and platform docs."""
+
+    name_max: int
+    desc_max: int
+    desc_single_line: bool
+
+
+CLIENT_CONSTRAINTS: dict[str, ClientConstraints] = {
+    "claude-code": ClientConstraints(name_max=64, desc_max=1024, desc_single_line=False),
+    "claude-desktop": ClientConstraints(name_max=64, desc_max=1024, desc_single_line=False),
+    "codex": ClientConstraints(name_max=100, desc_max=500, desc_single_line=True),
 }
 
 
@@ -50,7 +59,7 @@ def prompt_to_skill_md(prompt: "Prompt", client: ClientType) -> SkillExport:
     constraints = CLIENT_CONSTRAINTS[client]
 
     # Truncate name if needed (this becomes both frontmatter name AND directory name)
-    name = prompt.name[: constraints["name_max"]]  # type: ignore[index]
+    name = prompt.name[: constraints.name_max]
 
     # Build description with argument hints
     desc = prompt.description or prompt.title or f"Skill: {prompt.name}"
@@ -64,9 +73,9 @@ def prompt_to_skill_md(prompt: "Prompt", client: ClientType) -> SkillExport:
             desc += f" Optional: {', '.join(a['name'] for a in optional)}."
 
     # Apply client-specific description constraints
-    if constraints["desc_single_line"]:
+    if constraints.desc_single_line:
         desc = " ".join(desc.split())  # Collapse all whitespace to single spaces
-    desc = desc[: constraints["desc_max"]]  # type: ignore[index]
+    desc = desc[: constraints.desc_max]
 
     # Build template variables section
     template_vars_section = ""
