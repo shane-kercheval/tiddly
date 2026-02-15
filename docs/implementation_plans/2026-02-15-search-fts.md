@@ -20,7 +20,7 @@ After this milestone:
 
 ### Implementation Outline
 
-Create the migration using `make migration message="add search_vector columns triggers and indexes"` — never create migration files manually. This runs `alembic revision --autogenerate`, which will detect the new `search_vector` column from the SQLAlchemy model changes. The agent must then edit the generated migration file to add the trigger functions, trigger creation, backfill statements, and GIN indexes via `op.execute()`, since Alembic autogenerate does not detect these.
+Create a single Alembic migration (follow existing pattern in `backend/src/db/migrations/versions/`).
 
 **Why triggers instead of generated columns:** A `GENERATED ALWAYS AS ... STORED` column recomputes on every row UPDATE, regardless of which column changed. This means `last_used_at` bumps, archive/unarchive, and soft-delete would all re-run `to_tsvector` on up to 100KB of content for no reason. A trigger with `IS DISTINCT FROM` checks skips recomputation when only non-content fields change.
 
@@ -126,7 +126,7 @@ UPDATE notes SET title = title;
 UPDATE prompts SET name = name;
 ```
 
-**Backfill side effect warning:** Check how `updated_at` is managed (database trigger, SQLAlchemy `onupdate`, or application code). If a database-level trigger bumps `updated_at` on every write, the backfill will change `updated_at` for every row to the migration timestamp. If this is the case, either temporarily disable the `updated_at` trigger during backfill, or backfill by setting `search_vector` directly via raw SQL instead of relying on the no-op update.
+**Important:** Check whether the backfill updates cause `updated_at` side effects. If `updated_at` is managed by a database trigger, it will bump timestamps on every row. If so, temporarily disable the `updated_at` trigger during backfill, or use a raw SQL update that directly sets `search_vector` without going through the trigger path.
 
 **GIN index note:** Use standard `CREATE INDEX` (not `CONCURRENTLY`) — at current scale the brief lock is acceptable. Add a code comment noting `CONCURRENTLY` as an option for larger tables.
 
@@ -138,7 +138,7 @@ from sqlalchemy.dialects.postgresql import TSVECTOR
 search_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True, default=None, deferred=True)
 ```
 
-Use `deferred=True` so the tsvector isn't loaded on every query (it's only needed for search operations, not general reads). Ensure SQLAlchemy does not include it in INSERT/UPDATE — since the trigger sets it, the column should be excluded from the model's insert/update defaults. Test this by running the existing create/update test suite after adding the column.
+Use `deferred=True` so the tsvector isn't loaded on every query (it's only needed for search operations, not general reads). The trigger's `ELSE NEW.search_vector := OLD.search_vector` branch ensures the column is preserved even if SQLAlchemy includes it in UPDATE statements.
 
 **Downgrade:** Drop the indexes, triggers, trigger functions, and columns.
 
@@ -151,13 +151,145 @@ Use `deferred=True` so the tsvector isn't loaded on every query (it's only neede
 
 ---
 
-## Milestone 2: Service Layer — FTS Search with `ts_rank`, ILIKE Fallback, and Relevance Sorting
+## Milestone 2: Consolidate Search — Route Individual Endpoints Through `search_all_content()`
 
 ### Goal & Outcome
-Replace ILIKE-based text search with FTS in the service layer for individual entity searches (`BookmarkService`, `NoteService`, `PromptService` via `BaseEntityService`). Retain ILIKE on `Bookmark.url`. Implement ILIKE fallback when FTS returns zero results (with empty tsquery guard). Add relevance sorting with proper default resolution. Update routers and `resolve_filter_and_sorting()`.
+Eliminate the duplicated search implementation. Currently, individual entity search (`BaseEntityService.search()`) and unified search (`content_service.search_all_content()`) have completely separate implementations of text search, view filtering, tag filtering, filter expression handling, sorting, and pagination. Both paths need FTS changes, so consolidating first ensures FTS is implemented once.
 
 After this milestone:
-- Searching bookmarks/notes/prompts uses `websearch_to_tsquery` + `ts_rank` for ranked results
+- `search_all_content()` is the single search implementation
+- Individual list endpoints (`GET /bookmarks/`, `GET /notes/`, `GET /prompts/`) call `search_all_content()` with `content_types=["bookmark"]` (or `["note"]`, etc.)
+- Router-level mapping converts `ContentListItem` results to entity-specific response schemas (`BookmarkListItem`, `NoteListItem`, `PromptListItem`)
+- `BaseEntityService.search()` and `_build_text_search_filter()` are removed (or deprecated)
+- All endpoints have identical search behavior — no behavioral differences between individual and unified paths
+- MCP `search_items` tool continues to work unchanged (it calls the REST API)
+
+### Why This Matters
+
+Looking at the current code:
+
+- `BaseEntityService.search()` uses `_build_text_search_filter()` returning ILIKE conditions, `selectinload` for tags, and `_apply_sorting()` with entity-specific sort columns.
+- `search_all_content()` uses `_apply_entity_filters()` with its own ILIKE logic, batch tag fetching via `get_tags_for_items()`, UNION ALL subqueries with labeled columns, and its own sort column computation.
+
+Without consolidation, every FTS feature (tsvector matching, ts_rank, empty tsquery guard, ILIKE fallback, ts_headline, relevance sorting) would need to be implemented in both paths. The UNION path in `search_all_content()` is strictly more capable — it already handles `content_types` filtering, per-type column projection, and cross-type sorting.
+
+### Implementation Outline
+
+**1. Verify `search_all_content()` can serve individual endpoints**
+
+`search_all_content()` already accepts `content_types` and works with a single type. With `content_types=["bookmark"]`, the UNION degenerates to a single subquery. Verify this produces equivalent results to `BookmarkService.search()` for the same inputs (same filters, same sort, same pagination).
+
+Key differences to handle:
+- **Tags**: `search_all_content()` fetches tags via `get_tags_for_items()` (batch post-query), while `BaseEntityService.search()` uses `selectinload(model.tag_objects)`. The unified approach is fine — the response schemas just need `tags: list[str]`, not full tag objects.
+- **Sort columns**: `search_all_content()` already computes `sort_title` per type with the same COALESCE/NULLIF/LOWER logic as the individual services. Verify equivalence.
+- **Response shape**: `search_all_content()` returns `ContentListItem` objects. Individual endpoints return entity model instances. The router mapping needs to bridge this.
+
+**2. Update individual routers to call `search_all_content()`**
+
+In `bookmarks.py`, `notes.py`, `prompts.py` — change the list endpoint to call `search_all_content()` with the appropriate type filter:
+
+```python
+@router.get("/", response_model=BookmarkListResponse)
+async def list_bookmarks(
+    # ... same params ...
+) -> BookmarkListResponse:
+    resolved = await resolve_filter_and_sorting(
+        db, current_user.id, filter_id, sort_by, sort_order,
+    )
+
+    items, total = await search_all_content(
+        db=db,
+        user_id=current_user.id,
+        query=q,
+        tags=tags if tags else None,
+        tag_match=tag_match,
+        sort_by=resolved.sort_by,
+        sort_order=resolved.sort_order,
+        offset=offset,
+        limit=limit,
+        view=view,
+        filter_expression=resolved.filter_expression,
+        content_types=["bookmark"],
+    )
+
+    # Map ContentListItem → BookmarkListItem
+    bookmark_items = [_content_item_to_bookmark_list_item(item) for item in items]
+    return BookmarkListResponse(
+        items=bookmark_items,
+        total=total,
+        offset=offset,
+        limit=limit,
+        has_more=(offset + len(items)) < total,
+    )
+```
+
+**3. Create response mapping functions**
+
+Each entity router needs a mapping function from `ContentListItem` to its entity-specific list item schema:
+
+```python
+def _content_item_to_bookmark_list_item(item: ContentListItem) -> BookmarkListItem:
+    """Map unified ContentListItem to BookmarkListItem."""
+    return BookmarkListItem(
+        id=item.id,
+        title=item.title,
+        description=item.description,
+        url=item.url,
+        tags=item.tags,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        last_used_at=item.last_used_at,
+        deleted_at=item.deleted_at,
+        archived_at=item.archived_at,
+        content_length=item.content_length,
+        content_preview=item.content_preview,
+    )
+```
+
+Alternatively, if the entity list item schemas are similar enough to `ContentListItem`, consider whether the individual endpoints can just return `ContentListItem` directly (with the `type` field). This is a schema design decision.
+
+**4. Remove duplicated code**
+
+After verification:
+- Remove `BaseEntityService.search()` (keep `get()`, `get_metadata()`, and other CRUD methods)
+- Remove `_build_text_search_filter()` from each entity service
+- Remove `_apply_view_filter()`, `_apply_tag_filter()`, `_apply_sorting()` from `BaseEntityService` (these are now handled by `search_all_content()` and `_apply_entity_filters()`)
+- Keep `_get_sort_columns()` only if still needed elsewhere
+
+**5. Verify MCP behavior**
+
+The MCP `search_items` tool routes `type="bookmark"` to `GET /bookmarks/` and `type=None` to `GET /content/`. After this change, `GET /bookmarks/` calls `search_all_content(content_types=["bookmark"])` — the same code path as `GET /content/` with a type filter. Verify the MCP response shape is unchanged.
+
+### Testing Strategy
+
+**Behavioral equivalence (run before removing old code):**
+- `test__list_bookmarks__same_results_as_unified` — `GET /bookmarks/?q=test` returns the same items as `GET /content/?q=test&content_types=bookmark` (verify IDs, order, pagination)
+- Same for notes and prompts
+- `test__list_bookmarks__same_sort_behavior` — Verify sort_by=title produces the same ordering through both paths (COALESCE/NULLIF/LOWER equivalence)
+- `test__list_bookmarks__same_tag_filter_behavior` — Tag filtering (all/any) produces same results
+- `test__list_bookmarks__same_filter_expression_behavior` — Content filter expressions produce same results
+
+**Response mapping:**
+- `test__list_bookmarks__response_schema_matches` — BookmarkListItem fields are correctly populated from ContentListItem
+- `test__list_bookmarks__url_field_present` — Bookmark-specific `url` field is populated
+- `test__list_notes__name_field_absent` — Note responses don't include bookmark-specific fields
+
+**Existing test suite:**
+- All existing list/search tests for bookmarks, notes, prompts, and content should continue passing. These are the primary regression tests.
+
+**MCP:**
+- `test__mcp_search_items__bookmark_type_filter` — MCP search with `type="bookmark"` returns same results as before
+- `test__mcp_search_items__no_type_filter` — MCP search without type filter returns same results as before
+
+---
+
+## Milestone 3: FTS in `search_all_content()` with Relevance Sorting
+
+### Goal & Outcome
+Replace ILIKE-based text search with FTS in the now-consolidated search path. Add relevance sorting with proper default resolution. Retain ILIKE on `Bookmark.url` and implement ILIKE fallback when FTS returns zero results (with empty tsquery guard).
+
+After this milestone:
+- All search endpoints (individual and unified) use `websearch_to_tsquery` + `ts_rank` for ranked results
 - Bookmark URL search still uses ILIKE substring matching
 - When FTS returns 0 results and the tsquery is non-empty, a fallback ILIKE search runs automatically
 - When the tsquery is empty (all stop words), zero results are returned — no fallback
@@ -166,84 +298,78 @@ After this milestone:
 
 ### Implementation Outline
 
-**1. Refactor `_build_text_search_filter()` signature and purpose**
+**1. Update `_apply_entity_filters()` in `content_service.py` to use FTS**
 
-The current abstract method returns ILIKE conditions from a `%pattern%` string. Refactor it to accept the raw query string and return FTS conditions instead.
-
-Rename the method to `_build_fts_filter()` (or similar) to make the semantic change clear. Suggested helpers in `base_entity_service.py` or a new `search_utils.py`:
+This is the single place where text search logic lives (after Milestone 2). Replace the ILIKE block:
 
 ```python
-from sqlalchemy import func
+# Current:
+if query:
+    escaped_query = escape_ilike(query)
+    search_pattern = f"%{escaped_query}%"
+    filters.append(
+        or_(*[field.ilike(search_pattern) for field in text_search_fields]),
+    )
 
-def build_fts_query(search_query: str) -> Any:
-    """Build a websearch_to_tsquery from user input."""
-    return func.websearch_to_tsquery('english', search_query)
-
-def build_fts_filter(search_vector_column, tsquery) -> Any:
-    """Build a tsvector @@ tsquery filter."""
-    return search_vector_column.op('@@')(tsquery)
-
-def build_fts_rank(search_vector_column, tsquery) -> Any:
-    """Build ts_rank expression for ordering."""
-    return func.ts_rank(search_vector_column, tsquery)
+# New:
+if query:
+    tsquery = func.websearch_to_tsquery('english', query)
+    fts_filter = search_vector_column.op('@@')(tsquery)
+    # For bookmarks, also match URL via ILIKE
+    if url_ilike_column is not None:
+        escaped_query = escape_ilike(query)
+        fts_filter = or_(fts_filter, url_ilike_column.ilike(f'%{escaped_query}%'))
+    filters.append(fts_filter)
 ```
 
-**2. Update `BaseEntityService.search()` to use FTS with guarded fallback**
+Update the function signature to accept `search_vector_column` and optional `url_ilike_column` instead of `text_search_fields`. The bookmark subquery passes `Bookmark.search_vector` and `Bookmark.url`; notes and prompts pass only their `search_vector`.
+
+**2. Add empty tsquery guard**
+
+Before running the search, check if the tsquery is empty (all stop words):
 
 ```python
-# When query is provided:
-tsquery = func.websearch_to_tsquery('english', query)
+if query:
+    # Check if tsquery is empty (all stop words)
+    tsquery_text = await db.scalar(select(func.cast(
+        func.websearch_to_tsquery('english', query), String,
+    )))
+    if not tsquery_text or tsquery_text.strip() == '':
+        return [], 0  # Empty tsquery — no results, no fallback
+```
 
-# Check if tsquery is empty (all stop words / no searchable terms)
-tsquery_text = await db.scalar(select(func.cast(tsquery, String)))
-if not tsquery_text or tsquery_text.strip() == '':
-    # Empty tsquery — return zero results, no fallback
-    return [], 0
+This prevents "the" from matching everything via ILIKE fallback.
 
-fts_filter = self.model.search_vector.op('@@')(tsquery)
-rank_expr = func.ts_rank(self.model.search_vector, tsquery)
+**3. Add ILIKE fallback on zero FTS results**
 
-# Build FTS query
-fts_query = base_query.where(fts_filter)
+After running the FTS-based search and getting zero results:
 
-# Execute count
-total = ... count from fts_query ...
-
-# If FTS returns 0 results, fall back to ILIKE
-if total == 0:
-    ilike_filters = self._build_ilike_fallback_filter(query)
-    fallback_query = base_query.where(or_(*ilike_filters))
-    # Use fallback query for results (no ts_rank ordering — use default sort)
+```python
+if total == 0 and tsquery_is_non_empty:
+    # Rebuild subqueries with ILIKE filters instead of FTS
+    # This is a second pass, only on zero results
     ...
+```
+
+Since all search goes through `search_all_content()` now, the fallback is implemented once. The fallback rebuilds the entity subqueries with ILIKE conditions (the current `text_search_fields` pattern). This covers partial words, code symbols, and non-English text.
+
+**4. Add `ts_rank` to UNION subqueries**
+
+Each entity subquery needs `ts_rank(search_vector, tsquery)` as a computed column for relevance sorting:
+
+```python
+if query and tsquery_is_non_empty:
+    tsquery = func.websearch_to_tsquery('english', query)
+    rank_col = func.ts_rank(model.search_vector, tsquery).label("search_rank")
 else:
-    # Use FTS query with ts_rank ordering when sort_by is "relevance"
-    ...
+    rank_col = literal(0).label("search_rank")
 ```
 
-The empty tsquery check prevents the stop-word fallback problem: searching "the" produces an empty tsquery, returns zero results immediately, and never triggers the ILIKE fallback (which would match nearly everything).
+**5. `sort_by: "relevance"` support and default resolution**
 
-**3. Entity-specific changes**
+**Deliberate behavior change:** When a search query is present and `sort_by` is not explicitly specified, results now default to relevance sorting instead of `created_at`. This is the expected UX — users want the most relevant results first when searching.
 
-Each service needs:
-- A `_build_ilike_fallback_filter(query)` method that returns the old ILIKE conditions (essentially the current `_build_text_search_filter` logic, preserved for fallback)
-- Remove the old `_build_text_search_filter` method
-
-**BookmarkService** specifically: always include `Bookmark.url.ilike(f'%{escape_ilike(query)}%')` as an additional OR condition alongside the FTS filter:
-
-```python
-where(or_(
-    Bookmark.search_vector.op('@@')(tsquery),
-    Bookmark.url.ilike(url_pattern),
-))
-```
-
-`ts_rank` returns 0 for URL-only matches — they sort after FTS matches under relevance ordering.
-
-**4. `sort_by: "relevance"` support and default resolution**
-
-**Deliberate behavior change:** When a search query is present and `sort_by` is not explicitly specified, results now default to relevance sorting instead of `created_at`. This is the expected UX — users want the most relevant results first when searching. API consumers relying on the previous `created_at` default during search will see results in a different order.
-
-Update `resolve_filter_and_sorting()` in `api/helpers.py` to accept an optional `query` parameter. The sort priority chain becomes:
+Update `resolve_filter_and_sorting()` in `api/helpers/filter_utils.py` to accept an optional `query` parameter. The sort priority chain:
 
 1. **Explicit user `sort_by` param** → wins always
 2. **Query present + no explicit sort** → `"relevance"`
@@ -254,23 +380,22 @@ Update `resolve_filter_and_sorting()` in `api/helpers.py` to accept an optional 
 def resolve_filter_and_sorting(
     ...,
     query: str | None = None,  # NEW
-) -> ...:
-    # ... existing filter resolution ...
-
+) -> ResolvedFilter:
+    ...
     if sort_by:
-        effective_sort_by = sort_by  # explicit — wins always
+        effective_sort_by = sort_by
     elif query:
-        effective_sort_by = "relevance"  # searching — relevance default
-    elif resolved_filter and resolved_filter.default_sort_by:
-        effective_sort_by = resolved_filter.default_sort_by
+        effective_sort_by = "relevance"
+    elif content_filter and content_filter.default_sort_by:
+        effective_sort_by = content_filter.default_sort_by
     else:
         effective_sort_by = "created_at"
 ```
 
-Update all routers (`bookmarks.py`, `notes.py`, `prompts.py`, `content.py`) to:
+Update all routers to:
 - Add `"relevance"` to the `sort_by` Literal type
 - Default `sort_by` to `None` instead of `"created_at"`
-- Pass `query` to `resolve_filter_and_sorting()`
+- Pass `query` (the `q` param) to `resolve_filter_and_sorting()`
 
 When `sort_by="relevance"` but no query is present, fall back to `created_at` silently.
 
@@ -284,7 +409,7 @@ When `sort_by="relevance"` but no query is present, fall back to `created_at` si
 
 **Stop-word / empty tsquery guard:**
 - `test__search__stop_words_only_returns_empty` — Searching "the and or" returns 0 results (empty tsquery, no fallback triggered)
-- `test__search__stop_word_mixed_with_real_term` — Searching "the python" matches documents with "python" (tsquery drops "the", keeps "python")
+- `test__search__stop_word_mixed_with_real_term` — Searching "the python" matches documents with "python"
 
 **URL ILIKE for bookmarks:**
 - `test__search__bookmark_url_ilike_match` — Searching "github.com/anthropics" matches a bookmark with that URL even if it's not in title/content
@@ -307,6 +432,10 @@ When `sort_by="relevance"` but no query is present, fall back to `created_at` si
 - `test__resolve_filter_and_sorting__filter_default_wins_without_query` — filter has `default_sort_by="title"`, no query → returns `"title"`
 - `test__resolve_filter_and_sorting__relevance_wins_over_filter_default_with_query` — filter has `default_sort_by="title"`, query present → returns `"relevance"`
 
+**Cross-type behavior (verified through unified endpoint):**
+- `test__search_all_content__fts_matches_across_types` — A query matching a bookmark title and a note content returns both, ranked by relevance
+- `test__search_all_content__scores_comparable_across_types` — A strong title match on a note ranks above a weak content match on a bookmark
+
 **Multi-tenancy:**
 - `test__search__fts_scoped_to_user` — User A's search does not return User B's content
 
@@ -321,14 +450,14 @@ When `sort_by="relevance"` but no query is present, fall back to `created_at` si
 - `test__list_bookmarks__relevance_sort_without_query_ok` — `sort_by=relevance` without `q` doesn't error
 - `test__list_bookmarks__relevance_with_filter_id` — Relevance sort works correctly when combined with a content filter
 - `test__list_bookmarks__sort_by_from_filter_overridden_by_relevance` — Filter specifies `sort_by=title`, user provides query without explicit sort → relevance wins
-- Same pattern for notes, prompts
+- Same pattern for notes, prompts, and content endpoints
 
 ---
 
-## Milestone 3: `ts_headline` for Search Snippets
+## Milestone 4: `ts_headline` for Search Snippets + MCP Verification
 
 ### Goal & Outcome
-Add highlighted snippets to search results showing *why* each result matched, using PostgreSQL's `ts_headline` function. Also verify MCP integration.
+Add highlighted snippets to search results showing *why* each result matched, using PostgreSQL's `ts_headline` function. Verify MCP integration.
 
 After this milestone:
 - Search results include a `search_headline` field with matching terms highlighted in `<mark>` tags
@@ -340,23 +469,21 @@ After this milestone:
 **1. Add `search_headline` to response schemas**
 
 Add an optional `search_headline: str | None` field to:
-- `BookmarkListItem` (in `schemas/bookmark.py`)
-- `NoteListItem` (in `schemas/note.py`)
-- `PromptListItem` (in `schemas/prompt.py`)
-- `ContentListItem` (in `schemas/content.py`)
+- `ContentListItem` (in `schemas/content.py`) — the base schema all list results flow through
+- `BookmarkListItem`, `NoteListItem`, `PromptListItem` — if these remain separate schemas after Milestone 2
 
 Default to `None` — only populated when a search query is active.
 
 **2. Compute `ts_headline` from all searchable fields**
 
-Run `ts_headline` on a concatenation of all searchable fields so the snippet reflects whichever field actually matched:
+In `search_all_content()`, add `ts_headline` as a computed column in each entity subquery. Run it on a concatenation of all searchable fields so the snippet reflects whichever field actually matched:
 
 ```python
 headline_source = func.concat_ws(
     ' ... ',
-    self.model.title,
-    self.model.description,
-    func.left(self.model.content, 5000),  # Cap to limit ts_headline cost
+    model.title,
+    model.description,
+    func.left(model.content, 5000),  # Cap to limit ts_headline cost
 )
 headline = func.ts_headline(
     'english',
@@ -370,23 +497,18 @@ The `' ... '` separator prevents false cross-field phrase matches. `MaxFragments
 
 For bookmarks, include `summary` in the concatenation as well (between description and content).
 
-If `ts_headline` performance becomes an issue on large result sets (it processes the full text for each row), a future optimization is to compute it in a subquery after pagination. The 5,000-char cap makes this unlikely at current scale.
+If `ts_headline` performance becomes an issue on large result sets, a future optimization is to compute it in a subquery after pagination. The 5,000-char cap makes this unlikely at current scale.
 
-**3. Attach headline to entities**
-
-Similar to how `content_length` and `content_preview` are attached to entities after query execution, attach the headline:
-
-```python
-entity.search_headline = row.search_headline
-```
-
-**4. ILIKE fallback headlines**
+**3. ILIKE fallback headlines**
 
 When the ILIKE fallback is used (FTS returned 0 results), set `search_headline = None`. There's no tsquery to highlight against. The `content_preview` field already provides context.
 
-**5. Verify MCP integration**
+**4. Verify MCP integration**
 
-The Content MCP server (`backend/src/mcp_server/server.py`) has a `search_items` tool that calls the API. Since FTS is a backend change, the MCP server benefits automatically. Verify by reading the MCP `search_items` implementation to confirm it passes the query parameter through. No MCP-side changes expected.
+The Content MCP server calls the REST API via HTTP. Since FTS is a backend change, the MCP server benefits automatically. Verify by:
+- Confirming the MCP `search_items` tool passes the `q` parameter through to the API
+- Confirming the response still matches the expected MCP format
+- No MCP-side code changes expected
 
 ### Testing Strategy
 
@@ -394,106 +516,38 @@ The Content MCP server (`backend/src/mcp_server/server.py`) has a `search_items`
 - `test__search__headline_from_best_matching_field` — A title-only match produces a headline highlighting the title text, not a random content snippet
 - `test__search__headline_is_none_when_no_query` — When no search query, `search_headline` is `None`
 - `test__search__headline_is_none_for_ilike_fallback` — When ILIKE fallback triggers, `search_headline` is `None`
-- `test__search__headline_with_null_content` — Entity with NULL content doesn't crash headline generation (coalesce handles it)
+- `test__search__headline_with_null_content` — Entity with NULL content doesn't crash headline generation
 - `test__list_bookmarks__search_headline_in_response` — API response includes `search_headline` field when `q` is provided
 - `test__list_bookmarks__search_headline_null_without_query` — `search_headline` is null when no query
 - Same pattern for notes, prompts, and content endpoints
 
 ---
 
-## Milestone 4: Unified Content Search — FTS for `search_all_content()`
-
-### Goal & Outcome
-Update the unified content search in `content_service.py` to use FTS with `ts_rank` for the UNION ALL query across bookmarks, notes, and prompts. No ILIKE fallback for unified search — the individual entity endpoints have it, and the UNION complexity isn't worth it.
-
-After this milestone:
-- `GET /content/` endpoint uses FTS for text search across all content types
-- Results are ranked by `ts_rank` (comparable across entity types since all use the same `'english'` config and weight scheme)
-- ILIKE on `Bookmark.url` is preserved as an OR condition in the bookmark subquery
-- `ts_headline` snippets included in unified results
-- `sort_by: "relevance"` supported with proper default resolution
-
-### Implementation Outline
-
-**1. Update `_apply_entity_filters()` in `content_service.py`**
-
-This function currently builds ILIKE filters from `text_search_fields`. Replace the ILIKE text search with FTS:
-- Accept the `search_vector` column and optional `url_ilike_column` parameters
-- Build FTS filter: `search_vector.op('@@')(tsquery)`
-- For bookmarks, also include `Bookmark.url.ilike(pattern)` as an OR condition
-- No ILIKE fallback — keep the function as a flat filter list
-
-```python
-def _apply_entity_filters(
-    filters: list,
-    model: type,
-    junction_table: Table,
-    search_vector_column,  # The model's search_vector column
-    url_ilike_column=None,  # Optional, for bookmark URL matching
-    ...
-)
-```
-
-**2. Add `ts_rank` to UNION subqueries**
-
-Each entity subquery needs `ts_rank(search_vector, tsquery)` as a computed column for cross-type relevance sorting:
-
-```python
-if query:
-    tsquery = func.websearch_to_tsquery('english', query)
-    rank_col = func.ts_rank(Bookmark.search_vector, tsquery).label("search_rank")
-else:
-    rank_col = literal(0).label("search_rank")
-```
-
-**3. Add `ts_headline` to UNION subqueries**
-
-Add `ts_headline` using the same `concat_ws` pattern from Milestone 3, with entity-specific field concatenation.
-
-**4. Update sorting and router**
-
-Add `"relevance"` to the `sort_by` Literal in `search_all_content()` and the `/content/` router. Pass `query` to `resolve_filter_and_sorting()`. When relevance sort is active, order by `search_rank DESC` with tiebreakers.
-
-**5. Empty tsquery handling**
-
-Apply the same empty tsquery guard as Milestone 2: if `websearch_to_tsquery` produces an empty result (all stop words), return zero results immediately.
-
-### Testing Strategy
-
-**Core FTS behavior:**
-- `test__search_all_content__fts_matches_across_types` — A query matching a bookmark title and a note content returns both, ranked by relevance
-- `test__search_all_content__fts_title_match_ranks_higher` — A bookmark with the query in its title ranks above a note with the query only in content
-
-**Bookmark URL matching:**
-- `test__search_all_content__url_match_included` — Searching "github.com" returns bookmarks with that URL
-
-**No ILIKE fallback in unified search:**
-- `test__search_all_content__no_ilike_fallback` — Searching for a code symbol like "useState" returns zero results in unified search (individual entity endpoints have fallback; unified does not)
-
-**Relevance sorting:**
-- `test__search_all_content__default_sort_relevance_with_query` — When query present and sort_by not specified, results sorted by relevance
-- `test__search_all_content__explicit_sort_overrides_relevance` — `sort_by="title"` with a query sorts by title
-
-**Snippets:**
-- `test__search_all_content__headline_included` — Search results include `search_headline` with marked-up terms
-
-**Cross-type score comparability:**
-- `test__search_all_content__scores_comparable_across_types` — A strong title match on a note ranks above a weak content match on a bookmark
-
----
-
 ## Notes for the Agent
 
 ### Key Files to Modify
+
+**Milestone 1 (Migration):**
 - `backend/src/db/migrations/versions/` — new migration file (columns, triggers, trigger functions, indexes, backfill)
 - `backend/src/models/bookmark.py`, `note.py`, `prompt.py` — add `search_vector` column
-- `backend/src/services/base_entity_service.py` — core search refactor
-- `backend/src/services/bookmark_service.py`, `note_service.py`, `prompt_service.py` — entity-specific FTS + ILIKE fallback
-- `backend/src/services/content_service.py` — unified search FTS (no fallback)
-- `backend/src/schemas/bookmark.py`, `note.py`, `prompt.py`, `content.py` — add `search_headline`
-- `backend/src/api/routers/bookmarks.py`, `notes.py`, `prompts.py`, `content.py` — add `"relevance"` sort, default `sort_by` to `None`
-- `backend/src/api/helpers.py` — update `resolve_filter_and_sorting()` to accept `query` param
-- `backend/tests/services/` and `backend/tests/api/` — new and updated tests
+
+**Milestone 2 (Consolidation):**
+- `backend/src/api/routers/bookmarks.py`, `notes.py`, `prompts.py` — change list endpoints to call `search_all_content()`
+- `backend/src/services/content_service.py` — may need minor adjustments to support single-type usage cleanly
+- `backend/src/services/base_entity_service.py` — remove `search()`, `_build_text_search_filter()`, and related helper methods
+- `backend/src/services/bookmark_service.py`, `note_service.py`, `prompt_service.py` — remove `_build_text_search_filter()`, `_get_sort_columns()`
+- `backend/tests/` — verify all existing search tests pass through new path
+
+**Milestone 3 (FTS):**
+- `backend/src/services/content_service.py` — FTS in `_apply_entity_filters()`, ts_rank, ILIKE fallback, empty tsquery guard
+- `backend/src/api/helpers/filter_utils.py` — update `resolve_filter_and_sorting()` to accept `query` param
+- `backend/src/api/routers/bookmarks.py`, `notes.py`, `prompts.py`, `content.py` — add `"relevance"` sort, default `sort_by` to `None`, pass `query` to helper
+- `backend/tests/` — new FTS tests, relevance sorting tests
+
+**Milestone 4 (Headlines):**
+- `backend/src/services/content_service.py` — add `ts_headline` to subqueries
+- `backend/src/schemas/content.py`, `bookmark.py`, `note.py`, `prompt.py` — add `search_headline` field
+- `backend/tests/` — headline tests
 
 ### Documentation to Read Before Implementing
 - PostgreSQL FTS docs: https://www.postgresql.org/docs/current/textsearch.html
@@ -502,16 +556,12 @@ Apply the same empty tsquery guard as Milestone 2: if `websearch_to_tsquery` pro
 - `ts_headline`: https://www.postgresql.org/docs/current/textsearch-controls.html#TEXTSEARCH-HEADLINE
 - SQLAlchemy TSVector: https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#full-text-search
 
-### Migration Rules
-- **Never create migration files manually.** Always use `make migration message="description"` to autogenerate, then edit the generated file to add raw SQL (triggers, backfill, etc.) that autogenerate can't detect.
-- Run `make migrate` to apply migrations. Run `make backend-tests` to verify.
-
 ### Important Implementation Details
 - Use `websearch_to_tsquery` (not `plainto_tsquery` or `to_tsquery`) — it handles Google-like syntax safely without injection risks
 - The `'english'` text search configuration provides stemming. This is intentional for v1.
-- `search_vector` is trigger-maintained, not a generated column. The trigger only recomputes when content fields change. SQLAlchemy should not write to this column.
+- `search_vector` is trigger-maintained, not a generated column. The trigger only recomputes when content fields change. The ELSE branch preserves the old value defensively. SQLAlchemy should not write to this column, but the trigger handles it either way.
 - `ts_rank` output is a float — it's comparable across entities using the same tsvector config and weight scheme
-- The ILIKE fallback is individual entity search only (not unified search). It's a second query that only runs when FTS count is 0 **and** the tsquery is non-empty.
+- The ILIKE fallback is a second query that only runs when FTS count is 0 **and** the tsquery is non-empty.
 - Guard against empty tsquery (all stop words) — return zero results, don't fall back to ILIKE
 - `ts_headline` runs on a concatenation of all searchable fields (not just content) so the snippet reflects whichever field matched. Cap content at 5,000 chars with `func.left()`.
 - Existing tests that search for exact substrings may need updating if the FTS path doesn't match them (e.g., partial word matches). These tests should use the fallback behavior or be updated to use FTS-friendly queries.
