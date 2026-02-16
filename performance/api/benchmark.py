@@ -209,7 +209,7 @@ class ApiBenchmark:
         # Warm up all entity endpoints to initialize ORM models
         # Without this, the first request to each entity type includes ORM
         # initialization overhead (~20-30ms) that skews benchmark results
-        for endpoint in ["/notes/", "/bookmarks/", "/prompts/"]:
+        for endpoint in ["/notes/", "/bookmarks/", "/prompts/", "/content/"]:
             for _ in range(3):
                 await client.get(
                     f"{self.base_url}{endpoint}",
@@ -332,7 +332,7 @@ class ApiBenchmark:
             with contextlib.suppress(Exception):
                 response = await client.get(
                     f"{self.base_url}/notes/",
-                    params={"query": query, "limit": 200, "include_deleted": "true"},
+                    params={"q": query, "limit": 200, "include_deleted": "true"},
                 )
                 if response.status_code == 200:
                     for item in response.json().get("items", []):
@@ -348,7 +348,7 @@ class ApiBenchmark:
             with contextlib.suppress(Exception):
                 response = await client.get(
                     f"{self.base_url}/bookmarks/",
-                    params={"query": query, "limit": 200, "include_deleted": "true"},
+                    params={"q": query, "limit": 200, "include_deleted": "true"},
                 )
                 if response.status_code == 200:
                     for item in response.json().get("items", []):
@@ -364,7 +364,7 @@ class ApiBenchmark:
             with contextlib.suppress(Exception):
                 response = await client.get(
                     f"{self.base_url}/prompts/",
-                    params={"query": query, "limit": 200, "include_deleted": "true"},
+                    params={"q": query, "limit": 200, "include_deleted": "true"},
                 )
                 if response.status_code == 200:
                     for item in response.json().get("items", []):
@@ -569,7 +569,7 @@ class ApiBenchmark:
         """Benchmark searching notes with a query."""
 
         def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
-            return ("GET", "/notes/", None, {"query": "benchmark", "limit": 20})
+            return ("GET", "/notes/", None, {"q": "benchmark", "limit": 20})
 
         return await self._run_concurrent(client, "Search Notes", concurrency, make_request)
 
@@ -771,7 +771,7 @@ class ApiBenchmark:
         """Benchmark searching bookmarks with a query."""
 
         def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
-            return ("GET", "/bookmarks/", None, {"query": "benchmark", "limit": 20})
+            return ("GET", "/bookmarks/", None, {"q": "benchmark", "limit": 20})
 
         return await self._run_concurrent(
             client, "Search Bookmarks", concurrency, make_request,
@@ -981,7 +981,7 @@ class ApiBenchmark:
         """Benchmark searching prompts with a query."""
 
         def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
-            return ("GET", "/prompts/", None, {"query": "benchmark", "limit": 20})
+            return ("GET", "/prompts/", None, {"q": "benchmark", "limit": 20})
 
         return await self._run_concurrent(client, "Search Prompts", concurrency, make_request)
 
@@ -1051,6 +1051,32 @@ class ApiBenchmark:
 
         return await self._run_concurrent(
             client, "Hard Delete Prompt", concurrency, make_request,
+        )
+
+    # -------------------------------------------------------------------------
+    # Content (Unified) Benchmarks
+    # -------------------------------------------------------------------------
+
+    async def benchmark_list_content(
+        self, client: httpx.AsyncClient, concurrency: int,
+    ) -> BenchmarkResult:
+        """Benchmark listing unified content (all types)."""
+
+        def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
+            return ("GET", "/content/", None, {"limit": 20})
+
+        return await self._run_concurrent(client, "List Content", concurrency, make_request)
+
+    async def benchmark_search_content(
+        self, client: httpx.AsyncClient, concurrency: int,
+    ) -> BenchmarkResult:
+        """Benchmark searching unified content with a query."""
+
+        def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
+            return ("GET", "/content/", None, {"q": "benchmark", "limit": 20})
+
+        return await self._run_concurrent(
+            client, "Search Content", concurrency, make_request,
         )
 
     # -------------------------------------------------------------------------
@@ -1237,6 +1263,17 @@ class ApiBenchmark:
 
                     print("  Hard Delete Prompts...", end=" ", flush=True)
                     result = await self.benchmark_hard_delete_prompts(client, concurrency)
+                    results.append(result)
+                    print(f"P95: {result.p95_ms}ms, {result.throughput_rps} req/s")
+
+                    # Unified content operations
+                    print("  List Content...", end=" ", flush=True)
+                    result = await self.benchmark_list_content(client, concurrency)
+                    results.append(result)
+                    print(f"P95: {result.p95_ms}ms, {result.throughput_rps} req/s")
+
+                    print("  Search Content...", end=" ", flush=True)
+                    result = await self.benchmark_search_content(client, concurrency)
                     results.append(result)
                     print(f"P95: {result.p95_ms}ms, {result.throughput_rps} req/s")
 
