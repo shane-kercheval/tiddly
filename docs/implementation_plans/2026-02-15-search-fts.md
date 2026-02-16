@@ -432,6 +432,23 @@ Update all routers to:
 
 When `sort_by="relevance"` but no query is present, fall back to `created_at` silently.
 
+**6. Update MCP `search_items` tool descriptions**
+
+The MCP server describes search behavior to LLMs in three places: the `search_items` tool `description=` string, the `search_items` docstring/examples, and the main `mcp = FastMCP(instructions=...)` block (the "Search" section and example workflows). All three need to be updated to describe how FTS works so that LLMs can optimize their search queries.
+
+Key information to convey:
+- Search uses full-text search with English stemming ("running" matches "runners", "databases" matches "database")
+- Use complete words, not fragments ("authentication" not "auth")
+- Quoted phrases for exact adjacency (`"python database"`)
+- Negation with `-` to exclude terms (`python -beginner`)
+- OR for alternatives (`python OR javascript`)
+- Bookmark URLs are matched via substring separately, so partial URL searches work
+- Results are ranked by relevance by default when a query is present
+- If FTS finds nothing, an automatic substring fallback runs — so partial words and code symbols like `useAuth` still work, but natural language queries are preferred
+- The `query` field description on the tool should reflect that this is full-text search, not substring matching
+
+Leave the final wording to the implementing agent — the above is the information that must be communicated, not the exact phrasing.
+
 ### Testing Strategy
 
 **FTS core behavior:**
