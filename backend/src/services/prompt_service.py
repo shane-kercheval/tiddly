@@ -1,11 +1,11 @@
 """Service layer for prompt CRUD operations."""
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from jinja2 import Environment, TemplateSyntaxError, meta
-from sqlalchemy import ColumnElement, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
@@ -121,28 +121,6 @@ class PromptService(BaseEntityService[Prompt]):
         base["name"] = entity.name
         base["arguments"] = entity.arguments
         return base
-
-    def _build_text_search_filter(self, pattern: str) -> list:
-        """Build text search filter for prompt fields."""
-        return [
-            or_(
-                Prompt.name.ilike(pattern),
-                Prompt.title.ilike(pattern),
-                Prompt.description.ilike(pattern),
-                Prompt.content.ilike(pattern),
-            ),
-        ]
-
-    def _get_sort_columns(self) -> dict[str, ColumnElement[Any]]:
-        """Get sort columns for prompts."""
-        return {
-            "created_at": Prompt.created_at,
-            "updated_at": Prompt.updated_at,
-            "last_used_at": Prompt.last_used_at,
-            "title": func.lower(func.coalesce(func.nullif(Prompt.title, ''), Prompt.name)),
-            "archived_at": Prompt.archived_at,
-            "deleted_at": Prompt.deleted_at,
-        }
 
     def _validate_field_limits(
         self,
@@ -472,6 +450,57 @@ class PromptService(BaseEntityService[Prompt]):
             )
 
         return prompt
+
+    async def list_for_export(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        tags: list[str] | None = None,
+        tag_match: Literal["all", "any"] = "all",
+        view: Literal["active", "archived", "deleted"] = "active",
+        offset: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[Prompt], int]:
+        """
+        List prompts with full content for export.
+
+        Unlike search_all_content() which returns ContentListItem projections,
+        this returns full ORM Prompt objects needed by the export endpoint
+        to build SKILL.md files.
+
+        Args:
+            db: Database session.
+            user_id: User ID to scope prompts.
+            tags: Filter by tags (normalized to lowercase).
+            tag_match: "all" (AND) or "any" (OR) for tag matching.
+            view: "active", "archived", or "deleted".
+            offset: Pagination offset.
+            limit: Pagination limit.
+
+        Returns:
+            Tuple of (list of Prompt ORM objects with content, total count).
+        """
+        base_query = (
+            select(Prompt)
+            .options(selectinload(Prompt.tag_objects))
+            .where(Prompt.user_id == user_id)
+        )
+
+        base_query = self._apply_view_filter(base_query, view)
+
+        if tags:
+            base_query = self._apply_tag_filter(base_query, user_id, tags, tag_match)
+
+        # Count
+        count_subquery = base_query.with_only_columns(Prompt.id).subquery()
+        count_query = select(func.count()).select_from(count_subquery)
+        total = (await db.execute(count_query)).scalar() or 0
+
+        # Paginate (order by name for deterministic export)
+        base_query = base_query.order_by(Prompt.name.asc()).offset(offset).limit(limit)
+
+        result = await db.execute(base_query)
+        return list(result.scalars().all()), total
 
     async def get_by_name(
         self,

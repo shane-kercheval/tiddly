@@ -1325,6 +1325,142 @@ async def test_search_by_summary(
 
 
 # =============================================================================
+# View Filtering Tests
+# =============================================================================
+
+
+async def test__list_bookmarks__view_active_excludes_deleted(client: AsyncClient) -> None:
+    """Active view excludes deleted bookmarks."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://active.com"})
+    r2 = await client.post("/bookmarks/", json={"url": "https://deleted.com"})
+    await client.delete(f"/bookmarks/{r2.json()['id']}")
+
+    response = await client.get("/bookmarks/")
+    ids = {item["id"] for item in response.json()["items"]}
+    assert r1.json()["id"] in ids
+    assert r2.json()["id"] not in ids
+
+
+async def test__list_bookmarks__view_active_excludes_archived(client: AsyncClient) -> None:
+    """Active view excludes archived bookmarks."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://active.com"})
+    r2 = await client.post("/bookmarks/", json={"url": "https://archived.com"})
+    await client.post(f"/bookmarks/{r2.json()['id']}/archive")
+
+    response = await client.get("/bookmarks/")
+    ids = {item["id"] for item in response.json()["items"]}
+    assert r1.json()["id"] in ids
+    assert r2.json()["id"] not in ids
+
+
+async def test__list_bookmarks__view_archived_returns_only_archived(client: AsyncClient) -> None:
+    """Archived view returns only archived (not deleted) bookmarks."""
+    await client.post("/bookmarks/", json={"url": "https://active.com"})
+    r2 = await client.post("/bookmarks/", json={"url": "https://archived.com"})
+    r3 = await client.post("/bookmarks/", json={"url": "https://deleted.com"})
+    await client.post(f"/bookmarks/{r2.json()['id']}/archive")
+    await client.delete(f"/bookmarks/{r3.json()['id']}")
+
+    response = await client.get("/bookmarks/?view=archived")
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["id"] == r2.json()["id"]
+
+
+async def test__list_bookmarks__view_deleted_returns_all_deleted(client: AsyncClient) -> None:
+    """Deleted view returns all deleted bookmarks including archived+deleted."""
+    await client.post("/bookmarks/", json={"url": "https://active.com"})
+    r2 = await client.post("/bookmarks/", json={"url": "https://deleted.com"})
+    r3 = await client.post("/bookmarks/", json={"url": "https://archived-then-deleted.com"})
+    await client.post(f"/bookmarks/{r3.json()['id']}/archive")
+    await client.delete(f"/bookmarks/{r2.json()['id']}")
+    await client.delete(f"/bookmarks/{r3.json()['id']}")
+
+    response = await client.get("/bookmarks/?view=deleted")
+    ids = {item["id"] for item in response.json()["items"]}
+    assert len(ids) == 2
+    assert r2.json()["id"] in ids
+    assert r3.json()["id"] in ids
+
+
+async def test__list_bookmarks__view_with_query_filter(client: AsyncClient) -> None:
+    """Text search works together with view filtering."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://a.com", "title": "Python Guide"})
+    await client.post("/bookmarks/", json={"url": "https://b.com", "title": "Python Tutorial"})
+    await client.post(f"/bookmarks/{r1.json()['id']}/archive")
+
+    # archived Python bookmark
+    response = await client.get("/bookmarks/?q=python&view=archived")
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["title"] == "Python Guide"
+
+
+# =============================================================================
+# Sort by updated_at and last_used_at Tests
+# =============================================================================
+
+
+async def test__list_bookmarks__sort_by_updated_at_desc(client: AsyncClient) -> None:
+    """Sorting by updated_at descending returns most recently modified first."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://first.com"})
+    await asyncio.sleep(0.05)
+    r2 = await client.post("/bookmarks/", json={"url": "https://second.com"})
+    await asyncio.sleep(0.05)
+    # Update first bookmark to make it most recently modified
+    update_resp = await client.patch(f"/bookmarks/{r1.json()['id']}", json={"title": "Updated"})
+    assert update_resp.status_code == 200
+
+    response = await client.get("/bookmarks/?sort_by=updated_at&sort_order=desc")
+    items = response.json()["items"]
+    assert items[0]["id"] == r1.json()["id"]
+    assert items[1]["id"] == r2.json()["id"]
+
+
+async def test__list_bookmarks__sort_by_updated_at_asc(client: AsyncClient) -> None:
+    """Sorting by updated_at ascending returns least recently modified first."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://first.com"})
+    await asyncio.sleep(0.05)
+    r2 = await client.post("/bookmarks/", json={"url": "https://second.com"})
+    await asyncio.sleep(0.05)
+    update_resp = await client.patch(f"/bookmarks/{r1.json()['id']}", json={"title": "Updated"})
+    assert update_resp.status_code == 200
+
+    response = await client.get("/bookmarks/?sort_by=updated_at&sort_order=asc")
+    items = response.json()["items"]
+    assert items[0]["id"] == r2.json()["id"]
+    assert items[1]["id"] == r1.json()["id"]
+
+
+async def test__list_bookmarks__sort_by_last_used_at_desc(client: AsyncClient) -> None:
+    """Sorting by last_used_at descending returns most recently used first."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://first.com"})
+    await asyncio.sleep(0.01)
+    r2 = await client.post("/bookmarks/", json={"url": "https://second.com"})
+    await asyncio.sleep(0.01)
+    # Track usage on first bookmark
+    await client.post(f"/bookmarks/{r1.json()['id']}/track-usage")
+
+    response = await client.get("/bookmarks/?sort_by=last_used_at&sort_order=desc")
+    items = response.json()["items"]
+    assert items[0]["id"] == r1.json()["id"]
+    assert items[1]["id"] == r2.json()["id"]
+
+
+async def test__list_bookmarks__sort_by_last_used_at_asc(client: AsyncClient) -> None:
+    """Sorting by last_used_at ascending returns least recently used first."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://first.com"})
+    await asyncio.sleep(0.01)
+    r2 = await client.post("/bookmarks/", json={"url": "https://second.com"})
+    await asyncio.sleep(0.01)
+    await client.post(f"/bookmarks/{r1.json()['id']}/track-usage")
+
+    response = await client.get("/bookmarks/?sort_by=last_used_at&sort_order=asc")
+    items = response.json()["items"]
+    assert items[0]["id"] == r2.json()["id"]
+    assert items[1]["id"] == r1.json()["id"]
+
+
+# =============================================================================
 # Metadata Endpoint Tests
 # =============================================================================
 

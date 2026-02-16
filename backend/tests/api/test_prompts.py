@@ -399,6 +399,151 @@ async def test__list_prompts__pagination(client: AsyncClient) -> None:
 
 
 # =============================================================================
+# View Filtering Tests
+# =============================================================================
+
+
+async def test__list_prompts__view_active_excludes_deleted_and_archived(
+    client: AsyncClient,
+) -> None:
+    """Active view excludes both deleted and archived prompts."""
+    r1 = await client.post("/prompts/", json={"name": "active-prompt", "content": "c"})
+    r2 = await client.post("/prompts/", json={"name": "deleted-prompt", "content": "c"})
+    r3 = await client.post("/prompts/", json={"name": "archived-prompt", "content": "c"})
+    await client.delete(f"/prompts/{r2.json()['id']}")
+    await client.post(f"/prompts/{r3.json()['id']}/archive")
+
+    response = await client.get("/prompts/")
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["id"] == r1.json()["id"]
+
+
+async def test__list_prompts__view_archived_returns_only_archived(
+    client: AsyncClient,
+) -> None:
+    """Archived view returns only archived prompts."""
+    await client.post("/prompts/", json={"name": "active-prompt", "content": "c"})
+    r2 = await client.post("/prompts/", json={"name": "archived-prompt", "content": "c"})
+    await client.post(f"/prompts/{r2.json()['id']}/archive")
+
+    response = await client.get("/prompts/?view=archived")
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["id"] == r2.json()["id"]
+
+
+async def test__list_prompts__view_deleted_returns_only_deleted(
+    client: AsyncClient,
+) -> None:
+    """Deleted view returns only deleted prompts."""
+    await client.post("/prompts/", json={"name": "active-prompt", "content": "c"})
+    r2 = await client.post("/prompts/", json={"name": "deleted-prompt", "content": "c"})
+    await client.delete(f"/prompts/{r2.json()['id']}")
+
+    response = await client.get("/prompts/?view=deleted")
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["id"] == r2.json()["id"]
+
+
+# =============================================================================
+# Sort Tests
+# =============================================================================
+
+
+async def test__list_prompts__sort_by_created_at_desc(client: AsyncClient) -> None:
+    """Sorting by created_at descending returns most recently created first."""
+    r1 = await client.post("/prompts/", json={"name": "first-prompt", "content": "c"})
+    await asyncio.sleep(0.01)
+    r2 = await client.post("/prompts/", json={"name": "second-prompt", "content": "c"})
+
+    response = await client.get("/prompts/?sort_by=created_at&sort_order=desc")
+    items = response.json()["items"]
+    assert items[0]["id"] == r2.json()["id"]
+    assert items[1]["id"] == r1.json()["id"]
+
+
+async def test__list_prompts__sort_by_created_at_asc(client: AsyncClient) -> None:
+    """Sorting by created_at ascending returns oldest first."""
+    r1 = await client.post("/prompts/", json={"name": "first-prompt", "content": "c"})
+    await asyncio.sleep(0.01)
+    r2 = await client.post("/prompts/", json={"name": "second-prompt", "content": "c"})
+
+    response = await client.get("/prompts/?sort_by=created_at&sort_order=asc")
+    items = response.json()["items"]
+    assert items[0]["id"] == r1.json()["id"]
+    assert items[1]["id"] == r2.json()["id"]
+
+
+async def test__list_prompts__sort_by_title_case_insensitive(client: AsyncClient) -> None:
+    """Title sorting is case-insensitive, falling back to name for untitled."""
+    await client.post("/prompts/", json={"name": "code-review", "content": "c"})
+    await client.post("/prompts/", json={
+        "name": "decision-prompt", "content": "c", "title": "Decision Clarity",
+    })
+    await client.post("/prompts/", json={
+        "name": "coding-prompt", "content": "c", "title": "coding Guidelines",
+    })
+
+    response = await client.get("/prompts/?sort_by=title&sort_order=asc")
+    items = response.json()["items"]
+    # Case-insensitive: code-review < coding Guidelines < Decision Clarity
+    assert items[0]["name"] == "code-review"
+    assert items[1]["title"] == "coding Guidelines"
+    assert items[2]["title"] == "Decision Clarity"
+
+
+# =============================================================================
+# Text Search Field Coverage
+# =============================================================================
+
+
+async def test__list_prompts__text_search_matches_name(client: AsyncClient) -> None:
+    """Text search matches prompts by name."""
+    await client.post("/prompts/", json={"name": "python-helper", "content": "c"})
+    await client.post("/prompts/", json={"name": "javascript-helper", "content": "c"})
+
+    response = await client.get("/prompts/?q=python")
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["name"] == "python-helper"
+
+
+async def test__list_prompts__text_search_matches_title(client: AsyncClient) -> None:
+    """Text search matches prompts by title."""
+    await client.post("/prompts/", json={"name": "p1", "content": "c", "title": "Python Expert"})
+    await client.post("/prompts/", json={"name": "p2", "content": "c", "title": "JavaScript Expert"})
+
+    response = await client.get("/prompts/?q=python")
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["name"] == "p1"
+
+
+async def test__list_prompts__text_search_matches_description(client: AsyncClient) -> None:
+    """Text search matches prompts by description."""
+    await client.post("/prompts/", json={
+        "name": "p1", "content": "c", "description": "Helps with Python code",
+    })
+    await client.post("/prompts/", json={
+        "name": "p2", "content": "c", "description": "Helps with JavaScript code",
+    })
+
+    response = await client.get("/prompts/?q=python")
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["name"] == "p1"
+
+
+async def test__list_prompts__text_search_matches_content(client: AsyncClient) -> None:
+    """Text search matches prompts by content."""
+    await client.post("/prompts/", json={"name": "p1", "content": "You are a Python expert."})
+    await client.post("/prompts/", json={"name": "p2", "content": "You are a JavaScript expert."})
+
+    response = await client.get("/prompts/?q=python")
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["name"] == "p1"
+
+
+# =============================================================================
 # Get Prompt by ID Tests
 # =============================================================================
 

@@ -156,6 +156,7 @@ def _row_to_content_item(row: Row, tags: list[str]) -> ContentListItem:
         archived_at=row.archived_at,
         content_length=row.content_length,
         content_preview=row.content_preview,
+        summary=row.summary if row.type == "bookmark" else None,
         url=row.url if row.type == "bookmark" else None,
         name=row.name if row.type == "prompt" else None,
         arguments=row.arguments if row.type == "prompt" else None,
@@ -249,6 +250,7 @@ async def search_all_content(
                 Bookmark.archived_at.label("archived_at"),
                 func.length(Bookmark.content).label("content_length"),
                 func.left(Bookmark.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
+                Bookmark.summary.label("summary"),
                 Bookmark.url.label("url"),
                 literal(None).label("name"),
                 cast(literal(None), JSONB).label("arguments"),
@@ -289,6 +291,7 @@ async def search_all_content(
                 Note.archived_at.label("archived_at"),
                 func.length(Note.content).label("content_length"),
                 func.left(Note.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
+                literal(None).label("summary"),
                 literal(None).label("url"),
                 literal(None).label("name"),
                 cast(literal(None), JSONB).label("arguments"),
@@ -328,6 +331,7 @@ async def search_all_content(
                 Prompt.archived_at.label("archived_at"),
                 func.length(Prompt.content).label("content_length"),
                 func.left(Prompt.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
+                literal(None).label("summary"),
                 literal(None).label("url"),
                 Prompt.name.label("name"),
                 Prompt.arguments.label("arguments"),
@@ -362,9 +366,24 @@ async def search_all_content(
     sort_column = getattr(combined.c, sort_column_name)
     sort_column = sort_column.desc() if sort_order == "desc" else sort_column.asc()
 
+    # Tiebreakers: multi-type includes type for grouping; single-type omits it
+    # (matches BaseEntityService._apply_sorting tiebreakers for individual endpoints)
+    is_single_type = len(subqueries) == 1
+    created_at_tiebreak = (
+        combined.c.created_at.desc() if sort_order == "desc"
+        else combined.c.created_at.asc()
+    )
+    id_tiebreak = (
+        combined.c.id.desc() if sort_order == "desc" else combined.c.id.asc()
+    )
+    if is_single_type:
+        tiebreakers = [created_at_tiebreak, id_tiebreak]
+    else:
+        tiebreakers = [combined.c.type, created_at_tiebreak, id_tiebreak]
+
     final_query = (
         select(combined)
-        .order_by(sort_column, combined.c.type, combined.c.id)
+        .order_by(sort_column, *tiebreakers)
         .offset(offset)
         .limit(limit)
     )

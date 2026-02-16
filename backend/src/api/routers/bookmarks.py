@@ -39,11 +39,13 @@ from schemas.errors import (
     StrReplaceSuccess,
     StrReplaceSuccessMinimal,
 )
+from schemas.content import ContentListItem
 from services.bookmark_service import (
     ArchivedUrlExistsError,
     BookmarkService,
     DuplicateUrlError,
 )
+from services.content_service import search_all_content
 from services.history_service import history_service
 from models.content_history import ActionType, EntityType
 from services.content_edit_service import (
@@ -139,6 +141,25 @@ async def create_bookmark(
     return response_data
 
 
+def _content_to_bookmark_list_item(item: ContentListItem) -> BookmarkListItem:
+    """Map unified ContentListItem to BookmarkListItem."""
+    return BookmarkListItem(
+        id=item.id,
+        title=item.title,
+        description=item.description,
+        summary=item.summary,
+        url=item.url,
+        tags=item.tags,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        last_used_at=item.last_used_at,
+        deleted_at=item.deleted_at,
+        archived_at=item.archived_at,
+        content_length=item.content_length,
+        content_preview=item.content_preview,
+    )
+
+
 @router.get("/", response_model=BookmarkListResponse)
 async def list_bookmarks(
     q: str | None = Query(
@@ -179,7 +200,7 @@ async def list_bookmarks(
     )
 
     try:
-        bookmarks, total = await bookmark_service.search(
+        content_items, total = await search_all_content(
             db=db,
             user_id=current_user.id,
             query=q,
@@ -191,11 +212,11 @@ async def list_bookmarks(
             limit=limit,
             view=view,
             filter_expression=resolved.filter_expression,
+            content_types=["bookmark"],
         )
     except ValueError as e:
-        # Tag validation errors from validate_and_normalize_tags
         raise HTTPException(status_code=422, detail=str(e))
-    items = [BookmarkListItem.model_validate(b) for b in bookmarks]
+    items = [_content_to_bookmark_list_item(item) for item in content_items]
     has_more = offset + len(items) < total
     return BookmarkListResponse(
         items=items,

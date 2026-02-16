@@ -123,25 +123,18 @@ class NoteListItem(BaseModel):
         """
         Extract fields from SQLAlchemy model and tag names from tag_objects.
 
-        Uses model introspection to automatically extract all schema fields,
-        eliminating the need to maintain a hardcoded field list.
-
-        Only accesses tag_objects if it's already loaded (not lazy) to avoid
-        triggering database queries outside async context.
+        Passes dicts through unchanged (used when constructing from ContentListItem
+        mappings or keyword args). Only activates ORM extraction for SQLAlchemy objects.
         """
-        # Handle SQLAlchemy model objects
+        if isinstance(data, dict):
+            return data
         if hasattr(data, "__dict__"):
-            # Get all field names from the Pydantic model, excluding 'tags' which we handle
             field_names = set(cls.model_fields.keys()) - {"tags"}
             data_dict = {key: getattr(data, key) for key in field_names if hasattr(data, key)}
-
-            # Check if tag_objects is already loaded (not lazy)
-            # SQLAlchemy sets __dict__ entry when relationship is loaded
             if "tag_objects" in data.__dict__ and data.__dict__["tag_objects"] is not None:
                 data_dict["tags"] = [tag.name for tag in data.__dict__["tag_objects"]]
             else:
                 data_dict["tags"] = []
-
             return data_dict
         return data
 

@@ -46,6 +46,8 @@ from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
 from services.relationship_service import embed_relationships
 from services.history_service import history_service
+from schemas.content import ContentListItem
+from services.content_service import search_all_content
 from services.note_service import NoteService
 from models.content_history import ActionType, EntityType
 
@@ -68,6 +70,23 @@ async def create_note(
     response_data = NoteResponse.model_validate(note)
     response_data.relationships = await embed_relationships(db, current_user.id, 'note', note.id)
     return response_data
+
+
+def _content_to_note_list_item(item: ContentListItem) -> NoteListItem:
+    """Map unified ContentListItem to NoteListItem."""
+    return NoteListItem(
+        id=item.id,
+        title=item.title,
+        description=item.description,
+        tags=item.tags,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        last_used_at=item.last_used_at,
+        deleted_at=item.deleted_at,
+        archived_at=item.archived_at,
+        content_length=item.content_length,
+        content_preview=item.content_preview,
+    )
 
 
 @router.get("/", response_model=NoteListResponse)
@@ -116,7 +135,7 @@ async def list_notes(
     )
 
     try:
-        notes, total = await note_service.search(
+        content_items, total = await search_all_content(
             db=db,
             user_id=current_user.id,
             query=q,
@@ -128,11 +147,12 @@ async def list_notes(
             limit=limit,
             view=view,
             filter_expression=resolved.filter_expression,
+            content_types=["note"],
         )
     except ValueError as e:
         # Tag validation errors from validate_and_normalize_tags
         raise HTTPException(status_code=422, detail=str(e))
-    items = [NoteListItem.model_validate(n) for n in notes]
+    items = [_content_to_note_list_item(item) for item in content_items]
     has_more = offset + len(items) < total
     return NoteListResponse(
         items=items,

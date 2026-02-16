@@ -3,7 +3,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -69,29 +69,6 @@ class BookmarkService(BaseEntityService[Bookmark]):
         base = await super().get_metadata_snapshot(db, user_id, entity, **kwargs)
         base["url"] = entity.url
         return base
-
-    def _build_text_search_filter(self, pattern: str) -> list:
-        """Build text search filter for bookmark fields."""
-        return [
-            or_(
-                Bookmark.title.ilike(pattern),
-                Bookmark.description.ilike(pattern),
-                Bookmark.url.ilike(pattern),
-                Bookmark.summary.ilike(pattern),
-                Bookmark.content.ilike(pattern),
-            ),
-        ]
-
-    def _get_sort_columns(self) -> dict[str, ColumnElement[Any]]:
-        """Get sort columns with title falling back to URL."""
-        return {
-            "created_at": Bookmark.created_at,
-            "updated_at": Bookmark.updated_at,
-            "last_used_at": Bookmark.last_used_at,
-            "title": func.lower(func.coalesce(func.nullif(Bookmark.title, ''), Bookmark.url)),
-            "archived_at": Bookmark.archived_at,
-            "deleted_at": Bookmark.deleted_at,
-        }
 
     async def _check_url_exists(
         self,

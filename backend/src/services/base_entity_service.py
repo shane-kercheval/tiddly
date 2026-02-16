@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Generic, Literal, Protocol, TypeVar
 from uuid import UUID
 
-from sqlalchemy import Column, ColumnElement, Table, exists, func, select
+from sqlalchemy import Column, Table, exists, func, select
 from sqlalchemy.sql import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
@@ -21,7 +21,6 @@ from models.tag import Tag
 from schemas.validators import validate_and_normalize_tags
 from services import relationship_service
 from services.exceptions import InvalidStateError
-from services.utils import build_tag_filter_from_expression, escape_ilike
 
 if TYPE_CHECKING:
     from services.history_service import HistoryService
@@ -61,9 +60,8 @@ class BaseEntityService(ABC, Generic[T]):
     - junction_table: The tag junction table (e.g., bookmark_tags)
     - entity_name: Human-readable name for error messages (e.g., "Bookmark")
 
-    Subclasses must implement:
-    - _build_text_search_filter(): Entity-specific search fields
-    - _get_sort_columns(): Entity-specific sort column mapping
+    Search is handled by search_all_content() in content_service.py.
+    Individual list endpoints route through it with content_types=[type].
 
     Note: create() is NOT in base class - it has entity-specific logic
     (e.g., bookmark URL uniqueness checks).
@@ -87,44 +85,6 @@ class BaseEntityService(ABC, Generic[T]):
         await db.refresh(entity, attribute_names=["tag_objects"])
 
     # --- Abstract Methods (entity-specific) ---
-
-    @abstractmethod
-    def _build_text_search_filter(self, pattern: str) -> list:
-        """
-        Build text search filter for entity-specific fields.
-
-        Args:
-            pattern: The ILIKE pattern (already escaped and wrapped with %).
-
-        Returns:
-            List of SQLAlchemy OR conditions for text search.
-
-        Example for Bookmark:
-            return [or_(
-                Bookmark.title.ilike(pattern),
-                Bookmark.description.ilike(pattern),
-                Bookmark.url.ilike(pattern),
-            )]
-        """
-        ...
-
-    @abstractmethod
-    def _get_sort_columns(self) -> dict[str, ColumnElement[Any]]:
-        """
-        Get mapping of sort field names to SQLAlchemy column expressions.
-
-        Returns:
-            Dict mapping sort_by parameter values to column expressions.
-            Values can be raw columns or computed expressions (e.g., func.lower()).
-
-        Example for Bookmark:
-            return {
-                "created_at": Bookmark.created_at,
-                "title": func.lower(func.coalesce(Bookmark.title, Bookmark.url)),
-                ...
-            }
-        """
-        ...
 
     @abstractmethod
     async def check_quota(
@@ -397,119 +357,6 @@ class BaseEntityService(ABC, Generic[T]):
         entity.content_length = content_length
         entity.content_preview = content_preview
         return entity
-
-    async def search(
-        self,
-        db: AsyncSession,
-        user_id: UUID,
-        query: str | None = None,
-        tags: list[str] | None = None,
-        tag_match: Literal["all", "any"] = "all",
-        sort_by: Literal[
-            "created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at",
-        ] = "created_at",
-        sort_order: Literal["asc", "desc"] = "desc",
-        offset: int = 0,
-        limit: int = 50,
-        view: Literal["active", "archived", "deleted"] = "active",
-        filter_expression: dict | None = None,
-        include_content: bool = False,
-    ) -> tuple[list[T], int]:
-        """
-        Search and filter entities for a user with pagination.
-
-        Returns entities with content_length and content_preview (computed in SQL).
-        By default, full content is NOT loaded to reduce bandwidth.
-
-        Args:
-            db: Database session.
-            user_id: User ID to scope entities.
-            query: Text search (uses entity-specific _build_text_search_filter).
-            tags: Filter by tags (normalized to lowercase).
-            tag_match: "all" (AND) or "any" (OR) for tag matching.
-            sort_by: Field to sort by (entity-specific via _get_sort_columns).
-            sort_order: Sort direction.
-            offset: Pagination offset.
-            limit: Pagination limit.
-            view: "active", "archived", or "deleted".
-            filter_expression: Optional ContentList filter expression.
-            include_content: If True, load full content. If False (default), defer
-                content loading and only compute content_length/content_preview.
-
-        Returns:
-            Tuple of (list of entities with content metrics, total count).
-        """
-        # Base query scoped to user with content metrics computed in SQL.
-        # Tags are eagerly loaded via selectinload.
-        # Build options based on whether content is needed.
-        if include_content:
-            options = [selectinload(self.model.tag_objects)]
-        else:
-            # Use defer() to exclude full content from SELECT (saves bandwidth).
-            options = [defer(self.model.content), selectinload(self.model.tag_objects)]
-
-        base_query = (
-            select(
-                self.model,
-                func.length(self.model.content).label("content_length"),
-                func.left(self.model.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
-            )
-            .options(*options)
-            .where(self.model.user_id == user_id)
-        )
-
-        # Apply view filter
-        base_query = self._apply_view_filter(base_query, view)
-
-        # Apply text search filter
-        if query:
-            escaped_query = escape_ilike(query)
-            search_pattern = f"%{escaped_query}%"
-            text_filters = self._build_text_search_filter(search_pattern)
-            for text_filter in text_filters:
-                base_query = base_query.where(text_filter)
-
-        # Apply filter expression (from ContentList)
-        if filter_expression is not None:
-            filter_clauses = build_tag_filter_from_expression(
-                filter_expression=filter_expression,
-                user_id=user_id,
-                junction_table=self.junction_table,
-                entity_id_column=self.model.id,
-            )
-            for clause in filter_clauses:
-                base_query = base_query.where(clause)
-
-        # Apply tag filter
-        if tags:
-            base_query = self._apply_tag_filter(base_query, user_id, tags, tag_match)
-
-        # Get total count before pagination.
-        # We need a separate count query without the computed columns to avoid
-        # complexity. Build a simpler query with just the model and filters.
-        count_subquery = base_query.with_only_columns(self.model.id).subquery()
-        count_query = select(func.count()).select_from(count_subquery)
-        total_result = await db.execute(count_query)
-        total = total_result.scalar() or 0
-
-        # Apply sorting with tiebreakers
-        base_query = self._apply_sorting(base_query, sort_by, sort_order)
-
-        # Apply pagination
-        base_query = base_query.offset(offset).limit(limit)
-
-        # Execute query and unpack results
-        result = await db.execute(base_query)
-        rows = result.all()
-
-        entities = []
-        for row in rows:
-            entity = row[0]  # First element is the model instance
-            entity.content_length = row[1]  # content_length
-            entity.content_preview = row[2]  # content_preview
-            entities.append(entity)
-
-        return entities, total
 
     async def delete(
         self,
@@ -901,24 +748,3 @@ class BaseEntityService(ABC, Generic[T]):
 
         return query
 
-    def _apply_sorting(
-        self,
-        query: Select[tuple[T]],
-        sort_by: str,
-        sort_order: Literal["asc", "desc"],
-    ) -> Select[tuple[T]]:
-        """Apply sorting with tiebreakers (created_at, then id)."""
-        sort_columns = self._get_sort_columns()
-        sort_column = sort_columns.get(sort_by, self.model.created_at)
-
-        if sort_order == "desc":
-            return query.order_by(
-                sort_column.desc(),
-                self.model.created_at.desc(),
-                self.model.id.desc(),
-            )
-        return query.order_by(
-            sort_column.asc(),
-            self.model.created_at.asc(),
-            self.model.id.asc(),
-        )
