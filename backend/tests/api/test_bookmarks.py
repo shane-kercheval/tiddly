@@ -12,7 +12,7 @@ from models.bookmark import Bookmark
 from models.user import User
 from services.url_scraper import ExtractedMetadata, ScrapedPage
 
-from tests.api.conftest import add_consent_for_user
+from tests.api.conftest import add_consent_for_user, create_user2_client
 
 
 async def test_create_bookmark(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -2038,16 +2038,6 @@ async def test_user_cannot_see_other_users_bookmarks_in_list(
     db_session: AsyncSession,
 ) -> None:
     """Test that a user's bookmark list only shows their own bookmarks."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a bookmark as the dev user
     response = await client.post(
         "/bookmarks/",
@@ -2056,36 +2046,8 @@ async def test_user_cannot_see_other_users_bookmarks_in_list(
     assert response.status_code == 201
     user1_bookmark_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-isolation-test", email="user2@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    # Clear settings cache and set up overrides for non-dev mode
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    # Make request as user2 with their PAT
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-isolation-test', 'user2@example.com',
     ) as user2_client:
         # List bookmarks as user2 - should not see user1's bookmark
         response = await user2_client.get("/bookmarks/")
@@ -2093,24 +2055,12 @@ async def test_user_cannot_see_other_users_bookmarks_in_list(
         bookmark_ids = [b["id"] for b in response.json()["items"]]
         assert user1_bookmark_id not in bookmark_ids
 
-    app.dependency_overrides.clear()
-
 
 async def test_user_cannot_get_other_users_bookmark_by_id(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
     """Test that a user cannot access another user's bookmark by ID (returns 404)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a bookmark as the dev user
     response = await client.post(
         "/bookmarks/",
@@ -2119,41 +2069,13 @@ async def test_user_cannot_get_other_users_bookmark_by_id(
     assert response.status_code == 201
     user1_bookmark_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-get-test", email="user2-get@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-get-test', 'user2-get@example.com',
     ) as user2_client:
         # Try to get user1's bookmark - should get 404, not 403
         response = await user2_client.get(f"/bookmarks/{user1_bookmark_id}")
         assert response.status_code == 404
         assert response.json()["detail"] == "Bookmark not found"
-
-    app.dependency_overrides.clear()
 
 
 async def test_user_cannot_update_other_users_bookmark(
@@ -2161,16 +2083,6 @@ async def test_user_cannot_update_other_users_bookmark(
     db_session: AsyncSession,
 ) -> None:
     """Test that a user cannot update another user's bookmark (returns 404)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a bookmark as the dev user
     response = await client.post(
         "/bookmarks/",
@@ -2179,34 +2091,8 @@ async def test_user_cannot_update_other_users_bookmark(
     assert response.status_code == 201
     user1_bookmark_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-update-test", email="user2-update@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-update-test', 'user2-update@example.com',
     ) as user2_client:
         # Try to update user1's bookmark - should get 404
         response = await user2_client.patch(
@@ -2215,8 +2101,6 @@ async def test_user_cannot_update_other_users_bookmark(
         )
         assert response.status_code == 404
         assert response.json()["detail"] == "Bookmark not found"
-
-    app.dependency_overrides.clear()
 
     # Verify the bookmark was not modified via database query
     result = await db_session.execute(
@@ -2231,16 +2115,6 @@ async def test_user_cannot_delete_other_users_bookmark(
     db_session: AsyncSession,
 ) -> None:
     """Test that a user cannot delete another user's bookmark (returns 404)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a bookmark as the dev user
     response = await client.post(
         "/bookmarks/",
@@ -2249,41 +2123,13 @@ async def test_user_cannot_delete_other_users_bookmark(
     assert response.status_code == 201
     user1_bookmark_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-delete-test", email="user2-delete@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-delete-test', 'user2-delete@example.com',
     ) as user2_client:
         # Try to delete user1's bookmark - should get 404
         response = await user2_client.delete(f"/bookmarks/{user1_bookmark_id}")
         assert response.status_code == 404
         assert response.json()["detail"] == "Bookmark not found"
-
-    app.dependency_overrides.clear()
 
     # Verify the bookmark still exists via database query
     result = await db_session.execute(
@@ -2299,16 +2145,6 @@ async def test_user_cannot_str_replace_other_users_bookmark(
     db_session: AsyncSession,
 ) -> None:
     """Test that a user cannot str-replace another user's bookmark (returns 404)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a bookmark as the dev user with content
     response = await client.post(
         "/bookmarks/",
@@ -2321,34 +2157,8 @@ async def test_user_cannot_str_replace_other_users_bookmark(
     assert response.status_code == 201
     user1_bookmark_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-str-replace-test", email="user2-str-replace@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-str-replace-test', 'user2-str-replace@example.com',
     ) as user2_client:
         # Try to str-replace user1's bookmark - should get 404
         response = await user2_client.patch(
@@ -2357,8 +2167,6 @@ async def test_user_cannot_str_replace_other_users_bookmark(
         )
         assert response.status_code == 404
         assert response.json()["detail"] == "Bookmark not found"
-
-    app.dependency_overrides.clear()
 
     # Verify the bookmark content was not modified via database query
     result = await db_session.execute(

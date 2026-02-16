@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.note import Note
 from models.user import User
 
-from tests.api.conftest import add_consent_for_user
+from tests.api.conftest import add_consent_for_user, create_user2_client
 
 
 # =============================================================================
@@ -1914,16 +1914,6 @@ async def test_user_cannot_str_replace_other_users_note(
     db_session: AsyncSession,
 ) -> None:
     """Test that a user cannot str-replace another user's note (returns 404)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a note as the dev user with content
     response = await client.post(
         "/notes/",
@@ -1935,34 +1925,8 @@ async def test_user_cannot_str_replace_other_users_note(
     assert response.status_code == 201
     user1_note_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-note-str-replace-test", email="user2-note-str-replace@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-note-str-replace-test', 'user2-note-str-replace@example.com',
     ) as user2_client:
         # Try to str-replace user1's note - should get 404
         response = await user2_client.patch(
@@ -1972,14 +1936,95 @@ async def test_user_cannot_str_replace_other_users_note(
         assert response.status_code == 404
         assert response.json()["detail"] == "Note not found"
 
-    app.dependency_overrides.clear()
-
     # Verify the note content was not modified via database query
     result = await db_session.execute(
         select(Note).where(Note.id == user1_note_id),
     )
     note = result.scalar_one()
     assert note.content == "Original content that should not be modified"
+
+
+async def test_user_cannot_see_other_users_notes_in_list(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user's note list only shows their own notes."""
+    response = await client.post("/notes/", json={"title": "User 1 Private Note"})
+    assert response.status_code == 201
+    user1_note_id = response.json()["id"]
+
+    async with create_user2_client(
+        db_session, 'auth0|user2-note-list-test', 'user2-note-list@example.com',
+    ) as user2_client:
+        response = await user2_client.get("/notes/")
+        assert response.status_code == 200
+        note_ids = [n["id"] for n in response.json()["items"]]
+        assert user1_note_id not in note_ids
+
+
+async def test_user_cannot_get_other_users_note_by_id(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot access another user's note by ID (returns 404)."""
+    response = await client.post("/notes/", json={"title": "User 1 Note"})
+    assert response.status_code == 201
+    user1_note_id = response.json()["id"]
+
+    async with create_user2_client(
+        db_session, 'auth0|user2-note-get-test', 'user2-note-get@example.com',
+    ) as user2_client:
+        response = await user2_client.get(f"/notes/{user1_note_id}")
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Note not found"
+
+
+async def test_user_cannot_update_other_users_note(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot update another user's note (returns 404)."""
+    response = await client.post("/notes/", json={"title": "Original Title"})
+    assert response.status_code == 201
+    user1_note_id = response.json()["id"]
+
+    async with create_user2_client(
+        db_session, 'auth0|user2-note-update-test', 'user2-note-update@example.com',
+    ) as user2_client:
+        response = await user2_client.patch(
+            f"/notes/{user1_note_id}",
+            json={"title": "Hacked Title"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Note not found"
+
+    result = await db_session.execute(
+        select(Note).where(Note.id == user1_note_id),
+    )
+    note = result.scalar_one()
+    assert note.title == "Original Title"
+
+
+async def test_user_cannot_delete_other_users_note(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot delete another user's note (returns 404)."""
+    response = await client.post("/notes/", json={"title": "User 1 Note"})
+    assert response.status_code == 201
+    user1_note_id = response.json()["id"]
+
+    async with create_user2_client(
+        db_session, 'auth0|user2-note-delete-test', 'user2-note-delete@example.com',
+    ) as user2_client:
+        response = await user2_client.delete(f"/notes/{user1_note_id}")
+        assert response.status_code == 404
+
+    result = await db_session.execute(
+        select(Note).where(Note.id == user1_note_id),
+    )
+    note = result.scalar_one()
+    assert note.deleted_at is None
 
 
 # =============================================================================

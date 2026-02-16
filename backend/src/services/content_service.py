@@ -366,8 +366,8 @@ async def search_all_content(
     sort_column = getattr(combined.c, sort_column_name)
     sort_column = sort_column.desc() if sort_order == "desc" else sort_column.asc()
 
-    # Tiebreakers: multi-type includes type for grouping; single-type omits it
-    # (matches BaseEntityService._apply_sorting tiebreakers for individual endpoints)
+    # Tiebreakers: multi-type includes type for deterministic grouping (direction
+    # doesn't matter — it's just for stability); single-type omits it.
     is_single_type = len(subqueries) == 1
     created_at_tiebreak = (
         combined.c.created_at.desc() if sort_order == "desc"

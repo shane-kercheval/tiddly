@@ -159,8 +159,18 @@ async def test__delete_bookmark__soft_delete_archived_bookmark(
 
 
 # =============================================================================
-# View Filtering Tests
+# Restore Tests
 # =============================================================================
+
+
+async def test__restore_bookmark__clears_deleted_at(
+    db_session: AsyncSession,
+    test_user: User,
+    test_bookmark: Bookmark,
+) -> None:
+    """Test that restore clears deleted_at timestamp."""
+    bookmark_id = test_bookmark.id
+
     await bookmark_service.delete(db_session, test_user.id, bookmark_id)
     await db_session.flush()
 

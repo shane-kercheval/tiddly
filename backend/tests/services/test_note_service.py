@@ -155,8 +155,18 @@ async def test__delete_note__soft_delete_archived_note(
 
 
 # =============================================================================
-# View Filtering Tests
+# Restore Tests
 # =============================================================================
+
+
+async def test__restore_note__clears_deleted_at(
+    db_session: AsyncSession,
+    test_user: User,
+    test_note: Note,
+) -> None:
+    """Test that restore clears deleted_at timestamp."""
+    note_id = test_note.id
+
     await note_service.delete(db_session, test_user.id, note_id)
     await db_session.flush()
 

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.prompt import Prompt
 from models.user import User
 
-from tests.api.conftest import add_consent_for_user
+from tests.api.conftest import add_consent_for_user, create_user2_client
 
 
 # =============================================================================
@@ -2660,16 +2660,6 @@ async def test_user_cannot_str_replace_other_users_prompt(
     db_session: AsyncSession,
 ) -> None:
     """Test that a user cannot str-replace another user's prompt (returns 404)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a prompt as the dev user with content
     response = await client.post(
         "/prompts/",
@@ -2681,34 +2671,8 @@ async def test_user_cannot_str_replace_other_users_prompt(
     assert response.status_code == 201
     user1_prompt_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-prompt-str-replace-test", email="user2-prompt-str-replace@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-prompt-str-replace-test', 'user2-prompt-str-replace@example.com',
     ) as user2_client:
         # Try to str-replace user1's prompt - should get 404
         response = await user2_client.patch(
@@ -2718,14 +2682,103 @@ async def test_user_cannot_str_replace_other_users_prompt(
         assert response.status_code == 404
         assert response.json()["detail"] == "Prompt not found"
 
-    app.dependency_overrides.clear()
-
     # Verify the prompt content was not modified via database query
     result = await db_session.execute(
         select(Prompt).where(Prompt.id == user1_prompt_id),
     )
     prompt = result.scalar_one()
     assert prompt.content == "Original content that should not be modified"
+
+
+async def test_user_cannot_see_other_users_prompts_in_list(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user's prompt list only shows their own prompts."""
+    response = await client.post(
+        "/prompts/", json={"name": "user1-private-prompt", "content": "private"},
+    )
+    assert response.status_code == 201
+    user1_prompt_id = response.json()["id"]
+
+    async with create_user2_client(
+        db_session, 'auth0|user2-prompt-list-test', 'user2-prompt-list@example.com',
+    ) as user2_client:
+        response = await user2_client.get("/prompts/")
+        assert response.status_code == 200
+        prompt_ids = [p["id"] for p in response.json()["items"]]
+        assert user1_prompt_id not in prompt_ids
+
+
+async def test_user_cannot_get_other_users_prompt_by_id(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot access another user's prompt by ID (returns 404)."""
+    response = await client.post(
+        "/prompts/", json={"name": "user1-get-test-prompt", "content": "content"},
+    )
+    assert response.status_code == 201
+    user1_prompt_id = response.json()["id"]
+
+    async with create_user2_client(
+        db_session, 'auth0|user2-prompt-get-test', 'user2-prompt-get@example.com',
+    ) as user2_client:
+        response = await user2_client.get(f"/prompts/{user1_prompt_id}")
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Prompt not found"
+
+
+async def test_user_cannot_update_other_users_prompt(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot update another user's prompt (returns 404)."""
+    response = await client.post(
+        "/prompts/", json={"name": "user1-update-test-prompt", "content": "original"},
+    )
+    assert response.status_code == 201
+    user1_prompt_id = response.json()["id"]
+
+    async with create_user2_client(
+        db_session, 'auth0|user2-prompt-update-test', 'user2-prompt-update@example.com',
+    ) as user2_client:
+        response = await user2_client.patch(
+            f"/prompts/{user1_prompt_id}",
+            json={"title": "Hacked Title"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Prompt not found"
+
+    result = await db_session.execute(
+        select(Prompt).where(Prompt.id == user1_prompt_id),
+    )
+    prompt = result.scalar_one()
+    assert prompt.title is None
+
+
+async def test_user_cannot_delete_other_users_prompt(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot delete another user's prompt (returns 404)."""
+    response = await client.post(
+        "/prompts/", json={"name": "user1-delete-test-prompt", "content": "content"},
+    )
+    assert response.status_code == 201
+    user1_prompt_id = response.json()["id"]
+
+    async with create_user2_client(
+        db_session, 'auth0|user2-prompt-delete-test', 'user2-prompt-delete@example.com',
+    ) as user2_client:
+        response = await user2_client.delete(f"/prompts/{user1_prompt_id}")
+        assert response.status_code == 404
+
+    result = await db_session.execute(
+        select(Prompt).where(Prompt.id == user1_prompt_id),
+    )
+    prompt = result.scalar_one()
+    assert prompt.deleted_at is None
 
 
 # =============================================================================
