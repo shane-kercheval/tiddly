@@ -337,11 +337,15 @@ Alternatives considered:
 
 With ILIKE results scored at 0, every ILIKE-only match sorts below every FTS match. For technical searches like "auth", a bookmark titled "Auth0 Setup Guide" (ILIKE title match) would rank below a document that mentions "authentication" once in a 50KB content field (weak FTS match). Assigning synthetic ILIKE scores based on which field matched (title > description > content) produces a more meaningful ranking. An item matching both FTS and ILIKE is a stronger signal than either alone, so the scores are additive.
 
-The exact ILIKE score weights (0.8 for title, 0.4 for description, 0.1 for content) are approximate. The relative ordering matters more than the absolute values. `ts_rank` with default weights returns values roughly in the 0-1 range, so the synthetic scores are calibrated to interleave reasonably. At current result set sizes (typically <50 items), "roughly right" ranking is sufficient — users scan all results regardless. If result sets grow significantly or embedding-based search is added later, a more principled fusion approach (e.g., Reciprocal Rank Fusion) would replace this.
+The ILIKE score weights (0.8 for title, 0.4 for description, 0.1 for content) are initial values subject to tuning. The relative ordering (title > description > content) matters more than the absolute values. `ts_rank` with default normalization (0) returns values based on raw frequency counts and **can exceed 1.0** for short, keyword-dense documents — it is not strictly bounded to [0, 1]. In practice, for typical document lengths, values cluster below 1.0, so the synthetic ILIKE scores interleave reasonably. If consistent interleaving becomes important at larger scale, `ts_rank` normalization flag 32 (divides rank by rank + 1) constrains output to [0, 1). Not needed now.
+
+At current result set sizes (typically <50 items), "roughly right" ranking is sufficient — users scan all results regardless. If result sets grow significantly or embedding-based search is added later, a more principled fusion approach (e.g., Reciprocal Rank Fusion) would replace this.
 
 **Why the empty tsquery guard is still needed:**
 
 With the combined query approach, if the user searches "the" (all stop words), `websearch_to_tsquery` produces an empty tsquery. The `@@` operator with an empty tsquery matches nothing, so only the ILIKE side of the OR fires. `%the%` matches virtually everything. The guard detects empty tsqueries and returns zero results immediately, preventing stop-word-only queries from returning the entire collection.
+
+**This is a deliberate user-visible behavior change.** The current ILIKE-only search would return results for "the" (matching most documents). After this change, "the" returns nothing. This is intentional — returning the user's entire collection sorted by an ILIKE score of 0.8 for every title is not a useful search result. The implementing agent should understand this is by design, not a bug.
 
 **Performance at current scale:**
 
@@ -412,33 +416,51 @@ This prevents "the" from matching everything via the ILIKE side of the OR. Witho
 
 Each entity subquery needs a combined score from FTS (`ts_rank`) and ILIKE (synthetic field-based score):
 
+The ILIKE CASE expression is built **per entity type** in each subquery, with fields and weights matching the trigger's weight scheme from Milestone 1:
+
+**Bookmark ILIKE scoring:**
 ```python
-if query and tsquery_is_non_empty:
-    tsquery = func.websearch_to_tsquery('english', query)
-    escaped_query = escape_ilike(query)
-    search_pattern = f"%{escaped_query}%"
-
-    # FTS relevance score (0.0 to ~1.0, field-weighted)
-    fts_score = func.ts_rank(model.search_vector, tsquery)
-
-    # Synthetic ILIKE score based on which field matched
-    # Title match is strongest signal, content match is weakest
-    ilike_score = case(
-        (model.title.ilike(search_pattern), 0.8),
-        (model.description.ilike(search_pattern), 0.4),
-        (model.content.ilike(search_pattern), 0.1),
-        else_=0,
-    )
-
-    # Combined: additive so items matching both rank highest
-    rank_col = (fts_score + ilike_score).label("search_rank")
-else:
-    rank_col = literal(0).label("search_rank")
+ilike_score = case(
+    (Bookmark.title.ilike(search_pattern), 0.8),       # weight A
+    (Bookmark.description.ilike(search_pattern), 0.4),  # weight B
+    (Bookmark.summary.ilike(search_pattern), 0.4),      # weight B
+    (Bookmark.content.ilike(search_pattern), 0.1),      # weight C
+    (Bookmark.url.ilike(search_pattern), 0.05),          # URL-specific, low
+    else_=0,
+)
 ```
 
-Note: The ILIKE CASE expression uses short-circuit evaluation — it assigns the score of the highest-priority matching field. A title match gets 0.8 regardless of whether description or content also match. This is intentional: the goal is to boost items where the match is in a prominent field, not to count the number of matching fields.
+**Note ILIKE scoring:**
+```python
+ilike_score = case(
+    (Note.title.ilike(search_pattern), 0.8),       # weight A
+    (Note.description.ilike(search_pattern), 0.4),  # weight B
+    (Note.content.ilike(search_pattern), 0.1),      # weight C
+    else_=0,
+)
+```
 
-For bookmarks, the ILIKE CASE should also include `summary` (between description and content) and `url` (at a low weight, since URL matches are incidental).
+**Prompt ILIKE scoring:**
+```python
+ilike_score = case(
+    (Prompt.name.ilike(search_pattern), 0.8),         # weight A
+    (Prompt.title.ilike(search_pattern), 0.8),         # weight A
+    (Prompt.description.ilike(search_pattern), 0.4),   # weight B
+    (Prompt.content.ilike(search_pattern), 0.1),       # weight C
+    else_=0,
+)
+```
+
+**Combined score (same for all types):**
+```python
+fts_score = func.ts_rank(model.search_vector, tsquery)
+rank_col = (fts_score + ilike_score).label("search_rank")
+# When no query: rank_col = literal(0).label("search_rank")
+```
+
+The CASE expression uses short-circuit evaluation — it assigns the score of the highest-priority matching field. A title match gets 0.8 regardless of whether description or content also match. This is intentional: the goal is to boost items where the match is in a prominent field, not to count the number of matching fields.
+
+**Critical: filter fields and scoring fields must stay in sync.** The ILIKE filtering (step 1) uses `text_search_fields` to decide which items match. The ILIKE scoring (this step) uses the CASE expression to rank them. If a field is added to filtering but not scoring, items could match the filter but get an ILIKE score of 0. To prevent drift, consider passing a list of `(field, weight)` tuples that drives both the filter OR and the scoring CASE, rather than maintaining them separately.
 
 **4. `sort_by: "relevance"` support and default resolution**
 
@@ -659,7 +681,7 @@ The Content MCP server calls the REST API via HTTP. Since FTS is a backend chang
 - The `'english'` text search configuration provides stemming. This is intentional for v1.
 - `search_vector` is trigger-maintained, not a generated column. The trigger only recomputes when content fields change. The ELSE branch preserves the old value defensively. SQLAlchemy should not write to this column, but the trigger handles it either way.
 - Every search query runs both FTS and ILIKE in a single OR. There is no sequential fallback — both mechanisms always run together.
-- `ts_rank` output is a float — it's comparable across entities using the same tsvector config and weight scheme. The combined relevance score adds a synthetic ILIKE score (0.8 title / 0.4 description / 0.1 content) to `ts_rank` so that ILIKE-only matches (partial words, code symbols) get meaningful ranking.
+- `ts_rank` output is a float — it's comparable across entities using the same tsvector config and weight scheme. With default normalization (0), values are based on raw frequency and can exceed 1.0 for short keyword-dense documents (see normalization flag 32 in Design Decisions if this becomes an issue). The combined relevance score adds a synthetic ILIKE score to `ts_rank` so that ILIKE-only matches (partial words, code symbols) get meaningful ranking. ILIKE scoring is built per entity type with weights matching the trigger's weight scheme (A=0.8, B=0.4, C=0.1). Filter fields and scoring fields must stay in sync — see step 3 for the `(field, weight)` tuple approach.
 - Guard against empty tsquery (all stop words) — return zero results. Without this, the ILIKE side of the OR would match everything for queries like "the".
 - `ts_headline` runs on a concatenation of all searchable fields (not just content) so the snippet reflects whichever field matched. Cap content at 5,000 chars with `func.left()`. For ILIKE-only matches, `ts_headline` still runs but may not produce highlights if the FTS tokenizer didn't recognize the matched term.
 - Existing tests that search for exact substrings should continue to pass because ILIKE still runs alongside FTS. However, result ordering may change due to relevance sorting — tests that assert specific ordering may need updating.
