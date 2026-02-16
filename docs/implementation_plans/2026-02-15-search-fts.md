@@ -2,7 +2,7 @@
 
 **Reference:** `docs/implementation_plans/roadmap-search.md` — Phase 1
 
-**Goal:** Replace ILIKE with PostgreSQL FTS for ranked, language-aware keyword search. Zero new infrastructure. Retain ILIKE for bookmark URL substring matching and as a fallback when FTS returns zero results.
+**Goal:** Add PostgreSQL FTS alongside ILIKE for ranked, language-aware keyword search with combined scoring. Zero new infrastructure. Every search query runs both FTS (for stemming and field-weighted ranking) and ILIKE (for exact substring matching) in a single query, with a combined relevance score.
 
 ---
 
@@ -305,24 +305,59 @@ The MCP `search_items` tool routes `type="bookmark"` to `GET /bookmarks/` and `t
 
 ---
 
-## Milestone 3: FTS in `search_all_content()` with Relevance Sorting
+## Milestone 3: FTS + ILIKE Combined Search with Relevance Sorting
 
 ### Goal & Outcome
-Replace ILIKE-based text search with FTS in the now-consolidated search path. Add relevance sorting with proper default resolution. Retain ILIKE on `Bookmark.url` and implement ILIKE fallback when FTS returns zero results (with empty tsquery guard).
+Add FTS alongside ILIKE in the now-consolidated search path. Every search runs both mechanisms in a single query, with a combined relevance score. Add relevance sorting with proper default resolution.
 
 After this milestone:
-- All search endpoints (individual and unified) use `websearch_to_tsquery` + `ts_rank` for ranked results
-- Bookmark URL search still uses ILIKE substring matching
-- When FTS returns 0 results and the tsquery is non-empty, a fallback ILIKE search runs automatically
-- When the tsquery is empty (all stop words), zero results are returned — no fallback
+- All search endpoints use a single query combining FTS (`websearch_to_tsquery` + `@@`) and ILIKE (`%pattern%`) via OR
+- Results are ranked by a combined score: `ts_rank` from FTS + synthetic ILIKE score based on which field matched
+- Items matching both FTS and ILIKE rank highest; FTS-only and ILIKE-only matches are both included
+- Empty tsquery guard prevents stop-word-only queries ("the", "and or") from matching everything via ILIKE
 - Results default to relevance sorting when a search query is present
 - All routers accept `sort_by: "relevance"` and default to `None`
 
+### Design Decisions & Rationale
+
+**Why both FTS and ILIKE in every query (not FTS-primary with ILIKE fallback):**
+
+An earlier version of this plan used FTS as the primary search, with ILIKE as a sequential fallback only when FTS returned zero results. We rejected this approach for two reasons:
+
+1. **The user base is technical.** The FTS blind spots — partial words ("auth" not matching "authentication"), code symbols (`useState`, `onClick`), camelCase identifiers, punctuation-laden terms (`node.js`, `docker-compose`, `.env`) — are primary search patterns for this product's users, not edge cases. A design that treats these as rare fallback scenarios doesn't fit.
+
+2. **The sequential fallback misses results.** If FTS returns 3 results but ILIKE would have found 5 additional relevant matches (e.g., partial word matches), the fallback never fires because FTS returned non-zero results. The user silently misses relevant content.
+
+Alternatives considered:
+- **Sequential fallback (FTS first, ILIKE only on zero results):** Simpler implementation, but misses ILIKE-only results when FTS finds anything. Rejected for reason #2 above.
+- **pg_trgm (trigram indexes):** PostgreSQL's `pg_trgm` extension provides GIN-indexed substring matching, which would let both sides of the OR use indexes. However, it solves a scaling problem that doesn't exist at our current data volume (see performance section below) and adds index maintenance overhead on every searchable field. Worth revisiting if per-user item counts grow to tens of thousands.
+- **Two concurrent queries via asyncio.gather():** Eliminates the OR-defeats-GIN-index concern by running separate queries in parallel. Doubles connection pool usage per search. Unnecessary at current scale where the single combined query is already fast.
+
+**Why combined scoring (not ILIKE score = 0):**
+
+With ILIKE results scored at 0, every ILIKE-only match sorts below every FTS match. For technical searches like "auth", a bookmark titled "Auth0 Setup Guide" (ILIKE title match) would rank below a document that mentions "authentication" once in a 50KB content field (weak FTS match). Assigning synthetic ILIKE scores based on which field matched (title > description > content) produces a more meaningful ranking. An item matching both FTS and ILIKE is a stronger signal than either alone, so the scores are additive.
+
+The exact ILIKE score weights (0.8 for title, 0.4 for description, 0.1 for content) are approximate. The relative ordering matters more than the absolute values. `ts_rank` with default weights returns values roughly in the 0-1 range, so the synthetic scores are calibrated to interleave reasonably. At current result set sizes (typically <50 items), "roughly right" ranking is sufficient — users scan all results regardless. If result sets grow significantly or embedding-based search is added later, a more principled fusion approach (e.g., Reciprocal Rank Fusion) would replace this.
+
+**Why the empty tsquery guard is still needed:**
+
+With the combined query approach, if the user searches "the" (all stop words), `websearch_to_tsquery` produces an empty tsquery. The `@@` operator with an empty tsquery matches nothing, so only the ILIKE side of the OR fires. `%the%` matches virtually everything. The guard detects empty tsqueries and returns zero results immediately, preventing stop-word-only queries from returning the entire collection.
+
+**Performance at current scale:**
+
+Every query filters by `user_id` first (indexed), narrowing to hundreds or low thousands of rows per user. At this scale:
+- A sequential scan across a user's rows takes microseconds. The GIN index on `search_vector` provides no meaningful speedup — PostgreSQL's query planner will likely choose a sequential scan regardless.
+- The OR combining FTS and ILIKE cannot use the GIN index efficiently (PostgreSQL can't bitmap-merge FTS and ILIKE results from different index types). This doesn't matter because the sequential scan is already fast.
+- The combined score computation (ts_rank + CASE expression) adds negligible overhead — PostgreSQL is already scanning the relevant fields for the ILIKE WHERE clause.
+- The empty tsquery guard adds one lightweight query (`SELECT cast(websearch_to_tsquery(...) as text)`) per search. Negligible at any scale.
+
+The GIN indexes are still worth adding as cheap insurance (see Milestone 1). They have negligible maintenance cost (only on content-changing writes, not on `last_used_at` bumps or archive/unarchive due to the trigger's `IS DISTINCT FROM` guard). If per-user item counts grow to tens of thousands, or if the search strategy evolves to FTS-only for some paths, the indexes are already in place.
+
 ### Implementation Outline
 
-**1. Update `_apply_entity_filters()` in `content_service.py` to use FTS**
+**1. Update `_apply_entity_filters()` in `content_service.py` to use combined FTS + ILIKE**
 
-This is the single place where text search logic lives (after Milestone 2). Replace the ILIKE block:
+This is the single place where text search logic lives (after Milestone 2). Replace the current ILIKE-only block with a combined OR:
 
 ```python
 # Current:
@@ -334,17 +369,26 @@ if query:
     )
 
 # New:
-if query:
+if query and tsquery_is_non_empty:
     tsquery = func.websearch_to_tsquery('english', query)
+    escaped_query = escape_ilike(query)
+    search_pattern = f"%{escaped_query}%"
+
+    # FTS match on search_vector
     fts_filter = search_vector_column.op('@@')(tsquery)
+
+    # ILIKE match on text fields (title, description, content, etc.)
+    ilike_filter = or_(*[field.ilike(search_pattern) for field in text_search_fields])
+
     # For bookmarks, also match URL via ILIKE
     if url_ilike_column is not None:
-        escaped_query = escape_ilike(query)
-        fts_filter = or_(fts_filter, url_ilike_column.ilike(f'%{escaped_query}%'))
-    filters.append(fts_filter)
+        ilike_filter = or_(ilike_filter, url_ilike_column.ilike(search_pattern))
+
+    # Combined: match if either FTS or ILIKE hits
+    filters.append(or_(fts_filter, ilike_filter))
 ```
 
-Update the function signature to accept `search_vector_column` and optional `url_ilike_column` instead of `text_search_fields`. The bookmark subquery passes `Bookmark.search_vector` and `Bookmark.url`; notes and prompts pass only their `search_vector`.
+Update the function signature to accept `search_vector_column` in addition to `text_search_fields`. The bookmark subquery passes `Bookmark.search_vector`, `Bookmark.url`, and text search fields; notes and prompts pass their `search_vector` and text search fields.
 
 **2. Add empty tsquery guard**
 
@@ -352,53 +396,51 @@ Before running the search, check if the tsquery is empty (all stop words):
 
 ```python
 if query:
-    # Check if tsquery is empty (all stop words)
+    # Check if tsquery is empty (all stop words like "the", "and", "or")
     tsquery_text = await db.scalar(select(func.cast(
         func.websearch_to_tsquery('english', query), String,
     )))
-    if not tsquery_text or tsquery_text.strip() == '':
-        return [], 0  # Empty tsquery — no results, no fallback
+    tsquery_is_non_empty = bool(tsquery_text and tsquery_text.strip())
+
+    if not tsquery_is_non_empty:
+        return [], 0  # All stop words — return nothing
 ```
 
-This prevents "the" from matching everything via ILIKE fallback.
+This prevents "the" from matching everything via the ILIKE side of the OR. Without this guard, the FTS side matches nothing (empty tsquery), but `%the%` via ILIKE matches virtually every document.
 
-**3. Add ILIKE fallback on zero FTS results**
+**3. Add combined relevance score to UNION subqueries**
 
-After running the FTS-based search and getting zero results:
-
-```python
-if total == 0 and tsquery_is_non_empty:
-    # Rebuild subqueries with ILIKE filters instead of FTS
-    # This is a second pass, only on zero results
-    ...
-```
-
-Since all search goes through `search_all_content()` now, the fallback is implemented once.
-
-**Implementation approach:** Extract the per-entity subquery construction into a helper function that accepts a search filter builder (FTS or ILIKE). Currently, each entity's subquery is ~20 lines of column projection + filters built inline. Refactor into something like:
-
-```python
-def _build_entity_subquery(model, search_mode, query, ...):
-    """Build a single entity subquery with either FTS or ILIKE search."""
-    # Shared column projection (type, id, title, description, ...)
-    # search_mode determines the WHERE clause for text search
-```
-
-Call it once for the primary FTS pass. If FTS returns 0 results, call it again with `search_mode="ilike"` to rebuild the subqueries with ILIKE conditions. This avoids duplicating the ~20 lines of column projection per entity type. The ILIKE fallback uses the same field lists as the current `text_search_fields` pattern.
-
-**4. Add `ts_rank` to UNION subqueries**
-
-Each entity subquery needs `ts_rank(search_vector, tsquery)` as a computed column for relevance sorting:
+Each entity subquery needs a combined score from FTS (`ts_rank`) and ILIKE (synthetic field-based score):
 
 ```python
 if query and tsquery_is_non_empty:
     tsquery = func.websearch_to_tsquery('english', query)
-    rank_col = func.ts_rank(model.search_vector, tsquery).label("search_rank")
+    escaped_query = escape_ilike(query)
+    search_pattern = f"%{escaped_query}%"
+
+    # FTS relevance score (0.0 to ~1.0, field-weighted)
+    fts_score = func.ts_rank(model.search_vector, tsquery)
+
+    # Synthetic ILIKE score based on which field matched
+    # Title match is strongest signal, content match is weakest
+    ilike_score = case(
+        (model.title.ilike(search_pattern), 0.8),
+        (model.description.ilike(search_pattern), 0.4),
+        (model.content.ilike(search_pattern), 0.1),
+        else_=0,
+    )
+
+    # Combined: additive so items matching both rank highest
+    rank_col = (fts_score + ilike_score).label("search_rank")
 else:
     rank_col = literal(0).label("search_rank")
 ```
 
-**5. `sort_by: "relevance"` support and default resolution**
+Note: The ILIKE CASE expression uses short-circuit evaluation — it assigns the score of the highest-priority matching field. A title match gets 0.8 regardless of whether description or content also match. This is intentional: the goal is to boost items where the match is in a prominent field, not to count the number of matching fields.
+
+For bookmarks, the ILIKE CASE should also include `summary` (between description and content) and `url` (at a low weight, since URL matches are incidental).
+
+**4. `sort_by: "relevance"` support and default resolution**
 
 **Deliberate behavior change:** When a search query is present and `sort_by` is not explicitly specified, results now default to relevance sorting instead of `created_at`. This is the expected UX — users want the most relevant results first when searching.
 
@@ -432,43 +474,47 @@ Update all routers to:
 
 When `sort_by="relevance"` but no query is present, fall back to `created_at` silently.
 
-**6. Update MCP `search_items` tool descriptions**
+**5. Update MCP `search_items` tool descriptions**
 
-The MCP server describes search behavior to LLMs in three places: the `search_items` tool `description=` string, the `search_items` docstring/examples, and the main `mcp = FastMCP(instructions=...)` block (the "Search" section and example workflows). All three need to be updated to describe how FTS works so that LLMs can optimize their search queries.
+The MCP server describes search behavior to LLMs in three places: the `search_items` tool `description=` string, the `search_items` docstring/examples, and the main `mcp = FastMCP(instructions=...)` block (the "Search" section and example workflows). All three need to be updated to describe how search works so that LLMs can optimize their search queries.
 
 Key information to convey:
-- Search uses full-text search with English stemming ("running" matches "runners", "databases" matches "database")
-- Use complete words, not fragments ("authentication" not "auth")
+- Search uses full-text search with English stemming ("running" matches "runners", "databases" matches "database") combined with substring matching
+- Complete words are preferred and rank higher ("authentication" ranks higher than "auth" for matching a document containing "authentication")
+- Partial words and code symbols still work via substring matching ("auth", "useState", "node.js") but may rank lower
 - Quoted phrases for exact adjacency (`"python database"`)
 - Negation with `-` to exclude terms (`python -beginner`)
 - OR for alternatives (`python OR javascript`)
-- Bookmark URLs are matched via substring separately, so partial URL searches work
+- Bookmark URLs are matched via substring, so partial URL searches work
 - Results are ranked by relevance by default when a query is present
-- If FTS finds nothing, an automatic substring fallback runs — so partial words and code symbols like `useAuth` still work, but natural language queries are preferred
-- The `query` field description on the tool should reflect that this is full-text search, not substring matching
+- The `query` field description on the tool should reflect that this is combined full-text + substring search
 
 Leave the final wording to the implementing agent — the above is the information that must be communicated, not the exact phrasing.
 
 ### Testing Strategy
 
-**FTS core behavior:**
+**FTS behavior:**
 - `test__search__fts_matches_stemmed_words` — Search "running" matches a bookmark with "runners" in title
 - `test__search__fts_title_matches_rank_higher` — A title match (weight A) ranks above a content-only match (weight C) for the same query
 - `test__search__fts_websearch_syntax` — Test `websearch_to_tsquery` features: quoted phrases (`"exact phrase"`), OR operator, negation (`-excluded`)
 - `test__search__fts_empty_query_returns_all` — Empty/None query still returns all results (no filter applied)
 
-**Stop-word / empty tsquery guard:**
-- `test__search__stop_words_only_returns_empty` — Searching "the and or" returns 0 results (empty tsquery, no fallback triggered)
-- `test__search__stop_word_mixed_with_real_term` — Searching "the python" matches documents with "python"
-
-**URL ILIKE for bookmarks:**
+**ILIKE behavior (substring matching):**
+- `test__search__ilike_matches_partial_words` — Search for "auth" matches "authentication" via ILIKE
+- `test__search__ilike_matches_code_symbols` — Search for "useState" matches content containing that exact symbol
+- `test__search__ilike_matches_punctuated_terms` — Search for "node.js" matches content containing "node.js"
 - `test__search__bookmark_url_ilike_match` — Searching "github.com/anthropics" matches a bookmark with that URL even if it's not in title/content
-- `test__search__bookmark_url_match_ranks_below_fts` — URL-only match appears after FTS matches when sorted by relevance
 
-**ILIKE fallback:**
-- `test__search__ilike_fallback_on_zero_fts_results` — Search for "useAuth" (code symbol that FTS tokenizes badly) returns results via ILIKE fallback
-- `test__search__ilike_fallback_partial_word` — Search for "auth" matches "authentication" via ILIKE fallback when FTS finds nothing
-- `test__search__no_fallback_when_fts_has_results` — When FTS returns results, ILIKE fallback does NOT run
+**Combined scoring:**
+- `test__search__both_fts_and_ilike_match_ranks_highest` — A document matching both FTS and ILIKE ranks above one matching only FTS
+- `test__search__ilike_title_match_ranks_above_fts_content_match` — "auth" in title (ILIKE score 0.8) ranks above a weak FTS content match (ts_rank ~0.05)
+- `test__search__fts_only_match_included` — A stemmed match ("running" → "runners") that doesn't match ILIKE is still returned
+- `test__search__ilike_only_match_included` — A partial word match ("auth" → "authentication") that doesn't match FTS is still returned
+- `test__search__url_only_match_ranks_low` — A bookmark matching only on URL ranks below title/description matches
+
+**Stop-word / empty tsquery guard:**
+- `test__search__stop_words_only_returns_empty` — Searching "the and or" returns 0 results (guard prevents ILIKE from matching everything)
+- `test__search__stop_word_mixed_with_real_term` — Searching "the python" matches documents with "python"
 
 **Relevance sorting:**
 - `test__search__default_sort_is_relevance_when_query_present` — When query is provided and sort_by is not specified, results are ordered by relevance
@@ -549,9 +595,9 @@ For bookmarks, include `summary` in the concatenation as well (between descripti
 
 If `ts_headline` performance becomes an issue on large result sets, a future optimization is to compute it in a subquery after pagination. The 5,000-char cap makes this unlikely at current scale.
 
-**3. ILIKE fallback headlines**
+**3. ILIKE-only match headlines**
 
-When the ILIKE fallback is used (FTS returned 0 results), set `search_headline = None`. There's no tsquery to highlight against. The `content_preview` field already provides context.
+For items that matched only via ILIKE (not FTS), `ts_headline` may not highlight the matching term if FTS tokenization didn't produce a matching lexeme. This is acceptable — `ts_headline` will still attempt to find relevant fragments, and the `content_preview` field provides additional context. If the tsquery is empty (stop-word guard triggered), `search_headline` should be `None`.
 
 **4. Verify MCP integration**
 
@@ -565,7 +611,7 @@ The Content MCP server calls the REST API via HTTP. Since FTS is a backend chang
 - `test__search__headline_contains_matching_terms` — Search for "python" returns a headline containing `<mark>python</mark>` (or the stemmed variant)
 - `test__search__headline_from_best_matching_field` — A title-only match produces a headline highlighting the title text, not a random content snippet
 - `test__search__headline_is_none_when_no_query` — When no search query, `search_headline` is `None`
-- `test__search__headline_is_none_for_ilike_fallback` — When ILIKE fallback triggers, `search_headline` is `None`
+- `test__search__headline_for_ilike_only_match` — When a result matched only via ILIKE (not FTS), `search_headline` is still computed (may or may not contain highlights depending on tokenization)
 - `test__search__headline_with_null_content` — Entity with NULL content doesn't crash headline generation
 - `test__list_bookmarks__search_headline_in_response` — API response includes `search_headline` field when `q` is provided
 - `test__list_bookmarks__search_headline_null_without_query` — `search_headline` is null when no query
@@ -589,11 +635,12 @@ The Content MCP server calls the REST API via HTTP. Since FTS is a backend chang
 - `backend/src/schemas/content.py` — add `summary: str | None = None` to `ContentListItem`
 - `backend/tests/` — verify all existing search tests pass through new path
 
-**Milestone 3 (FTS):**
-- `backend/src/services/content_service.py` — FTS in `_apply_entity_filters()`, ts_rank, ILIKE fallback, empty tsquery guard
+**Milestone 3 (FTS + ILIKE combined):**
+- `backend/src/services/content_service.py` — combined FTS + ILIKE in `_apply_entity_filters()`, combined scoring, empty tsquery guard
 - `backend/src/api/helpers/filter_utils.py` — update `resolve_filter_and_sorting()` to accept `query` param
 - `backend/src/api/routers/bookmarks.py`, `notes.py`, `prompts.py`, `content.py` — add `"relevance"` sort, default `sort_by` to `None`, pass `query` to helper
-- `backend/tests/` — new FTS tests, relevance sorting tests
+- `backend/src/mcp_server/server.py` — update `search_items` description, docstring, and `FastMCP(instructions=...)` to describe combined search behavior
+- `backend/tests/` — new FTS tests, ILIKE tests, combined scoring tests, relevance sorting tests
 
 **Milestone 4 (Headlines):**
 - `backend/src/services/content_service.py` — add `ts_headline` to subqueries
@@ -611,8 +658,8 @@ The Content MCP server calls the REST API via HTTP. Since FTS is a backend chang
 - Use `websearch_to_tsquery` (not `plainto_tsquery` or `to_tsquery`) — it handles Google-like syntax safely without injection risks
 - The `'english'` text search configuration provides stemming. This is intentional for v1.
 - `search_vector` is trigger-maintained, not a generated column. The trigger only recomputes when content fields change. The ELSE branch preserves the old value defensively. SQLAlchemy should not write to this column, but the trigger handles it either way.
-- `ts_rank` output is a float — it's comparable across entities using the same tsvector config and weight scheme
-- The ILIKE fallback is a second query that only runs when FTS count is 0 **and** the tsquery is non-empty.
-- Guard against empty tsquery (all stop words) — return zero results, don't fall back to ILIKE
-- `ts_headline` runs on a concatenation of all searchable fields (not just content) so the snippet reflects whichever field matched. Cap content at 5,000 chars with `func.left()`.
-- Existing tests that search for exact substrings may need updating if the FTS path doesn't match them (e.g., partial word matches). These tests should use the fallback behavior or be updated to use FTS-friendly queries.
+- Every search query runs both FTS and ILIKE in a single OR. There is no sequential fallback — both mechanisms always run together.
+- `ts_rank` output is a float — it's comparable across entities using the same tsvector config and weight scheme. The combined relevance score adds a synthetic ILIKE score (0.8 title / 0.4 description / 0.1 content) to `ts_rank` so that ILIKE-only matches (partial words, code symbols) get meaningful ranking.
+- Guard against empty tsquery (all stop words) — return zero results. Without this, the ILIKE side of the OR would match everything for queries like "the".
+- `ts_headline` runs on a concatenation of all searchable fields (not just content) so the snippet reflects whichever field matched. Cap content at 5,000 chars with `func.left()`. For ILIKE-only matches, `ts_headline` still runs but may not produce highlights if the FTS tokenizer didn't recognize the matched term.
+- Existing tests that search for exact substrings should continue to pass because ILIKE still runs alongside FTS. However, result ordering may change due to relevance sorting — tests that assert specific ordering may need updating.
