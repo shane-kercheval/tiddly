@@ -149,7 +149,7 @@ UPDATE prompts SET search_vector =
 
 This backfill is safe: `updated_at` has no `onupdate` and no DB trigger (it's `server_default=func.clock_timestamp()` only, set on INSERT), and content history recording is via explicit service calls (not DB triggers or event listeners), so no phantom history records are created.
 
-**GIN index note:** Use standard `CREATE INDEX` (not `CONCURRENTLY`) — at current scale the brief lock is acceptable. Add a code comment noting `CONCURRENTLY` as an option for larger tables.
+**GIN index note:** Use standard `CREATE INDEX` (not `CONCURRENTLY`) — at current scale the brief lock is acceptable. Add a code comment noting `CONCURRENTLY` as an option if tables grow significantly — at current per-user scale (hundreds to low thousands of rows), GIN indexes provide no meaningful speedup over sequential scans (see Milestone 3 performance analysis).
 
 **SQLAlchemy model updates:** Add the `search_vector` column to each model class (`Bookmark`, `Note`, `Prompt`). Since the column is trigger-maintained (not a generated column), SQLAlchemy just needs to know it exists but should not write to it:
 
@@ -393,6 +393,8 @@ The GIN indexes are still worth adding as cheap insurance (see Milestone 1). The
 
 This is the single place where text search logic lives (after Milestone 2). Replace the current ILIKE-only block with a combined OR:
 
+This block only executes after the empty tsquery guard (step 2) has already returned `[], 0` for all-stop-word queries.
+
 ```python
 # Current:
 if query:
@@ -412,6 +414,9 @@ if query and tsquery_is_non_empty:
     fts_filter = search_vector_column.op('@@')(tsquery)
 
     # ILIKE match on text fields (title, description, content, etc.)
+    # ILIKE uses the raw query intentionally — websearch operators (-, "...", OR)
+    # become inert literal characters that rarely match via ILIKE. FTS handles
+    # structured query syntax correctly. Do not strip operators from the ILIKE pattern.
     ilike_filter = or_(*[field.ilike(search_pattern) for field in text_search_fields])
 
     # For bookmarks, also match URL via ILIKE
@@ -483,7 +488,11 @@ ilike_score = case(
 
 **Combined score (same for all types):**
 ```python
-fts_score = func.ts_rank(model.search_vector, tsquery)
+# COALESCE guards against NULL search_vector — ts_rank(NULL, tsquery) returns NULL,
+# and NULL + 0.8 = NULL in PostgreSQL. NULL scores sort first with DESC (NULLS FIRST
+# is the default), corrupting ranking. After M1 backfill + trigger all rows should have
+# a populated search_vector, but defensive coding is cheap.
+fts_score = func.coalesce(func.ts_rank(model.search_vector, tsquery), 0)
 rank_col = (fts_score + ilike_score).label("search_rank")
 # When no query: rank_col = literal(0).label("search_rank")
 ```
@@ -504,6 +513,23 @@ BOOKMARK_SEARCH_FIELDS: list[tuple[InstrumentedAttribute, float]] = [
 ```
 
 The filter OR is derived as `or_(*[field.ilike(pattern) for field, _ in config])` and the scoring CASE as `case(*[(field.ilike(pattern), weight) for field, weight in config], else_=0)`. This eliminates two of three sync points.
+
+For bookmarks, URL is composed alongside the config-driven fields (URL is ILIKE-only — it's not in the tsvector and must not be added to the config):
+
+```python
+# Filter: config fields + URL
+ilike_filter = or_(
+    *[field.ilike(pattern) for field, _ in BOOKMARK_SEARCH_FIELDS],
+    Bookmark.url.ilike(pattern),  # URL: ILIKE-only, not in tsvector
+)
+
+# Scoring: config fields + URL (separate case branch)
+ilike_score = case(
+    *[(field.ilike(pattern), weight) for field, weight in BOOKMARK_SEARCH_FIELDS],
+    (Bookmark.url.ilike(pattern), 0.05),
+    else_=0,
+)
+```
 
 Note: there is a third sync point — the SQL trigger field lists in Milestone 1 define which fields go into the tsvector and at what FTS weight. If a field is added to the Python search config but not the trigger (or vice versa), FTS and ILIKE would search different fields. The trigger lives in a migration so it can't share the Python constant, but add a cross-referencing comment in both locations.
 
@@ -585,6 +611,8 @@ Leave the final wording to the implementing agent — the above is the informati
 - `test__search__fts_only_match_included` — A stemmed match ("running" → "runners") that doesn't match ILIKE is still returned
 - `test__search__ilike_only_match_included` — A partial word match ("auth" → "authentication") that doesn't match FTS is still returned
 - `test__search__url_only_match_ranks_low` — A bookmark matching only on URL ranks below title/description matches
+- `test__search__websearch_syntax_ilike_interaction` — Searching `"exact phrase"` returns FTS matches ranked by ts_rank with ILIKE contributing 0 to the score; searching `python -beginner` returns FTS results excluding "beginner" (documents this intentional behavior — see step 1 comment about raw query in ILIKE)
+- `test__search__null_search_vector_does_not_corrupt_ranking` — An entity with NULL `search_vector` that matches via ILIKE gets a valid score (ILIKE score, not NULL) and does not sort to the top
 
 **Stop-word / empty tsquery guard:**
 - `test__search__stop_words_only_returns_empty` — Searching "the and or" returns 0 results (guard prevents ILIKE from matching everything)
@@ -670,6 +698,8 @@ headline = func.ts_headline(
 The `' ... '` separator prevents false cross-field phrase matches. `MaxFragments=3` lets PostgreSQL pick the best fragments across all fields. Capping content at 5,000 chars limits `ts_headline` cost on large bookmarks.
 
 For bookmarks, include `summary` in the concatenation as well (between description and content).
+
+Derive the headline field list from the same per-entity `(field, weight)` config defined in Milestone 3 step 3 to avoid introducing a fourth sync point. The `concat_ws` assembly differs from the filter/scoring usage (it uses `func.left(content, 5000)` and `' ... '` separators), but the field list itself should come from the config.
 
 If `ts_headline` performance becomes an issue on large result sets, a future optimization is to compute it in a subquery after pagination. The 5,000-char cap makes this unlikely at current scale.
 
