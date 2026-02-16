@@ -1,13 +1,21 @@
 """Tests for bookmark CRUD endpoints."""
 import asyncio
-from datetime import datetime, UTC
+import time
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
-from httpx import AsyncClient
+from fastapi import HTTPException, status
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.dependencies import get_current_user_auth0_only
+from api.main import app
+from core.rate_limit_config import RateLimitResult
+from core.tier_limits import Tier, get_tier_limits
+from db.session import get_async_session
 from models.bookmark import Bookmark
 from models.user import User
 from services.url_scraper import ExtractedMetadata, ScrapedPage
@@ -72,8 +80,6 @@ async def test_create_bookmark_with_future_archived_at(
     client: AsyncClient,
 ) -> None:
     """Test creating a bookmark with a scheduled auto-archive date."""
-    from datetime import timedelta
-
     future_date = (datetime.now(UTC) + timedelta(days=7)).isoformat()
 
     response = await client.post(
@@ -95,8 +101,6 @@ async def test_create_bookmark_with_future_archived_at(
 
 async def test_update_bookmark_set_archived_at(client: AsyncClient) -> None:
     """Test updating a bookmark to schedule auto-archive."""
-    from datetime import timedelta
-
     # Create a bookmark
     create_response = await client.post(
         "/bookmarks/",
@@ -117,8 +121,6 @@ async def test_update_bookmark_set_archived_at(client: AsyncClient) -> None:
 
 async def test_update_bookmark_clear_archived_at(client: AsyncClient) -> None:
     """Test clearing a scheduled archive date by setting archived_at to null."""
-    from datetime import timedelta
-
     # Create a bookmark with scheduled archive
     future_date = (datetime.now(UTC) + timedelta(days=7)).isoformat()
     create_response = await client.post(
@@ -538,8 +540,6 @@ async def test_update_bookmark_partial(client: AsyncClient) -> None:
 
 async def test_update_bookmark_updates_updated_at(client: AsyncClient) -> None:
     """Test that updating a bookmark updates the updated_at timestamp."""
-    import asyncio
-
     # Create a bookmark
     create_response = await client.post(
         "/bookmarks/",
@@ -585,8 +585,6 @@ async def test_create_bookmark_invalid_url(client: AsyncClient) -> None:
 
 async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
     """Test that title exceeding max length returns 400."""
-    from core.tier_limits import Tier, get_tier_limits
-
     limits = get_tier_limits(Tier.FREE)
     long_title = "a" * (limits.max_title_length + 1)
 
@@ -600,8 +598,6 @@ async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
 
 async def test_create_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
     """Test that description exceeding max length returns 400."""
-    from core.tier_limits import Tier, get_tier_limits
-
     limits = get_tier_limits(Tier.FREE)
     long_description = "a" * (limits.max_description_length + 1)
 
@@ -615,8 +611,6 @@ async def test_create_bookmark_description_exceeds_max_length(client: AsyncClien
 
 async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
     """Test that content exceeding max length returns 400."""
-    from core.tier_limits import Tier, get_tier_limits
-
     limits = get_tier_limits(Tier.FREE)
     long_content = "a" * (limits.max_bookmark_content_length + 1)
 
@@ -630,8 +624,6 @@ async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient) -
 
 async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
     """Test that updating with title exceeding max length returns 400."""
-    from core.tier_limits import Tier, get_tier_limits
-
     # Create a valid bookmark first
     create_response = await client.post(
         "/bookmarks/",
@@ -654,8 +646,6 @@ async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
 
 async def test_update_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
     """Test that updating with description exceeding max length returns 400."""
-    from core.tier_limits import Tier, get_tier_limits
-
     # Create a valid bookmark first
     create_response = await client.post(
         "/bookmarks/",
@@ -678,8 +668,6 @@ async def test_update_bookmark_description_exceeds_max_length(client: AsyncClien
 
 async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
     """Test that updating with content exceeding max length returns 400."""
-    from core.tier_limits import Tier, get_tier_limits
-
     # Create a valid bookmark first
     create_response = await client.post(
         "/bookmarks/",
@@ -702,8 +690,6 @@ async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -
 
 async def test_create_bookmark_fields_at_max_length_succeeds(client: AsyncClient) -> None:
     """Test that fields exactly at max length are accepted."""
-    from core.tier_limits import Tier, get_tier_limits
-
     limits = get_tier_limits(Tier.FREE)
 
     response = await client.post(
@@ -810,9 +796,6 @@ async def test_search_by_content(
     db_session: AsyncSession,
 ) -> None:
     """Test text search finds bookmarks by content field."""
-    from models.bookmark import Bookmark
-    from sqlalchemy import select
-
     # First make an API call to ensure dev user exists
     await client.post(
         "/bookmarks/",
@@ -1030,8 +1013,6 @@ async def test_search_and_tag_filter_combined(client: AsyncClient) -> None:
 
 async def test_sort_by_created_at_desc(client: AsyncClient) -> None:
     """Test sorting by created_at descending (default)."""
-    import asyncio
-
     await client.post(
         "/bookmarks/",
         json={"url": "https://sort1.com", "title": "First Created"},
@@ -1052,8 +1033,6 @@ async def test_sort_by_created_at_desc(client: AsyncClient) -> None:
 
 async def test_sort_by_created_at_asc(client: AsyncClient) -> None:
     """Test sorting by created_at ascending."""
-    import asyncio
-
     await client.post(
         "/bookmarks/",
         json={"url": "https://sortasc1.com", "title": "First Created ASC"},
@@ -1294,9 +1273,6 @@ async def test_search_by_summary(
     db_session: AsyncSession,
 ) -> None:
     """Test text search finds bookmarks by summary field (Phase 2 preparation)."""
-    from models.bookmark import Bookmark
-    from sqlalchemy import select
-
     # First make an API call to ensure dev user exists
     await client.post(
         "/bookmarks/",
@@ -1651,10 +1627,6 @@ async def test_fetch_metadata_requires_auth(client: AsyncClient) -> None:
 
 async def test_fetch_metadata_rate_limited(rate_limit_client: AsyncClient) -> None:
     """Test that fetch-metadata endpoint returns 429 when rate limit exceeded."""
-    import time
-
-    from core.rate_limit_config import RateLimitResult
-
     mock_scraped = ScrapedPage(
         text=None,
         metadata=ExtractedMetadata(title='Test', description=None),
@@ -1697,17 +1669,7 @@ async def test_fetch_metadata_rate_limited(rate_limit_client: AsyncClient) -> No
 
 async def test_fetch_metadata_rejects_pat_tokens(db_session: AsyncSession) -> None:
     """Test that fetch-metadata endpoint rejects PAT tokens with 403."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport, AsyncClient
-
-    from api.dependencies import get_current_user_auth0_only
-    from api.main import app
-    from db.session import get_async_session
-
     # Override get_current_user_auth0_only to simulate PAT rejection
-    from fastapi import HTTPException, status
-
     async def mock_auth0_only_reject_pat() -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1877,8 +1839,6 @@ async def test_different_users_can_have_same_url(
     db_session: AsyncSession,
 ) -> None:
     """Test that different users can bookmark the same URL."""
-    from models.bookmark import Bookmark
-
     # Create bookmark via API (dev user)
     response = await client.post(
         "/bookmarks/",
@@ -2451,8 +2411,6 @@ async def test_list_bookmarks_filter_id_empty_results(client: AsyncClient) -> No
 
 async def test_sort_by_archived_at_desc(client: AsyncClient) -> None:
     """Test sorting by archived_at descending (most recently archived first)."""
-    import asyncio
-
     # Create two bookmarks
     response = await client.post(
         "/bookmarks/",
@@ -2488,8 +2446,6 @@ async def test_sort_by_archived_at_desc(client: AsyncClient) -> None:
 
 async def test_sort_by_archived_at_asc(client: AsyncClient) -> None:
     """Test sorting by archived_at ascending (least recently archived first)."""
-    import asyncio
-
     # Create two bookmarks
     response = await client.post(
         "/bookmarks/",
@@ -2525,8 +2481,6 @@ async def test_sort_by_archived_at_asc(client: AsyncClient) -> None:
 
 async def test_sort_by_deleted_at_desc(client: AsyncClient) -> None:
     """Test sorting by deleted_at descending (most recently deleted first)."""
-    import asyncio
-
     # Create two bookmarks
     response = await client.post(
         "/bookmarks/",
@@ -2562,8 +2516,6 @@ async def test_sort_by_deleted_at_desc(client: AsyncClient) -> None:
 
 async def test_sort_by_deleted_at_asc(client: AsyncClient) -> None:
     """Test sorting by deleted_at ascending (least recently deleted first)."""
-    import asyncio
-
     # Create two bookmarks
     response = await client.post(
         "/bookmarks/",
