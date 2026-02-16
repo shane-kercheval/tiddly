@@ -6,7 +6,7 @@
  * Keyboard shortcuts:
  * - Cmd+Shift+P: Opens main palette
  * - /: Opens palette directly into search sub-view
- * - Escape: In search sub-view goes back to main; in main closes palette
+ * - Escape: Closes palette from any view
  */
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import type { ReactNode } from 'react'
@@ -272,11 +272,7 @@ function CommandPaletteInner({ initialView, onClose }: { initialView: PaletteVie
       if (e.key === 'Escape') {
         e.stopImmediatePropagation()
         e.preventDefault()
-        if (view === 'search') {
-          setView('commands')
-        } else {
-          onClose()
-        }
+        onClose()
       }
     }
 
@@ -517,15 +513,15 @@ function CommandPaletteInner({ initialView, onClose }: { initialView: PaletteVie
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] bg-gray-900/30 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/30 backdrop-blur-sm"
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
     >
       <div
-        className="w-full max-w-2xl mx-4 bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col"
-        style={{ height: '75vh', maxHeight: '75vh' }}
+        className="w-full max-w-3xl mx-4 bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col"
+        style={{ height: '85vh', maxHeight: '85vh' }}
         onClick={(e) => e.stopPropagation()}
       >
         {view === 'commands' ? (
@@ -573,7 +569,7 @@ function CommandPaletteInner({ initialView, onClose }: { initialView: PaletteVie
           /* ===== Search Sub-View ===== */
           <>
             {/* Search controls */}
-            <div className="px-4 pt-3 pb-2 space-y-2 border-b border-gray-100">
+            <div className="px-4 pt-3 pb-2 space-y-2 border-b border-gray-100 overflow-hidden">
               <SearchFilterBar
                 searchInputRef={searchInputRef}
                 searchQuery={searchQuery}

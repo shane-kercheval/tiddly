@@ -51,9 +51,9 @@ export function ContentTypeFilterChips({
   ))
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span className="text-xs text-gray-500">Show:</span>
-      <div className="flex gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
         {sortedTypes.map((type) => {
           const { label, icon } = CHIP_CONFIGS[type]
           const isSelected = selectedTypes.includes(type)
