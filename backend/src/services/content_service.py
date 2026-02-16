@@ -250,14 +250,12 @@ async def search_all_content(
     # Empty tsquery guard: stop-word-only queries (e.g. "the", "and or") produce
     # an empty tsquery. Without this guard the ILIKE side of the OR would match
     # everything. Return zero results immediately for these queries.
-    tsquery_is_non_empty = False
     search_pattern: str | None = None
     if query:
         tsquery_text = await db.scalar(select(func.cast(
             func.websearch_to_tsquery('english', query), String,
         )))
-        tsquery_is_non_empty = bool(tsquery_text and tsquery_text.strip())
-        if not tsquery_is_non_empty:
+        if not (tsquery_text and tsquery_text.strip()):
             return [], 0
         escaped_query = escape_ilike(query)
         search_pattern = f"%{escaped_query}%"
@@ -525,6 +523,8 @@ def _resolve_sort_column(
 ) -> Any:
     """Resolve sort_by string to a SQLAlchemy order clause."""
     if sort_by == "relevance":
+        # Always DESC — ascending relevance (least-relevant-first) is nonsensical.
+        # sort_order is intentionally ignored here.
         return combined.c.search_rank.desc()
     col = combined.c.sort_title if sort_by == "title" else getattr(combined.c, sort_by)
     return col.desc() if sort_order == "desc" else col.asc()

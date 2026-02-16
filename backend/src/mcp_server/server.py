@@ -69,14 +69,19 @@ URL but can be user-provided. For notes, it's user-written markdown.
   Use IDs from the response with `get_item` for full content. Use tag names with `search_items`.
 
 **Search** (returns active items only - excludes archived/deleted):
-- `search_items`: Search across bookmarks and notes using full-text search (English stemming)
-  combined with substring matching. Complete words rank higher ("authentication" ranks above
-  "auth" for a document containing "authentication"), but partial words and code symbols
-  still match. Supports quoted phrases (`"exact phrase"`), OR for alternatives,
-  and negation (`-excluded`). Bookmark URLs are matched via substring.
-  Results are ranked by relevance by default when a query is provided.
-  Use `type` parameter to filter by content type.
-  Use `filter_id` to search within a saved content filter (discover IDs via `list_filters`).
+- `search_items`: Search bookmarks and notes. Two matching modes run together:
+  1. **Full-text search** (English stemming + ranking): "databases" matches "database",
+     "running" matches "runners". Supports operators:
+     - Multiple words: AND by default (`python flask` = must contain both)
+     - Quoted phrases: `"machine learning"` = exact phrase match
+     - OR: `python OR ruby` = either term
+     - Negation: `-python` prefix excludes matches (`flask -django` = flask without django)
+  2. **Substring matching**: catches partial words, code symbols, and punctuation that
+     stemming misses (`auth` finds "authentication", `useState` finds "useState",
+     `node.js` finds "node.js"). Bookmark URLs are also matched via substring.
+  Results matching both modes rank highest. Ranked by relevance by default when query
+  is provided. Use `type` to filter by content type. Use `filter_id` to search within
+  a saved content filter (discover IDs via `list_filters`).
 - `list_filters`: List filters relevant to bookmarks and notes, with IDs, names, and tag rules.
   Use filter IDs with `search_items(filter_id=...)` to search within a specific filter.
 - `list_tags`: Get all tags with usage counts
@@ -210,16 +215,17 @@ def _raise_tool_error(info: ParsedApiError) -> NoReturn:
 
 @mcp.tool(
     description=(
-        "Search across bookmarks and notes using full-text search with English stemming "
+        "Search bookmarks and notes using full-text search (English stemming + ranking) "
         "combined with substring matching. "
-        "Stemming finds word variants: 'running' matches 'runners', "
-        "'databases' matches 'database'. "
-        "Partial words and code symbols ('auth', 'useState', 'node.js') match via substring. "
-        "Supports quoted phrases ('\"exact phrase\"'), OR for alternatives, "
-        "and negation ('-excluded') via full-text search syntax. "
-        "Bookmark URLs are matched via substring. "
-        "Results are ranked by relevance by default when a query is provided. "
-        "Use `type` parameter to filter to a specific content type. "
+        "Full-text: multiple words are AND'd by default, supports quoted phrases "
+        "('\"exact phrase\"'), OR ('python OR ruby'), and negation prefix "
+        "('-django' excludes items containing 'django'). "
+        "Stemming matches word variants ('running' finds 'runners'). "
+        "Substring: catches partial words and code symbols ('auth' finds "
+        "'authentication', 'useState', 'node.js'). Bookmark URLs matched via substring. "
+        "Items matching both modes rank highest. "
+        "Relevance-ranked by default when query is provided. "
+        "Use `type` to filter by content type. "
         "Returns metadata including content_length and content_preview (not full content)."
     ),
     annotations={"readOnlyHint": True},

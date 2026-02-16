@@ -95,6 +95,8 @@ async def test__resolve_filter_and_sorting__relevance_wins_over_filter_default_w
         query='python',
     )
     assert result.sort_by == 'relevance'
+    # sort_order should be 'desc' for relevance, not 'asc' from the filter default
+    assert result.sort_order == 'desc'
 
 
 async def test__resolve_filter_and_sorting__no_query_no_filter__global_default(
@@ -266,30 +268,38 @@ async def test__list_bookmarks__stemming_match(client: AsyncClient) -> None:
 
 
 async def test__list_bookmarks__relevance_with_filter_id(
-    client: AsyncClient, db_session: AsyncSession, user: User,
+    client: AsyncClient,
 ) -> None:
     """Relevance sort works correctly when combined with a content filter."""
-    # Create a filter
-    data = ContentFilterCreate(
-        name='Test FTS Filter',
-        content_types=['bookmark'],
-        filter_expression=FilterExpression(groups=[]),
-        default_sort_by='title',
-        default_sort_ascending=True,
-    )
-    content_filter = await content_filter_service.create_filter(db_session, user.id, data)
-    await db_session.flush()
+    # Create filter via API so it belongs to the same dev_mode user as the client
+    filter_resp = await client.post('/filters/', json={
+        'name': 'Test FTS Filter',
+        'content_types': ['bookmark'],
+        'filter_expression': {'groups': []},
+        'default_sort_by': 'title',
+        'default_sort_ascending': True,
+    })
+    assert filter_resp.status_code == 201
+    filter_id = filter_resp.json()['id']
 
-    # Create bookmarks (dev_mode client uses dev user, not our fixture user)
+    # Create bookmarks with different relevance
     await client.post('/bookmarks/', json={
         'url': 'https://filter-fts-1.example.com',
         'title': 'Python Machine Learning',
+    })
+    await client.post('/bookmarks/', json={
+        'url': 'https://filter-fts-2.example.com',
+        'title': 'Generic Guide',
+        'content': 'This mentions python once in passing.',
     })
 
     # Query with filter_id — should default to relevance, overriding filter's title sort
     response = await client.get('/bookmarks/', params={
         'q': 'python',
-        'filter_id': str(content_filter.id),
+        'filter_id': filter_id,
     })
-    # This may or may not return results depending on dev_mode user vs fixture user
-    assert response.status_code in (200, 404)
+    assert response.status_code == 200
+    data = response.json()
+    assert data['total'] == 2
+    # Title match should rank first (relevance default beats filter's title sort)
+    assert data['items'][0]['title'] == 'Python Machine Learning'

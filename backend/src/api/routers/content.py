@@ -59,7 +59,14 @@ async def list_all_content(
     List all content (bookmarks, notes, and prompts) with unified pagination.
 
     Returns a unified list of content items sorted by the specified field.
-    Each item includes a `type` field indicating whether it's a "bookmark", "note", or "prompt".
+    Each item includes a `type` field indicating whether it's a "bookmark", "note",
+    or "prompt".
+
+    - **q**: Full-text + substring search across title, description, and content.
+      Supports stemming ("running" matches "runners"), quoted phrases, OR, negation.
+      Partial words and code symbols also match via substring.
+    - **sort_by**: Sort field. Defaults to relevance when searching.
+      Takes precedence over filter_id's default.
 
     Use this endpoint for:
     - Shared "All", "Archived", and "Trash" views (no filter_id)

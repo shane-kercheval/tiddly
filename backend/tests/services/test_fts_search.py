@@ -125,6 +125,64 @@ async def test__search__fts_websearch_syntax(
     assert any(item.title == 'Machine Learning Basics' for item in items)
 
 
+async def test__search__fts_negation_excludes_matches(
+    db_session: AsyncSession, test_user: User,
+) -> None:
+    """Negation prefix (-term) excludes documents containing that term."""
+    await bookmark_service.create(
+        db_session, test_user.id,
+        BookmarkCreate(
+            url='https://flask1.example.com',
+            title='Flask Web Framework',
+            content='Building web apps with Flask',
+        ),
+        DEFAULT_LIMITS, None,
+    )
+    await bookmark_service.create(
+        db_session, test_user.id,
+        BookmarkCreate(
+            url='https://django1.example.com',
+            title='Django Web Framework',
+            content='Building web apps with Django',
+        ),
+        DEFAULT_LIMITS, None,
+    )
+    # "framework -django" should find Flask but exclude Django
+    items, total = await search_all_content(
+        db_session, test_user.id, query='framework -django', content_types=['bookmark'],
+    )
+    assert total == 1
+    assert items[0].title == 'Flask Web Framework'
+
+
+async def test__search__fts_or_matches_either_term(
+    db_session: AsyncSession, test_user: User,
+) -> None:
+    """OR operator matches documents containing either term."""
+    await bookmark_service.create(
+        db_session, test_user.id,
+        BookmarkCreate(url='https://py1.example.com', title='Python Tutorial'),
+        DEFAULT_LIMITS, None,
+    )
+    await bookmark_service.create(
+        db_session, test_user.id,
+        BookmarkCreate(url='https://rb1.example.com', title='Ruby Tutorial'),
+        DEFAULT_LIMITS, None,
+    )
+    await bookmark_service.create(
+        db_session, test_user.id,
+        BookmarkCreate(url='https://go1.example.com', title='Golang Tutorial'),
+        DEFAULT_LIMITS, None,
+    )
+    # "python OR ruby" should match both Python and Ruby, but not Golang
+    items, total = await search_all_content(
+        db_session, test_user.id, query='python OR ruby', content_types=['bookmark'],
+    )
+    assert total == 2
+    titles = {item.title for item in items}
+    assert titles == {'Python Tutorial', 'Ruby Tutorial'}
+
+
 async def test__search__fts_empty_query_returns_all(
     db_session: AsyncSession, test_user: User,
 ) -> None:

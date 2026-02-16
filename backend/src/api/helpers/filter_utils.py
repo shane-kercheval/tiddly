@@ -43,10 +43,11 @@ async def resolve_filter_and_sorting(
         db: Database session.
         user_id: Current user's ID.
         filter_id: Optional filter UUID.
-        sort_by: Explicit sort field. Overrides filter's default_sort_by if provided.
+        sort_by: Explicit sort field. Overrides filter default and query-based
+            relevance default. If None and query is present, defaults to "relevance".
         sort_order: Explicit sort direction. Overrides filter's default_sort_ascending
             if provided.
-        query: Search query. When present and sort_by is None, defaults to "relevance".
+        query: Search query string used to trigger relevance sort default.
 
     Returns:
         ResolvedFilter with filter_expression, sort_by, sort_order, content_types.
@@ -56,6 +57,7 @@ async def resolve_filter_and_sorting(
     """
     filter_expression = None
     content_types = None
+    content_filter = None
 
     if filter_id is not None:
         content_filter = await content_filter_service.get_filter(db, user_id, filter_id)
@@ -65,9 +67,13 @@ async def resolve_filter_and_sorting(
         filter_expression = content_filter.filter_expression
         content_types = content_filter.content_types
 
-    # Relevance default: query present beats filter's default sort
+    # Relevance default: query present beats filter's default sort.
+    # Both sort_by and sort_order are set together so a filter's
+    # default_sort_ascending can't leak into relevance sorting.
     if sort_by is None and query:
         sort_by = "relevance"
+        if sort_order is None:
+            sort_order = "desc"
 
     # Use filter's sort defaults if not already resolved
     if filter_id is not None and content_filter is not None:
