@@ -191,16 +191,6 @@ export function AllContent(): ReactNode {
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
-    onNewBookmark: () => {
-      if (currentView === 'active') {
-        navigate('/app/bookmarks/new', {
-          state: {
-            ...createReturnState(),
-            initialTags: initialTagsFromFilter,
-          },
-        })
-      }
-    },
     onEscape: () => {
       if (document.activeElement === searchInputRef.current) {
         searchInputRef.current?.blur()

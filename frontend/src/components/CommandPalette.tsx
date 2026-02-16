@@ -66,6 +66,7 @@ interface CommandPaletteProps {
   isOpen: boolean
   initialView?: PaletteView
   onClose: () => void
+  onShowShortcuts?: () => void
 }
 
 // --- Command definitions ---
@@ -75,6 +76,8 @@ interface CommandItem {
   label: string
   icon: ReactNode
   action: () => void
+  /** Keyboard shortcut hint displayed on the right side */
+  shortcut?: string[]
 }
 
 /** Sort options available in search (relevance + base options) */
@@ -156,13 +159,13 @@ function collectNavItems(items: SidebarItemComputed[]): (SidebarBuiltinItemCompu
   return result
 }
 
-export function CommandPalette({ isOpen, initialView = 'commands', onClose }: CommandPaletteProps): ReactNode {
+export function CommandPalette({ isOpen, initialView = 'commands', onClose, onShowShortcuts }: CommandPaletteProps): ReactNode {
   // Render inner component only when open — unmount/remount resets all state naturally
   if (!isOpen) return null
-  return <CommandPaletteInner initialView={initialView} onClose={onClose} />
+  return <CommandPaletteInner initialView={initialView} onClose={onClose} onShowShortcuts={onShowShortcuts} />
 }
 
-function CommandPaletteInner({ initialView, onClose }: { initialView: PaletteView; onClose: () => void }): ReactNode {
+function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initialView: PaletteView; onClose: () => void; onShowShortcuts?: () => void }): ReactNode {
   const navigate = useNavigate()
   const [view, setView] = useState<PaletteView>(initialView)
   const [commandFilter, setCommandFilter] = useState('')
@@ -299,9 +302,41 @@ function CommandPaletteInner({ initialView, onClose }: { initialView: PaletteVie
       label: 'Search',
       icon: <SearchIcon className="h-4 w-4" />,
       action: () => setView('search'),
+      shortcut: ['/'],
     })
 
-    // 2. Sidebar nav items (builtins + filters) in flattened sidebar order
+    // 2. Keyboard shortcuts
+    if (onShowShortcuts) {
+      cmds.push({
+        id: 'shortcuts',
+        label: 'Keyboard Shortcuts',
+        icon: <HelpIcon className="h-4 w-4" />,
+        action: () => { onClose(); onShowShortcuts() },
+        shortcut: ['\u2318', '/'],
+      })
+    }
+
+    // 3. New items
+    cmds.push({
+      id: 'new-note',
+      label: 'New Note',
+      icon: <NoteIcon className="h-4 w-4" />,
+      action: () => navigateAndClose('/app/notes/new'),
+    })
+    cmds.push({
+      id: 'new-bookmark',
+      label: 'New Bookmark',
+      icon: <BookmarkIcon className="h-4 w-4" />,
+      action: () => navigateAndClose('/app/bookmarks/new'),
+    })
+    cmds.push({
+      id: 'new-prompt',
+      label: 'New Prompt',
+      icon: <PromptIcon className="h-4 w-4" />,
+      action: () => navigateAndClose('/app/prompts/new'),
+    })
+
+    // 4. Sidebar nav items (builtins + filters) in flattened sidebar order
     if (sidebar) {
       const navItems = collectNavItems(sidebar.items)
       for (const item of navItems) {
@@ -323,7 +358,7 @@ function CommandPaletteInner({ initialView, onClose }: { initialView: PaletteVie
       }
     }
 
-    // 3. Settings pages
+    // 5. Settings pages
     const settingsItems: { label: string; path: string; icon: ReactNode }[] = [
       { label: 'Settings: General', path: '/app/settings/general', icon: <AdjustmentsIcon className="h-4 w-4" /> },
       { label: 'Settings: Tags', path: '/app/settings/tags', icon: <TagIcon className="h-4 w-4" /> },
@@ -341,28 +376,8 @@ function CommandPaletteInner({ initialView, onClose }: { initialView: PaletteVie
       })
     }
 
-    // 4. New items
-    cmds.push({
-      id: 'new-bookmark',
-      label: 'New Bookmark',
-      icon: <BookmarkIcon className="h-4 w-4" />,
-      action: () => navigateAndClose('/app/bookmarks/new'),
-    })
-    cmds.push({
-      id: 'new-note',
-      label: 'New Note',
-      icon: <NoteIcon className="h-4 w-4" />,
-      action: () => navigateAndClose('/app/notes/new'),
-    })
-    cmds.push({
-      id: 'new-prompt',
-      label: 'New Prompt',
-      icon: <PromptIcon className="h-4 w-4" />,
-      action: () => navigateAndClose('/app/prompts/new'),
-    })
-
     return cmds
-  }, [sidebar, navigateAndClose])
+  }, [sidebar, navigateAndClose, onShowShortcuts, onClose])
 
   // Filter commands by search text
   const filteredCommands = useMemo(() => {
@@ -559,7 +574,16 @@ function CommandPaletteInner({ initialView, onClose }: { initialView: PaletteVie
                     }`}
                   >
                     <span className={`shrink-0 ${index === clampedIndex ? 'text-blue-500' : 'text-gray-400'}`}>{cmd.icon}</span>
-                    <span className="truncate">{cmd.label}</span>
+                    <span className="truncate flex-1">{cmd.label}</span>
+                    {cmd.shortcut && (
+                      <span className="hidden sm:flex items-center gap-0.5 shrink-0 ml-2">
+                        {cmd.shortcut.map((key, i) => (
+                          <kbd key={i} className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-medium text-gray-400 bg-gray-100 rounded border border-gray-200">
+                            {key}
+                          </kbd>
+                        ))}
+                      </span>
+                    )}
                   </button>
                 ))
               )}

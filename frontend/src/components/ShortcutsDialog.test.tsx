@@ -96,7 +96,7 @@ describe('ShortcutsDialog', () => {
   it('should display individual shortcuts', () => {
     render(<ShortcutsDialog isOpen={true} onClose={vi.fn()} />)
 
-    expect(screen.getByText('New bookmark')).toBeInTheDocument()
+    expect(screen.getByText('Paste URL to add bookmark')).toBeInTheDocument()
     expect(screen.getByText('Search')).toBeInTheDocument()
     expect(screen.getByText('Toggle full-width layout')).toBeInTheDocument()
     expect(screen.getByText('Bold')).toBeInTheDocument()

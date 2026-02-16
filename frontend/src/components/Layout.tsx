@@ -127,7 +127,7 @@ export function Layout(): ReactNode {
         {showFooter && <Footer />}
       </main>
       <ShortcutsDialog isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
-      <CommandPalette isOpen={paletteOpen} initialView={paletteInitialView} onClose={closePalette} />
+      <CommandPalette isOpen={paletteOpen} initialView={paletteInitialView} onClose={closePalette} onShowShortcuts={() => setShowShortcuts(true)} />
     </div>
   )
 }

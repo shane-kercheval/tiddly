@@ -6,8 +6,6 @@ import { isValidUrl } from '../utils'
 
 /** Callback functions for keyboard shortcuts */
 interface KeyboardShortcutHandlers {
-  /** Called when 'b' is pressed (new bookmark) */
-  onNewBookmark?: () => void
   /** Called when '/' is pressed (focus search) */
   onFocusSearch?: () => void
   /** Called when Escape is pressed (close modal) */
@@ -46,7 +44,6 @@ function isInputFocused(): boolean {
  * Hook for global keyboard shortcuts.
  *
  * Shortcuts:
- * - `b` - New bookmark (when not typing)
  * - `/` - Focus search (when not typing)
  * - `w` - Toggle content width (when not typing)
  * - `Escape` - Close modal
@@ -59,7 +56,6 @@ function isInputFocused(): boolean {
  * Usage:
  * ```tsx
  * useKeyboardShortcuts({
- *   onNewBookmark: () => setShowAddModal(true),
  *   onFocusSearch: () => searchInputRef.current?.focus(),
  *   onToggleWidth: () => toggleFullWidthLayout(),
  *   onToggleSidebar: () => toggleSidebar(),
@@ -109,13 +105,6 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
 
       // Skip other shortcuts if user is typing in an input
       if (isInputFocused()) {
-        return
-      }
-
-      // b - New bookmark (without modifier)
-      if (event.key === 'b' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-        event.preventDefault()
-        handlers.onNewBookmark?.()
         return
       }
 

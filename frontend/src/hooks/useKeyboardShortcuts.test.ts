@@ -125,32 +125,6 @@ describe('useKeyboardShortcuts', () => {
   })
 
   describe('keyboard shortcuts', () => {
-    it('should call onNewBookmark when b is pressed outside input fields', () => {
-      const onNewBookmark = vi.fn()
-      renderHook(() => useKeyboardShortcuts({ onNewBookmark }))
-
-      const keyEvent = new KeyboardEvent('keydown', { key: 'b' })
-      document.dispatchEvent(keyEvent)
-
-      expect(onNewBookmark).toHaveBeenCalled()
-    })
-
-    it('should NOT call onNewBookmark when b is pressed inside an input', () => {
-      const onNewBookmark = vi.fn()
-      renderHook(() => useKeyboardShortcuts({ onNewBookmark }))
-
-      const input = document.createElement('input')
-      document.body.appendChild(input)
-      input.focus()
-
-      const keyEvent = new KeyboardEvent('keydown', { key: 'b' })
-      document.dispatchEvent(keyEvent)
-
-      expect(onNewBookmark).not.toHaveBeenCalled()
-
-      document.body.removeChild(input)
-    })
-
     it('should call onFocusSearch when / is pressed outside input fields', () => {
       const onFocusSearch = vi.fn()
       renderHook(() => useKeyboardShortcuts({ onFocusSearch }))

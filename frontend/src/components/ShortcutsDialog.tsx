@@ -29,8 +29,6 @@ const leftColumnGroups: ShortcutGroup[] = [
   {
     title: 'Actions',
     shortcuts: [
-      { keys: ['b'], description: 'New bookmark' },
-      { keys: ['e'], description: 'Edit note (when viewing)' },
       { keys: ['\u2318', 'V'], description: 'Paste URL to add bookmark' },
       { keys: ['\u21E7', '\u2318', 'Click'], description: 'Open link without tracking' },
       { keys: ['\u2318', 'S'], description: 'Save' },
