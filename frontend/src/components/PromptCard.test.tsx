@@ -483,5 +483,56 @@ describe('PromptCard', () => {
 
       expect(onView).toHaveBeenCalledWith(mockPrompt)
     })
+
+    it('should call onClick instead of onView when both are provided', async () => {
+      const onClick = vi.fn()
+      const onView = vi.fn()
+      const user = userEvent.setup()
+
+      const { container } = render(
+        <PromptCard
+          prompt={mockPrompt}
+          onDelete={vi.fn()}
+          onClick={onClick}
+          onView={onView}
+        />
+      )
+
+      const card = container.querySelector('.card')
+      await user.click(card!)
+
+      expect(onClick).toHaveBeenCalledWith(mockPrompt)
+      expect(onView).not.toHaveBeenCalled()
+    })
+
+    it('should call onClick when provided without onView', async () => {
+      const onClick = vi.fn()
+      const user = userEvent.setup()
+
+      const { container } = render(
+        <PromptCard
+          prompt={mockPrompt}
+          onClick={onClick}
+        />
+      )
+
+      const card = container.querySelector('.card')
+      await user.click(card!)
+
+      expect(onClick).toHaveBeenCalledWith(mockPrompt)
+    })
+
+    it('should not show action buttons when only onClick is provided', () => {
+      render(
+        <PromptCard
+          prompt={mockPrompt}
+          onClick={vi.fn()}
+        />
+      )
+
+      expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /archive/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /copy prompt/i })).not.toBeInTheDocument()
+    })
   })
 })

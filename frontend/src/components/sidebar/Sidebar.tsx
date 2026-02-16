@@ -57,6 +57,7 @@ import {
   SparklesIcon,
   HistoryIcon,
   HelpIcon,
+  SearchIcon,
 } from '../icons'
 import { Tooltip } from '../ui'
 import type {
@@ -108,9 +109,10 @@ function debounce<T extends (...args: Parameters<T>) => void>(
 interface SidebarContentProps {
   isCollapsed: boolean
   onNavClick?: () => void
+  onOpenPalette?: () => void
 }
 
-function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): ReactNode {
+function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarContentProps): ReactNode {
   const navigate = useNavigate()
   const location = useLocation()
   const { expandedSections, toggleSection, toggleCollapse, isGroupCollapsed, toggleGroup } =
@@ -606,13 +608,34 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <nav className="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-2 pt-2">
+        <nav className="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-2">
           <SortableContext items={rootItemIds} strategy={verticalListSortingStrategy}>
             {sidebar?.items.map(renderItem)}
           </SortableContext>
 
-          {/* Settings Section (not draggable) */}
+          {/* Command Palette + Settings Section (not draggable) */}
           <div className="mt-4 border-t border-gray-200 pt-4">
+            {/* Command Palette nav item */}
+            {isCollapsed ? (
+              <Tooltip content="Command Palette (⌘⇧P)" compact position="right" className="w-full">
+                <button
+                  onClick={onOpenPalette}
+                  className="flex w-full items-center justify-center rounded-lg px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                >
+                  <SearchIcon className="h-4 w-4 text-gray-500" />
+                  <span className="sr-only">Command Palette (⌘⇧P)</span>
+                </button>
+              </Tooltip>
+            ) : (
+              <button
+                onClick={onOpenPalette}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+              >
+                <SearchIcon className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                <span className="flex-1 truncate min-w-0 text-left">Command Palette (⌘⇧P)</span>
+              </button>
+            )}
+
             {isCollapsed ? (
               /* When collapsed, show settings items flattened with their icons and tooltips */
               <div className="space-y-0.5">
@@ -772,7 +795,11 @@ function SidebarContent({ isCollapsed, onNavClick }: SidebarContentProps): React
   )
 }
 
-export function Sidebar(): ReactNode {
+interface SidebarProps {
+  onOpenPalette?: () => void
+}
+
+export function Sidebar({ onOpenPalette }: SidebarProps): ReactNode {
   const { isCollapsed, isMobileOpen, toggleMobile, closeMobile } = useSidebarStore()
 
   return (
@@ -804,7 +831,7 @@ export function Sidebar(): ReactNode {
       >
         <div className="h-full flex flex-col">
           <div className="flex-1 overflow-hidden">
-            <SidebarContent isCollapsed={false} onNavClick={closeMobile} />
+            <SidebarContent isCollapsed={false} onNavClick={closeMobile} onOpenPalette={onOpenPalette} />
           </div>
           {/* Mobile close button - chevron at bottom matching desktop style */}
           <div className="border-t border-gray-200 px-2 py-2 shrink-0">
@@ -828,7 +855,7 @@ export function Sidebar(): ReactNode {
         }`}
       >
         <div className="h-full overflow-hidden">
-          <SidebarContent isCollapsed={isCollapsed} />
+          <SidebarContent isCollapsed={isCollapsed} onOpenPalette={onOpenPalette} />
         </div>
       </aside>
     </>

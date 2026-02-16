@@ -22,6 +22,8 @@ interface KeyboardShortcutHandlers {
   onToggleSidebar?: () => void
   /** Called when Cmd/Ctrl + Shift + \ is pressed (toggle history sidebar) */
   onToggleHistorySidebar?: () => void
+  /** Called when Cmd/Ctrl + Shift + P is pressed (command palette) */
+  onCommandPalette?: () => void
 }
 
 /**
@@ -49,6 +51,7 @@ function isInputFocused(): boolean {
  * - `w` - Toggle content width (when not typing)
  * - `Escape` - Close modal
  * - `Cmd/Ctrl + /` - Show shortcuts dialog
+ * - `Cmd/Ctrl + Shift + P` - Command palette (works even when typing)
  * - `Cmd/Ctrl + \` - Toggle sidebar
  * - `Cmd/Ctrl + Shift + \` - Toggle history sidebar
  * - `Cmd/Ctrl + V` - Paste URL to create bookmark (when not in input)
@@ -73,6 +76,13 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
       if ((event.metaKey || event.ctrlKey) && event.key === '/') {
         event.preventDefault()
         handlers.onShowShortcuts?.()
+        return
+      }
+
+      // Cmd/Ctrl + Shift + P - Command palette (works even when typing)
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'p') {
+        event.preventDefault()
+        handlers.onCommandPalette?.()
         return
       }
 

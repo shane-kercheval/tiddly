@@ -6,7 +6,7 @@
  */
 
 /** All possible sort field types */
-export type SortByOption = 'last_used_at' | 'created_at' | 'updated_at' | 'title' | 'archived_at' | 'deleted_at'
+export type SortByOption = 'last_used_at' | 'created_at' | 'updated_at' | 'title' | 'archived_at' | 'deleted_at' | 'relevance'
 export type SortOrderOption = 'asc' | 'desc'
 
 /** Base sort options available for all views (All Bookmarks, custom lists) */
@@ -32,6 +32,7 @@ export const SORT_LABELS: Record<SortByOption, string> = {
   title: 'Title',
   archived_at: 'Archived At',
   deleted_at: 'Deleted At',
+  relevance: 'Relevance',
 }
 
 /** Default sort for each view type */

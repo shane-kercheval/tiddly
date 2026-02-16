@@ -196,7 +196,6 @@ export function AllContent(): ReactNode {
         })
       }
     },
-    onFocusSearch: () => searchInputRef.current?.focus(),
     onEscape: () => {
       if (document.activeElement === searchInputRef.current) {
         searchInputRef.current?.blur()
