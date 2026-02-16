@@ -314,6 +314,32 @@ class ApiBenchmark:
                 )
         self.created_prompt_ids.clear()
 
+    async def _delete_matching_items(
+        self,
+        client: httpx.AsyncClient,
+        entity: str,
+        query: str,
+    ) -> int:
+        """Search for and permanently delete all items matching a query."""
+        deleted = 0
+        while True:
+            response = await client.get(
+                f"{self.base_url}/{entity}/",
+                params={"q": query, "limit": 100, "include_deleted": "true"},
+            )
+            response.raise_for_status()
+            items = response.json().get("items", [])
+            if not items:
+                break
+            for item in items:
+                r = await client.delete(
+                    f"{self.base_url}/{entity}/{item['id']}",
+                    params={"permanent": "true"},
+                )
+                r.raise_for_status()
+                deleted += 1
+        return deleted
+
     async def _cleanup_leftover_benchmark_items(
         self, client: httpx.AsyncClient,
     ) -> None:
@@ -327,53 +353,13 @@ class ApiBenchmark:
         print("Cleaning up leftover items from previous runs...", end=" ", flush=True)
         deleted = 0
 
-        # Clean up notes with benchmark-related titles
-        for query in ["Benchmark Note", "Test Note", "Soft Delete Test", "Hard Delete Test"]:
-            with contextlib.suppress(Exception):
-                response = await client.get(
-                    f"{self.base_url}/notes/",
-                    params={"q": query, "limit": 200, "include_deleted": "true"},
-                )
-                if response.status_code == 200:
-                    for item in response.json().get("items", []):
-                        with contextlib.suppress(Exception):
-                            await client.delete(
-                                f"{self.base_url}/notes/{item['id']}",
-                                params={"permanent": "true"},
-                            )
-                            deleted += 1
-
-        # Clean up bookmarks with benchmark-related titles/urls
-        for query in ["Benchmark Bookmark", "Test Bookmark", "Soft Delete Test", "Hard Delete Test"]:
-            with contextlib.suppress(Exception):
-                response = await client.get(
-                    f"{self.base_url}/bookmarks/",
-                    params={"q": query, "limit": 200, "include_deleted": "true"},
-                )
-                if response.status_code == 200:
-                    for item in response.json().get("items", []):
-                        with contextlib.suppress(Exception):
-                            await client.delete(
-                                f"{self.base_url}/bookmarks/{item['id']}",
-                                params={"permanent": "true"},
-                            )
-                            deleted += 1
-
-        # Clean up prompts with benchmark-related names
-        for query in ["benchmark-prompt", "soft-delete-prompt", "hard-delete-prompt"]:
-            with contextlib.suppress(Exception):
-                response = await client.get(
-                    f"{self.base_url}/prompts/",
-                    params={"q": query, "limit": 200, "include_deleted": "true"},
-                )
-                if response.status_code == 200:
-                    for item in response.json().get("items", []):
-                        with contextlib.suppress(Exception):
-                            await client.delete(
-                                f"{self.base_url}/prompts/{item['id']}",
-                                params={"permanent": "true"},
-                            )
-                            deleted += 1
+        for entity, queries in [
+            ("notes", ["Benchmark Note", "Test Note", "Soft Delete Test", "Hard Delete Test"]),
+            ("bookmarks", ["Benchmark Bookmark", "Test Bookmark", "Soft Delete Test", "Hard Delete Test"]),
+            ("prompts", ["benchmark-prompt", "soft-delete-prompt", "hard-delete-prompt"]),
+        ]:
+            for query in queries:
+                deleted += await self._delete_matching_items(client, entity, query)
 
         print(f"done ({deleted} items)")
 
