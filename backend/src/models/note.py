@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.base import ArchivableMixin, Base, TimestampMixin, UUIDv7Mixin
@@ -27,6 +28,11 @@ class Note(Base, UUIDv7Mixin, TimestampMixin, ArchivableMixin):
     title: Mapped[str] = mapped_column(String(500), nullable=False)  # Required
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)  # Markdown, up to 2MB
+
+    # Trigger-maintained tsvector for full-text search (see migration for trigger definition)
+    search_vector: Mapped[str | None] = mapped_column(
+        TSVECTOR, nullable=True, default=None, deferred=True,
+    )
 
     # Usage tracking timestamp (defaults to current time on creation)
     last_used_at: Mapped[datetime] = mapped_column(
