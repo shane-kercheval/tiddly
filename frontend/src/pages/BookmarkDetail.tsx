@@ -62,7 +62,8 @@ export function BookmarkDetail(): ReactNode {
   const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
 
   const locationState = location.state as { initialTags?: string[]; initialUrl?: string } | undefined
-  const { selectedTags } = useTagFilterStore()
+  // Pre-populate tags from the 'active' view (most common originating context)
+  const selectedTags = useTagFilterStore((state) => state.getSelectedTags('active'))
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
   const initialUrl = locationState?.initialUrl
 

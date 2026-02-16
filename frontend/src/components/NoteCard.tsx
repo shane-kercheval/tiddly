@@ -250,8 +250,9 @@ export function NoteCard({
                       key: 'delete',
                       label: view === 'deleted' ? 'Delete Permanently' : 'Delete',
                       icon: <TrashIcon className="h-4 w-4" />,
-                      onClick: () => onDelete!(note),
+                      onClick: () => onDelete?.(note),
                       danger: true,
+                      hidden: !onDelete,
                     },
                   ]}
                 >
@@ -283,10 +284,12 @@ export function NoteCard({
                       entityName="note"
                     />
                   )}
-                  <ContentCard.DeleteAction
-                    onDelete={() => onDelete!(note)}
-                    entityName="note"
-                  />
+                  {onDelete && (
+                    <ContentCard.DeleteAction
+                      onDelete={() => onDelete(note)}
+                      entityName="note"
+                    />
+                  )}
                 </ContentCard.Actions>
               </div>
             )}

@@ -81,6 +81,9 @@ interface CommandItem {
 const SEARCH_SORT_OPTIONS: readonly SortByOption[] = ['relevance', ...BASE_SORT_OPTIONS]
 const SINGLE_DIRECTION_OPTIONS: ReadonlySet<SortByOption> = new Set(['relevance'])
 
+/** View key for tag filter isolation in the command palette */
+const PALETTE_VIEW_KEY = 'palette-search'
+
 /** Date-related sort options - only show dates on cards when sorting by these */
 const DATE_SORT_OPTIONS: ReadonlySet<SortByOption> = new Set([
   'created_at', 'updated_at', 'last_used_at', 'archived_at', 'deleted_at',
@@ -178,15 +181,17 @@ function CommandPaletteInner({ initialView, onClose }: { initialView: PaletteVie
 
   const { pageSize, setPageSize } = useUIPreferencesStore()
 
-  // Tag filters
+  // Tag filters (isolated to palette-search view)
   const {
-    selectedTags,
-    tagMatch,
+    getSelectedTags,
+    getTagMatch,
     addTag,
     removeTag,
     setTagMatch,
     clearFilters: clearTagFilters,
   } = useTagFilterStore()
+  const selectedTags = getSelectedTags(PALETTE_VIEW_KEY)
+  const tagMatch = getTagMatch(PALETTE_VIEW_KEY)
 
   // Content type filter
   const { getSelectedTypes, toggleType } = useContentTypeFilterStore()
@@ -423,7 +428,7 @@ function CommandPaletteInner({ initialView, onClose }: { initialView: PaletteVie
   const handleTagClick = useCallback(
     (tag: string) => {
       if (!selectedTags.includes(tag)) {
-        addTag(tag)
+        addTag(PALETTE_VIEW_KEY, tag)
         setOffset(0)
       }
     },
@@ -432,7 +437,7 @@ function CommandPaletteInner({ initialView, onClose }: { initialView: PaletteVie
 
   const handleRemoveTag = useCallback(
     (tagToRemove: string) => {
-      removeTag(tagToRemove)
+      removeTag(PALETTE_VIEW_KEY, tagToRemove)
       setOffset(0)
     },
     [removeTag]
@@ -440,13 +445,13 @@ function CommandPaletteInner({ initialView, onClose }: { initialView: PaletteVie
 
   const handleTagMatchChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
-      setTagMatch(e.target.value as 'all' | 'any')
+      setTagMatch(PALETTE_VIEW_KEY, e.target.value as 'all' | 'any')
     },
     [setTagMatch]
   )
 
   const handleClearTagFilters = useCallback(() => {
-    clearTagFilters()
+    clearTagFilters(PALETTE_VIEW_KEY)
     setOffset(0)
   }, [clearTagFilters])
 

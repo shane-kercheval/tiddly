@@ -210,8 +210,8 @@ let mockSelectedTags: string[] = []
 
 vi.mock('../stores/tagFilterStore', () => ({
   useTagFilterStore: () => ({
-    selectedTags: mockSelectedTags,
-    tagMatch: 'all',
+    getSelectedTags: () => mockSelectedTags,
+    getTagMatch: () => 'all' as const,
     addTag: mockAddTag,
     removeTag: mockRemoveTag,
     setTagMatch: mockSetTagMatch,
@@ -690,7 +690,7 @@ describe('AllContent', () => {
       const tagButtons = screen.getAllByRole('button', { name: 'test' })
       await user.click(tagButtons[0])
 
-      expect(mockAddTag).toHaveBeenCalledWith('test')
+      expect(mockAddTag).toHaveBeenCalledWith('active', 'test')
     })
 
     it('shows selected tags display when tags are selected', async () => {
@@ -720,7 +720,7 @@ describe('AllContent', () => {
       const tagButton = within(filterSection!).getByRole('button', { name: /test/ })
       await user.click(tagButton)
 
-      expect(mockRemoveTag).toHaveBeenCalledWith('test')
+      expect(mockRemoveTag).toHaveBeenCalledWith('active', 'test')
     })
 
     it('calls clearFilters when clicking clear button', async () => {

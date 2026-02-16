@@ -80,7 +80,7 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
       }
 
       // Cmd/Ctrl + Shift + P - Command palette (works even when typing)
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'p') {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'p') {
         event.preventDefault()
         handlers.onCommandPalette?.()
         return

@@ -141,10 +141,12 @@ export function PromptCard({
                     entityName="prompt"
                   />
                 )}
-                <ContentCard.DeleteAction
-                  onDelete={() => onDelete!(prompt)}
-                  entityName="prompt"
-                />
+                {onDelete && (
+                  <ContentCard.DeleteAction
+                    onDelete={() => onDelete(prompt)}
+                    entityName="prompt"
+                  />
+                )}
               </div>
 
               {/* Date and archiving indicator */}
@@ -255,8 +257,9 @@ export function PromptCard({
                       key: 'delete',
                       label: view === 'deleted' ? 'Delete Permanently' : 'Delete',
                       icon: <TrashIcon className="h-4 w-4" />,
-                      onClick: () => onDelete!(prompt),
+                      onClick: () => onDelete?.(prompt),
                       danger: true,
+                      hidden: !onDelete,
                     },
                   ]}
                 >
@@ -288,10 +291,12 @@ export function PromptCard({
                       entityName="prompt"
                     />
                   )}
-                  <ContentCard.DeleteAction
-                    onDelete={() => onDelete!(prompt)}
-                    entityName="prompt"
-                  />
+                  {onDelete && (
+                    <ContentCard.DeleteAction
+                      onDelete={() => onDelete(prompt)}
+                      entityName="prompt"
+                    />
+                  )}
                 </ContentCard.Actions>
               </div>
             )}

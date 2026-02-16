@@ -440,8 +440,9 @@ export function BookmarkCard({
                       key: 'delete',
                       label: view === 'deleted' ? 'Delete Permanently' : 'Delete',
                       icon: <TrashIcon className="h-4 w-4" />,
-                      onClick: () => onDelete!(bookmark),
+                      onClick: () => onDelete?.(bookmark),
                       danger: true,
+                      hidden: !onDelete,
                     },
                   ]}
                 >
@@ -484,10 +485,12 @@ export function BookmarkCard({
                       entityName="bookmark"
                     />
                   )}
-                  <ContentCard.DeleteAction
-                    onDelete={() => onDelete!(bookmark)}
-                    entityName="bookmark"
-                  />
+                  {onDelete && (
+                    <ContentCard.DeleteAction
+                      onDelete={() => onDelete(bookmark)}
+                      entityName="bookmark"
+                    />
+                  )}
                 </ContentCard.Actions>
               </div>
             )}

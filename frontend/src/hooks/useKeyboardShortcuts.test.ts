@@ -285,6 +285,42 @@ describe('useKeyboardShortcuts', () => {
       expect(onToggleHistorySidebar).toHaveBeenCalled()
     })
 
+    it('should call onCommandPalette when Cmd+Shift+P is pressed (uppercase P from Shift)', () => {
+      const onCommandPalette = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onCommandPalette }))
+
+      const keyEvent = new KeyboardEvent('keydown', { key: 'P', metaKey: true, shiftKey: true })
+      document.dispatchEvent(keyEvent)
+
+      expect(onCommandPalette).toHaveBeenCalled()
+    })
+
+    it('should call onCommandPalette when Ctrl+Shift+P is pressed (Windows/Linux)', () => {
+      const onCommandPalette = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onCommandPalette }))
+
+      const keyEvent = new KeyboardEvent('keydown', { key: 'P', ctrlKey: true, shiftKey: true })
+      document.dispatchEvent(keyEvent)
+
+      expect(onCommandPalette).toHaveBeenCalled()
+    })
+
+    it('should call onCommandPalette even when inside an input', () => {
+      const onCommandPalette = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onCommandPalette }))
+
+      const input = document.createElement('input')
+      document.body.appendChild(input)
+      input.focus()
+
+      const keyEvent = new KeyboardEvent('keydown', { key: 'P', metaKey: true, shiftKey: true })
+      document.dispatchEvent(keyEvent)
+
+      expect(onCommandPalette).toHaveBeenCalled()
+
+      document.body.removeChild(input)
+    })
+
     it('should call onToggleSidebar even when inside an input (like VS Code)', () => {
       const onToggleSidebar = vi.fn()
       renderHook(() => useKeyboardShortcuts({ onToggleSidebar }))

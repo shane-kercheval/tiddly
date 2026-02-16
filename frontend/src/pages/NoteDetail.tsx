@@ -66,7 +66,8 @@ export function NoteDetail(): ReactNode {
 
   // Get navigation state
   const locationState = location.state as { initialTags?: string[]; note?: NoteType } | undefined
-  const { selectedTags } = useTagFilterStore()
+  // Pre-populate tags from the 'active' view (most common originating context)
+  const selectedTags = useTagFilterStore((state) => state.getSelectedTags('active'))
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
   // Note passed via navigation state (used after create to avoid refetch)
   const passedNote = locationState?.note

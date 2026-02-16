@@ -65,7 +65,8 @@ export function PromptDetail(): ReactNode {
 
   // Get navigation state
   const locationState = location.state as { initialTags?: string[]; prompt?: PromptType } | undefined
-  const { selectedTags } = useTagFilterStore()
+  // Pre-populate tags from the 'active' view (most common originating context)
+  const selectedTags = useTagFilterStore((state) => state.getSelectedTags('active'))
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
   // Prompt passed via navigation state (used after create to avoid refetch)
   const passedPrompt = locationState?.prompt

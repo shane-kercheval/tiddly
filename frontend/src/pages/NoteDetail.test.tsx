@@ -110,12 +110,16 @@ vi.mock('../stores/tagsStore', () => ({
 
 vi.mock('../stores/tagFilterStore', () => ({
   useTagFilterStore: Object.assign(
-    () => ({
-      selectedTags: [],
-      addTag: vi.fn(),
-    }),
+    (selector?: (state: Record<string, unknown>) => unknown) => {
+      const state = {
+        getSelectedTags: () => [],
+        addTag: vi.fn(),
+      }
+      return selector ? selector(state) : state
+    },
     {
       getState: () => ({
+        getSelectedTags: () => [],
         addTag: vi.fn(),
       }),
     }
