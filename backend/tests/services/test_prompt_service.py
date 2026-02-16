@@ -7,7 +7,7 @@ template validation, and name uniqueness for prompts.
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import inspect, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.tier_limits import Tier, get_tier_limits

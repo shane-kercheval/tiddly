@@ -8,9 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.note import Note
-from models.user import User
 
-from tests.api.conftest import add_consent_for_user, create_user2_client
+from tests.api.conftest import create_user2_client
 
 
 # =============================================================================

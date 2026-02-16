@@ -34,7 +34,8 @@ async def create_user2_client(
     auth0_id: str,
     email: str,
 ) -> AsyncGenerator[AsyncClient]:
-    """Create an authenticated AsyncClient for a second user via PAT.
+    """
+    Create an authenticated AsyncClient for a second user via PAT.
 
     Sets up a new user with consent and PAT, overrides FastAPI dependencies
     to disable dev_mode, and yields an AsyncClient authenticated as that user.

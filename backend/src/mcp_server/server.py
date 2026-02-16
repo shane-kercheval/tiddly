@@ -69,7 +69,13 @@ URL but can be user-provided. For notes, it's user-written markdown.
   Use IDs from the response with `get_item` for full content. Use tag names with `search_items`.
 
 **Search** (returns active items only - excludes archived/deleted):
-- `search_items`: Search across bookmarks and notes. Use `type` parameter to filter.
+- `search_items`: Search across bookmarks and notes using full-text search (English stemming)
+  combined with substring matching. Complete words rank higher ("authentication" ranks above
+  "auth" for a document containing "authentication"), but partial words and code symbols
+  still match. Supports quoted phrases (`"exact phrase"`), OR for alternatives,
+  and negation (`-excluded`). Bookmark URLs are matched via substring.
+  Results are ranked by relevance by default when a query is provided.
+  Use `type` parameter to filter by content type.
   Use `filter_id` to search within a saved content filter (discover IDs via `list_filters`).
 - `list_filters`: List filters relevant to bookmarks and notes, with IDs, names, and tag rules.
   Use filter IDs with `search_items(filter_id=...)` to search within a specific filter.
@@ -139,7 +145,7 @@ error with `server_state` containing the current version for resolution.
    - Call `search_items(tags=["reading-list"])` to filter by tag
 
 2. "Find my Python tutorials"
-   - Call `search_items(query="python tutorial", type="bookmark")` for text search
+   - Call `search_items(query="python tutorial", type="bookmark")` — results ranked by relevance
 
 3. "Save this article: <url>"
    - Call `create_bookmark(url="<url>", tags=["articles"])`
@@ -148,7 +154,7 @@ error with `server_state` containing the current version for resolution.
    - Call `create_note(title="Meeting Notes", content="## Attendees\\n...", tags=["meeting"])`
 
 5. "Search all my content for Python resources"
-   - Call `search_items(query="python")` to search bookmarks and notes
+   - Call `search_items(query="python")` — searches both bookmarks and notes, ranked by relevance
 
 6. "Edit my meeting note to fix a typo"
    - Call `search_items(query="meeting", type="note")` to find the note → get `id` from result
@@ -204,7 +210,15 @@ def _raise_tool_error(info: ParsedApiError) -> NoReturn:
 
 @mcp.tool(
     description=(
-        "Search across bookmarks and notes. By default searches both types. "
+        "Search across bookmarks and notes using full-text search with English stemming "
+        "combined with substring matching. "
+        "Stemming finds word variants: 'running' matches 'runners', "
+        "'databases' matches 'database'. "
+        "Partial words and code symbols ('auth', 'useState', 'node.js') match via substring. "
+        "Supports quoted phrases ('\"exact phrase\"'), OR for alternatives, "
+        "and negation ('-excluded') via full-text search syntax. "
+        "Bookmark URLs are matched via substring. "
+        "Results are ranked by relevance by default when a query is provided. "
         "Use `type` parameter to filter to a specific content type. "
         "Returns metadata including content_length and content_preview (not full content)."
     ),
@@ -213,7 +227,11 @@ def _raise_tool_error(info: ParsedApiError) -> NoReturn:
 async def search_items(
     query: Annotated[
         str | None,
-        Field(description="Text to search in title, description, URL (bookmarks), and content"),
+        Field(
+            description="Combined full-text + substring search across title, description, "
+            "URL (bookmarks), and content. Full-text provides stemming and ranking; "
+            "substring catches partial words and code symbols.",
+        ),
     ] = None,
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"] | None,
@@ -225,9 +243,12 @@ async def search_items(
         Field(description="Tag matching: 'all' requires ALL tags, 'any' requires ANY tag"),
     ] = "all",
     sort_by: Annotated[
-        Literal["created_at", "updated_at", "last_used_at", "title"],
-        Field(description="Field to sort by"),
-    ] = "created_at",
+        Literal["created_at", "updated_at", "last_used_at", "title", "relevance"] | None,
+        Field(
+            description="Field to sort by. Defaults to 'relevance' when query is provided, "
+            "'created_at' otherwise. Set explicitly to override.",
+        ),
+    ] = None,
     sort_order: Annotated[Literal["asc", "desc"], Field(description="Sort direction")] = "desc",
     limit: Annotated[int, Field(ge=1, le=100, description="Maximum results to return")] = 50,
     offset: Annotated[
@@ -246,6 +267,10 @@ async def search_items(
     """
     Search and filter bookmarks and/or notes.
 
+    Search uses full-text search (English stemming) combined with substring matching.
+    Complete words are preferred and rank higher. Partial words and code symbols
+    still work via substring but may rank lower.
+
     Results include content_length and content_preview for size assessment.
     Use get_item to fetch full content.
 
@@ -254,6 +279,9 @@ async def search_items(
     - Search bookmarks only: query="python", type="bookmark"
     - Filter by tag: tags=["programming"]
     - Combine: query="tutorial", tags=["python"], type="bookmark"
+    - Exact phrase: query='"machine learning"'
+    - Exclude term: query="python -beginner"
+    - Alternatives: query="python OR javascript"
     """
     client = await _get_http_client()
     token = _get_token()
@@ -262,11 +290,12 @@ async def search_items(
         "limit": limit,
         "offset": offset,
         "tag_match": tag_match,
-        "sort_by": sort_by,
         "sort_order": sort_order,
     }
     if query:
         params["q"] = query
+    if sort_by is not None:
+        params["sort_by"] = sort_by
     if tags:
         params["tags"] = tags
     if filter_id:

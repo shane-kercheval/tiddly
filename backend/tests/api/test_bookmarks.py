@@ -20,7 +20,7 @@ from models.bookmark import Bookmark
 from models.user import User
 from services.url_scraper import ExtractedMetadata, ScrapedPage
 
-from tests.api.conftest import add_consent_for_user, create_user2_client
+from tests.api.conftest import create_user2_client
 
 
 async def test_create_bookmark(client: AsyncClient, db_session: AsyncSession) -> None:

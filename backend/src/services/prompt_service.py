@@ -497,7 +497,10 @@ class PromptService(BaseEntityService[Prompt]):
         total = (await db.execute(count_query)).scalar() or 0
 
         # Paginate (order by name for deterministic export)
-        base_query = base_query.order_by(Prompt.name.asc(), Prompt.id.asc()).offset(offset).limit(limit)
+        base_query = (
+            base_query.order_by(Prompt.name.asc(), Prompt.id.asc())
+            .offset(offset).limit(limit)
+        )
 
         result = await db.execute(base_query)
         return list(result.scalars().all()), total

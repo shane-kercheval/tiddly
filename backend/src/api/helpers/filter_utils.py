@@ -25,14 +25,16 @@ async def resolve_filter_and_sorting(
     filter_id: UUID | None,
     sort_by: str | None,
     sort_order: Literal["asc", "desc"] | None,
+    query: str | None = None,
 ) -> ResolvedFilter:
     """
     Resolve filter expression and sorting parameters.
 
     Priority order (highest to lowest):
       1. Explicit sort_by/sort_order params (always win if provided)
-      2. Filter's default_sort_by/default_sort_ascending (when filter_id provided)
-      3. Global defaults (created_at desc)
+      2. Query present + no explicit sort → "relevance" (desc)
+      3. Filter's default_sort_by/default_sort_ascending (when filter_id provided)
+      4. Global defaults (created_at desc)
 
     This allows callers to use a filter's tag expression while overriding its
     sort settings with custom sorting.
@@ -44,6 +46,7 @@ async def resolve_filter_and_sorting(
         sort_by: Explicit sort field. Overrides filter's default_sort_by if provided.
         sort_order: Explicit sort direction. Overrides filter's default_sort_ascending
             if provided.
+        query: Search query. When present and sort_by is None, defaults to "relevance".
 
     Returns:
         ResolvedFilter with filter_expression, sort_by, sort_order, content_types.
@@ -62,7 +65,12 @@ async def resolve_filter_and_sorting(
         filter_expression = content_filter.filter_expression
         content_types = content_filter.content_types
 
-        # Use filter's sort defaults if not explicitly provided
+    # Relevance default: query present beats filter's default sort
+    if sort_by is None and query:
+        sort_by = "relevance"
+
+    # Use filter's sort defaults if not already resolved
+    if filter_id is not None and content_filter is not None:
         if sort_by is None and content_filter.default_sort_by:
             sort_by = content_filter.default_sort_by
         if sort_order is None and content_filter.default_sort_ascending is not None:

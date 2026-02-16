@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.prompt import Prompt
 from models.user import User
 
-from tests.api.conftest import add_consent_for_user, create_user2_client
+from tests.api.conftest import create_user2_client
 
 
 # =============================================================================

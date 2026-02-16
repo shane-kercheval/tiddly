@@ -30,10 +30,12 @@ async def list_all_content(
         description="Tag matching mode: 'all' requires all tags, 'any' requires any tag",
     ),
     sort_by: Literal[
-        "created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at",
+        "created_at", "updated_at", "last_used_at", "title",
+        "archived_at", "deleted_at", "relevance",
     ] | None = Query(
         default=None,
-        description="Sort field. Takes precedence over filter_id's default.",
+        description="Sort field. Defaults to 'relevance' when q is provided, "
+        "'created_at' otherwise. Takes precedence over filter_id's default.",
     ),
     sort_order: Literal["asc", "desc"] | None = Query(
         default=None,
@@ -70,7 +72,7 @@ async def list_all_content(
     - sort_by/sort_order take precedence over filter's sort defaults
     """
     resolved = await resolve_filter_and_sorting(
-        db, current_user.id, filter_id, sort_by, sort_order,
+        db, current_user.id, filter_id, sort_by, sort_order, query=q,
     )
 
     # Compute effective content types: intersection of query param with filter's content_types

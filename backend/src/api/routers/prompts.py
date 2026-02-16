@@ -279,10 +279,11 @@ async def list_prompts(
         default="all",
         description="Tag matching mode: 'all' (AND) or 'any' (OR)",
     ),
-    sort_by: Literal["created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at"] | None = \
+    sort_by: Literal["created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at", "relevance"] | None = \
         Query(  # noqa: E501
             default=None,
-            description="Sort field. Takes precedence over filter_id's default.",
+            description="Sort field. Defaults to 'relevance' when q is provided, "
+            "'created_at' otherwise. Takes precedence over filter_id's default.",
         ),
     sort_order: Literal["asc", "desc"] | None = Query(
         default=None,
@@ -301,16 +302,19 @@ async def list_prompts(
     """
     List prompts for the current user with search, filtering, and sorting.
 
-    - **q**: Text search across name, title, description, and content (case-insensitive)
+    - **q**: Full-text + substring search across name, title, description, and content.
+      Supports stemming ("running" matches "runners"), quoted phrases, OR, negation (-term).
+      Partial words and code symbols also match via substring.
     - **tags**: Filter by one or more tags (normalized to lowercase)
     - **tag_match**: 'all' requires prompt to have ALL specified tags, 'any' requires ANY tag
-    - **sort_by**: Sort field. Takes precedence over filter_id's default.
+    - **sort_by**: Sort field. Defaults to relevance when searching.
+      Takes precedence over filter_id's default.
     - **sort_order**: Sort direction. Takes precedence over filter_id's default.
     - **view**: Which prompts to show - 'active' (not deleted/archived), 'archived', or 'deleted'
     - **filter_id**: Filter by content filter (can be combined with tags for additional filtering)
     """
     resolved = await resolve_filter_and_sorting(
-        db, current_user.id, filter_id, sort_by, sort_order,
+        db, current_user.id, filter_id, sort_by, sort_order, query=q,
     )
 
     try:
