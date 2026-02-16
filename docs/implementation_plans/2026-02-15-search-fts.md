@@ -118,15 +118,36 @@ CREATE TRIGGER prompts_search_vector_trigger
 CREATE INDEX ix_prompts_search_vector ON prompts USING GIN (search_vector);
 ```
 
-**Backfill existing data:** Triggers fire on UPDATE, so after creating the triggers, run a no-op update on each table to populate existing rows:
+**Backfill existing data:** The backfill must run **before** the triggers are created. The trigger's `IS DISTINCT FROM` guard makes a no-op update like `UPDATE bookmarks SET title = title` useless for backfill — all fields are unchanged, so the trigger takes the ELSE branch and preserves the existing NULL `search_vector`. Even a direct `UPDATE bookmarks SET search_vector = ...` would be overridden by the trigger's ELSE branch if the trigger already exists (the BEFORE UPDATE trigger sets `NEW.search_vector := OLD.search_vector` before the row is written).
+
+**Required migration step ordering:**
+
+1. Add `search_vector` column to each table
+2. Backfill via direct SQL (before triggers exist):
 
 ```sql
-UPDATE bookmarks SET title = title;
-UPDATE notes SET title = title;
-UPDATE prompts SET name = name;
+UPDATE bookmarks SET search_vector =
+  setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+  setweight(to_tsvector('english', coalesce(description, '')), 'B') ||
+  setweight(to_tsvector('english', coalesce(summary, '')), 'B') ||
+  setweight(to_tsvector('english', coalesce(content, '')), 'C');
+
+UPDATE notes SET search_vector =
+  setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+  setweight(to_tsvector('english', coalesce(description, '')), 'B') ||
+  setweight(to_tsvector('english', coalesce(content, '')), 'C');
+
+UPDATE prompts SET search_vector =
+  setweight(to_tsvector('english', coalesce(name, '')), 'A') ||
+  setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+  setweight(to_tsvector('english', coalesce(description, '')), 'B') ||
+  setweight(to_tsvector('english', coalesce(content, '')), 'C');
 ```
 
-**Important:** Check whether the backfill updates cause `updated_at` side effects. If `updated_at` is managed by a database trigger, it will bump timestamps on every row. If so, temporarily disable the `updated_at` trigger during backfill, or use a raw SQL update that directly sets `search_vector` without going through the trigger path.
+3. Create trigger functions and triggers
+4. Create GIN indexes
+
+This backfill is safe: `updated_at` has no `onupdate` and no DB trigger (it's `server_default=func.clock_timestamp()` only, set on INSERT), and content history recording is via explicit service calls (not DB triggers or event listeners), so no phantom history records are created.
 
 **GIN index note:** Use standard `CREATE INDEX` (not `CONCURRENTLY`) — at current scale the brief lock is acceptable. Add a code comment noting `CONCURRENTLY` as an option for larger tables.
 
@@ -160,7 +181,7 @@ After this milestone:
 - `search_all_content()` is the single search implementation
 - Individual list endpoints (`GET /bookmarks/`, `GET /notes/`, `GET /prompts/`) call `search_all_content()` with `content_types=["bookmark"]` (or `["note"]`, etc.)
 - Router-level mapping converts `ContentListItem` results to entity-specific response schemas (`BookmarkListItem`, `NoteListItem`, `PromptListItem`)
-- `BaseEntityService.search()` and `_build_text_search_filter()` are removed (or deprecated)
+- `BaseEntityService.search()` and `_build_text_search_filter()` are removed (replaced by `PromptService.list_for_export()` for the export endpoint's ORM-object needs)
 - All endpoints have identical search behavior — no behavioral differences between individual and unified paths
 - MCP `search_items` tool continues to work unchanged (it calls the REST API)
 
@@ -182,6 +203,7 @@ Without consolidation, every FTS feature (tsvector matching, ts_rank, empty tsqu
 - Add `summary: str | None = None` to `ContentListItem` in `schemas/content.py`
 - Add `Bookmark.summary.label("summary")` to the bookmark subquery in `search_all_content()`
 - Add `literal(None).label("summary")` to the note and prompt subqueries
+- Update `_row_to_content_item()` in `content_service.py` to map `summary`: add `summary=row.summary if row.type == "bookmark" else None` — without this, unified endpoint responses (`GET /content/`) will silently return `summary=None` for all bookmarks
 
 Verify no other fields are missing by comparing `BookmarkListItem`, `NoteListItem`, and `PromptListItem` against `ContentListItem`. As of this writing, `summary` is the only gap — `ContentListItem` already has `url`, `name`, and `arguments`. `NoteListItem` is a pure subset. But check anyway in case schemas have drifted since this plan was written.
 
@@ -192,6 +214,7 @@ Verify no other fields are missing by comparing `BookmarkListItem`, `NoteListIte
 Key differences to handle:
 - **Tags**: `search_all_content()` fetches tags via `get_tags_for_items()` (batch post-query), while `BaseEntityService.search()` uses `selectinload(model.tag_objects)`. The unified approach is fine — the response schemas just need `tags: list[str]`, not full tag objects.
 - **Sort columns**: `search_all_content()` already computes `sort_title` inline per type with the same COALESCE/NULLIF/LOWER logic as `_get_sort_columns()` in each entity service. Verify these expressions are identical, then remove `_get_sort_columns()` when removing the old search path.
+- **Sort tiebreakers**: `BaseEntityService._apply_sorting()` uses `(sort_col, created_at, id)` as tiebreakers. `search_all_content()` currently uses `(sort_col, type, id)` — dropping `created_at`. For single-type queries, `type` is constant, so the effective ordering becomes `(sort_col, id)`, which differs from the existing behavior. **Fix:** Update `search_all_content()` tiebreakers to `(sort_col, type, created_at, id)` for multi-type queries and `(sort_col, created_at, id)` for single-type queries. This preserves existing pagination behavior for individual endpoints while keeping `type` as a grouping tiebreaker for cross-type queries.
 - **Response shape**: `search_all_content()` returns `ContentListItem` objects. Individual endpoints return entity model instances. The router mapping needs to bridge this.
 
 **3. Update individual routers to call `search_all_content()`**
@@ -263,7 +286,11 @@ Alternatively, if the entity list item schemas are similar enough to `ContentLis
 
 This is the second step within this milestone. Do NOT remove old code until the full test suite passes through the new path. Wire up the new path first, verify equivalence, then delete.
 
-- Remove `BaseEntityService.search()` and its `include_content` parameter (no router uses `include_content` — it's dead code)
+**Important:** `BaseEntityService.search()` is NOT entirely dead code. `GET /prompts/export/skills` (`prompts.py:607`) calls `prompt_service.search(..., include_content=True)` to get full ORM Prompt objects with `.content`, `.name`, `.title`, `.description` for building SKILL.md files. `search_all_content()` returns `ContentListItem` projections, not full ORM objects — this is a fundamentally different query shape that cannot serve the export endpoint.
+
+**Before removing `BaseEntityService.search()`**, create a dedicated `PromptService.list_for_export()` method that returns full ORM Prompt objects with content (accepting tags, tag_match, view, offset, limit parameters). Update the export endpoint to use this new method. Then:
+
+- Remove `BaseEntityService.search()` and its `include_content` parameter
 - Remove the abstract `_build_text_search_filter()` from `BaseEntityService` and all concrete implementations (`BookmarkService`, `NoteService`, `PromptService`)
 - Remove `_apply_view_filter()`, `_apply_tag_filter()`, `_apply_sorting()` from `BaseEntityService` (these are now handled by `search_all_content()` and `_apply_entity_filters()`)
 - Remove `_get_sort_columns()` from each entity service — the sort logic already exists as inline `sort_title` computations in `search_all_content()`'s subqueries (verified in step 2)
@@ -298,6 +325,9 @@ The MCP `search_items` tool routes `type="bookmark"` to `GET /bookmarks/` and `t
 
 **Existing test suite:**
 - All existing list/search tests for bookmarks, notes, prompts, and content should continue passing. These are the primary regression tests. The unified path (`search_all_content()` + `/content/` endpoint) already has stronger test coverage than the individual endpoints.
+
+**Export endpoint:**
+- `test__export_skills__returns_content_after_refactor` — Verify `/prompts/export/skills` still returns correct SKILL.md content using the new `PromptService.list_for_export()` method
 
 **MCP:**
 - `test__mcp_search_items__bookmark_type_filter` — MCP search with `type="bookmark"` returns same results as before
@@ -460,7 +490,22 @@ rank_col = (fts_score + ilike_score).label("search_rank")
 
 The CASE expression uses short-circuit evaluation — it assigns the score of the highest-priority matching field. A title match gets 0.8 regardless of whether description or content also match. This is intentional: the goal is to boost items where the match is in a prominent field, not to count the number of matching fields.
 
-**Critical: filter fields and scoring fields must stay in sync.** The ILIKE filtering (step 1) uses `text_search_fields` to decide which items match. The ILIKE scoring (this step) uses the CASE expression to rank them. If a field is added to filtering but not scoring, items could match the filter but get an ILIKE score of 0. To prevent drift, consider passing a list of `(field, weight)` tuples that drives both the filter OR and the scoring CASE, rather than maintaining them separately. Note: there is a third sync point — the SQL trigger field lists in Milestone 1 define which fields go into the tsvector and at what FTS weight. If a field is added to the Python search config but not the trigger (or vice versa), FTS and ILIKE would search different fields. The trigger lives in a migration so it can't share the Python constant, but add a cross-referencing comment in both locations.
+**Critical: filter fields and scoring fields must stay in sync.** The ILIKE filtering (step 1) uses `text_search_fields` to decide which items match. The ILIKE scoring (this step) uses the CASE expression to rank them. If a field is added to filtering but not scoring, items could match the filter but get an ILIKE score of 0. **Define a `(field, weight)` tuple config per entity type** that drives both the filter OR and the scoring CASE from a single source of truth:
+
+```python
+# Per-entity search field configuration — single source of truth for ILIKE filter + scoring
+BOOKMARK_SEARCH_FIELDS: list[tuple[InstrumentedAttribute, float]] = [
+    (Bookmark.title, 0.8),        # weight A
+    (Bookmark.description, 0.4),  # weight B
+    (Bookmark.summary, 0.4),      # weight B
+    (Bookmark.content, 0.1),      # weight C
+]
+# Bookmark.url is handled separately (ILIKE-only, weight 0.05, not in tsvector)
+```
+
+The filter OR is derived as `or_(*[field.ilike(pattern) for field, _ in config])` and the scoring CASE as `case(*[(field.ilike(pattern), weight) for field, weight in config], else_=0)`. This eliminates two of three sync points.
+
+Note: there is a third sync point — the SQL trigger field lists in Milestone 1 define which fields go into the tsvector and at what FTS weight. If a field is added to the Python search config but not the trigger (or vice versa), FTS and ILIKE would search different fields. The trigger lives in a migration so it can't share the Python constant, but add a cross-referencing comment in both locations.
 
 **4. `sort_by: "relevance"` support and default resolution**
 
@@ -496,9 +541,16 @@ Update all routers to:
 
 When `sort_by="relevance"` but no query is present, fall back to `created_at` silently.
 
-**5. Update MCP `search_items` tool descriptions**
+**5. Update MCP `search_items` tool — sort_by default + descriptions**
 
-The MCP server describes search behavior to LLMs in three places: the `search_items` tool `description=` string, the `search_items` docstring/examples, and the main `mcp = FastMCP(instructions=...)` block (the "Search" section and example workflows). All three need to be updated to describe how search works so that LLMs can optimize their search queries.
+The MCP `search_items` tool currently hardcodes `sort_by="created_at"` as the default (`mcp_server/server.py:227-230`). This means MCP searches always send `sort_by="created_at"` explicitly to the API, which overrides the relevance default from step 4. LLM agents would get chronologically-sorted results instead of relevance-sorted results when searching — the opposite of the intended UX.
+
+**Fix MCP sort_by:**
+- Change `sort_by` default from `"created_at"` to `None`
+- Add `"relevance"` to the `sort_by` Literal type: `Literal["created_at", "updated_at", "last_used_at", "title", "relevance"] | None`
+- Only include `sort_by` in the params dict when it is not None (so the API's relevance default applies when the LLM doesn't specify a sort)
+
+**Update tool descriptions.** The MCP server describes search behavior to LLMs in three places: the `search_items` tool `description=` string, the `search_items` docstring/examples, and the main `mcp = FastMCP(instructions=...)` block (the "Search" section and example workflows). All three need to be updated to describe how search works so that LLMs can optimize their search queries.
 
 Key information to convey:
 - Search uses full-text search with English stemming ("running" matches "runners", "databases" matches "database") combined with substring matching
@@ -569,6 +621,10 @@ Leave the final wording to the implementing agent — the above is the informati
 - `test__list_bookmarks__relevance_with_filter_id` — Relevance sort works correctly when combined with a content filter
 - `test__list_bookmarks__sort_by_from_filter_overridden_by_relevance` — Filter specifies `sort_by=title`, user provides query without explicit sort → relevance wins
 - Same pattern for notes, prompts, and content endpoints
+
+**MCP sort_by:**
+- `test__mcp_search_items__default_sort_relevance_with_query` — MCP search with query and no explicit sort_by gets relevance-sorted results (not created_at)
+- `test__mcp_search_items__explicit_sort_by_overrides_relevance` — MCP search with explicit `sort_by="created_at"` and query gets created_at-sorted results
 
 ---
 
@@ -651,7 +707,9 @@ The Content MCP server calls the REST API via HTTP. Since FTS is a backend chang
 
 **Milestone 2 (Consolidation):**
 - `backend/src/api/routers/bookmarks.py`, `notes.py`, `prompts.py` — change list endpoints to call `search_all_content()`
-- `backend/src/services/content_service.py` — may need minor adjustments to support single-type usage cleanly
+- `backend/src/api/routers/prompts.py` — update `/export/skills` to use new `PromptService.list_for_export()`
+- `backend/src/services/content_service.py` — add `summary` to `_row_to_content_item()`, fix sort tiebreakers to `(sort_col, type, created_at, id)` for multi-type / `(sort_col, created_at, id)` for single-type
+- `backend/src/services/prompt_service.py` — add `list_for_export()` method returning full ORM Prompt objects
 - `backend/src/services/base_entity_service.py` — remove `search()`, `_build_text_search_filter()`, and related helper methods
 - `backend/src/services/bookmark_service.py`, `note_service.py`, `prompt_service.py` — remove `_build_text_search_filter()`, `_get_sort_columns()`
 - `backend/src/schemas/content.py` — add `summary: str | None = None` to `ContentListItem`
@@ -661,7 +719,7 @@ The Content MCP server calls the REST API via HTTP. Since FTS is a backend chang
 - `backend/src/services/content_service.py` — combined FTS + ILIKE in `_apply_entity_filters()`, combined scoring, empty tsquery guard
 - `backend/src/api/helpers/filter_utils.py` — update `resolve_filter_and_sorting()` to accept `query` param
 - `backend/src/api/routers/bookmarks.py`, `notes.py`, `prompts.py`, `content.py` — add `"relevance"` sort, default `sort_by` to `None`, pass `query` to helper
-- `backend/src/mcp_server/server.py` — update `search_items` description, docstring, and `FastMCP(instructions=...)` to describe combined search behavior
+- `backend/src/mcp_server/server.py` — change `sort_by` default to `None`, add `"relevance"` to sort enum, update `search_items` description/docstring and `FastMCP(instructions=...)` to describe combined search behavior
 - `backend/tests/` — new FTS tests, ILIKE tests, combined scoring tests, relevance sorting tests
 
 **Milestone 4 (Headlines):**
@@ -681,7 +739,7 @@ The Content MCP server calls the REST API via HTTP. Since FTS is a backend chang
 - The `'english'` text search configuration provides stemming. This is intentional for v1.
 - `search_vector` is trigger-maintained, not a generated column. The trigger only recomputes when content fields change. The ELSE branch preserves the old value defensively. SQLAlchemy should not write to this column, but the trigger handles it either way.
 - Every search query runs both FTS and ILIKE in a single OR. There is no sequential fallback — both mechanisms always run together.
-- `ts_rank` output is a float — it's comparable across entities using the same tsvector config and weight scheme. With default normalization (0), values are based on raw frequency and can exceed 1.0 for short keyword-dense documents (see normalization flag 32 in Design Decisions if this becomes an issue). The combined relevance score adds a synthetic ILIKE score to `ts_rank` so that ILIKE-only matches (partial words, code symbols) get meaningful ranking. ILIKE scoring is built per entity type with weights matching the trigger's weight scheme (A=0.8, B=0.4, C=0.1). Filter fields and scoring fields must stay in sync — see step 3 for the `(field, weight)` tuple approach.
+- `ts_rank` output is a float — it's comparable across entities using the same tsvector config and weight scheme. With default normalization (0), values are based on raw frequency and can exceed 1.0 for short keyword-dense documents (see normalization flag 32 in Design Decisions if this becomes an issue). The combined relevance score adds a synthetic ILIKE score to `ts_rank` so that ILIKE-only matches (partial words, code symbols) get meaningful ranking. ILIKE scoring is built per entity type with weights matching the trigger's weight scheme (A=0.8, B=0.4, C=0.1). Filter fields and scoring fields are driven from a single `(field, weight)` tuple config per entity type — see step 3. This is mandatory, not optional.
 - Guard against empty tsquery (all stop words) — return zero results. Without this, the ILIKE side of the OR would match everything for queries like "the".
 - `ts_headline` runs on a concatenation of all searchable fields (not just content) so the snippet reflects whichever field matched. Cap content at 5,000 chars with `func.left()`. For ILIKE-only matches, `ts_headline` still runs but may not produce highlights if the FTS tokenizer didn't recognize the matched term.
 - Existing tests that search for exact substrings should continue to pass because ILIKE still runs alongside FTS. However, result ordering may change due to relevance sorting — tests that assert specific ordering may need updating.
