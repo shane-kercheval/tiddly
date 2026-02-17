@@ -199,7 +199,8 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
     >
       <div
         ref={dialogRef}
-        className="modal-content max-w-sm md:max-w-[720px]"
+        className="modal-content max-w-sm md:max-w-3xl"
+        style={{ height: '85vh', maxHeight: '85vh' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
