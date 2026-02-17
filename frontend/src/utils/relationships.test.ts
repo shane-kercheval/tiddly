@@ -20,10 +20,12 @@ function makeRelWithContent(
     updated_at: '2026-01-01T00:00:00Z',
     source_title: 'Bookmark Title',
     source_url: 'https://example.com',
+    source_prompt_name: null,
     source_deleted: false,
     source_archived: false,
     target_title: 'Note Title',
     target_url: null,
+    target_prompt_name: null,
     target_deleted: false,
     target_archived: false,
     ...overrides,
@@ -51,6 +53,26 @@ describe('getLinkedItem', () => {
     expect(result.id).toBe('bm-1')
     expect(result.title).toBe('Bookmark Title')
     expect(result.url).toBe('https://example.com')
+  })
+
+  it('should return prompt name for prompt relationships', () => {
+    const rel = makeRelWithContent({
+      source_type: 'bookmark',
+      source_id: 'bm-1',
+      target_type: 'prompt',
+      target_id: 'prompt-1',
+      target_prompt_name: 'my-prompt',
+    })
+    const result = getLinkedItem(rel, 'bookmark', 'bm-1')
+
+    expect(result.promptName).toBe('my-prompt')
+  })
+
+  it('should return null promptName for non-prompt relationships', () => {
+    const rel = makeRelWithContent()
+    const result = getLinkedItem(rel, 'bookmark', 'bm-1')
+
+    expect(result.promptName).toBeNull()
   })
 
   it('should preserve description', () => {

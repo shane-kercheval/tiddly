@@ -32,6 +32,7 @@ function makeLinkedItem(overrides: Partial<LinkedItem> = {}): LinkedItem {
     id: 'note-1',
     title: 'Test Item',
     url: null,
+    promptName: null,
     deleted: false,
     archived: false,
     description: null,

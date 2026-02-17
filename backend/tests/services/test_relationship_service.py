@@ -1270,6 +1270,69 @@ class TestEnrichWithContentInfo:
         result = await enrich_with_content_info(db_session, test_user.id, [])
         assert result == []
 
+    @pytest.mark.asyncio
+    async def test__enrich__prompt_name_populated_for_prompts(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, prompt_a: Prompt,
+    ) -> None:
+        """Prompt side has prompt_name set; bookmark side has prompt_name=None."""
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'prompt', prompt_a.id, 'related',
+        )
+        rels, _ = await get_relationships_for_content(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        enriched = await enrich_with_content_info(db_session, test_user.id, rels)
+
+        assert len(enriched) == 1
+        item = enriched[0]
+        # Canonical order: bookmark < prompt, so bookmark=source, prompt=target
+        assert item.source_prompt_name is None
+        assert item.target_prompt_name == 'prompt-a'
+
+    @pytest.mark.asyncio
+    async def test__enrich__prompt_name_null_for_non_prompts(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, note_a: Note,
+    ) -> None:
+        """Bookmark↔note relationship has prompt_name=None on both sides."""
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'note', note_a.id, 'related',
+        )
+        rels, _ = await get_relationships_for_content(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        enriched = await enrich_with_content_info(db_session, test_user.id, rels)
+
+        assert len(enriched) == 1
+        item = enriched[0]
+        assert item.source_prompt_name is None
+        assert item.target_prompt_name is None
+
+    @pytest.mark.asyncio
+    async def test__enrich__prompt_title_and_name_both_populated(
+        self, db_session: AsyncSession, test_user: User,
+        bookmark_a: Bookmark, prompt_a: Prompt,
+    ) -> None:
+        """Prompt with both title and name returns both fields independently."""
+        # prompt_a has title='Prompt A' and name='prompt-a'
+        await create_relationship(
+            db_session, test_user.id,
+            'bookmark', bookmark_a.id, 'prompt', prompt_a.id, 'related',
+        )
+        rels, _ = await get_relationships_for_content(
+            db_session, test_user.id, 'bookmark', bookmark_a.id,
+        )
+        enriched = await enrich_with_content_info(db_session, test_user.id, rels)
+
+        assert len(enriched) == 1
+        item = enriched[0]
+        # Canonical: bookmark=source, prompt=target
+        assert item.target_title == 'Prompt A'
+        assert item.target_prompt_name == 'prompt-a'
+
 
 # ---------------------------------------------------------------------------
 # get_relationships_snapshot

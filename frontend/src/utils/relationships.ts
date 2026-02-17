@@ -9,6 +9,7 @@ export interface LinkedItem {
   id: string
   title: string | null
   url: string | null
+  promptName: string | null
   deleted: boolean
   archived: boolean
   description: string | null
@@ -32,6 +33,7 @@ export function getLinkedItem(
     id: isSelf ? rel.target_id : rel.source_id,
     title: isSelf ? rel.target_title : rel.source_title,
     url: isSelf ? rel.target_url : rel.source_url,
+    promptName: isSelf ? rel.target_prompt_name : rel.source_prompt_name,
     deleted: isSelf ? rel.target_deleted : rel.source_deleted,
     archived: isSelf ? rel.target_archived : rel.source_archived,
     description: rel.description,
