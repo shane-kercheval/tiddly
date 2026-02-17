@@ -715,8 +715,8 @@ export function AllContent(): ReactNode {
 
     return (
       <>
-        {/* Content list */}
-        <div>
+        {/* Content list - reduce side padding on mobile for more card space */}
+        <div className="-mx-2 md:mx-0">
           {items.map((item) => {
             if (item.type === 'bookmark') {
               return (
@@ -811,7 +811,7 @@ export function AllContent(): ReactNode {
   return (
     <div className="pt-4">
       {/* Search and filters */}
-      <div className="mb-6 space-y-3">
+      <div className="mb-3 md:mb-6 space-y-3">
         <SearchFilterBar
           searchInputRef={searchInputRef}
           searchQuery={searchQuery}
