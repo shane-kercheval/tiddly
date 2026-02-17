@@ -370,7 +370,7 @@ createContentComponentTests({
       )
 
       // The fetch metadata button should be visible
-      expect(screen.getByTitle(/fetch metadata/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/fetch metadata/i)).toBeInTheDocument()
     })
   })
 

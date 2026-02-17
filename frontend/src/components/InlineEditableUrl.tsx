@@ -12,6 +12,7 @@
  */
 import { useState, forwardRef, useId } from 'react'
 import type { ChangeEvent, KeyboardEvent } from 'react'
+import { Tooltip } from './ui'
 
 interface InlineEditableUrlProps {
   /** Current URL value */
@@ -34,6 +35,8 @@ interface InlineEditableUrlProps {
   isFetchingMetadata?: boolean
   /** Whether to show fetch success checkmark */
   showFetchSuccess?: boolean
+  /** Error message from a failed metadata fetch */
+  fetchError?: string
 }
 
 /**
@@ -52,6 +55,7 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
       onFetchMetadata,
       isFetchingMetadata = false,
       showFetchSuccess = false,
+      fetchError,
     },
     ref
   ) {
@@ -106,25 +110,34 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
         <div className={containerClasses}>
           {/* Fetch Metadata button */}
           {onFetchMetadata && (
-            <button
-              type="button"
-              onClick={handleFetchClick}
-              disabled={disabled || isFetchingMetadata || !value.trim()}
-              className="shrink-0 p-1.5 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              title="Fetch metadata from URL"
+            <Tooltip
+              content={fetchError && !isFetchingMetadata && !showFetchSuccess ? fetchError : 'Fetch metadata from URL'}
+              compact={!fetchError || isFetchingMetadata || showFetchSuccess}
             >
-              {isFetchingMetadata ? (
-                <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-              ) : showFetchSuccess ? (
-                <svg className="h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              ) : (
-                <svg className="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              )}
-            </button>
+              <button
+                type="button"
+                onClick={handleFetchClick}
+                disabled={disabled || isFetchingMetadata || !value.trim()}
+                className="shrink-0 p-1.5 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                aria-label="Fetch metadata from URL"
+              >
+                {isFetchingMetadata ? (
+                  <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                ) : showFetchSuccess ? (
+                  <svg className="h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : fetchError ? (
+                  <svg className="h-4 w-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                ) : (
+                  <svg className="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                )}
+              </button>
+            </Tooltip>
           )}
 
           {/* URL input */}
