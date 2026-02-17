@@ -86,6 +86,7 @@ export function ArgumentsBuilder({
                     onClick={() => moveArgument(index, 'up')}
                     disabled={index === 0 || disabled}
                     className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                    aria-label={`Move argument ${index + 1} up`}
                   >
                     <ChevronUpIcon className="h-3.5 w-3.5" />
                   </button>
@@ -94,6 +95,7 @@ export function ArgumentsBuilder({
                     onClick={() => moveArgument(index, 'down')}
                     disabled={index === args.length - 1 || disabled}
                     className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                    aria-label={`Move argument ${index + 1} down`}
                   >
                     <ChevronDownIcon className="h-3.5 w-3.5" />
                   </button>

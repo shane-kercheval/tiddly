@@ -92,6 +92,9 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
     }
   }, [])
 
+  // When no content provided, render children directly without wrapper or tooltip behavior
+  if (content == null) return <>{children}</>
+
   const sizeClasses = compact
     ? 'px-2 py-1 whitespace-nowrap'
     : 'px-3 py-2 whitespace-normal max-w-64'

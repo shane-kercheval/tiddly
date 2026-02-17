@@ -38,6 +38,7 @@ function CollapseButton({ isCollapsed, onToggleCollapse }: SidebarUserSectionPro
       <button
         onClick={onToggleCollapse}
         className="hidden md:block p-1.5 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+        aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
         <CollapseIcon className={`h-4 w-4 ${isCollapsed ? 'rotate-180' : ''}`} />
       </button>

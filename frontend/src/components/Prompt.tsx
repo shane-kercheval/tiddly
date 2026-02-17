@@ -874,14 +874,16 @@ export function Prompt({
 
           {/* Preview button - only for saved prompts with arguments, disabled when dirty */}
           {!isCreate && !isReadOnly && prompt && prompt.arguments && prompt.arguments.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setIsPreviewModalOpen(true)}
-              disabled={isSaving || isDirty}
-              className="btn-secondary"
-            >
-              Preview
-            </button>
+            <Tooltip content={isDirty ? 'Save changes before previewing' : null} compact>
+              <button
+                type="button"
+                onClick={() => setIsPreviewModalOpen(true)}
+                disabled={isSaving || isDirty}
+                className="btn-secondary"
+              >
+                Preview
+              </button>
+            </Tooltip>
           )}
         </div>
 

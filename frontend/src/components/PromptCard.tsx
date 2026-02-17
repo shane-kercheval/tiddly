@@ -9,7 +9,7 @@ import type { ReactNode } from 'react'
 import type { PromptListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
-import { CopyContentButton, Tooltip } from './ui'
+import { CopyContentButton } from './ui'
 import { PromptIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
 import { ContentCard } from './ContentCard'
 
@@ -98,11 +98,9 @@ export function PromptCard({
 
           {/* Description */}
           {previewText && (
-            <Tooltip content={previewText} delay={500}>
-              <p className="text-sm text-gray-400 line-clamp-2">
-                {previewText}
-              </p>
-            </Tooltip>
+            <p className="text-sm text-gray-400 line-clamp-2">
+              {previewText}
+            </p>
           )}
 
           {/* Tags row */}
@@ -228,17 +226,9 @@ export function PromptCard({
           {/* Row 3: Description + actions (actions overlay on hover) */}
           <div className="relative mt-1 min-h-[20px]">
             {/* Description fills full width */}
-            {previewText ? (
-              <Tooltip content={previewText} delay={500}>
-                <p className={`text-sm text-gray-400 truncate ${hasActions ? 'pr-0 group-hover:pr-32 transition-[padding] duration-150' : ''}`}>
-                  {previewText}
-                </p>
-              </Tooltip>
-            ) : (
-              <p className={`text-sm text-gray-400 truncate ${hasActions ? 'pr-0 group-hover:pr-32 transition-[padding] duration-150' : ''}`}>
-                {'\u00A0'}
-              </p>
-            )}
+            <p className={`text-sm text-gray-400 truncate ${hasActions ? 'pr-0 group-hover:pr-32 transition-[padding] duration-150' : ''}`}>
+              {previewText || '\u00A0'}
+            </p>
 
             {/* Actions absolutely positioned, appear on hover */}
             {hasActions && (

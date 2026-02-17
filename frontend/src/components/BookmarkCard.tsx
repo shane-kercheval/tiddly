@@ -197,11 +197,9 @@ export function BookmarkCard({
 
           {/* Description or content preview */}
           {(bookmark.description || bookmark.content_preview) && (
-            <Tooltip content={bookmark.description || bookmark.content_preview} delay={500}>
-              <p className="text-sm text-gray-400 line-clamp-2">
-                {bookmark.description || bookmark.content_preview}
-              </p>
-            </Tooltip>
+            <p className="text-sm text-gray-400 line-clamp-2">
+              {bookmark.description || bookmark.content_preview}
+            </p>
           )}
 
           {/* Tags row */}
@@ -393,17 +391,9 @@ export function BookmarkCard({
           {/* Row 3: Description/preview + actions */}
           <div className="relative mt-1 min-h-[20px]">
             {/* Description or content preview fills available width */}
-            {(bookmark.description || bookmark.content_preview) ? (
-              <Tooltip content={bookmark.description || bookmark.content_preview} delay={500}>
-                <p className={`text-sm text-gray-400 truncate ${hasActions ? 'pr-0 group-hover:pr-40 transition-[padding] duration-150' : ''}`}>
-                  {bookmark.description || bookmark.content_preview}
-                </p>
-              </Tooltip>
-            ) : (
-              <p className={`text-sm text-gray-400 truncate ${hasActions ? 'pr-0 group-hover:pr-40 transition-[padding] duration-150' : ''}`}>
-                {'\u00A0'}
-              </p>
-            )}
+            <p className={`text-sm text-gray-400 truncate ${hasActions ? 'pr-0 group-hover:pr-40 transition-[padding] duration-150' : ''}`}>
+              {bookmark.description || bookmark.content_preview || '\u00A0'}
+            </p>
 
             {/* Actions absolutely positioned, appear on hover */}
             {hasActions && (
