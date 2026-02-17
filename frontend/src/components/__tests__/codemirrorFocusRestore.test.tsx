@@ -10,8 +10,9 @@
  * recommended for full confidence.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { renderWithRouter } from '../../test-utils'
 import type { Note as NoteType, TagCount } from '../../types'
 
 // Create a mock CodeMirrorEditor that includes the .cm-editor class
@@ -116,7 +117,7 @@ describe('CodeMirror focus restoration after Cmd+S', () => {
   })
 
   it('should detect when focus is in CodeMirror editor', async () => {
-    render(
+    renderWithRouter(
       <Note
         note={mockNote}
         tagSuggestions={mockTagSuggestions}
@@ -138,7 +139,7 @@ describe('CodeMirror focus restoration after Cmd+S', () => {
   it('should call onSave when Cmd+S is pressed with changes', async () => {
     const user = userEvent.setup()
 
-    render(
+    renderWithRouter(
       <Note
         note={mockNote}
         tagSuggestions={mockTagSuggestions}
@@ -164,7 +165,7 @@ describe('CodeMirror focus restoration after Cmd+S', () => {
   it('should restore focus to CodeMirror after Cmd+S save', async () => {
     const user = userEvent.setup()
 
-    render(
+    renderWithRouter(
       <Note
         note={mockNote}
         tagSuggestions={mockTagSuggestions}

@@ -45,6 +45,7 @@ class ContentListItem(BaseModel):
         return normalize_preview(v)
 
     # Bookmark-specific (None for notes/prompts)
+    summary: str | None = None
     url: str | None = None
 
     # Prompt-specific (None for bookmarks/notes)

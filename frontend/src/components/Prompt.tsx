@@ -38,6 +38,7 @@ import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { usePrompts } from '../hooks/usePrompts'
 import { useRelationshipState } from '../hooks/useRelationshipState'
+import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, RelationshipInputPayload, TagCount } from '../types'
@@ -165,6 +166,10 @@ interface PromptProps {
   onShowHistory?: () => void
   /** Called when a linked content item is clicked for navigation */
   onNavigateToLinked?: (item: LinkedItem) => void
+  /** Pre-populated relationships from navigation state (quick-create linked) */
+  initialRelationships?: RelationshipInputPayload[]
+  /** Pre-populated linked item display cache from navigation state */
+  initialLinkedItems?: LinkedItem[]
 }
 
 /**
@@ -186,6 +191,8 @@ export function Prompt({
   onRefresh,
   onShowHistory,
   onNavigateToLinked,
+  initialRelationships,
+  initialLinkedItems,
 }: PromptProps): ReactNode {
   const isCreate = !prompt
 
@@ -224,7 +231,7 @@ export function Prompt({
       tags: prompt?.tags ?? initialTags ?? [],
       relationships: prompt?.relationships
         ? toRelationshipInputs(prompt.relationships, 'prompt', prompt.id)
-        : [],
+        : (initialRelationships ?? []),
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
     }
@@ -252,6 +259,7 @@ export function Prompt({
     serverRelationships: prompt?.relationships,
     currentRelationships: current.relationships,
     setCurrent,
+    initialLinkedItems,
   })
 
   const syncStateFromPrompt = useCallback((nextPrompt: PromptType, resetEditor = false): void => {
@@ -726,6 +734,13 @@ export function Prompt({
     setCurrent((prev) => ({ ...prev, archivePreset }))
   }, [])
 
+  // Quick-create linked entity navigation
+  const handleQuickCreate = useQuickCreateLinked({
+    contentType: 'prompt',
+    contentId: prompt?.id ?? null,
+    contentTitle: prompt?.title ?? (current.title || null),
+  })
+
   const handleArgumentsChange = useCallback((args: PromptArgument[]): void => {
     setCurrent((prev) => ({ ...prev, arguments: args }))
     setErrors((prev) => (prev.arguments ? { ...prev, arguments: undefined } : prev))
@@ -1071,6 +1086,7 @@ export function Prompt({
                 onNavigate={onNavigateToLinked}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
+                onQuickCreate={handleQuickCreate}
               />
             </div>
           </div>

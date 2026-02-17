@@ -5,10 +5,11 @@
  * plus Prompt-specific tests for unique functionality.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { screen, waitFor, fireEvent } from '@testing-library/react'
 import { useRef } from 'react'
 import userEvent from '@testing-library/user-event'
 import axios from 'axios'
+import { renderWithRouter } from '../test-utils'
 import { Prompt } from './Prompt'
 import { createContentComponentTests } from './__tests__/createContentComponentTests'
 import type { Prompt as PromptType, TagCount } from '../types'
@@ -157,7 +158,7 @@ createContentComponentTests({
 
   describe('name field', () => {
     it('should render prompt name', () => {
-      render(
+      renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -171,7 +172,7 @@ createContentComponentTests({
 
     it('should auto-lowercase name input', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      render(
+      renderWithRouter(
         <Prompt
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -186,7 +187,7 @@ createContentComponentTests({
 
     it('should disable Create button when name format is invalid', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      render(
+      renderWithRouter(
         <Prompt
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -209,7 +210,7 @@ createContentComponentTests({
 
   describe('title field (optional)', () => {
     it('should render prompt title', () => {
-      render(
+      renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -222,7 +223,7 @@ createContentComponentTests({
     })
 
     it('should show title placeholder', () => {
-      render(
+      renderWithRouter(
         <Prompt
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -237,7 +238,7 @@ createContentComponentTests({
   describe('content field (required)', () => {
     it('should require content for new prompts', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      render(
+      renderWithRouter(
         <Prompt
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -259,7 +260,7 @@ createContentComponentTests({
 
   describe('timestamps', () => {
     it('should not show timestamps for new prompt', () => {
-      render(
+      renderWithRouter(
         <Prompt
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -272,7 +273,7 @@ createContentComponentTests({
     })
 
     it('should show timestamps for existing prompt', () => {
-      render(
+      renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -288,7 +289,7 @@ createContentComponentTests({
 
   describe('arguments', () => {
     it('should render arguments builder', () => {
-      render(
+      renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -309,7 +310,7 @@ createContentComponentTests({
         ],
       }
 
-      render(
+      renderWithRouter(
         <Prompt
           prompt={promptWithArgs}
           tagSuggestions={mockTagSuggestions}
@@ -324,7 +325,7 @@ createContentComponentTests({
 
   describe('tags', () => {
     it('should render prompt tags', () => {
-      render(
+      renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -338,7 +339,7 @@ createContentComponentTests({
     })
 
     it('should populate initial tags from props', () => {
-      render(
+      renderWithRouter(
         <Prompt
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -356,7 +357,7 @@ createContentComponentTests({
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockResolvedValue(undefined)
 
-      render(
+      renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -381,7 +382,7 @@ createContentComponentTests({
 
   describe('fullWidth prop', () => {
     it('should apply max-w-4xl when fullWidth is false', () => {
-      const { container } = render(
+      const { container } = renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -395,7 +396,7 @@ createContentComponentTests({
     })
 
     it('should not apply max-w-4xl when fullWidth is true', () => {
-      const { container } = render(
+      const { container } = renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -411,7 +412,7 @@ createContentComponentTests({
 
   describe('prop sync on refresh', () => {
     it('should update internal state when prompt prop updated_at changes', () => {
-      const { rerender } = render(
+      const { rerender } = renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -442,7 +443,7 @@ createContentComponentTests({
 
     it('should not update internal state when prompt prop changes without updated_at change', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const { rerender } = render(
+      const { rerender } = renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -487,7 +488,7 @@ createContentComponentTests({
       }
       mockOnSave.mockRejectedValue(error409)
 
-      const { rerender } = render(
+      const { rerender } = renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -549,7 +550,7 @@ createContentComponentTests({
       }
       const mockOnRefresh = vi.fn().mockResolvedValue(refreshedPrompt)
 
-      render(
+      renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -587,7 +588,7 @@ createContentComponentTests({
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockResolvedValue(undefined)
 
-      render(
+      renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -640,7 +641,7 @@ createContentComponentTests({
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockRejectedValue(create409Error())
 
-      render(
+      renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -668,7 +669,7 @@ createContentComponentTests({
       mockOnSave.mockRejectedValue(create409Error())
       const mockOnRefresh = vi.fn().mockResolvedValue(mockPrompt)
 
-      render(
+      renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -697,7 +698,7 @@ createContentComponentTests({
       // First call rejects with 409, second call succeeds
       mockOnSave.mockRejectedValueOnce(create409Error()).mockResolvedValueOnce(undefined)
 
-      render(
+      renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}
@@ -736,7 +737,7 @@ createContentComponentTests({
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockRejectedValue(create409Error())
 
-      render(
+      renderWithRouter(
         <Prompt
           prompt={mockPrompt}
           tagSuggestions={mockTagSuggestions}

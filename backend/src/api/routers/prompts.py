@@ -51,11 +51,13 @@ from schemas.prompt import (
     PromptResponse,
     PromptUpdate,
 )
+from schemas.content import ContentListItem
 from services.content_edit_service import (
     MultipleMatchesError,
     NoMatchError,
     str_replace,
 )
+from services.content_service import search_all_content
 from services.content_lines import apply_partial_read
 from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
@@ -247,6 +249,25 @@ async def create_prompt(
     return response_data
 
 
+def _content_to_prompt_list_item(item: ContentListItem) -> PromptListItem:
+    """Map unified ContentListItem to PromptListItem."""
+    return PromptListItem(
+        id=item.id,
+        name=item.name or '',
+        title=item.title,
+        description=item.description,
+        arguments=item.arguments or [],
+        tags=item.tags,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        last_used_at=item.last_used_at,
+        deleted_at=item.deleted_at,
+        archived_at=item.archived_at,
+        content_length=item.content_length,
+        content_preview=item.content_preview,
+    )
+
+
 @router.get("/", response_model=PromptListResponse)
 async def list_prompts(
     q: str | None = Query(
@@ -258,10 +279,11 @@ async def list_prompts(
         default="all",
         description="Tag matching mode: 'all' (AND) or 'any' (OR)",
     ),
-    sort_by: Literal["created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at"] | None = \
+    sort_by: Literal["created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at", "relevance"] | None = \
         Query(  # noqa: E501
             default=None,
-            description="Sort field. Takes precedence over filter_id's default.",
+            description="Sort field. Defaults to 'relevance' when q is provided, "
+            "'created_at' otherwise. Takes precedence over filter_id's default.",
         ),
     sort_order: Literal["asc", "desc"] | None = Query(
         default=None,
@@ -280,20 +302,23 @@ async def list_prompts(
     """
     List prompts for the current user with search, filtering, and sorting.
 
-    - **q**: Text search across name, title, description, and content (case-insensitive)
+    - **q**: Full-text + substring search across name, title, description, and content.
+      Supports stemming ("running" matches "runners"), quoted phrases, OR, negation (-term).
+      Partial words and code symbols also match via substring.
     - **tags**: Filter by one or more tags (normalized to lowercase)
     - **tag_match**: 'all' requires prompt to have ALL specified tags, 'any' requires ANY tag
-    - **sort_by**: Sort field. Takes precedence over filter_id's default.
+    - **sort_by**: Sort field. Defaults to relevance when searching.
+      Takes precedence over filter_id's default.
     - **sort_order**: Sort direction. Takes precedence over filter_id's default.
     - **view**: Which prompts to show - 'active' (not deleted/archived), 'archived', or 'deleted'
     - **filter_id**: Filter by content filter (can be combined with tags for additional filtering)
     """
     resolved = await resolve_filter_and_sorting(
-        db, current_user.id, filter_id, sort_by, sort_order,
+        db, current_user.id, filter_id, sort_by, sort_order, query=q,
     )
 
     try:
-        prompts, total = await prompt_service.search(
+        content_items, total = await search_all_content(
             db=db,
             user_id=current_user.id,
             query=q,
@@ -305,11 +330,12 @@ async def list_prompts(
             limit=limit,
             view=view,
             filter_expression=resolved.filter_expression,
+            content_types=["prompt"],
         )
     except ValueError as e:
         # Tag validation errors from validate_and_normalize_tags
         raise HTTPException(status_code=400, detail=str(e))
-    items = [PromptListItem.model_validate(p) for p in prompts]
+    items = [_content_to_prompt_list_item(item) for item in content_items]
     has_more = offset + len(items) < total
     return PromptListResponse(
         items=items,
@@ -604,7 +630,7 @@ async def export_skills(
     offset = 0
 
     while True:
-        prompts, total = await prompt_service.search(
+        prompts, total = await prompt_service.list_for_export(
             db=db,
             user_id=current_user.id,
             tags=tags if tags else None,  # None = no tag filter
@@ -612,7 +638,6 @@ async def export_skills(
             view=view,
             offset=offset,
             limit=EXPORT_PAGE_SIZE,
-            include_content=True,  # Need full content for export
         )
         all_prompts.extend(prompts)
         if len(all_prompts) >= total:

@@ -25,14 +25,16 @@ async def resolve_filter_and_sorting(
     filter_id: UUID | None,
     sort_by: str | None,
     sort_order: Literal["asc", "desc"] | None,
+    query: str | None = None,
 ) -> ResolvedFilter:
     """
     Resolve filter expression and sorting parameters.
 
     Priority order (highest to lowest):
       1. Explicit sort_by/sort_order params (always win if provided)
-      2. Filter's default_sort_by/default_sort_ascending (when filter_id provided)
-      3. Global defaults (created_at desc)
+      2. Query present + no explicit sort → "relevance" (desc)
+      3. Filter's default_sort_by/default_sort_ascending (when filter_id provided)
+      4. Global defaults (created_at desc)
 
     This allows callers to use a filter's tag expression while overriding its
     sort settings with custom sorting.
@@ -41,9 +43,11 @@ async def resolve_filter_and_sorting(
         db: Database session.
         user_id: Current user's ID.
         filter_id: Optional filter UUID.
-        sort_by: Explicit sort field. Overrides filter's default_sort_by if provided.
+        sort_by: Explicit sort field. Overrides filter default and query-based
+            relevance default. If None and query is present, defaults to "relevance".
         sort_order: Explicit sort direction. Overrides filter's default_sort_ascending
             if provided.
+        query: Search query string used to trigger relevance sort default.
 
     Returns:
         ResolvedFilter with filter_expression, sort_by, sort_order, content_types.
@@ -53,6 +57,7 @@ async def resolve_filter_and_sorting(
     """
     filter_expression = None
     content_types = None
+    content_filter = None
 
     if filter_id is not None:
         content_filter = await content_filter_service.get_filter(db, user_id, filter_id)
@@ -62,7 +67,16 @@ async def resolve_filter_and_sorting(
         filter_expression = content_filter.filter_expression
         content_types = content_filter.content_types
 
-        # Use filter's sort defaults if not explicitly provided
+    # Relevance default: query present beats filter's default sort.
+    # Both sort_by and sort_order are set together so a filter's
+    # default_sort_ascending can't leak into relevance sorting.
+    if sort_by is None and query:
+        sort_by = "relevance"
+        if sort_order is None:
+            sort_order = "desc"
+
+    # Use filter's sort defaults if not already resolved
+    if filter_id is not None and content_filter is not None:
         if sort_by is None and content_filter.default_sort_by:
             sort_by = content_filter.default_sort_by
         if sort_order is None and content_filter.default_sort_ascending is not None:

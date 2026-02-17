@@ -27,6 +27,8 @@ interface ContentCardProps {
   view?: ContentCardView
   /** Click handler for the card */
   onClick?: () => void
+  /** Whether to show interactive hover styles (background, rounded corners). Defaults to true. */
+  interactive?: boolean
   /** Card content */
   children: ReactNode
   /** Additional CSS classes */
@@ -36,13 +38,14 @@ interface ContentCardProps {
 function ContentCardBase({
   view = 'active',
   onClick,
+  interactive = true,
   children,
   className = '',
 }: ContentCardProps): ReactNode {
   return (
     <ContentCardContext.Provider value={{ view }}>
       <div
-        className={`card card-interactive group ${onClick ? 'cursor-pointer' : ''} ${className}`.trim()}
+        className={`card ${interactive ? 'card-interactive' : ''} group ${onClick ? 'cursor-pointer' : ''} ${className}`.trim()}
         onClick={onClick}
       >
         <div className="grid grid-cols-[auto_1fr] gap-x-2 items-start">

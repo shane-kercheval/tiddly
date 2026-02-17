@@ -1,18 +1,23 @@
 """Tests for bookmark CRUD endpoints."""
 import asyncio
-from datetime import datetime, UTC
+import time
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
-from httpx import AsyncClient
+from fastapi import HTTPException, status
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.rate_limit_config import RateLimitResult
+from core.tier_limits import Tier, get_tier_limits
 from models.bookmark import Bookmark
 from models.user import User
 from services.url_scraper import ExtractedMetadata, ScrapedPage
 
-from tests.api.conftest import add_consent_for_user
+from tests.api.conftest import create_user2_client
 
 
 async def test_create_bookmark(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -72,8 +77,6 @@ async def test_create_bookmark_with_future_archived_at(
     client: AsyncClient,
 ) -> None:
     """Test creating a bookmark with a scheduled auto-archive date."""
-    from datetime import timedelta
-
     future_date = (datetime.now(UTC) + timedelta(days=7)).isoformat()
 
     response = await client.post(
@@ -95,8 +98,6 @@ async def test_create_bookmark_with_future_archived_at(
 
 async def test_update_bookmark_set_archived_at(client: AsyncClient) -> None:
     """Test updating a bookmark to schedule auto-archive."""
-    from datetime import timedelta
-
     # Create a bookmark
     create_response = await client.post(
         "/bookmarks/",
@@ -117,8 +118,6 @@ async def test_update_bookmark_set_archived_at(client: AsyncClient) -> None:
 
 async def test_update_bookmark_clear_archived_at(client: AsyncClient) -> None:
     """Test clearing a scheduled archive date by setting archived_at to null."""
-    from datetime import timedelta
-
     # Create a bookmark with scheduled archive
     future_date = (datetime.now(UTC) + timedelta(days=7)).isoformat()
     create_response = await client.post(
@@ -538,8 +537,6 @@ async def test_update_bookmark_partial(client: AsyncClient) -> None:
 
 async def test_update_bookmark_updates_updated_at(client: AsyncClient) -> None:
     """Test that updating a bookmark updates the updated_at timestamp."""
-    import asyncio
-
     # Create a bookmark
     create_response = await client.post(
         "/bookmarks/",
@@ -585,8 +582,6 @@ async def test_create_bookmark_invalid_url(client: AsyncClient) -> None:
 
 async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
     """Test that title exceeding max length returns 400."""
-    from core.tier_limits import Tier, get_tier_limits
-
     limits = get_tier_limits(Tier.FREE)
     long_title = "a" * (limits.max_title_length + 1)
 
@@ -600,8 +595,6 @@ async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
 
 async def test_create_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
     """Test that description exceeding max length returns 400."""
-    from core.tier_limits import Tier, get_tier_limits
-
     limits = get_tier_limits(Tier.FREE)
     long_description = "a" * (limits.max_description_length + 1)
 
@@ -615,8 +608,6 @@ async def test_create_bookmark_description_exceeds_max_length(client: AsyncClien
 
 async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
     """Test that content exceeding max length returns 400."""
-    from core.tier_limits import Tier, get_tier_limits
-
     limits = get_tier_limits(Tier.FREE)
     long_content = "a" * (limits.max_bookmark_content_length + 1)
 
@@ -630,8 +621,6 @@ async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient) -
 
 async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
     """Test that updating with title exceeding max length returns 400."""
-    from core.tier_limits import Tier, get_tier_limits
-
     # Create a valid bookmark first
     create_response = await client.post(
         "/bookmarks/",
@@ -654,8 +643,6 @@ async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
 
 async def test_update_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
     """Test that updating with description exceeding max length returns 400."""
-    from core.tier_limits import Tier, get_tier_limits
-
     # Create a valid bookmark first
     create_response = await client.post(
         "/bookmarks/",
@@ -678,8 +665,6 @@ async def test_update_bookmark_description_exceeds_max_length(client: AsyncClien
 
 async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
     """Test that updating with content exceeding max length returns 400."""
-    from core.tier_limits import Tier, get_tier_limits
-
     # Create a valid bookmark first
     create_response = await client.post(
         "/bookmarks/",
@@ -702,8 +687,6 @@ async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -
 
 async def test_create_bookmark_fields_at_max_length_succeeds(client: AsyncClient) -> None:
     """Test that fields exactly at max length are accepted."""
-    from core.tier_limits import Tier, get_tier_limits
-
     limits = get_tier_limits(Tier.FREE)
 
     response = await client.post(
@@ -810,9 +793,6 @@ async def test_search_by_content(
     db_session: AsyncSession,
 ) -> None:
     """Test text search finds bookmarks by content field."""
-    from models.bookmark import Bookmark
-    from sqlalchemy import select
-
     # First make an API call to ensure dev user exists
     await client.post(
         "/bookmarks/",
@@ -1030,8 +1010,6 @@ async def test_search_and_tag_filter_combined(client: AsyncClient) -> None:
 
 async def test_sort_by_created_at_desc(client: AsyncClient) -> None:
     """Test sorting by created_at descending (default)."""
-    import asyncio
-
     await client.post(
         "/bookmarks/",
         json={"url": "https://sort1.com", "title": "First Created"},
@@ -1052,8 +1030,6 @@ async def test_sort_by_created_at_desc(client: AsyncClient) -> None:
 
 async def test_sort_by_created_at_asc(client: AsyncClient) -> None:
     """Test sorting by created_at ascending."""
-    import asyncio
-
     await client.post(
         "/bookmarks/",
         json={"url": "https://sortasc1.com", "title": "First Created ASC"},
@@ -1294,9 +1270,6 @@ async def test_search_by_summary(
     db_session: AsyncSession,
 ) -> None:
     """Test text search finds bookmarks by summary field (Phase 2 preparation)."""
-    from models.bookmark import Bookmark
-    from sqlalchemy import select
-
     # First make an API call to ensure dev user exists
     await client.post(
         "/bookmarks/",
@@ -1322,6 +1295,142 @@ async def test_search_by_summary(
     response = await client.get("/bookmarks/?q=unique-summary-term")
     assert response.status_code == 200
     assert response.json()["total"] == 1
+
+
+# =============================================================================
+# View Filtering Tests
+# =============================================================================
+
+
+async def test__list_bookmarks__view_active_excludes_deleted(client: AsyncClient) -> None:
+    """Active view excludes deleted bookmarks."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://active.com"})
+    r2 = await client.post("/bookmarks/", json={"url": "https://deleted.com"})
+    await client.delete(f"/bookmarks/{r2.json()['id']}")
+
+    response = await client.get("/bookmarks/")
+    ids = {item["id"] for item in response.json()["items"]}
+    assert r1.json()["id"] in ids
+    assert r2.json()["id"] not in ids
+
+
+async def test__list_bookmarks__view_active_excludes_archived(client: AsyncClient) -> None:
+    """Active view excludes archived bookmarks."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://active.com"})
+    r2 = await client.post("/bookmarks/", json={"url": "https://archived.com"})
+    await client.post(f"/bookmarks/{r2.json()['id']}/archive")
+
+    response = await client.get("/bookmarks/")
+    ids = {item["id"] for item in response.json()["items"]}
+    assert r1.json()["id"] in ids
+    assert r2.json()["id"] not in ids
+
+
+async def test__list_bookmarks__view_archived_returns_only_archived(client: AsyncClient) -> None:
+    """Archived view returns only archived (not deleted) bookmarks."""
+    await client.post("/bookmarks/", json={"url": "https://active.com"})
+    r2 = await client.post("/bookmarks/", json={"url": "https://archived.com"})
+    r3 = await client.post("/bookmarks/", json={"url": "https://deleted.com"})
+    await client.post(f"/bookmarks/{r2.json()['id']}/archive")
+    await client.delete(f"/bookmarks/{r3.json()['id']}")
+
+    response = await client.get("/bookmarks/?view=archived")
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["id"] == r2.json()["id"]
+
+
+async def test__list_bookmarks__view_deleted_returns_all_deleted(client: AsyncClient) -> None:
+    """Deleted view returns all deleted bookmarks including archived+deleted."""
+    await client.post("/bookmarks/", json={"url": "https://active.com"})
+    r2 = await client.post("/bookmarks/", json={"url": "https://deleted.com"})
+    r3 = await client.post("/bookmarks/", json={"url": "https://archived-then-deleted.com"})
+    await client.post(f"/bookmarks/{r3.json()['id']}/archive")
+    await client.delete(f"/bookmarks/{r2.json()['id']}")
+    await client.delete(f"/bookmarks/{r3.json()['id']}")
+
+    response = await client.get("/bookmarks/?view=deleted")
+    ids = {item["id"] for item in response.json()["items"]}
+    assert len(ids) == 2
+    assert r2.json()["id"] in ids
+    assert r3.json()["id"] in ids
+
+
+async def test__list_bookmarks__view_with_query_filter(client: AsyncClient) -> None:
+    """Text search works together with view filtering."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://a.com", "title": "Python Guide"})
+    await client.post("/bookmarks/", json={"url": "https://b.com", "title": "Python Tutorial"})
+    await client.post(f"/bookmarks/{r1.json()['id']}/archive")
+
+    # archived Python bookmark
+    response = await client.get("/bookmarks/?q=python&view=archived")
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["title"] == "Python Guide"
+
+
+# =============================================================================
+# Sort by updated_at and last_used_at Tests
+# =============================================================================
+
+
+async def test__list_bookmarks__sort_by_updated_at_desc(client: AsyncClient) -> None:
+    """Sorting by updated_at descending returns most recently modified first."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://first.com"})
+    await asyncio.sleep(0.05)
+    r2 = await client.post("/bookmarks/", json={"url": "https://second.com"})
+    await asyncio.sleep(0.05)
+    # Update first bookmark to make it most recently modified
+    update_resp = await client.patch(f"/bookmarks/{r1.json()['id']}", json={"title": "Updated"})
+    assert update_resp.status_code == 200
+
+    response = await client.get("/bookmarks/?sort_by=updated_at&sort_order=desc")
+    items = response.json()["items"]
+    assert items[0]["id"] == r1.json()["id"]
+    assert items[1]["id"] == r2.json()["id"]
+
+
+async def test__list_bookmarks__sort_by_updated_at_asc(client: AsyncClient) -> None:
+    """Sorting by updated_at ascending returns least recently modified first."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://first.com"})
+    await asyncio.sleep(0.05)
+    r2 = await client.post("/bookmarks/", json={"url": "https://second.com"})
+    await asyncio.sleep(0.05)
+    update_resp = await client.patch(f"/bookmarks/{r1.json()['id']}", json={"title": "Updated"})
+    assert update_resp.status_code == 200
+
+    response = await client.get("/bookmarks/?sort_by=updated_at&sort_order=asc")
+    items = response.json()["items"]
+    assert items[0]["id"] == r2.json()["id"]
+    assert items[1]["id"] == r1.json()["id"]
+
+
+async def test__list_bookmarks__sort_by_last_used_at_desc(client: AsyncClient) -> None:
+    """Sorting by last_used_at descending returns most recently used first."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://first.com"})
+    await asyncio.sleep(0.01)
+    r2 = await client.post("/bookmarks/", json={"url": "https://second.com"})
+    await asyncio.sleep(0.01)
+    # Track usage on first bookmark
+    await client.post(f"/bookmarks/{r1.json()['id']}/track-usage")
+
+    response = await client.get("/bookmarks/?sort_by=last_used_at&sort_order=desc")
+    items = response.json()["items"]
+    assert items[0]["id"] == r1.json()["id"]
+    assert items[1]["id"] == r2.json()["id"]
+
+
+async def test__list_bookmarks__sort_by_last_used_at_asc(client: AsyncClient) -> None:
+    """Sorting by last_used_at ascending returns least recently used first."""
+    r1 = await client.post("/bookmarks/", json={"url": "https://first.com"})
+    await asyncio.sleep(0.01)
+    r2 = await client.post("/bookmarks/", json={"url": "https://second.com"})
+    await asyncio.sleep(0.01)
+    await client.post(f"/bookmarks/{r1.json()['id']}/track-usage")
+
+    response = await client.get("/bookmarks/?sort_by=last_used_at&sort_order=asc")
+    items = response.json()["items"]
+    assert items[0]["id"] == r2.json()["id"]
+    assert items[1]["id"] == r1.json()["id"]
 
 
 # =============================================================================
@@ -1515,10 +1624,6 @@ async def test_fetch_metadata_requires_auth(client: AsyncClient) -> None:
 
 async def test_fetch_metadata_rate_limited(rate_limit_client: AsyncClient) -> None:
     """Test that fetch-metadata endpoint returns 429 when rate limit exceeded."""
-    import time
-
-    from core.rate_limit_config import RateLimitResult
-
     mock_scraped = ScrapedPage(
         text=None,
         metadata=ExtractedMetadata(title='Test', description=None),
@@ -1561,17 +1666,13 @@ async def test_fetch_metadata_rate_limited(rate_limit_client: AsyncClient) -> No
 
 async def test_fetch_metadata_rejects_pat_tokens(db_session: AsyncSession) -> None:
     """Test that fetch-metadata endpoint rejects PAT tokens with 403."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport, AsyncClient
-
+    # Deferred imports: these trigger module-level get_settings() which requires
+    # DATABASE_URL, only available at runtime via the database_url fixture.
     from api.dependencies import get_current_user_auth0_only
     from api.main import app
     from db.session import get_async_session
 
     # Override get_current_user_auth0_only to simulate PAT rejection
-    from fastapi import HTTPException, status
-
     async def mock_auth0_only_reject_pat() -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1741,8 +1842,6 @@ async def test_different_users_can_have_same_url(
     db_session: AsyncSession,
 ) -> None:
     """Test that different users can bookmark the same URL."""
-    from models.bookmark import Bookmark
-
     # Create bookmark via API (dev user)
     response = await client.post(
         "/bookmarks/",
@@ -1902,16 +2001,6 @@ async def test_user_cannot_see_other_users_bookmarks_in_list(
     db_session: AsyncSession,
 ) -> None:
     """Test that a user's bookmark list only shows their own bookmarks."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a bookmark as the dev user
     response = await client.post(
         "/bookmarks/",
@@ -1920,36 +2009,8 @@ async def test_user_cannot_see_other_users_bookmarks_in_list(
     assert response.status_code == 201
     user1_bookmark_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-isolation-test", email="user2@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    # Clear settings cache and set up overrides for non-dev mode
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    # Make request as user2 with their PAT
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-isolation-test', 'user2@example.com',
     ) as user2_client:
         # List bookmarks as user2 - should not see user1's bookmark
         response = await user2_client.get("/bookmarks/")
@@ -1957,24 +2018,12 @@ async def test_user_cannot_see_other_users_bookmarks_in_list(
         bookmark_ids = [b["id"] for b in response.json()["items"]]
         assert user1_bookmark_id not in bookmark_ids
 
-    app.dependency_overrides.clear()
-
 
 async def test_user_cannot_get_other_users_bookmark_by_id(
     client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
     """Test that a user cannot access another user's bookmark by ID (returns 404)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a bookmark as the dev user
     response = await client.post(
         "/bookmarks/",
@@ -1983,41 +2032,13 @@ async def test_user_cannot_get_other_users_bookmark_by_id(
     assert response.status_code == 201
     user1_bookmark_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-get-test", email="user2-get@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-get-test', 'user2-get@example.com',
     ) as user2_client:
         # Try to get user1's bookmark - should get 404, not 403
         response = await user2_client.get(f"/bookmarks/{user1_bookmark_id}")
         assert response.status_code == 404
         assert response.json()["detail"] == "Bookmark not found"
-
-    app.dependency_overrides.clear()
 
 
 async def test_user_cannot_update_other_users_bookmark(
@@ -2025,16 +2046,6 @@ async def test_user_cannot_update_other_users_bookmark(
     db_session: AsyncSession,
 ) -> None:
     """Test that a user cannot update another user's bookmark (returns 404)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a bookmark as the dev user
     response = await client.post(
         "/bookmarks/",
@@ -2043,34 +2054,8 @@ async def test_user_cannot_update_other_users_bookmark(
     assert response.status_code == 201
     user1_bookmark_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-update-test", email="user2-update@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-update-test', 'user2-update@example.com',
     ) as user2_client:
         # Try to update user1's bookmark - should get 404
         response = await user2_client.patch(
@@ -2079,8 +2064,6 @@ async def test_user_cannot_update_other_users_bookmark(
         )
         assert response.status_code == 404
         assert response.json()["detail"] == "Bookmark not found"
-
-    app.dependency_overrides.clear()
 
     # Verify the bookmark was not modified via database query
     result = await db_session.execute(
@@ -2095,16 +2078,6 @@ async def test_user_cannot_delete_other_users_bookmark(
     db_session: AsyncSession,
 ) -> None:
     """Test that a user cannot delete another user's bookmark (returns 404)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a bookmark as the dev user
     response = await client.post(
         "/bookmarks/",
@@ -2113,41 +2086,13 @@ async def test_user_cannot_delete_other_users_bookmark(
     assert response.status_code == 201
     user1_bookmark_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-delete-test", email="user2-delete@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-delete-test', 'user2-delete@example.com',
     ) as user2_client:
         # Try to delete user1's bookmark - should get 404
         response = await user2_client.delete(f"/bookmarks/{user1_bookmark_id}")
         assert response.status_code == 404
         assert response.json()["detail"] == "Bookmark not found"
-
-    app.dependency_overrides.clear()
 
     # Verify the bookmark still exists via database query
     result = await db_session.execute(
@@ -2163,16 +2108,6 @@ async def test_user_cannot_str_replace_other_users_bookmark(
     db_session: AsyncSession,
 ) -> None:
     """Test that a user cannot str-replace another user's bookmark (returns 404)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a bookmark as the dev user with content
     response = await client.post(
         "/bookmarks/",
@@ -2185,34 +2120,8 @@ async def test_user_cannot_str_replace_other_users_bookmark(
     assert response.status_code == 201
     user1_bookmark_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-str-replace-test", email="user2-str-replace@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-str-replace-test', 'user2-str-replace@example.com',
     ) as user2_client:
         # Try to str-replace user1's bookmark - should get 404
         response = await user2_client.patch(
@@ -2221,8 +2130,6 @@ async def test_user_cannot_str_replace_other_users_bookmark(
         )
         assert response.status_code == 404
         assert response.json()["detail"] == "Bookmark not found"
-
-    app.dependency_overrides.clear()
 
     # Verify the bookmark content was not modified via database query
     result = await db_session.execute(
@@ -2507,8 +2414,6 @@ async def test_list_bookmarks_filter_id_empty_results(client: AsyncClient) -> No
 
 async def test_sort_by_archived_at_desc(client: AsyncClient) -> None:
     """Test sorting by archived_at descending (most recently archived first)."""
-    import asyncio
-
     # Create two bookmarks
     response = await client.post(
         "/bookmarks/",
@@ -2544,8 +2449,6 @@ async def test_sort_by_archived_at_desc(client: AsyncClient) -> None:
 
 async def test_sort_by_archived_at_asc(client: AsyncClient) -> None:
     """Test sorting by archived_at ascending (least recently archived first)."""
-    import asyncio
-
     # Create two bookmarks
     response = await client.post(
         "/bookmarks/",
@@ -2581,8 +2484,6 @@ async def test_sort_by_archived_at_asc(client: AsyncClient) -> None:
 
 async def test_sort_by_deleted_at_desc(client: AsyncClient) -> None:
     """Test sorting by deleted_at descending (most recently deleted first)."""
-    import asyncio
-
     # Create two bookmarks
     response = await client.post(
         "/bookmarks/",
@@ -2618,8 +2519,6 @@ async def test_sort_by_deleted_at_desc(client: AsyncClient) -> None:
 
 async def test_sort_by_deleted_at_asc(client: AsyncClient) -> None:
     """Test sorting by deleted_at ascending (least recently deleted first)."""
-    import asyncio
-
     # Create two bookmarks
     response = await client.post(
         "/bookmarks/",

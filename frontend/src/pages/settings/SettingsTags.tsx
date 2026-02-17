@@ -217,8 +217,8 @@ function TagRow({
 export function SettingsTags(): ReactNode {
   const { tags, isLoading, renameTag, deleteTag, fetchTags } = useTagsStore()
   const fetchFilters = useFiltersStore((state) => state.fetchFilters)
-  const renameTagInFilter = useTagFilterStore((state) => state.renameTag)
-  const removeTagFromFilter = useTagFilterStore((state) => state.removeTag)
+  const renameTagInFilter = useTagFilterStore((state) => state.renameTagAllViews)
+  const removeTagFromFilter = useTagFilterStore((state) => state.removeTagAllViews)
   const [editingState, setEditingState] = useState<EditingState | null>(null)
   const [sortOption, setSortOption] = useState<TagSortOption>('name-asc')
   const [activeTagsPage, setActiveTagsPage] = useState(1)

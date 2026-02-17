@@ -46,6 +46,8 @@ from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
 from services.relationship_service import embed_relationships
 from services.history_service import history_service
+from schemas.content import ContentListItem
+from services.content_service import search_all_content
 from services.note_service import NoteService
 from models.content_history import ActionType, EntityType
 
@@ -70,6 +72,23 @@ async def create_note(
     return response_data
 
 
+def _content_to_note_list_item(item: ContentListItem) -> NoteListItem:
+    """Map unified ContentListItem to NoteListItem."""
+    return NoteListItem(
+        id=item.id,
+        title=item.title,
+        description=item.description,
+        tags=item.tags,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        last_used_at=item.last_used_at,
+        deleted_at=item.deleted_at,
+        archived_at=item.archived_at,
+        content_length=item.content_length,
+        content_preview=item.content_preview,
+    )
+
+
 @router.get("/", response_model=NoteListResponse)
 async def list_notes(
     q: str | None = Query(
@@ -81,10 +100,11 @@ async def list_notes(
         default="all",
         description="Tag matching mode: 'all' (AND) or 'any' (OR)",
     ),
-    sort_by: Literal["created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at"] | None = \
+    sort_by: Literal["created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at", "relevance"] | None = \
         Query(  # noqa: E501
             default=None,
-            description="Sort field. Takes precedence over filter_id's default.",
+            description="Sort field. Defaults to 'relevance' when q is provided, "
+            "'created_at' otherwise. Takes precedence over filter_id's default.",
         ),
     sort_order: Literal["asc", "desc"] | None = Query(
         default=None,
@@ -103,20 +123,23 @@ async def list_notes(
     """
     List notes for the current user with search, filtering, and sorting.
 
-    - **q**: Text search across title, description, and content (case-insensitive)
+    - **q**: Full-text + substring search across title, description, and content.
+      Supports stemming ("running" matches "runners"), quoted phrases, OR, negation (-term).
+      Partial words and code symbols also match via substring.
     - **tags**: Filter by one or more tags (normalized to lowercase)
     - **tag_match**: 'all' requires note to have ALL specified tags, 'any' requires ANY tag
-    - **sort_by**: Sort field. Takes precedence over filter_id's default.
+    - **sort_by**: Sort field. Defaults to relevance when searching.
+      Takes precedence over filter_id's default.
     - **sort_order**: Sort direction. Takes precedence over filter_id's default.
     - **view**: Which notes to show - 'active' (not deleted/archived), 'archived', or 'deleted'
     - **filter_id**: Filter by content filter (can be combined with tags for additional filtering)
     """
     resolved = await resolve_filter_and_sorting(
-        db, current_user.id, filter_id, sort_by, sort_order,
+        db, current_user.id, filter_id, sort_by, sort_order, query=q,
     )
 
     try:
-        notes, total = await note_service.search(
+        content_items, total = await search_all_content(
             db=db,
             user_id=current_user.id,
             query=q,
@@ -128,11 +151,12 @@ async def list_notes(
             limit=limit,
             view=view,
             filter_expression=resolved.filter_expression,
+            content_types=["note"],
         )
     except ValueError as e:
         # Tag validation errors from validate_and_normalize_tags
         raise HTTPException(status_code=422, detail=str(e))
-    items = [NoteListItem.model_validate(n) for n in notes]
+    items = [_content_to_note_list_item(item) for item in content_items]
     has_more = offset + len(items) < total
     return NoteListResponse(
         items=items,

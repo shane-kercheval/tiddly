@@ -952,3 +952,79 @@ async def test__list_all_content__filter_id_content_types_intersects_query_param
     # Intersection is empty, so no items should be returned
     assert data['total'] == 0
     assert data['items'] == []
+
+
+# =============================================================================
+# Individual vs Unified Endpoint Equivalence
+# =============================================================================
+
+
+async def test__list_bookmarks__same_results_as_unified(
+    client: AsyncClient,
+) -> None:
+    """GET /bookmarks/ returns the same items as GET /content/?content_types=bookmark."""
+    await client.post('/bookmarks/', json={'url': 'https://test1.com', 'title': 'Test Bookmark 1'})
+    await client.post('/bookmarks/', json={'url': 'https://test2.com', 'title': 'Test Bookmark 2'})
+    await client.post('/notes/', json={'title': 'A Note'})
+
+    bookmarks_resp = await client.get('/bookmarks/')
+    content_resp = await client.get('/content/?content_types=bookmark')
+
+    bookmark_ids = {item['id'] for item in bookmarks_resp.json()['items']}
+    content_ids = {item['id'] for item in content_resp.json()['items']}
+
+    assert bookmark_ids == content_ids
+    assert bookmarks_resp.json()['total'] == content_resp.json()['total']
+
+
+async def test__list_notes__same_results_as_unified(
+    client: AsyncClient,
+) -> None:
+    """GET /notes/ returns the same items as GET /content/?content_types=note."""
+    await client.post('/notes/', json={'title': 'Test Note 1'})
+    await client.post('/notes/', json={'title': 'Test Note 2'})
+    await client.post('/bookmarks/', json={'url': 'https://test.com'})
+
+    notes_resp = await client.get('/notes/')
+    content_resp = await client.get('/content/?content_types=note')
+
+    note_ids = {item['id'] for item in notes_resp.json()['items']}
+    content_ids = {item['id'] for item in content_resp.json()['items']}
+
+    assert note_ids == content_ids
+    assert notes_resp.json()['total'] == content_resp.json()['total']
+
+
+async def test__list_prompts__same_results_as_unified(
+    client: AsyncClient,
+) -> None:
+    """GET /prompts/ returns the same items as GET /content/?content_types=prompt."""
+    await client.post('/prompts/', json={'name': 'test-prompt-1', 'content': 'Content 1'})
+    await client.post('/prompts/', json={'name': 'test-prompt-2', 'content': 'Content 2'})
+    await client.post('/notes/', json={'title': 'A Note'})
+
+    prompts_resp = await client.get('/prompts/')
+    content_resp = await client.get('/content/?content_types=prompt')
+
+    prompt_ids = {item['id'] for item in prompts_resp.json()['items']}
+    content_ids = {item['id'] for item in content_resp.json()['items']}
+
+    assert prompt_ids == content_ids
+    assert prompts_resp.json()['total'] == content_resp.json()['total']
+
+
+async def test__list_bookmarks__search_same_results_as_unified(
+    client: AsyncClient,
+) -> None:
+    """Text search through individual endpoint matches unified endpoint."""
+    await client.post('/bookmarks/', json={'url': 'https://test.com', 'title': 'Searchable Test'})
+    await client.post('/bookmarks/', json={'url': 'https://other.com', 'title': 'Other Bookmark'})
+    await client.post('/notes/', json={'title': 'Searchable Test Note'})
+
+    bookmarks_resp = await client.get('/bookmarks/?q=searchable')
+    content_resp = await client.get('/content/?q=searchable&content_types=bookmark')
+
+    bookmark_ids = {item['id'] for item in bookmarks_resp.json()['items']}
+    content_ids = {item['id'] for item in content_resp.json()['items']}
+
+    assert bookmark_ids == content_ids

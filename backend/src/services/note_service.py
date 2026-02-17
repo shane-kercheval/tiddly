@@ -1,9 +1,8 @@
 """Service layer for note CRUD operations."""
 import logging
-from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, func, or_
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.request_context import RequestContext
@@ -37,27 +36,6 @@ class NoteService(BaseEntityService[Note]):
     def entity_type(self) -> EntityType:
         """Return the EntityType for notes."""
         return EntityType.NOTE
-
-    def _build_text_search_filter(self, pattern: str) -> list:
-        """Build text search filter for note fields."""
-        return [
-            or_(
-                Note.title.ilike(pattern),
-                Note.description.ilike(pattern),
-                Note.content.ilike(pattern),
-            ),
-        ]
-
-    def _get_sort_columns(self) -> dict[str, ColumnElement[Any]]:
-        """Get sort columns for notes."""
-        return {
-            "created_at": Note.created_at,
-            "updated_at": Note.updated_at,
-            "last_used_at": Note.last_used_at,
-            "title": func.lower(Note.title),
-            "archived_at": Note.archived_at,
-            "deleted_at": Note.deleted_at,
-        }
 
     def _validate_field_limits(
         self,

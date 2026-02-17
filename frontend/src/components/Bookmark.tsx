@@ -35,6 +35,7 @@ import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useRelationshipState } from '../hooks/useRelationshipState'
+import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount } from '../types'
@@ -112,6 +113,10 @@ interface BookmarkProps {
   onShowHistory?: () => void
   /** Called when a linked content item is clicked for navigation */
   onNavigateToLinked?: (item: LinkedItem) => void
+  /** Pre-populated relationships from navigation state (quick-create linked) */
+  initialRelationships?: RelationshipInputPayload[]
+  /** Pre-populated linked item display cache from navigation state */
+  initialLinkedItems?: LinkedItem[]
 }
 
 /**
@@ -146,6 +151,8 @@ export function Bookmark({
   onRefresh,
   onShowHistory,
   onNavigateToLinked,
+  initialRelationships,
+  initialLinkedItems,
 }: BookmarkProps): ReactNode {
   const isCreate = !bookmark
 
@@ -175,7 +182,7 @@ export function Bookmark({
       tags: bookmark?.tags ?? initialTags ?? [],
       relationships: bookmark?.relationships
         ? toRelationshipInputs(bookmark.relationships, 'bookmark', bookmark.id)
-        : [],
+        : (initialRelationships ?? []),
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
     }
@@ -201,6 +208,7 @@ export function Bookmark({
     serverRelationships: bookmark?.relationships,
     currentRelationships: current.relationships,
     setCurrent,
+    initialLinkedItems,
   })
 
   const syncStateFromBookmark = useCallback(
@@ -698,6 +706,14 @@ export function Bookmark({
     setCurrent((prev) => ({ ...prev, archivePreset }))
   }, [])
 
+  // Quick-create linked entity navigation
+  const handleQuickCreate = useQuickCreateLinked({
+    contentType: 'bookmark',
+    contentId: bookmark?.id ?? null,
+    contentTitle: bookmark?.title ?? (current.title || null),
+    contentUrl: bookmark?.url ?? (current.url || null),
+  })
+
   // Conflict resolution handlers
   const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
     const refreshed = await onRefresh?.()
@@ -1017,6 +1033,7 @@ export function Bookmark({
                 onNavigate={onNavigateToLinked}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
+                onQuickCreate={handleQuickCreate}
               />
             </div>
           </div>

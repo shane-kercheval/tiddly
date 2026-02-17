@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.base import ArchivableMixin, Base, TimestampMixin, UUIDv7Mixin
@@ -40,6 +41,11 @@ class Bookmark(Base, UUIDv7Mixin, TimestampMixin, ArchivableMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # AI-generated (Phase 2)
+
+    # Trigger-maintained tsvector for full-text search (see migration for trigger definition)
+    search_vector: Mapped[str | None] = mapped_column(
+        TSVECTOR, nullable=True, default=None, deferred=True,
+    )
 
     # Usage tracking timestamp (defaults to current time on creation)
     last_used_at: Mapped[datetime] = mapped_column(

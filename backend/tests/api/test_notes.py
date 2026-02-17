@@ -8,9 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.note import Note
-from models.user import User
 
-from tests.api.conftest import add_consent_for_user
+from tests.api.conftest import create_user2_client
 
 
 # =============================================================================
@@ -626,6 +625,154 @@ async def test_list_notes_sort_by_created_at(client: AsyncClient) -> None:
     assert response.status_code == 200
     titles = [item["title"] for item in response.json()["items"]]
     assert titles == ["Third", "Second", "First"]
+
+
+# =============================================================================
+# View Filtering Tests
+# =============================================================================
+
+
+async def test__list_notes__view_active_excludes_deleted(client: AsyncClient) -> None:
+    """Active view excludes deleted notes."""
+    r1 = await client.post("/notes/", json={"title": "Active Note"})
+    r2 = await client.post("/notes/", json={"title": "Deleted Note"})
+    await client.delete(f"/notes/{r2.json()['id']}")
+
+    response = await client.get("/notes/")
+    ids = {item["id"] for item in response.json()["items"]}
+    assert r1.json()["id"] in ids
+    assert r2.json()["id"] not in ids
+
+
+async def test__list_notes__view_active_excludes_archived(client: AsyncClient) -> None:
+    """Active view excludes archived notes."""
+    r1 = await client.post("/notes/", json={"title": "Active Note"})
+    r2 = await client.post("/notes/", json={"title": "Archived Note"})
+    await client.post(f"/notes/{r2.json()['id']}/archive")
+
+    response = await client.get("/notes/")
+    ids = {item["id"] for item in response.json()["items"]}
+    assert r1.json()["id"] in ids
+    assert r2.json()["id"] not in ids
+
+
+async def test__list_notes__view_archived_returns_only_archived(client: AsyncClient) -> None:
+    """Archived view returns only archived (not deleted) notes."""
+    await client.post("/notes/", json={"title": "Active Note"})
+    r2 = await client.post("/notes/", json={"title": "Archived Note"})
+    r3 = await client.post("/notes/", json={"title": "Deleted Note"})
+    await client.post(f"/notes/{r2.json()['id']}/archive")
+    await client.delete(f"/notes/{r3.json()['id']}")
+
+    response = await client.get("/notes/?view=archived")
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["id"] == r2.json()["id"]
+
+
+async def test__list_notes__view_deleted_returns_all_deleted(client: AsyncClient) -> None:
+    """Deleted view returns all deleted notes including archived+deleted."""
+    await client.post("/notes/", json={"title": "Active Note"})
+    r2 = await client.post("/notes/", json={"title": "Deleted Note"})
+    r3 = await client.post("/notes/", json={"title": "Archived Then Deleted"})
+    await client.post(f"/notes/{r3.json()['id']}/archive")
+    await client.delete(f"/notes/{r2.json()['id']}")
+    await client.delete(f"/notes/{r3.json()['id']}")
+
+    response = await client.get("/notes/?view=deleted")
+    ids = {item["id"] for item in response.json()["items"]}
+    assert len(ids) == 2
+    assert r2.json()["id"] in ids
+    assert r3.json()["id"] in ids
+
+
+async def test__list_notes__view_with_query_filter(client: AsyncClient) -> None:
+    """Text search works together with view filtering."""
+    r1 = await client.post("/notes/", json={"title": "Python Guide"})
+    await client.post("/notes/", json={"title": "Python Tutorial"})
+    await client.post(f"/notes/{r1.json()['id']}/archive")
+
+    response = await client.get("/notes/?q=python&view=archived")
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["title"] == "Python Guide"
+
+
+# =============================================================================
+# Sort by updated_at and last_used_at Tests
+# =============================================================================
+
+
+async def test__list_notes__sort_by_updated_at_desc(client: AsyncClient) -> None:
+    """Sorting by updated_at descending returns most recently modified first."""
+    r1 = await client.post("/notes/", json={"title": "First Note"})
+    await asyncio.sleep(0.01)
+    r2 = await client.post("/notes/", json={"title": "Second Note"})
+    await asyncio.sleep(0.01)
+    await client.patch(f"/notes/{r1.json()['id']}", json={"title": "Updated Note"})
+
+    response = await client.get("/notes/?sort_by=updated_at&sort_order=desc")
+    items = response.json()["items"]
+    assert items[0]["id"] == r1.json()["id"]
+    assert items[1]["id"] == r2.json()["id"]
+
+
+async def test__list_notes__sort_by_last_used_at_desc(client: AsyncClient) -> None:
+    """Sorting by last_used_at descending returns most recently used first."""
+    r1 = await client.post("/notes/", json={"title": "First Note"})
+    await asyncio.sleep(0.01)
+    r2 = await client.post("/notes/", json={"title": "Second Note"})
+    await asyncio.sleep(0.01)
+    await client.post(f"/notes/{r1.json()['id']}/track-usage")
+
+    response = await client.get("/notes/?sort_by=last_used_at&sort_order=desc")
+    items = response.json()["items"]
+    assert items[0]["id"] == r1.json()["id"]
+    assert items[1]["id"] == r2.json()["id"]
+
+
+# =============================================================================
+# Text Search Field Coverage
+# =============================================================================
+
+
+async def test__list_notes__text_search_in_title(client: AsyncClient) -> None:
+    """Text search matches notes by title."""
+    await client.post("/notes/", json={"title": "Python Tutorial"})
+    await client.post("/notes/", json={"title": "JavaScript Guide"})
+
+    response = await client.get("/notes/?q=python")
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["title"] == "Python Tutorial"
+
+
+async def test__list_notes__text_search_in_description(client: AsyncClient) -> None:
+    """Text search matches notes by description."""
+    await client.post("/notes/", json={"title": "Note 1", "description": "About Python"})
+    await client.post("/notes/", json={"title": "Note 2", "description": "About JavaScript"})
+
+    response = await client.get("/notes/?q=python")
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["title"] == "Note 1"
+
+
+async def test__list_notes__text_search_in_content(client: AsyncClient) -> None:
+    """Text search matches notes by content."""
+    await client.post("/notes/", json={"title": "Note 1", "content": "Contains searchterm here"})
+    await client.post("/notes/", json={"title": "Note 2", "content": "Nothing relevant"})
+
+    response = await client.get("/notes/?q=searchterm")
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["title"] == "Note 1"
+
+
+async def test__list_notes__text_search_case_insensitive(client: AsyncClient) -> None:
+    """Text search is case insensitive."""
+    await client.post("/notes/", json={"title": "PYTHON Tutorial"})
+    await client.post("/notes/", json={"title": "JavaScript Guide"})
+
+    response = await client.get("/notes/?q=python")
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["title"] == "PYTHON Tutorial"
 
 
 # =============================================================================
@@ -1766,16 +1913,6 @@ async def test_user_cannot_str_replace_other_users_note(
     db_session: AsyncSession,
 ) -> None:
     """Test that a user cannot str-replace another user's note (returns 404)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from services.token_service import create_token
-    from schemas.token import TokenCreate
-
     # Create a note as the dev user with content
     response = await client.post(
         "/notes/",
@@ -1787,34 +1924,8 @@ async def test_user_cannot_str_replace_other_users_note(
     assert response.status_code == 201
     user1_note_id = response.json()["id"]
 
-    # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-note-str-replace-test", email="user2-note-str-replace@example.com")
-    db_session.add(user2)
-    await db_session.flush()
-
-    # Add consent for user2 (required when dev_mode=False)
-    await add_consent_for_user(db_session, user2)
-
-    _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
-    )
-    await db_session.flush()
-
-    get_settings.cache_clear()
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {user2_token}"},
+    async with create_user2_client(
+        db_session, 'auth0|user2-note-str-replace-test', 'user2-note-str-replace@example.com',
     ) as user2_client:
         # Try to str-replace user1's note - should get 404
         response = await user2_client.patch(
@@ -1824,14 +1935,95 @@ async def test_user_cannot_str_replace_other_users_note(
         assert response.status_code == 404
         assert response.json()["detail"] == "Note not found"
 
-    app.dependency_overrides.clear()
-
     # Verify the note content was not modified via database query
     result = await db_session.execute(
         select(Note).where(Note.id == user1_note_id),
     )
     note = result.scalar_one()
     assert note.content == "Original content that should not be modified"
+
+
+async def test_user_cannot_see_other_users_notes_in_list(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user's note list only shows their own notes."""
+    response = await client.post("/notes/", json={"title": "User 1 Private Note"})
+    assert response.status_code == 201
+    user1_note_id = response.json()["id"]
+
+    async with create_user2_client(
+        db_session, 'auth0|user2-note-list-test', 'user2-note-list@example.com',
+    ) as user2_client:
+        response = await user2_client.get("/notes/")
+        assert response.status_code == 200
+        note_ids = [n["id"] for n in response.json()["items"]]
+        assert user1_note_id not in note_ids
+
+
+async def test_user_cannot_get_other_users_note_by_id(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot access another user's note by ID (returns 404)."""
+    response = await client.post("/notes/", json={"title": "User 1 Note"})
+    assert response.status_code == 201
+    user1_note_id = response.json()["id"]
+
+    async with create_user2_client(
+        db_session, 'auth0|user2-note-get-test', 'user2-note-get@example.com',
+    ) as user2_client:
+        response = await user2_client.get(f"/notes/{user1_note_id}")
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Note not found"
+
+
+async def test_user_cannot_update_other_users_note(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot update another user's note (returns 404)."""
+    response = await client.post("/notes/", json={"title": "Original Title"})
+    assert response.status_code == 201
+    user1_note_id = response.json()["id"]
+
+    async with create_user2_client(
+        db_session, 'auth0|user2-note-update-test', 'user2-note-update@example.com',
+    ) as user2_client:
+        response = await user2_client.patch(
+            f"/notes/{user1_note_id}",
+            json={"title": "Hacked Title"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Note not found"
+
+    result = await db_session.execute(
+        select(Note).where(Note.id == user1_note_id),
+    )
+    note = result.scalar_one()
+    assert note.title == "Original Title"
+
+
+async def test_user_cannot_delete_other_users_note(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that a user cannot delete another user's note (returns 404)."""
+    response = await client.post("/notes/", json={"title": "User 1 Note"})
+    assert response.status_code == 201
+    user1_note_id = response.json()["id"]
+
+    async with create_user2_client(
+        db_session, 'auth0|user2-note-delete-test', 'user2-note-delete@example.com',
+    ) as user2_client:
+        response = await user2_client.delete(f"/notes/{user1_note_id}")
+        assert response.status_code == 404
+
+    result = await db_session.execute(
+        select(Note).where(Note.id == user1_note_id),
+    )
+    note = result.scalar_one()
+    assert note.deleted_at is None
 
 
 # =============================================================================

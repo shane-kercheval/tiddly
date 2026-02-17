@@ -112,7 +112,7 @@ async def profile_notes(
     # Search
     await profile_and_save(
         client, "GET", "/notes/",
-        params={"query": "profile"},
+        params={"q": "profile"},
         name="search_notes",
         content_size_kb=content_size_kb,
     )
@@ -219,7 +219,7 @@ async def profile_bookmarks(
     # Search
     await profile_and_save(
         client, "GET", "/bookmarks/",
-        params={"query": "profile"},
+        params={"q": "profile"},
         name="search_bookmarks",
         content_size_kb=content_size_kb,
     )
@@ -326,7 +326,7 @@ async def profile_prompts(
     # Search
     await profile_and_save(
         client, "GET", "/prompts/",
-        params={"query": "profile"},
+        params={"q": "profile"},
         name="search_prompts",
         content_size_kb=content_size_kb,
     )
@@ -394,6 +394,29 @@ async def profile_prompts(
         created_ids.remove(("prompt", prompt_id))
 
 
+async def profile_content(
+    client: AsyncClient,
+    content_size_kb: int,
+) -> None:
+    """Profile unified content endpoint operations."""
+    print("\n--- Content (Unified) ---")
+
+    # List
+    await profile_and_save(
+        client, "GET", "/content/",
+        name="list_content",
+        content_size_kb=content_size_kb,
+    )
+
+    # Search
+    await profile_and_save(
+        client, "GET", "/content/",
+        params={"q": "profile"},
+        name="search_content",
+        content_size_kb=content_size_kb,
+    )
+
+
 async def cleanup(client: AsyncClient, created_ids: list[tuple[str, str]]) -> None:
     """Clean up any created items."""
     if not created_ids:
@@ -435,7 +458,7 @@ async def main(content_size_kb: int, entity: str | None) -> None:
             # overhead (~20-30ms) that skews results
             print("\nWarming up ORM models...", end=" ", flush=True)
             await client.get("/health")
-            for endpoint in ["/notes/", "/bookmarks/", "/prompts/"]:
+            for endpoint in ["/notes/", "/bookmarks/", "/prompts/", "/content/"]:
                 await client.get(endpoint, params={"limit": 1})
             print("done")
 
@@ -448,6 +471,9 @@ async def main(content_size_kb: int, entity: str | None) -> None:
 
             if entity is None or entity == "prompts":
                 await profile_prompts(client, content_size_kb, created_ids)
+
+            if entity is None or entity == "content":
+                await profile_content(client, content_size_kb)
 
         finally:
             await cleanup(client, created_ids)
@@ -465,7 +491,7 @@ if __name__ == "__main__":
         help="Content size in KB (default: 1)",
     )
     parser.add_argument(
-        "--entity", choices=["notes", "bookmarks", "prompts"],
+        "--entity", choices=["notes", "bookmarks", "prompts", "content"],
         help="Profile only this entity type (default: all)",
     )
     args = parser.parse_args()

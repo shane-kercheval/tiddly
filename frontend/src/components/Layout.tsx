@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { Sidebar } from './sidebar'
 import { ShortcutsDialog } from './ShortcutsDialog'
+import { CommandPalette } from './CommandPalette'
 import { Footer } from './Footer'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useSidebarStore } from '../stores/sidebarStore'
@@ -20,6 +21,7 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
  * - Fetch shared data (sidebar, filters, tags) once on mount
  * - Render sidebar and main content area
  * - Handle global keyboard shortcuts
+ * - Render command palette overlay
  */
 /** Tailwind md breakpoint */
 const MD_BREAKPOINT = 768
@@ -42,6 +44,19 @@ export function Layout(): ReactNode {
   const hasFetchedRef = useRef(false)
   const historySidebarOpen = useHistorySidebarStore((state) => state.isOpen)
   const historySidebarWidth = useHistorySidebarStore((state) => state.width)
+
+  // Command palette state
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [paletteInitialView, setPaletteInitialView] = useState<'commands' | 'search'>('commands')
+
+  const openPalette = useCallback((view: 'commands' | 'search') => {
+    setPaletteInitialView(view)
+    setPaletteOpen(true)
+  }, [])
+
+  const closePalette = useCallback(() => {
+    setPaletteOpen(false)
+  }, [])
 
   // Fetch shared data once on mount (used by Sidebar and child pages)
   useEffect(() => {
@@ -74,6 +89,8 @@ export function Layout(): ReactNode {
     onShowShortcuts: () => setShowShortcuts(true),
     onToggleSidebar: toggleSidebar,
     onToggleWidth: toggleFullWidthLayout,
+    onFocusSearch: () => openPalette('search'),
+    onCommandPalette: () => openPalette('commands'),
     onToggleHistorySidebar: isDetailPage
       ? () => toggleHistorySidebar(!historySidebarOpen)
       : undefined,
@@ -95,7 +112,7 @@ export function Layout(): ReactNode {
 
   return (
     <div className="flex h-dvh bg-white overflow-hidden">
-      <Sidebar />
+      <Sidebar onOpenPalette={() => openPalette('commands')} />
       {/* Note: id="main-content" is used by SaveOverlay.tsx for portal rendering */}
       <main
         id="main-content"
@@ -110,6 +127,7 @@ export function Layout(): ReactNode {
         {showFooter && <Footer />}
       </main>
       <ShortcutsDialog isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      <CommandPalette isOpen={paletteOpen} initialView={paletteInitialView} onClose={closePalette} onShowShortcuts={() => setShowShortcuts(true)} />
     </div>
   )
 }

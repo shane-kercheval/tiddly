@@ -117,8 +117,8 @@ export function AllContent(): ReactNode {
 
   // Tag filters from global store
   const {
-    selectedTags,
-    tagMatch,
+    getSelectedTags,
+    getTagMatch,
     addTag,
     removeTag,
     setTagMatch,
@@ -127,6 +127,11 @@ export function AllContent(): ReactNode {
 
   // Route-based view and filter ID
   const { currentView, currentFilterId } = useContentView('/app/content')
+
+  // View key for tag filters (same logic as content type filter key)
+  const tagFilterViewKey = currentFilterId !== undefined ? `filter:${currentFilterId}` : currentView
+  const selectedTags = getSelectedTags(tagFilterViewKey)
+  const tagMatch = getTagMatch(tagFilterViewKey)
 
   // Get current filter data for custom filters
   const { filters } = useFiltersStore()
@@ -186,17 +191,6 @@ export function AllContent(): ReactNode {
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
-    onNewBookmark: () => {
-      if (currentView === 'active') {
-        navigate('/app/bookmarks/new', {
-          state: {
-            ...createReturnState(),
-            initialTags: initialTagsFromFilter,
-          },
-        })
-      }
-    },
-    onFocusSearch: () => searchInputRef.current?.focus(),
     onEscape: () => {
       if (document.activeElement === searchInputRef.current) {
         searchInputRef.current?.blur()
@@ -264,32 +258,32 @@ export function AllContent(): ReactNode {
   const handleTagClick = useCallback(
     (tag: string) => {
       if (!selectedTags.includes(tag)) {
-        addTag(tag)
+        addTag(tagFilterViewKey, tag)
         updateParams({ offset: 0 })
       }
     },
-    [selectedTags, addTag, updateParams]
+    [selectedTags, addTag, tagFilterViewKey, updateParams]
   )
 
   const handleRemoveTag = useCallback(
     (tagToRemove: string) => {
-      removeTag(tagToRemove)
+      removeTag(tagFilterViewKey, tagToRemove)
       updateParams({ offset: 0 })
     },
-    [removeTag, updateParams]
+    [removeTag, tagFilterViewKey, updateParams]
   )
 
   const handleTagMatchChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
-      setTagMatch(e.target.value as 'all' | 'any')
+      setTagMatch(tagFilterViewKey, e.target.value as 'all' | 'any')
     },
-    [setTagMatch]
+    [setTagMatch, tagFilterViewKey]
   )
 
   const handleClearTagFilters = useCallback(() => {
-    clearTagFilters()
+    clearTagFilters(tagFilterViewKey)
     updateParams({ offset: 0 })
-  }, [clearTagFilters, updateParams])
+  }, [clearTagFilters, tagFilterViewKey, updateParams])
 
   const handleSortChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {

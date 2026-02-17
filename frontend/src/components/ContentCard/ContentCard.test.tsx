@@ -61,6 +61,18 @@ describe('ContentCard', () => {
       const card = container.querySelector('.card')
       expect(card).toHaveClass('custom-class')
     })
+
+    it('should not apply card-interactive when interactive is false', () => {
+      const { container } = render(
+        <ContentCard interactive={false}>
+          <span>Content</span>
+        </ContentCard>
+      )
+
+      const card = container.querySelector('.card')
+      expect(card).toBeInTheDocument()
+      expect(card).not.toHaveClass('card-interactive')
+    })
   })
 
   describe('click behavior', () => {

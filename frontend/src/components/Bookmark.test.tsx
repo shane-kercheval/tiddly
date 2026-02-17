@@ -5,10 +5,11 @@
  * plus Bookmark-specific tests for unique functionality.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { screen, waitFor, fireEvent } from '@testing-library/react'
 import { useRef } from 'react'
 import userEvent from '@testing-library/user-event'
 import axios from 'axios'
+import { renderWithRouter } from '../test-utils'
 import { Bookmark } from './Bookmark'
 import { createContentComponentTests } from './__tests__/createContentComponentTests'
 import type { Bookmark as BookmarkType, TagCount } from '../types'
@@ -180,7 +181,7 @@ createContentComponentTests({
 
   describe('URL field', () => {
     it('should render bookmark URL', () => {
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -193,7 +194,7 @@ createContentComponentTests({
     })
 
     it('should show URL placeholder for new bookmark', () => {
-      render(
+      renderWithRouter(
         <Bookmark
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -206,7 +207,7 @@ createContentComponentTests({
 
     it('should detect URL change as dirty', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -223,7 +224,7 @@ createContentComponentTests({
 
     it('should enable Create button when URL is entered for new bookmark', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      render(
+      renderWithRouter(
         <Bookmark
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -244,7 +245,7 @@ createContentComponentTests({
 
   describe('timestamps', () => {
     it('should not show timestamps for new bookmark', () => {
-      render(
+      renderWithRouter(
         <Bookmark
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -257,7 +258,7 @@ createContentComponentTests({
     })
 
     it('should show timestamps for existing bookmark', () => {
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -274,7 +275,7 @@ createContentComponentTests({
 
   describe('description field', () => {
     it('should render bookmark description', () => {
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -289,7 +290,7 @@ createContentComponentTests({
 
   describe('tags', () => {
     it('should render bookmark tags', () => {
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -303,7 +304,7 @@ createContentComponentTests({
     })
 
     it('should populate initial tags from props', () => {
-      render(
+      renderWithRouter(
         <Bookmark
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -316,7 +317,7 @@ createContentComponentTests({
     })
 
     it('should populate initial URL from props', () => {
-      render(
+      renderWithRouter(
         <Bookmark
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -334,7 +335,7 @@ createContentComponentTests({
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockResolvedValue(undefined)
 
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -359,7 +360,7 @@ createContentComponentTests({
 
   describe('fetch metadata', () => {
     it('should show fetch metadata button when onFetchMetadata is provided', () => {
-      render(
+      renderWithRouter(
         <Bookmark
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -375,7 +376,7 @@ createContentComponentTests({
 
   describe('archive scheduling', () => {
     it('should show archive schedule section for existing bookmarks', () => {
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -391,7 +392,7 @@ createContentComponentTests({
 
   describe('fullWidth prop', () => {
     it('should apply max-w-4xl when fullWidth is false', () => {
-      const { container } = render(
+      const { container } = renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -405,7 +406,7 @@ createContentComponentTests({
     })
 
     it('should not apply max-w-4xl when fullWidth is true', () => {
-      const { container } = render(
+      const { container } = renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -421,7 +422,7 @@ createContentComponentTests({
 
   describe('prop sync on refresh', () => {
     it('should update internal state when bookmark prop updated_at changes', () => {
-      const { rerender } = render(
+      const { rerender } = renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -452,7 +453,7 @@ createContentComponentTests({
 
     it('should not update internal state when bookmark prop changes without updated_at change', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const { rerender } = render(
+      const { rerender } = renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -497,7 +498,7 @@ createContentComponentTests({
       }
       mockOnSave.mockRejectedValue(error409)
 
-      const { rerender } = render(
+      const { rerender } = renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -559,7 +560,7 @@ createContentComponentTests({
       }
       const mockOnRefresh = vi.fn().mockResolvedValue(refreshedBookmark)
 
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -597,7 +598,7 @@ createContentComponentTests({
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockResolvedValue(undefined)
 
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -650,7 +651,7 @@ createContentComponentTests({
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockRejectedValue(create409Error())
 
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -678,7 +679,7 @@ createContentComponentTests({
       mockOnSave.mockRejectedValue(create409Error())
       const mockOnRefresh = vi.fn().mockResolvedValue(mockBookmark)
 
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -707,7 +708,7 @@ createContentComponentTests({
       // First call rejects with 409, second call succeeds
       mockOnSave.mockRejectedValueOnce(create409Error()).mockResolvedValueOnce(undefined)
 
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}
@@ -746,7 +747,7 @@ createContentComponentTests({
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockRejectedValue(create409Error())
 
-      render(
+      renderWithRouter(
         <Bookmark
           bookmark={mockBookmark}
           tagSuggestions={mockTagSuggestions}

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.base import ArchivableMixin, Base, TimestampMixin, UUIDv7Mixin
@@ -46,6 +46,11 @@ class Prompt(Base, UUIDv7Mixin, TimestampMixin, ArchivableMixin):
         JSONB,
         nullable=False,
         server_default="[]",
+    )
+
+    # Trigger-maintained tsvector for full-text search (see migration for trigger definition)
+    search_vector: Mapped[str | None] = mapped_column(
+        TSVECTOR, nullable=True, default=None, deferred=True,
     )
 
     # Usage tracking timestamp (defaults to current time on creation)

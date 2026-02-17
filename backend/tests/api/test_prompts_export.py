@@ -268,17 +268,17 @@ async def test__export_skills__pagination(client: AsyncClient) -> None:
     for i in range(7):
         await _create_prompt(client, f"paginated-{i}", f"Content {i}")
 
-    original_search = prompts_router.prompt_service.search
+    original_list_for_export = prompts_router.prompt_service.list_for_export
     call_count = 0
 
-    async def tracking_search(*args: Any, **kwargs: Any) -> Any:
+    async def tracking_list_for_export(*args: Any, **kwargs: Any) -> Any:
         nonlocal call_count
         call_count += 1
-        return await original_search(*args, **kwargs)
+        return await original_list_for_export(*args, **kwargs)
 
     with (
         patch.object(prompts_router, "EXPORT_PAGE_SIZE", 3),
-        patch.object(prompts_router.prompt_service, "search", tracking_search),
+        patch.object(prompts_router.prompt_service, "list_for_export", tracking_list_for_export),
     ):
         response = await client.get("/prompts/export/skills?client=claude-code")
 

@@ -28,7 +28,8 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useHistorySidebarStore } from '../stores/historySidebarStore'
-import type { Prompt as PromptType, PromptCreate, PromptUpdate } from '../types'
+import type { Prompt as PromptType, PromptCreate, PromptUpdate, RelationshipInputPayload } from '../types'
+import type { LinkedItem } from '../utils/relationships'
 
 type PromptViewState = 'active' | 'archived' | 'deleted'
 
@@ -64,8 +65,15 @@ export function PromptDetail(): ReactNode {
   const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
 
   // Get navigation state
-  const locationState = location.state as { initialTags?: string[]; prompt?: PromptType } | undefined
-  const { selectedTags } = useTagFilterStore()
+  const locationState = location.state as {
+    initialTags?: string[]
+    prompt?: PromptType
+    initialRelationships?: RelationshipInputPayload[]
+    initialLinkedItems?: LinkedItem[]
+    returnTo?: string
+  } | undefined
+  // Pre-populate tags from the 'active' view (most common originating context)
+  const selectedTags = useTagFilterStore((state) => state.getSelectedTags('active'))
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
   // Prompt passed via navigation state (used after create to avoid refetch)
   const passedPrompt = locationState?.prompt
@@ -171,9 +179,10 @@ export function PromptDetail(): ReactNode {
         try {
           const createdPrompt = await createMutation.mutateAsync(data as PromptCreate)
           // Navigate to the new prompt's URL, passing the prompt to avoid refetch
+          // Preserve returnTo so Close still navigates back to the source entity (e.g. quick-create flow)
           navigate(`/app/prompts/${createdPrompt.id}`, {
             replace: true,
-            state: { prompt: createdPrompt },
+            state: { prompt: createdPrompt, returnTo: locationState?.returnTo },
           })
         } catch (err) {
           handleNameConflict(err)
@@ -201,7 +210,7 @@ export function PromptDetail(): ReactNode {
         }
       }
     },
-    [isCreate, promptId, createMutation, updateMutation, navigate, queryClient]
+    [isCreate, promptId, createMutation, updateMutation, navigate, queryClient, locationState?.returnTo]
   )
 
   const handleArchive = useCallback(async (): Promise<void> => {
@@ -299,6 +308,8 @@ export function PromptDetail(): ReactNode {
         isSaving={createMutation.isPending}
         initialTags={initialTags}
         fullWidth={fullWidthLayout}
+        initialRelationships={locationState?.initialRelationships}
+        initialLinkedItems={locationState?.initialLinkedItems}
       />
     )
   }

@@ -314,6 +314,58 @@ describe('BookmarkCard', () => {
 
       expect(onEdit).not.toHaveBeenCalled()
     })
+
+    it('calls onClick instead of onEdit when both are provided', async () => {
+      const onClick = vi.fn()
+      const onEdit = vi.fn()
+      const user = userEvent.setup()
+
+      const { container } = render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          onDelete={vi.fn()}
+          onClick={onClick}
+          onEdit={onEdit}
+        />
+      )
+
+      const card = container.querySelector('.card')
+      await user.click(card!)
+
+      expect(onClick).toHaveBeenCalledWith(mockBookmark)
+      expect(onEdit).not.toHaveBeenCalled()
+    })
+
+    it('calls onClick when provided without onEdit', async () => {
+      const onClick = vi.fn()
+      const user = userEvent.setup()
+
+      const { container } = render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          onClick={onClick}
+        />
+      )
+
+      const card = container.querySelector('.card')
+      await user.click(card!)
+
+      expect(onClick).toHaveBeenCalledWith(mockBookmark)
+    })
+
+    it('does not show action buttons when only onClick is provided', () => {
+      render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          onClick={vi.fn()}
+        />
+      )
+
+      // No action buttons should be rendered (delete, archive, copy, etc.)
+      expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /archive/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /copy url/i })).not.toBeInTheDocument()
+    })
   })
 
   describe('tag clicks', () => {

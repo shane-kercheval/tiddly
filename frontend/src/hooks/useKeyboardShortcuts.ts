@@ -6,8 +6,6 @@ import { isValidUrl } from '../utils'
 
 /** Callback functions for keyboard shortcuts */
 interface KeyboardShortcutHandlers {
-  /** Called when 'b' is pressed (new bookmark) */
-  onNewBookmark?: () => void
   /** Called when '/' is pressed (focus search) */
   onFocusSearch?: () => void
   /** Called when Escape is pressed (close modal) */
@@ -22,6 +20,8 @@ interface KeyboardShortcutHandlers {
   onToggleSidebar?: () => void
   /** Called when Cmd/Ctrl + Shift + \ is pressed (toggle history sidebar) */
   onToggleHistorySidebar?: () => void
+  /** Called when Cmd/Ctrl + Shift + P is pressed (command palette) */
+  onCommandPalette?: () => void
 }
 
 /**
@@ -44,11 +44,11 @@ function isInputFocused(): boolean {
  * Hook for global keyboard shortcuts.
  *
  * Shortcuts:
- * - `b` - New bookmark (when not typing)
  * - `/` - Focus search (when not typing)
  * - `w` - Toggle content width (when not typing)
  * - `Escape` - Close modal
  * - `Cmd/Ctrl + /` - Show shortcuts dialog
+ * - `Cmd/Ctrl + Shift + P` - Command palette (works even when typing)
  * - `Cmd/Ctrl + \` - Toggle sidebar
  * - `Cmd/Ctrl + Shift + \` - Toggle history sidebar
  * - `Cmd/Ctrl + V` - Paste URL to create bookmark (when not in input)
@@ -56,7 +56,6 @@ function isInputFocused(): boolean {
  * Usage:
  * ```tsx
  * useKeyboardShortcuts({
- *   onNewBookmark: () => setShowAddModal(true),
  *   onFocusSearch: () => searchInputRef.current?.focus(),
  *   onToggleWidth: () => toggleFullWidthLayout(),
  *   onToggleSidebar: () => toggleSidebar(),
@@ -73,6 +72,13 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
       if ((event.metaKey || event.ctrlKey) && event.key === '/') {
         event.preventDefault()
         handlers.onShowShortcuts?.()
+        return
+      }
+
+      // Cmd/Ctrl + Shift + P - Command palette (works even when typing)
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'p') {
+        event.preventDefault()
+        handlers.onCommandPalette?.()
         return
       }
 
@@ -99,13 +105,6 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
 
       // Skip other shortcuts if user is typing in an input
       if (isInputFocused()) {
-        return
-      }
-
-      // b - New bookmark (without modifier)
-      if (event.key === 'b' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-        event.preventDefault()
-        handlers.onNewBookmark?.()
         return
       }
 

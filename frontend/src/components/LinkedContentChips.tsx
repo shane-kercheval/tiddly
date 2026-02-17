@@ -11,7 +11,7 @@
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo } from 'react'
 import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
 import { useContentSearch } from '../hooks/useContentSearch'
-import { LinkIcon } from './icons'
+import { LinkIcon, PlusIcon } from './icons'
 import { Tooltip } from './ui'
 import { CONTENT_TYPE_ICONS, CONTENT_TYPE_LABELS, CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import type { ContentListItem, ContentType } from '../types'
@@ -30,12 +30,23 @@ interface LinkedContentChipsProps {
   disabled?: boolean
   /** Whether to show the inline add button (default: true). Set false when using an external trigger. */
   showAddButton?: boolean
+  /** Called when user clicks a quick-create button (+N/+B/+P). Only shown for saved entities. */
+  onQuickCreate?: (targetType: ContentType) => void
 }
 
 /** Exposed methods via ref */
 export interface LinkedContentChipsHandle {
   /** Programmatically enter add mode (for external trigger buttons) */
   startAdding: () => void
+}
+
+/** Resolve display title: use URL hostname for untitled bookmarks, else 'Untitled' */
+function getDisplayTitle(title: string | null, type: string, url?: string | null): string {
+  if (title) return title
+  if (type === 'bookmark' && url) {
+    try { return new URL(url).hostname } catch { /* fall through */ }
+  }
+  return 'Untitled'
 }
 
 /** Chip style per content type: light background + text color + border */
@@ -55,6 +66,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     onNavigate,
     disabled,
     showAddButton = true,
+    onQuickCreate,
   }: LinkedContentChipsProps,
   ref: Ref<LinkedContentChipsHandle>,
 ): ReactNode {
@@ -177,7 +189,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
         const Icon = CONTENT_TYPE_ICONS[item.type]
         const typeLabel = CONTENT_TYPE_LABELS[item.type]
         const chipStyle = CHIP_STYLES[item.type]
-        const displayTitle = item.title ?? 'Untitled'
+        const displayTitle = getDisplayTitle(item.title, item.type, item.url)
 
         const chipContent = (
           <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-px text-xs font-normal border ${chipStyle} ${item.deleted ? 'opacity-60' : ''} ${item.archived ? 'opacity-60' : ''}`}>
@@ -191,20 +203,29 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
         // Use a stable key: relationshipId if it exists, otherwise target_type:target_id
         const key = item.relationshipId || `${item.type}:${item.id}`
 
+        // Tooltip: show full title, or URL for bookmarks without title
+        const tooltipText = item.title || (item.type === 'bookmark' ? item.url : null)
+
+        const chipWithAction = onNavigate && !item.deleted ? (
+          <button
+            type="button"
+            onClick={() => onNavigate(item)}
+            className="cursor-pointer"
+            aria-label={`Go to ${typeLabel}: ${displayTitle}`}
+          >
+            {chipContent}
+          </button>
+        ) : (
+          chipContent
+        )
+
         return (
           <div key={key} className="group/link relative inline-flex items-baseline">
-            {onNavigate && !item.deleted ? (
-              <button
-                type="button"
-                onClick={() => onNavigate(item)}
-                className="cursor-pointer"
-                aria-label={`Go to ${typeLabel}: ${displayTitle}`}
-              >
-                {chipContent}
-              </button>
-            ) : (
-              chipContent
-            )}
+            {tooltipText ? (
+              <Tooltip content={tooltipText}>
+                {chipWithAction}
+              </Tooltip>
+            ) : chipWithAction}
 
             {/* Remove button -- top-right circle, like Tag */}
             {!disabled && (
@@ -231,9 +252,9 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
         )
       })}
 
-      {/* Inline search input (shown when in add mode) */}
+      {/* Inline search + quick-create widget (shown when in add mode) */}
       {isAdding && !disabled && (
-        <div className="relative">
+        <div className="relative inline-flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-md px-1.5 py-0.5 focus-within:border-gray-400 focus-within:ring-1 focus-within:ring-gray-400/20">
           <input
             ref={inputRef}
             type="text"
@@ -246,8 +267,32 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
             aria-controls="linked-content-listbox"
             aria-autocomplete="list"
             aria-activedescendant={highlightedIndex >= 0 ? `linked-content-option-${highlightedIndex}` : undefined}
-            className="min-w-[120px] w-36 text-xs px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400/20"
+            className="min-w-[100px] w-32 text-xs bg-transparent outline-none"
           />
+
+          {/* Quick-create buttons — create a new entity pre-linked to this one */}
+          {onQuickCreate && contentId && (
+            <span className="inline-flex items-center gap-0.5 border-l border-gray-200 pl-1.5 ml-0.5">
+              {(['note', 'bookmark', 'prompt'] as const).map((type) => {
+                const Icon = CONTENT_TYPE_ICONS[type]
+                const iconColor = CONTENT_TYPE_ICON_COLORS[type]
+                const label = CONTENT_TYPE_LABELS[type]
+                return (
+                  <Tooltip key={type} content={`Create linked ${label}`} compact>
+                    <button
+                      type="button"
+                      onClick={() => onQuickCreate(type)}
+                      className="inline-flex items-center gap-px h-5 px-0.5 text-gray-400 rounded transition-colors hover:text-gray-600 hover:bg-gray-200/60"
+                      aria-label={`Create linked ${label.toLowerCase()}`}
+                    >
+                      <PlusIcon className="h-2.5 w-2.5" />
+                      <span className={iconColor}><Icon className="h-3.5 w-3.5" /></span>
+                    </button>
+                  </Tooltip>
+                )
+              })}
+            </span>
+          )}
 
           {/* Results dropdown */}
           {showDropdown && inputValue.length >= 1 && (
@@ -263,7 +308,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
               {results.map((item, index) => {
                 const Icon = CONTENT_TYPE_ICONS[item.type]
                 const iconColor = CONTENT_TYPE_ICON_COLORS[item.type]
-                const displayTitle = item.title ?? 'Untitled'
+                const displayTitle = getDisplayTitle(item.title, item.type, item.url)
 
                 return (
                   <button
@@ -304,6 +349,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
           </button>
         </Tooltip>
       )}
+
     </div>
   )
 })

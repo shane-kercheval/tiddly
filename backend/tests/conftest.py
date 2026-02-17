@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
@@ -59,6 +60,97 @@ def database_url(postgres_container: PostgresContainer, redis_container: RedisCo
     return url
 
 
+# SQL for search_vector trigger functions, triggers, and GIN indexes.
+# Mirrors the Alembic migration; must stay in sync with trigger field lists.
+# Search field weights: title=A, description=B, summary=B (bookmarks), content=C,
+# name=A (prompts). See migration c07d5e217ca3 for the canonical definitions.
+# Each statement is separate because asyncpg doesn't support multi-statement prepared queries.
+_SEARCH_VECTOR_TRIGGER_STATEMENTS = [
+    # -- Bookmark --
+    """
+    CREATE OR REPLACE FUNCTION bookmarks_search_vector_update() RETURNS trigger AS $$
+    BEGIN
+        IF TG_OP = 'INSERT' OR
+           OLD.title IS DISTINCT FROM NEW.title OR
+           OLD.description IS DISTINCT FROM NEW.description OR
+           OLD.summary IS DISTINCT FROM NEW.summary OR
+           OLD.content IS DISTINCT FROM NEW.content THEN
+            NEW.search_vector :=
+                setweight(to_tsvector('english', coalesce(NEW.title, '')), 'A') ||
+                setweight(to_tsvector('english', coalesce(NEW.description, '')), 'B') ||
+                setweight(to_tsvector('english', coalesce(NEW.summary, '')), 'B') ||
+                setweight(to_tsvector('english', coalesce(NEW.content, '')), 'C');
+        ELSE
+            NEW.search_vector := OLD.search_vector;
+        END IF;
+        RETURN NEW;
+    END
+    $$ LANGUAGE plpgsql
+    """,
+    "DROP TRIGGER IF EXISTS bookmarks_search_vector_trigger ON bookmarks",
+    """
+    CREATE TRIGGER bookmarks_search_vector_trigger
+        BEFORE INSERT OR UPDATE ON bookmarks
+        FOR EACH ROW EXECUTE FUNCTION bookmarks_search_vector_update()
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_bookmarks_search_vector ON bookmarks USING GIN (search_vector)",
+    # -- Note --
+    """
+    CREATE OR REPLACE FUNCTION notes_search_vector_update() RETURNS trigger AS $$
+    BEGIN
+        IF TG_OP = 'INSERT' OR
+           OLD.title IS DISTINCT FROM NEW.title OR
+           OLD.description IS DISTINCT FROM NEW.description OR
+           OLD.content IS DISTINCT FROM NEW.content THEN
+            NEW.search_vector :=
+                setweight(to_tsvector('english', coalesce(NEW.title, '')), 'A') ||
+                setweight(to_tsvector('english', coalesce(NEW.description, '')), 'B') ||
+                setweight(to_tsvector('english', coalesce(NEW.content, '')), 'C');
+        ELSE
+            NEW.search_vector := OLD.search_vector;
+        END IF;
+        RETURN NEW;
+    END
+    $$ LANGUAGE plpgsql
+    """,
+    "DROP TRIGGER IF EXISTS notes_search_vector_trigger ON notes",
+    """
+    CREATE TRIGGER notes_search_vector_trigger
+        BEFORE INSERT OR UPDATE ON notes
+        FOR EACH ROW EXECUTE FUNCTION notes_search_vector_update()
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_notes_search_vector ON notes USING GIN (search_vector)",
+    # -- Prompt --
+    """
+    CREATE OR REPLACE FUNCTION prompts_search_vector_update() RETURNS trigger AS $$
+    BEGIN
+        IF TG_OP = 'INSERT' OR
+           OLD.name IS DISTINCT FROM NEW.name OR
+           OLD.title IS DISTINCT FROM NEW.title OR
+           OLD.description IS DISTINCT FROM NEW.description OR
+           OLD.content IS DISTINCT FROM NEW.content THEN
+            NEW.search_vector :=
+                setweight(to_tsvector('english', coalesce(NEW.name, '')), 'A') ||
+                setweight(to_tsvector('english', coalesce(NEW.title, '')), 'A') ||
+                setweight(to_tsvector('english', coalesce(NEW.description, '')), 'B') ||
+                setweight(to_tsvector('english', coalesce(NEW.content, '')), 'C');
+        ELSE
+            NEW.search_vector := OLD.search_vector;
+        END IF;
+        RETURN NEW;
+    END
+    $$ LANGUAGE plpgsql
+    """,
+    "DROP TRIGGER IF EXISTS prompts_search_vector_trigger ON prompts",
+    """
+    CREATE TRIGGER prompts_search_vector_trigger
+        BEFORE INSERT OR UPDATE ON prompts
+        FOR EACH ROW EXECUTE FUNCTION prompts_search_vector_update()
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_prompts_search_vector ON prompts USING GIN (search_vector)",
+]
+
+
 @pytest.fixture
 async def async_engine(database_url: str) -> AsyncGenerator[AsyncEngine]:
     """Create an async engine for testing."""
@@ -66,6 +158,11 @@ async def async_engine(database_url: str) -> AsyncGenerator[AsyncEngine]:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Create search_vector trigger functions, triggers, and GIN indexes.
+        # These are defined in the Alembic migration but not in SQLAlchemy model
+        # metadata, so create_all doesn't include them.
+        for stmt in _SEARCH_VECTOR_TRIGGER_STATEMENTS:
+            await conn.execute(text(stmt))
 
     yield engine
 

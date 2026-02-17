@@ -29,8 +29,6 @@ const leftColumnGroups: ShortcutGroup[] = [
   {
     title: 'Actions',
     shortcuts: [
-      { keys: ['b'], description: 'New bookmark' },
-      { keys: ['e'], description: 'Edit note (when viewing)' },
       { keys: ['\u2318', 'V'], description: 'Paste URL to add bookmark' },
       { keys: ['\u21E7', '\u2318', 'Click'], description: 'Open link without tracking' },
       { keys: ['\u2318', 'S'], description: 'Save' },
@@ -40,7 +38,8 @@ const leftColumnGroups: ShortcutGroup[] = [
   {
     title: 'Navigation',
     shortcuts: [
-      { keys: ['/'], description: 'Focus search' },
+      { keys: ['/'], description: 'Search' },
+      { keys: ['\u2318', '\u21E7', 'P'], description: 'Command palette' },
       { keys: ['Esc'], description: 'Close modal / Unfocus search' },
     ],
   },
@@ -192,7 +191,7 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
 
   return (
     <div
-      className="modal-backdrop"
+      className="modal-backdrop bg-gray-900/30"
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
@@ -200,7 +199,8 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
     >
       <div
         ref={dialogRef}
-        className="modal-content max-w-sm md:max-w-[720px]"
+        className="modal-content max-w-sm md:max-w-3xl"
+        style={{ height: '85vh', maxHeight: '85vh' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

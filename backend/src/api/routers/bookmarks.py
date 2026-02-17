@@ -39,11 +39,13 @@ from schemas.errors import (
     StrReplaceSuccess,
     StrReplaceSuccessMinimal,
 )
+from schemas.content import ContentListItem
 from services.bookmark_service import (
     ArchivedUrlExistsError,
     BookmarkService,
     DuplicateUrlError,
 )
+from services.content_service import search_all_content
 from services.history_service import history_service
 from models.content_history import ActionType, EntityType
 from services.content_edit_service import (
@@ -139,6 +141,25 @@ async def create_bookmark(
     return response_data
 
 
+def _content_to_bookmark_list_item(item: ContentListItem) -> BookmarkListItem:
+    """Map unified ContentListItem to BookmarkListItem."""
+    return BookmarkListItem(
+        id=item.id,
+        title=item.title,
+        description=item.description,
+        summary=item.summary,
+        url=item.url,
+        tags=item.tags,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        last_used_at=item.last_used_at,
+        deleted_at=item.deleted_at,
+        archived_at=item.archived_at,
+        content_length=item.content_length,
+        content_preview=item.content_preview,
+    )
+
+
 @router.get("/", response_model=BookmarkListResponse)
 async def list_bookmarks(
     q: str | None = Query(
@@ -147,10 +168,11 @@ async def list_bookmarks(
     ),
     tags: list[str] = Query(default=[], description="Filter by tags"),
     tag_match: Literal["all", "any"] = Query(default="all", description="Tag matching mode: 'all' (AND) or 'any' (OR)"),  # noqa: E501
-    sort_by: Literal["created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at"] | None = \
+    sort_by: Literal["created_at", "updated_at", "last_used_at", "title", "archived_at", "deleted_at", "relevance"] | None = \
         Query(  # noqa: E501
             default=None,
-            description="Sort field. Takes precedence over filter_id's default.",
+            description="Sort field. Defaults to 'relevance' when q is provided, "
+            "'created_at' otherwise. Takes precedence over filter_id's default.",
         ),
     sort_order: Literal["asc", "desc"] | None = Query(
         default=None,
@@ -166,20 +188,23 @@ async def list_bookmarks(
     """
     List bookmarks for the current user with search, filtering, and sorting.
 
-    - **q**: Text search across title, description, url, summary, and content (case-insensitive)
+    - **q**: Full-text + substring search across title, description, url, summary, and content.
+      Supports stemming ("running" matches "runners"), quoted phrases, OR, negation (-term).
+      Partial words and code symbols also match via substring.
     - **tags**: Filter by one or more tags (normalized to lowercase)
     - **tag_match**: 'all' requires bookmark to have ALL specified tags, 'any' requires ANY tag
-    - **sort_by**: Sort field. Takes precedence over filter_id's default.
+    - **sort_by**: Sort field. Defaults to relevance when searching.
+      Takes precedence over filter_id's default.
     - **sort_order**: Sort direction. Takes precedence over filter_id's default.
     - **view**: Which bookmarks to show - 'active' (not deleted/archived), 'archived', or 'deleted'
     - **filter_id**: Filter by content filter (can be combined with tags for additional filtering)
     """
     resolved = await resolve_filter_and_sorting(
-        db, current_user.id, filter_id, sort_by, sort_order,
+        db, current_user.id, filter_id, sort_by, sort_order, query=q,
     )
 
     try:
-        bookmarks, total = await bookmark_service.search(
+        content_items, total = await search_all_content(
             db=db,
             user_id=current_user.id,
             query=q,
@@ -191,11 +216,11 @@ async def list_bookmarks(
             limit=limit,
             view=view,
             filter_expression=resolved.filter_expression,
+            content_types=["bookmark"],
         )
     except ValueError as e:
-        # Tag validation errors from validate_and_normalize_tags
         raise HTTPException(status_code=422, detail=str(e))
-    items = [BookmarkListItem.model_validate(b) for b in bookmarks]
+    items = [_content_to_bookmark_list_item(item) for item in content_items]
     has_more = offset + len(items) < total
     return BookmarkListResponse(
         items=items,

@@ -29,7 +29,8 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useHistorySidebarStore } from '../stores/historySidebarStore'
-import type { Note as NoteType, NoteCreate, NoteUpdate } from '../types'
+import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload } from '../types'
+import type { LinkedItem } from '../utils/relationships'
 
 type NoteViewState = 'active' | 'archived' | 'deleted'
 
@@ -65,8 +66,15 @@ export function NoteDetail(): ReactNode {
   const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
 
   // Get navigation state
-  const locationState = location.state as { initialTags?: string[]; note?: NoteType } | undefined
-  const { selectedTags } = useTagFilterStore()
+  const locationState = location.state as {
+    initialTags?: string[]
+    note?: NoteType
+    initialRelationships?: RelationshipInputPayload[]
+    initialLinkedItems?: LinkedItem[]
+    returnTo?: string
+  } | undefined
+  // Pre-populate tags from the 'active' view (most common originating context)
+  const selectedTags = useTagFilterStore((state) => state.getSelectedTags('active'))
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
   // Note passed via navigation state (used after create to avoid refetch)
   const passedNote = locationState?.note
@@ -141,9 +149,10 @@ export function NoteDetail(): ReactNode {
         try {
           const createdNote = await createMutation.mutateAsync(data as NoteCreate)
           // Navigate to the new note's URL, passing the note to avoid refetch
+          // Preserve returnTo so Close still navigates back to the source entity (e.g. quick-create flow)
           navigate(`/app/notes/${createdNote.id}`, {
             replace: true,
-            state: { note: createdNote },
+            state: { note: createdNote, returnTo: locationState?.returnTo },
           })
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Failed to create note'
@@ -170,7 +179,7 @@ export function NoteDetail(): ReactNode {
         }
       }
     },
-    [isCreate, noteId, createMutation, updateMutation, navigate, queryClient]
+    [isCreate, noteId, createMutation, updateMutation, navigate, queryClient, locationState?.returnTo]
   )
 
   const handleArchive = useCallback(async (): Promise<void> => {
@@ -268,6 +277,8 @@ export function NoteDetail(): ReactNode {
         isSaving={createMutation.isPending}
         initialTags={initialTags}
         fullWidth={fullWidthLayout}
+        initialRelationships={locationState?.initialRelationships}
+        initialLinkedItems={locationState?.initialLinkedItems}
       />
     )
   }

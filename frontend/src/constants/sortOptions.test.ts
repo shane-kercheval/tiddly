@@ -88,8 +88,9 @@ describe('sort option constants', () => {
       expect(SORT_LABELS.deleted_at).toBe('Deleted At')
     })
 
-    it('has exactly six labels', () => {
-      expect(Object.keys(SORT_LABELS)).toHaveLength(6)
+    it('has a label for every SortByOption', () => {
+      expect(Object.keys(SORT_LABELS)).toHaveLength(7)
+      expect(SORT_LABELS.relevance).toBe('Relevance')
     })
   })
 

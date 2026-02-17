@@ -209,7 +209,7 @@ class ApiBenchmark:
         # Warm up all entity endpoints to initialize ORM models
         # Without this, the first request to each entity type includes ORM
         # initialization overhead (~20-30ms) that skews benchmark results
-        for endpoint in ["/notes/", "/bookmarks/", "/prompts/"]:
+        for endpoint in ["/notes/", "/bookmarks/", "/prompts/", "/content/"]:
             for _ in range(3):
                 await client.get(
                     f"{self.base_url}{endpoint}",
@@ -314,6 +314,32 @@ class ApiBenchmark:
                 )
         self.created_prompt_ids.clear()
 
+    async def _delete_matching_items(
+        self,
+        client: httpx.AsyncClient,
+        entity: str,
+        query: str,
+    ) -> int:
+        """Search for and permanently delete all items matching a query."""
+        deleted = 0
+        while True:
+            response = await client.get(
+                f"{self.base_url}/{entity}/",
+                params={"q": query, "limit": 100, "include_deleted": "true"},
+            )
+            response.raise_for_status()
+            items = response.json().get("items", [])
+            if not items:
+                break
+            for item in items:
+                r = await client.delete(
+                    f"{self.base_url}/{entity}/{item['id']}",
+                    params={"permanent": "true"},
+                )
+                r.raise_for_status()
+                deleted += 1
+        return deleted
+
     async def _cleanup_leftover_benchmark_items(
         self, client: httpx.AsyncClient,
     ) -> None:
@@ -327,53 +353,13 @@ class ApiBenchmark:
         print("Cleaning up leftover items from previous runs...", end=" ", flush=True)
         deleted = 0
 
-        # Clean up notes with benchmark-related titles
-        for query in ["Benchmark Note", "Test Note", "Soft Delete Test", "Hard Delete Test"]:
-            with contextlib.suppress(Exception):
-                response = await client.get(
-                    f"{self.base_url}/notes/",
-                    params={"query": query, "limit": 200, "include_deleted": "true"},
-                )
-                if response.status_code == 200:
-                    for item in response.json().get("items", []):
-                        with contextlib.suppress(Exception):
-                            await client.delete(
-                                f"{self.base_url}/notes/{item['id']}",
-                                params={"permanent": "true"},
-                            )
-                            deleted += 1
-
-        # Clean up bookmarks with benchmark-related titles/urls
-        for query in ["Benchmark Bookmark", "Test Bookmark", "Soft Delete Test", "Hard Delete Test"]:
-            with contextlib.suppress(Exception):
-                response = await client.get(
-                    f"{self.base_url}/bookmarks/",
-                    params={"query": query, "limit": 200, "include_deleted": "true"},
-                )
-                if response.status_code == 200:
-                    for item in response.json().get("items", []):
-                        with contextlib.suppress(Exception):
-                            await client.delete(
-                                f"{self.base_url}/bookmarks/{item['id']}",
-                                params={"permanent": "true"},
-                            )
-                            deleted += 1
-
-        # Clean up prompts with benchmark-related names
-        for query in ["benchmark-prompt", "soft-delete-prompt", "hard-delete-prompt"]:
-            with contextlib.suppress(Exception):
-                response = await client.get(
-                    f"{self.base_url}/prompts/",
-                    params={"query": query, "limit": 200, "include_deleted": "true"},
-                )
-                if response.status_code == 200:
-                    for item in response.json().get("items", []):
-                        with contextlib.suppress(Exception):
-                            await client.delete(
-                                f"{self.base_url}/prompts/{item['id']}",
-                                params={"permanent": "true"},
-                            )
-                            deleted += 1
+        for entity, queries in [
+            ("notes", ["Benchmark Note", "Test Note", "Soft Delete Test", "Hard Delete Test"]),
+            ("bookmarks", ["Benchmark Bookmark", "Test Bookmark", "Soft Delete Test", "Hard Delete Test"]),
+            ("prompts", ["benchmark-prompt", "soft-delete-prompt", "hard-delete-prompt"]),
+        ]:
+            for query in queries:
+                deleted += await self._delete_matching_items(client, entity, query)
 
         print(f"done ({deleted} items)")
 
@@ -569,7 +555,7 @@ class ApiBenchmark:
         """Benchmark searching notes with a query."""
 
         def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
-            return ("GET", "/notes/", None, {"query": "benchmark", "limit": 20})
+            return ("GET", "/notes/", None, {"q": "benchmark", "limit": 20})
 
         return await self._run_concurrent(client, "Search Notes", concurrency, make_request)
 
@@ -771,7 +757,7 @@ class ApiBenchmark:
         """Benchmark searching bookmarks with a query."""
 
         def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
-            return ("GET", "/bookmarks/", None, {"query": "benchmark", "limit": 20})
+            return ("GET", "/bookmarks/", None, {"q": "benchmark", "limit": 20})
 
         return await self._run_concurrent(
             client, "Search Bookmarks", concurrency, make_request,
@@ -981,7 +967,7 @@ class ApiBenchmark:
         """Benchmark searching prompts with a query."""
 
         def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
-            return ("GET", "/prompts/", None, {"query": "benchmark", "limit": 20})
+            return ("GET", "/prompts/", None, {"q": "benchmark", "limit": 20})
 
         return await self._run_concurrent(client, "Search Prompts", concurrency, make_request)
 
@@ -1051,6 +1037,32 @@ class ApiBenchmark:
 
         return await self._run_concurrent(
             client, "Hard Delete Prompt", concurrency, make_request,
+        )
+
+    # -------------------------------------------------------------------------
+    # Content (Unified) Benchmarks
+    # -------------------------------------------------------------------------
+
+    async def benchmark_list_content(
+        self, client: httpx.AsyncClient, concurrency: int,
+    ) -> BenchmarkResult:
+        """Benchmark listing unified content (all types)."""
+
+        def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
+            return ("GET", "/content/", None, {"limit": 20})
+
+        return await self._run_concurrent(client, "List Content", concurrency, make_request)
+
+    async def benchmark_search_content(
+        self, client: httpx.AsyncClient, concurrency: int,
+    ) -> BenchmarkResult:
+        """Benchmark searching unified content with a query."""
+
+        def make_request() -> tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]:
+            return ("GET", "/content/", None, {"q": "benchmark", "limit": 20})
+
+        return await self._run_concurrent(
+            client, "Search Content", concurrency, make_request,
         )
 
     # -------------------------------------------------------------------------
@@ -1237,6 +1249,17 @@ class ApiBenchmark:
 
                     print("  Hard Delete Prompts...", end=" ", flush=True)
                     result = await self.benchmark_hard_delete_prompts(client, concurrency)
+                    results.append(result)
+                    print(f"P95: {result.p95_ms}ms, {result.throughput_rps} req/s")
+
+                    # Unified content operations
+                    print("  List Content...", end=" ", flush=True)
+                    result = await self.benchmark_list_content(client, concurrency)
+                    results.append(result)
+                    print(f"P95: {result.p95_ms}ms, {result.throughput_rps} req/s")
+
+                    print("  Search Content...", end=" ", flush=True)
+                    result = await self.benchmark_search_content(client, concurrency)
                     results.append(result)
                     print(f"P95: {result.p95_ms}ms, {result.throughput_rps} req/s")
 

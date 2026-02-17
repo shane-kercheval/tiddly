@@ -34,8 +34,12 @@ interface BookmarkCardProps {
    * When false: shows favicon in icon column (used in bookmarks-only views)
    */
   showContentTypeIcon?: boolean
+  /** Whether to show dates on the card. Defaults to true. */
+  showDate?: boolean
+  /** Generic card click handler (does not imply action availability). */
+  onClick?: (bookmark: BookmarkListItem) => void
   onEdit?: (bookmark: BookmarkListItem) => void
-  onDelete: (bookmark: BookmarkListItem) => void
+  onDelete?: (bookmark: BookmarkListItem) => void
   onArchive?: (bookmark: BookmarkListItem) => void
   onUnarchive?: (bookmark: BookmarkListItem) => void
   onRestore?: (bookmark: BookmarkListItem) => void
@@ -52,6 +56,8 @@ export function BookmarkCard({
   view = 'active',
   sortBy = 'created_at',
   showContentTypeIcon = true,
+  showDate = true,
+  onClick,
   onEdit,
   onDelete,
   onArchive,
@@ -64,6 +70,7 @@ export function BookmarkCard({
   onLinkClick,
   onCancelScheduledArchive,
 }: BookmarkCardProps): ReactNode {
+  const hasActions = !!(onDelete || onArchive || onUnarchive || onRestore || onEdit || onTagAdd || onCancelScheduledArchive)
   const hasTitle = !!bookmark.title
   const displayTitle = bookmark.title || getDomain(bookmark.url)
   const domain = getDomain(bookmark.url)
@@ -84,8 +91,9 @@ export function BookmarkCard({
   }, [])
 
   const handleCardClick = (): void => {
-    // Card click opens edit view (if available)
-    if (onEdit && view !== 'deleted') {
+    if (onClick) {
+      onClick(bookmark)
+    } else if (onEdit && view !== 'deleted') {
       onEdit(bookmark)
     }
   }
@@ -115,7 +123,6 @@ export function BookmarkCard({
     <ContentCard
       view={view}
       onClick={handleCardClick}
-      className="cursor-pointer"
     >
       {/* Column 1: Icon (bookmark icon or favicon based on mode) */}
       <span className={`w-4 h-4 mt-1 ${showContentTypeIcon ? CONTENT_TYPE_ICON_COLORS.bookmark : ''}`}>
@@ -202,82 +209,86 @@ export function BookmarkCard({
           )}
 
           {/* Actions and date row */}
-          <div className="flex items-center justify-between">
-            {/* Actions - always visible on mobile */}
-            <div className="flex items-center gap-0.5">
-              {/* External link as first action on mobile */}
-              <Tooltip content="Open link" compact>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onLinkClick?.(bookmark); window.open(bookmark.url, '_blank', 'noopener,noreferrer') }}
-                  className="btn-icon"
-                  aria-label="Open link"
-                >
-                  <ExternalLinkIcon className="h-4 w-4" />
-                </button>
-              </Tooltip>
-              {onTagAdd && tagSuggestions && (
-                <ContentCard.AddTagAction
-                  existingTags={bookmark.tags}
-                  suggestions={tagSuggestions}
-                  onAdd={(tag) => onTagAdd(bookmark, tag)}
-                />
-              )}
-              <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
-                  className="btn-icon"
-                  aria-label={copySuccess ? 'Copied!' : 'Copy URL'}
-                >
-                  {copySuccess ? (
-                    <CheckIcon className="h-4 w-4 text-green-600" />
-                  ) : (
-                    <CopyIcon />
-                  )}
-                </button>
-              </Tooltip>
-              {onArchive && (
-                <ContentCard.ArchiveAction
-                  onArchive={() => onArchive(bookmark)}
-                  entityName="bookmark"
-                />
-              )}
-              {view === 'archived' && onUnarchive && (
-                <ContentCard.RestoreAction
-                  onRestore={() => onUnarchive(bookmark)}
-                  entityName="bookmark"
-                />
-              )}
-              {view === 'deleted' && onRestore && (
-                <ContentCard.RestoreAction
-                  onRestore={() => onRestore(bookmark)}
-                  entityName="bookmark"
-                />
-              )}
-              <ContentCard.DeleteAction
-                onDelete={() => onDelete(bookmark)}
-                entityName="bookmark"
-              />
-            </div>
+          {hasActions && (
+            <div className="flex items-center justify-between">
+              {/* Actions - always visible on mobile */}
+              <div className="flex items-center gap-0.5">
+                {/* External link as first action on mobile */}
+                <Tooltip content="Open link" compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onLinkClick?.(bookmark); window.open(bookmark.url, '_blank', 'noopener,noreferrer') }}
+                    className="btn-icon"
+                    aria-label="Open link"
+                  >
+                    <ExternalLinkIcon className="h-4 w-4" />
+                  </button>
+                </Tooltip>
+                {onTagAdd && tagSuggestions && (
+                  <ContentCard.AddTagAction
+                    existingTags={bookmark.tags}
+                    suggestions={tagSuggestions}
+                    onAdd={(tag) => onTagAdd(bookmark, tag)}
+                  />
+                )}
+                <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
+                    className="btn-icon"
+                    aria-label={copySuccess ? 'Copied!' : 'Copy URL'}
+                  >
+                    {copySuccess ? (
+                      <CheckIcon className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <CopyIcon />
+                    )}
+                  </button>
+                </Tooltip>
+                {onArchive && (
+                  <ContentCard.ArchiveAction
+                    onArchive={() => onArchive(bookmark)}
+                    entityName="bookmark"
+                  />
+                )}
+                {view === 'archived' && onUnarchive && (
+                  <ContentCard.RestoreAction
+                    onRestore={() => onUnarchive(bookmark)}
+                    entityName="bookmark"
+                  />
+                )}
+                {view === 'deleted' && onRestore && (
+                  <ContentCard.RestoreAction
+                    onRestore={() => onRestore(bookmark)}
+                    entityName="bookmark"
+                  />
+                )}
+                {onDelete && (
+                  <ContentCard.DeleteAction
+                    onDelete={() => onDelete(bookmark)}
+                    entityName="bookmark"
+                  />
+                )}
+              </div>
 
-            {/* Date and archiving indicator */}
-            <div className="flex flex-col items-end gap-0.5">
-              <ContentCard.DateDisplay
-                sortBy={sortBy}
-                createdAt={bookmark.created_at}
-                updatedAt={bookmark.updated_at}
-                lastUsedAt={bookmark.last_used_at}
-                archivedAt={bookmark.archived_at}
-                deletedAt={bookmark.deleted_at}
-                showLabel
-              />
-              {onCancelScheduledArchive && (
-                <ContentCard.ScheduledArchive
+              {/* Date and archiving indicator */}
+              <div className="flex flex-col items-end gap-0.5">
+                <ContentCard.DateDisplay
+                  sortBy={sortBy}
+                  createdAt={bookmark.created_at}
+                  updatedAt={bookmark.updated_at}
+                  lastUsedAt={bookmark.last_used_at}
                   archivedAt={bookmark.archived_at}
-                  onCancel={() => onCancelScheduledArchive(bookmark)}
+                  deletedAt={bookmark.deleted_at}
+                  showLabel
                 />
-              )}
+                {onCancelScheduledArchive && (
+                  <ContentCard.ScheduledArchive
+                    archivedAt={bookmark.archived_at}
+                    onCancel={() => onCancelScheduledArchive(bookmark)}
+                  />
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Desktop layout - horizontal with hover actions */}
@@ -313,16 +324,18 @@ export function BookmarkCard({
             </div>
 
             {/* Right: Date */}
-            <div className="shrink-0">
-              <ContentCard.DateDisplay
-                sortBy={sortBy}
-                createdAt={bookmark.created_at}
-                updatedAt={bookmark.updated_at}
-                lastUsedAt={bookmark.last_used_at}
-                archivedAt={bookmark.archived_at}
-                deletedAt={bookmark.deleted_at}
-              />
-            </div>
+            {showDate && (
+              <div className="shrink-0">
+                <ContentCard.DateDisplay
+                  sortBy={sortBy}
+                  createdAt={bookmark.created_at}
+                  updatedAt={bookmark.updated_at}
+                  lastUsedAt={bookmark.last_used_at}
+                  archivedAt={bookmark.archived_at}
+                  deletedAt={bookmark.deleted_at}
+                />
+              </div>
+            )}
           </div>
 
           {/* Row 2: URL line with favicon/external-link icon swap on hover + Archiving indicator */}
@@ -374,108 +387,113 @@ export function BookmarkCard({
           {/* Row 3: Description/preview + actions */}
           <div className="relative mt-1 min-h-[20px]">
             {/* Description or content preview fills available width */}
-            <p className="text-sm text-gray-400 truncate pr-0 group-hover:pr-40 transition-[padding] duration-150">
+            <p className={`text-sm text-gray-400 truncate ${hasActions ? 'pr-0 group-hover:pr-40 transition-[padding] duration-150' : ''}`}>
               {bookmark.description || bookmark.content_preview || '\u00A0'}
             </p>
 
             {/* Actions absolutely positioned, appear on hover */}
-            <div className="absolute right-0 top-0">
-              <ContentCard.Actions
-                overflowItems={[
-                  {
-                    key: 'open',
-                    label: 'Open link',
-                    icon: <ExternalLinkIcon className="h-4 w-4" />,
-                    onClick: () => { onLinkClick?.(bookmark); window.open(bookmark.url, '_blank', 'noopener,noreferrer') },
-                  },
-                  {
-                    key: 'edit',
-                    label: 'Edit',
-                    icon: <EditIcon className="h-4 w-4" />,
-                    onClick: () => onEdit?.(bookmark),
-                    hidden: view === 'deleted' || !onEdit,
-                  },
-                  {
-                    key: 'copy',
-                    label: 'Copy URL',
-                    icon: <CopyIcon className="h-4 w-4" />,
-                    onClick: () => { handleCopyUrl() },
-                  },
-                  {
-                    key: 'archive',
-                    label: 'Archive',
-                    icon: <ArchiveIcon className="h-4 w-4" />,
-                    onClick: () => onArchive?.(bookmark),
-                    hidden: !onArchive || view !== 'active',
-                  },
-                  {
-                    key: 'unarchive',
-                    label: 'Restore',
-                    icon: <RestoreIcon className="h-4 w-4" />,
-                    onClick: () => onUnarchive?.(bookmark),
-                    hidden: view !== 'archived' || !onUnarchive,
-                  },
-                  {
-                    key: 'restore',
-                    label: 'Restore',
-                    icon: <RestoreIcon className="h-4 w-4" />,
-                    onClick: () => onRestore?.(bookmark),
-                    hidden: view !== 'deleted' || !onRestore,
-                  },
-                  {
-                    key: 'delete',
-                    label: view === 'deleted' ? 'Delete Permanently' : 'Delete',
-                    icon: <TrashIcon className="h-4 w-4" />,
-                    onClick: () => onDelete(bookmark),
-                    danger: true,
-                  },
-                ]}
-              >
-                {onTagAdd && tagSuggestions && (
-                  <ContentCard.AddTagAction
-                    existingTags={bookmark.tags}
-                    suggestions={tagSuggestions}
-                    onAdd={(tag) => onTagAdd(bookmark, tag)}
-                  />
-                )}
-                {/* Edit button removed - clicking card row opens edit view */}
-                <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
-                    className="btn-icon"
-                    aria-label={copySuccess ? 'Copied!' : 'Copy URL'}
-                  >
-                    {copySuccess ? (
-                      <CheckIcon className="h-4 w-4 text-green-600" />
-                    ) : (
-                      <CopyIcon />
-                    )}
-                  </button>
-                </Tooltip>
-                {onArchive && (
-                  <ContentCard.ArchiveAction
-                    onArchive={() => onArchive(bookmark)}
-                    entityName="bookmark"
-                  />
-                )}
-                {view === 'archived' && onUnarchive && (
-                  <ContentCard.RestoreAction
-                    onRestore={() => onUnarchive(bookmark)}
-                    entityName="bookmark"
-                  />
-                )}
-                {view === 'deleted' && onRestore && (
-                  <ContentCard.RestoreAction
-                    onRestore={() => onRestore(bookmark)}
-                    entityName="bookmark"
-                  />
-                )}
-                <ContentCard.DeleteAction
-                  onDelete={() => onDelete(bookmark)}
-                  entityName="bookmark"
-                />
-              </ContentCard.Actions>
-            </div>
+            {hasActions && (
+              <div className="absolute right-0 top-0">
+                <ContentCard.Actions
+                  overflowItems={[
+                    {
+                      key: 'open',
+                      label: 'Open link',
+                      icon: <ExternalLinkIcon className="h-4 w-4" />,
+                      onClick: () => { onLinkClick?.(bookmark); window.open(bookmark.url, '_blank', 'noopener,noreferrer') },
+                    },
+                    {
+                      key: 'edit',
+                      label: 'Edit',
+                      icon: <EditIcon className="h-4 w-4" />,
+                      onClick: () => onEdit?.(bookmark),
+                      hidden: view === 'deleted' || !onEdit,
+                    },
+                    {
+                      key: 'copy',
+                      label: 'Copy URL',
+                      icon: <CopyIcon className="h-4 w-4" />,
+                      onClick: () => { handleCopyUrl() },
+                    },
+                    {
+                      key: 'archive',
+                      label: 'Archive',
+                      icon: <ArchiveIcon className="h-4 w-4" />,
+                      onClick: () => onArchive?.(bookmark),
+                      hidden: !onArchive || view !== 'active',
+                    },
+                    {
+                      key: 'unarchive',
+                      label: 'Restore',
+                      icon: <RestoreIcon className="h-4 w-4" />,
+                      onClick: () => onUnarchive?.(bookmark),
+                      hidden: view !== 'archived' || !onUnarchive,
+                    },
+                    {
+                      key: 'restore',
+                      label: 'Restore',
+                      icon: <RestoreIcon className="h-4 w-4" />,
+                      onClick: () => onRestore?.(bookmark),
+                      hidden: view !== 'deleted' || !onRestore,
+                    },
+                    {
+                      key: 'delete',
+                      label: view === 'deleted' ? 'Delete Permanently' : 'Delete',
+                      icon: <TrashIcon className="h-4 w-4" />,
+                      onClick: () => onDelete?.(bookmark),
+                      danger: true,
+                      hidden: !onDelete,
+                    },
+                  ]}
+                >
+                  {onTagAdd && tagSuggestions && (
+                    <ContentCard.AddTagAction
+                      existingTags={bookmark.tags}
+                      suggestions={tagSuggestions}
+                      onAdd={(tag) => onTagAdd(bookmark, tag)}
+                    />
+                  )}
+                  {/* Edit button removed - clicking card row opens edit view */}
+                  <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
+                      className="btn-icon"
+                      aria-label={copySuccess ? 'Copied!' : 'Copy URL'}
+                    >
+                      {copySuccess ? (
+                        <CheckIcon className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <CopyIcon />
+                      )}
+                    </button>
+                  </Tooltip>
+                  {onArchive && (
+                    <ContentCard.ArchiveAction
+                      onArchive={() => onArchive(bookmark)}
+                      entityName="bookmark"
+                    />
+                  )}
+                  {view === 'archived' && onUnarchive && (
+                    <ContentCard.RestoreAction
+                      onRestore={() => onUnarchive(bookmark)}
+                      entityName="bookmark"
+                    />
+                  )}
+                  {view === 'deleted' && onRestore && (
+                    <ContentCard.RestoreAction
+                      onRestore={() => onRestore(bookmark)}
+                      entityName="bookmark"
+                    />
+                  )}
+                  {onDelete && (
+                    <ContentCard.DeleteAction
+                      onDelete={() => onDelete(bookmark)}
+                      entityName="bookmark"
+                    />
+                  )}
+                </ContentCard.Actions>
+              </div>
+            )}
           </div>
         </div>
       </div>
