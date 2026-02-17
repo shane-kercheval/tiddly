@@ -123,6 +123,7 @@ export function BookmarkCard({
     <ContentCard
       view={view}
       onClick={handleCardClick}
+      href={`/app/bookmarks/${bookmark.id}`}
     >
       {/* Column 1: Icon (bookmark icon or favicon based on mode) */}
       <span className={`w-4 h-4 mt-1 ${showContentTypeIcon ? CONTENT_TYPE_ICON_COLORS.bookmark : ''}`}>

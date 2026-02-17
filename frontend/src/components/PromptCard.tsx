@@ -57,7 +57,10 @@ export function PromptCard({
   // Show name below title if they differ
   const showName = prompt.title && prompt.title !== prompt.name
 
+  const promptHref = `/app/prompts/${prompt.id}`
+
   const handleTitleClick = (e: React.MouseEvent): void => {
+    if (e.metaKey || e.ctrlKey) return // Let it bubble to ContentCard
     e.stopPropagation()
     if (onView) onView(prompt)
     else onClick?.(prompt)
@@ -67,6 +70,7 @@ export function PromptCard({
     <ContentCard
       view={view}
       onClick={onClick ? () => onClick(prompt) : onView ? () => onView(prompt) : undefined}
+      href={promptHref}
     >
       {/* Column 1: Icon */}
       <span className={`w-4 h-4 mt-1 ${CONTENT_TYPE_ICON_COLORS.prompt}`}>
