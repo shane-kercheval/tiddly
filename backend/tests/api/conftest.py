@@ -6,10 +6,8 @@ from datetime import UTC, datetime
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.main import app
 from core.config import Settings, get_settings
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
-from db.session import get_async_session
 from models.user import User
 from models.user_consent import UserConsent
 from schemas.token import TokenCreate
@@ -41,6 +39,12 @@ async def create_user2_client(
     to disable dev_mode, and yields an AsyncClient authenticated as that user.
     Cleans up dependency overrides on exit.
     """
+    # Deferred imports: api.main and db.session trigger module-level get_settings()
+    # which requires DATABASE_URL. In CI, that env var is only set by the database_url
+    # fixture at runtime, so importing at module level causes collection errors.
+    from api.main import app
+    from db.session import get_async_session
+
     user2 = User(auth0_id=auth0_id, email=email)
     db_session.add(user2)
     await db_session.flush()
