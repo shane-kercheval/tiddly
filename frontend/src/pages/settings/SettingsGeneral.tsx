@@ -5,6 +5,7 @@
  */
 import type { ReactNode } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
+import { usePageTitle } from '../../hooks/usePageTitle'
 import { useUIPreferencesStore } from '../../stores/uiPreferencesStore'
 import { useLimits } from '../../hooks/useLimits'
 import { isDevMode } from '../../config'
@@ -13,6 +14,7 @@ import { isDevMode } from '../../config'
  * General settings page for UI preferences.
  */
 export function SettingsGeneral(): ReactNode {
+  usePageTitle('Settings')
   const { fullWidthLayout, toggleFullWidthLayout } = useUIPreferencesStore()
   const { user } = useAuth0()
   const { limits, isLoading: isLoadingLimits, error: limitsError } = useLimits()

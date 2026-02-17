@@ -13,6 +13,7 @@ import type { DropdownOption } from '../../components/ui'
 import { BookmarkIcon, NoteIcon, PromptIcon, CloseIconFilled } from '../../components/icons'
 import { ActionDot } from '../../components/ActionDot'
 import { ChangeIndicators } from '../../components/ChangeIndicators'
+import { usePageTitle } from '../../hooks/usePageTitle'
 import { VersionDiffPanel } from '../../components/VersionDiffPanel'
 import { CONTENT_TYPE_ICON_COLORS } from '../../constants/contentTypeStyles'
 import { formatAction, formatSource, isAuditAction } from '../../constants/historyLabels'
@@ -102,6 +103,7 @@ function getEntityPath(type: ContentType, id: string): string {
 }
 
 export function SettingsVersionHistory(): ReactNode {
+  usePageTitle('Settings - History')
   // Filter state - empty arrays mean "show all"
   const [entityTypeFilter, setEntityTypeFilter] = useState<ContentType[]>([])
   const [actionFilter, setActionFilter] = useState<HistoryActionType[]>([])

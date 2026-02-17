@@ -9,6 +9,7 @@ import { TokenList } from '../../components/TokenList'
 import { CreateTokenModal } from '../../components/CreateTokenModal'
 import { config } from '../../config'
 import type { TokenCreate, TokenCreateResponse } from '../../types'
+import { usePageTitle } from '../../hooks/usePageTitle'
 
 const EXAMPLE_CURL = `curl \\
   -H "Authorization: Bearer bm_xxx" \\
@@ -18,6 +19,7 @@ const EXAMPLE_CURL = `curl \\
  * Personal Access Tokens settings page.
  */
 export function SettingsTokens(): ReactNode {
+  usePageTitle('Settings - Tokens')
   const { tokens, isLoading, fetchTokens, createToken, deleteToken } = useTokensStore()
 
   // Modal state

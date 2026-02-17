@@ -28,6 +28,7 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useHistorySidebarStore } from '../stores/historySidebarStore'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
 
@@ -96,6 +97,8 @@ export function PromptDetail(): ReactNode {
 
   // Derive view state from prompt
   const viewState: PromptViewState = prompt ? getPromptViewState(prompt) : 'active'
+
+  usePageTitle(isCreate ? 'New Prompt' : prompt?.title || prompt?.name || undefined)
 
   // Fetch prompt on mount (for existing prompts)
   useEffect(() => {

@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom'
 import { config } from '../../config'
 import { api } from '../../services/api'
 import type { TagCount, TagListResponse } from '../../types'
+import { usePageTitle } from '../../hooks/usePageTitle'
 
 const CONFIG_PATH_MAC = '~/Library/Application\\ Support/Claude/claude_desktop_config.json'
 const CONFIG_PATH_WINDOWS = '%APPDATA%\\Claude\\claude_desktop_config.json'
@@ -1283,6 +1284,7 @@ function SkillsExportSection({ client }: SkillsExportSectionProps): ReactNode {
  * MCP & Skills setup instructions settings page.
  */
 export function SettingsMCP(): ReactNode {
+  usePageTitle('Settings - MCP')
   // Selector state
   const [server, setServer] = useState<ServerType>('content')
   const [client, setClient] = useState<ClientType>('claude-desktop')

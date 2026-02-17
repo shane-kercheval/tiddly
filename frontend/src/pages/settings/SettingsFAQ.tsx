@@ -4,6 +4,7 @@
  * Provides answers to common questions about app functionality.
  */
 import type { ReactNode } from 'react'
+import { usePageTitle } from '../../hooks/usePageTitle'
 
 interface FAQItemProps {
   question: string
@@ -39,6 +40,7 @@ function FAQSection({ title, children }: FAQSectionProps): ReactNode {
  * FAQ settings page.
  */
 export function SettingsFAQ(): ReactNode {
+  usePageTitle('Settings - FAQ')
   return (
     <div className="max-w-3xl pt-4">
       <div className="mb-8">

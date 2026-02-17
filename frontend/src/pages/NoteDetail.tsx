@@ -29,6 +29,7 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useHistorySidebarStore } from '../stores/historySidebarStore'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
 
@@ -97,6 +98,8 @@ export function NoteDetail(): ReactNode {
 
   // Derive view state from note
   const viewState: NoteViewState = note ? getNoteViewState(note) : 'active'
+
+  usePageTitle(isCreate ? 'New Note' : note?.title || undefined)
 
   // Fetch note on mount (for existing notes)
   useEffect(() => {
