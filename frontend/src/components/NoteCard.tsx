@@ -9,7 +9,7 @@ import type { ReactNode } from 'react'
 import type { NoteListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
-import { CopyContentButton } from './ui'
+import { CopyContentButton, Tooltip } from './ui'
 import { NoteIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
 import { ContentCard } from './ContentCard'
 
@@ -82,7 +82,6 @@ export function NoteCard({
             <button
               onClick={handleTitleClick}
               className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
-              title="View note"
             >
               {note.title}
             </button>
@@ -93,9 +92,11 @@ export function NoteCard({
 
           {/* Description */}
           {previewText && (
-            <p className="text-sm text-gray-400 line-clamp-2">
-              {previewText}
-            </p>
+            <Tooltip content={previewText} delay={500}>
+              <p className="text-sm text-gray-400 line-clamp-2">
+                {previewText}
+              </p>
+            </Tooltip>
           )}
 
           {/* Tags row */}
@@ -179,7 +180,6 @@ export function NoteCard({
               <button
                 onClick={handleTitleClick}
                 className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
-                title="View note"
               >
                 {note.title}
               </button>
@@ -221,9 +221,17 @@ export function NoteCard({
           {/* Row 3: Description + actions (actions overlay on hover) */}
           <div className="relative mt-1 min-h-[20px]">
             {/* Description fills full width */}
-            <p className={`text-sm text-gray-400 truncate ${hasActions ? 'pr-0 group-hover:pr-32 transition-[padding] duration-150' : ''}`}>
-              {previewText || '\u00A0'}
-            </p>
+            {previewText ? (
+              <Tooltip content={previewText} delay={500}>
+                <p className={`text-sm text-gray-400 truncate ${hasActions ? 'pr-0 group-hover:pr-32 transition-[padding] duration-150' : ''}`}>
+                  {previewText}
+                </p>
+              </Tooltip>
+            ) : (
+              <p className={`text-sm text-gray-400 truncate ${hasActions ? 'pr-0 group-hover:pr-32 transition-[padding] duration-150' : ''}`}>
+                {'\u00A0'}
+              </p>
+            )}
 
             {/* Actions absolutely positioned, appear on hover */}
             {hasActions && (

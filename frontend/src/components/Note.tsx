@@ -683,7 +683,6 @@ export function Note({
               onClick={onShowHistory}
               disabled={isSaving}
               className="btn-secondary flex items-center gap-2"
-              title="View version history"
             >
               <HistoryIcon className="h-4 w-4" />
               <span className="hidden md:inline">History</span>
@@ -697,7 +696,6 @@ export function Note({
               onClick={onArchive}
               disabled={isSaving}
               className="btn-secondary flex items-center gap-2"
-              title="Archive note"
             >
               <ArchiveIcon className="h-4 w-4" />
               <span className="hidden md:inline">Archive</span>
@@ -711,7 +709,6 @@ export function Note({
               onClick={onUnarchive}
               disabled={isSaving}
               className="btn-secondary flex items-center gap-2"
-              title="Restore note"
             >
               <RestoreIcon />
               <span className="hidden md:inline">Restore</span>
@@ -725,7 +722,6 @@ export function Note({
               onClick={onRestore}
               disabled={isSaving}
               className="btn-primary flex items-center gap-2"
-              title="Restore note"
             >
               <RestoreIcon />
               <span className="hidden md:inline">Restore</span>
@@ -739,7 +735,6 @@ export function Note({
               onClick={onDelete}
               disabled={isSaving}
               className="btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 flex items-center gap-2"
-              title={viewState === 'deleted' ? 'Delete permanently' : 'Delete note'}
             >
               <TrashIcon />
               <span className="hidden md:inline">

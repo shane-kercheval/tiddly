@@ -110,7 +110,7 @@ export function QuickAddMenu({
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-1 text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
-        title="Add new item"
+        aria-label="Add new item"
         aria-expanded={isOpen}
         aria-haspopup="true"
         data-testid="quick-add-menu-trigger"

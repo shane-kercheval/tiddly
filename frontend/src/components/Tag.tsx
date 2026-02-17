@@ -11,6 +11,7 @@
  * - X appears on hover, turns red when hovering over it
  */
 import type { ReactNode } from 'react'
+import { Tooltip } from './ui'
 
 interface TagProps {
   /** The tag text to display */
@@ -19,8 +20,6 @@ interface TagProps {
   onClick?: () => void
   /** Called when the remove button is clicked */
   onRemove?: () => void
-  /** Title/tooltip for the tag click action */
-  clickTitle?: string
 }
 
 /**
@@ -30,7 +29,6 @@ export function Tag({
   tag,
   onClick,
   onRemove,
-  clickTitle,
 }: TagProps): ReactNode {
   const tagContent = (
     <span className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors">
@@ -41,16 +39,17 @@ export function Tag({
   return (
     <div className="group/tag relative inline-flex items-baseline">
       {onClick ? (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onClick()
-          }}
-          className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
-          title={clickTitle ?? `Filter by tag: ${tag}`}
-        >
-          {tag}
-        </button>
+        <Tooltip content="Filter by tag" compact delay={500}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onClick()
+            }}
+            className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
+          >
+            {tag}
+          </button>
+        </Tooltip>
       ) : (
         tagContent
       )}
@@ -62,7 +61,6 @@ export function Tag({
             onRemove()
           }}
           className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/tag:opacity-100 transition-opacity flex items-center justify-center"
-          title={`Remove tag: ${tag}`}
           aria-label={`Remove tag ${tag}`}
         >
           <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">

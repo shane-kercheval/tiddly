@@ -879,7 +879,6 @@ export function Prompt({
               onClick={() => setIsPreviewModalOpen(true)}
               disabled={isSaving || isDirty}
               className="btn-secondary"
-              title={isDirty ? 'Save changes before previewing prompt' : 'Preview this prompt with arguments'}
             >
               Preview
             </button>
@@ -894,7 +893,6 @@ export function Prompt({
               onClick={onShowHistory}
               disabled={isSaving}
               className="btn-secondary flex items-center gap-2"
-              title="View version history"
             >
               <HistoryIcon className="h-4 w-4" />
               <span className="hidden md:inline">History</span>
@@ -908,7 +906,6 @@ export function Prompt({
               onClick={onArchive}
               disabled={isSaving}
               className="btn-secondary flex items-center gap-2"
-              title="Archive prompt"
             >
               <ArchiveIcon className="h-4 w-4" />
               <span className="hidden md:inline">Archive</span>
@@ -922,7 +919,6 @@ export function Prompt({
               onClick={onUnarchive}
               disabled={isSaving}
               className="btn-secondary flex items-center gap-2"
-              title="Restore prompt"
             >
               <RestoreIcon />
               <span className="hidden md:inline">Restore</span>
@@ -936,7 +932,6 @@ export function Prompt({
               onClick={onRestore}
               disabled={isSaving}
               className="btn-primary flex items-center gap-2"
-              title="Restore prompt"
             >
               <RestoreIcon />
               <span className="hidden md:inline">Restore</span>
@@ -950,7 +945,6 @@ export function Prompt({
               onClick={onDelete}
               disabled={isSaving}
               className="btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 flex items-center gap-2"
-              title={viewState === 'deleted' ? 'Delete permanently' : 'Delete prompt'}
             >
               <TrashIcon />
               <span className="hidden md:inline">

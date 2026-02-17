@@ -192,7 +192,6 @@ export function HistorySidebar({
         <div
           className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-400 active:bg-blue-500 transition-colors z-10"
           onMouseDown={handleMouseDown}
-          title="Drag to resize"
         />
       )}
       {/* Header - matches item header height (pt-3 pb-3) for alignment */}

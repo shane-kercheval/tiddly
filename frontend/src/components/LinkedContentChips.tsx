@@ -222,7 +222,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
         return (
           <div key={key} className="group/link relative inline-flex items-baseline">
             {tooltipText ? (
-              <Tooltip content={tooltipText}>
+              <Tooltip content={tooltipText} delay={500}>
                 {chipWithAction}
               </Tooltip>
             ) : chipWithAction}
@@ -236,7 +236,6 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
                   onRemove(item)
                 }}
                 className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/link:opacity-100 group-focus-within/link:opacity-100 transition-opacity flex items-center justify-center"
-                title="Remove link"
                 aria-label={`Remove link to ${displayTitle}`}
               >
                 <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">

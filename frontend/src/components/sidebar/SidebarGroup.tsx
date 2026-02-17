@@ -6,6 +6,7 @@ import { useState, useRef, useEffect } from 'react'
 import type { ReactNode, KeyboardEvent } from 'react'
 import { useConfirmDelete } from '../../hooks/useConfirmDelete'
 import { EditIcon, TrashIcon } from '../icons'
+import { Tooltip } from '../ui'
 
 interface SidebarGroupProps {
   name: string
@@ -92,14 +93,15 @@ export function SidebarGroup({
   if (isCollapsed) {
     return (
       <div>
-        <button
-          onClick={onToggle}
-          type="button"
-          className={`${baseClassName} cursor-pointer transition-colors hover:bg-gray-50`}
-          title={name}
-        >
-          <span className="h-5 w-5 flex-shrink-0">{icon}</span>
-        </button>
+        <Tooltip content={name} compact position="right">
+          <button
+            onClick={onToggle}
+            type="button"
+            className={`${baseClassName} cursor-pointer transition-colors hover:bg-gray-50`}
+          >
+            <span className="h-5 w-5 flex-shrink-0">{icon}</span>
+          </button>
+        </Tooltip>
       </div>
     )
   }

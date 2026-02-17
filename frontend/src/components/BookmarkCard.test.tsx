@@ -185,15 +185,13 @@ describe('BookmarkCard', () => {
         />
       )
 
-      // URL text has title attribute, but it's inside an anchor
-      // (multiple exist for mobile/desktop)
-      const urlSpans = screen.getAllByTitle('https://example.com/article')
+      // URL anchors (multiple exist for mobile/desktop layouts)
+      const urlAnchors = screen.getAllByRole('link', { name: /example\.com/i })
 
-      // Verify the parent anchor has correct href for native link behavior
-      const urlAnchor = urlSpans[0].closest('a')
-      expect(urlAnchor).toHaveAttribute('href', 'https://example.com/article')
+      // Verify the anchor has correct href for native link behavior
+      expect(urlAnchors[0]).toHaveAttribute('href', 'https://example.com/article')
 
-      fireEvent.click(urlSpans[0])
+      fireEvent.click(urlAnchors[0])
 
       expect(onLinkClick).toHaveBeenCalledWith(mockBookmark)
     })
@@ -209,7 +207,7 @@ describe('BookmarkCard', () => {
         />
       )
 
-      const urlAnchors = screen.getAllByTitle('https://example.com/article')
+      const urlAnchors = screen.getAllByRole('link', { name: /example\.com/i })
       fireEvent.click(urlAnchors[0], { shiftKey: true, metaKey: true })
 
       // Silent mode should not track
@@ -228,7 +226,7 @@ describe('BookmarkCard', () => {
         />
       )
 
-      const urlAnchors = screen.getAllByTitle('https://example.com/article')
+      const urlAnchors = screen.getAllByRole('link', { name: /example\.com/i })
       fireEvent.click(urlAnchors[0], { shiftKey: true, ctrlKey: true })
 
       expect(onLinkClick).not.toHaveBeenCalled()
@@ -245,7 +243,7 @@ describe('BookmarkCard', () => {
         />
       )
 
-      const urlAnchors = screen.getAllByTitle('https://example.com/article')
+      const urlAnchors = screen.getAllByRole('link', { name: /example\.com/i })
       fireEvent.click(urlAnchors[0], { metaKey: true })
 
       // cmd+click without shift should still track

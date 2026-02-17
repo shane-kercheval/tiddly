@@ -77,7 +77,7 @@ describe('SidebarGroup', () => {
       expect(screen.getByTestId('group-icon')).toBeInTheDocument()
     })
 
-    it('should show title attribute when sidebar is collapsed', () => {
+    it('should render button when sidebar is collapsed', () => {
       render(
         <SidebarGroup
           name="Test Group"
@@ -90,8 +90,7 @@ describe('SidebarGroup', () => {
         </SidebarGroup>
       )
 
-      const button = screen.getByRole('button')
-      expect(button).toHaveAttribute('title', 'Test Group')
+      expect(screen.getByRole('button')).toBeInTheDocument()
     })
   })
 

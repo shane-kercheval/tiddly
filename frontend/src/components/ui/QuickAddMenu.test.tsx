@@ -22,7 +22,7 @@ describe('QuickAddMenu', () => {
 
       const trigger = screen.getByTestId('quick-add-menu-trigger')
       expect(trigger).toBeInTheDocument()
-      expect(trigger).toHaveAttribute('title', 'Add new item')
+      expect(trigger).toHaveAttribute('aria-label', 'Add new item')
     })
 
     it('dropdown is closed initially', () => {

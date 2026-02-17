@@ -57,14 +57,13 @@ describe('SidebarNavItem', () => {
       expect(screen.getByTestId('custom-icon')).toBeInTheDocument()
     })
 
-    it('should add title attribute when collapsed', () => {
+    it('should render link when collapsed', () => {
       render(
         <SidebarNavItem to="/test" label="Test Label" isCollapsed={true} />,
         { wrapper: createWrapper() }
       )
 
-      const link = screen.getByRole('link')
-      expect(link).toHaveAttribute('title', 'Test Label')
+      expect(screen.getByRole('link')).toBeInTheDocument()
     })
 
     it('should hide label text visually when collapsed', () => {
