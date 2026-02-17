@@ -11,11 +11,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_user_auth0_only
-from api.main import app
 from core.rate_limit_config import RateLimitResult
 from core.tier_limits import Tier, get_tier_limits
-from db.session import get_async_session
 from models.bookmark import Bookmark
 from models.user import User
 from services.url_scraper import ExtractedMetadata, ScrapedPage
@@ -1669,6 +1666,12 @@ async def test_fetch_metadata_rate_limited(rate_limit_client: AsyncClient) -> No
 
 async def test_fetch_metadata_rejects_pat_tokens(db_session: AsyncSession) -> None:
     """Test that fetch-metadata endpoint rejects PAT tokens with 403."""
+    # Deferred imports: these trigger module-level get_settings() which requires
+    # DATABASE_URL, only available at runtime via the database_url fixture.
+    from api.dependencies import get_current_user_auth0_only
+    from api.main import app
+    from db.session import get_async_session
+
     # Override get_current_user_auth0_only to simulate PAT rejection
     async def mock_auth0_only_reject_pat() -> None:
         raise HTTPException(
