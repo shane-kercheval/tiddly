@@ -40,6 +40,7 @@ const leftColumnGroups: ShortcutGroup[] = [
     shortcuts: [
       { keys: ['/'], description: 'Search' },
       { keys: ['\u2318', '\u21E7', 'P'], description: 'Command palette' },
+      { keys: ['\u2318', 'Click'], description: 'Open card in new tab' },
       { keys: ['Esc'], description: 'Close modal / Unfocus search' },
     ],
   },

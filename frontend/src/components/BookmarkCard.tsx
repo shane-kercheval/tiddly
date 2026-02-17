@@ -123,6 +123,7 @@ export function BookmarkCard({
     <ContentCard
       view={view}
       onClick={handleCardClick}
+      href={`/app/bookmarks/${bookmark.id}`}
     >
       {/* Column 1: Icon (bookmark icon or favicon based on mode) */}
       <span className={`w-4 h-4 mt-1 ${showContentTypeIcon ? CONTENT_TYPE_ICON_COLORS.bookmark : ''}`}>
@@ -211,8 +212,8 @@ export function BookmarkCard({
           {/* Actions and date row */}
           {hasActions && (
             <div className="flex items-center justify-between">
-              {/* Actions - always visible on mobile */}
-              <div className="flex items-center gap-0.5">
+              {/* Actions - always visible on mobile, -ml-2 compensates for btn-icon padding */}
+              <div className="flex items-center gap-0.5 -ml-2">
                 {/* External link as first action on mobile */}
                 <Tooltip content="Open link" compact>
                   <button

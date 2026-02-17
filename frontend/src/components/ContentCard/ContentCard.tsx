@@ -27,6 +27,8 @@ interface ContentCardProps {
   view?: ContentCardView
   /** Click handler for the card */
   onClick?: () => void
+  /** URL for cmd/ctrl+click to open in new tab */
+  href?: string
   /** Whether to show interactive hover styles (background, rounded corners). Defaults to true. */
   interactive?: boolean
   /** Card content */
@@ -38,15 +40,24 @@ interface ContentCardProps {
 function ContentCardBase({
   view = 'active',
   onClick,
+  href,
   interactive = true,
   children,
   className = '',
 }: ContentCardProps): ReactNode {
+  const handleClick = (e: React.MouseEvent): void => {
+    if (href && (e.metaKey || e.ctrlKey)) {
+      window.open(href, '_blank')
+      return
+    }
+    onClick?.()
+  }
+
   return (
     <ContentCardContext.Provider value={{ view }}>
       <div
         className={`card ${interactive ? 'card-interactive' : ''} group ${onClick ? 'cursor-pointer' : ''} ${className}`.trim()}
-        onClick={onClick}
+        onClick={(onClick || href) ? handleClick : undefined}
       >
         <div className="grid grid-cols-[auto_1fr] gap-x-2 items-start">
           {children}

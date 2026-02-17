@@ -27,9 +27,10 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useHistorySidebarStore } from '../stores/historySidebarStore'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
-import { getApiErrorMessage } from '../utils'
+import { getApiErrorMessage, getDomain } from '../utils'
 
 type BookmarkViewState = 'active' | 'archived' | 'deleted'
 
@@ -87,6 +88,12 @@ export function BookmarkDetail(): ReactNode {
   const unarchiveMutation = useUnarchiveBookmark()
 
   const viewState: BookmarkViewState = bookmark ? getBookmarkViewState(bookmark) : 'active'
+
+  usePageTitle(
+    isCreate
+      ? 'New Bookmark'
+      : bookmark?.title || (bookmark?.url ? getDomain(bookmark.url) : undefined)
+  )
 
   useEffect(() => {
     if (isCreate) {

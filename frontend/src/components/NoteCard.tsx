@@ -53,7 +53,10 @@ export function NoteCard({
   const hasActions = !!(onDelete || onArchive || onUnarchive || onRestore || onTagAdd || onCancelScheduledArchive)
   const previewText = note.description || note.content_preview || ''
 
+  const noteHref = `/app/notes/${note.id}`
+
   const handleTitleClick = (e: React.MouseEvent): void => {
+    if (e.metaKey || e.ctrlKey) return // Let it bubble to ContentCard
     e.stopPropagation()
     if (onView) onView(note)
     else onClick?.(note)
@@ -63,6 +66,7 @@ export function NoteCard({
     <ContentCard
       view={view}
       onClick={onClick ? () => onClick(note) : onView ? () => onView(note) : undefined}
+      href={noteHref}
     >
       {/* Column 1: Icon */}
       <span className={`w-4 h-4 mt-1 ${CONTENT_TYPE_ICON_COLORS.note}`}>
@@ -106,8 +110,8 @@ export function NoteCard({
           {/* Actions and date row */}
           {hasActions && (
             <div className="flex items-center justify-between">
-              {/* Actions - always visible on mobile */}
-              <div className="flex items-center gap-0.5">
+              {/* Actions - always visible on mobile, -ml-2 compensates for btn-icon padding */}
+              <div className="flex items-center gap-0.5 -ml-2">
                 {onTagAdd && tagSuggestions && (
                   <ContentCard.AddTagAction
                     existingTags={note.tags}

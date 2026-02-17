@@ -70,7 +70,6 @@ interface FormErrors {
   title?: string
   description?: string
   content?: string
-  general?: string
 }
 
 interface BookmarkProps {
@@ -256,6 +255,7 @@ export function Bookmark({
   }, [bookmark?.id, bookmark?.updated_at, syncStateFromBookmark])
 
   // Metadata fetch state
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false)
   const [showFetchSuccess, setShowFetchSuccess] = useState(false)
   const [contentKey, setContentKey] = useState(0) // Force editor remount when content is fetched
@@ -380,15 +380,17 @@ export function Bookmark({
     ) {
       autoFetchedRef.current = initialUrl
       setIsFetchingMetadata(true)
-      setErrors({})
+      setFetchError(null)
+      setShowFetchSuccess(false)
+      if (successTimeoutRef.current) {
+        clearTimeout(successTimeoutRef.current)
+        successTimeoutRef.current = null
+      }
 
       onFetchMetadata(normalizeUrl(initialUrl))
         .then((metadata) => {
           if (metadata.error) {
-            setErrors((prev) => ({
-              ...prev,
-              general: `Could not fetch metadata: ${metadata.error}`,
-            }))
+            setFetchError(`Could not fetch metadata: ${metadata.error}`)
           }
 
           setCurrent((prev) => ({
@@ -401,17 +403,17 @@ export function Bookmark({
           // Force editor remount to display fetched content
           setContentKey((prev) => prev + 1)
 
-          setShowFetchSuccess(true)
-          if (successTimeoutRef.current) {
-            clearTimeout(successTimeoutRef.current)
+          if (!metadata.error) {
+            setShowFetchSuccess(true)
+            if (successTimeoutRef.current) {
+              clearTimeout(successTimeoutRef.current)
+            }
+            successTimeoutRef.current = setTimeout(() => setShowFetchSuccess(false), 2000)
           }
-          successTimeoutRef.current = setTimeout(() => setShowFetchSuccess(false), 2000)
         })
         .catch(() => {
-          setErrors((prev) => ({
-            ...prev,
-            general: 'Failed to fetch metadata. You can still save the bookmark.',
-          }))
+          setShowFetchSuccess(false)
+          setFetchError('Failed to fetch metadata. You can still save the bookmark.')
         })
         .finally(() => {
           setIsFetchingMetadata(false)
@@ -518,16 +520,18 @@ export function Bookmark({
     if (!onFetchMetadata) return
 
     setIsFetchingMetadata(true)
-    setErrors({})
+    setFetchError(null)
+    setShowFetchSuccess(false)
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current)
+      successTimeoutRef.current = null
+    }
 
     try {
       const metadata = await onFetchMetadata(normalizeUrl(current.url))
 
       if (metadata.error) {
-        setErrors((prev) => ({
-          ...prev,
-          general: `Could not fetch metadata: ${metadata.error}`,
-        }))
+        setFetchError(`Could not fetch metadata: ${metadata.error}`)
       }
 
       setCurrent((prev) => ({
@@ -540,16 +544,16 @@ export function Bookmark({
       // Force editor remount to display fetched content
       setContentKey((prev) => prev + 1)
 
-      setShowFetchSuccess(true)
-      if (successTimeoutRef.current) {
-        clearTimeout(successTimeoutRef.current)
+      if (!metadata.error) {
+        setShowFetchSuccess(true)
+        if (successTimeoutRef.current) {
+          clearTimeout(successTimeoutRef.current)
+        }
+        successTimeoutRef.current = setTimeout(() => setShowFetchSuccess(false), 2000)
       }
-      successTimeoutRef.current = setTimeout(() => setShowFetchSuccess(false), 2000)
     } catch {
-      setErrors((prev) => ({
-        ...prev,
-        general: 'Failed to fetch metadata. You can still save the bookmark.',
-      }))
+      setShowFetchSuccess(false)
+      setFetchError('Failed to fetch metadata. You can still save the bookmark.')
     } finally {
       setIsFetchingMetadata(false)
     }
@@ -677,6 +681,7 @@ export function Bookmark({
   const handleUrlChange = useCallback((url: string): void => {
     setCurrent((prev) => ({ ...prev, url }))
     setErrors((prev) => (prev.url ? { ...prev, url: undefined } : prev))
+    setFetchError(null)
   }, [])
 
   const handleTitleChange = useCallback((title: string): void => {
@@ -914,13 +919,6 @@ export function Bookmark({
             </div>
           )}
 
-          {/* General error */}
-          {errors.general && (
-            <div className="alert-warning">
-              <p className="text-sm">{errors.general}</p>
-            </div>
-          )}
-
           {/* URL with Fetch Metadata button */}
           <InlineEditableUrl
             ref={urlInputRef}
@@ -933,6 +931,7 @@ export function Bookmark({
             onFetchMetadata={onFetchMetadata ? handleFetchMetadata : undefined}
             isFetchingMetadata={isFetchingMetadata}
             showFetchSuccess={showFetchSuccess}
+            fetchError={fetchError ?? undefined}
           />
 
           {/* Title */}

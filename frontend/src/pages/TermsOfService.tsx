@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { usePolicyVersions } from '../hooks/usePolicyVersions'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 /**
  * Terms of Service page - public route accessible without authentication.
@@ -9,6 +10,7 @@ import { usePolicyVersions } from '../hooks/usePolicyVersions'
  * Version date is fetched from the backend for single source of truth.
  */
 export function TermsOfService(): ReactNode {
+  usePageTitle('Terms of Service')
   const { versions, isLoading, formatVersionDate } = usePolicyVersions()
 
   const versionDisplay = isLoading

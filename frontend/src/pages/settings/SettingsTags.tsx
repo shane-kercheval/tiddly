@@ -13,6 +13,7 @@ import { useTagFilterStore } from '../../stores/tagFilterStore'
 import { queryClient } from '../../queryClient'
 import { contentKeys } from '../../hooks/useContentQuery'
 import { LoadingSpinner, ConfirmDeleteButton } from '../../components/ui'
+import { usePageTitle } from '../../hooks/usePageTitle'
 import { EditIcon } from '../../components/icons'
 import { validateTag, normalizeTag, sortTags } from '../../utils'
 import type { TagSortOption } from '../../utils'
@@ -215,6 +216,7 @@ function TagRow({
  * Tags management settings page.
  */
 export function SettingsTags(): ReactNode {
+  usePageTitle('Settings - Tags')
   const { tags, isLoading, renameTag, deleteTag, fetchTags } = useTagsStore()
   const fetchFilters = useFiltersStore((state) => state.fetchFilters)
   const renameTagInFilter = useTagFilterStore((state) => state.renameTagAllViews)

@@ -45,6 +45,7 @@ import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useContentTypeFilterStore, ALL_CONTENT_TYPES } from '../stores/contentTypeFilterStore'
 import { useFiltersStore } from '../stores/filtersStore'
+import { usePageTitle } from '../hooks/usePageTitle'
 import type { PageSize } from '../stores/uiPreferencesStore'
 import type { SortByOption } from '../constants/sortOptions'
 import { BookmarkCard } from '../components/BookmarkCard'
@@ -139,6 +140,11 @@ export function AllContent(): ReactNode {
     () => currentFilterId !== undefined ? filters.find(f => f.id === currentFilterId) : undefined,
     [currentFilterId, filters]
   )
+
+  // Page title based on view/filter
+  const pageTitle = currentFilter?.name
+    ?? (currentView === 'archived' ? 'Archived' : currentView === 'deleted' ? 'Trash' : 'All')
+  usePageTitle(pageTitle)
 
   // Content type filter - builtin views always, filters only when multiple types exist
   const { getSelectedTypes, toggleType } = useContentTypeFilterStore()
@@ -709,8 +715,8 @@ export function AllContent(): ReactNode {
 
     return (
       <>
-        {/* Content list */}
-        <div>
+        {/* Content list - reduce side padding on mobile for more card space */}
+        <div className="-mx-2 md:mx-0">
           {items.map((item) => {
             if (item.type === 'bookmark') {
               return (
@@ -805,7 +811,7 @@ export function AllContent(): ReactNode {
   return (
     <div className="pt-4">
       {/* Search and filters */}
-      <div className="mb-6 space-y-3">
+      <div className="mb-3 md:mb-6 space-y-3">
         <SearchFilterBar
           searchInputRef={searchInputRef}
           searchQuery={searchQuery}

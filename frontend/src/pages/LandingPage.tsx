@@ -2,6 +2,7 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { Navigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
+import { usePageTitle } from '../hooks/usePageTitle'
 import { BookmarkIcon } from '../components/icons'
 import { Footer } from '../components/Footer'
 import { LoadingSpinnerCentered } from '../components/ui'
@@ -319,6 +320,7 @@ function LandingContent({
  */
 function AuthenticatedLandingPage(): ReactNode {
   const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0()
+  usePageTitle(undefined)
 
   if (isLoading) {
     return <LoadingSpinnerCentered />
