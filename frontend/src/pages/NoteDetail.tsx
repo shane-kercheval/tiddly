@@ -71,6 +71,7 @@ export function NoteDetail(): ReactNode {
     note?: NoteType
     initialRelationships?: RelationshipInputPayload[]
     initialLinkedItems?: LinkedItem[]
+    returnTo?: string
   } | undefined
   // Pre-populate tags from the 'active' view (most common originating context)
   const selectedTags = useTagFilterStore((state) => state.getSelectedTags('active'))
@@ -148,9 +149,10 @@ export function NoteDetail(): ReactNode {
         try {
           const createdNote = await createMutation.mutateAsync(data as NoteCreate)
           // Navigate to the new note's URL, passing the note to avoid refetch
+          // Preserve returnTo so Close still navigates back to the source entity (e.g. quick-create flow)
           navigate(`/app/notes/${createdNote.id}`, {
             replace: true,
-            state: { note: createdNote },
+            state: { note: createdNote, returnTo: locationState?.returnTo },
           })
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Failed to create note'
@@ -177,7 +179,7 @@ export function NoteDetail(): ReactNode {
         }
       }
     },
-    [isCreate, noteId, createMutation, updateMutation, navigate, queryClient]
+    [isCreate, noteId, createMutation, updateMutation, navigate, queryClient, locationState?.returnTo]
   )
 
   const handleArchive = useCallback(async (): Promise<void> => {

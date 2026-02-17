@@ -70,6 +70,7 @@ export function PromptDetail(): ReactNode {
     prompt?: PromptType
     initialRelationships?: RelationshipInputPayload[]
     initialLinkedItems?: LinkedItem[]
+    returnTo?: string
   } | undefined
   // Pre-populate tags from the 'active' view (most common originating context)
   const selectedTags = useTagFilterStore((state) => state.getSelectedTags('active'))
@@ -178,9 +179,10 @@ export function PromptDetail(): ReactNode {
         try {
           const createdPrompt = await createMutation.mutateAsync(data as PromptCreate)
           // Navigate to the new prompt's URL, passing the prompt to avoid refetch
+          // Preserve returnTo so Close still navigates back to the source entity (e.g. quick-create flow)
           navigate(`/app/prompts/${createdPrompt.id}`, {
             replace: true,
-            state: { prompt: createdPrompt },
+            state: { prompt: createdPrompt, returnTo: locationState?.returnTo },
           })
         } catch (err) {
           handleNameConflict(err)
@@ -208,7 +210,7 @@ export function PromptDetail(): ReactNode {
         }
       }
     },
-    [isCreate, promptId, createMutation, updateMutation, navigate, queryClient]
+    [isCreate, promptId, createMutation, updateMutation, navigate, queryClient, locationState?.returnTo]
   )
 
   const handleArchive = useCallback(async (): Promise<void> => {

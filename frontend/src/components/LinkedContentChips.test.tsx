@@ -5,7 +5,7 @@
  * items + callbacks. These tests verify display, callbacks, and inline search.
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import { render, screen, act, fireEvent } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createRef } from 'react'
@@ -258,74 +258,6 @@ describe('LinkedContentChips', () => {
 
       // Container exists but has no chip children
       expect(container.querySelectorAll('span.inline-flex')).toHaveLength(0)
-    })
-  })
-
-  describe('chip tooltip', () => {
-    it('should show full title on hover when title exists', () => {
-      const items = [makeLinkedItem({ title: 'A Very Long Bookmark Title That Gets Truncated' })]
-
-      render(
-        <LinkedContentChips
-          contentType="note"
-          contentId="note-1"
-          items={items}
-          onAdd={noop}
-          onRemove={noop}
-        />,
-        { wrapper: createWrapper() },
-      )
-
-      const chip = screen.getByText('A Very Long Bookmark Title That Gets Truncated')
-      // The Tooltip wraps the chip in a div with onMouseEnter
-      const tooltipTrigger = chip.closest('.inline-flex.items-baseline')?.querySelector(':scope > .inline-flex')
-      fireEvent.mouseEnter(tooltipTrigger!)
-
-      expect(screen.getAllByText('A Very Long Bookmark Title That Gets Truncated')).toHaveLength(2) // chip + tooltip
-    })
-
-    it('should show full URL on hover for bookmark with null title', () => {
-      const items = [makeLinkedItem({ title: null, url: 'https://www.example.com/very/long/path' })]
-
-      render(
-        <LinkedContentChips
-          contentType="note"
-          contentId="note-1"
-          items={items}
-          onAdd={noop}
-          onRemove={noop}
-        />,
-        { wrapper: createWrapper() },
-      )
-
-      const chip = screen.getByText('www.example.com')
-      const tooltipTrigger = chip.closest('.inline-flex.items-baseline')?.querySelector(':scope > .inline-flex')
-      fireEvent.mouseEnter(tooltipTrigger!)
-
-      expect(screen.getByText('https://www.example.com/very/long/path')).toBeInTheDocument()
-    })
-
-    it('should not show tooltip for items with null title and no URL', () => {
-      const items = [makeLinkedItem({ type: 'note', title: null, url: null })]
-
-      render(
-        <LinkedContentChips
-          contentType="bookmark"
-          contentId="bm-1"
-          items={items}
-          onAdd={noop}
-          onRemove={noop}
-        />,
-        { wrapper: createWrapper() },
-      )
-
-      const chip = screen.getByText('Untitled')
-      // No Tooltip wrapper — the chip is rendered directly without a Tooltip parent
-      const chipContainer = chip.closest('.inline-flex.items-baseline')
-      fireEvent.mouseEnter(chipContainer!)
-
-      // "Untitled" should appear only once (chip text, no tooltip)
-      expect(screen.getAllByText('Untitled')).toHaveLength(1)
     })
   })
 

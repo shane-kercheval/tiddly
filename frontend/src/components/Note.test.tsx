@@ -5,12 +5,11 @@
  * plus Note-specific tests for unique functionality.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { screen, waitFor, fireEvent } from '@testing-library/react'
 import { useRef } from 'react'
-import type { ReactNode } from 'react'
 import userEvent from '@testing-library/user-event'
 import axios from 'axios'
-import { MemoryRouter } from 'react-router-dom'
+import { renderWithRouter } from '../test-utils'
 import { Note } from './Note'
 import { createContentComponentTests } from './__tests__/createContentComponentTests'
 import type { Note as NoteType, TagCount } from '../types'
@@ -110,12 +109,6 @@ const mockTagSuggestions: TagCount[] = [
   { name: 'example', content_count: 3, filter_count: 0 },
   { name: 'javascript', content_count: 10, filter_count: 0 },
 ]
-
-/** Render with Router context (required by useQuickCreateLinked) */
-function renderWithRouter(...args: Parameters<typeof render>): ReturnType<typeof render> {
-  const [ui, options] = args
-  return render(ui, { wrapper: ({ children }: { children: ReactNode }) => <MemoryRouter>{children}</MemoryRouter>, ...options })
-}
 
 // Run shared content component tests
 createContentComponentTests({

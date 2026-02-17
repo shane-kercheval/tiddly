@@ -28,18 +28,12 @@
  *   })
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ComponentType, ReactNode } from 'react'
+import type { ComponentType } from 'react'
 import React from 'react'
-import { MemoryRouter } from 'react-router-dom'
+import { renderWithRouter } from '../../test-utils'
 import type { TagCount } from '../../types'
-
-/** Custom render that provides Router context for components using navigation hooks */
-function renderWithRouter(...args: Parameters<typeof render>): ReturnType<typeof render> {
-  const [ui, options] = args
-  return render(ui, { wrapper: ({ children }: { children: ReactNode }) => <MemoryRouter>{children}</MemoryRouter>, ...options })
-}
 
 /**
  * Configuration for content component tests.
