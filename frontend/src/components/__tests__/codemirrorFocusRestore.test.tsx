@@ -11,7 +11,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import type { Note as NoteType, TagCount } from '../../types'
 
 // Create a mock CodeMirrorEditor that includes the .cm-editor class
@@ -80,6 +82,12 @@ vi.mock('../../hooks/useContentQuery', () => ({
 // Import Note after mocks are set up
 import { Note } from '../Note'
 
+/** Render with Router context (required by useQuickCreateLinked) */
+function renderWithRouter(...args: Parameters<typeof render>): ReturnType<typeof render> {
+  const [ui, options] = args
+  return render(ui, { wrapper: ({ children }: { children: ReactNode }) => <MemoryRouter>{children}</MemoryRouter>, ...options })
+}
+
 const mockNote: NoteType = {
   id: 'note-1',
   title: 'Test Note',
@@ -116,7 +124,7 @@ describe('CodeMirror focus restoration after Cmd+S', () => {
   })
 
   it('should detect when focus is in CodeMirror editor', async () => {
-    render(
+    renderWithRouter(
       <Note
         note={mockNote}
         tagSuggestions={mockTagSuggestions}
@@ -138,7 +146,7 @@ describe('CodeMirror focus restoration after Cmd+S', () => {
   it('should call onSave when Cmd+S is pressed with changes', async () => {
     const user = userEvent.setup()
 
-    render(
+    renderWithRouter(
       <Note
         note={mockNote}
         tagSuggestions={mockTagSuggestions}
@@ -164,7 +172,7 @@ describe('CodeMirror focus restoration after Cmd+S', () => {
   it('should restore focus to CodeMirror after Cmd+S save', async () => {
     const user = userEvent.setup()
 
-    render(
+    renderWithRouter(
       <Note
         note={mockNote}
         tagSuggestions={mockTagSuggestions}

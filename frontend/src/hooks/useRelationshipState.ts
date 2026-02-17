@@ -16,6 +16,8 @@ interface UseRelationshipStateParams<S extends { relationships: RelationshipInpu
   serverRelationships: RelationshipWithContent[] | undefined
   currentRelationships: RelationshipInputPayload[]
   setCurrent: Dispatch<SetStateAction<S>>
+  /** Pre-populate display cache for linked items passed via navigation state */
+  initialLinkedItems?: LinkedItem[]
 }
 
 interface UseRelationshipStateResult {
@@ -31,8 +33,21 @@ export function useRelationshipState<S extends { relationships: RelationshipInpu
   serverRelationships,
   currentRelationships,
   setCurrent,
+  initialLinkedItems,
 }: UseRelationshipStateParams<S>): UseRelationshipStateResult {
-  const newLinkedItemsCacheRef = useRef(new Map<string, LinkedItem>())
+  // Build initial cache seeded with initialLinkedItems (if provided).
+  // useMemo ensures this only runs once (deps never change since it captures the first value).
+  const initialCache = useMemo(() => {
+    const cache = new Map<string, LinkedItem>()
+    if (initialLinkedItems) {
+      for (const item of initialLinkedItems) {
+        cache.set(`${item.type}:${item.id}`, item)
+      }
+    }
+    return cache
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const newLinkedItemsCacheRef = useRef(initialCache)
 
   const linkedItems = useMemo((): LinkedItem[] => {
     const enriched = new Map<string, LinkedItem>()
@@ -45,8 +60,7 @@ export function useRelationshipState<S extends { relationships: RelationshipInpu
     // Capture ref value once at memo scope (not inside the .map closure).
     // This is a stable display-info cache, not reactive state — safe to read during render.
     const cachedItems = newLinkedItemsCacheRef.current
-    // eslint-disable-next-line react-hooks/refs -- cachedItems is a display cache, not reactive state
-    return currentRelationships.map((rel) => {
+    const items = currentRelationships.map((rel) => {
       const key = `${rel.target_type}:${rel.target_id}`
       return enriched.get(key)
         ?? cachedItems.get(key)
@@ -61,6 +75,18 @@ export function useRelationshipState<S extends { relationships: RelationshipInpu
           description: rel.description ?? null,
         }
     })
+    // Sort by type (bookmark → note → prompt) then alphabetically by title
+    const typeOrder: Record<string, number> = { bookmark: 0, note: 1, prompt: 2 }
+    items.sort((a, b) => {
+      const typeDiff = (typeOrder[a.type] ?? 99) - (typeOrder[b.type] ?? 99)
+      if (typeDiff !== 0) return typeDiff
+      const aTitle = a.title ?? ''
+      const bTitle = b.title ?? ''
+      if (!aTitle && bTitle) return 1
+      if (aTitle && !bTitle) return -1
+      return aTitle.localeCompare(bTitle)
+    })
+    return items
   }, [serverRelationships, entityId, currentRelationships, contentType])
 
   const handleAddRelationship = useCallback((item: ContentListItem): void => {

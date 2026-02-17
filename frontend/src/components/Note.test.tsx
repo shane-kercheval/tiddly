@@ -7,8 +7,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { useRef } from 'react'
+import type { ReactNode } from 'react'
 import userEvent from '@testing-library/user-event'
 import axios from 'axios'
+import { MemoryRouter } from 'react-router-dom'
 import { Note } from './Note'
 import { createContentComponentTests } from './__tests__/createContentComponentTests'
 import type { Note as NoteType, TagCount } from '../types'
@@ -109,6 +111,12 @@ const mockTagSuggestions: TagCount[] = [
   { name: 'javascript', content_count: 10, filter_count: 0 },
 ]
 
+/** Render with Router context (required by useQuickCreateLinked) */
+function renderWithRouter(...args: Parameters<typeof render>): ReturnType<typeof render> {
+  const [ui, options] = args
+  return render(ui, { wrapper: ({ children }: { children: ReactNode }) => <MemoryRouter>{children}</MemoryRouter>, ...options })
+}
+
 // Run shared content component tests
 createContentComponentTests({
   componentName: 'Note',
@@ -153,7 +161,7 @@ describe('Note component - specific behaviors', () => {
 
   describe('timestamps', () => {
     it('should not show timestamps for new note', () => {
-      render(
+      renderWithRouter(
         <Note
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -166,7 +174,7 @@ describe('Note component - specific behaviors', () => {
     })
 
     it('should show timestamps for existing note', () => {
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -182,7 +190,7 @@ describe('Note component - specific behaviors', () => {
 
   describe('description field', () => {
     it('should render note description', () => {
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -196,7 +204,7 @@ describe('Note component - specific behaviors', () => {
 
     it('should detect description change as dirty', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -215,7 +223,7 @@ describe('Note component - specific behaviors', () => {
   describe('content field', () => {
     it('should enable Save button on first content keystroke', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -237,7 +245,7 @@ describe('Note component - specific behaviors', () => {
 
     it('should disable Save button when content is reverted to original', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -260,7 +268,7 @@ describe('Note component - specific behaviors', () => {
 
   describe('tags', () => {
     it('should render note tags', () => {
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -274,7 +282,7 @@ describe('Note component - specific behaviors', () => {
     })
 
     it('should populate initial tags from props', () => {
-      render(
+      renderWithRouter(
         <Note
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -289,7 +297,7 @@ describe('Note component - specific behaviors', () => {
 
   describe('validation', () => {
     it('should show validation error when Create is clicked with empty title', async () => {
-      render(
+      renderWithRouter(
         <Note
           tagSuggestions={mockTagSuggestions}
           onSave={mockOnSave}
@@ -308,7 +316,7 @@ describe('Note component - specific behaviors', () => {
 
     it('should show validation error when form is submitted programmatically with empty title', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -335,7 +343,7 @@ describe('Note component - specific behaviors', () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockResolvedValue(undefined)
 
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -361,7 +369,7 @@ describe('Note component - specific behaviors', () => {
   describe('deleted notes', () => {
     it('should show Delete Permanently for deleted notes', () => {
       const mockOnDelete = vi.fn()
-      render(
+      renderWithRouter(
         <Note
           note={mockDeletedNote}
           tagSuggestions={mockTagSuggestions}
@@ -377,7 +385,7 @@ describe('Note component - specific behaviors', () => {
     })
 
     it('should show Restore button for deleted notes', () => {
-      render(
+      renderWithRouter(
         <Note
           note={mockDeletedNote}
           tagSuggestions={mockTagSuggestions}
@@ -394,7 +402,7 @@ describe('Note component - specific behaviors', () => {
 
   describe('fullWidth prop', () => {
     it('should apply max-w-4xl when fullWidth is false', () => {
-      const { container } = render(
+      const { container } = renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -408,7 +416,7 @@ describe('Note component - specific behaviors', () => {
     })
 
     it('should not apply max-w-4xl when fullWidth is true', () => {
-      const { container } = render(
+      const { container } = renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -424,7 +432,7 @@ describe('Note component - specific behaviors', () => {
 
   describe('prop sync on refresh', () => {
     it('should update internal state when note prop updated_at changes', () => {
-      const { rerender } = render(
+      const { rerender } = renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -461,7 +469,7 @@ describe('Note component - specific behaviors', () => {
 
     it('should not update internal state when note prop changes without updated_at change', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-      const { rerender } = render(
+      const { rerender } = renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -507,7 +515,7 @@ describe('Note component - specific behaviors', () => {
       }
       mockOnSave.mockRejectedValue(error409)
 
-      const { rerender } = render(
+      const { rerender } = renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -574,7 +582,7 @@ describe('Note component - specific behaviors', () => {
       }
       const mockOnRefresh = vi.fn().mockResolvedValue(refreshedNote)
 
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -612,7 +620,7 @@ describe('Note component - specific behaviors', () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockResolvedValue(undefined)
 
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -665,7 +673,7 @@ describe('Note component - specific behaviors', () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockRejectedValue(create409Error())
 
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -693,7 +701,7 @@ describe('Note component - specific behaviors', () => {
       mockOnSave.mockRejectedValue(create409Error())
       const mockOnRefresh = vi.fn().mockResolvedValue(mockNote)
 
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -722,7 +730,7 @@ describe('Note component - specific behaviors', () => {
       // First call rejects with 409, second call succeeds
       mockOnSave.mockRejectedValueOnce(create409Error()).mockResolvedValueOnce(undefined)
 
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -761,7 +769,7 @@ describe('Note component - specific behaviors', () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       mockOnSave.mockRejectedValue(create409Error())
 
-      render(
+      renderWithRouter(
         <Note
           note={mockNote}
           tagSuggestions={mockTagSuggestions}
@@ -788,6 +796,73 @@ describe('Note component - specific behaviors', () => {
 
       // User's changes should still be in the form
       expect(screen.getByDisplayValue('My New Title')).toBeInTheDocument()
+    })
+  })
+
+  describe('pre-populated relationships (quick-create linked)', () => {
+    it('should not make form dirty when initialRelationships are provided in create mode', () => {
+      renderWithRouter(
+        <Note
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={vi.fn()}
+          initialRelationships={[{
+            target_type: 'bookmark',
+            target_id: 'bm-1',
+            relationship_type: 'related',
+          }]}
+          initialLinkedItems={[{
+            relationshipId: '',
+            type: 'bookmark',
+            id: 'bm-1',
+            title: 'My Bookmark',
+            url: 'https://example.com',
+            deleted: false,
+            archived: false,
+            description: null,
+          }]}
+        />
+      )
+
+      // The pre-populated link chip should be visible
+      expect(screen.getByText('My Bookmark')).toBeInTheDocument()
+
+      // But the Create button should be disabled (form not dirty from pre-populated link alone)
+      const createButton = screen.getByText('Create').closest('button')
+      expect(createButton).toBeDisabled()
+    })
+
+    it('should become dirty when pre-populated relationship is removed', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      renderWithRouter(
+        <Note
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={vi.fn()}
+          initialRelationships={[{
+            target_type: 'bookmark',
+            target_id: 'bm-1',
+            relationship_type: 'related',
+          }]}
+          initialLinkedItems={[{
+            relationshipId: '',
+            type: 'bookmark',
+            id: 'bm-1',
+            title: 'My Bookmark',
+            url: 'https://example.com',
+            deleted: false,
+            archived: false,
+            description: null,
+          }]}
+        />
+      )
+
+      // Remove the pre-populated link — hover to reveal the remove button
+      const removeButton = screen.getByLabelText('Remove link to My Bookmark')
+      await user.click(removeButton)
+
+      // Now the form is dirty — but Create is still disabled because title is empty (invalid)
+      expect(screen.queryByText('My Bookmark')).not.toBeInTheDocument()
     })
   })
 })

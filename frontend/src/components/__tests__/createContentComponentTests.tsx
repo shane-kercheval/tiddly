@@ -30,9 +30,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ComponentType } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 import React from 'react'
+import { MemoryRouter } from 'react-router-dom'
 import type { TagCount } from '../../types'
+
+/** Custom render that provides Router context for components using navigation hooks */
+function renderWithRouter(...args: Parameters<typeof render>): ReturnType<typeof render> {
+  const [ui, options] = args
+  return render(ui, { wrapper: ({ children }: { children: ReactNode }) => <MemoryRouter>{children}</MemoryRouter>, ...options })
+}
 
 /**
  * Configuration for content component tests.
@@ -137,7 +144,7 @@ export function createContentComponentTests<TItem, TProps>(
 
     describe('create mode', () => {
       it('should show Close and Create buttons', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               onSave: mockOnSave,
@@ -151,7 +158,7 @@ export function createContentComponentTests<TItem, TProps>(
       })
 
       it('should show Link content button in create mode', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               onSave: mockOnSave,
@@ -165,7 +172,7 @@ export function createContentComponentTests<TItem, TProps>(
 
       it('should allow adding tags when starting with no tags', async () => {
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               onSave: mockOnSave,
@@ -187,7 +194,7 @@ export function createContentComponentTests<TItem, TProps>(
 
     describe('edit mode', () => {
       it('should populate form with item data', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -201,7 +208,7 @@ export function createContentComponentTests<TItem, TProps>(
       })
 
       it('should show Close and Save buttons', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -218,7 +225,7 @@ export function createContentComponentTests<TItem, TProps>(
 
     describe('dirty state', () => {
       it('should show Save button disabled when form is clean', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -240,7 +247,7 @@ export function createContentComponentTests<TItem, TProps>(
     describe('discard confirmation', () => {
       it('should close immediately when form is clean', async () => {
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -257,7 +264,7 @@ export function createContentComponentTests<TItem, TProps>(
 
       it('should show Discard? confirmation when form is dirty', async () => {
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -279,7 +286,7 @@ export function createContentComponentTests<TItem, TProps>(
 
       it('should close on second click within confirmation window', async () => {
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -303,7 +310,7 @@ export function createContentComponentTests<TItem, TProps>(
 
       it('should reset confirmation after 3 seconds', async () => {
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -332,7 +339,7 @@ export function createContentComponentTests<TItem, TProps>(
 
     describe('unsaved changes warning integration', () => {
       it('should not show UnsavedChangesDialog when form is clean', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -349,7 +356,7 @@ export function createContentComponentTests<TItem, TProps>(
       it('should not show unsaved changes dialog after confirming discard', async () => {
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -384,7 +391,7 @@ export function createContentComponentTests<TItem, TProps>(
           })
         })
 
-        const { rerender } = render(
+        const { rerender } = renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -437,7 +444,7 @@ export function createContentComponentTests<TItem, TProps>(
     describe('keyboard shortcuts', () => {
       it('should start discard confirmation on Escape when dirty', async () => {
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -457,7 +464,7 @@ export function createContentComponentTests<TItem, TProps>(
 
       it('should close on Enter when confirming discard', async () => {
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -484,7 +491,7 @@ export function createContentComponentTests<TItem, TProps>(
       })
 
       it('should close on Escape when form is clean', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -500,7 +507,7 @@ export function createContentComponentTests<TItem, TProps>(
       })
 
       it('should not save on Cmd+S when form is not dirty', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -519,7 +526,7 @@ export function createContentComponentTests<TItem, TProps>(
 
       it('should save on Cmd+S when form is dirty', async () => {
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -546,7 +553,7 @@ export function createContentComponentTests<TItem, TProps>(
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
         mockOnSave.mockResolvedValue(undefined)
 
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -575,7 +582,7 @@ export function createContentComponentTests<TItem, TProps>(
       })
 
       it('should NOT save and close on Cmd+Shift+S when form is not dirty', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -596,7 +603,7 @@ export function createContentComponentTests<TItem, TProps>(
 
     describe('saving state', () => {
       it('should show page-level spinner overlay when isSaving is true', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -613,7 +620,7 @@ export function createContentComponentTests<TItem, TProps>(
       })
 
       it('should NOT show page-level spinner overlay when isSaving is false', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -631,7 +638,7 @@ export function createContentComponentTests<TItem, TProps>(
 
     describe('action buttons', () => {
       it('should show Archive button for active items', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -647,7 +654,7 @@ export function createContentComponentTests<TItem, TProps>(
       })
 
       it('should show Restore button for archived items', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockArchivedItem,
@@ -663,7 +670,7 @@ export function createContentComponentTests<TItem, TProps>(
       })
 
       it('should show Delete button', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -679,7 +686,7 @@ export function createContentComponentTests<TItem, TProps>(
 
       it('should call onArchive when Archive is clicked', async () => {
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockItem,
@@ -697,9 +704,52 @@ export function createContentComponentTests<TItem, TProps>(
       })
     })
 
+    describe('quick-create linked buttons', () => {
+      it('should show quick-create buttons after opening link search in edit mode', async () => {
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+        renderWithRouter(
+          <TypedComponent
+            {...buildProps({
+              item: mockItem,
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+            })}
+          />
+        )
+
+        // Buttons hidden before opening link search
+        expect(screen.queryByLabelText('Create linked note')).not.toBeInTheDocument()
+
+        // Open the link search widget
+        await user.click(screen.getByLabelText('Link content'))
+
+        expect(screen.getByLabelText('Create linked note')).toBeInTheDocument()
+        expect(screen.getByLabelText('Create linked bookmark')).toBeInTheDocument()
+        expect(screen.getByLabelText('Create linked prompt')).toBeInTheDocument()
+      })
+
+      it('should not show quick-create buttons in create mode even after opening link search', async () => {
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+        renderWithRouter(
+          <TypedComponent
+            {...buildProps({
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+            })}
+          />
+        )
+
+        await user.click(screen.getByLabelText('Link content'))
+
+        expect(screen.queryByLabelText('Create linked note')).not.toBeInTheDocument()
+        expect(screen.queryByLabelText('Create linked bookmark')).not.toBeInTheDocument()
+        expect(screen.queryByLabelText('Create linked prompt')).not.toBeInTheDocument()
+      })
+    })
+
     describe('read-only mode', () => {
       it('should disable primary field for deleted items', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockDeletedItem,
@@ -714,7 +764,7 @@ export function createContentComponentTests<TItem, TProps>(
       })
 
       it('should show read-only banner for deleted items', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockDeletedItem,
@@ -729,7 +779,7 @@ export function createContentComponentTests<TItem, TProps>(
       })
 
       it('should NOT disable fields for archived items', () => {
-        render(
+        renderWithRouter(
           <TypedComponent
             {...buildProps({
               item: mockArchivedItem,

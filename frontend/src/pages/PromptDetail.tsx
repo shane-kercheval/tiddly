@@ -28,7 +28,8 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useHistorySidebarStore } from '../stores/historySidebarStore'
-import type { Prompt as PromptType, PromptCreate, PromptUpdate } from '../types'
+import type { Prompt as PromptType, PromptCreate, PromptUpdate, RelationshipInputPayload } from '../types'
+import type { LinkedItem } from '../utils/relationships'
 
 type PromptViewState = 'active' | 'archived' | 'deleted'
 
@@ -64,7 +65,12 @@ export function PromptDetail(): ReactNode {
   const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
 
   // Get navigation state
-  const locationState = location.state as { initialTags?: string[]; prompt?: PromptType } | undefined
+  const locationState = location.state as {
+    initialTags?: string[]
+    prompt?: PromptType
+    initialRelationships?: RelationshipInputPayload[]
+    initialLinkedItems?: LinkedItem[]
+  } | undefined
   // Pre-populate tags from the 'active' view (most common originating context)
   const selectedTags = useTagFilterStore((state) => state.getSelectedTags('active'))
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
@@ -300,6 +306,8 @@ export function PromptDetail(): ReactNode {
         isSaving={createMutation.isPending}
         initialTags={initialTags}
         fullWidth={fullWidthLayout}
+        initialRelationships={locationState?.initialRelationships}
+        initialLinkedItems={locationState?.initialLinkedItems}
       />
     )
   }

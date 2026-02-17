@@ -5,7 +5,7 @@
  * items + callbacks. These tests verify display, callbacks, and inline search.
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createRef } from 'react'
@@ -117,8 +117,77 @@ describe('LinkedContentChips', () => {
       expect(screen.getByText('My Prompt')).toBeInTheDocument()
     })
 
-    it('should render "Untitled" for items with null title', () => {
-      const items = [makeLinkedItem({ title: null })]
+    it('should render URL hostname for bookmarks with null title', () => {
+      const items = [makeLinkedItem({ title: null, url: 'https://example.com/path' })]
+
+      render(
+        <LinkedContentChips
+          contentType="note"
+          contentId="note-1"
+          items={items}
+          onAdd={noop}
+          onRemove={noop}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      expect(screen.getByText('example.com')).toBeInTheDocument()
+    })
+
+    it('should render "Untitled" for non-bookmark items with null title', () => {
+      const items = [makeLinkedItem({ type: 'note', title: null, url: null })]
+
+      render(
+        <LinkedContentChips
+          contentType="bookmark"
+          contentId="bm-1"
+          items={items}
+          onAdd={noop}
+          onRemove={noop}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      expect(screen.getByText('Untitled')).toBeInTheDocument()
+    })
+
+    it('should prefer title over URL hostname for bookmarks that have a title', () => {
+      const items = [makeLinkedItem({ title: 'My Title', url: 'https://example.com' })]
+
+      render(
+        <LinkedContentChips
+          contentType="note"
+          contentId="note-1"
+          items={items}
+          onAdd={noop}
+          onRemove={noop}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      expect(screen.getByText('My Title')).toBeInTheDocument()
+      expect(screen.queryByText('example.com')).not.toBeInTheDocument()
+    })
+
+    it('should render "Untitled" for bookmarks with null title and invalid URL', () => {
+      const items = [makeLinkedItem({ title: null, url: 'not-a-valid-url' })]
+
+      render(
+        <LinkedContentChips
+          contentType="note"
+          contentId="note-1"
+          items={items}
+          onAdd={noop}
+          onRemove={noop}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      expect(screen.getByText('Untitled')).toBeInTheDocument()
+    })
+
+    it('should render "Untitled" for bookmarks with null title and null URL', () => {
+      const items = [makeLinkedItem({ title: null, url: null })]
 
       render(
         <LinkedContentChips
@@ -189,6 +258,74 @@ describe('LinkedContentChips', () => {
 
       // Container exists but has no chip children
       expect(container.querySelectorAll('span.inline-flex')).toHaveLength(0)
+    })
+  })
+
+  describe('chip tooltip', () => {
+    it('should show full title on hover when title exists', () => {
+      const items = [makeLinkedItem({ title: 'A Very Long Bookmark Title That Gets Truncated' })]
+
+      render(
+        <LinkedContentChips
+          contentType="note"
+          contentId="note-1"
+          items={items}
+          onAdd={noop}
+          onRemove={noop}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      const chip = screen.getByText('A Very Long Bookmark Title That Gets Truncated')
+      // The Tooltip wraps the chip in a div with onMouseEnter
+      const tooltipTrigger = chip.closest('.inline-flex.items-baseline')?.querySelector(':scope > .inline-flex')
+      fireEvent.mouseEnter(tooltipTrigger!)
+
+      expect(screen.getAllByText('A Very Long Bookmark Title That Gets Truncated')).toHaveLength(2) // chip + tooltip
+    })
+
+    it('should show full URL on hover for bookmark with null title', () => {
+      const items = [makeLinkedItem({ title: null, url: 'https://www.example.com/very/long/path' })]
+
+      render(
+        <LinkedContentChips
+          contentType="note"
+          contentId="note-1"
+          items={items}
+          onAdd={noop}
+          onRemove={noop}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      const chip = screen.getByText('www.example.com')
+      const tooltipTrigger = chip.closest('.inline-flex.items-baseline')?.querySelector(':scope > .inline-flex')
+      fireEvent.mouseEnter(tooltipTrigger!)
+
+      expect(screen.getByText('https://www.example.com/very/long/path')).toBeInTheDocument()
+    })
+
+    it('should not show tooltip for items with null title and no URL', () => {
+      const items = [makeLinkedItem({ type: 'note', title: null, url: null })]
+
+      render(
+        <LinkedContentChips
+          contentType="bookmark"
+          contentId="bm-1"
+          items={items}
+          onAdd={noop}
+          onRemove={noop}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      const chip = screen.getByText('Untitled')
+      // No Tooltip wrapper — the chip is rendered directly without a Tooltip parent
+      const chipContainer = chip.closest('.inline-flex.items-baseline')
+      fireEvent.mouseEnter(chipContainer!)
+
+      // "Untitled" should appear only once (chip text, no tooltip)
+      expect(screen.getAllByText('Untitled')).toHaveLength(1)
     })
   })
 
@@ -353,7 +490,7 @@ describe('LinkedContentChips', () => {
         { wrapper: createWrapper() },
       )
 
-      ref.current?.startAdding()
+      act(() => { ref.current?.startAdding() })
 
       expect(await screen.findByPlaceholderText('Search to link...')).toBeInTheDocument()
     })
@@ -375,7 +512,7 @@ describe('LinkedContentChips', () => {
         { wrapper: createWrapper() },
       )
 
-      ref.current?.startAdding()
+      act(() => { ref.current?.startAdding() })
 
       await new Promise((r) => setTimeout(r, 50))
       expect(screen.queryByPlaceholderText('Search to link...')).not.toBeInTheDocument()
@@ -484,4 +621,82 @@ describe('LinkedContentChips', () => {
       expect(screen.queryByPlaceholderText('Search to link...')).not.toBeInTheDocument()
     })
   })
+
+  describe('quick-create buttons', () => {
+    it('should show quick-create buttons in search widget when onQuickCreate and contentId provided', async () => {
+      const onQuickCreate = vi.fn()
+      const ref = createRef<LinkedContentChipsHandle>()
+
+      render(
+        <LinkedContentChips
+          ref={ref}
+          contentType="note"
+          contentId="note-1"
+          items={[]}
+          onAdd={noop}
+          onRemove={noop}
+          onQuickCreate={onQuickCreate}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      // Buttons not visible before opening search
+      expect(screen.queryByLabelText('Create linked note')).not.toBeInTheDocument()
+
+      // Open search via ref
+      act(() => { ref.current?.startAdding() })
+
+      expect(screen.getByLabelText('Create linked note')).toBeInTheDocument()
+      expect(screen.getByLabelText('Create linked bookmark')).toBeInTheDocument()
+      expect(screen.getByLabelText('Create linked prompt')).toBeInTheDocument()
+    })
+
+    it('should not show quick-create buttons when contentId is null', async () => {
+      const onQuickCreate = vi.fn()
+      const ref = createRef<LinkedContentChipsHandle>()
+
+      render(
+        <LinkedContentChips
+          ref={ref}
+          contentType="note"
+          contentId={null}
+          items={[]}
+          onAdd={noop}
+          onRemove={noop}
+          onQuickCreate={onQuickCreate}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      act(() => { ref.current?.startAdding() })
+
+      expect(screen.queryByLabelText('Create linked note')).not.toBeInTheDocument()
+    })
+
+    it('should call onQuickCreate with correct type when button clicked', async () => {
+      const onQuickCreate = vi.fn()
+      const ref = createRef<LinkedContentChipsHandle>()
+
+      render(
+        <LinkedContentChips
+          ref={ref}
+          contentType="note"
+          contentId="note-1"
+          items={[]}
+          onAdd={noop}
+          onRemove={noop}
+          onQuickCreate={onQuickCreate}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      act(() => { ref.current?.startAdding() })
+
+      await userEvent.click(screen.getByLabelText('Create linked bookmark'))
+
+      expect(onQuickCreate).toHaveBeenCalledOnce()
+      expect(onQuickCreate).toHaveBeenCalledWith('bookmark')
+    })
+  })
+
 })

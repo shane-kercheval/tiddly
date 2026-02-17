@@ -34,6 +34,7 @@ import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useNotes } from '../hooks/useNotes'
 import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedContentChips'
 import { useRelationshipState } from '../hooks/useRelationshipState'
+import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload, TagCount } from '../types'
@@ -98,6 +99,10 @@ interface NoteProps {
   onShowHistory?: () => void
   /** Called when a linked content item is clicked for navigation */
   onNavigateToLinked?: (item: LinkedItem) => void
+  /** Pre-populated relationships from navigation state (quick-create linked) */
+  initialRelationships?: RelationshipInputPayload[]
+  /** Pre-populated linked item display cache from navigation state */
+  initialLinkedItems?: LinkedItem[]
 }
 
 /**
@@ -119,6 +124,8 @@ export function Note({
   onRefresh,
   onShowHistory,
   onNavigateToLinked,
+  initialRelationships,
+  initialLinkedItems,
 }: NoteProps): ReactNode {
   const isCreate = !note
 
@@ -156,7 +163,7 @@ export function Note({
       tags: note?.tags ?? initialTags ?? [],
       relationships: note?.relationships
         ? toRelationshipInputs(note.relationships, 'note', note.id)
-        : [],
+        : (initialRelationships ?? []),
       archivedAt: archiveState.archivedAt,
       archivePreset: archiveState.archivePreset,
     }
@@ -184,6 +191,7 @@ export function Note({
     serverRelationships: note?.relationships,
     currentRelationships: current.relationships,
     setCurrent,
+    initialLinkedItems,
   })
 
   const syncStateFromNote = useCallback((nextNote: NoteType, resetEditor = false): void => {
@@ -545,6 +553,13 @@ export function Note({
     setCurrent((prev) => ({ ...prev, archivePreset }))
   }, [])
 
+  // Quick-create linked entity navigation
+  const handleQuickCreate = useQuickCreateLinked({
+    contentType: 'note',
+    contentId: note?.id ?? null,
+    contentTitle: note?.title ?? (current.title || null),
+  })
+
   // Conflict resolution handlers
   const handleConflictLoadServerVersion = useCallback(async (): Promise<void> => {
     // Use onRefresh to fetch latest version from server
@@ -847,6 +862,7 @@ export function Note({
                 onNavigate={onNavigateToLinked}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
+                onQuickCreate={handleQuickCreate}
               />
             </div>
           </div>

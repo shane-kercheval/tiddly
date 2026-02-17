@@ -94,7 +94,7 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
 
   const sizeClasses = compact
     ? 'px-2 py-1 whitespace-nowrap'
-    : 'px-3 py-2 whitespace-normal w-64'
+    : 'px-3 py-2 whitespace-normal max-w-64'
 
   return (
     <>

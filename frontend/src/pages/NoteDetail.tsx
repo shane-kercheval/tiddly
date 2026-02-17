@@ -29,7 +29,8 @@ import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useHistorySidebarStore } from '../stores/historySidebarStore'
-import type { Note as NoteType, NoteCreate, NoteUpdate } from '../types'
+import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload } from '../types'
+import type { LinkedItem } from '../utils/relationships'
 
 type NoteViewState = 'active' | 'archived' | 'deleted'
 
@@ -65,7 +66,12 @@ export function NoteDetail(): ReactNode {
   const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
 
   // Get navigation state
-  const locationState = location.state as { initialTags?: string[]; note?: NoteType } | undefined
+  const locationState = location.state as {
+    initialTags?: string[]
+    note?: NoteType
+    initialRelationships?: RelationshipInputPayload[]
+    initialLinkedItems?: LinkedItem[]
+  } | undefined
   // Pre-populate tags from the 'active' view (most common originating context)
   const selectedTags = useTagFilterStore((state) => state.getSelectedTags('active'))
   const initialTags = locationState?.initialTags ?? (selectedTags.length > 0 ? selectedTags : undefined)
@@ -269,6 +275,8 @@ export function NoteDetail(): ReactNode {
         isSaving={createMutation.isPending}
         initialTags={initialTags}
         fullWidth={fullWidthLayout}
+        initialRelationships={locationState?.initialRelationships}
+        initialLinkedItems={locationState?.initialLinkedItems}
       />
     )
   }
