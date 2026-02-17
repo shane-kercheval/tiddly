@@ -191,7 +191,7 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
 
   return (
     <div
-      className="modal-backdrop"
+      className="modal-backdrop bg-gray-900/30"
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
