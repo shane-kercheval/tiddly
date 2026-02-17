@@ -622,7 +622,7 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
                   onClick={onOpenPalette}
                   className="flex w-full items-center justify-center rounded-lg px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
                 >
-                  <SearchIcon className="h-4 w-4 text-gray-500" />
+                  <SearchIcon className="h-4 w-4 text-gray-500 flex-shrink-0" />
                   <span className="sr-only">Command Palette (⌘⇧P)</span>
                 </button>
               </Tooltip>
