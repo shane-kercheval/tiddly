@@ -620,7 +620,7 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
               <Tooltip content="Command Palette (⌘⇧P)" compact position="right" className="w-full">
                 <button
                   onClick={onOpenPalette}
-                  className="flex w-full items-center justify-center rounded-lg px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                  className="flex w-full items-center justify-center rounded-lg px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
                 >
                   <SearchIcon className="h-4 w-4 text-gray-500" />
                   <span className="sr-only">Command Palette (⌘⇧P)</span>
@@ -629,7 +629,7 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
             ) : (
               <button
                 onClick={onOpenPalette}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
               >
                 <SearchIcon className="h-4 w-4 text-gray-500 flex-shrink-0" />
                 <span className="flex-1 truncate min-w-0 text-left">Command Palette (⌘⇧P)</span>

@@ -246,7 +246,7 @@ function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletList
       onClick={handleToolbarClick}
     >
       {/* Left: formatting buttons that fade in */}
-      <div className="flex items-center gap-0.5 opacity-0 group-focus-within/editor:opacity-100 transition-opacity">
+      <div className="flex items-center gap-0.5 opacity-0 pointer-events-none group-focus-within/editor:opacity-100 group-focus-within/editor:pointer-events-auto transition-opacity">
         {/* Text formatting */}
         <ToolbarButton onAction={() => runCommand(toggleStrongCommand.key)} title="Bold (⌘B)">
           <BoldIcon />
