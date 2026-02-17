@@ -59,7 +59,8 @@ export function PromptCard({
 
   const handleTitleClick = (e: React.MouseEvent): void => {
     e.stopPropagation()
-    onView?.(prompt)
+    if (onView) onView(prompt)
+    else onClick?.(prompt)
   }
 
   return (

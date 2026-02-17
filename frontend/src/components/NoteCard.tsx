@@ -55,7 +55,8 @@ export function NoteCard({
 
   const handleTitleClick = (e: React.MouseEvent): void => {
     e.stopPropagation()
-    onView?.(note)
+    if (onView) onView(note)
+    else onClick?.(note)
   }
 
   return (

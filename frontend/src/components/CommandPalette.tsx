@@ -18,6 +18,7 @@ import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useContentTypeFilterStore, ALL_CONTENT_TYPES } from '../stores/contentTypeFilterStore'
 import { useTagsStore } from '../stores/tagsStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useSidebarStore } from '../stores/sidebarStore'
 import type { SortByOption } from '../constants/sortOptions'
 import { BASE_SORT_OPTIONS } from '../constants/sortOptions'
 import { BookmarkCard } from './BookmarkCard'
@@ -287,6 +288,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   const navigateAndClose = useCallback(
     (path: string) => {
       navigate(path)
+      useSidebarStore.getState().closeMobile()
       onClose()
     },
     [navigate, onClose]
