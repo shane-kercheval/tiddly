@@ -30,7 +30,7 @@ export function ContentCardActions({ children, overflowItems }: ContentCardActio
   return (
     <>
       {/* Desktop: Hover-revealed actions - use invisible/visible to not affect layout when hidden */}
-      <div className="hidden md:flex items-center invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+      <div className="hidden md:flex items-center -mr-1 invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-150">
         {children}
       </div>
 

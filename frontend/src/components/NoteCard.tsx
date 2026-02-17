@@ -110,8 +110,8 @@ export function NoteCard({
           {/* Actions and date row */}
           {hasActions && (
             <div className="flex items-center justify-between">
-              {/* Actions - always visible on mobile */}
-              <div className="flex items-center gap-0.5">
+              {/* Actions - always visible on mobile, -ml-2 compensates for btn-icon padding */}
+              <div className="flex items-center gap-0.5 -ml-2">
                 {onTagAdd && tagSuggestions && (
                   <ContentCard.AddTagAction
                     existingTags={note.tags}

@@ -212,8 +212,8 @@ export function BookmarkCard({
           {/* Actions and date row */}
           {hasActions && (
             <div className="flex items-center justify-between">
-              {/* Actions - always visible on mobile */}
-              <div className="flex items-center gap-0.5">
+              {/* Actions - always visible on mobile, -ml-2 compensates for btn-icon padding */}
+              <div className="flex items-center gap-0.5 -ml-2">
                 {/* External link as first action on mobile */}
                 <Tooltip content="Open link" compact>
                   <button
