@@ -236,6 +236,71 @@ export function SettingsFAQ(): ReactNode {
         />
       </FAQSection>
 
+      <FAQSection title="Version History">
+        <FAQItem
+          question="How long is version history kept?"
+          answer={
+            <p>
+              Version history is retained for 30 days, with a maximum of 100 versions per item
+              on the free tier. After that, older versions are automatically cleaned up.
+            </p>
+          }
+        />
+        <FAQItem
+          question="Can I see who or what made a change?"
+          answer={
+            <p>
+              Yes. Each version records the source of the change (web UI, MCP Content Server,
+              MCP Prompt Server, API) and the authentication method (Auth0, PAT). For PAT-based
+              changes, the token prefix is recorded so you can identify which token was used.
+            </p>
+          }
+        />
+        <FAQItem
+          question="How do I restore a previous version?"
+          answer={
+            <p>
+              Open an item, go to its history, and select the version you want to restore.
+              Restoring rebuilds the full state including content, title, description, and tags.
+              The restore itself is recorded as a new version, so you can always undo it.
+            </p>
+          }
+        />
+      </FAQSection>
+
+      <FAQSection title="Relationships">
+        <FAQItem
+          question="What are relationships?"
+          answer={
+            <p>
+              Relationships let you link any content item to any other — bookmark to note,
+              note to prompt, bookmark to bookmark, etc. Each link can have an optional
+              description. This is useful for connecting related resources, like linking a
+              bookmark to your notes about it, or linking a prompt to the reference material
+              it draws from.
+            </p>
+          }
+        />
+      </FAQSection>
+
+      <FAQSection title="Content Limits">
+        <FAQItem
+          question="How much content can I store?"
+          answer={
+            <>
+              <p>
+                On the free tier: up to 100 bookmarks, 100 notes, and 100 prompts. Each item
+                can have up to 100,000 characters of content.
+              </p>
+              <p>
+                Other limits: titles up to 100 characters, descriptions up to 1,000 characters,
+                URLs up to 2,048 characters, and tag names up to 50 characters.
+              </p>
+            </>
+          }
+        />
+      </FAQSection>
+
       <FAQSection title="Search">
         <FAQItem
           question="What does search look through?"
@@ -255,6 +320,25 @@ export function SettingsFAQ(): ReactNode {
               and the search will only look within items matching that filter's criteria.
               You can also add tag filters directly to your search.
             </p>
+          }
+        />
+        <FAQItem
+          question="Does search support operators?"
+          answer={
+            <>
+              <p>
+                Yes. Search uses PostgreSQL full-text search which supports several operators:
+              </p>
+              <ul className="list-disc list-inside space-y-1 ml-2">
+                <li><code className="bg-gray-100 px-1 rounded">"exact phrase"</code> — match an exact phrase</li>
+                <li><code className="bg-gray-100 px-1 rounded">-word</code> — exclude results containing a word</li>
+                <li><code className="bg-gray-100 px-1 rounded">OR</code> — match either term (e.g., <code className="bg-gray-100 px-1 rounded">python OR javascript</code>)</li>
+              </ul>
+              <p>
+                Search also includes substring matching, so partial words and code symbols
+                (like "auth" matching "authentication") work automatically.
+              </p>
+            </>
           }
         />
       </FAQSection>
@@ -347,6 +431,30 @@ export function SettingsFAQ(): ReactNode {
               <p>
                 <strong>Prompt Server tools:</strong> List available prompts, use prompts with
                 variable substitution, and create new prompt templates.
+              </p>
+            </>
+          }
+        />
+        <FAQItem
+          question="What are Skills?"
+          answer={
+            <>
+              <p>
+                Skills are an alternative way to use your prompts with AI assistants. Instead of
+                connecting via MCP, you export your prompts as SKILL.md files and install them
+                directly into your AI client. Skills follow the{' '}
+                <a
+                  href="https://agentskills.io/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline"
+                >
+                  Agent Skills Standard
+                </a>.
+              </p>
+              <p>
+                Supported clients: Claude Code (slash commands), Claude Desktop (capabilities),
+                and Codex. Set up skills export in Settings → AI Integration.
               </p>
             </>
           }

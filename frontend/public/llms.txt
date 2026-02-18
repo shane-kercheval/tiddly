@@ -1,0 +1,257 @@
+# tiddly.me
+
+> tiddly.me is a content management platform for bookmarks, notes, and prompts (Jinja2 templates). It features tagging, full-text search, content versioning, and AI integration via two MCP (Model Context Protocol) servers.
+
+## What tiddly.me Does
+
+tiddly.me helps users organize three types of content:
+
+- **Bookmarks**: Save URLs with auto-scraped metadata (title, description, page content), personal notes, and tags. Clicking a bookmark's title or URL opens the link in a new tab; use the pencil icon to edit.
+- **Notes**: Freeform markdown documents with tags. Clicking a note opens it for viewing and editing.
+- **Prompts**: A new content type for the AI era, treated as first-class entities. Prompts are Jinja2 templates with named arguments and a unique `prompt_name` identifier. They support the same versioning, tagging, search, and organization as bookmarks and notes, but are purpose-built for rendering with variables and integrating with AI assistants via MCP. Clicking a prompt opens it for viewing and editing.
+
+All content types support tagging, full-text search, content versioning with history, archiving, soft-delete with restore, relationships (linking items together), and usage tracking.
+
+## Content Organization
+
+### Tags
+- Tags are global across all content types. A "work" tag on a bookmark and a note is the same tag.
+- Renaming a tag is a global rename across all content and filters.
+- Deleting a tag removes the association from all content but does not delete the content itself.
+- Inactive tags are tags that exist only on archived or deleted items.
+
+### Content Filters
+- Saved filters use tag-based boolean expressions: groups of tags combined with AND within a group, OR between groups.
+- Example: `(python AND tutorial) OR (javascript AND guide)` matches items tagged with both python+tutorial, or both javascript+guide.
+- Filters appear in the sidebar for quick access and can be organized into collections.
+- Collections are drag-and-drop groupable containers in the sidebar that hold filters, allowing users to organize them by topic or workflow.
+- Deleting a filter only removes the saved view; your content is unaffected.
+- Deleting a collection moves its filters back to the sidebar root — nothing is lost.
+
+### Relationships
+- Any content item can be linked to any other item (bookmark-to-note, note-to-prompt, etc.) with an optional description.
+- Relationships are shown when viewing an item's detail page.
+
+## Prompts and Templates
+
+Prompts are Jinja2 templates that can be rendered with arguments. The primary use case is through MCP — AI assistants call the Prompt MCP Server to list, render, and manage prompt templates during conversations.
+
+- **Template syntax**: Use `{{ variable_name }}` for template variables.
+- **Arguments**: Each prompt defines arguments with a name, description, and whether they are required.
+- **Rendering**: Provide argument values to render a prompt into final text. Required arguments must be supplied; optional arguments default to empty string.
+- **Auto-sync**: When editing a template, arguments are automatically updated to match the template variables.
+- **Skills export**: Prompts can be exported as Agent Skills (SKILL.md format) compatible with Claude Code, Claude Desktop, and Codex.
+
+## Search
+
+- **Full-text search**: Combines PostgreSQL full-text search (stemmed, ranked) with substring matching (ILIKE) in a single query. Matches against title, description, tags, URL (bookmarks), and content body. Items matching both methods rank highest. Supports operators: `"exact phrase"`, `-exclude`, and `OR`.
+- **In-content search**: Search within a single item's content using literal string matching (case-insensitive by default, supports multiline queries). Returns matching lines with line numbers and surrounding context.
+- **Filtering options**: Filter by content type (bookmark, note, prompt), tags (with AND/OR operator), sort by created date, updated date, title, or last used date.
+- **Unified search**: Search across all content types simultaneously via the `/content/` endpoint or the command palette.
+
+## Content Versioning and History
+
+Every content change is tracked:
+
+- **Versioned actions**: Create, update, and restore operations are assigned sequential version numbers.
+- **Audit actions**: Delete, undelete, archive, and unarchive are recorded without version numbers.
+- **Version reconstruction**: Any previous version of content can be reconstructed and viewed.
+- **Restore**: Content can be restored to any historical version, rebuilding the full state (content, title, description, tags, etc.).
+- **Source tracking**: Each change records where it came from (web UI, MCP server, API) and the authentication method used.
+
+## Content Lifecycle
+
+Items have three states:
+
+1. **Active**: Normal state, visible in default views.
+2. **Archived**: Hidden from default views but preserved. Archived items don't appear in searches by default and do not count toward tag counts. Can be unarchived at any time.
+3. **Deleted (Trash)**: Soft-deleted, visible in trash. Can be restored. Items in trash will be automatically permanently deleted after 30 days (not yet deployed).
+
+## AI Integration via MCP Servers
+
+tiddly.me provides two MCP (Model Context Protocol) servers that allow AI assistants (Claude, etc.) to read, search, create, and edit content.
+
+### Content MCP Server
+
+Provides access to bookmarks and notes.
+
+**Tools available:**
+- `search_items`: Search bookmarks and notes by query, tags, content type, with sorting and pagination.
+- `get_item`: Retrieve full content of a bookmark or note. Supports partial reads (line ranges) for large items.
+- `edit_content`: Edit content via exact string replacement (old_str/new_str). Preferred for surgical edits.
+- `search_in_content`: Search within a specific item's content using regex. Returns matching lines with context.
+- `update_item`: Update metadata (title, description, tags, URL, note).
+- `create_bookmark`: Create a new bookmark with URL, title, description, note, tags, and content.
+- `create_note`: Create a new note with title, content, description, and tags.
+- `create_relationship`: Link two content items together.
+- `get_context`: Get aggregated context including content counts, all tags, saved filters, and recent items.
+- `list_tags`: List all tags with usage counts.
+- `list_filters`: List saved content filters.
+
+**Typical workflow**: Use `get_context` or `search_items` to find content, then `get_item` for full details. Use `edit_content` for precise edits or `update_item` for metadata changes.
+
+### Prompt MCP Server
+
+Provides access to prompts as both MCP tools and the MCP prompts capability.
+
+**MCP Prompts (native MCP protocol):**
+- `list_prompts`: List all prompts with their names, descriptions, and arguments.
+- `get_prompt`: Render a prompt template with provided arguments and return the result.
+
+**Tools available:**
+- `search_prompts`: Search prompts by query and tags.
+- `get_prompt_content`: Get raw (unrendered) template content. Supports partial reads.
+- `get_prompt_metadata`: Get prompt metadata without content.
+- `create_prompt`: Create a new prompt with name, title, content, description, tags, and arguments.
+- `edit_prompt_content`: Edit template via string replacement. Auto-syncs arguments when variables change.
+- `update_prompt`: Update prompt metadata.
+- `get_context`: Aggregated context for prompts.
+- `list_tags`: Tags with counts.
+- `list_filters`: Saved filters.
+
+**Using prompts**: Agents consume prompts via the native MCP prompts capability — `list_prompts` to discover available prompts, `get_prompt` to render a template with arguments. This is the standard MCP protocol flow.
+
+**Managing prompts**: The tools (`search_prompts`, `get_prompt_content`, `edit_prompt_content`, `create_prompt`, `update_prompt`) are for viewing raw templates, creating new prompts, and editing existing ones.
+
+### MCP Endpoints
+
+- Content MCP: `https://content-mcp.tiddly.me/mcp`
+- Prompt MCP: `https://prompt-mcp.tiddly.me/mcp`
+
+Test connectivity with curl:
+
+```
+# Content MCP
+curl -X POST https://content-mcp.tiddly.me/mcp \
+  -H "Authorization: Bearer YOUR_PAT" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# Prompt MCP
+curl -X POST https://prompt-mcp.tiddly.me/mcp \
+  -H "Authorization: Bearer YOUR_PAT" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+### Setting Up MCP Servers
+
+All MCP setup requires a Personal Access Token (PAT). Generate one in Settings > Personal Access Tokens on tiddly.me. Replace `YOUR_PAT` below with your token. It is recommended to use separate PATs for each MCP server so access can be revoked independently. Treat PATs like passwords — never share them, commit them to version control, or expose them in client-side code. If compromised, revoke immediately in Settings and create a new one.
+
+**Claude Desktop** — Add to config file (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "bookmarks_notes": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer YOUR_PAT"]
+    },
+    "prompts": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer YOUR_PAT"]
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving. Uses `mcp-remote` as a bridge since Claude Desktop does not natively support streamable HTTP transport.
+
+**Claude Code** — Run in your project directory:
+
+```
+claude mcp add --transport http bookmarks_notes https://content-mcp.tiddly.me/mcp \
+  --header "Authorization: Bearer YOUR_PAT"
+
+claude mcp add --transport http prompts https://prompt-mcp.tiddly.me/mcp \
+  --header "Authorization: Bearer YOUR_PAT"
+```
+
+Note: Claude Code MCP servers are configured per project directory. Alternatively, if you've already configured Claude Desktop, run `claude mcp add-from-claude-desktop` to import those servers.
+
+**Codex** — Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.bookmarks_notes]
+url = "https://content-mcp.tiddly.me/mcp"
+http_headers = { "Authorization" = "Bearer YOUR_PAT" }
+
+[mcp_servers.prompts]
+url = "https://prompt-mcp.tiddly.me/mcp"
+http_headers = { "Authorization" = "Bearer YOUR_PAT" }
+```
+
+Note: Codex does not support MCP Prompts directly. To use saved prompts, ask Codex to fetch and apply them via tools (e.g., "Get my 'code-review' prompt and use it to review this file").
+
+**ChatGPT** — Not yet supported. ChatGPT requires OAuth authentication, which is coming soon.
+
+**Gemini CLI** — Not yet supported. Integration instructions coming soon.
+
+### Programmatic API Access
+
+The full REST API is available at `https://api.tiddly.me`. Authenticate with a PAT via `Authorization: Bearer bm_...` header. PATs support all read and write operations except sensitive endpoints (URL metadata scraping, token management, account settings).
+
+## Keyboard Shortcuts and Tips
+
+### Navigation
+- `Cmd+Shift+P` (or `Ctrl+Shift+P`): Open command palette for quick search and navigation.
+- `/`: Focus the search bar.
+- `Cmd+\`: Toggle sidebar.
+- `Cmd+Shift+\`: Toggle history sidebar.
+- `Cmd+/`: Show all keyboard shortcuts.
+
+### Content Actions
+- `Cmd+V`: Paste a URL (when not in an input field) to quick-create a bookmark with auto-scraped metadata.
+- `Cmd+S`: Save current item.
+- `Cmd+Shift+S`: Save and close.
+- `Cmd+Click` on a card: Open in new tab.
+- `Shift+Cmd+Click` on a bookmark: Open the URL without tracking usage.
+- `w`: Toggle full-width layout.
+
+### Markdown Editor
+- `Cmd+Shift+M`: Toggle reading mode.
+- `Alt+Z`: Toggle word wrap.
+- `Alt+L`: Toggle line numbers.
+- `Alt+M`: Toggle monospace font.
+- Standard formatting: `Cmd+B` (bold), `Cmd+I` (italic), `Cmd+E` (inline code), `Cmd+K` (link), `Cmd+Shift+E` (code block), `Cmd+Shift+8` (bullet list), `Cmd+Shift+7` (numbered list), `Cmd+Shift+9` (task list).
+
+## Platform
+
+- **Status**: Currently in beta. Free to use during beta.
+- **Open source**: The codebase is available at https://github.com/shane-kercheval/tiddly and can be self-hosted.
+- **Infrastructure**: FastAPI backend, React frontend, PostgreSQL database (encryption at rest), Redis for caching and rate limiting. Hosted on Railway's Pro tier which includes SOC 2 compliance, DDoS protection, automatic daily database backups, and manual snapshots before major updates.
+- **Authentication**: Auth0.
+- **Multi-tenant**: All content is isolated by user ID. There is no sharing functionality.
+- **Privacy**: No client-side/end-to-end encryption (would prevent full-text search). The database administrator could technically access user data. Self-hosting is available for complete privacy.
+- **Data export**: Not yet available through the UI, but the full REST API can be used with a PAT to export content programmatically. A built-in export feature is planned.
+- **Future plans**: Pricing tiers and limits have not been finalized. Any pricing changes will be announced well in advance, and existing users may be grandfathered. Optional AI-powered features (summarization, auto-suggestions, enhanced search) are planned but not yet implemented — these will be completely opt-in.
+
+## Free Tier Limits
+
+- **Items**: 100 bookmarks, 100 notes, 100 prompts.
+- **Content length**: Up to 100,000 characters per item.
+- **URL length**: Up to 2,048 characters.
+- **Tags**: Tag names up to 50 characters.
+- **Titles**: Up to 100 characters.
+- **Descriptions**: Up to 1,000 characters.
+- **Relationships**: Up to 50 per entity.
+- **Version history**: 30-day retention, up to 100 versions per entity.
+- **Personal Access Tokens**: Up to 10 active tokens.
+- **Content filters**: Up to 10 filters, 10 sidebar collections.
+
+## Use Cases and Examples
+
+### Personal Knowledge Base
+Save bookmarks to articles, write notes to summarize key learnings, tag everything by topic. Use content filters to create views like "All Python resources" or "Machine learning papers."
+
+### AI Prompt Library
+Build a library of reusable prompt templates. For example, a "Code Review" prompt with arguments for `language`, `code`, and `focus_area`. Render it via the MCP server from any AI assistant, or export as Agent Skills for Claude Code.
+
+### Research and Reference
+Bookmark research papers (page content is scraped and searchable), link related bookmarks and notes via relationships, and use version history to track how your notes evolve over time.
+
+### AI-Assisted Content Management
+Connect the MCP servers to Claude or another AI assistant. The AI can search your bookmarks and notes, create new content, edit existing items, and render prompt templates — all through natural conversation.
+
+### Workflow Automation
+Use PATs with the REST API to programmatically create bookmarks (e.g., from a browser extension or script), bulk-tag content, or integrate with other tools.

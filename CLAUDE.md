@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A content management system for bookmarks, notes, and prompts with tagging and search capabilities. Multi-tenant architecture with Auth0 authentication (bypassed in VITE_DEV_MODE). Prompts are Jinja2 templates exposed via MCP for AI assistants.
 
+### llms.txt
+
+`frontend/public/llms.txt` is a user-facing document describing platform features, capabilities, and usage for LLMs and AI agents. It is served at `https://tiddly.me/llms.txt`. When adding or changing user-facing features, update llms.txt to reflect the change.
+
 ## Common Commands
 
 ```bash

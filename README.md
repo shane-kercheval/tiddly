@@ -16,6 +16,8 @@ Notes, Bookmarks, and Prompt management system; + Remote MCP Servers.
 
 For signup/login, go to [tiddly.me](https://tiddly.me/)
 
+For a comprehensive overview of platform features and capabilities (designed for LLMs and AI agents), see [llms.txt](https://tiddly.me/llms.txt).
+
 ## Project Structure
 
 ```

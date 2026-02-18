@@ -29,7 +29,7 @@ export function Footer(): ReactNode {
               Terms of Service
             </Link>
             <a
-              href="https://github.com/shane-kercheval/bookmarks/blob/main/LICENSE"
+              href="https://github.com/shane-kercheval/tiddly/blob/main/LICENSE"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-gray-900 transition-colors"
@@ -37,7 +37,7 @@ export function Footer(): ReactNode {
               License
             </a>
             <a
-              href="https://github.com/shane-kercheval/bookmarks"
+              href="https://github.com/shane-kercheval/tiddly"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-gray-900 transition-colors"

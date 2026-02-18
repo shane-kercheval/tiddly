@@ -164,7 +164,8 @@ function LandingContent({
                 default. This protects against physical disk access - if someone stole the
                 storage hardware, they couldn't read the data. We use Auth0 for authentication
                 and implement multi-tenant architecture to ensure complete data isolation between
-                users.
+                users. We host on Railway's Pro tier which includes SOC 2 compliance, DDoS protection,
+                automatic daily database backups, and we manually snapshot before major updates.
               </p>
               <p className="mb-3 text-gray-600">
                 We don't use client-side encryption (end-to-end encryption) because it would
@@ -253,6 +254,34 @@ function LandingContent({
 
             <div>
               <h3 className="mb-3 text-xl font-semibold text-gray-900">
+                What are prompts?
+              </h3>
+              <p className="text-gray-600">
+                Prompts are reusable templates for AI assistants — a new content type for the AI era.
+                They use Jinja2 syntax with variables like{' '}
+                <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">{'{{ topic }}'}</code>{' '}
+                that get filled in when used. For example, you might create a "Code Review" prompt
+                with variables for language, code, and focus area. AI assistants can discover and
+                use your prompts via MCP, or you can export them as Agent Skills for tools like
+                Claude Code and Codex. Prompts are treated as first-class entities with the same
+                versioning, tagging, search, and organization as bookmarks and notes.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-xl font-semibold text-gray-900">
+                Can I import bookmarks from my browser?
+              </h3>
+              <p className="text-gray-600">
+                Not yet. Browser bookmark import is planned. In the meantime, you can paste URLs
+                into tiddly.me and metadata (title, description, page content) is automatically
+                scraped, or use the REST API with a Personal Access Token to create bookmarks
+                programmatically.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-xl font-semibold text-gray-900">
                 Can I export my data?
               </h3>
               <p className="text-gray-600">
@@ -280,7 +309,7 @@ function LandingContent({
               <p className="text-gray-600">
                 Yes! The{' '}
                 <a
-                  href="https://github.com/shane-kercheval/bookmarks"
+                  href="https://github.com/shane-kercheval/tiddly"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-600 hover:underline"
