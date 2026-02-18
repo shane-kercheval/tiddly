@@ -493,7 +493,7 @@ describe('SettingsVersionHistory', () => {
       renderWithProviders()
 
       // Navigate to page 1
-      fireEvent.click(screen.getByText('Next'))
+      fireEvent.click(screen.getByLabelText('Next page'))
 
       // Now change filter - should reset page
       fireEvent.click(screen.getByTestId('filter-type'))
@@ -525,7 +525,7 @@ describe('SettingsVersionHistory', () => {
       renderWithProviders()
 
       // Navigate to page 1
-      fireEvent.click(screen.getByText('Next'))
+      fireEvent.click(screen.getByLabelText('Next page'))
 
       // Change filter
       fireEvent.click(screen.getByTestId('filter-action'))
@@ -556,7 +556,7 @@ describe('SettingsVersionHistory', () => {
       renderWithProviders()
 
       // Navigate to page 1
-      fireEvent.click(screen.getByText('Next'))
+      fireEvent.click(screen.getByLabelText('Next page'))
 
       // Change date preset
       fireEvent.change(screen.getByTestId('filter-date'), { target: { value: 'last7' } })

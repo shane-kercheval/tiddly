@@ -652,8 +652,8 @@ describe('AllContent', () => {
 
       // Should show page indicator and navigation buttons
       expect(screen.getByText('Page 1 of 2')).toBeInTheDocument()
-      expect(screen.getByText('Previous')).toBeInTheDocument()
-      expect(screen.getByText('Next')).toBeInTheDocument()
+      expect(screen.getByLabelText('Previous page')).toBeInTheDocument()
+      expect(screen.getByLabelText('Next page')).toBeInTheDocument()
     })
 
     it('shows page 1 of N pages', async () => {

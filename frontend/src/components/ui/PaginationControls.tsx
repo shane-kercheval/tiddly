@@ -7,6 +7,7 @@
 import type { ReactNode } from 'react'
 import { PAGE_SIZE_OPTIONS } from '../../stores/uiPreferencesStore'
 import type { PageSize } from '../../stores/uiPreferencesStore'
+import { ChevronLeftIcon, ChevronRightIcon } from '../icons'
 
 interface PaginationControlsProps {
   /** Current page number (1-based) */
@@ -53,14 +54,6 @@ export function PaginationControls({
 
   return (
     <div className="mt-8 flex items-center justify-between border-t border-gray-100 pt-4">
-      <button
-        onClick={() => onPageChange(Math.max(0, offset - pageSize))}
-        disabled={offset === 0}
-        className="btn-secondary h-7"
-      >
-        Previous
-      </button>
-
       <div className="flex items-center gap-3">
         <span className="text-sm text-gray-400">
           Page {currentPage} of {totalPages}
@@ -77,13 +70,24 @@ export function PaginationControls({
         </select>
       </div>
 
-      <button
-        onClick={() => onPageChange(offset + pageSize)}
-        disabled={!hasMore}
-        className="btn-secondary h-7"
-      >
-        Next
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onPageChange(Math.max(0, offset - pageSize))}
+          disabled={offset === 0}
+          className="btn-ghost"
+          aria-label="Previous page"
+        >
+          <ChevronLeftIcon className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => onPageChange(offset + pageSize)}
+          disabled={!hasMore}
+          className="btn-ghost"
+          aria-label="Next page"
+        >
+          <ChevronRightIcon className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   )
 }

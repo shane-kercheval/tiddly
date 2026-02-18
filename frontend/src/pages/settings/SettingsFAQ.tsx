@@ -28,7 +28,7 @@ interface FAQSectionProps {
 function FAQSection({ title, children }: FAQSectionProps): ReactNode {
   return (
     <section className="mb-8">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">{title}</h2>
+      <h2 className="text-base font-semibold text-gray-900 mb-4">{title}</h2>
       <div className="rounded-lg border border-gray-200 bg-white px-5">
         {children}
       </div>
@@ -42,7 +42,7 @@ function FAQSection({ title, children }: FAQSectionProps): ReactNode {
 export function SettingsFAQ(): ReactNode {
   usePageTitle('Settings - FAQ')
   return (
-    <div className="max-w-3xl pt-4">
+    <div className="max-w-3xl pt-3">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">FAQ</h1>
         <p className="mt-1 text-sm text-gray-500">

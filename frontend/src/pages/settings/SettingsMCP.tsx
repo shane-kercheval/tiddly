@@ -710,7 +710,7 @@ function AvailableTools({ server }: AvailableToolsProps): ReactNode {
 
   return (
     <div className="mb-8">
-      <h2 className="text-lg font-semibold text-gray-900 mb-2">Available MCP Tools</h2>
+      <h2 className="text-base font-semibold text-gray-900 mb-2">Available MCP Tools</h2>
       <p className="text-gray-600 mb-4">
         Once connected, AI agents can use these tools:
       </p>
@@ -1378,7 +1378,7 @@ export function SettingsMCP(): ReactNode {
   ]
 
   return (
-    <div className="max-w-3xl pt-4">
+    <div className="max-w-3xl pt-3">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">AI Integration</h1>
       </div>

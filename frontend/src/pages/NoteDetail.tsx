@@ -314,7 +314,7 @@ export function NoteDetail(): ReactNode {
       />
       {showHistory && noteId && (
         <HistorySidebar
-          key={noteId}
+          key={`history-${noteId}`}
           entityType="note"
           entityId={noteId}
           onClose={() => setShowHistory(false)}

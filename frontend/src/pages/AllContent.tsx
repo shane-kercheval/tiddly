@@ -809,9 +809,9 @@ export function AllContent(): ReactNode {
   const showQuickAdd = currentView === 'active'
 
   return (
-    <div className="pt-4">
+    <div className="pt-3">
       {/* Search and filters */}
-      <div className="mb-3 md:mb-6 space-y-3">
+      <div className="mb-3 md:mb-5 space-y-3">
         <SearchFilterBar
           searchInputRef={searchInputRef}
           searchQuery={searchQuery}

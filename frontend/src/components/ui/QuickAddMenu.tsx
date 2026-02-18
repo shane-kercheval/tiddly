@@ -94,7 +94,7 @@ export function QuickAddMenu({
       <button
         type="button"
         onClick={handleClick}
-        className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-1 text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+        className="inline-flex items-center justify-center rounded-lg p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
         title={title}
         data-testid="quick-add-single"
       >
@@ -109,7 +109,7 @@ export function QuickAddMenu({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-1 text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+        className="inline-flex items-center justify-center rounded-lg p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
         aria-label="Add new item"
         aria-expanded={isOpen}
         aria-haspopup="true"

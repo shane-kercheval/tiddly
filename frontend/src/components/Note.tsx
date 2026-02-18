@@ -641,7 +641,7 @@ export function Note({
 
       {/* Sticky header - outer div extends wider to hide scrolling content borders */}
       <div className="sticky top-0 z-10 shrink-0 bg-white -ml-2 pl-2 -mr-2 pr-2">
-        <div className="flex items-center justify-between pt-3 pb-3 border-b border-gray-200">
+        <div className="flex items-center justify-between py-1.5 border-b border-gray-200">
           <div className="flex items-center gap-2">
           {/* Close button */}
           <button
@@ -651,8 +651,8 @@ export function Note({
             aria-label={isConfirming ? 'Discard changes' : 'Close'}
             className={`flex items-center gap-1.5 ${
               isConfirming
-                ? 'btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50'
-                : 'btn-secondary'
+                ? 'btn-ghost text-red-600 hover:text-red-700 bg-red-50'
+                : 'btn-ghost'
             }`}
           >
             <CloseIcon className="h-4 w-4" />
@@ -685,7 +685,7 @@ export function Note({
               onClick={onShowHistory}
               disabled={isSaving}
               aria-label="History"
-              className="btn-secondary flex items-center gap-2"
+              className="btn-ghost flex items-center gap-2"
             >
               <HistoryIcon className="h-4 w-4" />
               <span className="hidden md:inline">History</span>
@@ -699,7 +699,7 @@ export function Note({
               onClick={onArchive}
               disabled={isSaving}
               aria-label="Archive"
-              className="btn-secondary flex items-center gap-2"
+              className="btn-ghost flex items-center gap-2"
             >
               <ArchiveIcon className="h-4 w-4" />
               <span className="hidden md:inline">Archive</span>
@@ -713,7 +713,7 @@ export function Note({
               onClick={onUnarchive}
               disabled={isSaving}
               aria-label="Restore"
-              className="btn-secondary flex items-center gap-2"
+              className="btn-ghost flex items-center gap-2"
             >
               <RestoreIcon />
               <span className="hidden md:inline">Restore</span>
@@ -741,7 +741,7 @@ export function Note({
               onClick={onDelete}
               disabled={isSaving}
               aria-label={viewState === 'deleted' ? 'Delete permanently' : 'Delete'}
-              className="btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 flex items-center gap-2"
+              className="btn-ghost text-red-600 hover:text-red-700 hover:bg-red-50 flex items-center gap-2"
             >
               <TrashIcon />
               <span className="hidden md:inline">

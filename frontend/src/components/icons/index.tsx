@@ -105,6 +105,20 @@ export const TagIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
   </svg>
 )
 
+/** Chevron left arrow icon */
+export const ChevronLeftIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+  </svg>
+)
+
+/** Chevron right arrow icon */
+export const ChevronRightIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+  </svg>
+)
+
 /** Chevron up arrow icon */
 export const ChevronUpIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
