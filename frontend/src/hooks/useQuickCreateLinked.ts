@@ -15,6 +15,7 @@ interface UseQuickCreateLinkedParams {
   contentId: string | null
   contentTitle: string | null
   contentUrl?: string | null
+  contentPromptName?: string | null
 }
 
 const ROUTE_MAP: Record<ContentType, string> = {
@@ -32,6 +33,7 @@ export function useQuickCreateLinked({
   contentId,
   contentTitle,
   contentUrl,
+  contentPromptName,
 }: UseQuickCreateLinkedParams): ((targetType: ContentType) => void) | undefined {
   const navigate = useNavigate()
   const location = useLocation()
@@ -55,13 +57,14 @@ export function useQuickCreateLinked({
           id: contentId,
           title: contentTitle,
           url: contentUrl ?? null,
+          promptName: contentPromptName ?? null,
           deleted: false,
           archived: false,
           description: null,
         }],
       },
     })
-  }, [contentId, contentType, contentTitle, contentUrl, navigate, location.pathname, location.search])
+  }, [contentId, contentType, contentTitle, contentUrl, contentPromptName, navigate, location.pathname, location.search])
 
   if (!contentId) return undefined
 

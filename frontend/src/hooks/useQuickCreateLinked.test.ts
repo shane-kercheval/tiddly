@@ -70,6 +70,7 @@ describe('useQuickCreateLinked', () => {
           id: 'note-123',
           title: 'My Note',
           url: null,
+          promptName: null,
           deleted: false,
           archived: false,
           description: null,
@@ -125,6 +126,32 @@ describe('useQuickCreateLinked', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/app/prompts/new', expect.objectContaining({
       state: expect.objectContaining({
         returnTo: '/app/notes/note-123',
+      }),
+    }))
+  })
+
+  it('should include promptName in seeded items for prompt sources', () => {
+    const { result } = renderHook(() =>
+      useQuickCreateLinked({
+        contentType: 'prompt',
+        contentId: 'prompt-1',
+        contentTitle: null,
+        contentPromptName: 'my-prompt',
+      }),
+    )
+
+    act(() => {
+      result.current!('note')
+    })
+
+    expect(mockNavigate).toHaveBeenCalledWith('/app/notes/new', expect.objectContaining({
+      state: expect.objectContaining({
+        initialLinkedItems: [expect.objectContaining({
+          type: 'prompt',
+          id: 'prompt-1',
+          title: null,
+          promptName: 'my-prompt',
+        })],
       }),
     }))
   })
