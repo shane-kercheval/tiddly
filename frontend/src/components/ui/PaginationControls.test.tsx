@@ -19,8 +19,8 @@ describe('PaginationControls', () => {
     it('should render Previous and Next buttons', () => {
       render(<PaginationControls {...defaultProps} />)
 
-      expect(screen.getByText('Previous')).toBeInTheDocument()
-      expect(screen.getByText('Next')).toBeInTheDocument()
+      expect(screen.getByLabelText('Previous page')).toBeInTheDocument()
+      expect(screen.getByLabelText('Next page')).toBeInTheDocument()
     })
 
     it('should render current page and total pages', () => {
@@ -70,7 +70,7 @@ describe('PaginationControls', () => {
         />
       )
 
-      expect(screen.getByText('Previous')).toBeInTheDocument()
+      expect(screen.getByLabelText('Previous page')).toBeInTheDocument()
     })
 
     it('should render when total exceeds smallest page size even with one page', () => {
@@ -83,7 +83,7 @@ describe('PaginationControls', () => {
         />
       )
 
-      expect(screen.getByText('Previous')).toBeInTheDocument()
+      expect(screen.getByLabelText('Previous page')).toBeInTheDocument()
     })
   })
 
@@ -97,7 +97,7 @@ describe('PaginationControls', () => {
         />
       )
 
-      expect(screen.getByText('Previous')).toBeDisabled()
+      expect(screen.getByLabelText('Previous page')).toBeDisabled()
     })
 
     it('should enable Previous button when not on first page', () => {
@@ -109,7 +109,7 @@ describe('PaginationControls', () => {
         />
       )
 
-      expect(screen.getByText('Previous')).not.toBeDisabled()
+      expect(screen.getByLabelText('Previous page')).not.toBeDisabled()
     })
 
     it('should disable Next button when no more pages', () => {
@@ -120,7 +120,7 @@ describe('PaginationControls', () => {
         />
       )
 
-      expect(screen.getByText('Next')).toBeDisabled()
+      expect(screen.getByLabelText('Next page')).toBeDisabled()
     })
 
     it('should enable Next button when there are more pages', () => {
@@ -131,7 +131,7 @@ describe('PaginationControls', () => {
         />
       )
 
-      expect(screen.getByText('Next')).not.toBeDisabled()
+      expect(screen.getByLabelText('Next page')).not.toBeDisabled()
     })
   })
 
@@ -147,7 +147,7 @@ describe('PaginationControls', () => {
         />
       )
 
-      fireEvent.click(screen.getByText('Previous'))
+      fireEvent.click(screen.getByLabelText('Previous page'))
 
       expect(onPageChange).toHaveBeenCalledWith(0)
     })
@@ -163,7 +163,7 @@ describe('PaginationControls', () => {
         />
       )
 
-      fireEvent.click(screen.getByText('Next'))
+      fireEvent.click(screen.getByLabelText('Next page'))
 
       expect(onPageChange).toHaveBeenCalledWith(10)
     })
@@ -195,7 +195,7 @@ describe('PaginationControls', () => {
         />
       )
 
-      fireEvent.click(screen.getByText('Previous'))
+      fireEvent.click(screen.getByLabelText('Previous page'))
 
       // Should be clamped to 0
       expect(onPageChange).toHaveBeenCalledWith(0)

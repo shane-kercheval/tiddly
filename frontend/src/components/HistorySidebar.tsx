@@ -8,7 +8,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useEntityHistory, useVersionDiff, useRestoreToVersion } from '../hooks/useHistory'
 import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
-import { CloseIcon, RestoreIcon, HelpIcon } from './icons'
+import { CloseIcon, RestoreIcon, HelpIcon, ChevronLeftIcon, ChevronRightIcon } from './icons'
 import type { ContentType, HistoryActionType } from '../types'
 import { Tooltip } from './ui/Tooltip'
 import { ActionDot } from './ActionDot'
@@ -207,10 +207,10 @@ export function HistorySidebar({
           onMouseDown={handleMouseDown}
         />
       )}
-      {/* Header - matches item header height (pt-3 pb-3) for alignment */}
-      <div className="flex items-center justify-between py-3 px-4 border-b border-gray-200 shrink-0">
+      {/* Header - matches item header height for alignment */}
+      <div className="flex items-center justify-between py-1.5 px-4 border-b border-gray-200 shrink-0">
         <div className="flex items-center gap-1.5">
-          <h2 className="text-lg font-semibold text-gray-900">Version History</h2>
+          <h2 className="text-base font-semibold text-gray-900">Version History</h2>
           <Tooltip
             content="Restoring a version replaces your current content with how it looked after that version was saved — it does not undo that version's changes. A new version is created, so no history is lost."
             position="bottom"
@@ -220,7 +220,7 @@ export function HistorySidebar({
         </div>
         <button
           onClick={onClose}
-          className="h-[30px] w-[30px] flex items-center justify-center text-gray-500 hover:text-gray-700 rounded-md hover:bg-gray-100"
+          className="h-[28px] w-[28px] flex items-center justify-center text-gray-500 hover:text-gray-700 rounded-md hover:bg-gray-100"
           aria-label="Close history sidebar"
         >
           <CloseIcon className="w-5 h-5" />
@@ -233,20 +233,22 @@ export function HistorySidebar({
           <span className="text-sm text-gray-500">
             Showing {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, history.total)} of {history.total}
           </span>
-          <div className="flex gap-2">
+          <div className="flex gap-1">
             <button
               onClick={() => setPage(Math.max(0, page - 1))}
               disabled={page === 0}
-              className="btn-secondary h-7"
+              className="btn-ghost"
+              aria-label="Previous page"
             >
-              Previous
+              <ChevronLeftIcon className="h-4 w-4" />
             </button>
             <button
               onClick={() => setPage(page + 1)}
               disabled={!history.has_more}
-              className="btn-secondary h-7"
+              className="btn-ghost"
+              aria-label="Next page"
             >
-              Next
+              <ChevronRightIcon className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -267,7 +269,7 @@ export function HistorySidebar({
             {history?.items.map((entry) => (
               <li key={entry.id}>
                 <div
-                  className={`px-4 py-2.5 transition-colors ${
+                  className={`px-4 py-1.5 transition-colors ${
                     isAuditAction(entry.action)
                       ? 'bg-gray-50/50'
                       : 'cursor-pointer hover:bg-gray-100'
@@ -281,7 +283,7 @@ export function HistorySidebar({
                       <div className="flex items-center gap-2">
                         <ActionDot action={entry.action} />
                         {entry.version !== null ? (
-                          <span className="font-medium text-gray-900">
+                          <span className="text-sm font-medium text-gray-900">
                             {entry.version === latestVersion ? 'Current' : `v${entry.version}`}
                           </span>
                         ) : (
@@ -303,8 +305,8 @@ export function HistorySidebar({
                         disabled={restoreMutation.isPending}
                         className={`shrink-0 flex items-center gap-1.5 ${
                           confirmingRestore === entry.version
-                            ? 'btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50'
-                            : 'btn-secondary hover:text-red-600'
+                            ? 'btn-ghost text-red-600 hover:text-red-700 bg-red-50'
+                            : 'btn-ghost hover:bg-gray-200 hover:text-red-600'
                         }`}
                       >
                         <RestoreIcon className="w-3.5 h-3.5" />

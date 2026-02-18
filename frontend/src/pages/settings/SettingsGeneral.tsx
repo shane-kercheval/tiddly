@@ -20,7 +20,7 @@ export function SettingsGeneral(): ReactNode {
   const { limits, isLoading: isLoadingLimits, error: limitsError } = useLimits()
 
   return (
-    <div className="max-w-3xl pt-4">
+    <div className="max-w-3xl pt-3">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">General</h1>
         <p className="mt-1 text-sm text-gray-500">
@@ -38,7 +38,7 @@ export function SettingsGeneral(): ReactNode {
       {/* Layout Section */}
       <div className="space-y-6">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Layout</h2>
+          <h2 className="text-base font-semibold text-gray-900">Layout</h2>
           <p className="mt-1 text-sm text-gray-500">
             Customize how content is displayed.
           </p>
@@ -76,7 +76,7 @@ export function SettingsGeneral(): ReactNode {
       {/* Account Section */}
       <div className="mt-8 space-y-6">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Account</h2>
+          <h2 className="text-base font-semibold text-gray-900">Account</h2>
           <p className="mt-1 text-sm text-gray-500">
             Your account information.
           </p>
@@ -99,7 +99,7 @@ export function SettingsGeneral(): ReactNode {
       {/* Plan & Limits Section */}
       <div className="mt-8 space-y-6">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Plan & Limits</h2>
+          <h2 className="text-base font-semibold text-gray-900">Plan & Limits</h2>
           <p className="mt-1 text-sm text-gray-500">
             Your current plan and usage limits.
           </p>

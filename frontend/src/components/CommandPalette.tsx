@@ -568,7 +568,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                     data-command-item
                     onClick={cmd.action}
                     onMouseEnter={() => { if (mouseMoved) setSelectedIndex(index) }}
-                    style={{ height: 32 }}
+                    style={{ height: 30 }}
                     className={`flex items-center gap-3 w-full px-3 text-left text-sm rounded-lg transition-colors ${
                       index === clampedIndex
                         ? 'bg-blue-50 text-blue-700 ring-2 ring-inset ring-blue-500'

@@ -533,7 +533,7 @@ export function CodeMirrorEditor({
       {/* Always render toolbar to prevent layout shift; buttons are disabled when editor is disabled */}
       {/* min-h and transform-gpu prevent Safari reflow issues during focus/blur transitions */}
       {/* Mobile: flex-wrap, all buttons visible. Desktop: no-wrap, buttons fade in on focus */}
-      <div className="flex items-center flex-wrap md:flex-nowrap gap-0.5 md:gap-0 md:justify-between px-2 py-1.5 min-h-[38px] transform-gpu border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50 transition-colors">
+      <div className="flex items-center flex-wrap md:flex-nowrap gap-0.5 md:gap-0 md:justify-between px-2 py-1 min-h-[34px] transform-gpu border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50 transition-colors">
         {/* Left: formatting buttons - visible on mobile, fade in on focus on desktop */}
         {/* On mobile: 'contents' flattens structure so all buttons wrap together as siblings */}
         <div className={`contents md:flex md:flex-nowrap md:items-center md:gap-0.5 md:opacity-0 md:pointer-events-none md:group-focus-within/editor:opacity-100 md:group-focus-within/editor:pointer-events-auto transition-opacity ${disabled ? 'pointer-events-none' : ''}`}>

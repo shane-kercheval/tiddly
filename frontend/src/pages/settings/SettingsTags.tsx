@@ -14,7 +14,7 @@ import { queryClient } from '../../queryClient'
 import { contentKeys } from '../../hooks/useContentQuery'
 import { LoadingSpinner, ConfirmDeleteButton } from '../../components/ui'
 import { usePageTitle } from '../../hooks/usePageTitle'
-import { EditIcon } from '../../components/icons'
+import { EditIcon, ChevronLeftIcon, ChevronRightIcon } from '../../components/icons'
 import { validateTag, normalizeTag, sortTags } from '../../utils'
 import type { TagSortOption } from '../../utils'
 import type { TagCount } from '../../types'
@@ -66,20 +66,22 @@ function Pagination({ currentPage, totalPages, totalItems, itemsPerPage, onPageC
       <span className="text-sm text-gray-500">
         Showing {startItem}-{endItem} of {totalItems}
       </span>
-      <div className="flex gap-2">
+      <div className="flex gap-1">
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage <= 1}
-          className="btn-secondary h-7"
+          className="btn-ghost"
+          aria-label="Previous page"
         >
-          Previous
+          <ChevronLeftIcon className="h-4 w-4" />
         </button>
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage >= totalPages}
-          className="btn-secondary h-7"
+          className="btn-ghost"
+          aria-label="Next page"
         >
-          Next
+          <ChevronRightIcon className="h-4 w-4" />
         </button>
       </div>
     </div>
@@ -357,7 +359,7 @@ export function SettingsTags(): ReactNode {
   }, [unusedTags, unusedTagsPage])
 
   return (
-    <div className="max-w-3xl pt-4">
+    <div className="max-w-3xl pt-3">
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tags</h1>
@@ -389,7 +391,7 @@ export function SettingsTags(): ReactNode {
         <>
           {/* Active Tags */}
           <section className="mb-8">
-            <h2 className="mb-4 text-lg font-semibold text-gray-900">
+            <h2 className="mb-4 text-base font-semibold text-gray-900">
               Active Tags ({activeTags.length})
             </h2>
             {activeTags.length === 0 ? (
@@ -442,7 +444,7 @@ export function SettingsTags(): ReactNode {
           {/* Inactive Tags */}
           {unusedTags.length > 0 && (
             <section>
-              <h2 className="mb-2 text-lg font-semibold text-gray-900">
+              <h2 className="mb-2 text-base font-semibold text-gray-900">
                 Inactive Tags ({unusedTags.length})
               </h2>
               <p className="mb-4 text-sm text-gray-500">

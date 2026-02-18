@@ -85,7 +85,7 @@ export function SidebarGroup({
     }
   }
 
-  const baseClassName = `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-700 ${
+  const baseClassName = `flex w-full items-center gap-2 rounded-lg px-3 h-[30px] text-sm font-medium text-gray-700 ${
     isCollapsed ? 'justify-center' : ''
   }`
 

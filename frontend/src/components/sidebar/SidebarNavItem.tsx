@@ -43,7 +43,7 @@ export function SidebarNavItem({
       end
       onClick={onClick}
       className={({ isActive }) =>
-        `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ${
+        `flex w-full items-center gap-2 rounded-lg px-3 h-[30px] text-sm transition-colors ${
           isActive
             ? 'bg-gray-200 font-medium text-gray-900'
             : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'

@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom'
 import { useUserHistory, useVersionDiff } from '../../hooks/useHistory'
 import { MultiSelectDropdown } from '../../components/ui'
 import type { DropdownOption } from '../../components/ui'
-import { BookmarkIcon, NoteIcon, PromptIcon, CloseIconFilled } from '../../components/icons'
+import { BookmarkIcon, NoteIcon, PromptIcon, CloseIconFilled, ChevronLeftIcon, ChevronRightIcon } from '../../components/icons'
 import { ActionDot } from '../../components/ActionDot'
 import { ChangeIndicators } from '../../components/ChangeIndicators'
 import { usePageTitle } from '../../hooks/usePageTitle'
@@ -247,7 +247,7 @@ export function SettingsVersionHistory(): ReactNode {
   }
 
   return (
-    <div className="max-w-4xl pt-4">
+    <div className="max-w-4xl pt-3">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Version History</h1>
         <p className="mt-1 text-sm text-gray-500">
@@ -552,20 +552,22 @@ export function SettingsVersionHistory(): ReactNode {
             <span className="text-sm text-gray-500">
               Showing {page * limit + 1}-{Math.min((page + 1) * limit, history?.total ?? 0)} of {history?.total ?? 0}
             </span>
-            <div className="flex gap-2">
+            <div className="flex gap-1">
               <button
                 onClick={() => setPage(Math.max(0, page - 1))}
                 disabled={page === 0}
-                className="btn-secondary h-7"
+                className="btn-ghost"
+                aria-label="Previous page"
               >
-                Previous
+                <ChevronLeftIcon className="h-4 w-4" />
               </button>
               <button
                 onClick={() => setPage(page + 1)}
                 disabled={!history?.has_more}
-                className="btn-secondary h-7"
+                className="btn-ghost"
+                aria-label="Next page"
               >
-                Next
+                <ChevronRightIcon className="h-4 w-4" />
               </button>
             </div>
           </div>

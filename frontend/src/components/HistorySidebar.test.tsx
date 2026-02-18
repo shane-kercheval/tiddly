@@ -483,8 +483,8 @@ describe('HistorySidebar', () => {
       renderSidebar()
 
       expect(screen.getByText('Showing 1-50 of 75')).toBeInTheDocument()
-      expect(screen.getByText('Previous')).toBeDisabled()
-      expect(screen.getByText('Next')).toBeEnabled()
+      expect(screen.getByLabelText('Previous page')).toBeDisabled()
+      expect(screen.getByLabelText('Next page')).toBeEnabled()
     })
 
     it('test__pagination__next_passes_correct_offset_to_hook', () => {
@@ -500,7 +500,7 @@ describe('HistorySidebar', () => {
       renderSidebar()
 
       // Navigate to page 2
-      fireEvent.click(screen.getByText('Next'))
+      fireEvent.click(screen.getByLabelText('Next page'))
 
       // Find the call with offset: 50
       const calls = mockUseEntityHistory.mock.calls
@@ -532,7 +532,7 @@ describe('HistorySidebar', () => {
         isLoading: false,
       })
 
-      fireEvent.click(screen.getByText('Next'))
+      fireEvent.click(screen.getByLabelText('Next page'))
 
       // No entry should be labeled "Current" on page > 0
       expect(screen.queryByText('Current')).not.toBeInTheDocument()
@@ -566,7 +566,7 @@ describe('HistorySidebar', () => {
         isLoading: false,
       })
 
-      fireEvent.click(screen.getByText('Next'))
+      fireEvent.click(screen.getByLabelText('Next page'))
 
       // All non-audit content versions should have restore buttons (v25, v23, v1)
       const restoreButtons = screen.getAllByText('Restore')

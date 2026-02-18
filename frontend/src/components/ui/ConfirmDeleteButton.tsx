@@ -88,7 +88,7 @@ export function ConfirmDeleteButton({
     }
   }
 
-  const baseClasses = 'p-1.5 h-7 rounded-lg transition-colors disabled:opacity-50 inline-flex items-center justify-center'
+  const baseClasses = 'p-1.5 rounded-lg transition-colors disabled:opacity-50 inline-flex items-center justify-center'
   const stateClasses = isConfirming
     ? 'bg-red-100 text-red-600 hover:bg-red-200'
     : 'text-gray-400 hover:text-red-600 hover:bg-red-50'

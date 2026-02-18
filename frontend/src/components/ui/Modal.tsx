@@ -109,8 +109,8 @@ export function Modal({
     >
       <div ref={modalRef} className={`modal-content ${maxWidth}`}>
         {/* Header - fixed at top */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 flex-shrink-0">
-          <h2 id="modal-title" className="text-lg font-semibold text-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-3 flex-shrink-0">
+          <h2 id="modal-title" className="text-base font-semibold text-gray-900">
             {title}
           </h2>
           {canClose && (

@@ -345,7 +345,7 @@ export function PromptDetail(): ReactNode {
       />
       {showHistory && promptId && (
         <HistorySidebar
-          key={promptId}
+          key={`history-${promptId}`}
           entityType="prompt"
           entityId={promptId}
           onClose={() => setShowHistory(false)}
