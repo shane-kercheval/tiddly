@@ -620,8 +620,10 @@ export interface Relationship {
 export interface RelationshipWithContent extends Relationship {
   source_title: string | null
   source_url: string | null
+  source_prompt_name: string | null
   target_title: string | null
   target_url: string | null
+  target_prompt_name: string | null
   source_deleted: boolean
   target_deleted: boolean
   source_archived: boolean

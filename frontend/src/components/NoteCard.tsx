@@ -82,7 +82,6 @@ export function NoteCard({
             <button
               onClick={handleTitleClick}
               className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
-              title="View note"
             >
               {note.title}
             </button>
@@ -179,7 +178,6 @@ export function NoteCard({
               <button
                 onClick={handleTitleClick}
                 className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
-                title="View note"
               >
                 {note.title}
               </button>

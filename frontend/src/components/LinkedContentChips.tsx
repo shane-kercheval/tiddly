@@ -40,13 +40,37 @@ export interface LinkedContentChipsHandle {
   startAdding: () => void
 }
 
-/** Resolve display title: use URL hostname for untitled bookmarks, else 'Untitled' */
-function getDisplayTitle(title: string | null, type: string, url?: string | null): string {
+/** Resolve display title: use URL hostname for untitled bookmarks, prompt name for prompts, else 'Untitled' */
+function getDisplayTitle(title: string | null, type: string, url?: string | null, promptName?: string | null): string {
   if (title) return title
   if (type === 'bookmark' && url) {
     try { return new URL(url).hostname } catch { /* fall through */ }
   }
+  if (type === 'prompt' && promptName) return promptName
   return 'Untitled'
+}
+
+/**
+ * Resolve tooltip text for a linked chip.
+ *
+ * When navigable: actionable label ("Open in new tab: URL" for bookmarks, "Go to note: Title" for others).
+ * When not navigable (deleted or no onNavigate): show the full title/URL/name for context, or null.
+ */
+function getTooltipText(
+  item: LinkedItem,
+  typeLabel: string,
+  isNavigable: boolean,
+): string | null {
+  const fullTitle = item.title
+    || (item.type === 'bookmark' ? item.url : null)
+    || (item.type === 'prompt' ? item.promptName : null)
+
+  if (!isNavigable) return fullTitle
+
+  if (item.type === 'bookmark' && item.url) {
+    return `Open in new tab: ${item.url}`
+  }
+  return fullTitle ? `Go to ${typeLabel.toLowerCase()}: ${fullTitle}` : null
 }
 
 /** Chip style per content type: light background + text color + border */
@@ -189,7 +213,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
         const Icon = CONTENT_TYPE_ICONS[item.type]
         const typeLabel = CONTENT_TYPE_LABELS[item.type]
         const chipStyle = CHIP_STYLES[item.type]
-        const displayTitle = getDisplayTitle(item.title, item.type, item.url)
+        const displayTitle = getDisplayTitle(item.title, item.type, item.url, item.promptName)
 
         const chipContent = (
           <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-px text-xs font-normal border ${chipStyle} ${item.deleted ? 'opacity-60' : ''} ${item.archived ? 'opacity-60' : ''}`}>
@@ -203,8 +227,8 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
         // Use a stable key: relationshipId if it exists, otherwise target_type:target_id
         const key = item.relationshipId || `${item.type}:${item.id}`
 
-        // Tooltip: show full title, or URL for bookmarks without title
-        const tooltipText = item.title || (item.type === 'bookmark' ? item.url : null)
+        const isNavigable = !!onNavigate && !item.deleted
+        const tooltipText = getTooltipText(item, typeLabel, isNavigable)
 
         const chipWithAction = onNavigate && !item.deleted ? (
           <button
@@ -222,7 +246,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
         return (
           <div key={key} className="group/link relative inline-flex items-baseline">
             {tooltipText ? (
-              <Tooltip content={tooltipText}>
+              <Tooltip content={tooltipText} delay={500}>
                 {chipWithAction}
               </Tooltip>
             ) : chipWithAction}
@@ -236,7 +260,6 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
                   onRemove(item)
                 }}
                 className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-500 hover:bg-red-500 text-white rounded-full opacity-0 group-hover/link:opacity-100 group-focus-within/link:opacity-100 transition-opacity flex items-center justify-center"
-                title="Remove link"
                 aria-label={`Remove link to ${displayTitle}`}
               >
                 <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
@@ -308,7 +331,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
               {results.map((item, index) => {
                 const Icon = CONTENT_TYPE_ICONS[item.type]
                 const iconColor = CONTENT_TYPE_ICON_COLORS[item.type]
-                const displayTitle = getDisplayTitle(item.title, item.type, item.url)
+                const displayTitle = getDisplayTitle(item.title, item.type, item.url, item.name)
 
                 return (
                   <button

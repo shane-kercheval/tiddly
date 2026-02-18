@@ -78,8 +78,10 @@ class RelationshipWithContentResponse(RelationshipResponse):
 
     source_title: str | None = None
     source_url: str | None = None
+    source_prompt_name: str | None = None
     target_title: str | None = None
     target_url: str | None = None
+    target_prompt_name: str | None = None
     source_deleted: bool = False
     target_deleted: bool = False
     source_archived: bool = False

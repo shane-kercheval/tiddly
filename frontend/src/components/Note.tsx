@@ -648,6 +648,7 @@ export function Note({
             type="button"
             onClick={requestDiscard}
             disabled={isSaving}
+            aria-label={isConfirming ? 'Discard changes' : 'Close'}
             className={`flex items-center gap-1.5 ${
               isConfirming
                 ? 'btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 bg-red-50'
@@ -667,6 +668,7 @@ export function Note({
             <button
               type="submit"
               disabled={isSaving || !canSave}
+              aria-label={isCreate ? 'Create' : 'Save'}
               className="btn-primary flex items-center gap-1.5"
             >
               <CheckIcon className="h-4 w-4" />
@@ -682,8 +684,8 @@ export function Note({
               type="button"
               onClick={onShowHistory}
               disabled={isSaving}
+              aria-label="History"
               className="btn-secondary flex items-center gap-2"
-              title="View version history"
             >
               <HistoryIcon className="h-4 w-4" />
               <span className="hidden md:inline">History</span>
@@ -696,8 +698,8 @@ export function Note({
               type="button"
               onClick={onArchive}
               disabled={isSaving}
+              aria-label="Archive"
               className="btn-secondary flex items-center gap-2"
-              title="Archive note"
             >
               <ArchiveIcon className="h-4 w-4" />
               <span className="hidden md:inline">Archive</span>
@@ -710,8 +712,8 @@ export function Note({
               type="button"
               onClick={onUnarchive}
               disabled={isSaving}
+              aria-label="Restore"
               className="btn-secondary flex items-center gap-2"
-              title="Restore note"
             >
               <RestoreIcon />
               <span className="hidden md:inline">Restore</span>
@@ -724,8 +726,8 @@ export function Note({
               type="button"
               onClick={onRestore}
               disabled={isSaving}
+              aria-label="Restore"
               className="btn-primary flex items-center gap-2"
-              title="Restore note"
             >
               <RestoreIcon />
               <span className="hidden md:inline">Restore</span>
@@ -738,8 +740,8 @@ export function Note({
               type="button"
               onClick={onDelete}
               disabled={isSaving}
+              aria-label={viewState === 'deleted' ? 'Delete permanently' : 'Delete'}
               className="btn-secondary text-red-600 hover:text-red-700 hover:border-red-300 flex items-center gap-2"
-              title={viewState === 'deleted' ? 'Delete permanently' : 'Delete note'}
             >
               <TrashIcon />
               <span className="hidden md:inline">

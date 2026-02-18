@@ -86,7 +86,6 @@ export function PromptCard({
             <button
               onClick={handleTitleClick}
               className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
-              title="View prompt"
             >
               {displayName}
             </button>
@@ -185,7 +184,6 @@ export function PromptCard({
               <button
                 onClick={handleTitleClick}
                 className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
-                title="View prompt"
               >
                 {displayName}
               </button>

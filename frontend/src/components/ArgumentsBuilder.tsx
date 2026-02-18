@@ -62,7 +62,6 @@ export function ArgumentsBuilder({
           onClick={addArgument}
           disabled={disabled}
           className="btn-icon"
-          title="Add argument"
           aria-label="Add argument"
         >
           <PlusIcon className="h-4 w-4" />
@@ -87,7 +86,7 @@ export function ArgumentsBuilder({
                     onClick={() => moveArgument(index, 'up')}
                     disabled={index === 0 || disabled}
                     className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
-                    title="Move up"
+                    aria-label={`Move argument ${index + 1} up`}
                   >
                     <ChevronUpIcon className="h-3.5 w-3.5" />
                   </button>
@@ -96,7 +95,7 @@ export function ArgumentsBuilder({
                     onClick={() => moveArgument(index, 'down')}
                     disabled={index === args.length - 1 || disabled}
                     className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
-                    title="Move down"
+                    aria-label={`Move argument ${index + 1} down`}
                   >
                     <ChevronDownIcon className="h-3.5 w-3.5" />
                   </button>
@@ -137,7 +136,6 @@ export function ArgumentsBuilder({
                     onClick={() => removeArgument(index)}
                     disabled={disabled}
                     className="btn-icon-danger"
-                    title="Remove argument"
                     aria-label={`Remove argument ${index + 1}`}
                   >
                     <CloseIcon className="h-4 w-4" />

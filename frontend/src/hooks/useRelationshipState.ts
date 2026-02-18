@@ -70,21 +70,23 @@ export function useRelationshipState<S extends { relationships: RelationshipInpu
           id: rel.target_id,
           title: null,
           url: null,
+          promptName: null,
           deleted: false,
           archived: false,
           description: rel.description ?? null,
         }
     })
-    // Sort by type (bookmark → note → prompt) then alphabetically by title
+    // Sort by type (bookmark → note → prompt) then alphabetically by display label.
+    // Use title with promptName fallback so sort order matches what the user sees.
     const typeOrder: Record<string, number> = { bookmark: 0, note: 1, prompt: 2 }
     items.sort((a, b) => {
       const typeDiff = (typeOrder[a.type] ?? 99) - (typeOrder[b.type] ?? 99)
       if (typeDiff !== 0) return typeDiff
-      const aTitle = a.title ?? ''
-      const bTitle = b.title ?? ''
-      if (!aTitle && bTitle) return 1
-      if (aTitle && !bTitle) return -1
-      return aTitle.localeCompare(bTitle)
+      const aLabel = a.title ?? a.promptName ?? ''
+      const bLabel = b.title ?? b.promptName ?? ''
+      if (!aLabel && bLabel) return 1
+      if (aLabel && !bLabel) return -1
+      return aLabel.localeCompare(bLabel)
     })
     return items
   }, [serverRelationships, entityId, currentRelationships, contentType])
@@ -96,6 +98,7 @@ export function useRelationshipState<S extends { relationships: RelationshipInpu
       id: item.id,
       title: item.title,
       url: item.url,
+      promptName: item.name,
       deleted: !!item.deleted_at,
       archived: !!item.archived_at,
       description: null,

@@ -361,7 +361,7 @@ _BOOKMARK_COLS = (
     Bookmark.id, Bookmark.title, Bookmark.url, Bookmark.deleted_at, Bookmark.archived_at,
 )
 _NOTE_COLS = (Note.id, Note.title, Note.deleted_at, Note.archived_at)
-_PROMPT_COLS = (Prompt.id, Prompt.title, Prompt.deleted_at, Prompt.archived_at)
+_PROMPT_COLS = (Prompt.id, Prompt.title, Prompt.name, Prompt.deleted_at, Prompt.archived_at)
 
 
 async def enrich_with_content_info(
@@ -426,6 +426,7 @@ async def enrich_with_content_info(
         for row in (await db.execute(stmt)).all():
             info[('prompt', row.id)] = {
                 'title': row.title,
+                'name': row.name,
                 'url': None,
                 'deleted': row.deleted_at is not None,
                 'archived': row.archived_at is not None and row.archived_at <= now,
@@ -449,10 +450,12 @@ async def enrich_with_content_info(
             updated_at=rel.updated_at,
             source_title=source_info['title'] if source_info else None,
             source_url=source_info['url'] if source_info else None,
+            source_prompt_name=source_info.get('name') if source_info else None,
             source_deleted=source_info['deleted'] if source_info else True,
             source_archived=source_info['archived'] if source_info else False,
             target_title=target_info['title'] if target_info else None,
             target_url=target_info['url'] if target_info else None,
+            target_prompt_name=target_info.get('name') if target_info else None,
             target_deleted=target_info['deleted'] if target_info else True,
             target_archived=target_info['archived'] if target_info else False,
         ))

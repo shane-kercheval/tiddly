@@ -7,6 +7,7 @@ import type { Prompt, PromptArgument } from '../types'
 import { Modal } from './ui/Modal'
 import { usePrompts } from '../hooks/usePrompts'
 import { CopyIcon, CheckIcon } from './icons'
+import { Tooltip } from './ui'
 
 interface PreviewPromptModalProps {
   isOpen: boolean
@@ -142,14 +143,15 @@ export function PreviewPromptModal({ isOpen, onClose, prompt }: PreviewPromptMod
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-gray-700">Prompt</h3>
             {renderedOutput !== null && (
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="btn-icon text-gray-500 hover:text-gray-700"
-                title={copied ? 'Copied!' : 'Copy to clipboard'}
-              >
-                {copied ? <CheckIcon className="h-4 w-4 text-green-600" /> : <CopyIcon className="h-4 w-4" />}
-              </button>
+              <Tooltip content={copied ? 'Copied!' : 'Copy to clipboard'} compact>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className="btn-icon text-gray-500 hover:text-gray-700"
+                >
+                  {copied ? <CheckIcon className="h-4 w-4 text-green-600" /> : <CopyIcon className="h-4 w-4" />}
+                </button>
+              </Tooltip>
             )}
           </div>
           <div className="rounded-lg border border-gray-200 bg-white p-4 min-h-[200px]">

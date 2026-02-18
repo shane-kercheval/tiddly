@@ -44,6 +44,7 @@ function makeLinkedItem(overrides: Partial<LinkedItem> = {}): LinkedItem {
     id: 'bm-1',
     title: 'My Bookmark',
     url: 'https://example.com',
+    promptName: null,
     deleted: false,
     archived: false,
     description: null,
@@ -132,6 +133,23 @@ describe('LinkedContentChips', () => {
       )
 
       expect(screen.getByText('example.com')).toBeInTheDocument()
+    })
+
+    it('should render prompt name for prompts with null title', () => {
+      const items = [makeLinkedItem({ type: 'prompt', title: null, url: null, promptName: 'my-prompt' })]
+
+      render(
+        <LinkedContentChips
+          contentType="bookmark"
+          contentId="bm-1"
+          items={items}
+          onAdd={noop}
+          onRemove={noop}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      expect(screen.getByText('my-prompt')).toBeInTheDocument()
     })
 
     it('should render "Untitled" for non-bookmark items with null title', () => {

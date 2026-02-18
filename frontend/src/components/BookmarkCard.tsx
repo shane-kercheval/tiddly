@@ -150,47 +150,49 @@ export function BookmarkCard({
           {hasTitle ? (
             <span
               className="text-base font-medium text-gray-900 truncate"
-              title={bookmark.title ?? undefined}
             >
               {displayTitle}
             </span>
           ) : (
-            <a
-              href={bookmark.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={handleUrlClick}
-              className="text-base font-medium text-gray-900 truncate hover:text-blue-600 hover:underline transition-colors"
-              title={bookmark.url}
-            >
-              {displayTitle}
-            </a>
+            <Tooltip content="Open URL in new tab" compact>
+              <a
+                href={bookmark.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={handleUrlClick}
+                className="text-base font-medium text-gray-900 truncate hover:text-blue-600 hover:underline transition-colors"
+              >
+                {displayTitle}
+              </a>
+            </Tooltip>
           )}
 
           {/* URL row (if has title) - always show as link on mobile (no hover) */}
           {hasTitle && (
-            <a
-              href={bookmark.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={handleUrlClick}
-              className="flex items-center gap-1.5"
-            >
-              {showContentTypeIcon && (
-                <img
-                  src={faviconUrl}
-                  alt=""
-                  className="w-4 h-4 shrink-0"
-                  loading="lazy"
-                  onError={(e) => {
-                    e.currentTarget.src = defaultFavicon
-                  }}
-                />
-              )}
-              <span className="text-[13px] text-blue-500 underline truncate" title={bookmark.url}>
-                {displayUrl}
-              </span>
-            </a>
+            <Tooltip content="Open URL in new tab" compact>
+              <a
+                href={bookmark.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={handleUrlClick}
+                className="flex items-center gap-1.5"
+              >
+                {showContentTypeIcon && (
+                  <img
+                    src={faviconUrl}
+                    alt=""
+                    className="w-4 h-4 shrink-0"
+                    loading="lazy"
+                    onError={(e) => {
+                      e.currentTarget.src = defaultFavicon
+                    }}
+                  />
+                )}
+                <span className="text-[13px] text-blue-500 underline truncate">
+                  {displayUrl}
+                </span>
+              </a>
+            </Tooltip>
           )}
 
           {/* Description or content preview */}
@@ -301,21 +303,21 @@ export function BookmarkCard({
               {hasTitle ? (
                 <span
                   className="text-base font-medium text-gray-900 truncate"
-                  title={bookmark.title ?? undefined}
                 >
                   {displayTitle}
                 </span>
               ) : (
-                <a
-                  href={bookmark.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={handleUrlClick}
-                  className="text-base font-medium text-gray-900 truncate hover:text-blue-600 hover:underline transition-colors"
-                  title={bookmark.url}
-                >
-                  {displayTitle}
-                </a>
+                <Tooltip content="Open URL in new tab" compact>
+                  <a
+                    href={bookmark.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={handleUrlClick}
+                    className="text-base font-medium text-gray-900 truncate hover:text-blue-600 hover:underline transition-colors"
+                  >
+                    {displayTitle}
+                  </a>
+                </Tooltip>
               )}
               <ContentCard.Tags
                 tags={bookmark.tags}
@@ -342,38 +344,39 @@ export function BookmarkCard({
           {/* Row 2: URL line with favicon/external-link icon swap on hover + Archiving indicator */}
           <div className="flex items-center gap-2 mt-0.5">
             {hasTitle && (
-              <a
-                href={bookmark.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={handleUrlClick}
-                className="group/url flex items-center gap-1.5 min-w-0 flex-1"
-              >
-                {/* Icon container with crossfade transition */}
-                {showContentTypeIcon && (
-                  <span className="relative w-4 h-4 shrink-0">
-                    {/* Favicon - visible by default, fades out on hover */}
-                    <img
-                      src={faviconUrl}
-                      alt=""
-                      className="absolute inset-0 w-4 h-4 opacity-100 group-hover/url:opacity-0 transition-opacity duration-150"
-                      loading="lazy"
-                      onError={(e) => {
-                        e.currentTarget.src = defaultFavicon
-                      }}
-                    />
-                    {/* External link icon - hidden by default, fades in on hover */}
-                    <ExternalLinkIcon className="absolute inset-0 w-4 h-4 text-blue-500 opacity-0 group-hover/url:opacity-100 transition-opacity duration-150" />
-                  </span>
-                )}
-                {/* URL text - plain by default, styled as link on hover */}
-                <span
-                  className="text-[13px] text-gray-400 truncate group-hover/url:text-blue-500 group-hover/url:underline transition-colors duration-150"
-                  title={bookmark.url}
+              <Tooltip content="Open URL in new tab" compact>
+                <a
+                  href={bookmark.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={handleUrlClick}
+                  className="group/url flex items-center gap-1.5 min-w-0 flex-1"
                 >
-                  {displayUrl}
-                </span>
-              </a>
+                  {/* Icon container with crossfade transition */}
+                  {showContentTypeIcon && (
+                    <span className="relative w-4 h-4 shrink-0">
+                      {/* Favicon - visible by default, fades out on hover */}
+                      <img
+                        src={faviconUrl}
+                        alt=""
+                        className="absolute inset-0 w-4 h-4 opacity-100 group-hover/url:opacity-0 transition-opacity duration-150"
+                        loading="lazy"
+                        onError={(e) => {
+                          e.currentTarget.src = defaultFavicon
+                        }}
+                      />
+                      {/* External link icon - hidden by default, fades in on hover */}
+                      <ExternalLinkIcon className="absolute inset-0 w-4 h-4 text-blue-500 opacity-0 group-hover/url:opacity-100 transition-opacity duration-150" />
+                    </span>
+                  )}
+                  {/* URL text - plain by default, styled as link on hover */}
+                  <span
+                    className="text-[13px] text-gray-400 truncate group-hover/url:text-blue-500 group-hover/url:underline transition-colors duration-150"
+                  >
+                    {displayUrl}
+                  </span>
+                </a>
+              </Tooltip>
             )}
             {!hasTitle && <div className="flex-1" />}
             {/* Archiving indicator on the right, between date and actions */}

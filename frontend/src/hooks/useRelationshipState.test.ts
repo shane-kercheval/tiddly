@@ -10,8 +10,8 @@ function rel(type: 'bookmark' | 'note' | 'prompt', id: string): RelationshipInpu
 }
 
 /** Helper to build a LinkedItem for the cache */
-function linked(type: 'bookmark' | 'note' | 'prompt', id: string, title: string | null): LinkedItem {
-  return { relationshipId: '', type, id, title, url: null, deleted: false, archived: false, description: null }
+function linked(type: 'bookmark' | 'note' | 'prompt', id: string, title: string | null, promptName: string | null = null): LinkedItem {
+  return { relationshipId: '', type, id, title, url: null, promptName, deleted: false, archived: false, description: null }
 }
 
 interface TestState { relationships: RelationshipInputPayload[] }
@@ -99,6 +99,23 @@ describe('useRelationshipState', () => {
       ])
     })
 
+    it('should sort prompts by promptName when title is null', () => {
+      const { result } = renderRelationshipState({
+        currentRelationships: [rel('prompt', 'p1'), rel('prompt', 'p2'), rel('prompt', 'p3')],
+        initialLinkedItems: [
+          linked('prompt', 'p1', null, 'zulu-prompt'),
+          linked('prompt', 'p2', null, 'alpha-prompt'),
+          linked('prompt', 'p3', 'Beta Title'),
+        ],
+      })
+
+      const items = result.current.linkedItems
+      // 'Beta Title' sorts between alpha-prompt and zulu-prompt
+      expect(items.map((i) => i.title ?? i.promptName)).toEqual([
+        'alpha-prompt', 'Beta Title', 'zulu-prompt',
+      ])
+    })
+
     it('should return empty array when no relationships', () => {
       const { result } = renderRelationshipState({
         currentRelationships: [],
@@ -129,6 +146,33 @@ describe('useRelationshipState', () => {
       })
 
       expect(setCurrent).toHaveBeenCalledOnce()
+    })
+
+    it('should cache promptName from ContentListItem.name for prompts', () => {
+      const setCurrent = vi.fn()
+      const { result, rerender } = renderHook(
+        ({ rels }: { rels: RelationshipInputPayload[] }) =>
+          useRelationshipState<TestState>({
+            contentType: 'note',
+            entityId: 'note-1',
+            serverRelationships: undefined,
+            currentRelationships: rels,
+            setCurrent,
+          }),
+        { initialProps: { rels: [] as RelationshipInputPayload[] } },
+      )
+
+      act(() => {
+        result.current.handleAddRelationship({
+          id: 'p1', type: 'prompt', title: null, url: null, name: 'my-prompt',
+          deleted_at: null, archived_at: null,
+        } as ContentListItem)
+      })
+
+      // Re-render with the new relationship so linkedItems picks up the cache
+      rerender({ rels: [rel('prompt', 'p1')] })
+
+      expect(result.current.linkedItems[0].promptName).toBe('my-prompt')
     })
   })
 
@@ -173,6 +217,14 @@ describe('useRelationshipState', () => {
       })
 
       expect(result.current.linkedItems[0].title).toBeNull()
+    })
+
+    it('should fall back to null promptName when no cache entry exists', () => {
+      const { result } = renderRelationshipState({
+        currentRelationships: [rel('prompt', 'p1')],
+      })
+
+      expect(result.current.linkedItems[0].promptName).toBeNull()
     })
   })
 })

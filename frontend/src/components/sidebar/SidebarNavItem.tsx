@@ -6,6 +6,7 @@ import { NavLink } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useConfirmDelete } from '../../hooks/useConfirmDelete'
 import { EditIcon, TrashIcon } from '../icons'
+import { Tooltip } from '../ui'
 
 interface SidebarNavItemProps {
   to: string
@@ -36,24 +37,31 @@ export function SidebarNavItem({
     onConfirm: () => onDelete?.(),
   })
 
+  const navLinkElement = (
+    <NavLink
+      to={to}
+      end
+      onClick={onClick}
+      className={({ isActive }) =>
+        `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ${
+          isActive
+            ? 'bg-gray-200 font-medium text-gray-900'
+            : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+        } ${isCollapsed ? 'justify-center' : ''}`
+      }
+    >
+      {icon && <span className="flex-shrink-0">{icon}</span>}
+      <span className={`${isCollapsed ? 'sr-only' : 'flex-1 truncate min-w-0'}`}>{label}</span>
+    </NavLink>
+  )
+
   return (
     <div className="group/item relative w-full min-w-0 overflow-hidden">
-      <NavLink
-        to={to}
-        end
-        onClick={onClick}
-        className={({ isActive }) =>
-          `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors ${
-            isActive
-              ? 'bg-gray-200 font-medium text-gray-900'
-              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-          } ${isCollapsed ? 'justify-center' : ''}`
-        }
-        title={isCollapsed ? label : undefined}
-      >
-        {icon && <span className="flex-shrink-0">{icon}</span>}
-        <span className={`${isCollapsed ? 'sr-only' : 'flex-1 truncate min-w-0'}`}>{label}</span>
-      </NavLink>
+      {isCollapsed ? (
+        <Tooltip content={label} compact position="right" className="w-full">
+          {navLinkElement}
+        </Tooltip>
+      ) : navLinkElement}
 
       {/* Hover actions - absolutely positioned with solid background, hidden on mobile */}
       {!isCollapsed && hasActions && (
