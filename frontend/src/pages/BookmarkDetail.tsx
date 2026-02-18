@@ -314,6 +314,7 @@ export function BookmarkDetail(): ReactNode {
       />
       {showHistory && bookmarkId && (
         <HistorySidebar
+          key={bookmarkId}
           entityType="bookmark"
           entityId={bookmarkId}
           onClose={() => setShowHistory(false)}

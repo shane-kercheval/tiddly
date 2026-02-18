@@ -451,6 +451,129 @@ describe('HistorySidebar', () => {
     })
   })
 
+  describe('pagination', () => {
+    it('test__pagination__hidden_when_total_within_single_page', () => {
+      const entries = [
+        createEntry({ id: '1', action: 'update', version: 2 }),
+        createEntry({ id: '2', action: 'create', version: 1 }),
+      ]
+
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: entries, total: 2, offset: 0, limit: 50, has_more: false },
+        isLoading: false,
+      })
+
+      renderSidebar()
+
+      expect(screen.queryByText('Previous')).not.toBeInTheDocument()
+      expect(screen.queryByText('Next')).not.toBeInTheDocument()
+      expect(screen.queryByText(/Showing/)).not.toBeInTheDocument()
+    })
+
+    it('test__pagination__shown_with_correct_text_and_button_states', () => {
+      const entries = Array.from({ length: 50 }, (_, i) =>
+        createEntry({ id: `entry-${i}`, action: 'update', version: 75 - i })
+      )
+
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: entries, total: 75, offset: 0, limit: 50, has_more: true },
+        isLoading: false,
+      })
+
+      renderSidebar()
+
+      expect(screen.getByText('Showing 1-50 of 75')).toBeInTheDocument()
+      expect(screen.getByText('Previous')).toBeDisabled()
+      expect(screen.getByText('Next')).toBeEnabled()
+    })
+
+    it('test__pagination__next_passes_correct_offset_to_hook', () => {
+      const entries = Array.from({ length: 50 }, (_, i) =>
+        createEntry({ id: `entry-${i}`, action: 'update', version: 75 - i })
+      )
+
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: entries, total: 75, offset: 0, limit: 50, has_more: true },
+        isLoading: false,
+      })
+
+      renderSidebar()
+
+      // Navigate to page 2
+      fireEvent.click(screen.getByText('Next'))
+
+      // Find the call with offset: 50
+      const calls = mockUseEntityHistory.mock.calls
+      const lastCall = calls[calls.length - 1]
+      expect(lastCall[2]).toEqual({ limit: 50, offset: 50 })
+    })
+
+    it('test__pagination__page_beyond_first_shows_no_current_label', () => {
+      // Page 0: latest entries with has_more=true
+      const page0Entries = Array.from({ length: 50 }, (_, i) =>
+        createEntry({ id: `p0-${i}`, action: 'update', version: 75 - i })
+      )
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: page0Entries, total: 75, offset: 0, limit: 50, has_more: true },
+        isLoading: false,
+      })
+
+      renderSidebar()
+      expect(screen.getByText('Current')).toBeInTheDocument()
+
+      // Page 1: older entries
+      const page1Entries = [
+        createEntry({ id: 'p1-0', action: 'update', version: 25 }),
+        createEntry({ id: 'p1-1', action: 'update', version: 24 }),
+        createEntry({ id: 'p1-2', action: 'create', version: 1 }),
+      ]
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: page1Entries, total: 75, offset: 50, limit: 50, has_more: false },
+        isLoading: false,
+      })
+
+      fireEvent.click(screen.getByText('Next'))
+
+      // No entry should be labeled "Current" on page > 0
+      expect(screen.queryByText('Current')).not.toBeInTheDocument()
+      // All versions should show their version badge
+      expect(screen.getByText('v25')).toBeInTheDocument()
+      expect(screen.getByText('v24')).toBeInTheDocument()
+      expect(screen.getByText('v1')).toBeInTheDocument()
+    })
+
+    it('test__pagination__page_beyond_first_shows_restore_on_all_content_entries', () => {
+      // Page 0: latest entries with has_more=true
+      const page0Entries = Array.from({ length: 50 }, (_, i) =>
+        createEntry({ id: `p0-${i}`, action: 'update', version: 75 - i })
+      )
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: page0Entries, total: 75, offset: 0, limit: 50, has_more: true },
+        isLoading: false,
+      })
+
+      renderSidebar()
+
+      // Page 1: older entries including an audit action
+      const page1Entries = [
+        createEntry({ id: 'p1-0', action: 'update', version: 25 }),
+        createEntry({ id: 'p1-1', action: 'delete', version: null }),
+        createEntry({ id: 'p1-2', action: 'update', version: 23 }),
+        createEntry({ id: 'p1-3', action: 'create', version: 1 }),
+      ]
+      mockUseEntityHistory.mockReturnValue({
+        data: { items: page1Entries, total: 75, offset: 50, limit: 50, has_more: false },
+        isLoading: false,
+      })
+
+      fireEvent.click(screen.getByText('Next'))
+
+      // All non-audit content versions should have restore buttons (v25, v23, v1)
+      const restoreButtons = screen.getAllByText('Restore')
+      expect(restoreButtons).toHaveLength(3)
+    })
+  })
+
   describe('audit entries with versions', () => {
     it('test__audit_actions_with_version__do_not_show_restore_button', () => {
       // Legacy data where archive/unarchive entries have version numbers

@@ -33,6 +33,8 @@ const AUDIT_TOOLTIPS: Partial<Record<HistoryActionType, string>> = {
   undelete: 'To delete this item, use the delete action from the item menu.',
 }
 
+const PAGE_SIZE = 50
+
 /** Tailwind md breakpoint */
 const MD_BREAKPOINT = 768
 
@@ -55,9 +57,17 @@ export function HistorySidebar({
   const [confirmingRestore, setConfirmingRestore] = useState<number | null>(null)
   const confirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [page, setPageRaw] = useState(0)
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= MD_BREAKPOINT : true
   )
+
+  // Wrap setPage to also clear selection state
+  const setPage = useCallback((newPage: number) => {
+    setPageRaw(newPage)
+    setSelectedVersion(null)
+    setConfirmingRestore(null)
+  }, [])
 
   // Get width from store
   const storeWidth = useHistorySidebarStore((state) => state.width)
@@ -136,7 +146,7 @@ export function HistorySidebar({
     }
   }, [confirmingRestore])
 
-  const { data: history, isLoading } = useEntityHistory(entityType, entityId, { limit: 50 })
+  const { data: history, isLoading } = useEntityHistory(entityType, entityId, { limit: PAGE_SIZE, offset: page * PAGE_SIZE })
 
   // Fetch diff between selected version and its predecessor
   const { data: diffData } = useVersionDiff(
@@ -147,7 +157,10 @@ export function HistorySidebar({
 
   const restoreMutation = useRestoreToVersion()
 
-  const latestVersion = history?.items.find(e => e.version !== null)?.version ?? 0
+  // Only page 0 contains the true latest version; on later pages all entries are older
+  const latestVersion = page === 0
+    ? history?.items.find(e => e.version !== null)?.version ?? 0
+    : Infinity
 
   const handleRestoreClick = (version: number, e: React.MouseEvent): void => {
     e.stopPropagation()
@@ -213,6 +226,31 @@ export function HistorySidebar({
           <CloseIcon className="w-5 h-5" />
         </button>
       </div>
+
+      {/* Pagination - only shown when there's more than one page */}
+      {history && history.total > PAGE_SIZE && (
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 shrink-0">
+          <span className="text-sm text-gray-500">
+            Showing {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, history.total)} of {history.total}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPage(Math.max(0, page - 1))}
+              disabled={page === 0}
+              className="btn-secondary h-7"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setPage(page + 1)}
+              disabled={!history.has_more}
+              className="btn-secondary h-7"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Version list with inline diff view */}
       <div className="flex-1 overflow-y-auto">
