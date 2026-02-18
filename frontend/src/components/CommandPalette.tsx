@@ -595,7 +595,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
           /* ===== Search Sub-View ===== */
           <>
             {/* Search controls */}
-            <div className="px-4 pt-3 pb-2 space-y-2 border-b border-gray-100 overflow-hidden">
+            <div className="px-4 pt-3 pb-2 space-y-2 border-b border-gray-100 relative z-20">
               <SearchFilterBar
                 searchInputRef={searchInputRef}
                 searchQuery={searchQuery}
