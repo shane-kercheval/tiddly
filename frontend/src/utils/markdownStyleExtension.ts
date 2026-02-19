@@ -1163,6 +1163,135 @@ const markdownBaseTheme = EditorView.theme({
     color: '#9ca3af !important',
     fontStyle: 'italic',
   },
+
+  // --- Slash command autocomplete dropdown ---
+  // Use `& ` prefix for scoped specificity to override CM's built-in baseTheme.
+  // CM defaults: monospace font, maxHeight 10em, blue/white selected state.
+  '& .cm-tooltip.cm-tooltip-autocomplete': {
+    backgroundColor: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: '12px',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.02)',
+    padding: '4px',
+    minWidth: '300px',
+    maxWidth: '340px',
+  },
+  '& .cm-tooltip.cm-tooltip-autocomplete > ul': {
+    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important',
+    maxHeight: '400px',
+    minWidth: '300px',
+  },
+  '& .cm-tooltip-autocomplete ul li': {
+    padding: '1px 8px',
+    borderRadius: '6px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    cursor: 'pointer',
+    height: '28px',
+    lineHeight: '1',
+  },
+  '& .cm-tooltip-autocomplete ul li:hover': {
+    backgroundColor: '#f3f4f6',  // gray-100, matches app hover states
+  },
+  '& .cm-tooltip-autocomplete ul li[aria-selected]': {
+    backgroundColor: '#eff6ff',  // blue-50
+    color: 'inherit',
+  },
+  // Section headers are <completion-section> custom elements, not .cm-completionSection
+  '& .cm-tooltip-autocomplete ul completion-section': {
+    fontSize: '11px !important',
+    fontWeight: '500',
+    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important',
+    color: '#9ca3af !important',
+    letterSpacing: '0.03em',
+    padding: '8px 8px 6px !important',
+    marginTop: '4px',
+    borderBottom: 'none !important',
+    borderTop: '1px solid #e5e7eb',
+    opacity: '1 !important',
+    lineHeight: '1.2 !important',
+  },
+  '& .cm-tooltip-autocomplete ul completion-section:first-child': {
+    borderTop: 'none !important',
+    marginTop: '0',
+    paddingTop: '4px !important',
+  },
+  '& .cm-completionLabel': {
+    fontSize: '14px',
+    color: '#374151',
+    flex: '1',
+  },
+  '& .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionLabel': {
+    color: '#1d4ed8',  // blue-700
+  },
+  '& .cm-completionDetail': {
+    fontSize: '12px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    color: '#d1d5db',
+    fontStyle: 'normal',
+    marginLeft: 'auto',
+    flexShrink: '0',
+  },
+  '& .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionDetail': {
+    color: '#93c5fd',  // blue-300
+  },
+  '& .cm-completionMatchedText': {
+    textDecoration: 'none',
+    fontWeight: '600',
+    color: '#111827',
+  },
+  '& .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionMatchedText': {
+    color: '#1d4ed8',
+  },
+  '& .cm-completionIcon': {
+    display: 'none',
+  },
+  '& .cm-slash-icon': {
+    width: '22px',
+    height: '22px',
+    color: '#9ca3af',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: '0',
+  },
+  '& .cm-tooltip-autocomplete ul li[aria-selected] .cm-slash-icon': {
+    color: '#3b82f6',  // blue-500
+  },
+  '& .cm-slash-icon svg': {
+    width: '18px',
+    height: '18px',
+  },
+  '& .cm-slash-shortcut': {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: '2px',
+    marginLeft: '4px',
+    flexShrink: '0',
+    width: '72px',  // fixed width for 3 keys; empty spacer for items without shortcuts
+  },
+  '& .cm-slash-shortcut kbd': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '18px',
+    height: '18px',
+    padding: '0 3px',
+    fontSize: '10px',
+    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+    fontWeight: '500',
+    color: '#9ca3af',
+    backgroundColor: '#f3f4f6',
+    borderRadius: '3px',
+    border: '1px solid #e5e7eb',
+  },
+  '& .cm-tooltip-autocomplete ul li[aria-selected] .cm-slash-shortcut kbd': {
+    color: '#93c5fd',
+    backgroundColor: '#dbeafe',
+    borderColor: '#bfdbfe',
+  },
 })
 
 /**

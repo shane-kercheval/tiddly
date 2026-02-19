@@ -13,6 +13,7 @@ import { languages } from '@codemirror/language-data'
 import { keymap, EditorView } from '@codemirror/view'
 import { markdownStyleExtension, createFontTheme } from '../utils/markdownStyleExtension'
 import type { KeyBinding } from '@codemirror/view'
+import { autocompletion, completionStatus } from '@codemirror/autocomplete'
 import { Prec } from '@codemirror/state'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
 import { Tooltip } from './ui/Tooltip'
@@ -40,6 +41,7 @@ import {
   ReadingIcon,
 } from './editor/EditorToolbarIcons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
+import { createSlashCommandSource, slashCommandAddToOptions } from '../utils/slashCommands'
 import { wasEditorFocused } from '../utils/editorUtils'
 import { getToggleMarkerAction } from '../utils/markdownToggle'
 
@@ -515,17 +517,38 @@ export function CodeMirrorEditor({
   // Build extensions array with optional line wrapping and keybindings
   const extensions = useMemo(() => {
     const bindings = createMarkdownKeyBindings()
+    const slashSource = createSlashCommandSource(showJinjaTools)
     const exts = [
       markdown({ codeLanguages: languages }),
       Prec.highest(keymap.of(bindings)),
       markdownStyleExtension,
       createFontTheme(monoFont),
+      autocompletion({
+        override: [slashSource],
+        icons: false,
+        selectOnOpen: true,
+        addToOptions: slashCommandAddToOptions,
+      }),
+      // Prevent Escape from bubbling to parent handlers (e.g. discard confirmation)
+      // when closing the autocomplete dropdown. Prec.highest ensures this runs
+      // before CM's keymap handler (Prec.default) which would close the dropdown
+      // and break the handler loop before we can call stopPropagation.
+      Prec.highest(
+        EditorView.domEventHandlers({
+          keydown(event, view) {
+            if (event.key === 'Escape' && completionStatus(view.state) !== null) {
+              event.stopPropagation()
+            }
+            return false // let CM's keymap close the dropdown normally
+          },
+        }),
+      ),
     ]
     if (wrapText) {
       exts.push(EditorView.lineWrapping)
     }
     return exts
-  }, [wrapText, monoFont])
+  }, [wrapText, monoFont, showJinjaTools])
 
   return (
     <div ref={containerRef} className={`w-full ${noPadding ? 'codemirror-no-padding' : ''}`}>
@@ -739,6 +762,7 @@ export function CodeMirrorEditor({
               lineNumbers: showLineNumbers,
               foldGutter: false,
               highlightActiveLine: false,
+              autocompletion: false,
             }}
 
           />

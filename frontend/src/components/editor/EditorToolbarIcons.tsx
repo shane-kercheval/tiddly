@@ -98,8 +98,9 @@ export function TaskListIcon(): ReactNode {
 
 export function BlockquoteIcon(): ReactNode {
   return (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-4l-4 4-4-4z" />
+    <svg className="w-4 h-4" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="2.5" height="16" rx="1" fill="currentColor" />
+      <path d="M10 8h10M10 12h8M10 16h6" stroke="currentColor" strokeWidth={2} />
     </svg>
   )
 }
