@@ -4,13 +4,15 @@
  * Type `/` at the start of a line (or after leading whitespace) to get a
  * filterable dropdown of block-level markdown commands.
  */
+import { completionStatus } from '@codemirror/autocomplete'
 import type {
   Completion,
   CompletionContext,
   CompletionResult,
   CompletionSource,
 } from '@codemirror/autocomplete'
-import type { EditorView } from '@codemirror/view'
+import { ViewPlugin } from '@codemirror/view'
+import type { EditorView, ViewUpdate } from '@codemirror/view'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from '../components/editor/jinjaTemplates'
 
 // ---------------------------------------------------------------------------
@@ -259,10 +261,87 @@ const slashCommandAddToOptions: AddToOptionsSpec[] = [
 ]
 
 // ---------------------------------------------------------------------------
+// Scroll fade plugin — shows gradient when more items are below
+// ---------------------------------------------------------------------------
+
+/**
+ * ViewPlugin that adds a fade gradient at the bottom of the autocomplete
+ * dropdown when the list is scrollable and not scrolled to the bottom.
+ * Hides the fade when content fits without scrolling or when scrolled
+ * all the way down.
+ */
+const scrollFadePlugin = ViewPlugin.fromClass(
+  class {
+    fadeEl: HTMLElement | null = null
+    ul: HTMLElement | null = null
+    scrollHandler: (() => void) | null = null
+    view: EditorView
+
+    constructor(view: EditorView) {
+      this.view = view
+      requestAnimationFrame(() => this.sync())
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    update(_update: ViewUpdate): void {
+      // Skip DOM work when autocomplete is closed and no fade element needs cleanup
+      if (completionStatus(this.view.state) === null && !this.fadeEl) return
+      requestAnimationFrame(() => this.sync())
+    }
+
+    sync(): void {
+      const tooltip = this.view.dom.querySelector('.cm-tooltip-autocomplete')
+
+      // If CM replaced the tooltip DOM node, our fade element is detached — re-attach
+      if (tooltip && this.fadeEl && !this.fadeEl.isConnected) {
+        this.cleanup()
+      }
+
+      if (tooltip && !this.fadeEl) {
+        const ul = tooltip.querySelector('ul') as HTMLElement | null
+        if (!ul) return
+        this.ul = ul
+        this.fadeEl = document.createElement('div')
+        this.fadeEl.className = 'cm-autocomplete-fade'
+        tooltip.appendChild(this.fadeEl)
+        this.scrollHandler = (): void => this.updateFade()
+        ul.addEventListener('scroll', this.scrollHandler)
+        this.updateFade()
+      } else if (!tooltip && this.fadeEl) {
+        this.cleanup()
+      } else if (tooltip && this.fadeEl) {
+        this.updateFade()
+      }
+    }
+
+    updateFade(): void {
+      if (!this.ul || !this.fadeEl) return
+      const { scrollTop, scrollHeight, clientHeight } = this.ul
+      const hasMore = scrollTop + clientHeight < scrollHeight - 2
+      this.fadeEl.style.opacity = hasMore ? '1' : '0'
+    }
+
+    cleanup(): void {
+      if (this.scrollHandler && this.ul) {
+        this.ul.removeEventListener('scroll', this.scrollHandler)
+      }
+      this.fadeEl?.remove()
+      this.fadeEl = null
+      this.ul = null
+      this.scrollHandler = null
+    }
+
+    destroy(): void {
+      this.cleanup()
+    }
+  },
+)
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
-export { createSlashCommandSource, slashCommandAddToOptions }
+export { createSlashCommandSource, slashCommandAddToOptions, scrollFadePlugin }
 
 /** Exposed for testing only. */
 export const _testExports = { buildCommands, isInsideCodeBlock }

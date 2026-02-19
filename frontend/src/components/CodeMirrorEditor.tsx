@@ -41,7 +41,7 @@ import {
   ReadingIcon,
 } from './editor/EditorToolbarIcons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
-import { createSlashCommandSource, slashCommandAddToOptions } from '../utils/slashCommands'
+import { createSlashCommandSource, slashCommandAddToOptions, scrollFadePlugin } from '../utils/slashCommands'
 import { wasEditorFocused } from '../utils/editorUtils'
 import { getToggleMarkerAction } from '../utils/markdownToggle'
 
@@ -529,6 +529,7 @@ export function CodeMirrorEditor({
         selectOnOpen: true,
         addToOptions: slashCommandAddToOptions,
       }),
+      scrollFadePlugin,
       // Prevent Escape from bubbling to parent handlers (e.g. discard confirmation)
       // when closing the autocomplete dropdown. Prec.highest ensures this runs
       // before CM's keymap handler (Prec.default) which would close the dropdown

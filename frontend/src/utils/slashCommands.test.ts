@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { EditorState } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
 import { CompletionContext } from '@codemirror/autocomplete'
 import type { CompletionResult } from '@codemirror/autocomplete'
 import { createSlashCommandSource, _testExports } from './slashCommands'
@@ -294,5 +295,113 @@ describe('isInsideCodeBlock', () => {
     const doc = '```\ncode\n```\n/'
     const result = querySource(doc, doc.length)
     expect(result).not.toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// apply functions — document transformations
+// ---------------------------------------------------------------------------
+
+/**
+ * Create an EditorView, run a command's apply function, and return the
+ * resulting document text, cursor position, and selection range.
+ */
+function applyCommand(
+  doc: string,
+  label: string,
+  showJinja = false,
+): { text: string; cursor: number; selectionFrom: number; selectionTo: number } {
+  const commands = buildCommands(showJinja)
+  const cmd = commands.find((c) => c.label === label)
+  if (!cmd) throw new Error(`Command "${label}" not found`)
+
+  // Simulate: user typed `/` (or `/filter`) — find the slash position and cursor
+  const slashPos = doc.lastIndexOf('/')
+  const from = slashPos + 1 // after the `/`, matching how the source sets `from`
+  const to = doc.length // cursor at end
+
+  const parent = document.createElement('div')
+  const view = new EditorView({
+    state: EditorState.create({ doc }),
+    parent,
+  })
+
+  ;(cmd.apply as (view: EditorView, completion: typeof cmd, from: number, to: number) => void)(
+    view,
+    cmd,
+    from,
+    to,
+  )
+
+  const state = view.state
+  const result = {
+    text: state.doc.toString(),
+    cursor: state.selection.main.head,
+    selectionFrom: state.selection.main.from,
+    selectionTo: state.selection.main.to,
+  }
+  view.destroy()
+  return result
+}
+
+describe('apply functions', () => {
+  describe('simple commands replace / with markdown syntax', () => {
+    it.each([
+      ['Heading 1', '# '],
+      ['Heading 2', '## '],
+      ['Heading 3', '### '],
+      ['Bulleted list', '- '],
+      ['Numbered list', '1. '],
+      ['To-do list', '- [ ] '],
+      ['Blockquote', '> '],
+    ])('test__apply__%s__inserts_correct_text', (label: string, expected: string) => {
+      const result = applyCommand('/', label)
+      expect(result.text).toBe(expected)
+      expect(result.cursor).toBe(expected.length)
+    })
+  })
+
+  it('test__apply__heading_1__replaces_slash_and_filter_text', () => {
+    const result = applyCommand('/he', 'Heading 1')
+    expect(result.text).toBe('# ')
+    expect(result.cursor).toBe(2)
+  })
+
+  it('test__apply__heading_1__preserves_text_before_slash', () => {
+    const result = applyCommand('some text /', 'Heading 1')
+    expect(result.text).toBe('some text # ')
+    expect(result.cursor).toBe(12)
+  })
+
+  it('test__apply__horizontal_rule__inserts_with_trailing_newline', () => {
+    const result = applyCommand('/', 'Horizontal rule')
+    expect(result.text).toBe('---\n')
+  })
+
+  it('test__apply__code_block__inserts_fences_with_cursor_between', () => {
+    const result = applyCommand('/', 'Code block')
+    expect(result.text).toBe('```\n\n```')
+    expect(result.cursor).toBe(4) // on the empty line between fences
+  })
+
+  it('test__apply__link__inserts_template_with_url_selected', () => {
+    const result = applyCommand('/', 'Link')
+    expect(result.text).toBe('[text](url)')
+    // "url" should be selected (positions 7-10)
+    expect(result.selectionFrom).toBe(7)
+    expect(result.selectionTo).toBe(10)
+  })
+
+  it('test__apply__link__preserves_surrounding_text', () => {
+    const result = applyCommand('click here /', 'Link')
+    expect(result.text).toBe('click here [text](url)')
+    expect(result.selectionFrom).toBe(18) // "url" selected
+    expect(result.selectionTo).toBe(21)
+  })
+
+  it('test__apply__jinja_variable__inserts_template', () => {
+    const result = applyCommand('/', 'Variable', true)
+    expect(result.text).toContain('{{')
+    expect(result.text).toContain('}}')
   })
 })

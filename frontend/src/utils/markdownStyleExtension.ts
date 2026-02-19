@@ -1176,6 +1176,20 @@ const markdownBaseTheme = EditorView.theme({
     minWidth: '300px',
     maxWidth: '340px',
   },
+  // Fade overlay managed by scrollFadePlugin in slashCommands.ts.
+  // Only visible when the list has more items below the visible area.
+  // Insets match tooltip padding above so the fade covers the content area, not the border.
+  '& .cm-autocomplete-fade': {
+    position: 'absolute',
+    bottom: '4px',
+    left: '4px',
+    right: '4px',
+    height: '28px',
+    background: 'linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,1))',
+    pointerEvents: 'none',
+    borderRadius: '0 0 10px 10px',
+    transition: 'opacity 150ms',
+  },
   '& .cm-tooltip.cm-tooltip-autocomplete > ul': {
     fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important',
     maxHeight: '400px',
