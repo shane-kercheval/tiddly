@@ -502,7 +502,7 @@ function findJinjaExpressions(text: string): JinjaMatch[] {
   // Group 1: variable {{ ... }}
   // Group 2: tag {%- or {% ... -%} or %}
   // Group 3: comment {# ... #}
-  const regex = /\{\{(.*?)\}\}|\{%-?\s(.*?)\s-?%\}|\{#(.*?)#\}/g
+  const regex = /\{\{(.*?)\}\}|\{%-?\s*(.*?)\s*-?%\}|\{#(.*?)#\}/g
   let match
 
   while ((match = regex.exec(text)) !== null) {
