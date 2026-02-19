@@ -190,6 +190,22 @@ interface InlineFormatMatch {
 }
 
 /**
+ * Match info for Jinja2 template expressions.
+ * Separates delimiter positions from content for independent styling.
+ */
+interface JinjaMatch {
+  type: 'variable' | 'tag' | 'comment'
+  from: number              // Start of full match
+  to: number                // End of full match
+  openDelimFrom: number     // Start of opening delimiter
+  openDelimTo: number       // End of opening delimiter
+  contentStart: number      // Start of inner content
+  contentEnd: number        // End of inner content
+  closeDelimFrom: number    // Start of closing delimiter
+  closeDelimTo: number      // End of closing delimiter
+}
+
+/**
  * Find all strikethrough spans in a line (text between ~~).
  * Returns structured info for separate marker/content styling.
  */
@@ -475,6 +491,73 @@ function findBlockquoteSyntax(text: string): { from: number; to: number } | null
   return null
 }
 
+/**
+ * Find all Jinja2 expressions in a line.
+ * Detects {{ ... }}, {% ... %} / {%- ... -%}, and {# ... #}.
+ * Uses lazy matching to handle multiple expressions on one line.
+ */
+function findJinjaExpressions(text: string): JinjaMatch[] {
+  const results: JinjaMatch[] = []
+  // Match all three Jinja syntax types with lazy quantifiers
+  // Group 1: variable {{ ... }}
+  // Group 2: tag {%- or {% ... -%} or %}
+  // Group 3: comment {# ... #}
+  const regex = /\{\{(.*?)\}\}|\{%-?\s(.*?)\s-?%\}|\{#(.*?)#\}/g
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    const fullStart = match.index
+    const fullEnd = fullStart + match[0].length
+
+    if (match[1] !== undefined) {
+      // Variable: {{ ... }}
+      results.push({
+        type: 'variable',
+        from: fullStart,
+        to: fullEnd,
+        openDelimFrom: fullStart,
+        openDelimTo: fullStart + 2,       // {{
+        contentStart: fullStart + 2,
+        contentEnd: fullEnd - 2,
+        closeDelimFrom: fullEnd - 2,
+        closeDelimTo: fullEnd,            // }}
+      })
+    } else if (match[2] !== undefined) {
+      // Tag: {% ... %} or {%- ... -%}
+      const openDelim = match[0].startsWith('{%-') ? '{%-' : '{%'
+      const closeDelim = match[0].endsWith('-%}') ? '-%}' : '%}'
+      const openLen = openDelim.length
+      const closeLen = closeDelim.length
+      results.push({
+        type: 'tag',
+        from: fullStart,
+        to: fullEnd,
+        openDelimFrom: fullStart,
+        openDelimTo: fullStart + openLen,
+        contentStart: fullStart + openLen,
+        contentEnd: fullEnd - closeLen,
+        closeDelimFrom: fullEnd - closeLen,
+        closeDelimTo: fullEnd,
+      })
+    } else if (match[3] !== undefined) {
+      // Comment: {# ... #}
+      results.push({
+        type: 'comment',
+        from: fullStart,
+        to: fullEnd,
+        openDelimFrom: fullStart,
+        openDelimTo: fullStart + 2,       // {#
+        contentStart: fullStart + 2,
+        contentEnd: fullEnd - 2,
+        closeDelimFrom: fullEnd - 2,
+        closeDelimTo: fullEnd,            // #}
+      })
+    }
+  }
+
+  return results
+}
+
 // Decorations for links
 const linkBracketMark = Decoration.mark({ class: 'cm-md-link-bracket' })
 const linkTextMark = Decoration.mark({ class: 'cm-md-link-text' })
@@ -484,6 +567,12 @@ const linkUrlMark = Decoration.mark({ class: 'cm-md-link-url' })
 const imageSyntaxMark = Decoration.mark({ class: 'cm-md-image-syntax' })
 const imageAltMark = Decoration.mark({ class: 'cm-md-image-alt' })
 const imageUrlMark = Decoration.mark({ class: 'cm-md-image-url' })
+
+// Decorations for Jinja2 template syntax
+const jinjaDelimiterMark = Decoration.mark({ class: 'cm-md-jinja-delimiter' })
+const jinjaVariableContentMark = Decoration.mark({ class: 'cm-md-jinja-variable-content' })
+const jinjaTagContentMark = Decoration.mark({ class: 'cm-md-jinja-tag-content' })
+const jinjaCommentMark = Decoration.mark({ class: 'cm-md-jinja-comment' })
 
 /**
  * Build decorations for the entire document.
@@ -657,6 +746,32 @@ function buildDecorations(view: EditorView): DecorationSet {
         inlineDecorations.push({ from: line.from + link.closeBracket, to: line.from + link.closeBracket + 1, decoration: linkBracketMark })
         // Opening paren and URL (
         inlineDecorations.push({ from: line.from + link.openParen, to: line.from + link.closeParen + 1, decoration: linkUrlMark })
+      }
+
+      // Jinja2 template syntax ({{ }}, {% %}, {# #})
+      const jinjaMatches = findJinjaExpressions(line.text)
+      for (const jinja of jinjaMatches) {
+        // Skip if overlapping with inline code (inline code wins)
+        const overlapsCode = inlineCodes.some(
+          (code) => jinja.from < code.to && jinja.to > code.from
+        )
+        if (overlapsCode) continue
+
+        if (jinja.type === 'comment') {
+          // Comments: single decoration spanning entire match
+          inlineDecorations.push({ from: line.from + jinja.from, to: line.from + jinja.to, decoration: jinjaCommentMark })
+        } else {
+          // Variables and tags: three decorations (open delimiter, content, close delimiter)
+          const contentMark = jinja.type === 'variable' ? jinjaVariableContentMark : jinjaTagContentMark
+          // Opening delimiter
+          inlineDecorations.push({ from: line.from + jinja.openDelimFrom, to: line.from + jinja.openDelimTo, decoration: jinjaDelimiterMark })
+          // Content
+          if (jinja.contentEnd > jinja.contentStart) {
+            inlineDecorations.push({ from: line.from + jinja.contentStart, to: line.from + jinja.contentEnd, decoration: contentMark })
+          }
+          // Closing delimiter
+          inlineDecorations.push({ from: line.from + jinja.closeDelimFrom, to: line.from + jinja.closeDelimTo, decoration: jinjaDelimiterMark })
+        }
       }
 
       // Sort by position and add to builder (RangeSetBuilder requires sorted order)
@@ -1018,6 +1133,36 @@ const markdownBaseTheme = EditorView.theme({
     color: `${SYNTAX_COLOR} !important`,
     textDecoration: 'none !important',
   },
+
+  // Jinja2 template syntax - delimiters ({{ }}, {% %}, {# #})
+  '.cm-md-jinja-delimiter': {
+    color: '#a78bfa !important',
+  },
+
+  // Jinja2 variable content (between {{ }})
+  '.cm-md-jinja-variable-content': {
+    backgroundColor: '#f5f3ff',
+    mixBlendMode: 'multiply',
+    color: '#7c3aed !important',
+    padding: '0.1em 0.1em',
+    borderRadius: '2px',
+  },
+
+  // Jinja2 tag content (between {% %})
+  '.cm-md-jinja-tag-content': {
+    backgroundColor: '#faf5ff',
+    mixBlendMode: 'multiply',
+    color: '#9333ea !important',
+    fontStyle: 'italic',
+    padding: '0.1em 0.1em',
+    borderRadius: '2px',
+  },
+
+  // Jinja2 comments ({# ... #})
+  '.cm-md-jinja-comment': {
+    color: '#9ca3af !important',
+    fontStyle: 'italic',
+  },
 })
 
 /**
@@ -1111,5 +1256,6 @@ export const _testExports = {
   findBold,
   findItalic,
   findBlockquoteSyntax,
+  findJinjaExpressions,
   parseLine,
 }

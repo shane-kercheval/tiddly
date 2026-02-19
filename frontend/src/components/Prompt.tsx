@@ -56,39 +56,28 @@ interface BuildUpdatesResult {
 }
 
 /** Default template content for new prompts */
-const DEFAULT_PROMPT_CONTENT = `# Replace this content with your prompt
+const DEFAULT_PROMPT_CONTENT = `# New Prompt Template
 
-## Getting Started with Prompts
+Prompts are reusable templates for LLMs and Agents - instructions, workflows, or any text you want to reuse.
 
-Prompts are reusable templates exposed to **MCP clients** (Claude Desktop, Claude Code, Cursor, etc.).
+To use your prompts with AI agents like Claude Desktop, Claude Code, or Codex, connect them via instructions found in **Settings > AI Integration**.
 
-Create prompts here, then use them directly from your AI tools by configuring MCP access by following instructions in the Settings > AI Integration.
+## Adding Variables
 
-Templates combine Markdown with **Jinja2** syntax for dynamic content. Define arguments above, then reference them in your template. Simple prompts do not require arguments or jinja.
+For dynamic content, add arguments above with the \`+\` button and reference them with double braces like:
 
-## Using Variables
-
-Reference arguments with double braces: \`{{ variable_name }}\`
+{{ variable_name }}
 
 Example: "Please review {{ code_snippet }} for bugs."
 
 ## Conditional Content
 
-Use \`{% if %}\` / \`{% endif %}\` to include content only when an argument is provided:
+Use Jinja2 syntax to include optional content by providing an **optional argument** (for example, \`context\`, below):
 
-\`\`\`
 {%- if context %}
+{# This is a Jinja2 comment; it will not be rendered or shown to the agent #}
 Context: {{ context }}
 {%- endif %}
-\`\`\`
-
-The \`-\` in \`{%-\` trims whitespace, keeping output clean when conditions are false.
-
-## Tips
-
-- Add arguments using the + button above
-- Mark arguments as "Required" if they must always be provided
-- Use descriptive argument names like \`code_to_review\` or \`target_language\`
 
 Delete this template and write your own prompt!`
 
