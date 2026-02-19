@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import { _testExports } from './markdownStyleExtension'
 
-const { findImages, findLinks, findInlineCode, findStrikethrough, findHighlight, findBold, findItalic, findBlockquoteSyntax, parseLine } = _testExports
+const { findImages, findLinks, findInlineCode, findStrikethrough, findHighlight, findBold, findItalic, findBlockquoteSyntax, findJinjaExpressions, parseLine } = _testExports
 
 describe('findImages', () => {
   it('should find a simple image', () => {
@@ -508,6 +508,198 @@ describe('parseLine', () => {
     it('should return null for empty line', () => {
       const result = parseLine('', false)
       expect(result).toBeNull()
+    })
+  })
+})
+
+describe('findJinjaExpressions', () => {
+  describe('variables', () => {
+    it('should find a simple variable', () => {
+      const result = findJinjaExpressions('Hello {{ name }}!')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('variable')
+      expect(result[0].from).toBe(6)
+      expect(result[0].to).toBe(16)
+    })
+
+    it('should find variable without spaces', () => {
+      const result = findJinjaExpressions('{{name}}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('variable')
+      expect(result[0].from).toBe(0)
+      expect(result[0].to).toBe(8)
+    })
+
+    it('should find multiple variables', () => {
+      const result = findJinjaExpressions('{{ first }} and {{ second }}')
+      expect(result).toHaveLength(2)
+      expect(result[0].type).toBe('variable')
+      expect(result[1].type).toBe('variable')
+    })
+
+    it('should find variable with filter', () => {
+      const result = findJinjaExpressions('{{ name|upper }}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('variable')
+    })
+
+    it('should correctly identify delimiter and content positions', () => {
+      const result = findJinjaExpressions('{{ name }}')
+      expect(result).toHaveLength(1)
+      const v = result[0]
+      expect(v.openDelimFrom).toBe(0)    // {{
+      expect(v.openDelimTo).toBe(2)      // after {{
+      expect(v.contentStart).toBe(2)     // space before name
+      expect(v.contentEnd).toBe(8)       // after "name "
+      expect(v.closeDelimFrom).toBe(8)   // }}
+      expect(v.closeDelimTo).toBe(10)    // after }}
+    })
+  })
+
+  describe('tags', () => {
+    it('should find a simple block tag', () => {
+      const result = findJinjaExpressions('{% if active %}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('tag')
+      expect(result[0].from).toBe(0)
+      expect(result[0].to).toBe(15)
+    })
+
+    it('should find tag with leading trim', () => {
+      const result = findJinjaExpressions('{%- if active %}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('tag')
+      expect(result[0].openDelimTo).toBe(3) // {%-
+    })
+
+    it('should find tag with trailing trim', () => {
+      const result = findJinjaExpressions('{% if active -%}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('tag')
+      expect(result[0].closeDelimFrom).toBe(13) // -%}
+    })
+
+    it('should find tag with both trims', () => {
+      const result = findJinjaExpressions('{%- if active -%}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('tag')
+      expect(result[0].openDelimTo).toBe(3)     // {%-
+      expect(result[0].closeDelimFrom).toBe(14)  // -%}
+    })
+
+    it('should find endif tag', () => {
+      const result = findJinjaExpressions('{% endif %}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('tag')
+    })
+
+    it('should find for loop tag', () => {
+      const result = findJinjaExpressions('{% for item in items %}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('tag')
+    })
+  })
+
+  describe('comments', () => {
+    it('should find a comment', () => {
+      const result = findJinjaExpressions('{# This is a comment #}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('comment')
+      expect(result[0].from).toBe(0)
+      expect(result[0].to).toBe(23)
+    })
+
+    it('should correctly identify comment positions', () => {
+      const result = findJinjaExpressions('{# note #}')
+      expect(result).toHaveLength(1)
+      const c = result[0]
+      expect(c.openDelimFrom).toBe(0)
+      expect(c.openDelimTo).toBe(2)
+      expect(c.contentStart).toBe(2)
+      expect(c.contentEnd).toBe(8)
+      expect(c.closeDelimFrom).toBe(8)
+      expect(c.closeDelimTo).toBe(10)
+    })
+  })
+
+  describe('mixed syntax', () => {
+    it('should find multiple types on one line', () => {
+      const result = findJinjaExpressions('{% if x %}{{ y }}{# z #}')
+      expect(result).toHaveLength(3)
+      expect(result[0].type).toBe('tag')
+      expect(result[1].type).toBe('variable')
+      expect(result[2].type).toBe('comment')
+    })
+  })
+
+  describe('whitespace-control trim syntax', () => {
+    it('should find variable with leading trim {{-', () => {
+      const result = findJinjaExpressions('{{- name }}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('variable')
+      expect(result[0].from).toBe(0)
+      expect(result[0].to).toBe(11)
+    })
+
+    it('should find variable with trailing trim -}}', () => {
+      const result = findJinjaExpressions('{{ name -}}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('variable')
+    })
+
+    it('should find variable with both trims', () => {
+      const result = findJinjaExpressions('{{- name -}}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('variable')
+    })
+
+    it('should find comment with trims', () => {
+      const result = findJinjaExpressions('{#- hidden -#}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('comment')
+    })
+  })
+
+  describe('compact tag spacing', () => {
+    it('should find tag without spaces', () => {
+      const result = findJinjaExpressions('{%if x%}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('tag')
+    })
+
+    it('should find tag with no trailing space', () => {
+      const result = findJinjaExpressions('{% endif%}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('tag')
+    })
+
+    it('should find trim tag without spaces', () => {
+      const result = findJinjaExpressions('{%-endif-%}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('tag')
+    })
+  })
+
+  describe('edge cases', () => {
+    it('should return empty array for text without Jinja', () => {
+      const result = findJinjaExpressions('Just regular text')
+      expect(result).toHaveLength(0)
+    })
+
+    it('should not match single braces', () => {
+      const result = findJinjaExpressions('{ not jinja }')
+      expect(result).toHaveLength(0)
+    })
+
+    it('should not match unclosed expression', () => {
+      const result = findJinjaExpressions('{{ unclosed')
+      expect(result).toHaveLength(0)
+    })
+
+    it('should match empty variable expression', () => {
+      const result = findJinjaExpressions('{{}}')
+      expect(result).toHaveLength(1)
+      expect(result[0].type).toBe('variable')
     })
   })
 })
