@@ -27,9 +27,9 @@ interface AddToOptionsSpec {
 // Section definitions (rank controls ordering)
 // ---------------------------------------------------------------------------
 
+const JINJA_SECTION = { name: 'Jinja2', rank: 0 }
 const BASIC_SECTION = { name: 'Basic blocks', rank: 1 }
 const ADVANCED_SECTION = { name: 'Advanced', rank: 2 }
-const JINJA_SECTION = { name: 'Jinja2', rank: 3 }
 
 // ---------------------------------------------------------------------------
 // SVG icon markup (24x24 viewBox, matching EditorToolbarIcons.tsx)
@@ -69,7 +69,39 @@ function applySimple(text: string): (view: EditorView, completion: Completion, f
 function buildCommands(showJinjaTools: boolean): Completion[] {
   // boost values control ordering within sections (higher = listed first).
   // Without boost, autocomplete sorts alphabetically.
-  const commands: Completion[] = [
+  // Array order matches display order (Jinja first when enabled, then Basic, then Advanced).
+  const commands: Completion[] = []
+
+  if (showJinjaTools) {
+    commands.push(
+      {
+        label: 'Variable',
+        detail: '{{ }}',
+        type: 'jinja-var',
+        section: JINJA_SECTION,
+        boost: 3,
+        apply: applySimple(JINJA_VARIABLE),
+      },
+      {
+        label: 'If block',
+        detail: '{% if %}',
+        type: 'jinja-if',
+        section: JINJA_SECTION,
+        boost: 2,
+        apply: applySimple(JINJA_IF_BLOCK),
+      },
+      {
+        label: 'If block (trim)',
+        detail: '{%- if %}',
+        type: 'jinja-if-trim',
+        section: JINJA_SECTION,
+        boost: 1,
+        apply: applySimple(JINJA_IF_BLOCK_TRIM),
+      },
+    )
+  }
+
+  commands.push(
     { label: 'Heading 1', detail: '#', type: 'h1', section: BASIC_SECTION, boost: 6, apply: applySimple('# ') },
     { label: 'Heading 2', detail: '##', type: 'h2', section: BASIC_SECTION, boost: 5, apply: applySimple('## ') },
     { label: 'Heading 3', detail: '###', type: 'h3', section: BASIC_SECTION, boost: 4, apply: applySimple('### ') },
@@ -116,36 +148,7 @@ function buildCommands(showJinjaTools: boolean): Completion[] {
       boost: 1,
       apply: applySimple('---\n'),
     },
-  ]
-
-  if (showJinjaTools) {
-    commands.push(
-      {
-        label: 'Variable',
-        detail: '{{ }}',
-        type: 'jinja-var',
-        section: JINJA_SECTION,
-        boost: 3,
-        apply: applySimple(JINJA_VARIABLE),
-      },
-      {
-        label: 'If block',
-        detail: '{% if %}',
-        type: 'jinja-if',
-        section: JINJA_SECTION,
-        boost: 2,
-        apply: applySimple(JINJA_IF_BLOCK),
-      },
-      {
-        label: 'If block (trim)',
-        detail: '{%- if %}',
-        type: 'jinja-if-trim',
-        section: JINJA_SECTION,
-        boost: 1,
-        apply: applySimple(JINJA_IF_BLOCK_TRIM),
-      },
-    )
-  }
+  )
 
   return commands
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { EditorState } from '@codemirror/state'
 import { CompletionContext } from '@codemirror/autocomplete'
+import type { CompletionResult } from '@codemirror/autocomplete'
 import { createSlashCommandSource, _testExports } from './slashCommands'
 
 const { buildCommands, isInsideCodeBlock } = _testExports
@@ -15,10 +16,10 @@ function makeContext(doc: string, pos: number): CompletionContext {
   return new CompletionContext(state, pos, false)
 }
 
-/** Shorthand: create source and call it with the given doc/pos. */
-function querySource(doc: string, pos: number): ReturnType<ReturnType<typeof createSlashCommandSource>> {
+/** Shorthand: create source and call it with the given doc/pos. Our source is synchronous. */
+function querySource(doc: string, pos: number): CompletionResult | null {
   const source = createSlashCommandSource(false)
-  return source(makeContext(doc, pos))
+  return source(makeContext(doc, pos)) as CompletionResult | null
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +99,9 @@ describe('buildCommands', () => {
     const commands = buildCommands(true)
     const labels = commands.map((c) => c.label)
     expect(labels).toEqual([
+      'Variable',
+      'If block',
+      'If block (trim)',
       'Heading 1',
       'Heading 2',
       'Heading 3',
@@ -108,9 +112,6 @@ describe('buildCommands', () => {
       'Blockquote',
       'Link',
       'Horizontal rule',
-      'Variable',
-      'If block',
-      'If block (trim)',
     ])
   })
 

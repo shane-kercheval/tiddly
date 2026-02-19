@@ -1,6 +1,10 @@
 /**
  * Shared toolbar icons and components for editor toolbars.
  * Used by both MilkdownEditor and CodeMirrorEditor to ensure consistent styling.
+ *
+ * NOTE: The slash command menu (utils/slashCommands.ts) has its own SVG_ICONS
+ * as raw HTML strings (CM's addToOptions needs DOM elements, not React).
+ * Keep both in sync when changing icons.
  */
 import type { ReactNode } from 'react'
 
