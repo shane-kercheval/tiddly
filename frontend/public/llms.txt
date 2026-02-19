@@ -209,6 +209,7 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 - `w`: Toggle full-width layout.
 
 ### Markdown Editor
+- `/` slash menu: Type `/` at the start of a line or after a space to open a filterable dropdown of block commands (headings, lists, code blocks, links, etc.). On prompt pages, Jinja2 template commands (variable, if block) also appear.
 - `Cmd+Shift+M`: Toggle reading mode.
 - `Alt+Z`: Toggle word wrap.
 - `Alt+L`: Toggle line numbers.
