@@ -39,8 +39,8 @@ export function Layout(): ReactNode {
   )
   const location = useLocation()
   const showFooter = location.pathname.startsWith('/app/settings')
-  // History sidebar only renders on detail pages (e.g., /app/notes/abc-123)
-  const isDetailPage = /^\/app\/(bookmarks|notes|prompts)\/[^/]+$/.test(location.pathname)
+  // History sidebar only renders on detail pages (e.g., /app/notes/abc-123), not create pages
+  const isDetailPage = /^\/app\/(bookmarks|notes|prompts)\/(?!new$)[^/]+$/.test(location.pathname)
   const hasFetchedRef = useRef(false)
   const historySidebarOpen = useHistorySidebarStore((state) => state.isOpen)
   const historySidebarWidth = useHistorySidebarStore((state) => state.width)
