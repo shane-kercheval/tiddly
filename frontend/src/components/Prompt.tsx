@@ -22,6 +22,7 @@ import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEdita
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
+import { TableOfContentsSidebar } from './TableOfContentsSidebar'
 import { ArgumentsBuilder } from './ArgumentsBuilder'
 import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedContentChips'
 import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog, Tooltip } from './ui'
@@ -31,6 +32,7 @@ import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon,
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
 import { useLimits } from '../hooks/useLimits'
+import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
@@ -159,6 +161,8 @@ interface PromptProps {
   initialRelationships?: RelationshipInputPayload[]
   /** Pre-populated linked item display cache from navigation state */
   initialLinkedItems?: LinkedItem[]
+  /** Whether to show the Table of Contents toggle in the toolbar */
+  showTocToggle?: boolean
 }
 
 /**
@@ -182,6 +186,7 @@ export function Prompt({
   onNavigateToLinked,
   initialRelationships,
   initialLinkedItems,
+  showTocToggle = false,
 }: PromptProps): ReactNode {
   const isCreate = !prompt
 
@@ -302,6 +307,10 @@ export function Prompt({
   const nameInputRef = useRef<HTMLInputElement>(null)
   // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
   const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
+
+  // ToC sidebar state
+  const scrollToLineRef = useRef<((line: number) => void) | null>(null)
+  const showToc = useRightSidebarStore((state) => state.activePanel === 'toc')
 
   // Read-only mode for deleted prompts
   const isReadOnly = viewState === 'deleted'
@@ -1117,6 +1126,8 @@ export function Prompt({
             onDiscard={!isReadOnly ? () => { setCurrent(original); resetConfirmation() } : undefined}
             originalContent={original.content}
             isDirty={isDirty}
+            scrollToLineRef={scrollToLineRef}
+            showTocToggle={showTocToggle}
           />
         </div>
       </div>
@@ -1172,6 +1183,13 @@ export function Prompt({
           onLoadServerVersion={handleConflictLoadServerVersion}
           onSaveMyVersion={handleConflictSaveMyVersion}
           onDoNothing={handleConflictDoNothing}
+        />
+      )}
+      {/* Table of Contents sidebar */}
+      {showTocToggle && showToc && (
+        <TableOfContentsSidebar
+          content={current.content}
+          onHeadingClick={(line) => scrollToLineRef.current?.(line)}
         />
       )}
     </form>

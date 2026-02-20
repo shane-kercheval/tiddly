@@ -40,8 +40,10 @@ import {
   WrapIcon,
   LineNumbersIcon,
   MonoFontIcon,
+  TableOfContentsIcon,
   ReadingIcon,
 } from './editor/EditorToolbarIcons'
+import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { CloseIcon } from './icons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
 import { createSlashCommandSource, slashCommandAddToOptions, scrollFadePlugin } from '../utils/slashCommands'
@@ -117,6 +119,10 @@ interface CodeMirrorEditorProps {
   originalContent?: string
   /** Whether the editor has unsaved changes (controls discard command disabled state) */
   isDirty?: boolean
+  /** Ref that receives a scroll-to-line callback for external navigation (e.g., ToC) */
+  scrollToLineRef?: React.MutableRefObject<((line: number) => void) | null>
+  /** Whether to show the ToC toggle button in the toolbar */
+  showTocToggle?: boolean
 }
 
 /**
@@ -238,9 +244,15 @@ export function CodeMirrorEditor({
   onDiscard,
   originalContent,
   isDirty = false,
+  scrollToLineRef,
+  showTocToggle = false,
 }: CodeMirrorEditorProps): ReactNode {
   const editorRef = useRef<ReactCodeMirrorRef>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // ToC sidebar state (only subscribed when showTocToggle is true for button active state)
+  const tocActive = useRightSidebarStore((state) => state.activePanel === 'toc')
+  const togglePanel = useRightSidebarStore((state) => state.togglePanel)
 
   // Forward-declared ref for openCommandMenu (defined later, used by document-level keydown handler and CM keybinding)
   const openCommandMenuRef = useRef<() => void>(() => {})
@@ -320,6 +332,14 @@ export function CodeMirrorEditor({
         return
       }
 
+      // Option+T (Alt+T) - toggle table of contents sidebar (only when not in reading mode)
+      if (e.altKey && e.code === 'KeyT' && showTocToggle && !effectiveReadingMode) {
+        e.preventDefault()
+        e.stopPropagation()
+        togglePanel('toc')
+        return
+      }
+
       // Cmd+/ - open command menu (works whether editor has focus or not)
       // Uses capture phase so it runs before CM's keymap handler.
       // Uses ref to avoid dependency ordering issues (openCommandMenu defined later).
@@ -332,7 +352,7 @@ export function CodeMirrorEditor({
 
     document.addEventListener('keydown', handleKeyDown, true)
     return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange, showLineNumbers, onLineNumbersChange, monoFont, onMonoFontChange, disabled])
+  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange, showLineNumbers, onLineNumbersChange, monoFont, onMonoFontChange, disabled, showTocToggle, togglePanel])
 
   // Get the EditorView from ref
   const getView = useCallback((): EditorView | undefined => {
@@ -380,6 +400,7 @@ export function CodeMirrorEditor({
     showJinja: showJinjaTools,
     callbacks: menuCallbacks,
     isDirty,
+    showTocToggle,
     icons: {
       bold: () => <BoldIcon />,
       italic: () => <ItalicIcon />,
@@ -401,8 +422,9 @@ export function CodeMirrorEditor({
       jinjaIfTrim: () => <JinjaIfTrimIcon />,
       save: () => <SaveIcon />,
       close: () => <CloseIcon className="h-4 w-4" />,
+      tableOfContents: () => <TableOfContentsIcon />,
     },
-  }), [showJinjaTools, menuCallbacks, isDirty])
+  }), [showJinjaTools, menuCallbacks, isDirty, showTocToggle])
 
   // Open command menu: capture cursor position and selection.
   // Focus moves to the menu's filter input via ref callback (synchronous during commit),
@@ -470,6 +492,30 @@ export function CodeMirrorEditor({
   // Keep ref in sync so CM extension and document-level handler use latest callback
   useEffect(() => {
     openCommandMenuRef.current = openCommandMenu
+  })
+
+  // Expose scroll-to-line function for external navigation (e.g., ToC sidebar)
+  useEffect(() => {
+    if (scrollToLineRef) {
+      scrollToLineRef.current = (lineNumber: number): void => {
+        const view = getView()
+        if (view) {
+          const maxLine = view.state.doc.lines
+          if (lineNumber < 1 || lineNumber > maxLine) return
+          const line = view.state.doc.line(lineNumber)
+          view.dispatch({
+            selection: { anchor: line.from },
+            effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
+          })
+          view.focus()
+        }
+      }
+    }
+    return () => {
+      if (scrollToLineRef) {
+        scrollToLineRef.current = null
+      }
+    }
   })
 
   // Build extensions array with optional line wrapping and keybindings
@@ -659,6 +705,30 @@ export function CodeMirrorEditor({
                 } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
               >
                 <MonoFontIcon />
+              </button>
+            </Tooltip>
+          )}
+
+          {/* Table of Contents toggle - only shown when enabled and not in reading mode */}
+          {showTocToggle && !effectiveReadingMode && (
+            <Tooltip content={<>Table of contents<br /><span className="opacity-75">⌥T</span></>} compact>
+              <button
+                type="button"
+                tabIndex={-1}
+                disabled={disabled}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  if (!disabled) {
+                    togglePanel('toc')
+                  }
+                }}
+                className={`p-1.5 rounded transition-colors flex-shrink-0 ${
+                  tocActive
+                    ? 'text-gray-700 bg-gray-200'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                } ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+              >
+                <TableOfContentsIcon />
               </button>
             </Tooltip>
           )}

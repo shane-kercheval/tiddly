@@ -81,15 +81,16 @@ vi.mock('../stores/sidebarStore', () => ({
   },
 }))
 
-// Track history sidebar state for tests
-let mockHistorySidebarOpen = false
-const mockHistorySidebarWidth = 384
-vi.mock('../stores/historySidebarStore', () => ({
-  useHistorySidebarStore: (selector?: (state: Record<string, unknown>) => unknown) => {
+// Track right sidebar state for tests
+let mockActivePanel: string | null = null
+const mockRightSidebarWidth = 384
+vi.mock('../stores/rightSidebarStore', () => ({
+  useRightSidebarStore: (selector?: (state: Record<string, unknown>) => unknown) => {
     const state = {
-      isOpen: mockHistorySidebarOpen,
-      width: mockHistorySidebarWidth,
-      setOpen: vi.fn(),
+      activePanel: mockActivePanel,
+      width: mockRightSidebarWidth,
+      setActivePanel: vi.fn(),
+      togglePanel: vi.fn(),
       setWidth: vi.fn(),
     }
     return selector ? selector(state) : state
@@ -118,7 +119,7 @@ function renderLayout(route = '/app/bookmarks'): void {
 describe('Layout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockHistorySidebarOpen = false
+    mockActivePanel = null
   })
 
   describe('centralized data fetching', () => {
@@ -165,25 +166,25 @@ describe('Layout', () => {
     })
   })
 
-  describe('history sidebar margin', () => {
-    it('should not apply margin when history sidebar is closed', () => {
-      mockHistorySidebarOpen = false
+  describe('right sidebar margin', () => {
+    it('should not apply margin when sidebar is closed', () => {
+      mockActivePanel = null
       renderLayout('/app/notes/abc-123')
 
       const main = screen.getByRole('main')
       expect(main.style.marginRight).toBe('0px')
     })
 
-    it('should apply margin when history sidebar is open on detail page', () => {
-      mockHistorySidebarOpen = true
+    it('should apply margin when sidebar is open on detail page', () => {
+      mockActivePanel = 'history'
       renderLayout('/app/notes/abc-123')
 
       const main = screen.getByRole('main')
-      expect(main.style.marginRight).toBe(`${mockHistorySidebarWidth}px`)
+      expect(main.style.marginRight).toBe(`${mockRightSidebarWidth}px`)
     })
 
     it('should not apply margin on non-detail pages even when sidebar is open', () => {
-      mockHistorySidebarOpen = true
+      mockActivePanel = 'history'
       renderLayout('/app/bookmarks')
 
       const main = screen.getByRole('main')

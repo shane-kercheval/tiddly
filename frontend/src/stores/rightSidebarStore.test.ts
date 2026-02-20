@@ -1,0 +1,236 @@
+/**
+ * Tests for right sidebar store.
+ */
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import {
+  useRightSidebarStore,
+  DEFAULT_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+} from './rightSidebarStore'
+
+describe('rightSidebarStore', () => {
+  beforeEach(() => {
+    useRightSidebarStore.setState({ activePanel: null, width: DEFAULT_SIDEBAR_WIDTH })
+    localStorage.clear()
+  })
+
+  describe('initial state', () => {
+    it('should start with sidebar closed', () => {
+      const { activePanel } = useRightSidebarStore.getState()
+      expect(activePanel).toBeNull()
+    })
+  })
+
+  describe('setActivePanel', () => {
+    it('should open history panel', () => {
+      const { setActivePanel } = useRightSidebarStore.getState()
+      setActivePanel('history')
+      expect(useRightSidebarStore.getState().activePanel).toBe('history')
+    })
+
+    it('should close sidebar when set to null', () => {
+      useRightSidebarStore.setState({ activePanel: 'history' })
+      const { setActivePanel } = useRightSidebarStore.getState()
+      setActivePanel(null)
+      expect(useRightSidebarStore.getState().activePanel).toBeNull()
+    })
+
+    it('should switch from history to toc', () => {
+      useRightSidebarStore.setState({ activePanel: 'history' })
+      const { setActivePanel } = useRightSidebarStore.getState()
+      setActivePanel('toc')
+      expect(useRightSidebarStore.getState().activePanel).toBe('toc')
+    })
+
+    it('should persist history panel to localStorage', () => {
+      const { setActivePanel } = useRightSidebarStore.getState()
+      setActivePanel('history')
+      expect(localStorage.getItem('right-sidebar-panel')).toBe('history')
+
+      setActivePanel(null)
+      expect(localStorage.getItem('right-sidebar-panel')).toBe('')
+    })
+
+    it('should not persist toc panel to localStorage', () => {
+      const { setActivePanel } = useRightSidebarStore.getState()
+      setActivePanel('toc')
+      expect(useRightSidebarStore.getState().activePanel).toBe('toc')
+      expect(localStorage.getItem('right-sidebar-panel')).toBe('')
+    })
+
+    it('should handle localStorage errors gracefully', () => {
+      const { setActivePanel } = useRightSidebarStore.getState()
+      const originalSetItem = localStorage.setItem
+      localStorage.setItem = vi.fn(() => {
+        throw new Error('Storage quota exceeded')
+      })
+
+      expect(() => setActivePanel('history')).not.toThrow()
+      expect(useRightSidebarStore.getState().activePanel).toBe('history')
+
+      localStorage.setItem = originalSetItem
+    })
+  })
+
+  describe('togglePanel', () => {
+    it('should open history when closed', () => {
+      const { togglePanel } = useRightSidebarStore.getState()
+      togglePanel('history')
+      expect(useRightSidebarStore.getState().activePanel).toBe('history')
+    })
+
+    it('should close sidebar when history is already active', () => {
+      useRightSidebarStore.setState({ activePanel: 'history' })
+      const { togglePanel } = useRightSidebarStore.getState()
+      togglePanel('history')
+      expect(useRightSidebarStore.getState().activePanel).toBeNull()
+    })
+
+    it('should switch from history to toc', () => {
+      useRightSidebarStore.setState({ activePanel: 'history' })
+      const { togglePanel } = useRightSidebarStore.getState()
+      togglePanel('toc')
+      expect(useRightSidebarStore.getState().activePanel).toBe('toc')
+    })
+
+    it('should close sidebar when toc is already active', () => {
+      useRightSidebarStore.setState({ activePanel: 'toc' })
+      const { togglePanel } = useRightSidebarStore.getState()
+      togglePanel('toc')
+      expect(useRightSidebarStore.getState().activePanel).toBeNull()
+    })
+
+    it('should open toc when closed', () => {
+      const { togglePanel } = useRightSidebarStore.getState()
+      togglePanel('toc')
+      expect(useRightSidebarStore.getState().activePanel).toBe('toc')
+    })
+
+    it('should persist toggled history state to localStorage', () => {
+      const { togglePanel } = useRightSidebarStore.getState()
+      togglePanel('history')
+      expect(localStorage.getItem('right-sidebar-panel')).toBe('history')
+
+      togglePanel('history')
+      expect(localStorage.getItem('right-sidebar-panel')).toBe('')
+    })
+
+    it('should not persist toggled toc state to localStorage', () => {
+      const { togglePanel } = useRightSidebarStore.getState()
+      togglePanel('toc')
+      expect(useRightSidebarStore.getState().activePanel).toBe('toc')
+      expect(localStorage.getItem('right-sidebar-panel')).toBe('')
+    })
+  })
+
+  describe('setWidth', () => {
+    it('should update width within valid range', () => {
+      const { setWidth } = useRightSidebarStore.getState()
+      setWidth(500)
+      expect(useRightSidebarStore.getState().width).toBe(500)
+    })
+
+    it('should clamp width to minimum boundary', () => {
+      const { setWidth } = useRightSidebarStore.getState()
+      setWidth(100)
+      expect(useRightSidebarStore.getState().width).toBe(MIN_SIDEBAR_WIDTH)
+    })
+
+    it('should accept large widths (dynamic max handled at resize time)', () => {
+      const { setWidth } = useRightSidebarStore.getState()
+      setWidth(1000)
+      expect(useRightSidebarStore.getState().width).toBe(1000)
+    })
+
+    it('should persist width to localStorage', () => {
+      const { setWidth } = useRightSidebarStore.getState()
+      setWidth(600)
+      expect(localStorage.getItem('right-sidebar-width')).toBe('600')
+    })
+
+    it('should handle localStorage errors gracefully', () => {
+      const { setWidth } = useRightSidebarStore.getState()
+      const originalSetItem = localStorage.setItem
+      localStorage.setItem = vi.fn(() => {
+        throw new Error('Storage quota exceeded')
+      })
+
+      expect(() => setWidth(500)).not.toThrow()
+      expect(useRightSidebarStore.getState().width).toBe(500)
+
+      localStorage.setItem = originalSetItem
+    })
+  })
+
+  describe('initialization from localStorage', () => {
+    it('should use default width when localStorage is empty', async () => {
+      vi.resetModules()
+      localStorage.clear()
+
+      const { useRightSidebarStore: freshStore } = await import('./rightSidebarStore')
+      expect(freshStore.getState().width).toBe(DEFAULT_SIDEBAR_WIDTH)
+    })
+
+    it('should initialize width from localStorage when present', async () => {
+      vi.resetModules()
+      localStorage.clear()
+      localStorage.setItem('right-sidebar-width', '650')
+
+      const { useRightSidebarStore: freshStore } = await import('./rightSidebarStore')
+      expect(freshStore.getState().width).toBe(650)
+    })
+
+    it('should fall back to default width when localStorage has invalid value', async () => {
+      vi.resetModules()
+      localStorage.clear()
+      localStorage.setItem('right-sidebar-width', 'not-a-number')
+
+      const { useRightSidebarStore: freshStore } = await import('./rightSidebarStore')
+      expect(freshStore.getState().width).toBe(DEFAULT_SIDEBAR_WIDTH)
+    })
+
+    it('should fall back to default width when localStorage value is below minimum', async () => {
+      vi.resetModules()
+      localStorage.clear()
+      localStorage.setItem('right-sidebar-width', '100')
+
+      const { useRightSidebarStore: freshStore } = await import('./rightSidebarStore')
+      expect(freshStore.getState().width).toBe(DEFAULT_SIDEBAR_WIDTH)
+    })
+
+    it('should start closed when localStorage is empty', async () => {
+      vi.resetModules()
+      localStorage.clear()
+
+      const { useRightSidebarStore: freshStore } = await import('./rightSidebarStore')
+      expect(freshStore.getState().activePanel).toBeNull()
+    })
+
+    it('should initialize panel from localStorage when valid', async () => {
+      vi.resetModules()
+      localStorage.clear()
+      localStorage.setItem('right-sidebar-panel', 'history')
+
+      const { useRightSidebarStore: freshStore } = await import('./rightSidebarStore')
+      expect(freshStore.getState().activePanel).toBe('history')
+    })
+
+    it('should not restore toc panel from localStorage', async () => {
+      vi.resetModules()
+      localStorage.clear()
+      localStorage.setItem('right-sidebar-panel', 'toc')
+
+      const { useRightSidebarStore: freshStore } = await import('./rightSidebarStore')
+      expect(freshStore.getState().activePanel).toBeNull()
+    })
+
+    it('should initialize closed when localStorage has invalid value', async () => {
+      vi.resetModules()
+      localStorage.clear()
+      localStorage.setItem('right-sidebar-panel', 'invalid')
+
+      const { useRightSidebarStore: freshStore } = await import('./rightSidebarStore')
+      expect(freshStore.getState().activePanel).toBeNull()
+    })
+  })
+})

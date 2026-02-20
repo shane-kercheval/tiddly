@@ -154,6 +154,10 @@ interface ContentEditorProps {
   originalContent?: string
   /** Whether the editor has unsaved changes */
   isDirty?: boolean
+  /** Ref that receives a scroll-to-line callback for external navigation (e.g., ToC) */
+  scrollToLineRef?: React.MutableRefObject<((line: number) => void) | null>
+  /** Whether to show the ToC toggle button in the toolbar */
+  showTocToggle?: boolean
 }
 
 /**
@@ -190,6 +194,8 @@ export function ContentEditor({
   onDiscard,
   originalContent,
   isDirty,
+  scrollToLineRef,
+  showTocToggle,
 }: ContentEditorProps): ReactNode {
   // Mode state commented out - now always using CodeMirror
   // const [mode, setMode] = useState<EditorMode>(loadModePreference)
@@ -353,6 +359,8 @@ export function ContentEditor({
           onDiscard={onDiscard}
           originalContent={originalContent}
           isDirty={isDirty}
+          scrollToLineRef={scrollToLineRef}
+          showTocToggle={showTocToggle}
         />
       </div>
 

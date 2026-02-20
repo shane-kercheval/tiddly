@@ -27,7 +27,7 @@ import {
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
-import { useHistorySidebarStore } from '../stores/historySidebarStore'
+import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
@@ -62,8 +62,8 @@ export function PromptDetail(): ReactNode {
   const [error, setError] = useState<string | null>(null)
 
   // History sidebar state (managed in store so Layout can apply margin)
-  const showHistory = useHistorySidebarStore((state) => state.isOpen)
-  const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
+  const showHistory = useRightSidebarStore((state) => state.activePanel === 'history')
+  const setActivePanel = useRightSidebarStore((state) => state.setActivePanel)
 
   // Get navigation state
   const locationState = location.state as {
@@ -278,8 +278,8 @@ export function PromptDetail(): ReactNode {
 
   // History sidebar handlers
   const handleShowHistory = useCallback((): void => {
-    setShowHistory(true)
-  }, [setShowHistory])
+    setActivePanel('history')
+  }, [setActivePanel])
 
   const handleHistoryRestored = useCallback(async (): Promise<void> => {
     // Refresh the prompt after a restore to show the restored content
@@ -342,13 +342,14 @@ export function PromptDetail(): ReactNode {
         onRefresh={handleRefresh}
         onShowHistory={handleShowHistory}
         onNavigateToLinked={handleNavigateToLinked}
+        showTocToggle
       />
       {showHistory && promptId && (
         <HistorySidebar
           key={`history-${promptId}`}
           entityType="prompt"
           entityId={promptId}
-          onClose={() => setShowHistory(false)}
+          onClose={() => setActivePanel(null)}
           onRestored={handleHistoryRestored}
           isDeleted={viewState === 'deleted'}
         />

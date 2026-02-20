@@ -26,8 +26,8 @@ vi.mock('../hooks/useHistory', () => ({
 }))
 
 // Mock the sidebar store
-vi.mock('../stores/historySidebarStore', () => ({
-  useHistorySidebarStore: (selector: (state: { width: number }) => unknown) =>
+vi.mock('../stores/rightSidebarStore', () => ({
+  useRightSidebarStore: (selector: (state: { width: number }) => unknown) =>
     selector({ width: 500 }),
   MIN_SIDEBAR_WIDTH: 300,
   MIN_CONTENT_WIDTH: 400,

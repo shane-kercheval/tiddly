@@ -21,12 +21,14 @@ import { InlineEditableTags, type InlineEditableTagsHandle } from './InlineEdita
 import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
+import { TableOfContentsSidebar } from './TableOfContentsSidebar'
 import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog, Tooltip } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon, TagIcon, LinkIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
 import { useLimits } from '../hooks/useLimits'
+import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
@@ -103,6 +105,8 @@ interface NoteProps {
   initialRelationships?: RelationshipInputPayload[]
   /** Pre-populated linked item display cache from navigation state */
   initialLinkedItems?: LinkedItem[]
+  /** Whether to show the Table of Contents toggle in the toolbar */
+  showTocToggle?: boolean
 }
 
 /**
@@ -126,6 +130,7 @@ export function Note({
   onNavigateToLinked,
   initialRelationships,
   initialLinkedItems,
+  showTocToggle = false,
 }: NoteProps): ReactNode {
   const isCreate = !note
 
@@ -242,6 +247,10 @@ export function Note({
   const titleInputRef = useRef<HTMLInputElement>(null)
   // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
   const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
+
+  // ToC sidebar state
+  const scrollToLineRef = useRef<((line: number) => void) | null>(null)
+  const showToc = useRightSidebarStore((state) => state.activePanel === 'toc')
 
   // Read-only mode for deleted notes
   const isReadOnly = viewState === 'deleted'
@@ -890,6 +899,8 @@ export function Note({
           onDiscard={!isReadOnly ? () => { setCurrent(original); resetConfirmation() } : undefined}
           originalContent={original.content}
           isDirty={isDirty}
+          scrollToLineRef={scrollToLineRef}
+          showTocToggle={showTocToggle}
         />
       </div>
 
@@ -938,6 +949,13 @@ export function Note({
         />
       )}
 
+      {/* Table of Contents sidebar */}
+      {showTocToggle && showToc && (
+        <TableOfContentsSidebar
+          content={current.content}
+          onHeadingClick={(line) => scrollToLineRef.current?.(line)}
+        />
+      )}
     </form>
   )
 }
