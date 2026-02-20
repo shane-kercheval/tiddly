@@ -53,7 +53,7 @@ export function PaginationControls({
   }
 
   return (
-    <div className="mt-8 flex items-center justify-between border-t border-gray-100 pt-4">
+    <div className="flex items-center justify-between border-t border-gray-100 pt-4">
       <div className="flex items-center gap-3">
         <span className="text-sm text-gray-400">
           Page {currentPage} of {totalPages}

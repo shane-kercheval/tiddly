@@ -37,8 +37,8 @@ export function ContentCardScheduledArchive({
   return (
     <span className="flex items-center gap-1 text-xs text-gray-400">
       <Tooltip content={tooltipText} compact position="left">
-        <span className="flex items-center gap-1">
-          <ArchiveIcon className="w-3 h-3" />
+        <span className="flex items-baseline gap-1">
+          <ArchiveIcon className="w-3 h-3 self-center" />
           <span>{shortDate}</span>
         </span>
       </Tooltip>

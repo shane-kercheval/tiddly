@@ -170,9 +170,9 @@ export function NoteCard({
         </div>
 
         {/* Desktop layout - horizontal with hover actions */}
-        <div className="hidden md:block">
+        <div className="hidden md:block relative">
           {/* Row 1: Title + tags + date */}
-          <div className="flex items-start gap-2">
+          <div className="flex items-baseline gap-2">
             {/* Left: Title and tags */}
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0 flex-1">
               <button
@@ -191,9 +191,16 @@ export function NoteCard({
               />
             </div>
 
-            {/* Right: Date */}
+            {/* Right: Scheduled archive + Date */}
+            {onCancelScheduledArchive && (
+              <ContentCard.ScheduledArchive
+                archivedAt={note.archived_at}
+                onCancel={() => onCancelScheduledArchive(note)}
+              />
+            )}
+            {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
             {showDate && (
-              <div className="shrink-0">
+              <span className="shrink-0 flex">
                 <ContentCard.DateDisplay
                   sortBy={sortBy}
                   createdAt={note.created_at}
@@ -202,101 +209,97 @@ export function NoteCard({
                   archivedAt={note.archived_at}
                   deletedAt={note.deleted_at}
                 />
-              </div>
+              </span>
             )}
           </div>
 
-          {/* Row 2: Archiving indicator (if applicable) - right aligned */}
-          {onCancelScheduledArchive && (
-            <div className="flex justify-end mt-0.5">
-              <ContentCard.ScheduledArchive
-                archivedAt={note.archived_at}
-                onCancel={() => onCancelScheduledArchive(note)}
-              />
-            </div>
+          {/* Row 2: Description */}
+          {previewText && (
+            <p className="text-sm text-gray-400 truncate mt-1">
+              {previewText}
+            </p>
           )}
 
-          {/* Row 3: Description + actions (actions overlay on hover) */}
-          <div className="relative mt-1 min-h-[20px]">
-            {/* Description fills full width */}
-            <p className={`text-sm text-gray-400 truncate ${hasActions ? 'pr-0 group-hover:pr-32 transition-[padding] duration-150' : ''}`}>
-              {previewText || '\u00A0'}
-            </p>
+          {/* Spacer so absolute-positioned hover actions don't overlay Row 1.
+              Condition must account for all optional content rows above (description).
+              Update if conditional rows are added/removed. */}
+          {hasActions && !previewText && (
+            <div className="mt-1 h-5" />
+          )}
 
-            {/* Actions absolutely positioned, appear on hover */}
-            {hasActions && (
-              <div className="absolute right-0 top-0">
-                <ContentCard.Actions
-                  overflowItems={[
-                    {
-                      key: 'archive',
-                      label: 'Archive',
-                      icon: <ArchiveIcon className="h-4 w-4" />,
-                      onClick: () => onArchive?.(note),
-                      hidden: !onArchive || view !== 'active',
-                    },
-                    {
-                      key: 'unarchive',
-                      label: 'Restore',
-                      icon: <RestoreIcon className="h-4 w-4" />,
-                      onClick: () => onUnarchive?.(note),
-                      hidden: view !== 'archived' || !onUnarchive,
-                    },
-                    {
-                      key: 'restore',
-                      label: 'Restore',
-                      icon: <RestoreIcon className="h-4 w-4" />,
-                      onClick: () => onRestore?.(note),
-                      hidden: view !== 'deleted' || !onRestore,
-                    },
-                    {
-                      key: 'delete',
-                      label: view === 'deleted' ? 'Delete Permanently' : 'Delete',
-                      icon: <TrashIcon className="h-4 w-4" />,
-                      onClick: () => onDelete?.(note),
-                      danger: true,
-                      hidden: !onDelete,
-                    },
-                  ]}
-                >
-                  {onTagAdd && tagSuggestions && (
-                    <ContentCard.AddTagAction
-                      existingTags={note.tags}
-                      suggestions={tagSuggestions}
-                      onAdd={(tag) => onTagAdd(note, tag)}
-                    />
-                  )}
-                  {view !== 'deleted' && (
-                    <CopyContentButton contentType="note" id={note.id} />
-                  )}
-                  {onArchive && (
-                    <ContentCard.ArchiveAction
-                      onArchive={() => onArchive(note)}
-                      entityName="note"
-                    />
-                  )}
-                  {view === 'archived' && onUnarchive && (
-                    <ContentCard.RestoreAction
-                      onRestore={() => onUnarchive(note)}
-                      entityName="note"
-                    />
-                  )}
-                  {view === 'deleted' && onRestore && (
-                    <ContentCard.RestoreAction
-                      onRestore={() => onRestore(note)}
-                      entityName="note"
-                    />
-                  )}
-                  {onDelete && (
-                    <ContentCard.DeleteAction
-                      onDelete={() => onDelete(note)}
-                      entityName="note"
-                    />
-                  )}
-                </ContentCard.Actions>
-              </div>
-            )}
-          </div>
+          {/* Actions absolutely positioned, appear on hover */}
+          {hasActions && (
+            <div className="absolute right-0 bottom-0">
+              <ContentCard.Actions
+                overflowItems={[
+                  {
+                    key: 'archive',
+                    label: 'Archive',
+                    icon: <ArchiveIcon className="h-4 w-4" />,
+                    onClick: () => onArchive?.(note),
+                    hidden: !onArchive || view !== 'active',
+                  },
+                  {
+                    key: 'unarchive',
+                    label: 'Restore',
+                    icon: <RestoreIcon className="h-4 w-4" />,
+                    onClick: () => onUnarchive?.(note),
+                    hidden: view !== 'archived' || !onUnarchive,
+                  },
+                  {
+                    key: 'restore',
+                    label: 'Restore',
+                    icon: <RestoreIcon className="h-4 w-4" />,
+                    onClick: () => onRestore?.(note),
+                    hidden: view !== 'deleted' || !onRestore,
+                  },
+                  {
+                    key: 'delete',
+                    label: view === 'deleted' ? 'Delete Permanently' : 'Delete',
+                    icon: <TrashIcon className="h-4 w-4" />,
+                    onClick: () => onDelete?.(note),
+                    danger: true,
+                    hidden: !onDelete,
+                  },
+                ]}
+              >
+                {onTagAdd && tagSuggestions && (
+                  <ContentCard.AddTagAction
+                    existingTags={note.tags}
+                    suggestions={tagSuggestions}
+                    onAdd={(tag) => onTagAdd(note, tag)}
+                  />
+                )}
+                {view !== 'deleted' && (
+                  <CopyContentButton contentType="note" id={note.id} />
+                )}
+                {onArchive && (
+                  <ContentCard.ArchiveAction
+                    onArchive={() => onArchive(note)}
+                    entityName="note"
+                  />
+                )}
+                {view === 'archived' && onUnarchive && (
+                  <ContentCard.RestoreAction
+                    onRestore={() => onUnarchive(note)}
+                    entityName="note"
+                  />
+                )}
+                {view === 'deleted' && onRestore && (
+                  <ContentCard.RestoreAction
+                    onRestore={() => onRestore(note)}
+                    entityName="note"
+                  />
+                )}
+                {onDelete && (
+                  <ContentCard.DeleteAction
+                    onDelete={() => onDelete(note)}
+                    entityName="note"
+                  />
+                )}
+              </ContentCard.Actions>
+            </div>
+          )}
         </div>
       </div>
     </ContentCard>
