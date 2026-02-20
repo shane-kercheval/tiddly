@@ -121,6 +121,26 @@ describe('rightSidebarStore', () => {
       expect(useRightSidebarStore.getState().activePanel).toBe('toc')
       expect(localStorage.getItem('right-sidebar-panel')).toBe('')
     })
+
+    it('should persist history when toggling from toc to history', () => {
+      const { togglePanel } = useRightSidebarStore.getState()
+      togglePanel('toc')
+      expect(localStorage.getItem('right-sidebar-panel')).toBe('')
+
+      togglePanel('history')
+      expect(useRightSidebarStore.getState().activePanel).toBe('history')
+      expect(localStorage.getItem('right-sidebar-panel')).toBe('history')
+    })
+
+    it('should clear persistence when toggling from history to toc', () => {
+      const { togglePanel } = useRightSidebarStore.getState()
+      togglePanel('history')
+      expect(localStorage.getItem('right-sidebar-panel')).toBe('history')
+
+      togglePanel('toc')
+      expect(useRightSidebarStore.getState().activePanel).toBe('toc')
+      expect(localStorage.getItem('right-sidebar-panel')).toBe('')
+    })
   })
 
   describe('setWidth', () => {

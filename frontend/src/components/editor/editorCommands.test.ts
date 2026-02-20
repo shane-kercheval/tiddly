@@ -127,6 +127,39 @@ describe('buildEditorCommands', () => {
     expect(actionCommands).toHaveLength(2)
   })
 
+  it('should include all action commands plus toggle-toc when callbacks and showTocToggle provided', () => {
+    const commands = buildEditorCommands({
+      showJinja: false,
+      callbacks: {
+        onSaveAndClose: vi.fn(),
+        onDiscard: vi.fn(),
+      },
+      icons: stubIcons,
+      showTocToggle: true,
+    })
+
+    const actionCommands = commands.filter((c) => c.section === 'Actions')
+    expect(actionCommands).toHaveLength(3)
+    expect(actionCommands.map((c) => c.id)).toEqual([
+      'save-and-close',
+      'discard',
+      'toggle-toc',
+    ])
+  })
+
+  it('should only include toggle-toc in Actions when no callbacks but showTocToggle is true', () => {
+    const commands = buildEditorCommands({
+      showJinja: false,
+      callbacks: {},
+      icons: stubIcons,
+      showTocToggle: true,
+    })
+
+    const actionCommands = commands.filter((c) => c.section === 'Actions')
+    expect(actionCommands).toHaveLength(1)
+    expect(actionCommands[0].id).toBe('toggle-toc')
+  })
+
   it('should place Actions section before Format and Insert', () => {
     const commands = buildEditorCommands({
       showJinja: false,

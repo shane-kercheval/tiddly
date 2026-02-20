@@ -54,7 +54,7 @@ export function HistorySidebar({
     setConfirmingRestore(null)
   }, [])
 
-  const { width, isDesktop, isDragging, handleMouseDown } = useResizableSidebar()
+  const { width, isDesktop, handleMouseDown } = useResizableSidebar()
 
   // Auto-reset confirmation after 3 seconds
   useEffect(() => {
