@@ -54,7 +54,7 @@ import {
   insertHorizontalRule,
   insertText,
 } from '../utils/editorFormatting'
-import { buildEditorCommands, type MenuCallbacks } from './editor/editorCommands'
+import { buildEditorCommands, type MenuCallbacks, type EditorCommand } from './editor/editorCommands'
 import { EditorCommandMenu } from './editor/EditorCommandMenu'
 
 /** Markdown formatting markers for wrap-style formatting. */
@@ -317,7 +317,7 @@ export function CodeMirrorEditor({
       // Cmd+Shift+/ - open command menu (works whether editor has focus or not)
       // Uses capture phase so it runs before CM's keymap handler.
       // Uses ref to avoid dependency ordering issues (openCommandMenu defined later).
-      if (isMod && e.shiftKey && e.key === '/' && !effectiveReadingMode) {
+      if (isMod && e.shiftKey && e.code === 'Slash' && !effectiveReadingMode && !disabled) {
         e.preventDefault()
         e.stopPropagation()
         openCommandMenuRef.current()
@@ -326,7 +326,7 @@ export function CodeMirrorEditor({
 
     document.addEventListener('keydown', handleKeyDown, true)
     return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange, showLineNumbers, onLineNumbersChange, monoFont, onMonoFontChange])
+  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange, showLineNumbers, onLineNumbersChange, monoFont, onMonoFontChange, disabled])
 
   // Get the EditorView from ref
   const getView = useCallback((): EditorView | undefined => {
@@ -415,7 +415,7 @@ export function CodeMirrorEditor({
   }, [getView])
 
   // Execute a command from the menu
-  const handleCommandExecute = useCallback((command: { action: (view: EditorView) => void }): void => {
+  const handleCommandExecute = useCallback((command: EditorCommand): void => {
     setCommandMenuOpen(false)
     const view = getView()
     if (view) {

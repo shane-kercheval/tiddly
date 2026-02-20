@@ -630,8 +630,9 @@ export function Bookmark({
         const { updates, tagsToSubmit: tags } = result
         tagsToSubmit = tags
 
-        // Early return if nothing changed (safety net for edge cases)
+        // Nothing changed — still honour close request, but skip the API call
         if (Object.keys(updates).length === 0) {
+          checkAndClose()
           return
         }
 
