@@ -218,6 +218,30 @@ describe('parseMarkdownHeadings', () => {
     ])
   })
 
+  it('test__parseMarkdownHeadings__preserves_underscores_in_identifiers', () => {
+    const text = '## a_b_c'
+    const result = parseMarkdownHeadings(text)
+    expect(result).toEqual([
+      { level: 2, text: 'a_b_c', line: 1 },
+    ])
+  })
+
+  it('test__parseMarkdownHeadings__preserves_asterisks_in_word_context', () => {
+    const text = '## 2*3*4'
+    const result = parseMarkdownHeadings(text)
+    expect(result).toEqual([
+      { level: 2, text: '2*3*4', line: 1 },
+    ])
+  })
+
+  it('test__parseMarkdownHeadings__strips_standalone_italic_markers', () => {
+    const text = '## _italic_ and *also italic*'
+    const result = parseMarkdownHeadings(text)
+    expect(result).toEqual([
+      { level: 2, text: 'italic and also italic', line: 1 },
+    ])
+  })
+
   it('test__parseMarkdownHeadings__strips_mixed_formatting', () => {
     const text = '## **bold** and *italic* and `code`'
     const result = parseMarkdownHeadings(text)

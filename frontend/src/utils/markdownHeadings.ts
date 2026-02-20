@@ -19,8 +19,8 @@ function cleanInlineFormatting(text: string): string {
     .replace(/~~(.+?)~~/g, '$1')
     .replace(/==(.+?)==/g, '$1')
     .replace(/__(.+?)__/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1')
-    .replace(/_(.+?)_/g, '$1')
+    .replace(/(?<!\w)\*(.+?)\*(?!\w)/g, '$1')
+    .replace(/(?<!\w)_(.+?)_(?!\w)/g, '$1')
     .replace(/`(.+?)`/g, '$1')
 }
 
