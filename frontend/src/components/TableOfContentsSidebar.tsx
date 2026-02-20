@@ -29,7 +29,7 @@ export function TableOfContentsSidebar({
 
   return (
     <div
-      className="fixed top-0 right-0 h-full bg-white border-l border-gray-200 flex flex-col z-50"
+      className="fixed top-0 right-0 h-full bg-white shadow-lg border-l border-gray-200 flex flex-col z-50"
       style={isDesktop ? { width: `${width}px` } : { width: '100%' }}
     >
       {/* Drag handle - left edge */}
@@ -43,14 +43,14 @@ export function TableOfContentsSidebar({
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 flex-shrink-0">
-        <h3 className="text-sm font-medium text-gray-900">Table of Contents</h3>
+      <div className="flex items-center justify-between py-1.5 px-4 border-b border-gray-200 shrink-0">
+        <h3 className="text-base font-semibold text-gray-900">Table of Contents</h3>
         <button
           type="button"
           onClick={() => setActivePanel(null)}
-          className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+          className="h-[28px] w-[28px] flex items-center justify-center text-gray-500 hover:text-gray-700 rounded-md hover:bg-gray-100"
         >
-          <CloseIcon className="h-4 w-4" />
+          <CloseIcon className="w-5 h-5" />
         </button>
       </div>
 
@@ -67,8 +67,11 @@ export function TableOfContentsSidebar({
               <button
                 key={`${heading.line}-${index}`}
                 type="button"
-                onClick={() => onHeadingClick(heading.line)}
-                className="w-full text-left px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-gray-900 transition-colors truncate"
+                onClick={() => {
+                  onHeadingClick(heading.line)
+                  if (!isDesktop) setActivePanel(null)
+                }}
+                className="w-full text-left px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-colors truncate"
                 style={{ paddingLeft: `${16 + (heading.level - 1) * INDENT_PX_PER_LEVEL}px` }}
                 title={heading.text || '(empty heading)'}
               >

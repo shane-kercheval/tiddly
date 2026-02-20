@@ -21,11 +21,12 @@ vi.mock('../stores/rightSidebarStore', () => ({
   MIN_CONTENT_WIDTH: 400,
 }))
 
-// Mock the resize hook
+// Mock the resize hook with controllable isDesktop
+let mockIsDesktop = true
 vi.mock('../hooks/useResizableSidebar', () => ({
   useResizableSidebar: () => ({
     width: 320,
-    isDesktop: true,
+    get isDesktop() { return mockIsDesktop },
     isDragging: false,
     handleMouseDown: vi.fn(),
   }),
@@ -33,6 +34,7 @@ vi.mock('../hooks/useResizableSidebar', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockIsDesktop = true
 })
 
 describe('TableOfContentsSidebar', () => {
@@ -140,6 +142,30 @@ describe('TableOfContentsSidebar', () => {
     expect(screen.queryByText('First')).not.toBeInTheDocument()
     expect(screen.getByText('Updated')).toBeInTheDocument()
     expect(screen.getByText('New')).toBeInTheDocument()
+  })
+
+  it('should not close sidebar on heading click in desktop mode', () => {
+    mockIsDesktop = true
+    const content = '# Heading'
+    render(
+      <TableOfContentsSidebar content={content} onHeadingClick={vi.fn()} />
+    )
+
+    fireEvent.click(screen.getByText('Heading'))
+    expect(mockSetActivePanel).not.toHaveBeenCalled()
+  })
+
+  it('should close sidebar on heading click in mobile mode', () => {
+    mockIsDesktop = false
+    const onHeadingClick = vi.fn()
+    const content = '# Heading'
+    render(
+      <TableOfContentsSidebar content={content} onHeadingClick={onHeadingClick} />
+    )
+
+    fireEvent.click(screen.getByText('Heading'))
+    expect(onHeadingClick).toHaveBeenCalledWith(1)
+    expect(mockSetActivePanel).toHaveBeenCalledWith(null)
   })
 
   it('should render header with title', () => {
