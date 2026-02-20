@@ -80,27 +80,24 @@ export function EditorCommandMenu({
     }
   }, [])
 
-  // Scroll selected item into view
-  useEffect(() => {
-    if (!listRef.current) return
-    const items = listRef.current.querySelectorAll('[data-command-item]')
-    const el = items[clampedIndex] as HTMLElement | undefined
-    el?.scrollIntoView?.({ block: 'nearest' })
-  }, [clampedIndex])
-
   // Scroll fade — directly set opacity on the DOM element (no React state/re-render).
   const updateFade = useCallback((): void => {
     if (!listRef.current || !fadeRef.current) return
     const { scrollTop, scrollHeight, clientHeight } = listRef.current
-    const hasMore = scrollTop + clientHeight < scrollHeight - 4
+    const hasMore = scrollTop + clientHeight < scrollHeight - 10
     fadeRef.current.style.opacity = hasMore ? '1' : '0'
   }, [])
 
-  // Synchronous fade check after every render — runs before the browser paints,
-  // so the fade is never visible for a frame when it shouldn't be.
+  // Scroll selected item into view AND update fade — both run synchronously before
+  // the browser paints, so the fade is never visible for a frame when it shouldn't be.
   useLayoutEffect(() => {
+    if (listRef.current) {
+      const items = listRef.current.querySelectorAll('[data-command-item]')
+      const el = items[clampedIndex] as HTMLElement | undefined
+      el?.scrollIntoView?.({ block: 'nearest' })
+    }
     updateFade()
-  }, [updateFade, filtered.length])
+  }, [clampedIndex, updateFade, filtered.length])
 
   // Scroll listener + MutationObserver for ongoing updates
   useEffect(() => {
