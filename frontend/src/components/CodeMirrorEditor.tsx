@@ -109,8 +109,12 @@ interface CodeMirrorEditorProps {
   onModalStateChange?: (isOpen: boolean) => void
   /** Save and close callback for command menu */
   onSaveAndClose?: () => void
-  /** Discard changes callback for command menu (always shown, greyed out when !isDirty) */
+  /** Discard changes callback for command menu (always shown, greyed out when !isDirty).
+   *  CodeMirrorEditor replaces editor content via CM dispatch (preserving undo history)
+   *  before calling this callback, so the parent only needs to reset metadata state. */
   onDiscard?: () => void
+  /** Original content to restore on discard (used for CM dispatch instead of remount) */
+  originalContent?: string
   /** Whether the editor has unsaved changes (controls discard command disabled state) */
   isDirty?: boolean
 }
@@ -231,6 +235,7 @@ export function CodeMirrorEditor({
   onModalStateChange: _onModalStateChange, // eslint-disable-line @typescript-eslint/no-unused-vars
   onSaveAndClose,
   onDiscard,
+  originalContent,
   isDirty = false,
 }: CodeMirrorEditorProps): ReactNode {
   const editorRef = useRef<ReactCodeMirrorRef>(null)
@@ -350,11 +355,24 @@ export function CodeMirrorEditor({
   const [commandMenuCoords, setCommandMenuCoords] = useState<{ x: number; y: number } | null>(null)
   const [savedSelection, setSavedSelection] = useState<{ from: number; to: number } | null>(null)
 
-  // Build command list
+  // Build command list — wrap onDiscard to replace editor content via CM dispatch
+  // (preserving undo history) before calling the parent's metadata reset callback.
+  const handleDiscard = useCallback((): void => {
+    const view = getView()
+    if (view && originalContent !== undefined) {
+      const doc = view.state.doc
+      view.dispatch({
+        changes: { from: 0, to: doc.length, insert: originalContent },
+        selection: { anchor: 0 },
+      })
+    }
+    onDiscard?.()
+  }, [getView, originalContent, onDiscard])
+
   const menuCallbacks: MenuCallbacks = useMemo(() => ({
     onSaveAndClose,
-    onDiscard,
-  }), [onSaveAndClose, onDiscard])
+    onDiscard: onDiscard ? handleDiscard : undefined,
+  }), [onSaveAndClose, onDiscard, handleDiscard])
 
   const editorCommands = useMemo(() => buildEditorCommands({
     showJinja: showJinjaTools,

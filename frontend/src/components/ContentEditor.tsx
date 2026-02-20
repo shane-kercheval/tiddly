@@ -150,6 +150,8 @@ interface ContentEditorProps {
   onSaveAndClose?: () => void
   /** Discard changes callback for command menu (always shown, greyed out when !isDirty) */
   onDiscard?: () => void
+  /** Original content to restore on discard (preserves undo history) */
+  originalContent?: string
   /** Whether the editor has unsaved changes */
   isDirty?: boolean
 }
@@ -186,6 +188,7 @@ export function ContentEditor({
   onModalStateChange,
   onSaveAndClose,
   onDiscard,
+  originalContent,
   isDirty,
 }: ContentEditorProps): ReactNode {
   // Mode state commented out - now always using CodeMirror
@@ -350,6 +353,7 @@ export function ContentEditor({
           onModalStateChange={onModalStateChange}
           onSaveAndClose={onSaveAndClose}
           onDiscard={onDiscard}
+          originalContent={originalContent}
           isDirty={isDirty}
         />
       </div>

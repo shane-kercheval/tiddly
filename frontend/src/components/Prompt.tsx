@@ -1114,7 +1114,8 @@ export function Prompt({
             showJinjaTools={true}
             onModalStateChange={setIsModalOpen}
             onSaveAndClose={!isReadOnly ? () => { requestSaveAndClose(); formRef.current?.requestSubmit() } : undefined}
-            onDiscard={!isReadOnly ? () => { setCurrent(original); setContentKey((k) => k + 1); resetConfirmation() } : undefined}
+            onDiscard={!isReadOnly ? () => { setCurrent(original); resetConfirmation() } : undefined}
+            originalContent={original.content}
             isDirty={isDirty}
           />
         </div>
