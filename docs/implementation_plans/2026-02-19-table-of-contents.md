@@ -43,7 +43,8 @@ export function parseMarkdownHeadings(text: string): MarkdownHeading[]
 
 **Parsing rules:**
 - Match ATX headings only: lines starting with 1-6 `#` characters followed by a space (or just `#` with nothing after)
-- Skip headings inside fenced code blocks (``` or ~~~). Track code fence state line-by-line. Reference the existing `isInsideCodeBlock()` approach in `slashCommands.ts` for pattern inspiration, though that function works with EditorView state, not raw text.
+- Skip headings inside fenced code blocks (``` or ~~~). Track code fence state line-by-line: whether we're inside a fence, the fence character (backtick vs tilde), and the fence length. Per CommonMark, a closing fence must use the same character and have at least as many characters as the opening fence (e.g., a ```` ``` ```` inside a ```` ````` ```` fence does NOT close it). Reference the existing `isInsideCodeBlock()` approach in `slashCommands.ts` for pattern inspiration, though that function works with EditorView state, not raw text.
+- Setext headings (underline-style with `===`/`---`) are intentionally omitted — they are rare in editor contexts and not worth the parsing complexity.
 - Clean heading text: strip leading `#` and space, strip common inline markdown markers (`**`, `*`, `_`, `` ` ``, `~~`, `==`) from the display text. Don't try to handle every edge case - just strip wrapping markers so `**bold**` displays as `bold`.
 - Return headings in document order
 
@@ -175,11 +176,9 @@ A sidebar component following the same structural pattern as `HistorySidebar.tsx
 
 **2. Scroll-to-heading in CodeMirrorEditor**
 
-The CodeMirrorEditor needs to expose a way to scroll to a specific line. Options:
-- Expose a ref/imperative handle with a `scrollToLine(line: number)` method
-- Or pass an `onScrollToLine` callback that the parent can trigger
+The CodeMirrorEditor needs to expose a way to scroll to a specific line. Use the `scrollToLineRef` prop pattern — accept an optional `MutableRefObject<((line: number) => void) | null>` prop that the component assigns internally. This matches the existing `openCommandMenuRef` pattern already in CodeMirrorEditor (line 246), which uses a ref-based function callback assigned inside the component. Do NOT use `forwardRef`/`useImperativeHandle` — the component isn't wrapped in `forwardRef` and this would be an unnecessary refactor.
 
-The agent should look at how EditorView is currently accessed (it's stored in a local ref inside CodeMirrorEditor) and choose the cleanest approach. The key CodeMirror API:
+The key CodeMirror API:
 
 ```typescript
 // Given an EditorView and a 1-based line number:
@@ -252,4 +251,5 @@ This is handled by the store's `togglePanel` / `setActivePanel` logic from Miles
 - Follow existing code patterns and conventions. The codebase uses Tailwind CSS for styling, Zustand for stores, and specific patterns for responsive behavior.
 - The slash command menu (`slashCommands.ts`) has a `isInsideCodeBlock()` function - reference its approach for code fence detection in the heading parser, but note it works with EditorView state, not raw text. The heading parser should work with raw text strings.
 - Don't add features not described here (e.g., heading level filtering, collapsible sections, active heading tracking). Keep it simple.
+- **Create pages (`/new` routes)**: `Layout.tsx` excludes `/new` routes from `isDetailPage` (line 43), so the sidebar margin won't apply on create pages. The ToC will overlay content rather than push it aside. This is acceptable — it matches the existing history sidebar behavior. Don't change the regex.
 - Update `frontend/public/llms.txt` if this is a user-facing feature worth mentioning to LLMs.
