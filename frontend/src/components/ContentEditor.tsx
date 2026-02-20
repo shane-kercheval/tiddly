@@ -256,8 +256,6 @@ export function ContentEditor({
     return `border ${borderColor}`
   }
 
-  // Default helper text
-  const defaultHelperText = 'Supports **bold**, *italic*, `code`, [links](url), lists. Press ⌘/ for shortcuts'
 
   return (
     <div className="group/editor">
@@ -362,9 +360,9 @@ export function ContentEditor({
       <div className={`flex justify-between items-center mt-1 transition-opacity ${errorMessage ? 'opacity-100' : 'opacity-0 group-focus-within/editor:opacity-100'}`}>
         {errorMessage ? (
           <p className="error-text">{errorMessage}</p>
-        ) : (
-          <p className="helper-text">{helperText ?? defaultHelperText}</p>
-        )}
+        ) : helperText ? (
+          <p className="helper-text">{helperText}</p>
+        ) : null}
         {maxLength && (
           <span className="helper-text">
             {value.length.toLocaleString()}/{maxLength.toLocaleString()}
