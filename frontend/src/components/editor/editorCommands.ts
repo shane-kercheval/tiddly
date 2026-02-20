@@ -1,5 +1,5 @@
 /**
- * Command definitions for the editor command menu (Cmd+Shift+/).
+ * Command definitions for the editor command menu (Cmd+/).
  *
  * Each command maps to an existing formatting function or app-level callback.
  * Commands are grouped into sections: Actions, Format, Insert.

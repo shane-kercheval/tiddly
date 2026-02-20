@@ -10,7 +10,7 @@ interface KeyboardShortcutHandlers {
   onFocusSearch?: () => void
   /** Called when Escape is pressed (close modal) */
   onEscape?: () => void
-  /** Called when Cmd/Ctrl + / is pressed (show shortcuts) */
+  /** Called when Cmd/Ctrl + Shift + / is pressed (show shortcuts) */
   onShowShortcuts?: () => void
   /** Called when a URL is pasted outside of input fields */
   onPasteUrl?: (url: string) => void
@@ -47,7 +47,7 @@ function isInputFocused(): boolean {
  * - `/` - Focus search (when not typing)
  * - `w` - Toggle content width (when not typing)
  * - `Escape` - Close modal
- * - `Cmd/Ctrl + /` - Show shortcuts dialog
+ * - `Cmd/Ctrl + Shift + /` - Show shortcuts dialog
  * - `Cmd/Ctrl + Shift + P` - Command palette (works even when typing)
  * - `Cmd/Ctrl + \` - Toggle sidebar
  * - `Cmd/Ctrl + Shift + \` - Toggle history sidebar
@@ -68,8 +68,8 @@ function isInputFocused(): boolean {
 export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
-      // Cmd/Ctrl + / - Show shortcuts (works even when typing)
-      if ((event.metaKey || event.ctrlKey) && event.key === '/') {
+      // Cmd/Ctrl + Shift + / - Show shortcuts (works even when typing)
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === '/') {
         event.preventDefault()
         handlers.onShowShortcuts?.()
         return

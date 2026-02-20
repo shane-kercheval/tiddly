@@ -1,5 +1,5 @@
 /**
- * Editor command menu — a floating panel triggered by Cmd+Shift+/.
+ * Editor command menu — a floating panel triggered by Cmd+/.
  *
  * Similar to VS Code's Cmd+Shift+P command palette but scoped to
  * editor formatting, insertion, and app actions (save, discard).

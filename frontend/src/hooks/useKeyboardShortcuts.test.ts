@@ -135,21 +135,21 @@ describe('useKeyboardShortcuts', () => {
       expect(onFocusSearch).toHaveBeenCalled()
     })
 
-    it('should call onShowShortcuts when Cmd+/ is pressed', () => {
+    it('should call onShowShortcuts when Cmd+Shift+/ is pressed', () => {
       const onShowShortcuts = vi.fn()
       renderHook(() => useKeyboardShortcuts({ onShowShortcuts }))
 
-      const keyEvent = new KeyboardEvent('keydown', { key: '/', metaKey: true })
+      const keyEvent = new KeyboardEvent('keydown', { key: '/', metaKey: true, shiftKey: true })
       document.dispatchEvent(keyEvent)
 
       expect(onShowShortcuts).toHaveBeenCalled()
     })
 
-    it('should call onShowShortcuts when Ctrl+/ is pressed (Windows/Linux)', () => {
+    it('should call onShowShortcuts when Ctrl+Shift+/ is pressed (Windows/Linux)', () => {
       const onShowShortcuts = vi.fn()
       renderHook(() => useKeyboardShortcuts({ onShowShortcuts }))
 
-      const keyEvent = new KeyboardEvent('keydown', { key: '/', ctrlKey: true })
+      const keyEvent = new KeyboardEvent('keydown', { key: '/', ctrlKey: true, shiftKey: true })
       document.dispatchEvent(keyEvent)
 
       expect(onShowShortcuts).toHaveBeenCalled()

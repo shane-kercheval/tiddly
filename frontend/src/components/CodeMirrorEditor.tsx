@@ -123,15 +123,16 @@ interface CodeMirrorEditorProps {
  * Dispatch a keyboard event to the document for global handlers to catch.
  * Used to pass shortcuts through from CodeMirror to global handlers.
  *
- * This enables shortcuts like Cmd+/ (help modal) and Cmd+\ (sidebar toggle)
+ * This enables shortcuts like Cmd+Shift+/ (help modal) and Cmd+\ (sidebar toggle)
  * to work when the CodeMirror editor has focus. The events bubble up to
  * document-level listeners in the parent components.
  */
-function dispatchGlobalShortcut(key: string, metaKey: boolean): void {
+function dispatchGlobalShortcut(key: string, metaKey: boolean, shiftKey = false): void {
   const event = new KeyboardEvent('keydown', {
     key,
     metaKey,
     ctrlKey: !metaKey, // Use ctrlKey on non-Mac
+    shiftKey,
     bubbles: true,
   })
   document.dispatchEvent(event)
@@ -160,9 +161,9 @@ function createMarkdownKeyBindings(): KeyBinding[] {
     { key: 'Mod-Shift--', run: (view) => insertHorizontalRule(view) },
     // Pass through to global handlers (consume event, then dispatch globally)
     {
-      key: 'Mod-/',
+      key: 'Mod-Shift-/',
       run: () => {
-        dispatchGlobalShortcut('/', true)
+        dispatchGlobalShortcut('/', true, true)
         return true // Consume to prevent CodeMirror's comment toggle
       },
     },
@@ -319,10 +320,10 @@ export function CodeMirrorEditor({
         return
       }
 
-      // Cmd+Shift+/ - open command menu (works whether editor has focus or not)
+      // Cmd+/ - open command menu (works whether editor has focus or not)
       // Uses capture phase so it runs before CM's keymap handler.
       // Uses ref to avoid dependency ordering issues (openCommandMenu defined later).
-      if (isMod && e.shiftKey && e.code === 'Slash' && !effectiveReadingMode && !disabled) {
+      if (isMod && !e.shiftKey && e.code === 'Slash' && !effectiveReadingMode && !disabled) {
         e.preventDefault()
         e.stopPropagation()
         openCommandMenuRef.current()
@@ -374,6 +375,7 @@ export function CodeMirrorEditor({
     onDiscard: onDiscard ? handleDiscard : undefined,
   }), [onSaveAndClose, onDiscard, handleDiscard])
 
+  // eslint-disable-next-line react-hooks/refs -- callbacks capture refs but only read them when invoked, not during render
   const editorCommands = useMemo(() => buildEditorCommands({
     showJinja: showJinjaTools,
     callbacks: menuCallbacks,
@@ -726,7 +728,7 @@ export function CodeMirrorEditor({
         </div>
       </div>
 
-      {/* Editor command menu (Cmd+Shift+/) — conditionally rendered so
+      {/* Editor command menu (Cmd+/) — conditionally rendered so
           React unmounts/remounts it, giving fresh state each time. */}
       {commandMenuOpen && (
         <EditorCommandMenu

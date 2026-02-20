@@ -314,7 +314,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
         label: 'Keyboard Shortcuts',
         icon: <HelpIcon className="h-4 w-4" />,
         action: () => { onClose(); onShowShortcuts() },
-        shortcut: ['\u2318', '/'],
+        shortcut: ['\u2318', '\u21E7', '/'],
       })
     }
 
