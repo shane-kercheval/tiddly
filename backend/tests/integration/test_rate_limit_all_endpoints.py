@@ -4,17 +4,18 @@ Tests verifying rate limiting is applied to all authenticated endpoints.
 These tests use a low rate limit (2 requests per minute) to verify that
 rate limiting is properly integrated into each endpoint via the auth dependencies.
 """
+import uuid
+
 import pytest
 from httpx import AsyncClient
 
+from core import tier_limits
 from core.tier_limits import Tier, TierLimits
 
 
 @pytest.fixture
 def low_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     """Monkeypatch tier limits to have very low rate limits for testing."""
-    from core import tier_limits
-
     test_limits = TierLimits(
         max_bookmarks=100,
         max_notes=100,
@@ -191,7 +192,6 @@ class TestRateLimitAppliedToAllEndpoints:
         low_rate_limits: None,  # noqa: ARG002
     ) -> None:
         """POST /filters/ is rate limited."""
-        import uuid
         # Make 2 requests (allowed) - use unique names and valid filter_expression
         filter_expr = {"groups": [{"tags": ["test"]}], "group_operator": "OR"}
         for i in range(2):

@@ -1,14 +1,22 @@
 """Integration tests for Prompt MCP server ASGI app."""
 
+from contextlib import asynccontextmanager
+
 import pytest
 from httpx import ASGITransport, AsyncClient
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route
+
+from prompt_mcp_server.auth import AuthenticationError, clear_current_token, get_bearer_token
+from prompt_mcp_server.main import AuthMiddleware, app, session_manager
 
 
 @pytest.mark.asyncio
 async def test__health_check__returns_healthy() -> None:
     """Test health check endpoint returns healthy status."""
-    from prompt_mcp_server.main import app
-
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
@@ -22,10 +30,6 @@ async def test__health_check__returns_healthy() -> None:
 @pytest.mark.asyncio
 async def test__mcp_endpoint__exists() -> None:
     """Test that MCP endpoint is mounted and accepts requests without trailing slash."""
-    from contextlib import asynccontextmanager
-
-    from prompt_mcp_server.main import app, session_manager
-
     # Use lifespan context to properly initialize the session manager
     @asynccontextmanager
     async def lifespan_context():
@@ -63,15 +67,6 @@ async def test__auth_middleware__extracts_bearer_token_from_header() -> None:
     This is an integration test that verifies the middleware properly extracts
     the token from HTTP headers and makes it available to handlers via contextvars.
     """
-    from starlette.applications import Starlette
-    from starlette.middleware import Middleware
-    from starlette.requests import Request
-    from starlette.responses import JSONResponse
-    from starlette.routing import Route
-
-    from prompt_mcp_server.auth import AuthenticationError, get_bearer_token
-    from prompt_mcp_server.main import AuthMiddleware
-
     # Track tokens seen by handler
     captured_tokens: list[str | None] = []
     captured_errors: list[str] = []
@@ -128,15 +123,6 @@ async def test__auth_middleware__clears_token_after_request() -> None:
 
     This ensures tokens don't leak between requests.
     """
-    from starlette.applications import Starlette
-    from starlette.middleware import Middleware
-    from starlette.requests import Request
-    from starlette.responses import JSONResponse
-    from starlette.routing import Route
-
-    from prompt_mcp_server.auth import clear_current_token
-    from prompt_mcp_server.main import AuthMiddleware
-
     async def dummy_handler(request: Request) -> JSONResponse:  # noqa: ARG001
         """Just return OK."""
         return JSONResponse({"status": "ok"})

@@ -663,7 +663,6 @@ async def test__user_delete__cascades_to_filters(
     await db_session.flush()
 
     # Filter should be gone (use raw query to check without user scope)
-    from sqlalchemy import select
     query = select(ContentFilter).where(ContentFilter.id == filter_id)
     result = await db_session.execute(query)
     assert result.scalar_one_or_none() is None

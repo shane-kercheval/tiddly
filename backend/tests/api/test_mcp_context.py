@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 from httpx import AsyncClient
 
+from core.config import get_settings
 from services.mcp_context_service import _is_relevant_filter
 
 
@@ -498,8 +499,6 @@ class TestContentContext:
         self, client: AsyncClient,
     ) -> None:
         # Disable dev mode to require auth
-        from core.config import get_settings
-
         settings = get_settings()
         original = settings.dev_mode
         try:
@@ -695,8 +694,6 @@ class TestPromptContext:
     async def test__auth__unauthenticated_returns_401(
         self, client: AsyncClient,
     ) -> None:
-        from core.config import get_settings
-
         settings = get_settings()
         original = settings.dev_mode
         try:

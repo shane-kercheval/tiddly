@@ -5,6 +5,8 @@ Note: mock_auth fixture is used for its side effect (patching get_bearer_token).
 Tests that use mock_auth but don't reference it directly have ARG001 noqa comments.
 """
 
+import asyncio
+import contextlib
 import json
 from typing import Any
 
@@ -14,12 +16,17 @@ from httpx import Response
 from mcp import types
 from mcp.shared.exceptions import McpError
 
+from prompt_mcp_server import server as server_module
+from prompt_mcp_server.auth import clear_current_token
 from prompt_mcp_server.server import (
     _format_prompt_context_markdown,
+    cleanup,
+    get_http_client,
     handle_call_tool,
     handle_get_prompt,
     handle_list_prompts,
     handle_list_tools,
+    init_http_client,
     server,
 )
 
@@ -174,8 +181,6 @@ async def test__list_prompts__invalid_cursor_returns_error(
     mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
     """Test list_prompts returns error for invalid cursor."""
-    from mcp.shared.exceptions import McpError
-
     with pytest.raises(McpError) as exc_info:
         await handle_list_prompts(make_list_prompts_request(cursor="not-a-number"))
 
@@ -185,8 +190,6 @@ async def test__list_prompts__invalid_cursor_returns_error(
 @pytest.mark.asyncio
 async def test__list_prompts__api_unavailable(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test list_prompts handles network errors."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/").mock(side_effect=httpx.ConnectError("Connection refused"))
 
     with pytest.raises(McpError) as exc_info:
@@ -250,8 +253,6 @@ async def test__get_prompt__missing_required_argument_error(
     sample_prompt: dict[str, Any],
 ) -> None:
     """Test get_prompt raises error when required argument is missing."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/name/code-review").mock(
         return_value=Response(200, json=sample_prompt),
     )
@@ -269,8 +270,6 @@ async def test__get_prompt__extra_unknown_argument_error(
     sample_prompt: dict[str, Any],
 ) -> None:
     """Test get_prompt raises error for unknown arguments."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/name/code-review").mock(
         return_value=Response(200, json=sample_prompt),
     )
@@ -287,8 +286,6 @@ async def test__get_prompt__extra_unknown_argument_error(
 @pytest.mark.asyncio
 async def test__get_prompt__prompt_not_found_error(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test get_prompt raises error when prompt not found."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/name/nonexistent").mock(
         return_value=Response(404, json={"detail": "Not found"}),
     )
@@ -337,7 +334,6 @@ async def test__get_prompt__tracks_usage(
     await handle_get_prompt("greeting", None)
 
     # Give async task time to run
-    import asyncio
     await asyncio.sleep(0.1)
 
     assert track_mock.called
@@ -482,8 +478,6 @@ async def test__get_prompt_content_tool__not_found_error(
     mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
     """Test get_prompt_content returns error for nonexistent prompt."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/name/nonexistent").mock(
         return_value=Response(404, json={"detail": "Prompt not found"}),
     )
@@ -497,8 +491,6 @@ async def test__get_prompt_content_tool__not_found_error(
 @pytest.mark.asyncio
 async def test__get_prompt_content_tool__missing_name_error() -> None:
     """Test get_prompt_content returns error when name is missing."""
-    from mcp.shared.exceptions import McpError
-
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool("get_prompt_content", {})
 
@@ -511,8 +503,6 @@ async def test__get_prompt_content_tool__api_unavailable(
     mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
     """Test get_prompt_content handles network errors."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/name/test-prompt").mock(
         side_effect=httpx.ConnectError("Connection refused"),
     )
@@ -627,8 +617,6 @@ async def test__create_prompt_tool__validation_error_invalid_name(
     mock_api, mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
     """Test create_prompt tool with invalid name format."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.post("/prompts/").mock(
         return_value=Response(
             400,
@@ -647,8 +635,6 @@ async def test__create_prompt_tool__validation_error_duplicate_name(
     mock_api, mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
     """Test create_prompt tool with duplicate name."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.post("/prompts/").mock(
         return_value=Response(
             409,
@@ -672,8 +658,6 @@ async def test__create_prompt_tool__validation_error_template_syntax(
     mock_api, mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
     """Test create_prompt tool with invalid template syntax."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.post("/prompts/").mock(
         return_value=Response(
             400,
@@ -693,8 +677,6 @@ async def test__create_prompt_tool__validation_error_template_syntax(
 @pytest.mark.asyncio
 async def test__create_prompt_tool__unknown_tool_error() -> None:
     """Test error when calling unknown tool."""
-    from mcp.shared.exceptions import McpError
-
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool("unknown_tool", {})
 
@@ -1211,8 +1193,6 @@ async def test__edit_prompt_content_tool__template_validation_error(
 @pytest.mark.asyncio
 async def test__edit_prompt_content_tool__not_found_error(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test edit_prompt_content tool raises McpError when prompt not found."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.patch("/prompts/name/nonexistent-prompt/str-replace").mock(
         return_value=Response(404, json={"detail": "Prompt not found"}),
     )
@@ -1233,8 +1213,6 @@ async def test__edit_prompt_content_tool__not_found_error(mock_api, mock_auth) -
 @pytest.mark.asyncio
 async def test__edit_prompt_content_tool__missing_name_error() -> None:
     """Test edit_prompt_content tool requires name parameter."""
-    from mcp.shared.exceptions import McpError
-
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
             "edit_prompt_content",
@@ -1247,8 +1225,6 @@ async def test__edit_prompt_content_tool__missing_name_error() -> None:
 @pytest.mark.asyncio
 async def test__edit_prompt_content_tool__missing_old_str_error() -> None:
     """Test edit_prompt_content tool requires old_str parameter."""
-    from mcp.shared.exceptions import McpError
-
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
             "edit_prompt_content",
@@ -1261,8 +1237,6 @@ async def test__edit_prompt_content_tool__missing_old_str_error() -> None:
 @pytest.mark.asyncio
 async def test__edit_prompt_content_tool__missing_new_str_error() -> None:
     """Test edit_prompt_content tool requires new_str parameter."""
-    from mcp.shared.exceptions import McpError
-
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
             "edit_prompt_content",
@@ -1584,8 +1558,6 @@ async def test__update_prompt_tool__rename_conflict(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test update_prompt tool handles rename conflict (no server_state)."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.patch("/prompts/name/old-name").mock(
         return_value=Response(
             409,
@@ -1607,8 +1579,6 @@ async def test__update_prompt_tool__not_found(
     mock_api, mock_auth,  # noqa: ARG001
 ) -> None:
     """Test update_prompt tool handles not found error."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.patch("/prompts/name/nonexistent").mock(
         return_value=Response(404, json={"detail": "Prompt not found"}),
     )
@@ -1625,8 +1595,6 @@ async def test__update_prompt_tool__not_found(
 @pytest.mark.asyncio
 async def test__update_prompt_tool__missing_name_error() -> None:
     """Test update_prompt tool requires name parameter."""
-    from mcp.shared.exceptions import McpError
-
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
             "update_prompt",
@@ -1691,9 +1659,6 @@ async def test__list_tools__update_prompt_has_schema() -> None:
 @pytest.mark.asyncio
 async def test__list_prompts__no_token_error(mock_api) -> None:  # noqa: ARG001
     """Test list_prompts without token raises error."""
-    from mcp.shared.exceptions import McpError
-    from prompt_mcp_server.auth import clear_current_token
-
     clear_current_token()  # Ensure no token
 
     with pytest.raises(McpError) as exc_info:
@@ -1705,8 +1670,6 @@ async def test__list_prompts__no_token_error(mock_api) -> None:  # noqa: ARG001
 @pytest.mark.asyncio
 async def test__list_prompts__invalid_token_error(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test list_prompts with invalid token."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/").mock(
         return_value=Response(401, json={"detail": "Invalid token"}),
     )
@@ -1720,8 +1683,6 @@ async def test__list_prompts__invalid_token_error(mock_api, mock_auth) -> None: 
 @pytest.mark.asyncio
 async def test__list_prompts__forbidden_error(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test list_prompts with 403 forbidden error."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/").mock(
         return_value=Response(403, json={"detail": "Access denied"}),
     )
@@ -1735,8 +1696,6 @@ async def test__list_prompts__forbidden_error(mock_api, mock_auth) -> None:  # n
 @pytest.mark.asyncio
 async def test__search_prompts__forbidden_error(mock_api, mock_auth) -> None:  # noqa: ARG001
     """Test search_prompts tool with 403 forbidden error."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/").mock(
         return_value=Response(403, json={"detail": "Access denied"}),
     )
@@ -1755,8 +1714,6 @@ async def test__create_prompt_tool__422_fastapi_validation_errors(
     mock_api, mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
     """Test 422 validation errors (FastAPI format) are handled as INVALID_PARAMS."""
-    from mcp.shared.exceptions import McpError
-
     # FastAPI validation errors return a list of error objects
     mock_api.post("/prompts/").mock(
         return_value=Response(
@@ -1783,8 +1740,6 @@ async def test__create_prompt_tool__400_dict_detail_format(
     mock_api, mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
     """Test 400 errors with dict detail format are handled correctly."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.post("/prompts/").mock(
         return_value=Response(
             400,
@@ -1808,8 +1763,6 @@ async def test__create_prompt_tool__400_string_detail_format(
     mock_api, mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
     """Test 400 errors with simple string detail are handled correctly."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.post("/prompts/").mock(
         return_value=Response(
             400,
@@ -1864,8 +1817,6 @@ async def test__get_prompt_metadata__prompt_not_found(
     mock_auth,  # noqa: ARG001 - needed for side effect
 ) -> None:
     """Test get_prompt_metadata returns error when prompt not found."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/name/nonexistent/metadata").mock(
         return_value=Response(404, json={"detail": "Prompt not found"}),
     )
@@ -1927,9 +1878,6 @@ async def test__get_prompt_content__with_start_end_line__returns_partial(
 @pytest.mark.asyncio
 async def test__cleanup__closes_http_client() -> None:
     """Test cleanup properly closes HTTP client."""
-    from prompt_mcp_server import server as server_module
-    from prompt_mcp_server.server import cleanup, init_http_client, get_http_client
-
     # Initialize HTTP client
     await init_http_client()
     client = get_http_client()
@@ -1947,12 +1895,6 @@ async def test__cleanup__closes_http_client() -> None:
 @pytest.mark.asyncio
 async def test__cleanup__cancels_background_tasks() -> None:
     """Test cleanup cancels pending background tasks."""
-    import asyncio
-    import contextlib
-
-    from prompt_mcp_server import server as server_module
-    from prompt_mcp_server.server import cleanup
-
     # Create a long-running task
     async def long_running() -> None:
         await asyncio.sleep(100)
@@ -1975,9 +1917,6 @@ async def test__cleanup__cancels_background_tasks() -> None:
 @pytest.mark.asyncio
 async def test__cleanup__handles_no_resources() -> None:
     """Test cleanup handles case when no resources exist."""
-    from prompt_mcp_server import server as server_module
-    from prompt_mcp_server.server import cleanup
-
     # Ensure no resources
     server_module._http_client = None
     server_module._background_tasks.clear()

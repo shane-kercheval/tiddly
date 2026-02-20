@@ -1,9 +1,10 @@
 """Tests for tag service layer functionality."""
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from models.bookmark import Bookmark
 from models.prompt import Prompt
@@ -126,8 +127,6 @@ async def test__get_user_tags_with_counts__counts_only_active_bookmarks(
     test_user: User,
 ) -> None:
     """Test that tag counts exclude archived and deleted bookmarks."""
-    from datetime import datetime, timedelta
-
     # Create tags first
     shared_tag = (await get_or_create_tags(db_session, test_user.id, ["shared"]))[0]
     active_only_tag = (await get_or_create_tags(db_session, test_user.id, ["active-only"]))[0]
@@ -170,8 +169,6 @@ async def test__get_user_tags_with_counts__includes_future_scheduled_bookmarks(
     Bookmarks with archived_at in the future are still "active" (not yet archived),
     so they should be included in tag counts.
     """
-    from datetime import datetime, timedelta
-
     # Create a tag
     scheduled_tag = (await get_or_create_tags(db_session, test_user.id, ["scheduled"]))[0]
     await db_session.flush()
@@ -250,8 +247,6 @@ async def test__get_user_tags_with_counts__include_inactive_shows_tags_from_dele
     test_user: User,
 ) -> None:
     """Test that include_inactive=True shows tags whose only content is deleted."""
-    from datetime import UTC, datetime
-
     # Create tag and bookmark, then soft-delete the bookmark
     tag = (await get_or_create_tags(db_session, test_user.id, ["deleted-content-tag"]))[0]
     await db_session.flush()
@@ -280,8 +275,6 @@ async def test__get_user_tags_with_counts__include_inactive_shows_tags_from_arch
     test_user: User,
 ) -> None:
     """Test that include_inactive=True shows tags whose only content is archived."""
-    from datetime import UTC, datetime, timedelta
-
     # Create tag and bookmark, then archive the bookmark
     tag = (await get_or_create_tags(db_session, test_user.id, ["archived-content-tag"]))[0]
     await db_session.flush()
@@ -310,8 +303,6 @@ async def test__get_user_tags_with_counts__include_inactive_mixed_active_and_ina
     test_user: User,
 ) -> None:
     """Test include_inactive with a mix of active and inactive tags."""
-    from datetime import UTC, datetime
-
     # Create active tag with active bookmark
     active_tag = (await get_or_create_tags(db_session, test_user.id, ["active-tag"]))[0]
     await db_session.flush()
@@ -426,8 +417,6 @@ async def test__get_user_tags_with_counts__excludes_archived_and_deleted_prompts
     test_user: User,
 ) -> None:
     """Test that tag counts exclude archived and deleted prompts."""
-    from datetime import datetime, timedelta
-
     # Create tags
     shared_tag = (await get_or_create_tags(db_session, test_user.id, ["prompt-shared"]))[0]
     await db_session.flush()
@@ -474,8 +463,6 @@ async def test__update_prompt_tags__updates_tags(
     test_user: User,
 ) -> None:
     """Test that update_prompt_tags correctly updates a prompt's tags."""
-    from sqlalchemy.orm import selectinload
-
     # Create a prompt
     prompt = Prompt(
         user_id=test_user.id,
@@ -517,8 +504,6 @@ async def test__update_prompt_tags__clears_tags_with_empty_list(
     test_user: User,
 ) -> None:
     """Test that update_prompt_tags can clear tags with an empty list."""
-    from sqlalchemy.orm import selectinload
-
     # Create a prompt with tags
     tags = await get_or_create_tags(db_session, test_user.id, ["initial-tag"])
     prompt = Prompt(

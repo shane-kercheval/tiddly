@@ -1668,9 +1668,9 @@ async def test_fetch_metadata_rejects_pat_tokens(db_session: AsyncSession) -> No
     """Test that fetch-metadata endpoint rejects PAT tokens with 403."""
     # Deferred imports: these trigger module-level get_settings() which requires
     # DATABASE_URL, only available at runtime via the database_url fixture.
-    from api.dependencies import get_current_user_auth0_only
-    from api.main import app
-    from db.session import get_async_session
+    from api.dependencies import get_current_user_auth0_only  # noqa: PLC0415
+    from api.main import app  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
 
     # Override get_current_user_auth0_only to simulate PAT rejection
     async def mock_auth0_only_reject_pat() -> None:

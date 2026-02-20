@@ -12,10 +12,12 @@ tests verify the wiring (cache populated, cache invalidated on consent).
 import json
 
 from httpx import AsyncClient
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth_cache import CACHE_SCHEMA_VERSION, get_auth_cache
 from core.redis import RedisClient
+from models.user_consent import UserConsent
 
 
 class TestAuthCachePopulation:
@@ -184,8 +186,6 @@ class TestAuthCacheConsentData:
             await auth_cache.invalidate(user_data["id"], user_data["auth0_id"])
 
             # Also clear any consent for this test
-            from sqlalchemy import delete
-            from models.user_consent import UserConsent
             await db_session.execute(
                 delete(UserConsent).where(UserConsent.user_id == user_data["id"]),
             )

@@ -1,7 +1,9 @@
 """Tests for BaseEntityService._compute_changed_fields()."""
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
+from models.content_history import ContentHistory, EntityType
 from services.base_entity_service import BaseEntityService
 
 
@@ -211,8 +213,6 @@ class TestComputeChangedFieldsIntegration:
         client: AsyncClient,
     ) -> None:
         """Bookmark CREATE sets changed_fields in history record."""
-        from models.content_history import ContentHistory, EntityType
-
         # Create a bookmark via API
         response = await client.post(
             "/bookmarks/",
@@ -227,7 +227,7 @@ class TestComputeChangedFieldsIntegration:
         bookmark_id = response.json()["id"]
 
         # Check history record
-        from sqlalchemy import select
+
         result = await db_session.execute(
             select(ContentHistory).where(
                 ContentHistory.entity_id == bookmark_id,
@@ -248,8 +248,6 @@ class TestComputeChangedFieldsIntegration:
         client: AsyncClient,
     ) -> None:
         """Bookmark UPDATE with title change sets changed_fields to ['title']."""
-        from models.content_history import ContentHistory, EntityType
-
         # Create bookmark
         response = await client.post(
             "/bookmarks/",
@@ -268,7 +266,7 @@ class TestComputeChangedFieldsIntegration:
         )
 
         # Get the UPDATE history record
-        from sqlalchemy import select
+
         result = await db_session.execute(
             select(ContentHistory)
             .where(
@@ -287,8 +285,6 @@ class TestComputeChangedFieldsIntegration:
         client: AsyncClient,
     ) -> None:
         """Bookmark UPDATE with content and tag changes sets both in changed_fields."""
-        from models.content_history import ContentHistory, EntityType
-
         # Create bookmark
         response = await client.post(
             "/bookmarks/",
@@ -306,7 +302,7 @@ class TestComputeChangedFieldsIntegration:
             json={"content": "New content", "tags": ["b"]},
         )
 
-        from sqlalchemy import select
+
         result = await db_session.execute(
             select(ContentHistory)
             .where(
@@ -326,8 +322,6 @@ class TestComputeChangedFieldsIntegration:
         client: AsyncClient,
     ) -> None:
         """Note CREATE sets changed_fields."""
-        from models.content_history import ContentHistory, EntityType
-
         response = await client.post(
             "/notes/",
             json={"title": "Note Title", "content": "Note content"},
@@ -335,7 +329,7 @@ class TestComputeChangedFieldsIntegration:
         assert response.status_code == 201
         note_id = response.json()["id"]
 
-        from sqlalchemy import select
+
         result = await db_session.execute(
             select(ContentHistory).where(
                 ContentHistory.entity_id == note_id,
@@ -353,8 +347,6 @@ class TestComputeChangedFieldsIntegration:
         client: AsyncClient,
     ) -> None:
         """Prompt CREATE sets changed_fields."""
-        from models.content_history import ContentHistory, EntityType
-
         response = await client.post(
             "/prompts/",
             json={
@@ -366,7 +358,7 @@ class TestComputeChangedFieldsIntegration:
         assert response.status_code == 201
         prompt_id = response.json()["id"]
 
-        from sqlalchemy import select
+
         result = await db_session.execute(
             select(ContentHistory).where(
                 ContentHistory.entity_id == prompt_id,
@@ -385,8 +377,6 @@ class TestComputeChangedFieldsIntegration:
         client: AsyncClient,
     ) -> None:
         """Audit actions (delete, archive) have null changed_fields."""
-        from models.content_history import ContentHistory, EntityType
-
         # Create and delete a bookmark
         response = await client.post(
             "/bookmarks/",
@@ -396,7 +386,7 @@ class TestComputeChangedFieldsIntegration:
 
         await client.delete(f"/bookmarks/{bookmark_id}")
 
-        from sqlalchemy import select
+
         result = await db_session.execute(
             select(ContentHistory)
             .where(

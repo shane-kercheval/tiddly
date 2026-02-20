@@ -15,6 +15,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
 from models.bookmark import Bookmark
 from models.note import Note
 from models.prompt import Prompt
@@ -146,13 +147,11 @@ def client_factory(
         client = client_factory(user_a)
         response = await client.get("/bookmarks/")
     """
-    from core.config import get_settings
-
     get_settings.cache_clear()
 
-    from api.main import app
-    from core.auth import get_current_user
-    from db.session import get_async_session
+    from api.main import app  # noqa: PLC0415
+    from core.auth import get_current_user  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
 
     async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
@@ -180,13 +179,11 @@ async def client_as_user_a(
     user_a: User,
 ) -> AsyncGenerator[AsyncClient]:
     """Create a test client authenticated as User A."""
-    from core.config import get_settings
-
     get_settings.cache_clear()
 
-    from api.main import app
-    from core.auth import get_current_user
-    from db.session import get_async_session
+    from api.main import app  # noqa: PLC0415
+    from core.auth import get_current_user  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
 
     async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
@@ -212,13 +209,11 @@ async def client_as_user_b(
     user_b: User,
 ) -> AsyncGenerator[AsyncClient]:
     """Create a test client authenticated as User B."""
-    from core.config import get_settings
-
     get_settings.cache_clear()
 
-    from api.main import app
-    from core.auth import get_current_user
-    from db.session import get_async_session
+    from api.main import app  # noqa: PLC0415
+    from core.auth import get_current_user  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
 
     async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
         yield db_session

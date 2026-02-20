@@ -1,20 +1,22 @@
 """Integration tests for history recording in services."""
 import pytest
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core import tier_limits
 from core.request_context import AuthType, RequestContext
-from core.tier_limits import get_tier_limits
+from core.tier_limits import Tier, TierLimits, get_tier_limits
 from models.content_history import ActionType, ContentHistory, EntityType
 from models.user import User
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate
 from schemas.note import NoteCreate, NoteUpdate
 from schemas.prompt import PromptArgument, PromptCreate, PromptUpdate
 from schemas.relationship import RelationshipInput
-from services.bookmark_service import BookmarkService
+from services.bookmark_service import BookmarkService, DuplicateUrlError
+from services.history_service import PRUNE_CHECK_INTERVAL, history_service
 from services.note_service import NoteService
 from services.prompt_service import PromptService
 
@@ -996,8 +998,6 @@ class TestRestoreUrlConflict:
         test_user: User,
     ) -> None:
         """When restore fails due to URL conflict, no history should be recorded."""
-        from services.bookmark_service import BookmarkService, DuplicateUrlError
-
         service = BookmarkService()
         limits = get_tier_limits("free")
         context = make_context()
@@ -1123,8 +1123,6 @@ class TestStrReplaceHistory:
         dev_user_id: UUID,
     ) -> None:
         """str-replace on prompt creates history record with UPDATE action."""
-        from uuid import uuid4
-
         # Use unique name to avoid conflicts with other tests
         unique_name = f"str-replace-test-{uuid4().hex[:8]}"
 
@@ -1166,8 +1164,6 @@ class TestStrReplaceHistory:
         dev_user_id: UUID,
     ) -> None:
         """str-replace history has correct previous and current content captured."""
-        from services.history_service import history_service
-
         # Create note via API
         response = await client.post(
             "/notes/",
@@ -1243,10 +1239,6 @@ class TestStrReplaceHistory:
         This is a regression test for the bug where str-replace endpoints
         didn't pass limits to record_action, preventing pruning.
         """
-        from core import tier_limits
-        from core.tier_limits import Tier, TierLimits
-        from services.history_service import PRUNE_CHECK_INTERVAL
-
         # Set very low history limit to trigger pruning quickly
         max_history = 3
         test_limits = TierLimits(

@@ -42,8 +42,8 @@ async def create_user2_client(
     # Deferred imports: api.main and db.session trigger module-level get_settings()
     # which requires DATABASE_URL. In CI, that env var is only set by the database_url
     # fixture at runtime, so importing at module level causes collection errors.
-    from api.main import app
-    from db.session import get_async_session
+    from api.main import app  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
 
     user2 = User(auth0_id=auth0_id, email=email)
     db_session.add(user2)

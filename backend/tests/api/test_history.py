@@ -1,10 +1,21 @@
 """Tests for history API endpoints."""
+import uuid
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient as HttpxAsyncClient
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.config import Settings, get_settings
+from models.content_history import ContentHistory
+from models.user import User
+from schemas.token import TokenCreate
+from services.token_service import create_token
+from tests.api.conftest import add_consent_for_user
 
 
 # --- Test data for parametrized tests ---
@@ -905,11 +916,8 @@ async def test_get_user_history_requires_auth(
     redis_client,  # noqa: ARG001
 ) -> None:
     """Test that user history requires authentication (works in dev mode)."""
-    from httpx import ASGITransport, AsyncClient as HttpxAsyncClient
-
-    from api.main import app
-    from core.config import get_settings
-    from db.session import get_async_session
+    from api.main import app  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
 
     get_settings.cache_clear()
 
@@ -934,17 +942,8 @@ async def test_user_cannot_access_another_users_history(
     db_session: AsyncSession,
 ) -> None:
     """Test that a user cannot access another user's history (returns empty list)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport, AsyncClient as HttpxAsyncClient
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from models.user import User
-    from schemas.token import TokenCreate
-    from services.token_service import create_token
-    from tests.api.conftest import add_consent_for_user
+    from api.main import app  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
 
     # Create a bookmark as the dev user (user1) - this creates history
     response = await client.post(
@@ -1023,16 +1022,8 @@ async def test_pat_can_access_history(
     db_session: AsyncSession,
 ) -> None:
     """Test that PAT authentication can access history endpoints (read operation)."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport, AsyncClient as HttpxAsyncClient
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from schemas.token import TokenCreate
-    from services.token_service import create_token
-    from tests.api.conftest import add_consent_for_user
+    from api.main import app  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
 
     # Create a bookmark as the dev user first (so there's history to read)
     response = await client.post(
@@ -1043,12 +1034,9 @@ async def test_pat_can_access_history(
     bookmark_id = response.json()["id"]
 
     # Get the dev user from the database to create a PAT for them
-    from sqlalchemy import select
-
-    from models.user import User as UserModel
 
     result = await db_session.execute(
-        select(UserModel).where(UserModel.email == "dev@localhost"),
+        select(User).where(User.email == "dev@localhost"),
     )
     dev_user = result.scalar_one()
 
@@ -1285,10 +1273,6 @@ async def test_restore_to_audit_version_returns_400(
     the database to set an audit action on a versioned record to verify the
     defense-in-depth check works for all audit action types.
     """
-    from sqlalchemy import update
-
-    from models.content_history import ContentHistory
-
     # Create note with v1, v2
     response = await client.post(
         "/notes/", json={"title": "Audit Test", "content": "v1"},
@@ -1808,10 +1792,6 @@ async def test_restore_preserves_fields_missing_from_old_metadata(
     This simulates schema evolution: an old history record may lack fields
     that were added later. Those missing fields should NOT be overwritten.
     """
-    from sqlalchemy import select
-
-    from models.content_history import ContentHistory
-
     # Create note with description (v1)
     response = await client.post(
         "/notes/",
@@ -1866,10 +1846,6 @@ async def test_restore_preserves_tags_missing_from_old_metadata(
     Test that restoring to an old version with missing tags field
     preserves current tags (doesn't wipe them to empty list).
     """
-    from sqlalchemy import select
-
-    from models.content_history import ContentHistory
-
     # Create note without tags (v1)
     response = await client.post(
         "/notes/",
@@ -1915,12 +1891,7 @@ async def test_restore_preserves_prompt_name_missing_from_old_metadata(
     are validated together (all arguments must be used in template). This makes
     arguments unsuitable for isolated schema evolution testing.
     """
-    from sqlalchemy import select
-
-    from models.content_history import ContentHistory
-
     # Create prompt (v1)
-    import uuid
     unique_name = f"test-schema-evolution-{uuid.uuid4().hex[:8]}"
     response = await client.post(
         "/prompts/",
@@ -1972,10 +1943,6 @@ async def test_restore_bookmark_preserves_url_missing_from_old_metadata(
     Test that restoring to an old version with missing url field
     preserves current url (edge case - url should always be present).
     """
-    from sqlalchemy import select
-
-    from models.content_history import ContentHistory
-
     # Create bookmark (v1)
     response = await client.post(
         "/bookmarks/",
@@ -2129,10 +2096,6 @@ async def test_restore_with_reconstruction_warnings_propagates_to_response(
     When diff application encounters issues (partial patch failures),
     warnings should be propagated to help diagnose problems.
     """
-    from sqlalchemy import select
-
-    from models.content_history import ContentHistory
-
     # Create note (v1) - CREATE action stores snapshot
     response = await client.post(
         "/notes/",
@@ -2311,8 +2274,6 @@ async def test_get_version_diff__hard_deleted_entity(
     client: AsyncClient,
 ) -> None:
     """Hard-deleted entity returns 404."""
-    from uuid import uuid4
-
     fake_id = str(uuid4())
     response = await client.get(f"/history/note/{fake_id}/version/1/diff")
     assert response.status_code == 404
@@ -2323,10 +2284,6 @@ async def test_get_version_diff__reconstruction_warnings_propagated(
     db_session: AsyncSession,
 ) -> None:
     """Reconstruction warnings are propagated in the diff response."""
-    from sqlalchemy import select
-
-    from models.content_history import ContentHistory
-
     # Create note with 3 versions
     response = await client.post(
         "/notes/",
@@ -2392,17 +2349,8 @@ async def test_get_version_diff__cross_user_isolation(
     db_session: AsyncSession,
 ) -> None:
     """User 2 cannot access User 1's entity diff."""
-    from collections.abc import AsyncGenerator
-
-    from httpx import ASGITransport, AsyncClient as HttpxAsyncClient
-
-    from api.main import app
-    from core.config import Settings, get_settings
-    from db.session import get_async_session
-    from models.user import User
-    from schemas.token import TokenCreate
-    from services.token_service import create_token
-    from tests.api.conftest import add_consent_for_user
+    from api.main import app  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
 
     # Create a note as user1
     response = await client.post(
@@ -2451,10 +2399,6 @@ async def test_get_version_diff__corrupted_diff_returns_warning_not_500(
     db_session: AsyncSession,
 ) -> None:
     """Garbage diff text returns 200 with warning and null before_content, not 500."""
-    from sqlalchemy import select
-
-    from models.content_history import ContentHistory
-
     response = await client.post(
         "/notes/",
         json={"title": "Corrupt Test", "content": "v1 content"},

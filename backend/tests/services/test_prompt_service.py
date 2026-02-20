@@ -4,6 +4,7 @@ Tests for prompt service layer functionality.
 Tests CRUD operations, soft delete, archive, restore, view filtering,
 template validation, and name uniqueness for prompts.
 """
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -548,8 +549,6 @@ async def test__track_usage__updates_last_used_at(
     test_prompt: Prompt,
 ) -> None:
     """Test that track_usage updates the last_used_at timestamp."""
-    import asyncio
-
     original_last_used = test_prompt.last_used_at
 
     await asyncio.sleep(0.01)
@@ -623,7 +622,7 @@ def test__validate_template__invalid_syntax() -> None:
 
 def test__validate_template__undefined_variable() -> None:
     """Test that undefined variables raise ValueError."""
-    with pytest.raises(ValueError, match="undefined variable.*name"):
+    with pytest.raises(ValueError, match=r"undefined variable.*name"):
         validate_template("Hello {{ name }}!", [])
 
 
@@ -752,7 +751,7 @@ async def test__update__validates_when_removing_argument_still_used(
     # Try to remove the argument while keeping the content
     data = PromptUpdate(arguments=[])  # Remove all arguments
 
-    with pytest.raises(ValueError, match="undefined variable.*name"):
+    with pytest.raises(ValueError, match=r"undefined variable.*name"):
         await prompt_service.update(db_session, test_user.id, test_prompt.id, data, DEFAULT_LIMITS)
 
 
@@ -765,7 +764,7 @@ async def test__update__validates_when_adding_template_var_without_argument(
     # Add new variable to content without adding the argument
     data = PromptUpdate(content="Hello {{ name }} and {{ new_var }}!")
 
-    with pytest.raises(ValueError, match="undefined variable.*new_var"):
+    with pytest.raises(ValueError, match=r"undefined variable.*new_var"):
         await prompt_service.update(db_session, test_user.id, test_prompt.id, data, DEFAULT_LIMITS)
 
 

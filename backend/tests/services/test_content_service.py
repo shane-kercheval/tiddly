@@ -4,6 +4,8 @@ Tests for unified content service layer.
 Tests the search_all_content function that combines bookmarks, notes, and prompts
 into a unified list with proper pagination and sorting.
 """
+import asyncio
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -292,7 +294,7 @@ async def test__search_all_content__text_search_is_case_insensitive(
 
     await db_session.flush()
 
-    items, total = await search_all_content(db_session, test_user.id, query='python')
+    _items, total = await search_all_content(db_session, test_user.id, query='python')
 
     assert total == 1
 
@@ -393,8 +395,6 @@ async def test__search_all_content__sort_by_created_at_desc(
     test_user: User,
 ) -> None:
     """Test sorting by created_at descending (newest first)."""
-    import asyncio
-
     # Create content with delays
     bookmark_data = BookmarkCreate(url='https://first.com', title='First')
     await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
@@ -596,7 +596,7 @@ async def test__search_all_content__handles_empty_tags_gracefully(
     await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
     await db_session.flush()
 
-    items, total = await search_all_content(
+    _items, total = await search_all_content(
         db_session, test_user.id, tags=[],
     )
 
@@ -1012,8 +1012,6 @@ async def test__search_all_content__mixed_content_sorting(
     test_user: User,
 ) -> None:
     """Test that sorting works correctly across all content types."""
-    import asyncio
-
     # Create with delays to ensure different created_at times
     bookmark_data = BookmarkCreate(url='https://first.com', title='First')
     await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)

@@ -18,6 +18,7 @@ IMPORTANT: The two PATs MUST be from DIFFERENT user accounts.
 RUN:
     make pen_tests
 """
+import asyncio
 import os
 from pathlib import Path
 
@@ -1101,8 +1102,6 @@ class TestPromptRaceConditions:
         headers_user_a: dict[str, str],
     ) -> None:
         """Rapid duplicate POSTs don't create multiple prompts with same name."""
-        import asyncio
-
         prompt_name = "race-condition-prompt-test"
 
         # Cleanup first
@@ -1238,8 +1237,6 @@ class TestRaceConditions:
         headers_user_a: dict[str, str],
     ) -> None:
         """Rapid duplicate POSTs don't create multiple bookmarks."""
-        import asyncio
-
         url = "https://race-condition-test-unique.example.com/"
 
         async def create_bookmark() -> httpx.Response:

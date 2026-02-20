@@ -8,7 +8,7 @@ from core.rate_limit_config import (
     get_operation_type,
 )
 from core.rate_limiter import check_rate_limit
-from core.redis import RedisClient
+from core.redis import RedisClient, set_redis_client
 from core.tier_limits import Tier, get_tier_limits
 
 # Reference configurations for cleaner tests
@@ -321,7 +321,6 @@ class TestRateLimiterFallback:
 
     async def test__check__allows_request_when_redis_unavailable(self) -> None:
         """Requests are allowed when Redis is unavailable (fail-open)."""
-        from core.redis import set_redis_client
         set_redis_client(None)
 
         result = await check_rate_limit(
@@ -334,8 +333,6 @@ class TestRateLimiterFallback:
 
     async def test__check__allows_request_when_redis_disabled(self) -> None:
         """Requests are allowed when Redis is disabled (fail-open)."""
-        from core.redis import set_redis_client
-
         disabled_client = RedisClient("redis://localhost:6379", enabled=False)
         await disabled_client.connect()
         set_redis_client(disabled_client)

@@ -1,5 +1,6 @@
 """Tests for relationship API endpoints."""
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -7,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import delete as sql_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.tier_limits import TIER_LIMITS, Tier
 from models.note import Note
 from tests.api.conftest import FAKE_UUID
 
@@ -1043,9 +1045,6 @@ async def test__api_create_relationship__enforces_limit(
     client: AsyncClient,
 ) -> None:
     """Creating relationships beyond the per-entity limit returns 402."""
-    from unittest.mock import patch
-    from core.tier_limits import TIER_LIMITS, Tier
-
     bm = await _create_bookmark(client)
     notes = [await _create_note(client, title=f'Note {i}') for i in range(4)]
 

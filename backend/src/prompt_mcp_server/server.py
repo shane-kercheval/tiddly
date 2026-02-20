@@ -836,15 +836,15 @@ async def handle_call_tool(
     """Handle tool calls."""
     # Dispatch table for tool handlers
     handlers = {
-        "get_context": lambda args: _handle_get_context(args),
-        "search_prompts": lambda args: _handle_search_prompts(args),
+        "get_context": _handle_get_context,
+        "search_prompts": _handle_search_prompts,
         "list_filters": lambda _: _handle_list_filters(),
         "list_tags": lambda _: _handle_list_tags(),
-        "get_prompt_content": lambda args: _handle_get_prompt_content(args),
-        "get_prompt_metadata": lambda args: _handle_get_prompt_metadata(args),
-        "create_prompt": lambda args: _handle_create_prompt(args),
-        "edit_prompt_content": lambda args: _handle_edit_prompt_content(args),
-        "update_prompt": lambda args: _handle_update_prompt(args),
+        "get_prompt_content": _handle_get_prompt_content,
+        "get_prompt_metadata": _handle_get_prompt_metadata,
+        "create_prompt": _handle_create_prompt,
+        "edit_prompt_content": _handle_edit_prompt_content,
+        "update_prompt": _handle_update_prompt,
     }
 
     handler = handlers.get(name)
