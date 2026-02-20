@@ -6,6 +6,7 @@
  */
 import type { ReactNode } from 'react'
 import type { EditorView } from '@codemirror/view'
+import { useRightSidebarStore } from '../../stores/rightSidebarStore'
 import {
   toggleWrapMarkers,
   toggleLinePrefix,
@@ -55,6 +56,7 @@ interface IconFactories {
   jinjaIfTrim: () => ReactNode
   save: () => ReactNode
   close: () => ReactNode
+  tableOfContents: () => ReactNode
 }
 
 interface BuildOptions {
@@ -63,12 +65,14 @@ interface BuildOptions {
   icons: IconFactories
   /** Whether the editor has unsaved changes (controls discard command state). */
   isDirty?: boolean
+  /** Whether to include the Table of Contents toggle command. */
+  showTocToggle?: boolean
 }
 
 /**
  * Build the list of editor commands based on options.
  */
-export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = false }: BuildOptions): EditorCommand[] {
+export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = false, showTocToggle = false }: BuildOptions): EditorCommand[] {
   const commands: EditorCommand[] = []
 
   // --- Actions section (first, most important for quick access) ---
@@ -92,6 +96,16 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
       icon: icons.close(),
       disabled: !isDirty,
       action: () => { onDiscard() },
+    })
+  }
+  if (showTocToggle) {
+    commands.push({
+      id: 'toggle-toc',
+      label: 'Table of Contents',
+      section: 'Actions',
+      icon: icons.tableOfContents(),
+      shortcut: ['⌥', 'T'],
+      action: () => { useRightSidebarStore.getState().togglePanel('toc') },
     })
   }
 

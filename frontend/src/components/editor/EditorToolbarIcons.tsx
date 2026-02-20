@@ -171,6 +171,15 @@ export function MonoFontIcon(): ReactNode {
   return <span className="w-4 h-4 flex items-center justify-center text-[11px] font-mono font-bold">Aa</span>
 }
 
+export function TableOfContentsIcon(): ReactNode {
+  // Document outline / list icon
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h10M4 18h14" />
+    </svg>
+  )
+}
+
 export function ReadingIcon(): ReactNode {
   // Eye icon for reading/preview mode
   return (

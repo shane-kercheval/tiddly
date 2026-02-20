@@ -28,7 +28,7 @@ import {
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
-import { useHistorySidebarStore } from '../stores/historySidebarStore'
+import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
@@ -62,9 +62,9 @@ export function NoteDetail(): ReactNode {
   const [isLoading, setIsLoading] = useState(!isCreate)
   const [error, setError] = useState<string | null>(null)
 
-  // History sidebar state (managed in store so Layout can apply margin)
-  const showHistory = useHistorySidebarStore((state) => state.isOpen)
-  const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
+  // Right sidebar state (managed in store so Layout can apply margin)
+  const showHistory = useRightSidebarStore((state) => state.activePanel === 'history')
+  const setActivePanel = useRightSidebarStore((state) => state.setActivePanel)
 
   // Get navigation state
   const locationState = location.state as {
@@ -247,8 +247,8 @@ export function NoteDetail(): ReactNode {
 
   // History sidebar handlers
   const handleShowHistory = useCallback((): void => {
-    setShowHistory(true)
-  }, [setShowHistory])
+    setActivePanel('history')
+  }, [setActivePanel])
 
   const handleHistoryRestored = useCallback(async (): Promise<void> => {
     // Refresh the note after a restore to show the restored content
@@ -311,13 +311,14 @@ export function NoteDetail(): ReactNode {
         onRefresh={handleRefresh}
         onShowHistory={handleShowHistory}
         onNavigateToLinked={handleNavigateToLinked}
+        showTocToggle
       />
       {showHistory && noteId && (
         <HistorySidebar
           key={`history-${noteId}`}
           entityType="note"
           entityId={noteId}
-          onClose={() => setShowHistory(false)}
+          onClose={() => setActivePanel(null)}
           onRestored={handleHistoryRestored}
           isDeleted={viewState === 'deleted'}
         />

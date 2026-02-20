@@ -5,6 +5,19 @@ import { describe, it, expect, vi } from 'vitest'
 import { createElement } from 'react'
 import { buildEditorCommands } from './editorCommands'
 
+// Mock the sidebar store
+const mockTogglePanel = vi.fn()
+vi.mock('../../stores/rightSidebarStore', () => ({
+  useRightSidebarStore: Object.assign(
+    () => ({}),
+    {
+      getState: () => ({
+        togglePanel: mockTogglePanel,
+      }),
+    }
+  ),
+}))
+
 // Minimal icon factories that return React elements
 const stubIcons = {
   bold: () => createElement('span', null, 'bold'),
@@ -27,6 +40,7 @@ const stubIcons = {
   jinjaIfTrim: () => createElement('span', null, 'jinjaIfTrim'),
   save: () => createElement('span', null, 'save'),
   close: () => createElement('span', null, 'close'),
+  tableOfContents: () => createElement('span', null, 'tableOfContents'),
 }
 
 describe('buildEditorCommands', () => {
@@ -113,6 +127,39 @@ describe('buildEditorCommands', () => {
     expect(actionCommands).toHaveLength(2)
   })
 
+  it('should include all action commands plus toggle-toc when callbacks and showTocToggle provided', () => {
+    const commands = buildEditorCommands({
+      showJinja: false,
+      callbacks: {
+        onSaveAndClose: vi.fn(),
+        onDiscard: vi.fn(),
+      },
+      icons: stubIcons,
+      showTocToggle: true,
+    })
+
+    const actionCommands = commands.filter((c) => c.section === 'Actions')
+    expect(actionCommands).toHaveLength(3)
+    expect(actionCommands.map((c) => c.id)).toEqual([
+      'save-and-close',
+      'discard',
+      'toggle-toc',
+    ])
+  })
+
+  it('should only include toggle-toc in Actions when no callbacks but showTocToggle is true', () => {
+    const commands = buildEditorCommands({
+      showJinja: false,
+      callbacks: {},
+      icons: stubIcons,
+      showTocToggle: true,
+    })
+
+    const actionCommands = commands.filter((c) => c.section === 'Actions')
+    expect(actionCommands).toHaveLength(1)
+    expect(actionCommands[0].id).toBe('toggle-toc')
+  })
+
   it('should place Actions section before Format and Insert', () => {
     const commands = buildEditorCommands({
       showJinja: false,
@@ -189,5 +236,46 @@ describe('buildEditorCommands', () => {
     const cmd = commands.find((c) => c.id === 'discard')!
     cmd.action(null as never)
     expect(onDiscard).toHaveBeenCalledOnce()
+  })
+
+  it('should include toggle-toc command when showTocToggle is true', () => {
+    const commands = buildEditorCommands({
+      showJinja: false,
+      callbacks: {},
+      icons: stubIcons,
+      showTocToggle: true,
+    })
+
+    const cmd = commands.find((c) => c.id === 'toggle-toc')
+    expect(cmd).toBeDefined()
+    expect(cmd!.label).toBe('Table of Contents')
+    expect(cmd!.section).toBe('Actions')
+    expect(cmd!.shortcut).toEqual(['⌥', 'T'])
+  })
+
+  it('should not include toggle-toc command when showTocToggle is false', () => {
+    const commands = buildEditorCommands({
+      showJinja: false,
+      callbacks: {},
+      icons: stubIcons,
+      showTocToggle: false,
+    })
+
+    const cmd = commands.find((c) => c.id === 'toggle-toc')
+    expect(cmd).toBeUndefined()
+  })
+
+  it('should call togglePanel on store when toggle-toc action is executed', () => {
+    const commands = buildEditorCommands({
+      showJinja: false,
+      callbacks: {},
+      icons: stubIcons,
+      showTocToggle: true,
+    })
+
+    const cmd = commands.find((c) => c.id === 'toggle-toc')!
+    cmd.action(null as never)
+
+    expect(mockTogglePanel).toHaveBeenCalledWith('toc')
   })
 })

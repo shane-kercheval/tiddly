@@ -7,7 +7,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useEntityHistory, useVersionDiff, useRestoreToVersion } from '../hooks/useHistory'
-import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
+import { useResizableSidebar } from '../hooks/useResizableSidebar'
 import { CloseIcon, RestoreIcon, HelpIcon, ChevronLeftIcon, ChevronRightIcon } from './icons'
 import type { ContentType, HistoryActionType } from '../types'
 import { Tooltip } from './ui/Tooltip'
@@ -35,17 +35,6 @@ const AUDIT_TOOLTIPS: Partial<Record<HistoryActionType, string>> = {
 
 const PAGE_SIZE = 50
 
-/** Tailwind md breakpoint */
-const MD_BREAKPOINT = 768
-
-/** Calculate the maximum allowed sidebar width based on current viewport */
-function calculateMaxWidth(): number {
-  const leftSidebar = document.getElementById('desktop-sidebar')
-  const leftSidebarWidth = leftSidebar?.getBoundingClientRect().width ?? 0
-  // Clamp to MIN_SIDEBAR_WIDTH to prevent negative values on narrow viewports
-  return Math.max(MIN_SIDEBAR_WIDTH, window.innerWidth - leftSidebarWidth - MIN_CONTENT_WIDTH)
-}
-
 export function HistorySidebar({
   entityType,
   entityId,
@@ -56,11 +45,7 @@ export function HistorySidebar({
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [confirmingRestore, setConfirmingRestore] = useState<number | null>(null)
   const confirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [isDragging, setIsDragging] = useState(false)
   const [page, setPageRaw] = useState(0)
-  const [isDesktop, setIsDesktop] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth >= MD_BREAKPOINT : true
-  )
 
   // Wrap setPage to also clear selection state
   const setPage = useCallback((newPage: number) => {
@@ -69,67 +54,7 @@ export function HistorySidebar({
     setConfirmingRestore(null)
   }, [])
 
-  // Get width from store
-  const storeWidth = useHistorySidebarStore((state) => state.width)
-  const setWidth = useHistorySidebarStore((state) => state.setWidth)
-
-  // Constrain width to current viewport on mount and window resize
-  useEffect(() => {
-    const constrainWidth = (): void => {
-      const maxWidth = calculateMaxWidth()
-      if (storeWidth > maxWidth) {
-        setWidth(maxWidth)
-      }
-      setIsDesktop(window.innerWidth >= MD_BREAKPOINT)
-    }
-
-    // Check on mount
-    constrainWidth()
-
-    // Check on window resize
-    window.addEventListener('resize', constrainWidth)
-    return () => window.removeEventListener('resize', constrainWidth)
-  }, [storeWidth, setWidth])
-
-  // Calculate effective width (clamped to current max)
-  const width = isDesktop ? Math.min(storeWidth, calculateMaxWidth()) : storeWidth
-
-  // Handle drag resize
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    setIsDragging(true)
-  }, [])
-
-  useEffect(() => {
-    if (!isDragging) return
-
-    const handleMouseMove = (e: MouseEvent) => {
-      // Width is calculated from the right edge of the window
-      const newWidth = window.innerWidth - e.clientX
-      const maxWidth = calculateMaxWidth()
-
-      // Clamp to dynamic max (store handles min clamping)
-      setWidth(Math.min(newWidth, maxWidth))
-    }
-
-    const handleMouseUp = () => {
-      setIsDragging(false)
-    }
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-
-    // Prevent text selection while dragging
-    document.body.style.userSelect = 'none'
-    document.body.style.cursor = 'ew-resize'
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      document.body.style.userSelect = ''
-      document.body.style.cursor = ''
-    }
-  }, [isDragging, setWidth])
+  const { width, isDesktop, handleMouseDown } = useResizableSidebar()
 
   // Auto-reset confirmation after 3 seconds
   useEffect(() => {

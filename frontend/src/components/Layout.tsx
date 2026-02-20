@@ -10,7 +10,7 @@ import { useSidebarStore } from '../stores/sidebarStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFiltersStore } from '../stores/filtersStore'
 import { useTagsStore } from '../stores/tagsStore'
-import { useHistorySidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/historySidebarStore'
+import { useRightSidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/rightSidebarStore'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 
 /**
@@ -39,11 +39,11 @@ export function Layout(): ReactNode {
   )
   const location = useLocation()
   const showFooter = location.pathname.startsWith('/app/settings')
-  // History sidebar only renders on detail pages (e.g., /app/notes/abc-123), not create pages
+  // Right sidebar only renders on detail pages (e.g., /app/notes/abc-123), not create pages
   const isDetailPage = /^\/app\/(bookmarks|notes|prompts)\/(?!new$)[^/]+$/.test(location.pathname)
   const hasFetchedRef = useRef(false)
-  const historySidebarOpen = useHistorySidebarStore((state) => state.isOpen)
-  const historySidebarWidth = useHistorySidebarStore((state) => state.width)
+  const rightSidebarOpen = useRightSidebarStore((state) => state.activePanel !== null)
+  const rightSidebarWidth = useRightSidebarStore((state) => state.width)
 
   // Command palette state
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -74,15 +74,15 @@ export function Layout(): ReactNode {
     const handleResize = (): void => {
       setIsDesktop(window.innerWidth >= MD_BREAKPOINT)
       // Force re-render to recalculate history sidebar margin
-      if (historySidebarOpen) {
+      if (rightSidebarOpen) {
         setResizeCount((c) => c + 1)
       }
     }
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
-  }, [historySidebarOpen])
+  }, [rightSidebarOpen])
 
-  const toggleHistorySidebar = useHistorySidebarStore((state) => state.setOpen)
+  const togglePanel = useRightSidebarStore((state) => state.togglePanel)
 
   // Global keyboard shortcuts (work on all pages)
   useKeyboardShortcuts({
@@ -92,22 +92,22 @@ export function Layout(): ReactNode {
     onFocusSearch: () => openPalette('search'),
     onCommandPalette: () => openPalette('commands'),
     onToggleHistorySidebar: isDetailPage
-      ? () => toggleHistorySidebar(!historySidebarOpen)
+      ? () => togglePanel('history')
       : undefined,
     onEscape: () => {
       if (showShortcuts) setShowShortcuts(false)
     },
   })
 
-  // Calculate constrained margin for history sidebar
-  // Uses the same logic as HistorySidebar to ensure they stay in sync
-  const getHistoryMargin = (): number => {
-    if (!historySidebarOpen || !isDesktop || !isDetailPage) return 0
+  // Calculate constrained margin for right sidebar
+  // Uses the same logic as sidebar components to ensure they stay in sync
+  const getRightSidebarMargin = (): number => {
+    if (!rightSidebarOpen || !isDesktop || !isDetailPage) return 0
     const leftSidebar = document.getElementById('desktop-sidebar')
     const leftSidebarWidth = leftSidebar?.getBoundingClientRect().width ?? 0
     // Clamp to MIN_SIDEBAR_WIDTH to prevent negative values on narrow viewports
     const maxWidth = Math.max(MIN_SIDEBAR_WIDTH, window.innerWidth - leftSidebarWidth - MIN_CONTENT_WIDTH)
-    return Math.min(historySidebarWidth, maxWidth)
+    return Math.min(rightSidebarWidth, maxWidth)
   }
 
   return (
@@ -117,7 +117,7 @@ export function Layout(): ReactNode {
       <main
         id="main-content"
         className="flex-1 flex flex-col min-w-0 relative overflow-x-hidden transition-[margin] duration-200"
-        style={{ marginRight: `${getHistoryMargin()}px` }}
+        style={{ marginRight: `${getRightSidebarMargin()}px` }}
       >
         <div className="flex-1 overflow-y-auto overflow-x-hidden">
           <div className={`flex flex-col min-h-0 px-4 pb-4 md:px-5 ${fullWidthLayout ? 'max-w-full' : 'max-w-5xl'}`}>

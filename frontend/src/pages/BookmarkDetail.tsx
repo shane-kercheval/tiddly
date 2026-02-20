@@ -26,7 +26,7 @@ import {
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
-import { useHistorySidebarStore } from '../stores/historySidebarStore'
+import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
@@ -59,9 +59,17 @@ export function BookmarkDetail(): ReactNode {
   const [isLoading, setIsLoading] = useState(!isCreate)
   const [error, setError] = useState<string | null>(null)
 
-  // History sidebar state (managed in store so Layout can apply margin)
-  const showHistory = useHistorySidebarStore((state) => state.isOpen)
-  const setShowHistory = useHistorySidebarStore((state) => state.setOpen)
+  // Right sidebar state (managed in store so Layout can apply margin)
+  const showHistory = useRightSidebarStore((state) => state.activePanel === 'history')
+  const activePanel = useRightSidebarStore((state) => state.activePanel)
+  const setActivePanel = useRightSidebarStore((state) => state.setActivePanel)
+
+  // Close ToC panel if active — bookmarks don't support ToC
+  useEffect(() => {
+    if (activePanel === 'toc') {
+      setActivePanel(null)
+    }
+  }, [activePanel, setActivePanel])
 
   const locationState = location.state as {
     initialTags?: string[]
@@ -269,8 +277,8 @@ export function BookmarkDetail(): ReactNode {
 
   // History sidebar handlers
   const handleShowHistory = useCallback((): void => {
-    setShowHistory(true)
-  }, [setShowHistory])
+    setActivePanel('history')
+  }, [setActivePanel])
 
   const handleHistoryRestored = useCallback(async (): Promise<void> => {
     // Refresh the bookmark after a restore to show the restored content
@@ -317,7 +325,7 @@ export function BookmarkDetail(): ReactNode {
           key={`history-${bookmarkId}`}
           entityType="bookmark"
           entityId={bookmarkId}
-          onClose={() => setShowHistory(false)}
+          onClose={() => setActivePanel(null)}
           onRestored={handleHistoryRestored}
           isDeleted={viewState === 'deleted'}
         />

@@ -215,6 +215,7 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 - `Alt+Z`: Toggle word wrap.
 - `Alt+L`: Toggle line numbers.
 - `Alt+M`: Toggle monospace font.
+- `Alt+T`: Toggle table of contents sidebar (navigable list of headings).
 - Standard formatting: `Cmd+B` (bold), `Cmd+I` (italic), `Cmd+E` (inline code), `Cmd+K` (link), `Cmd+Shift+E` (code block), `Cmd+Shift+8` (bullet list), `Cmd+Shift+7` (numbered list), `Cmd+Shift+9` (task list).
 
 ## Platform
