@@ -31,6 +31,8 @@ import httpx
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from shared.api_errors import ParsedApiError, parse_http_error
 from shared.mcp_format import format_filter_expression
@@ -183,6 +185,12 @@ error with `server_state` containing the current version for resolution.
 Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
 """.strip(),  # noqa: E501
 )
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001
+    """Health check endpoint."""
+    return JSONResponse({"status": "healthy"})
 
 
 # Module-level client for connection reuse (can be overridden in tests)
