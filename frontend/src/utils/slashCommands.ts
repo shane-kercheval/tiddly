@@ -48,9 +48,9 @@ const SVG_ICONS: Record<string, string> = {
   quote: '<svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="2.5" height="16" rx="1" fill="currentColor"/><path d="M10 8h10M10 12h8M10 16h6" stroke="currentColor" stroke-width="2"/></svg>',
   link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.828 10.172a4 4 0 0 0-5.656 0l-4 4a4 4 0 1 0 5.656 5.656l1.102-1.101"/><path d="M10.172 13.828a4 4 0 0 0 5.656 0l4-4a4 4 0 0 0-5.656-5.656l-1.1 1.1"/></svg>',
   hr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h16"/></svg>',
-  'jinja-var': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4c-2 0-3 1-3 3v3c0 1.5-1 2-2 2 1 0 2 .5 2 2v3c0 2 1 3 3 3M16 4c2 0 3 1 3 3v3c0 1.5 1 2 2 2-1 0-2 .5-2 2v3c0 2-1 3-3 3"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>',
-  'jinja-if': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6l3-3M12 9l-3-3"/><path d="M6 15h12"/><path d="M6 21h12"/></svg>',
-  'jinja-if-trim': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6l3-3M12 9l-3-3"/><path d="M6 15h12"/><path d="M6 21h12"/><path d="M3 12h2M19 12h2"/></svg>',
+  'jinja-var': '<span style="display:flex;align-items:center;justify-content:center;width:16px;height:16px;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700">{}</span>',
+  'jinja-if': '<span style="display:flex;align-items:center;justify-content:center;width:16px;height:16px;font-size:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700">if</span>',
+  'jinja-if-trim': '<span style="display:flex;align-items:center;justify-content:center;width:16px;height:16px;font-size:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700">if-</span>',
 }
 
 // ---------------------------------------------------------------------------
@@ -273,6 +273,7 @@ const slashCommandAddToOptions: AddToOptionsSpec[] = [
 const scrollFadePlugin = ViewPlugin.fromClass(
   class {
     fadeEl: HTMLElement | null = null
+    footerEl: HTMLElement | null = null
     ul: HTMLElement | null = null
     scrollHandler: (() => void) | null = null
     view: EditorView
@@ -292,7 +293,7 @@ const scrollFadePlugin = ViewPlugin.fromClass(
     sync(): void {
       const tooltip = this.view.dom.querySelector('.cm-tooltip-autocomplete')
 
-      // If CM replaced the tooltip DOM node, our fade element is detached — re-attach
+      // If CM replaced the tooltip DOM node, our elements are detached — re-attach
       if (tooltip && this.fadeEl && !this.fadeEl.isConnected) {
         this.cleanup()
       }
@@ -301,9 +302,24 @@ const scrollFadePlugin = ViewPlugin.fromClass(
         const ul = tooltip.querySelector('ul') as HTMLElement | null
         if (!ul) return
         this.ul = ul
+
+        // Fade overlay
         this.fadeEl = document.createElement('div')
         this.fadeEl.className = 'cm-autocomplete-fade'
         tooltip.appendChild(this.fadeEl)
+
+        // Footer hint for command menu shortcut
+        if (!tooltip.querySelector('.cm-slash-footer')) {
+          this.footerEl = document.createElement('div')
+          this.footerEl.className = 'cm-slash-footer'
+          const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
+          const modKey = isMac ? '⌘' : 'Ctrl'
+          this.footerEl.innerHTML =
+            `<kbd>${modKey}</kbd><kbd>⇧</kbd><kbd>/</kbd>` +
+            '<span>for all commands</span>'
+          tooltip.appendChild(this.footerEl)
+        }
+
         this.scrollHandler = (): void => this.updateFade()
         ul.addEventListener('scroll', this.scrollHandler)
         this.updateFade()
@@ -326,7 +342,9 @@ const scrollFadePlugin = ViewPlugin.fromClass(
         this.ul.removeEventListener('scroll', this.scrollHandler)
       }
       this.fadeEl?.remove()
+      this.footerEl?.remove()
       this.fadeEl = null
+      this.footerEl = null
       this.ul = null
       this.scrollHandler = null
     }

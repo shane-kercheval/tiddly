@@ -885,6 +885,9 @@ export function Note({
           showBorder={true}
           subtleBorder={true}
           onModalStateChange={setIsModalOpen}
+          onSaveAndClose={!isReadOnly ? () => { requestSaveAndClose(); formRef.current?.requestSubmit() } : undefined}
+          onDiscard={!isReadOnly ? () => { setCurrent(original); setContentKey((k) => k + 1); resetConfirmation() } : undefined}
+          isDirty={isDirty}
         />
       </div>
 

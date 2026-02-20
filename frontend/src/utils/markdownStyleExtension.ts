@@ -1175,28 +1175,32 @@ const markdownBaseTheme = EditorView.theme({
     padding: '4px',
     minWidth: '300px',
     maxWidth: '340px',
+    overflow: 'hidden',
   },
   // Fade overlay managed by scrollFadePlugin in slashCommands.ts.
   // Only visible when the list has more items below the visible area.
   // Insets match tooltip padding above so the fade covers the content area, not the border.
   '& .cm-autocomplete-fade': {
     position: 'absolute',
-    bottom: '4px',
+    bottom: '0',
     left: '4px',
     right: '4px',
-    height: '28px',
-    background: 'linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,1))',
+    height: '64px',
+    background: 'linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 60%)',
     pointerEvents: 'none',
-    borderRadius: '0 0 10px 10px',
     transition: 'opacity 150ms',
   },
   '& .cm-tooltip.cm-tooltip-autocomplete > ul': {
     fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important',
     maxHeight: '400px',
     minWidth: '300px',
+    scrollbarWidth: 'none',  // Hide scrollbar (Firefox)
+  },
+  '& .cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar': {
+    display: 'none',  // Hide scrollbar (Chrome/Safari)
   },
   '& .cm-tooltip-autocomplete ul li': {
-    padding: '1px 8px',
+    padding: '1px 8px 1px 10px !important',
     borderRadius: '6px',
     display: 'flex',
     alignItems: 'center',
@@ -1213,14 +1217,18 @@ const markdownBaseTheme = EditorView.theme({
     color: 'inherit',
   },
   // Section headers are <completion-section> custom elements, not .cm-completionSection
+  // Section headers — uppercase, matching EditorCommandMenu style
   '& .cm-tooltip-autocomplete ul completion-section': {
     fontSize: '11px !important',
     fontWeight: '500',
     fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important',
     color: '#9ca3af !important',
-    letterSpacing: '0.03em',
-    padding: '8px 8px 6px !important',
-    marginTop: '4px',
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+    // margin: 0 8px insets the border-top to match command menu's mx-2 dividers
+    // padding: 8px 0 keeps text at same 12px from tooltip edge (4px tooltip + 8px margin + 0px padding)
+    padding: '8px 0 4px !important',
+    margin: '4px 8px 0 !important',
     borderBottom: 'none !important',
     borderTop: '1px solid #e5e7eb',
     opacity: '1 !important',
@@ -1228,8 +1236,8 @@ const markdownBaseTheme = EditorView.theme({
   },
   '& .cm-tooltip-autocomplete ul completion-section:first-child': {
     borderTop: 'none !important',
-    marginTop: '0',
-    paddingTop: '4px !important',
+    marginTop: '0 !important',
+    paddingTop: '8px !important',
   },
   '& .cm-completionLabel': {
     fontSize: '14px',
@@ -1305,6 +1313,35 @@ const markdownBaseTheme = EditorView.theme({
     color: '#93c5fd',
     backgroundColor: '#dbeafe',
     borderColor: '#bfdbfe',
+  },
+  // Footer hint for command menu shortcut
+  '& .cm-slash-footer': {
+    position: 'relative',
+    backgroundColor: '#ffffff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '4px',
+    padding: '5px 8px',
+    borderTop: '1px solid #e5e7eb',
+    fontSize: '11px',
+    color: '#9ca3af',
+    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+  },
+  '& .cm-slash-footer kbd': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '16px',
+    height: '16px',
+    padding: '0 3px',
+    fontSize: '10px',
+    fontWeight: '500',
+    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+    color: '#9ca3af',
+    backgroundColor: '#f3f4f6',
+    borderRadius: '3px',
+    border: '1px solid #e5e7eb',
   },
 })
 

@@ -146,6 +146,12 @@ interface ContentEditorProps {
   showJinjaTools?: boolean
   /** Called when a modal opens/closes (for beforeunload handlers) */
   onModalStateChange?: (isOpen: boolean) => void
+  /** Save and close callback for command menu */
+  onSaveAndClose?: () => void
+  /** Discard changes callback for command menu (always shown, greyed out when !isDirty) */
+  onDiscard?: () => void
+  /** Whether the editor has unsaved changes */
+  isDirty?: boolean
 }
 
 /**
@@ -178,6 +184,9 @@ export function ContentEditor({
   subtleBorder = false,
   showJinjaTools = false,
   onModalStateChange,
+  onSaveAndClose,
+  onDiscard,
+  isDirty,
 }: ContentEditorProps): ReactNode {
   // Mode state commented out - now always using CodeMirror
   // const [mode, setMode] = useState<EditorMode>(loadModePreference)
@@ -339,6 +348,9 @@ export function ContentEditor({
           copyContent={value}
           showJinjaTools={showJinjaTools}
           onModalStateChange={onModalStateChange}
+          onSaveAndClose={onSaveAndClose}
+          onDiscard={onDiscard}
+          isDirty={isDirty}
         />
       </div>
 

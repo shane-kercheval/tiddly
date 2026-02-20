@@ -32,6 +32,8 @@ import {
   TaskListIcon,
   BlockquoteIcon,
   HorizontalRuleIcon,
+  HeadingIcon,
+  SaveIcon,
   JinjaVariableIcon,
   JinjaIfIcon,
   JinjaIfTrimIcon,
@@ -40,10 +42,20 @@ import {
   MonoFontIcon,
   ReadingIcon,
 } from './editor/EditorToolbarIcons'
+import { CloseIcon } from './icons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
 import { createSlashCommandSource, slashCommandAddToOptions, scrollFadePlugin } from '../utils/slashCommands'
 import { wasEditorFocused } from '../utils/editorUtils'
-import { getToggleMarkerAction } from '../utils/markdownToggle'
+import {
+  toggleWrapMarkers,
+  toggleLinePrefix,
+  insertLink,
+  insertCodeBlock,
+  insertHorizontalRule,
+  insertText,
+} from '../utils/editorFormatting'
+import { buildEditorCommands, type MenuCallbacks } from './editor/editorCommands'
+import { EditorCommandMenu } from './editor/EditorCommandMenu'
 
 /** Markdown formatting markers for wrap-style formatting. */
 const MARKERS = {
@@ -95,192 +107,12 @@ interface CodeMirrorEditorProps {
   showJinjaTools?: boolean
   /** Called when a modal opens/closes (for beforeunload handlers) */
   onModalStateChange?: (isOpen: boolean) => void
-}
-
-/**
- * Toggle markdown markers around selected text (smart toggle).
- * - If selection includes markers: unwrap
- * - If markers are just outside selection: unwrap
- * - Otherwise: wrap
- * If no selection, insert markers and place cursor between them.
- */
-function toggleWrapMarkers(view: EditorView, before: string, after: string): boolean {
-  const { state } = view
-  const { from, to } = state.selection.main
-  const selectedText = state.sliceDoc(from, to)
-
-  // Get surrounding text for smart detection
-  const expandedFrom = Math.max(0, from - before.length)
-  const expandedTo = Math.min(state.doc.length, to + after.length)
-  const surroundingBefore = state.sliceDoc(expandedFrom, from)
-  const surroundingAfter = state.sliceDoc(to, expandedTo)
-
-  // Get one more char on each side to detect if markers are part of longer sequences
-  // E.g., to distinguish `*` (italic) from `**` (bold)
-  const charBeforeSurrounding = expandedFrom > 0 ? state.sliceDoc(expandedFrom - 1, expandedFrom) : ''
-  const charAfterSurrounding = expandedTo < state.doc.length ? state.sliceDoc(expandedTo, expandedTo + 1) : ''
-
-  const action = getToggleMarkerAction(
-    selectedText,
-    surroundingBefore,
-    surroundingAfter,
-    before,
-    after,
-    charBeforeSurrounding,
-    charAfterSurrounding
-  )
-
-  switch (action.type) {
-    case 'insert':
-      view.dispatch({
-        changes: { from, insert: `${before}${after}` },
-        selection: { anchor: from + before.length },
-      })
-      break
-
-    case 'unwrap-selection': {
-      const inner = selectedText.slice(before.length, -after.length || undefined)
-      view.dispatch({
-        changes: { from, to, insert: inner },
-        selection: { anchor: from, head: from + inner.length },
-      })
-      break
-    }
-
-    case 'unwrap-surrounding':
-      view.dispatch({
-        changes: { from: expandedFrom, to: expandedTo, insert: selectedText },
-        selection: { anchor: expandedFrom, head: expandedFrom + selectedText.length },
-      })
-      break
-
-    case 'wrap':
-      view.dispatch({
-        changes: { from, to, insert: `${before}${selectedText}${after}` },
-        selection: { anchor: from + before.length, head: to + before.length },
-      })
-      break
-  }
-
-  return true
-}
-
-/**
- * Insert a markdown link. If text is selected, use it as the link text.
- */
-function insertLink(view: EditorView): boolean {
-  const { state } = view
-  const { from, to } = state.selection.main
-  const selectedText = state.sliceDoc(from, to)
-
-  if (selectedText) {
-    // Use selected text as link text, place cursor in URL position
-    const linkText = `[${selectedText}](url)`
-    view.dispatch({
-      changes: { from, to, insert: linkText },
-      selection: { anchor: from + selectedText.length + 3, head: from + selectedText.length + 6 },
-    })
-  } else {
-    // Insert empty link template, place cursor in text position
-    view.dispatch({
-      changes: { from, insert: '[text](url)' },
-      selection: { anchor: from + 1, head: from + 5 },
-    })
-  }
-  return true
-}
-
-/**
- * Insert a code block. Wraps selection in fenced code block markers, or inserts empty block at cursor.
- * Note: This inserts only; it does not detect/remove existing code blocks (that would require parsing).
- */
-function insertCodeBlock(view: EditorView): boolean {
-  const { state } = view
-  const { from, to } = state.selection.main
-  const selectedText = state.sliceDoc(from, to)
-
-  if (selectedText) {
-    // Wrap selected text in code block
-    view.dispatch({
-      changes: { from, to, insert: `\`\`\`\n${selectedText}\n\`\`\`` },
-      selection: { anchor: from + 4, head: from + 4 + selectedText.length },
-    })
-  } else {
-    // Insert empty code block and place cursor inside
-    view.dispatch({
-      changes: { from, insert: '```\n\n```' },
-      selection: { anchor: from + 4 },
-    })
-  }
-  return true
-}
-
-/**
- * Add or toggle a prefix on selected lines.
- */
-function toggleLinePrefix(view: EditorView, prefix: string): boolean {
-  const { state } = view
-  const { from, to } = state.selection.main
-  const startLine = state.doc.lineAt(from)
-  const endLine = state.doc.lineAt(to)
-
-  const changes: { from: number; to: number; insert: string }[] = []
-  let newSelectionStart = from
-  let newSelectionEnd = to
-
-  for (let lineNum = startLine.number; lineNum <= endLine.number; lineNum++) {
-    const line = state.doc.line(lineNum)
-    const lineText = line.text
-
-    if (lineText.startsWith(prefix)) {
-      // Remove prefix
-      changes.push({ from: line.from, to: line.from + prefix.length, insert: '' })
-      if (lineNum === startLine.number) newSelectionStart -= prefix.length
-      newSelectionEnd -= prefix.length
-    } else {
-      // Add prefix
-      changes.push({ from: line.from, to: line.from, insert: prefix })
-      if (lineNum === startLine.number) newSelectionStart += prefix.length
-      newSelectionEnd += prefix.length
-    }
-  }
-
-  view.dispatch({
-    changes,
-    selection: { anchor: Math.max(0, newSelectionStart), head: newSelectionEnd },
-  })
-  return true
-}
-
-/**
- * Insert a horizontal rule.
- */
-function insertHorizontalRule(view: EditorView): boolean {
-  const { state } = view
-  const { from } = state.selection.main
-  const line = state.doc.lineAt(from)
-
-  // Insert at end of current line with newlines
-  const insert = line.text.length > 0 ? '\n\n---\n' : '---\n'
-  const insertPos = line.text.length > 0 ? line.to : from
-
-  view.dispatch({
-    changes: { from: insertPos, insert },
-    selection: { anchor: insertPos + insert.length },
-  })
-  return true
-}
-
-/**
- * Insert text at cursor position.
- */
-function insertText(view: EditorView, text: string): boolean {
-  const { from } = view.state.selection.main
-  view.dispatch({
-    changes: { from, insert: text },
-    selection: { anchor: from + text.length },
-  })
-  return true
+  /** Save and close callback for command menu */
+  onSaveAndClose?: () => void
+  /** Discard changes callback for command menu (always shown, greyed out when !isDirty) */
+  onDiscard?: () => void
+  /** Whether the editor has unsaved changes (controls discard command disabled state) */
+  isDirty?: boolean
 }
 
 /**
@@ -397,9 +229,15 @@ export function CodeMirrorEditor({
   copyContent,
   showJinjaTools = false,
   onModalStateChange: _onModalStateChange, // eslint-disable-line @typescript-eslint/no-unused-vars
+  onSaveAndClose,
+  onDiscard,
+  isDirty = false,
 }: CodeMirrorEditorProps): ReactNode {
   const editorRef = useRef<ReactCodeMirrorRef>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Forward-declared ref for openCommandMenu (defined later, used by document-level keydown handler and CM keybinding)
+  const openCommandMenuRef = useRef<() => void>(() => {})
 
   // Reading mode state (local, not persisted)
   const [readingMode, setReadingMode] = useState(false)
@@ -473,6 +311,16 @@ export function CodeMirrorEditor({
         e.preventDefault()
         e.stopPropagation()
         onMonoFontChange(!monoFont)
+        return
+      }
+
+      // Cmd+Shift+/ - open command menu (works whether editor has focus or not)
+      // Uses capture phase so it runs before CM's keymap handler.
+      // Uses ref to avoid dependency ordering issues (openCommandMenu defined later).
+      if (isMod && e.shiftKey && e.key === '/' && !effectiveReadingMode) {
+        e.preventDefault()
+        e.stopPropagation()
+        openCommandMenuRef.current()
       }
     }
 
@@ -497,6 +345,91 @@ export function CodeMirrorEditor({
     }
   }, [getView])
 
+  // --- Command menu state ---
+  const [commandMenuOpen, setCommandMenuOpen] = useState(false)
+  const [commandMenuCoords, setCommandMenuCoords] = useState<{ x: number; y: number } | null>(null)
+  const [savedSelection, setSavedSelection] = useState<{ from: number; to: number } | null>(null)
+
+  // Build command list
+  const menuCallbacks: MenuCallbacks = useMemo(() => ({
+    onSaveAndClose,
+    onDiscard,
+  }), [onSaveAndClose, onDiscard])
+
+  const editorCommands = useMemo(() => buildEditorCommands({
+    showJinja: showJinjaTools,
+    callbacks: menuCallbacks,
+    isDirty,
+    icons: {
+      bold: () => <BoldIcon />,
+      italic: () => <ItalicIcon />,
+      strikethrough: () => <StrikethroughIcon />,
+      highlight: () => <HighlightIcon />,
+      inlineCode: () => <InlineCodeIcon />,
+      codeBlock: () => <CodeBlockIcon />,
+      link: () => <LinkIcon />,
+      bulletList: () => <BulletListIcon />,
+      orderedList: () => <OrderedListIcon />,
+      taskList: () => <TaskListIcon />,
+      blockquote: () => <BlockquoteIcon />,
+      horizontalRule: () => <HorizontalRuleIcon />,
+      heading1: () => <HeadingIcon level={1} />,
+      heading2: () => <HeadingIcon level={2} />,
+      heading3: () => <HeadingIcon level={3} />,
+      jinjaVariable: () => <JinjaVariableIcon />,
+      jinjaIf: () => <JinjaIfIcon />,
+      jinjaIfTrim: () => <JinjaIfTrimIcon />,
+      save: () => <SaveIcon />,
+      close: () => <CloseIcon className="h-4 w-4" />,
+    },
+  }), [showJinjaTools, menuCallbacks, isDirty])
+
+  // Open command menu: capture cursor position and selection.
+  // Focus moves to the menu's filter input via ref callback (synchronous during commit),
+  // which inherently blurs CM — no explicit blur() needed.
+  const openCommandMenu = useCallback((): void => {
+    const view = getView()
+    if (view) {
+      const sel = view.state.selection.main
+      setSavedSelection({ from: sel.from, to: sel.to })
+      const coords = view.coordsAtPos(sel.head)
+      if (coords) {
+        setCommandMenuCoords({ x: coords.left, y: coords.bottom })
+      } else {
+        setCommandMenuCoords(null)
+      }
+    } else {
+      setSavedSelection(null)
+      setCommandMenuCoords(null)
+    }
+    setCommandMenuOpen(true)
+  }, [getView])
+
+  // Close command menu and refocus editor
+  const closeCommandMenu = useCallback((): void => {
+    setCommandMenuOpen(false)
+    const view = getView()
+    if (view) {
+      view.focus()
+    }
+  }, [getView])
+
+  // Execute a command from the menu
+  const handleCommandExecute = useCallback((command: { action: (view: EditorView) => void }): void => {
+    setCommandMenuOpen(false)
+    const view = getView()
+    if (view) {
+      view.focus()
+      // Restore saved selection before running the command
+      if (savedSelection) {
+        view.dispatch({
+          selection: { anchor: savedSelection.from, head: savedSelection.to },
+        })
+      }
+      command.action(view)
+    }
+  }, [getView, savedSelection])
+
   // Semi-controlled mode: pass value for initial render, ignore prop updates after mount.
   // This works around a Safari bug in @uiw/react-codemirror where content disappears
   // after fast typing then pausing (controlled value sync issue).
@@ -513,6 +446,11 @@ export function CodeMirrorEditor({
   // - Programmatic content changes (e.g., version restore) increment contentKey in the
   //   parent, which changes the key prop and forces remount with the new value
   const [initialValue] = useState(value)
+
+  // Keep ref in sync so CM extension and document-level handler use latest callback
+  useEffect(() => {
+    openCommandMenuRef.current = openCommandMenu
+  })
 
   // Build extensions array with optional line wrapping and keybindings
   const extensions = useMemo(() => {
@@ -769,6 +707,17 @@ export function CodeMirrorEditor({
           />
         </div>
       </div>
+
+      {/* Editor command menu (Cmd+Shift+/) — conditionally rendered so
+          React unmounts/remounts it, giving fresh state each time. */}
+      {commandMenuOpen && (
+        <EditorCommandMenu
+          onClose={closeCommandMenu}
+          onExecute={handleCommandExecute}
+          commands={editorCommands}
+          anchorCoords={commandMenuCoords}
+        />
+      )}
     </div>
   )
 }
