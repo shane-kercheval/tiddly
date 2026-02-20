@@ -146,6 +146,14 @@ interface ContentEditorProps {
   showJinjaTools?: boolean
   /** Called when a modal opens/closes (for beforeunload handlers) */
   onModalStateChange?: (isOpen: boolean) => void
+  /** Save and close callback for command menu */
+  onSaveAndClose?: () => void
+  /** Discard changes callback for command menu (always shown, greyed out when !isDirty) */
+  onDiscard?: () => void
+  /** Original content to restore on discard (preserves undo history) */
+  originalContent?: string
+  /** Whether the editor has unsaved changes */
+  isDirty?: boolean
 }
 
 /**
@@ -178,6 +186,10 @@ export function ContentEditor({
   subtleBorder = false,
   showJinjaTools = false,
   onModalStateChange,
+  onSaveAndClose,
+  onDiscard,
+  originalContent,
+  isDirty,
 }: ContentEditorProps): ReactNode {
   // Mode state commented out - now always using CodeMirror
   // const [mode, setMode] = useState<EditorMode>(loadModePreference)
@@ -244,8 +256,6 @@ export function ContentEditor({
     return `border ${borderColor}`
   }
 
-  // Default helper text
-  const defaultHelperText = 'Supports **bold**, *italic*, `code`, [links](url), lists. Press ⌘/ for shortcuts'
 
   return (
     <div className="group/editor">
@@ -339,6 +349,10 @@ export function ContentEditor({
           copyContent={value}
           showJinjaTools={showJinjaTools}
           onModalStateChange={onModalStateChange}
+          onSaveAndClose={onSaveAndClose}
+          onDiscard={onDiscard}
+          originalContent={originalContent}
+          isDirty={isDirty}
         />
       </div>
 
@@ -346,9 +360,9 @@ export function ContentEditor({
       <div className={`flex justify-between items-center mt-1 transition-opacity ${errorMessage ? 'opacity-100' : 'opacity-0 group-focus-within/editor:opacity-100'}`}>
         {errorMessage ? (
           <p className="error-text">{errorMessage}</p>
-        ) : (
-          <p className="helper-text">{helperText ?? defaultHelperText}</p>
-        )}
+        ) : helperText ? (
+          <p className="helper-text">{helperText}</p>
+        ) : null}
         {maxLength && (
           <span className="helper-text">
             {value.length.toLocaleString()}/{maxLength.toLocaleString()}

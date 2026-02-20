@@ -149,10 +149,11 @@ describe('ContentEditor', () => {
   })
 
   describe('helper text and error messages', () => {
-    it('should show default helper text', () => {
+    it('should not show helper text when none provided', () => {
       render(<ContentEditor {...defaultProps} />)
 
-      expect(screen.getByText(/Supports \*\*bold\*\*/)).toBeInTheDocument()
+      const footer = document.querySelector('.flex.justify-between.items-center.mt-1')
+      expect(footer?.querySelector('.helper-text')).not.toBeInTheDocument()
     })
 
     it('should show custom helper text when provided', () => {

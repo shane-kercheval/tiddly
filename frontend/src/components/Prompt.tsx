@@ -625,8 +625,9 @@ export function Prompt({
         tagsToSubmit = tags
         cleanedArgs = args
 
-        // Early return if nothing changed (safety net for edge cases)
+        // Nothing changed — still honour close request, but skip the API call
         if (Object.keys(updates).length === 0) {
+          checkAndClose()
           return
         }
 
@@ -1112,6 +1113,10 @@ export function Prompt({
             subtleBorder={true}
             showJinjaTools={true}
             onModalStateChange={setIsModalOpen}
+            onSaveAndClose={!isReadOnly ? () => { requestSaveAndClose(); formRef.current?.requestSubmit() } : undefined}
+            onDiscard={!isReadOnly ? () => { setCurrent(original); resetConfirmation() } : undefined}
+            originalContent={original.content}
+            isDirty={isDirty}
           />
         </div>
       </div>

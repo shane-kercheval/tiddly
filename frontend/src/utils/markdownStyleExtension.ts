@@ -1163,6 +1163,186 @@ const markdownBaseTheme = EditorView.theme({
     color: '#9ca3af !important',
     fontStyle: 'italic',
   },
+
+  // --- Slash command autocomplete dropdown ---
+  // Use `& ` prefix for scoped specificity to override CM's built-in baseTheme.
+  // CM defaults: monospace font, maxHeight 10em, blue/white selected state.
+  '& .cm-tooltip.cm-tooltip-autocomplete': {
+    backgroundColor: '#ffffff',
+    border: '1px solid #e5e7eb',
+    borderRadius: '12px',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.02)',
+    padding: '4px',
+    minWidth: '300px',
+    maxWidth: '340px',
+    overflow: 'hidden',
+  },
+  // Fade overlay managed by scrollFadePlugin in slashCommands.ts.
+  // Only visible when the list has more items below the visible area.
+  // Insets match tooltip padding above so the fade covers the content area, not the border.
+  '& .cm-autocomplete-fade': {
+    position: 'absolute',
+    bottom: '0',
+    left: '4px',
+    right: '4px',
+    height: '64px',
+    background: 'linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 60%)',
+    pointerEvents: 'none',
+    transition: 'opacity 150ms',
+  },
+  '& .cm-tooltip.cm-tooltip-autocomplete > ul': {
+    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important',
+    maxHeight: '400px',
+    minWidth: '300px',
+    scrollbarWidth: 'none',  // Hide scrollbar (Firefox)
+  },
+  '& .cm-tooltip.cm-tooltip-autocomplete > ul::-webkit-scrollbar': {
+    display: 'none',  // Hide scrollbar (Chrome/Safari)
+  },
+  '& .cm-tooltip-autocomplete ul li': {
+    padding: '1px 8px 1px 10px !important',
+    borderRadius: '6px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    cursor: 'pointer',
+    height: '28px',
+    lineHeight: '1',
+  },
+  '& .cm-tooltip-autocomplete ul li:hover': {
+    backgroundColor: '#f3f4f6',  // gray-100, matches app hover states
+  },
+  '& .cm-tooltip-autocomplete ul li[aria-selected]': {
+    backgroundColor: '#eff6ff',  // blue-50
+    color: 'inherit',
+  },
+  // Section headers are <completion-section> custom elements, not .cm-completionSection
+  // Section headers — uppercase, matching EditorCommandMenu style
+  '& .cm-tooltip-autocomplete ul completion-section': {
+    fontSize: '11px !important',
+    fontWeight: '500',
+    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important',
+    color: '#9ca3af !important',
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+    // margin: 0 8px insets the border-top to match command menu's mx-2 dividers
+    // padding: 8px 0 keeps text at same 12px from tooltip edge (4px tooltip + 8px margin + 0px padding)
+    padding: '8px 0 4px !important',
+    margin: '4px 8px 0 !important',
+    borderBottom: 'none !important',
+    borderTop: '1px solid #e5e7eb',
+    opacity: '1 !important',
+    lineHeight: '1.2 !important',
+  },
+  '& .cm-tooltip-autocomplete ul completion-section:first-child': {
+    borderTop: 'none !important',
+    marginTop: '0 !important',
+    paddingTop: '8px !important',
+  },
+  '& .cm-completionLabel': {
+    fontSize: '14px',
+    color: '#374151',
+    flex: '1',
+  },
+  '& .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionLabel': {
+    color: '#1d4ed8',  // blue-700
+  },
+  '& .cm-completionDetail': {
+    fontSize: '12px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    color: '#d1d5db',
+    fontStyle: 'normal',
+    marginLeft: 'auto',
+    flexShrink: '0',
+  },
+  '& .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionDetail': {
+    color: '#93c5fd',  // blue-300
+  },
+  '& .cm-completionMatchedText': {
+    textDecoration: 'none',
+    fontWeight: '600',
+    color: '#111827',
+  },
+  '& .cm-tooltip-autocomplete ul li[aria-selected] .cm-completionMatchedText': {
+    color: '#1d4ed8',
+  },
+  '& .cm-completionIcon': {
+    display: 'none',
+  },
+  '& .cm-slash-icon': {
+    width: '22px',
+    height: '22px',
+    color: '#9ca3af',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: '0',
+  },
+  '& .cm-tooltip-autocomplete ul li[aria-selected] .cm-slash-icon': {
+    color: '#3b82f6',  // blue-500
+  },
+  '& .cm-slash-icon svg': {
+    width: '18px',
+    height: '18px',
+  },
+  '& .cm-slash-shortcut': {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: '2px',
+    marginLeft: '4px',
+    flexShrink: '0',
+    width: '72px',  // fixed width for 3 keys; empty spacer for items without shortcuts
+  },
+  '& .cm-slash-shortcut kbd': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '18px',
+    height: '18px',
+    padding: '0 3px',
+    fontSize: '10px',
+    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+    fontWeight: '500',
+    color: '#9ca3af',
+    backgroundColor: '#f3f4f6',
+    borderRadius: '3px',
+    border: '1px solid #e5e7eb',
+  },
+  '& .cm-tooltip-autocomplete ul li[aria-selected] .cm-slash-shortcut kbd': {
+    color: '#93c5fd',
+    backgroundColor: '#dbeafe',
+    borderColor: '#bfdbfe',
+  },
+  // Footer hint for command menu shortcut
+  '& .cm-slash-footer': {
+    position: 'relative',
+    backgroundColor: '#ffffff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '4px',
+    padding: '5px 8px',
+    borderTop: '1px solid #e5e7eb',
+    fontSize: '11px',
+    color: '#9ca3af',
+    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+  },
+  '& .cm-slash-footer kbd': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '16px',
+    height: '16px',
+    padding: '0 3px',
+    fontSize: '10px',
+    fontWeight: '500',
+    fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif',
+    color: '#9ca3af',
+    backgroundColor: '#f3f4f6',
+    borderRadius: '3px',
+    border: '1px solid #e5e7eb',
+  },
 })
 
 /**

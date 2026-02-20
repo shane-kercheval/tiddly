@@ -198,7 +198,7 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 - `/`: Focus the search bar.
 - `Cmd+\`: Toggle sidebar.
 - `Cmd+Shift+\`: Toggle history sidebar.
-- `Cmd+/`: Show all keyboard shortcuts.
+- `Cmd+Shift+/`: Show all keyboard shortcuts.
 
 ### Content Actions
 - `Cmd+V`: Paste a URL (when not in an input field) to quick-create a bookmark with auto-scraped metadata.
@@ -209,6 +209,8 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 - `w`: Toggle full-width layout.
 
 ### Markdown Editor
+- `/` slash menu: Type `/` at the start of a line or after a space to open a filterable dropdown of block commands (headings, lists, code blocks, links, etc.). On prompt pages, Jinja2 template commands (variable, if block) also appear.
+- `Cmd+/`: Open the editor command menu — a filterable palette of all formatting, insertion, and action commands. Works anywhere in the editor, supports selections, and includes save/discard actions. On prompt pages, Jinja2 commands also appear.
 - `Cmd+Shift+M`: Toggle reading mode.
 - `Alt+Z`: Toggle word wrap.
 - `Alt+L`: Toggle line numbers.

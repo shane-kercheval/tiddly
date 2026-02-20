@@ -1,6 +1,10 @@
 /**
  * Shared toolbar icons and components for editor toolbars.
  * Used by both MilkdownEditor and CodeMirrorEditor to ensure consistent styling.
+ *
+ * NOTE: The slash command menu (utils/slashCommands.ts) has its own SVG_ICONS
+ * as raw HTML strings (CM's addToOptions needs DOM elements, not React).
+ * Keep both in sync when changing icons.
  */
 import type { ReactNode } from 'react'
 
@@ -98,8 +102,9 @@ export function TaskListIcon(): ReactNode {
 
 export function BlockquoteIcon(): ReactNode {
   return (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-4l-4 4-4-4z" />
+    <svg className="w-4 h-4" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="2.5" height="16" rx="1" fill="currentColor" />
+      <path d="M10 8h10M10 12h8M10 16h6" stroke="currentColor" strokeWidth={2} />
     </svg>
   )
 }
@@ -122,6 +127,23 @@ export function JinjaIfIcon(): ReactNode {
 
 export function JinjaIfTrimIcon(): ReactNode {
   return <span className="w-4 h-4 flex items-center justify-center text-[10px] font-mono font-bold">if-</span>
+}
+
+export function HeadingIcon({ level }: { level?: 1 | 2 | 3 }): ReactNode {
+  return (
+    <span className="w-4 h-4 flex items-baseline justify-center text-[13px] font-bold leading-none">
+      H{level && <sub className="text-[9px] font-semibold">{level}</sub>}
+    </span>
+  )
+}
+
+export function SaveIcon(): ReactNode {
+  // Save icon (download-style arrow)
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+    </svg>
+  )
 }
 
 // Toggle icons for editor settings

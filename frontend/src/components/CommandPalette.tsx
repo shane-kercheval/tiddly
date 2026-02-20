@@ -314,7 +314,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
         label: 'Keyboard Shortcuts',
         icon: <HelpIcon className="h-4 w-4" />,
         action: () => { onClose(); onShowShortcuts() },
-        shortcut: ['\u2318', '/'],
+        shortcut: ['\u2318', '\u21E7', '/'],
       })
     }
 
@@ -571,11 +571,11 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                     style={{ height: 30 }}
                     className={`flex items-center gap-3 w-full px-3 text-left text-sm rounded-lg transition-colors ${
                       index === clampedIndex
-                        ? 'bg-blue-50 text-blue-700 ring-2 ring-inset ring-blue-500'
+                        ? 'bg-gray-100 text-gray-900'
                         : `text-gray-700 ${mouseMoved ? 'hover:bg-gray-50' : ''}`
                     }`}
                   >
-                    <span className={`shrink-0 ${index === clampedIndex ? 'text-blue-500' : 'text-gray-400'}`}>{cmd.icon}</span>
+                    <span className={`shrink-0 ${index === clampedIndex ? 'text-gray-600' : 'text-gray-400'}`}>{cmd.icon}</span>
                     <span className="truncate flex-1">{cmd.label}</span>
                     {cmd.shortcut && (
                       <span className="hidden sm:flex items-center gap-0.5 shrink-0 ml-2">

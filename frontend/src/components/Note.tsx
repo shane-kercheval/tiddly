@@ -477,8 +477,9 @@ export function Note({
         const { updates, tagsToSubmit: tags } = result
         tagsToSubmit = tags
 
-        // Early return if nothing changed (safety net for edge cases)
+        // Nothing changed — still honour close request, but skip the API call
         if (Object.keys(updates).length === 0) {
+          checkAndClose()
           return
         }
 
@@ -885,6 +886,10 @@ export function Note({
           showBorder={true}
           subtleBorder={true}
           onModalStateChange={setIsModalOpen}
+          onSaveAndClose={!isReadOnly ? () => { requestSaveAndClose(); formRef.current?.requestSubmit() } : undefined}
+          onDiscard={!isReadOnly ? () => { setCurrent(original); resetConfirmation() } : undefined}
+          originalContent={original.content}
+          isDirty={isDirty}
         />
       </div>
 
