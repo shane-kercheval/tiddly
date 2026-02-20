@@ -505,7 +505,7 @@ export function CodeMirrorEditor({
           const line = view.state.doc.line(lineNumber)
           view.dispatch({
             selection: { anchor: line.from },
-            effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
+            effects: EditorView.scrollIntoView(line.from, { y: 'start', yMargin: 50 }),
           })
           view.focus()
         }
