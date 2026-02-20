@@ -7,7 +7,7 @@ Add a Table of Contents (ToC) panel that extracts headings from markdown content
 ## Design Decisions
 
 - **Location**: Shared right sidebar slot with version history. Only one panel can be open at a time (ToC or History). Opening one closes the other.
-- **Trigger**: Both a toolbar toggle button (right-side toggle group) AND a "Table of Contents" entry in the Cmd+/ command menu.
+- **Trigger**: Toolbar toggle button (right-side toggle group), "Table of Contents" entry in the Cmd+/ command menu, and `Alt+T` keyboard shortcut (following the existing `Alt+Z`/`Alt+L`/`Alt+M` convention).
 - **Navigation**: Clicking a ToC entry scrolls the CodeMirror editor to that heading line and places the cursor there.
 - **Live updates**: ToC re-parses headings on content change, debounced (~300ms).
 - **Mobile**: Same behavior as history sidebar (full-width overlay).
@@ -198,12 +198,13 @@ Both pages need to:
 - Pass current content and the scroll-to-heading callback
 - The existing "show history" button/callback remains; add "show ToC" trigger
 
-**4. Add ToC toggle to the editor toolbar**
+**4. Add ToC toggle to the editor toolbar + keyboard shortcut**
 
 In `CodeMirrorEditor.tsx`, add a toolbar button to the right-side toggle group (alongside wrap, line numbers, mono font, reading mode):
 - Create a `TableOfContentsIcon` in `EditorToolbarIcons.tsx` (a simple list/outline icon)
 - Button toggles the ToC panel via `rightSidebarStore.togglePanel('toc')`
 - Button should visually indicate when ToC is active (e.g., different color/opacity, same pattern as other toggle buttons if they have an active state)
+- Register `Alt+T` as a global keyboard shortcut for toggling ToC, following the same pattern as the existing `Alt+Z` (wrap), `Alt+L` (line numbers), `Alt+M` (mono font) shortcuts in the capture-phase keydown handler
 
 **5. Add ToC toggle to the command menu**
 
