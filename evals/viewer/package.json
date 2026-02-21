@@ -1,0 +1,30 @@
+{
+  "name": "eval-viewer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"tsx watch server/index.ts\" \"vite\"",
+    "build": "tsc -b && vite build"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "glob": "^11.0.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.6.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.8",
+    "@types/express": "^5.0.2",
+    "@types/node": "^22.15.29",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.5.2",
+    "concurrently": "^9.1.2",
+    "tailwindcss": "^4.1.8",
+    "tsx": "^4.19.4",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5"
+  }
+}

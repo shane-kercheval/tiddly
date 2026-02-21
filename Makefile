@@ -1,4 +1,4 @@
-.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp api-run-bench
+.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp api-run-bench eval-viewer-install eval-viewer
 
 -include .env
 export
@@ -98,6 +98,15 @@ evals-content-mcp:  ## Run Content MCP evaluations only
 
 evals-prompt-mcp:  ## Run Prompt MCP evaluations only
 	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/prompt_mcp/ -vs --timeout=300
+
+####
+# Eval Viewer
+####
+eval-viewer-install:  ## Install eval viewer dependencies
+	cd evals/viewer && npm install
+
+eval-viewer:  ## Start eval results viewer
+	cd evals/viewer && npm run dev
 
 ####
 # Testing & Quality
