@@ -6,10 +6,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_current_limits
 from core.tier_limits import TIER_LIMITS, Tier, get_tier_limits
 from models.user import User
-from schemas.cached_user import CachedUser
 
 
 async def test_get_me_in_dev_mode_returns_dev_user(client: AsyncClient) -> None:
@@ -188,6 +186,9 @@ class TestGetCurrentLimits:
 
     def test__get_current_limits__returns_dev_limits_in_dev_mode(self) -> None:
         """In dev mode, returns DEV tier limits regardless of user's stored tier."""
+        from api.dependencies import get_current_limits  # noqa: PLC0415
+        from schemas.cached_user import CachedUser  # noqa: PLC0415
+
         user = MagicMock(spec=CachedUser)
         user.tier = "free"
         settings = MagicMock()
@@ -198,6 +199,9 @@ class TestGetCurrentLimits:
 
     def test__get_current_limits__returns_user_tier_limits_when_not_dev_mode(self) -> None:
         """When not in dev mode, resolves limits from user's stored tier."""
+        from api.dependencies import get_current_limits  # noqa: PLC0415
+        from schemas.cached_user import CachedUser  # noqa: PLC0415
+
         user = MagicMock(spec=CachedUser)
         user.tier = "free"
         settings = MagicMock()
