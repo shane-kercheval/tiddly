@@ -80,7 +80,7 @@ class TestGetRequestSource:
     ) -> None:
         """X-Request-Source: web sets source to WEB."""
         request = mock_request_with_source("web")
-        from core.auth import _get_request_source
+        from core.auth import _get_request_source  # noqa: PLC0415
         source = _get_request_source(request)
         assert source == "web"
 
@@ -90,7 +90,7 @@ class TestGetRequestSource:
     ) -> None:
         """X-Request-Source: api sets source to API."""
         request = mock_request_with_source("api")
-        from core.auth import _get_request_source
+        from core.auth import _get_request_source  # noqa: PLC0415
         source = _get_request_source(request)
         assert source == "api"
 
@@ -100,7 +100,7 @@ class TestGetRequestSource:
     ) -> None:
         """X-Request-Source: mcp-content sets source to MCP_CONTENT."""
         request = mock_request_with_source("mcp-content")
-        from core.auth import _get_request_source
+        from core.auth import _get_request_source  # noqa: PLC0415
         source = _get_request_source(request)
         assert source == "mcp-content"
 
@@ -110,7 +110,7 @@ class TestGetRequestSource:
     ) -> None:
         """X-Request-Source: mcp-prompt sets source to MCP_PROMPT."""
         request = mock_request_with_source("mcp-prompt")
-        from core.auth import _get_request_source
+        from core.auth import _get_request_source  # noqa: PLC0415
         source = _get_request_source(request)
         assert source == "mcp-prompt"
 
@@ -119,7 +119,7 @@ class TestGetRequestSource:
         mock_request: Request,
     ) -> None:
         """Missing X-Request-Source header defaults to UNKNOWN."""
-        from core.auth import _get_request_source
+        from core.auth import _get_request_source  # noqa: PLC0415
         source = _get_request_source(mock_request)
         assert source == "unknown"
 
@@ -129,7 +129,7 @@ class TestGetRequestSource:
     ) -> None:
         """Unrecognized X-Request-Source header is passed through as-is."""
         request = mock_request_with_source("iphone")
-        from core.auth import _get_request_source
+        from core.auth import _get_request_source  # noqa: PLC0415
         source = _get_request_source(request)
         assert source == "iphone"
 
@@ -139,12 +139,12 @@ class TestGetRequestSource:
     ) -> None:
         """X-Request-Source header is case-insensitive."""
         request = mock_request_with_source("WEB")
-        from core.auth import _get_request_source
+        from core.auth import _get_request_source  # noqa: PLC0415
         source = _get_request_source(request)
         assert source == "web"
 
         request = mock_request_with_source("MCP-Content")
-        from core.auth import _get_request_source
+        from core.auth import _get_request_source  # noqa: PLC0415
         source = _get_request_source(request)
         assert source == "mcp-content"
 
@@ -161,7 +161,7 @@ class TestRequestContextWithAuth0:
         mock_request: Request,
     ) -> None:
         """Auth0 JWT sets auth_type to AUTH0."""
-        from core.auth import AuthType, _authenticate_user
+        from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
@@ -188,7 +188,7 @@ class TestRequestContextWithAuth0:
         mock_request_with_source: callable,
     ) -> None:
         """Auth0 JWT uses X-Request-Source header for source."""
-        from core.auth import AuthType, _authenticate_user
+        from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
 
         request = mock_request_with_source("web")
         credentials = HTTPAuthorizationCredentials(
@@ -219,7 +219,7 @@ class TestRequestContextWithPAT:
         mock_request: Request,
     ) -> None:
         """PAT sets auth_type to PAT."""
-        from core.auth import AuthType, _authenticate_user
+        from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
@@ -247,7 +247,7 @@ class TestRequestContextWithPAT:
         mock_request: Request,
     ) -> None:
         """PAT sets token_prefix to first 15 chars of token."""
-        from core.auth import _authenticate_user
+        from core.auth import _authenticate_user  # noqa: PLC0415
 
         token = "bm_a3f8xyz123456789abcdef"
         credentials = HTTPAuthorizationCredentials(
@@ -278,7 +278,7 @@ class TestRequestContextWithPAT:
         mock_request: Request,
     ) -> None:
         """PAT shorter than 15 chars uses full token as prefix."""
-        from core.auth import _authenticate_user
+        from core.auth import _authenticate_user  # noqa: PLC0415
 
         token = "bm_short"  # 8 chars
         credentials = HTTPAuthorizationCredentials(
@@ -307,7 +307,7 @@ class TestRequestContextWithPAT:
         mock_request_with_source: callable,
     ) -> None:
         """PAT uses X-Request-Source header for source."""
-        from core.auth import AuthType, _authenticate_user
+        from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
 
         request = mock_request_with_source("mcp-content")
         credentials = HTTPAuthorizationCredentials(
@@ -340,7 +340,7 @@ class TestRequestContextWithDevMode:
         mock_request: Request,
     ) -> None:
         """DEV_MODE sets auth_type to DEV."""
-        from core.auth import AuthType, _authenticate_user
+        from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
 
         # Credentials don't matter in dev mode
         await _authenticate_user(
@@ -359,7 +359,7 @@ class TestRequestContextWithDevMode:
         mock_request_with_source: callable,
     ) -> None:
         """DEV_MODE uses X-Request-Source header for source."""
-        from core.auth import AuthType, _authenticate_user
+        from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
 
         request = mock_request_with_source("web")
         await _authenticate_user(
@@ -379,7 +379,7 @@ class TestGetRequestContext:
         mock_request: Request,
     ) -> None:
         """get_request_context returns the context when set."""
-        from core.auth import AuthType, RequestContext, get_request_context
+        from core.auth import AuthType, RequestContext, get_request_context  # noqa: PLC0415
 
         expected_context = RequestContext(
             source="web",
@@ -393,7 +393,7 @@ class TestGetRequestContext:
 
     def test__get_request_context__returns_none_when_not_set(self) -> None:
         """get_request_context returns None when context not set."""
-        from core.auth import get_request_context
+        from core.auth import get_request_context  # noqa: PLC0415
 
         request = MagicMock(spec=Request)
         request.state = MagicMock(spec=[])  # Empty spec means no attributes

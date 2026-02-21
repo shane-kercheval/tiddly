@@ -4,12 +4,17 @@ Tests for note service layer functionality.
 Tests the soft delete, archive, restore, and view filtering functionality
 that was added to support the trash/archive features.
 """
-from datetime import UTC
+import asyncio
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
+import re
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.orm import defer, selectinload
 
 from core.tier_limits import Tier, get_tier_limits
 from models.note import Note
@@ -19,6 +24,7 @@ from schemas.note import NoteCreate, NoteUpdate
 from services.exceptions import InvalidStateError
 from services.note_service import NoteService
 from services.utils import build_tag_filter_from_expression, escape_ilike
+from services.base_entity_service import CONTENT_PREVIEW_LENGTH
 
 
 note_service = NoteService()
@@ -348,8 +354,6 @@ async def test__track_note_usage__updates_last_used_at(
     test_note: Note,
 ) -> None:
     """Test that track_note_usage updates the last_used_at timestamp."""
-    import asyncio
-
     original_last_used = test_note.last_used_at
 
     # Small delay to ensure different timestamp
@@ -378,8 +382,6 @@ async def test__track_note_usage__works_on_archived_note(
     test_note: Note,
 ) -> None:
     """Test that track_note_usage works on archived notes."""
-    import asyncio
-
     await note_service.archive(db_session, test_user.id, test_note.id)
     await db_session.flush()
 
@@ -402,8 +404,6 @@ async def test__track_note_usage__works_on_deleted_note(
     test_note: Note,
 ) -> None:
     """Test that track_note_usage works on soft-deleted notes."""
-    import asyncio
-
     await note_service.delete(db_session, test_user.id, test_note.id)
     await db_session.flush()
 
@@ -426,8 +426,6 @@ async def test__track_note_usage__does_not_update_updated_at(
     test_note: Note,
 ) -> None:
     """Test that track_note_usage does NOT update updated_at."""
-    import asyncio
-
     original_updated_at = test_note.updated_at
 
     # Small delay to ensure different timestamp if it were to change
@@ -582,8 +580,6 @@ async def test__update_note__updates_updated_at(
     test_note: Note,
 ) -> None:
     """Test that update_note updates the updated_at timestamp."""
-    import asyncio
-
     note_id = test_note.id
     original_updated_at = test_note.updated_at
 
@@ -605,8 +601,6 @@ async def test__update_note__does_not_update_last_used_at(
     test_note: Note,
 ) -> None:
     """Test that update_note does NOT update last_used_at."""
-    import asyncio
-
     note_id = test_note.id
     original_last_used_at = test_note.last_used_at
 
@@ -871,8 +865,6 @@ async def test__is_archived__returns_false_when_archived_at_is_future(
     test_note: Note,
 ) -> None:
     """Test that is_archived returns False when archived_at is in the future (scheduled)."""
-    from datetime import datetime, timedelta
-
     # Set archived_at to 1 day in the future
     future_time = datetime.now(UTC) + timedelta(days=1)
     test_note.archived_at = future_time
@@ -888,8 +880,6 @@ async def test__is_archived__sql_expression_filters_past_archived(
     test_user: User,
 ) -> None:
     """Test that is_archived SQL expression correctly filters archived notes."""
-    from sqlalchemy import select
-
     # Create notes: active, archived (past), scheduled (future)
     active = Note(user_id=test_user.id, title='Active Note')
     past_archived = Note(user_id=test_user.id, title='Past Archived Note')
@@ -903,7 +893,6 @@ async def test__is_archived__sql_expression_filters_past_archived(
     await db_session.flush()
 
     # Set future archive date on another
-    from datetime import datetime, timedelta
 
     future_time = datetime.now(UTC) + timedelta(days=7)
     future_scheduled.archived_at = future_time
@@ -933,8 +922,6 @@ async def test__archive_note__overrides_future_scheduled(
     test_user: User,
 ) -> None:
     """Test that archive_note on future-scheduled note sets to now."""
-    from datetime import datetime, timedelta
-
     # Create a note with future archived_at
     note = Note(user_id=test_user.id, title='Future Scheduled Note')
     future_date = datetime.now(UTC) + timedelta(days=7)
@@ -958,8 +945,6 @@ async def test__unarchive_note__fails_on_future_scheduled(
     test_user: User,
 ) -> None:
     """Test that unarchive_note fails on future-scheduled note."""
-    from datetime import datetime, timedelta
-
     # Create a note with future archived_at
     note = Note(user_id=test_user.id, title='Future Scheduled Note')
     note.archived_at = datetime.now(UTC) + timedelta(days=7)
@@ -979,8 +964,6 @@ async def test__update_note__can_set_archived_at(
     test_note: Note,
 ) -> None:
     """Test that update_note can set archived_at for scheduling."""
-    from datetime import datetime, timedelta
-
     future_date = datetime.now(UTC) + timedelta(days=7)
     updated = await note_service.update(
         db_session, test_user.id, test_note.id,
@@ -997,8 +980,6 @@ async def test__update_note__can_clear_archived_at(
     test_user: User,
 ) -> None:
     """Test that update_note can clear archived_at to cancel schedule."""
-    from datetime import datetime, timedelta
-
     # Create a note with future archived_at
     future_date = datetime.now(UTC) + timedelta(days=7)
     data = NoteCreate(
@@ -1063,12 +1044,6 @@ def test__search_query__defer_excludes_content_from_select() -> None:
     If this test fails, it means content is being transferred from the database,
     defeating the performance optimization.
     """
-    from sqlalchemy import func
-    from sqlalchemy.dialects import postgresql
-    from sqlalchemy.orm import defer, selectinload
-
-    from services.base_entity_service import CONTENT_PREVIEW_LENGTH
-
     # Build the same query pattern used in BaseEntityService.search()
     query = (
         select(
@@ -1096,7 +1071,7 @@ def test__search_query__defer_excludes_content_from_select() -> None:
     # Note: notes.content should NOT appear as a direct column selection
 
     # Split into SELECT clause and rest
-    select_clause = sql.split(" FROM ")[0].upper()
+    select_clause = sql.split(" FROM ", maxsplit=1)[0].upper()
 
     # content should appear in function calls (LENGTH, LEFT) but not as a standalone column
     # A standalone column would look like: "NOTES.CONTENT," or "NOTES.CONTENT AS"
@@ -1122,7 +1097,6 @@ def test__search_query__defer_excludes_content_from_select() -> None:
     # Verify content is NOT a standalone selected column
     # A standalone column would have a comma before/after or be at the start
     # We check that "NOTES.CONTENT," doesn't appear outside of function calls
-    import re
     # Match notes.content that is NOT preceded by ( (which would indicate a function call)
     standalone_content = re.search(r'(?<!\()NOTES\.CONTENT\s*,', select_clause)
     assert standalone_content is None, (

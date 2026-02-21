@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
+import pytest
 from fastapi import HTTPException, status
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -580,6 +581,7 @@ async def test_create_bookmark_invalid_url(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+@pytest.mark.usefixtures("low_limits")
 async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
     """Test that title exceeding max length returns 400."""
     limits = get_tier_limits(Tier.FREE)
@@ -593,6 +595,7 @@ async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
     assert "exceeds limit" in response.text.lower()
 
 
+@pytest.mark.usefixtures("low_limits")
 async def test_create_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
     """Test that description exceeding max length returns 400."""
     limits = get_tier_limits(Tier.FREE)
@@ -606,6 +609,7 @@ async def test_create_bookmark_description_exceeds_max_length(client: AsyncClien
     assert "exceeds limit" in response.text.lower()
 
 
+@pytest.mark.usefixtures("low_limits")
 async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
     """Test that content exceeding max length returns 400."""
     limits = get_tier_limits(Tier.FREE)
@@ -619,12 +623,13 @@ async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient) -
     assert "exceeds limit" in response.text.lower()
 
 
+@pytest.mark.usefixtures("low_limits")
 async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
     """Test that updating with title exceeding max length returns 400."""
     # Create a valid bookmark first
     create_response = await client.post(
         "/bookmarks/",
-        json={"url": "https://example.com", "title": "Valid title"},
+        json={"url": "https://example.com", "title": "Valid"},
     )
     assert create_response.status_code == 201
     bookmark_id = create_response.json()["id"]
@@ -641,6 +646,7 @@ async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
     assert "exceeds limit" in response.text.lower()
 
 
+@pytest.mark.usefixtures("low_limits")
 async def test_update_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
     """Test that updating with description exceeding max length returns 400."""
     # Create a valid bookmark first
@@ -663,6 +669,7 @@ async def test_update_bookmark_description_exceeds_max_length(client: AsyncClien
     assert "exceeds limit" in response.text.lower()
 
 
+@pytest.mark.usefixtures("low_limits")
 async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
     """Test that updating with content exceeding max length returns 400."""
     # Create a valid bookmark first
@@ -1668,9 +1675,9 @@ async def test_fetch_metadata_rejects_pat_tokens(db_session: AsyncSession) -> No
     """Test that fetch-metadata endpoint rejects PAT tokens with 403."""
     # Deferred imports: these trigger module-level get_settings() which requires
     # DATABASE_URL, only available at runtime via the database_url fixture.
-    from api.dependencies import get_current_user_auth0_only
-    from api.main import app
-    from db.session import get_async_session
+    from api.dependencies import get_current_user_auth0_only  # noqa: PLC0415
+    from api.main import app  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
 
     # Override get_current_user_auth0_only to simulate PAT rejection
     async def mock_auth0_only_reject_pat() -> None:

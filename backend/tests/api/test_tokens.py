@@ -11,6 +11,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import Settings, get_settings
+from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.api_token import ApiToken
 from models.user import User
 from models.user_consent import UserConsent
@@ -19,8 +21,6 @@ from services.token_service import hash_token
 
 async def add_consent_for_user(db_session: AsyncSession, user: User) -> None:
     """Add valid consent record for a user (required for non-dev mode tests)."""
-    from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
-
     consent = UserConsent(
         user_id=user.id,
         consented_at=datetime.now(UTC),
@@ -181,8 +181,7 @@ async def test_authenticate_with_pat(
     await add_consent_for_user(db_session, user)
 
     # Use the PAT to access a protected endpoint with dev_mode=False
-    from api.main import app
-    from core.config import Settings, get_settings
+    from api.main import app  # noqa: PLC0415
 
     get_settings.cache_clear()
 
@@ -195,7 +194,7 @@ async def test_authenticate_with_pat(
             dev_mode=False,
         )
 
-    from db.session import get_async_session
+    from db.session import get_async_session  # noqa: PLC0415
 
     app.dependency_overrides[get_async_session] = override_get_async_session
     app.dependency_overrides[get_settings] = override_get_settings
@@ -214,8 +213,7 @@ async def test_authenticate_with_pat(
 
 async def test_authenticate_with_invalid_pat(db_session: AsyncSession) -> None:
     """Test that an invalid PAT is rejected."""
-    from api.main import app
-    from core.config import Settings, get_settings
+    from api.main import app  # noqa: PLC0415
 
     get_settings.cache_clear()
 
@@ -228,7 +226,7 @@ async def test_authenticate_with_invalid_pat(db_session: AsyncSession) -> None:
             dev_mode=False,
         )
 
-    from db.session import get_async_session
+    from db.session import get_async_session  # noqa: PLC0415
 
     app.dependency_overrides[get_async_session] = override_get_async_session
     app.dependency_overrides[get_settings] = override_get_settings
@@ -265,8 +263,7 @@ async def test_authenticate_with_expired_pat(
     await db_session.flush()
 
     # Try to use the expired token
-    from api.main import app
-    from core.config import Settings, get_settings
+    from api.main import app  # noqa: PLC0415
 
     get_settings.cache_clear()
 
@@ -279,7 +276,7 @@ async def test_authenticate_with_expired_pat(
             dev_mode=False,
         )
 
-    from db.session import get_async_session
+    from db.session import get_async_session  # noqa: PLC0415
 
     app.dependency_overrides[get_async_session] = override_get_async_session
     app.dependency_overrides[get_settings] = override_get_settings
@@ -315,8 +312,7 @@ async def test_pat_updates_last_used_at(
     assert api_token.last_used_at is None
 
     # Use the token
-    from api.main import app
-    from core.config import Settings, get_settings
+    from api.main import app  # noqa: PLC0415
 
     get_settings.cache_clear()
 
@@ -329,7 +325,7 @@ async def test_pat_updates_last_used_at(
             dev_mode=False,
         )
 
-    from db.session import get_async_session
+    from db.session import get_async_session  # noqa: PLC0415
 
     app.dependency_overrides[get_async_session] = override_get_async_session
     app.dependency_overrides[get_settings] = override_get_settings

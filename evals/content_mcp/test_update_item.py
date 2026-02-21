@@ -1,6 +1,9 @@
 """
 Evaluation tests for the Content MCP server's update_item tool.
 
+update_item updates metadata (title, description, tags, url) and/or fully replaces content.
+All parameters optional - only provide what you want to change.
+
 These tests verify that an LLM correctly uses update_item for:
 1. Substantial content changes requiring full replacement (not edit_content)
 2. Tags behavior:
@@ -52,6 +55,7 @@ async def _run_update_item_eval(
     content: str,
     instruction: str,
     model_name: str,
+    provider: str,
     temperature: float,
     tags: list[str] | None = None,
     expected_tags: list[str] | None = None,
@@ -72,6 +76,7 @@ async def _run_update_item_eval(
         content: Initial note content.
         instruction: What to tell the LLM to do.
         model_name: LLM model to use.
+        provider: LLM provider ("anthropic" or "openai").
         temperature: Temperature setting.
         tags: Initial tags for the note (optional).
         expected_tags: Expected behavior for tags:
@@ -119,12 +124,12 @@ async def _run_update_item_eval(
 ```
 
 **Instruction:** {instruction}"""
-
             # Get tool prediction
             prediction = await get_tool_prediction(
                 prompt=prompt,
                 tools=tools,
                 model_name=model_name,
+                provider=provider,
                 temperature=temperature,
             )
 
@@ -212,6 +217,7 @@ async def test_update_item_notes(test_case: TestCase) -> dict[str, Any]:
         content=test_case.input["content"],
         instruction=test_case.input["instruction"],
         model_name=MODEL_CONFIG["name"],
+        provider=MODEL_CONFIG["provider"],
         temperature=MODEL_CONFIG["temperature"],
         tags=test_case.input.get("tags"),
         expected_tags=test_case.expected.get("expected_tags"),

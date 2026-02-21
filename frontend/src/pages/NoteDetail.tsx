@@ -13,7 +13,7 @@ import axios from 'axios'
 import toast from 'react-hot-toast'
 import { Note as NoteComponent } from '../components/Note'
 import { HistorySidebar } from '../components/HistorySidebar'
-import { LoadingSpinnerCentered, ErrorState } from '../components/ui'
+import { LoadingSpinnerPage, ErrorState } from '../components/ui'
 import { useNotes } from '../hooks/useNotes'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
 import { useLinkedNavigation } from '../hooks/useLinkedNavigation'
@@ -261,7 +261,7 @@ export function NoteDetail(): ReactNode {
 
   // Render loading state
   if (isLoading) {
-    return <LoadingSpinnerCentered label="Loading note..." />
+    return <LoadingSpinnerPage label="Loading note..." />
   }
 
   // Render error state

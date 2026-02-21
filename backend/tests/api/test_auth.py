@@ -1,9 +1,11 @@
 """Tests for authentication when DEV_MODE is disabled."""
+from collections.abc import AsyncGenerator
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import Settings
+from core.config import Settings, get_settings
 
 
 @pytest.fixture
@@ -25,11 +27,8 @@ async def auth_required_client(
     non_dev_settings: Settings,
 ) -> AsyncClient:
     """Create a test client with auth required (DEV_MODE=False)."""
-    from collections.abc import AsyncGenerator
-
-    from api.main import app
-    from core.config import get_settings
-    from db.session import get_async_session
+    from api.main import app  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
 
     async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
         yield db_session

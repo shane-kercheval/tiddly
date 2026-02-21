@@ -1,6 +1,9 @@
 """
 Evaluation tests for the Prompt MCP server's update_prompt tool.
 
+update_prompt updates metadata (title, description, tags, name) and/or fully replaces template
+content. All parameters optional - only provide what you want to change.
+
 These tests verify that an LLM correctly uses update_prompt for full content
 replacement scenarios, with particular focus on critical coordination behaviors:
 
@@ -170,6 +173,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
     instruction: str,
     expected_argument_names: list[str] | None,
     model_name: str,
+    provider: str,
     temperature: float,
     show_results: list[str],
     tags: list[str] | None = None,
@@ -197,6 +201,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
             - None: LLM should NOT provide arguments parameter
             - list: LLM should provide arguments, final state should match this list
         model_name: LLM model to use for prediction.
+        provider: LLM provider ("anthropic" or "openai").
         temperature: Temperature setting for LLM.
         show_results: Which tool results to show the LLM (required). This simulates
             what an LLM would fetch before calling update_prompt - they'd call
@@ -282,6 +287,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                 prompt=llm_prompt,
                 tools=tools,
                 model_name=model_name,
+                provider=provider,
                 temperature=temperature,
             )
 
@@ -388,6 +394,7 @@ async def test_update_prompt(test_case: TestCase) -> dict[str, Any]:
         instruction=test_case.input["instruction"],
         expected_argument_names=test_case.expected.get("expected_argument_names"),
         model_name=MODEL_CONFIG["name"],
+        provider=MODEL_CONFIG["provider"],
         temperature=MODEL_CONFIG["temperature"],
         show_results=test_case.input["show_results"],
         tags=test_case.input.get("tags"),

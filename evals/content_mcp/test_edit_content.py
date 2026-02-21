@@ -1,8 +1,16 @@
 """
 Evaluation tests for the Content MCP server's edit_content tool.
 
-These tests verify that an LLM can correctly use the edit_content tool
-to make precise text replacements in notes and bookmarks.
+edit_content replaces exact text in the content field via old_str/new_str substitution.
+old_str must match exactly one location. Only edits the content body (not title/description/tags).
+
+These tests verify that given a note with a typo, the LLM:
+1. Chooses edit_content (not update_item) for surgical fixes
+2. Constructs correct old_str/new_str to fix the issue
+3. Produces correct final content
+
+The eval provides both get_item and search_in_content results so the LLM has full
+context before deciding which tool to use.
 """
 
 import asyncio
@@ -40,6 +48,7 @@ async def _run_edit_content_eval(
     content: str,
     search_query: str,
     model_name: str,
+    provider: str,
     temperature: float,
 ) -> dict[str, Any]:
     """
@@ -78,6 +87,14 @@ async def _run_edit_content_eval(
         content_id = content_data["id"]
 
         try:
+            # Get the full item so the LLM has complete context
+            get_result = await call_tool_with_retry(
+                mcp_manager,
+                "get_item",
+                {"id": content_id, "type": "note"},
+            )
+            item_data = json.dumps(get_result.structuredContent, indent=2)
+
             # Search for the issue (with retry)
             search_result = await call_tool_with_retry(
                 mcp_manager,
@@ -90,24 +107,25 @@ async def _run_edit_content_eval(
             )
             search_response = json.dumps(search_result.structuredContent, indent=2)
 
-            # Build prompt
-            prompt = f"""I found an issue in this note. Please fix it.
-
-Note ID: {content_id}
-Type: note
+            # Build prompt with full context
+            prompt = f"""`get_item` tool result:
+```json
+{item_data}
+```
 
 `search_in_content` tool result for "{search_query}":
 ```json
 {search_response}
 ```
 
-Fix the issue."""
+Fix the issue found above."""
 
             # Get tool prediction
             prediction = await get_tool_prediction(
                 prompt=prompt,
                 tools=tools,
                 model_name=model_name,
+                provider=provider,
                 temperature=temperature,
             )
 
@@ -185,5 +203,6 @@ async def test_edit_content_notes(test_case: TestCase) -> dict[str, Any]:
         content=test_case.input["content"],
         search_query=test_case.input["search_query"],
         model_name=MODEL_CONFIG["name"],
+        provider=MODEL_CONFIG["provider"],
         temperature=MODEL_CONFIG["temperature"],
     )

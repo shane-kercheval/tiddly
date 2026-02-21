@@ -3,6 +3,8 @@ Unit tests for filter_utils helper functions.
 
 Tests cover the resolve_filter_and_sorting helper which resolves filter sort defaults.
 """
+from uuid import UUID
+
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -221,8 +223,6 @@ async def test__resolve_filter_and_sorting__filter_not_found__raises_404(
     user: User,
 ) -> None:
     """When filter_id not found, raises HTTPException 404."""
-    from uuid import UUID
-
     fake_filter_id = UUID("00000000-0000-0000-0000-000000000000")
 
     with pytest.raises(HTTPException) as exc_info:

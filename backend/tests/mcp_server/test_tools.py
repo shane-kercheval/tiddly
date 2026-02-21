@@ -1,5 +1,6 @@
 """Tests for MCP tools using FastMCP Client."""
 
+import json
 from typing import Any
 from unittest.mock import patch
 
@@ -9,14 +10,12 @@ from httpx import Response
 
 from fastmcp import Client
 
-from mcp_server.server import _format_content_context_markdown
+from mcp_server.server import _format_content_context_markdown, mcp
 
 
 @pytest.fixture
 async def mcp_client(mock_auth):  # noqa: ARG001 - mock_auth needed for side effect
     """Create an MCP client connected to the server."""
-    from mcp_server.server import mcp
-
     async with Client(transport=mcp) as client:
         yield client
 
@@ -201,8 +200,6 @@ async def test__search_items__api_unavailable(mock_api, mcp_client: Client) -> N
 @pytest.mark.asyncio
 async def test__search_items__invalid_token(mock_api) -> None:
     """Test 401 error handling for invalid token."""
-    from mcp_server.server import mcp
-
     mock_api.get("/content/").mock(
         return_value=Response(401, json={"detail": "Invalid token"}),
     )
@@ -220,8 +217,6 @@ async def test__search_items__invalid_token(mock_api) -> None:
 @pytest.mark.asyncio
 async def test__search_items__forbidden(mock_api) -> None:
     """Test 403 forbidden error handling."""
-    from mcp_server.server import mcp
-
     mock_api.get("/content/").mock(
         return_value=Response(403, json={"detail": "Access denied"}),
     )
@@ -641,7 +636,6 @@ async def test__update_item__content_replacement(
     assert "content updated" in result.data["summary"]
 
     # Verify payload was sent correctly
-    import json
     payload = json.loads(mock_api.calls[0].request.content)
     assert payload["content"] == "Completely new content"
 
@@ -715,7 +709,6 @@ async def test__update_item__with_expected_updated_at_success(
     assert "expected_updated_at" not in result.data["summary"]
 
     # Verify expected_updated_at was sent in payload
-    import json
     payload = json.loads(mock_api.calls[0].request.content)
     assert payload["expected_updated_at"] == "2024-01-01T00:00:00Z"
 

@@ -11,6 +11,8 @@ OWASP References:
 import pytest
 from httpx import AsyncClient
 
+from core.tier_limits import Tier, get_tier_limits
+
 
 
 class TestSQLInjectionPrevention:
@@ -158,13 +160,12 @@ class TestInputLengthLimits:
         # Should either accept or reject gracefully (not crash)
         assert response.status_code in [201, 422]
 
+    @pytest.mark.usefixtures("low_limits")
     async def test__title_at_max_length__is_accepted(
         self,
         client_as_user_a: AsyncClient,
     ) -> None:
         """Title at maximum tier limit length is accepted."""
-        from core.tier_limits import Tier, get_tier_limits
-
         limits = get_tier_limits(Tier.FREE)
         max_title = "A" * limits.max_title_length
 
@@ -180,6 +181,7 @@ class TestInputLengthLimits:
         assert response.status_code == 201
         assert response.json()["title"] == max_title
 
+    @pytest.mark.usefixtures("low_limits")
     async def test__title_over_max_length__is_rejected(
         self,
         client_as_user_a: AsyncClient,
@@ -190,8 +192,6 @@ class TestInputLengthLimits:
         The service layer validates field lengths based on user tier limits,
         returning a 400 Bad Request response.
         """
-        from core.tier_limits import Tier, get_tier_limits
-
         limits = get_tier_limits(Tier.FREE)
         over_limit_title = "A" * (limits.max_title_length + 1)
 
@@ -248,8 +248,6 @@ class TestSpecialCharacterHandling:
         null byte injection attacks. This test verifies this protection by
         checking the database rejects the request.
         """
-        import pytest
-
         # This test expects an exception because PostgreSQL rejects null bytes
         # at the database level with CharacterNotInRepertoireError
         with pytest.raises(Exception):  # noqa: PT011

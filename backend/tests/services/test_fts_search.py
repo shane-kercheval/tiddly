@@ -5,6 +5,7 @@ Tests full-text search, ILIKE substring matching, combined scoring,
 stop-word guard, and relevance sorting.
 """
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.tier_limits import Tier, get_tier_limits
@@ -197,7 +198,7 @@ async def test__search__fts_empty_query_returns_all(
         BookmarkCreate(url='https://b.example.com', title='Beta'),
         DEFAULT_LIMITS, None,
     )
-    items, total = await search_all_content(
+    _items, total = await search_all_content(
         db_session, test_user.id, query=None, content_types=['bookmark'],
     )
     assert total == 2
@@ -253,7 +254,7 @@ async def test__search__ilike_matches_punctuated_terms(
         ),
         DEFAULT_LIMITS, None,
     )
-    items, total = await search_all_content(
+    _items, total = await search_all_content(
         db_session, test_user.id, query='node.js', content_types=['bookmark'],
     )
     assert total == 1
@@ -411,7 +412,6 @@ async def test__search__null_search_vector_does_not_corrupt_ranking(
         DEFAULT_LIMITS, None,
     )
     # Force search_vector to NULL (simulating edge case)
-    from sqlalchemy import text
     await db_session.execute(
         text("UPDATE notes SET search_vector = NULL WHERE id = :id"),
         {"id": str(note.id)},
@@ -660,7 +660,7 @@ async def test__search__special_characters_in_query(
     )
     for q in ['&', '|', '!', ':', '()', 'a & b', 'x | y']:
         # Should not raise
-        items, total = await search_all_content(
+        _items, total = await search_all_content(
             db_session, test_user.id, query=q, content_types=['bookmark'],
         )
         # May or may not return results, but should not crash
@@ -677,7 +677,7 @@ async def test__search__very_long_query(
         DEFAULT_LIMITS, None,
     )
     long_query = 'python ' * 500
-    items, total = await search_all_content(
+    _items, total = await search_all_content(
         db_session, test_user.id, query=long_query, content_types=['bookmark'],
     )
     assert isinstance(total, int)
@@ -694,7 +694,7 @@ async def test__search__null_content_fields(
         DEFAULT_LIMITS, None,
     )
     # Search should find it via URL ILIKE
-    items, total = await search_all_content(
+    _items, total = await search_all_content(
         db_session, test_user.id, query='python-special', content_types=['bookmark'],
     )
     assert total == 1

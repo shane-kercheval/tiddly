@@ -1,0 +1,128 @@
+get_context:
+  description: |
+    Get a summary of the user's prompts. Use this at the START of a session to understand: what prompts the user has (counts), how prompts are organized (tags, filters in priority order), what's inside each filter (top prompts per filter), and what prompts the user frequently uses (recently used, created, modified). Results reflect a point-in-time snapshot. Call once at session start; re-calling is only useful if the user significantly creates, modifies, or reorganizes content during the session. Returns a markdown summary optimized for quick understanding. Use prompt names from the response with get_prompt_content for full templates. Use tag names with search_prompts to find related prompts.
+  parameters:
+    tag_limit: |
+      Number of top tags
+    recent_limit: |
+      Recent prompts per category
+    filter_limit: |
+      Max filters to include
+    filter_item_limit: |
+      Items per filter
+
+search_prompts:
+  description: |
+    Search prompts with filters. Returns metadata including prompt_length and prompt_preview (first 500 chars) for size assessment before fetching the template. Use for discovery before get_prompt_content.
+  parameters:
+    query: |
+      Text to search in name, title, description, and content. Omit to list all prompts.
+    tags: |
+      Filter by tags (lowercase with hyphens)
+    tag_match: |
+      'all' requires ALL tags (default), 'any' requires ANY tag
+    sort_by: |
+      Field to sort by (default: created_at)
+    sort_order: |
+      Sort direction (default: desc)
+    limit: |
+      Maximum results to return (default: 50)
+    offset: |
+      Number of results to skip for pagination
+    filter_id: |
+      Filter by content filter ID (UUID). Use list_filters to discover filter IDs.
+
+list_filters:
+  description: |
+    List filters relevant to prompts. Filters are saved views with tag-based rules. Use filter IDs with search_prompts(filter_id=...) to search within a specific filter. Returns filter ID, name, content types, and the tag-based filter expression.
+
+list_tags:
+  description: |
+    List all tags with their usage counts across prompts.
+
+get_prompt_content:
+  description: |
+    Get a prompt's Jinja2 template and arguments for viewing or editing. Returns the raw template text AND the argument definitions list. Supports partial reads via start_line/end_line for large templates; response includes content_metadata with total_lines and is_partial flag. Use get_prompt_metadata first to check prompt_length before loading large templates.
+  parameters:
+    name: |
+      The prompt name (e.g., 'code-review'). Use search_prompts if you need to discover prompt names.
+    start_line: |
+      Start line for partial read (1-indexed). Optional.
+    end_line: |
+      End line for partial read (1-indexed, inclusive). Optional.
+
+get_prompt_metadata:
+  description: |
+    Get a prompt's metadata without the template. Returns name, title, description, arguments, tags, prompt_length, and prompt_preview. Use to check size before fetching with get_prompt_content.
+  parameters:
+    name: |
+      The prompt name (e.g., 'code-review'). Use search_prompts if you need to discover prompt names.
+
+create_prompt:
+  description: |
+    Create a new prompt template. Prompts are Jinja2 templates with defined arguments that can be used as reusable templates for AI interactions.
+  parameters:
+    name: |
+      Prompt identifier (lowercase with hyphens, e.g., 'code-review'). Must be unique for your account.
+    title: |
+      Optional human-readable display name (e.g., 'Code Review Assistant')
+    description: |
+      Optional description of what the prompt does
+    content: |
+      The prompt template text (required field). Can be plain text or use Jinja2 syntax: {{ variable_name }} for placeholders, {% if var %}...{% endif %} for conditionals, {% for x in items %}...{% endfor %} for loops, {{ text|upper }} for filters. Variables must be defined in the arguments list. Undefined variables cause errors.
+    arguments: |
+      List of argument definitions for the template
+    arguments_items_name: |
+      Argument name (lowercase with underscores, e.g., 'code_to_review'). Must be a valid Python/Jinja2 identifier.
+    arguments_items_description: |
+      Description of the argument
+    arguments_items_required: |
+      Whether this argument is required (default: false, optional args default to empty string)
+    tags: |
+      Optional tags for categorization (lowercase with hyphens)
+
+edit_prompt_content:
+  description: |
+    Edit template content using old_str/new_str replacement. When the edit adds, removes, or renames template variables ({{ var }}), you MUST pass the arguments parameter in this same tool call with ALL argument definitions - do NOT use a separate update_prompt call. old_str must match exactly one location. Omit arguments for text-only changes (existing arguments preserved automatically).
+  parameters:
+    name: |
+      The prompt name (e.g., 'code-review'). Use search_prompts if you need to discover prompt names.
+    old_str: |
+      Exact text to find in the template. Must match exactly one location. If not found, returns no_match error (whitespace normalization is automatic). If multiple matches, returns multiple_matches error with line numbers and context to help construct a unique match.
+    new_str: |
+      Replacement text. Use empty string to delete the matched text.
+    arguments: |
+      Only include when adding, removing, or renaming template variables. Do NOT include for simple text edits (typos, wording) - omitting preserves existing arguments automatically. If provided, this list FULLY REPLACES all current arguments (not a merge).
+    arguments_items_name: |
+      Argument name (lowercase with underscores)
+    arguments_items_description: |
+      Description of the argument
+    arguments_items_required: |
+      Whether this argument is required
+
+update_prompt:
+  description: |
+    Update metadata (title, description, tags, name) and/or fully replace template content. All parameters optional - only provide what you want to change. For targeted text or variable edits, use edit_prompt_content instead.
+  parameters:
+    name: |
+      Current prompt name (e.g., 'code-review'). Use search_prompts or get_context to discover prompt names.
+    new_name: |
+      New name for the prompt (optional). Must be unique and lowercase-with-hyphens.
+    title: |
+      New human-readable title (optional).
+    description: |
+      New description (optional).
+    tags: |
+      New tags list (optional). Replaces all existing tags. Use lowercase-with-hyphens format. If tags aren't changing, omit to preserve existing tags.
+    content: |
+      New template content (FULL REPLACEMENT of entire template). Omit to leave unchanged. If your new content uses the SAME variables as before, do NOT provide the arguments parameter. Only provide arguments when variables are added, removed, or renamed.
+    arguments: |
+      New arguments list (FULL REPLACEMENT). Omit if template variables ({{ var }}) aren't changing - existing arguments are preserved automatically. Only provide when adding, removing, or renaming variables. If provided, must include ALL arguments (replaces entire list).
+    arguments_items_name: |
+      Argument name (lowercase with underscores)
+    arguments_items_description: |
+      Description of the argument
+    arguments_items_required: |
+      Whether this argument is required
+    expected_updated_at: |
+      Optional optimistic locking. Only provide if you have the exact updated_at value from a previous response.

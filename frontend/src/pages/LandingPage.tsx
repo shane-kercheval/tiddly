@@ -5,7 +5,7 @@ import { isDevMode } from '../config'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { BookmarkIcon } from '../components/icons'
 import { Footer } from '../components/Footer'
-import { LoadingSpinnerCentered } from '../components/ui'
+import { LoadingSpinnerPage } from '../components/ui'
 
 /**
  * Landing page content shown to unauthenticated users.
@@ -352,7 +352,7 @@ function AuthenticatedLandingPage(): ReactNode {
   usePageTitle(undefined)
 
   if (isLoading) {
-    return <LoadingSpinnerCentered />
+    return <LoadingSpinnerPage />
   }
 
   // If already authenticated, redirect to app

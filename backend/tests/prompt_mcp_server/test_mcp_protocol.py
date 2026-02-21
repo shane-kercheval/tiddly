@@ -1,29 +1,34 @@
 """
-Tests for MCP server handlers.
+Tests for the Prompt MCP server through the MCP protocol.
+
+Tests go through the actual MCP protocol using fastmcp.Client connected
+to the server in-memory via FastMCPTransport. API responses are mocked
+with respx, so these verify protocol behavior without a real database.
 
 Note: mock_auth fixture is used for its side effect (patching get_bearer_token).
 Tests that use mock_auth but don't reference it directly have ARG001 noqa comments.
 """
 
+import asyncio
+import contextlib
 import json
 from typing import Any
 
 import httpx
 import pytest
+from fastmcp import Client
 from httpx import Response
-from mcp import types
 from mcp.shared.exceptions import McpError
 
+from prompt_mcp_server import server as server_module
+from prompt_mcp_server.auth import clear_current_token
 from prompt_mcp_server.server import (
     _format_prompt_context_markdown,
-    handle_call_tool,
-    handle_get_prompt,
-    handle_list_prompts,
-    handle_list_tools,
+    cleanup,
+    get_http_client,
+    init_http_client,
     server,
 )
-
-from .conftest import make_list_prompts_request
 
 
 # --- Server configuration tests ---
@@ -49,6 +54,7 @@ def test__server__has_instructions() -> None:
 async def test__list_prompts__returns_prompt_list(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_list: dict[str, Any],
 ) -> None:
     """Test list_prompts returns MCP ListPromptsResult with prompts."""
@@ -56,7 +62,7 @@ async def test__list_prompts__returns_prompt_list(
         return_value=Response(200, json=sample_prompt_list),
     )
 
-    result = await handle_list_prompts(make_list_prompts_request())
+    result = await mcp_client.session.list_prompts()
 
     assert len(result.prompts) == 1
     assert result.prompts[0].name == "code-review"
@@ -69,6 +75,7 @@ async def test__list_prompts__returns_prompt_list(
 async def test__list_prompts__empty_list_when_no_prompts(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_list_empty: dict[str, Any],
 ) -> None:
     """Test list_prompts returns empty list when no prompts."""
@@ -76,7 +83,7 @@ async def test__list_prompts__empty_list_when_no_prompts(
         return_value=Response(200, json=sample_prompt_list_empty),
     )
 
-    result = await handle_list_prompts(make_list_prompts_request())
+    result = await mcp_client.session.list_prompts()
 
     assert len(result.prompts) == 0
     assert result.nextCursor is None
@@ -86,6 +93,7 @@ async def test__list_prompts__empty_list_when_no_prompts(
 async def test__list_prompts__includes_arguments(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_list: dict[str, Any],
 ) -> None:
     """Test list_prompts includes prompt arguments."""
@@ -93,7 +101,7 @@ async def test__list_prompts__includes_arguments(
         return_value=Response(200, json=sample_prompt_list),
     )
 
-    result = await handle_list_prompts(make_list_prompts_request())
+    result = await mcp_client.session.list_prompts()
 
     assert result.prompts[0].arguments is not None
     assert len(result.prompts[0].arguments) == 2
@@ -106,6 +114,7 @@ async def test__list_prompts__includes_arguments(
 async def test__list_prompts__uses_limit_100_and_offset_0(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_list: dict[str, Any],
 ) -> None:
     """Test list_prompts uses limit=100 and offset=0 by default."""
@@ -113,7 +122,7 @@ async def test__list_prompts__uses_limit_100_and_offset_0(
         return_value=Response(200, json=sample_prompt_list),
     )
 
-    await handle_list_prompts(make_list_prompts_request())
+    await mcp_client.session.list_prompts()
 
     url = str(mock_api.calls[0].request.url)
     assert "limit=100" in url
@@ -124,6 +133,7 @@ async def test__list_prompts__uses_limit_100_and_offset_0(
 async def test__list_prompts__returns_next_cursor_when_has_more(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test list_prompts returns nextCursor when has_more=True."""
     response_with_more = {
@@ -137,7 +147,7 @@ async def test__list_prompts__returns_next_cursor_when_has_more(
         return_value=Response(200, json=response_with_more),
     )
 
-    result = await handle_list_prompts(make_list_prompts_request())
+    result = await mcp_client.session.list_prompts()
 
     assert result.nextCursor == "100"  # Next page starts at offset 100
 
@@ -146,6 +156,7 @@ async def test__list_prompts__returns_next_cursor_when_has_more(
 async def test__list_prompts__uses_cursor_as_offset(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test list_prompts uses cursor value as offset parameter."""
     response = {
@@ -159,7 +170,7 @@ async def test__list_prompts__uses_cursor_as_offset(
         return_value=Response(200, json=response),
     )
 
-    result = await handle_list_prompts(make_list_prompts_request(cursor="100"))
+    result = await mcp_client.session.list_prompts(cursor="100")
 
     # Verify offset=100 was passed to API
     url = str(mock_api.calls[0].request.url)
@@ -172,25 +183,26 @@ async def test__list_prompts__uses_cursor_as_offset(
 async def test__list_prompts__invalid_cursor_returns_error(
     mock_api,  # noqa: ARG001 - needed for fixture
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test list_prompts returns error for invalid cursor."""
-    from mcp.shared.exceptions import McpError
-
     with pytest.raises(McpError) as exc_info:
-        await handle_list_prompts(make_list_prompts_request(cursor="not-a-number"))
+        await mcp_client.session.list_prompts(cursor="not-a-number")
 
     assert "Invalid cursor" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
-async def test__list_prompts__api_unavailable(mock_api, mock_auth) -> None:  # noqa: ARG001
+async def test__list_prompts__api_unavailable(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
     """Test list_prompts handles network errors."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/").mock(side_effect=httpx.ConnectError("Connection refused"))
 
     with pytest.raises(McpError) as exc_info:
-        await handle_list_prompts(make_list_prompts_request())
+        await mcp_client.session.list_prompts()
 
     assert "unavailable" in str(exc_info.value).lower()
 
@@ -202,6 +214,7 @@ async def test__list_prompts__api_unavailable(mock_api, mock_auth) -> None:  # n
 async def test__get_prompt__renders_template_with_arguments(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt: dict[str, Any],
 ) -> None:
     """Test get_prompt renders template with provided arguments."""
@@ -212,7 +225,7 @@ async def test__get_prompt__renders_template_with_arguments(
         return_value=Response(204, json={}),
     )
 
-    result = await handle_get_prompt(
+    result = await mcp_client.get_prompt(
         "code-review",
         {"language": "Python", "code": "def hello(): pass"},
     )
@@ -228,6 +241,7 @@ async def test__get_prompt__renders_template_with_arguments(
 async def test__get_prompt__renders_template_no_arguments(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_no_args: dict[str, Any],
 ) -> None:
     """Test get_prompt with prompt that has no arguments."""
@@ -238,7 +252,7 @@ async def test__get_prompt__renders_template_no_arguments(
         return_value=Response(204, json={}),
     )
 
-    result = await handle_get_prompt("greeting", None)
+    result = await mcp_client.get_prompt("greeting", None)
 
     assert "Hello! How can I help you today?" in result.messages[0].content.text
 
@@ -247,17 +261,16 @@ async def test__get_prompt__renders_template_no_arguments(
 async def test__get_prompt__missing_required_argument_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt: dict[str, Any],
 ) -> None:
     """Test get_prompt raises error when required argument is missing."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/name/code-review").mock(
         return_value=Response(200, json=sample_prompt),
     )
 
     with pytest.raises(McpError) as exc_info:
-        await handle_get_prompt("code-review", {"language": "Python"})  # Missing 'code'
+        await mcp_client.get_prompt("code-review", {"language": "Python"})  # Missing 'code'
 
     assert "Missing required" in str(exc_info.value)
 
@@ -266,17 +279,16 @@ async def test__get_prompt__missing_required_argument_error(
 async def test__get_prompt__extra_unknown_argument_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt: dict[str, Any],
 ) -> None:
     """Test get_prompt raises error for unknown arguments."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/name/code-review").mock(
         return_value=Response(200, json=sample_prompt),
     )
 
     with pytest.raises(McpError) as exc_info:
-        await handle_get_prompt(
+        await mcp_client.get_prompt(
             "code-review",
             {"language": "Python", "code": "test", "unknown": "value"},
         )
@@ -285,16 +297,18 @@ async def test__get_prompt__extra_unknown_argument_error(
 
 
 @pytest.mark.asyncio
-async def test__get_prompt__prompt_not_found_error(mock_api, mock_auth) -> None:  # noqa: ARG001
+async def test__get_prompt__prompt_not_found_error(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
     """Test get_prompt raises error when prompt not found."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/name/nonexistent").mock(
         return_value=Response(404, json={"detail": "Not found"}),
     )
 
     with pytest.raises(McpError) as exc_info:
-        await handle_get_prompt("nonexistent", None)
+        await mcp_client.get_prompt("nonexistent", None)
 
     assert "not found" in str(exc_info.value).lower()
 
@@ -303,6 +317,7 @@ async def test__get_prompt__prompt_not_found_error(mock_api, mock_auth) -> None:
 async def test__get_prompt__optional_argument_uses_default(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_optional_args: dict[str, Any],
 ) -> None:
     """Test get_prompt with optional argument omitted."""
@@ -314,7 +329,7 @@ async def test__get_prompt__optional_argument_uses_default(
     )
 
     # Only provide required argument
-    result = await handle_get_prompt("summarize", {"text": "Hello world"})
+    result = await mcp_client.get_prompt("summarize", {"text": "Hello world"})
 
     # Template should handle missing optional arg
     assert "Hello world" in result.messages[0].content.text
@@ -324,6 +339,7 @@ async def test__get_prompt__optional_argument_uses_default(
 async def test__get_prompt__tracks_usage(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_no_args: dict[str, Any],
 ) -> None:
     """Test get_prompt calls track-usage endpoint."""
@@ -334,10 +350,9 @@ async def test__get_prompt__tracks_usage(
         return_value=Response(204, json={}),
     )
 
-    await handle_get_prompt("greeting", None)
+    await mcp_client.get_prompt("greeting", None)
 
     # Give async task time to run
-    import asyncio
     await asyncio.sleep(0.1)
 
     assert track_mock.called
@@ -347,6 +362,7 @@ async def test__get_prompt__tracks_usage(
 async def test__get_prompt__returns_user_role_message(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_no_args: dict[str, Any],
 ) -> None:
     """Test get_prompt returns message with user role."""
@@ -357,21 +373,38 @@ async def test__get_prompt__returns_user_role_message(
         return_value=Response(204, json={}),
     )
 
-    result = await handle_get_prompt("greeting", None)
+    result = await mcp_client.get_prompt("greeting", None)
 
     assert result.messages[0].role == "user"
+
+
+@pytest.mark.asyncio
+async def test__get_prompt__api_unavailable(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
+    """Test get_prompt handles network errors."""
+    mock_api.get("/prompts/name/test-prompt").mock(
+        side_effect=httpx.ConnectError("Connection refused"),
+    )
+
+    with pytest.raises(McpError) as exc_info:
+        await mcp_client.get_prompt("test-prompt", None)
+
+    assert "unavailable" in str(exc_info.value).lower()
 
 
 # --- list_tools tests ---
 
 
 @pytest.mark.asyncio
-async def test__list_tools__returns_all_tools() -> None:
+async def test__list_tools__returns_all_tools(mcp_client: Client) -> None:
     """Test list_tools returns all available tools."""
-    result = await handle_list_tools()
+    tools = await mcp_client.list_tools()
 
-    assert len(result) == 9
-    tool_names = {t.name for t in result}
+    assert len(tools) == 9
+    tool_names = {t.name for t in tools}
     assert tool_names == {
         "get_context",
         "search_prompts",
@@ -384,28 +417,28 @@ async def test__list_tools__returns_all_tools() -> None:
         "update_prompt",
     }
 
-    get_content = next(t for t in result if t.name == "get_prompt_content")
+    get_content = next(t for t in tools if t.name == "get_prompt_content")
     assert "template and arguments" in get_content.description
     assert "viewing or editing" in get_content.description
 
-    create_prompt = next(t for t in result if t.name == "create_prompt")
+    create_prompt = next(t for t in tools if t.name == "create_prompt")
     assert "Create a new prompt" in create_prompt.description
 
-    edit_prompt = next(t for t in result if t.name == "edit_prompt_content")
-    assert "Edit a prompt" in edit_prompt.description
-    assert "string replacement" in edit_prompt.description
+    edit_prompt = next(t for t in tools if t.name == "edit_prompt_content")
+    assert "Edit template content" in edit_prompt.description
+    assert "old_str/new_str replacement" in edit_prompt.description
 
-    update_prompt = next(t for t in result if t.name == "update_prompt")
-    assert "Update a prompt" in update_prompt.description
+    update_prompt = next(t for t in tools if t.name == "update_prompt")
+    assert "Update metadata" in update_prompt.description
     assert "metadata" in update_prompt.description or "content" in update_prompt.description
 
 
 @pytest.mark.asyncio
-async def test__list_tools__get_prompt_content_has_schema() -> None:
+async def test__list_tools__get_prompt_content_has_schema(mcp_client: Client) -> None:
     """Test get_prompt_content tool has proper input schema."""
-    result = await handle_list_tools()
+    tools = await mcp_client.list_tools()
 
-    get_template = next(t for t in result if t.name == "get_prompt_content")
+    get_template = next(t for t in tools if t.name == "get_prompt_content")
     schema = get_template.inputSchema
     assert schema["type"] == "object"
     assert "name" in schema["properties"]
@@ -413,11 +446,11 @@ async def test__list_tools__get_prompt_content_has_schema() -> None:
 
 
 @pytest.mark.asyncio
-async def test__list_tools__create_prompt_has_schema() -> None:
+async def test__list_tools__create_prompt_has_schema(mcp_client: Client) -> None:
     """Test create_prompt tool has proper input schema."""
-    result = await handle_list_tools()
+    tools = await mcp_client.list_tools()
 
-    create_prompt = next(t for t in result if t.name == "create_prompt")
+    create_prompt = next(t for t in tools if t.name == "create_prompt")
     schema = create_prompt.inputSchema
     assert schema["type"] == "object"
     assert "name" in schema["properties"]
@@ -436,6 +469,7 @@ async def test__list_tools__create_prompt_has_schema() -> None:
 async def test__get_prompt_content_tool__returns_raw_content(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt: dict[str, Any],
 ) -> None:
     """Test get_prompt_content returns raw template content as JSON."""
@@ -443,11 +477,11 @@ async def test__get_prompt_content_tool__returns_raw_content(
         return_value=Response(200, json=sample_prompt),
     )
 
-    result = await handle_call_tool("get_prompt_content", {"name": "code-review"})
+    result = await mcp_client.call_tool("get_prompt_content", {"name": "code-review"})
 
-    assert len(result) == 1
+    assert len(result.content) == 1
     # Response should be JSON-formatted
-    response_data = json.loads(result[0].text)
+    response_data = json.loads(result.content[0].text)
     assert response_data["id"] == sample_prompt["id"]
     assert response_data["name"] == "code-review"
     assert response_data["title"] == "Code Review Assistant"
@@ -461,6 +495,7 @@ async def test__get_prompt_content_tool__returns_raw_content(
 async def test__get_prompt_content_tool__includes_all_metadata(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt: dict[str, Any],
 ) -> None:
     """Test get_prompt_content includes all metadata fields."""
@@ -468,8 +503,8 @@ async def test__get_prompt_content_tool__includes_all_metadata(
         return_value=Response(200, json=sample_prompt),
     )
 
-    result = await handle_call_tool("get_prompt_content", {"name": "code-review"})
-    response_data = json.loads(result[0].text)
+    result = await mcp_client.call_tool("get_prompt_content", {"name": "code-review"})
+    response_data = json.loads(result.content[0].text)
 
     # Verify all expected fields are present
     expected_fields = {"id", "name", "title", "description", "content", "arguments"}
@@ -480,54 +515,54 @@ async def test__get_prompt_content_tool__includes_all_metadata(
 async def test__get_prompt_content_tool__not_found_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test get_prompt_content returns error for nonexistent prompt."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/name/nonexistent").mock(
         return_value=Response(404, json={"detail": "Prompt not found"}),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("get_prompt_content", {"name": "nonexistent"})
+    result = await mcp_client.call_tool("get_prompt_content", {"name": "nonexistent"}, raise_on_error=False)
 
-    assert "not found" in str(exc_info.value).lower()
+    assert result.is_error is True
+    assert "not found" in result.content[0].text.lower()
 
 
 @pytest.mark.asyncio
-async def test__get_prompt_content_tool__missing_name_error() -> None:
+async def test__get_prompt_content_tool__missing_name_error(mcp_client: Client) -> None:
     """Test get_prompt_content returns error when name is missing."""
-    from mcp.shared.exceptions import McpError
+    result = await mcp_client.call_tool("get_prompt_content", {}, raise_on_error=False)
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("get_prompt_content", {})
-
-    assert "Missing required parameter: name" in str(exc_info.value)
+    assert result.is_error is True
+    assert "name" in result.content[0].text.lower()
 
 
 @pytest.mark.asyncio
 async def test__get_prompt_content_tool__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test get_prompt_content handles network errors."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/name/test-prompt").mock(
         side_effect=httpx.ConnectError("Connection refused"),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("get_prompt_content", {"name": "test-prompt"})
+    result = await mcp_client.call_tool("get_prompt_content", {"name": "test-prompt"}, raise_on_error=False)
 
-    assert "unavailable" in str(exc_info.value).lower()
+    assert result.is_error is True
+    assert "unavailable" in result.content[0].text.lower()
 
 
 # --- call_tool (create_prompt) tests ---
 
 
 @pytest.mark.asyncio
-async def test__create_prompt_tool__creates_prompt(mock_api, mock_auth) -> None:  # noqa: ARG001
+async def test__create_prompt_tool__creates_prompt(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
     """Test create_prompt tool creates a prompt and returns structured response."""
     created_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440010",
@@ -543,14 +578,12 @@ async def test__create_prompt_tool__creates_prompt(mock_api, mock_auth) -> None:
         return_value=Response(201, json=created_prompt),
     )
 
-    result = await handle_call_tool("create_prompt", {"name": "new-prompt"})
+    result = await mcp_client.call_tool("create_prompt", {"name": "new-prompt", "content": "test content"})
 
-    # Returns CallToolResult with structuredContent
-    assert isinstance(result, types.CallToolResult)
-    assert result.structuredContent["id"] == "550e8400-e29b-41d4-a716-446655440010"
-    assert result.structuredContent["name"] == "new-prompt"
-    assert result.structuredContent["updated_at"] == "2024-01-01T00:00:00Z"
-    assert "Created prompt 'new-prompt'" in result.structuredContent["summary"]
+    assert result.structured_content["id"] == "550e8400-e29b-41d4-a716-446655440010"
+    assert result.structured_content["name"] == "new-prompt"
+    assert result.structured_content["updated_at"] == "2024-01-01T00:00:00Z"
+    assert "Created prompt 'new-prompt'" in result.structured_content["summary"]
 
     # Text content also has the response as JSON
     response_data = json.loads(result.content[0].text)
@@ -558,7 +591,11 @@ async def test__create_prompt_tool__creates_prompt(mock_api, mock_auth) -> None:
 
 
 @pytest.mark.asyncio
-async def test__create_prompt_tool__creates_with_arguments(mock_api, mock_auth) -> None:  # noqa: ARG001
+async def test__create_prompt_tool__creates_with_arguments(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
     """Test create_prompt tool with arguments."""
     created_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440011",
@@ -574,7 +611,7 @@ async def test__create_prompt_tool__creates_with_arguments(mock_api, mock_auth) 
         return_value=Response(201, json=created_prompt),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "create_prompt",
         {
             "name": "with-args",
@@ -585,9 +622,7 @@ async def test__create_prompt_tool__creates_with_arguments(mock_api, mock_auth) 
         },
     )
 
-    # Returns CallToolResult with structuredContent
-    assert isinstance(result, types.CallToolResult)
-    assert result.structuredContent["name"] == "with-args"
+    assert result.structured_content["name"] == "with-args"
 
     # Verify payload was sent correctly
     request_body = mock_api.calls[0].request.content
@@ -597,7 +632,11 @@ async def test__create_prompt_tool__creates_with_arguments(mock_api, mock_auth) 
 
 
 @pytest.mark.asyncio
-async def test__create_prompt_tool__creates_with_tags(mock_api, mock_auth) -> None:  # noqa: ARG001
+async def test__create_prompt_tool__creates_with_tags(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
     """Test create_prompt tool with tags."""
     created_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440012",
@@ -613,9 +652,9 @@ async def test__create_prompt_tool__creates_with_tags(mock_api, mock_auth) -> No
         return_value=Response(201, json=created_prompt),
     )
 
-    await handle_call_tool(
+    await mcp_client.call_tool(
         "create_prompt",
-        {"name": "tagged", "tags": ["test", "example"]},
+        {"name": "tagged", "content": "test content", "tags": ["test", "example"]},
     )
 
     payload = json.loads(mock_api.calls[0].request.content)
@@ -624,11 +663,11 @@ async def test__create_prompt_tool__creates_with_tags(mock_api, mock_auth) -> No
 
 @pytest.mark.asyncio
 async def test__create_prompt_tool__validation_error_invalid_name(
-    mock_api, mock_auth,  # noqa: ARG001 - needed for side effect
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test create_prompt tool with invalid name format."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.post("/prompts/").mock(
         return_value=Response(
             400,
@@ -636,19 +675,19 @@ async def test__create_prompt_tool__validation_error_invalid_name(
         ),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("create_prompt", {"name": "Invalid Name!"})
+    result = await mcp_client.call_tool("create_prompt", {"name": "Invalid Name!", "content": "test"}, raise_on_error=False)
 
-    assert "Invalid prompt name" in str(exc_info.value)
+    assert result.is_error is True
+    assert "Invalid prompt name" in result.content[0].text
 
 
 @pytest.mark.asyncio
 async def test__create_prompt_tool__validation_error_duplicate_name(
-    mock_api, mock_auth,  # noqa: ARG001 - needed for side effect
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test create_prompt tool with duplicate name."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.post("/prompts/").mock(
         return_value=Response(
             409,
@@ -661,19 +700,19 @@ async def test__create_prompt_tool__validation_error_duplicate_name(
         ),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("create_prompt", {"name": "existing"})
+    result = await mcp_client.call_tool("create_prompt", {"name": "existing", "content": "test"}, raise_on_error=False)
 
-    assert "already exists" in str(exc_info.value)
+    assert result.is_error is True
+    assert "already exists" in result.content[0].text
 
 
 @pytest.mark.asyncio
 async def test__create_prompt_tool__validation_error_template_syntax(
-    mock_api, mock_auth,  # noqa: ARG001 - needed for side effect
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test create_prompt tool with invalid template syntax."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.post("/prompts/").mock(
         return_value=Response(
             400,
@@ -681,24 +720,45 @@ async def test__create_prompt_tool__validation_error_template_syntax(
         ),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool(
-            "create_prompt",
-            {"name": "bad-template", "content": "{{ unclosed"},
-        )
+    result = await mcp_client.call_tool(
+        "create_prompt",
+        {"name": "bad-template", "content": "{{ unclosed"},
+        raise_on_error=False,
+    )
 
-    assert "Jinja2" in str(exc_info.value) or "syntax" in str(exc_info.value).lower()
+    assert result.is_error is True
+    error_text = result.content[0].text
+    assert "Jinja2" in error_text or "syntax" in error_text.lower()
 
 
 @pytest.mark.asyncio
-async def test__create_prompt_tool__unknown_tool_error() -> None:
+async def test__create_prompt_tool__api_unavailable(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
+    """Test create_prompt handles network errors."""
+    mock_api.post("/prompts/").mock(
+        side_effect=httpx.ConnectError("Connection refused"),
+    )
+
+    result = await mcp_client.call_tool(
+        "create_prompt",
+        {"name": "test-prompt", "content": "test"},
+        raise_on_error=False,
+    )
+
+    assert result.is_error is True
+    assert "unavailable" in result.content[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__create_prompt_tool__unknown_tool_error(mcp_client: Client) -> None:
     """Test error when calling unknown tool."""
-    from mcp.shared.exceptions import McpError
+    result = await mcp_client.call_tool("unknown_tool", {}, raise_on_error=False)
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("unknown_tool", {})
-
-    assert "Unknown tool" in str(exc_info.value)
+    assert result.is_error is True
+    assert "Unknown tool" in result.content[0].text
 
 
 # --- search_prompts tests ---
@@ -708,6 +768,7 @@ async def test__create_prompt_tool__unknown_tool_error() -> None:
 async def test__search_prompts__no_params__returns_all(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_list_item: dict[str, Any],
 ) -> None:
     """Test search_prompts with no params returns all prompts."""
@@ -722,10 +783,9 @@ async def test__search_prompts__no_params__returns_all(
         return_value=Response(200, json=response_data),
     )
 
-    result = await handle_call_tool("search_prompts", {})
+    result = await mcp_client.call_tool("search_prompts", {})
 
-
-    data = json.loads(result[0].text)
+    data = json.loads(result.content[0].text)
     assert data["total"] == 1
     assert len(data["items"]) == 1
 
@@ -734,6 +794,7 @@ async def test__search_prompts__no_params__returns_all(
 async def test__search_prompts__with_query__filters_results(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_list_item: dict[str, Any],
 ) -> None:
     """Test search_prompts with query parameter."""
@@ -748,7 +809,7 @@ async def test__search_prompts__with_query__filters_results(
         return_value=Response(200, json=response_data),
     )
 
-    await handle_call_tool("search_prompts", {"query": "code review"})
+    await mcp_client.call_tool("search_prompts", {"query": "code review"})
 
     request_url = str(mock_api.calls[0].request.url)
     assert "q=code" in request_url
@@ -758,6 +819,7 @@ async def test__search_prompts__with_query__filters_results(
 async def test__search_prompts__with_tags__filters_results(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_list_item: dict[str, Any],
 ) -> None:
     """Test search_prompts with tags parameter."""
@@ -772,7 +834,7 @@ async def test__search_prompts__with_tags__filters_results(
         return_value=Response(200, json=response_data),
     )
 
-    await handle_call_tool("search_prompts", {"tags": ["development", "code-review"]})
+    await mcp_client.call_tool("search_prompts", {"tags": ["development", "code-review"]})
 
     request_url = str(mock_api.calls[0].request.url)
     assert "tags" in request_url
@@ -782,6 +844,7 @@ async def test__search_prompts__with_tags__filters_results(
 async def test__search_prompts__results_include_length_and_preview(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_list_item: dict[str, Any],
 ) -> None:
     """Test search_prompts results include prompt_length and prompt_preview (translated from API)."""
@@ -796,10 +859,9 @@ async def test__search_prompts__results_include_length_and_preview(
         return_value=Response(200, json=response_data),
     )
 
-    result = await handle_call_tool("search_prompts", {})
+    result = await mcp_client.call_tool("search_prompts", {})
 
-
-    data = json.loads(result[0].text)
+    data = json.loads(result.content[0].text)
     # API returns content_length/content_preview, MCP translates to prompt_length/prompt_preview
     assert data["items"][0]["prompt_length"] == 500
     assert "prompt_preview" in data["items"][0]
@@ -814,6 +876,7 @@ async def test__search_prompts__results_include_length_and_preview(
 async def test__search_prompts__with_filter_id__passes_to_api(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_prompt_list_item: dict[str, Any],
 ) -> None:
     """Test search_prompts passes filter_id to API."""
@@ -828,13 +891,66 @@ async def test__search_prompts__with_filter_id__passes_to_api(
         return_value=Response(200, json=response_data),
     )
 
-    await handle_call_tool(
+    await mcp_client.call_tool(
         "search_prompts",
         {"filter_id": "a1b2c3d4-e29b-41d4-a716-446655440000"},
     )
 
     request_url = str(mock_api.calls[0].request.url)
     assert "filter_id=a1b2c3d4-e29b-41d4-a716-446655440000" in request_url
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("param_name", "param_value", "expected_in_url"),
+    [
+        ("sort_by", "updated_at", "sort_by=updated_at"),
+        ("sort_order", "asc", "sort_order=asc"),
+        ("tag_match", "any", "tag_match=any"),
+        ("limit", 25, "limit=25"),
+        ("offset", 10, "offset=10"),
+    ],
+)
+async def test__search_prompts__passes_parameter_to_api(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+    sample_prompt_list_item: dict[str, Any],
+    param_name: str,
+    param_value: Any,
+    expected_in_url: str,
+) -> None:
+    """Test search_prompts passes query parameters to API."""
+    response_data = {
+        "items": [sample_prompt_list_item],
+        "total": 1,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_data),
+    )
+
+    await mcp_client.call_tool("search_prompts", {param_name: param_value})
+
+    request_url = str(mock_api.calls[0].request.url)
+    assert expected_in_url in request_url
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__api_unavailable(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
+    """Test search_prompts handles network errors."""
+    mock_api.get("/prompts/").mock(side_effect=httpx.ConnectError("Connection refused"))
+
+    result = await mcp_client.call_tool("search_prompts", {}, raise_on_error=False)
+
+    assert result.is_error is True
+    assert "unavailable" in result.content[0].text.lower()
 
 
 # --- list_filters tests ---
@@ -844,6 +960,7 @@ async def test__search_prompts__with_filter_id__passes_to_api(
 async def test__list_filters__returns_filters(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test list_filters returns filter data from API."""
     filters_response = [
@@ -861,9 +978,9 @@ async def test__list_filters__returns_filters(
         return_value=Response(200, json=filters_response),
     )
 
-    result = await handle_call_tool("list_filters", {})
+    result = await mcp_client.call_tool("list_filters", {})
 
-    data = json.loads(result[0].text)
+    data = json.loads(result.content[0].text)
     assert len(data["filters"]) == 1
     assert data["filters"][0]["name"] == "Development"
 
@@ -872,6 +989,7 @@ async def test__list_filters__returns_filters(
 async def test__list_filters__excludes_non_prompt_filters(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test list_filters only returns filters whose content_types include 'prompt'."""
     filters_response = [
@@ -907,9 +1025,9 @@ async def test__list_filters__excludes_non_prompt_filters(
         return_value=Response(200, json=filters_response),
     )
 
-    result = await handle_call_tool("list_filters", {})
+    result = await mcp_client.call_tool("list_filters", {})
 
-    data = json.loads(result[0].text)
+    data = json.loads(result.content[0].text)
     names = [f["name"] for f in data["filters"]]
     assert "Prompt Filter" in names
     assert "Mixed Filter" in names
@@ -920,15 +1038,16 @@ async def test__list_filters__excludes_non_prompt_filters(
 async def test__list_filters__empty(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test list_filters with no filters returns empty list."""
     mock_api.get("/filters/").mock(
         return_value=Response(200, json=[]),
     )
 
-    result = await handle_call_tool("list_filters", {})
+    result = await mcp_client.call_tool("list_filters", {})
 
-    data = json.loads(result[0].text)
+    data = json.loads(result.content[0].text)
     assert data["filters"] == []
 
 
@@ -936,14 +1055,15 @@ async def test__list_filters__empty(
 async def test__list_filters__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test network error handling for list_filters."""
     mock_api.get("/filters/").mock(side_effect=httpx.ConnectError("Connection refused"))
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("list_filters", {})
+    result = await mcp_client.call_tool("list_filters", {}, raise_on_error=False)
 
-    assert "unavailable" in str(exc_info.value).lower()
+    assert result.is_error is True
+    assert "unavailable" in result.content[0].text.lower()
 
 
 # --- list_tags tests ---
@@ -953,6 +1073,7 @@ async def test__list_filters__api_unavailable(
 async def test__list_tags__returns_all_tags(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
     sample_tags_response: dict[str, Any],
 ) -> None:
     """Test list_tags returns all tags."""
@@ -960,19 +1081,37 @@ async def test__list_tags__returns_all_tags(
         return_value=Response(200, json=sample_tags_response),
     )
 
-    result = await handle_call_tool("list_tags", {})
+    result = await mcp_client.call_tool("list_tags", {})
 
-
-    data = json.loads(result[0].text)
+    data = json.loads(result.content[0].text)
     assert len(data["tags"]) == 3
     assert data["tags"][0]["name"] == "python"
+
+
+@pytest.mark.asyncio
+async def test__list_tags__api_unavailable(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
+    """Test list_tags handles network errors."""
+    mock_api.get("/tags/").mock(side_effect=httpx.ConnectError("Connection refused"))
+
+    result = await mcp_client.call_tool("list_tags", {}, raise_on_error=False)
+
+    assert result.is_error is True
+    assert "unavailable" in result.content[0].text.lower()
 
 
 # --- call_tool (edit_prompt_content) tests ---
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_content_tool__updates_content(mock_api, mock_auth) -> None:  # noqa: ARG001
+async def test__edit_prompt_content_tool__updates_content(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
     """Test edit_prompt_content tool performs str-replace and returns structured response."""
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440010",
@@ -995,7 +1134,7 @@ async def test__edit_prompt_content_tool__updates_content(mock_api, mock_auth) -
         ),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "edit_prompt_content",
         {
             "name": "test-prompt",
@@ -1004,16 +1143,14 @@ async def test__edit_prompt_content_tool__updates_content(mock_api, mock_auth) -
         },
     )
 
-    # Returns CallToolResult with structuredContent
-    assert isinstance(result, types.CallToolResult)
-    assert result.structuredContent["id"] == "550e8400-e29b-41d4-a716-446655440010"
-    assert result.structuredContent["name"] == "test-prompt"
-    assert result.structuredContent["updated_at"] == "2024-01-01T00:00:00Z"
-    assert result.structuredContent["match_type"] == "exact"
-    assert result.structuredContent["line"] == 1
-    assert "test-prompt" in result.structuredContent["summary"]
-    assert "exact" in result.structuredContent["summary"]
-    assert "line 1" in result.structuredContent["summary"]
+    assert result.structured_content["id"] == "550e8400-e29b-41d4-a716-446655440010"
+    assert result.structured_content["name"] == "test-prompt"
+    assert result.structured_content["updated_at"] == "2024-01-01T00:00:00Z"
+    assert result.structured_content["match_type"] == "exact"
+    assert result.structured_content["line"] == 1
+    assert "test-prompt" in result.structured_content["summary"]
+    assert "exact" in result.structured_content["summary"]
+    assert "line 1" in result.structured_content["summary"]
 
     # Text content also has the response as JSON
     response_data = json.loads(result.content[0].text)
@@ -1021,7 +1158,11 @@ async def test__edit_prompt_content_tool__updates_content(mock_api, mock_auth) -
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_content_tool__with_arguments(mock_api, mock_auth) -> None:  # noqa: ARG001
+async def test__edit_prompt_content_tool__with_arguments(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
     """Test edit_prompt_content tool with atomic arguments update."""
     updated_prompt = {
         "id": "550e8400-e29b-41d4-a716-446655440011",
@@ -1044,7 +1185,7 @@ async def test__edit_prompt_content_tool__with_arguments(mock_api, mock_auth) ->
         ),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "edit_prompt_content",
         {
             "name": "with-new-var",
@@ -1054,9 +1195,7 @@ async def test__edit_prompt_content_tool__with_arguments(mock_api, mock_auth) ->
         },
     )
 
-    # Returns CallToolResult with structuredContent
-    assert isinstance(result, types.CallToolResult)
-    assert result.structuredContent["name"] == "with-new-var"
+    assert result.structured_content["name"] == "with-new-var"
 
     # Verify payload included arguments
     payload = json.loads(mock_api.calls[0].request.content)
@@ -1067,7 +1206,9 @@ async def test__edit_prompt_content_tool__with_arguments(mock_api, mock_auth) ->
 
 @pytest.mark.asyncio
 async def test__edit_prompt_content_tool__whitespace_normalized_match(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test edit_prompt_content tool reports whitespace_normalized match type."""
     updated_prompt = {
@@ -1089,7 +1230,7 @@ async def test__edit_prompt_content_tool__whitespace_normalized_match(
         ),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "edit_prompt_content",
         {
             "name": "normalized",
@@ -1098,16 +1239,18 @@ async def test__edit_prompt_content_tool__whitespace_normalized_match(
         },
     )
 
-    # Returns CallToolResult with structuredContent
-    assert isinstance(result, types.CallToolResult)
-    assert result.structuredContent["match_type"] == "whitespace_normalized"
-    assert result.structuredContent["line"] == 5
-    assert "whitespace_normalized" in result.structuredContent["summary"]
-    assert "line 5" in result.structuredContent["summary"]
+    assert result.structured_content["match_type"] == "whitespace_normalized"
+    assert result.structured_content["line"] == 5
+    assert "whitespace_normalized" in result.structured_content["summary"]
+    assert "line 5" in result.structured_content["summary"]
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_content_tool__no_match_error(mock_api, mock_auth) -> None:  # noqa: ARG001
+async def test__edit_prompt_content_tool__no_match_error(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
     """Test edit_prompt_content tool returns structured error when no match found."""
     mock_api.patch("/prompts/name/no-match-test/str-replace").mock(
         return_value=Response(
@@ -1122,26 +1265,28 @@ async def test__edit_prompt_content_tool__no_match_error(mock_api, mock_auth) ->
         ),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "edit_prompt_content",
         {
             "name": "no-match-test",
             "old_str": "nonexistent text",
             "new_str": "replacement",
         },
+        raise_on_error=False,
     )
 
     # Returns CallToolResult with isError=True and structuredContent per MCP spec
-    assert isinstance(result, types.CallToolResult)
-    assert result.isError is True
-    assert result.structuredContent["error"] == "no_match"
-    assert "not found" in result.structuredContent["message"].lower()
-    assert result.structuredContent["suggestion"] == "Verify the text exists and check for whitespace differences"
+    assert result.is_error is True
+    assert result.structured_content["error"] == "no_match"
+    assert "not found" in result.structured_content["message"].lower()
+    assert result.structured_content["suggestion"] == "Verify the text exists and check for whitespace differences"
 
 
 @pytest.mark.asyncio
 async def test__edit_prompt_content_tool__multiple_matches_error(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test edit_prompt_content tool returns structured error with match locations."""
     mock_api.patch("/prompts/name/multi-match-test/str-replace").mock(
@@ -1160,27 +1305,29 @@ async def test__edit_prompt_content_tool__multiple_matches_error(
         ),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "edit_prompt_content",
         {
             "name": "multi-match-test",
             "old_str": "foo",
             "new_str": "bar",
         },
+        raise_on_error=False,
     )
 
     # Returns CallToolResult with isError=True and structuredContent per MCP spec
-    assert isinstance(result, types.CallToolResult)
-    assert result.isError is True
-    assert result.structuredContent["error"] == "multiple_matches"
-    assert len(result.structuredContent["matches"]) == 2
-    assert result.structuredContent["matches"][0]["line"] == 5
-    assert result.structuredContent["matches"][1]["line"] == 12
+    assert result.is_error is True
+    assert result.structured_content["error"] == "multiple_matches"
+    assert len(result.structured_content["matches"]) == 2
+    assert result.structured_content["matches"][0]["line"] == 5
+    assert result.structured_content["matches"][1]["line"] == 12
 
 
 @pytest.mark.asyncio
 async def test__edit_prompt_content_tool__template_validation_error(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test edit_prompt_content tool handles template validation error (string detail)."""
     mock_api.patch("/prompts/name/validation-test/str-replace").mock(
@@ -1192,89 +1339,91 @@ async def test__edit_prompt_content_tool__template_validation_error(
         ),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "edit_prompt_content",
         {
             "name": "validation-test",
             "old_str": "Hello",
             "new_str": "Hello {{ name }}",
         },
+        raise_on_error=False,
     )
 
     # Returns CallToolResult with isError=True and structuredContent per MCP spec
-    assert isinstance(result, types.CallToolResult)
-    assert result.isError is True
-    assert result.structuredContent["error"] == "validation_error"
-    assert "undefined variable" in result.structuredContent["message"].lower()
+    assert result.is_error is True
+    assert result.structured_content["error"] == "validation_error"
+    assert "undefined variable" in result.structured_content["message"].lower()
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_content_tool__not_found_error(mock_api, mock_auth) -> None:  # noqa: ARG001
-    """Test edit_prompt_content tool raises McpError when prompt not found."""
-    from mcp.shared.exceptions import McpError
-
+async def test__edit_prompt_content_tool__not_found_error(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
+    """Test edit_prompt_content tool returns error when prompt not found."""
     mock_api.patch("/prompts/name/nonexistent-prompt/str-replace").mock(
         return_value=Response(404, json={"detail": "Prompt not found"}),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool(
-            "edit_prompt_content",
-            {
-                "name": "nonexistent-prompt",
-                "old_str": "text",
-                "new_str": "replacement",
-            },
-        )
+    result = await mcp_client.call_tool(
+        "edit_prompt_content",
+        {
+            "name": "nonexistent-prompt",
+            "old_str": "text",
+            "new_str": "replacement",
+        },
+        raise_on_error=False,
+    )
 
-    assert "not found" in str(exc_info.value).lower()
+    assert result.is_error is True
+    assert "not found" in result.content[0].text.lower()
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_content_tool__missing_name_error() -> None:
+async def test__edit_prompt_content_tool__missing_name_error(mcp_client: Client) -> None:
     """Test edit_prompt_content tool requires name parameter."""
-    from mcp.shared.exceptions import McpError
+    result = await mcp_client.call_tool(
+        "edit_prompt_content",
+        {"old_str": "text", "new_str": "replacement"},
+        raise_on_error=False,
+    )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool(
-            "edit_prompt_content",
-            {"old_str": "text", "new_str": "replacement"},
-        )
-
-    assert "name" in str(exc_info.value).lower()
+    assert result.is_error is True
+    assert "name" in result.content[0].text.lower()
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_content_tool__missing_old_str_error() -> None:
+async def test__edit_prompt_content_tool__missing_old_str_error(mcp_client: Client) -> None:
     """Test edit_prompt_content tool requires old_str parameter."""
-    from mcp.shared.exceptions import McpError
+    result = await mcp_client.call_tool(
+        "edit_prompt_content",
+        {"name": "some-prompt", "new_str": "replacement"},
+        raise_on_error=False,
+    )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool(
-            "edit_prompt_content",
-            {"name": "some-prompt", "new_str": "replacement"},
-        )
-
-    assert "old_str" in str(exc_info.value)
+    assert result.is_error is True
+    assert "old_str" in result.content[0].text
 
 
 @pytest.mark.asyncio
-async def test__edit_prompt_content_tool__missing_new_str_error() -> None:
+async def test__edit_prompt_content_tool__missing_new_str_error(mcp_client: Client) -> None:
     """Test edit_prompt_content tool requires new_str parameter."""
-    from mcp.shared.exceptions import McpError
+    result = await mcp_client.call_tool(
+        "edit_prompt_content",
+        {"name": "some-prompt", "old_str": "text"},
+        raise_on_error=False,
+    )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool(
-            "edit_prompt_content",
-            {"name": "some-prompt", "old_str": "text"},
-        )
-
-    assert "new_str" in str(exc_info.value)
+    assert result.is_error is True
+    assert "new_str" in result.content[0].text
 
 
 @pytest.mark.asyncio
 async def test__edit_prompt_content_tool__empty_new_str_allowed(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test edit_prompt_content tool allows empty new_str for deletion."""
     updated_prompt = {
@@ -1296,7 +1445,7 @@ async def test__edit_prompt_content_tool__empty_new_str_allowed(
         ),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "edit_prompt_content",
         {
             "name": "deleted-text",
@@ -1305,17 +1454,36 @@ async def test__edit_prompt_content_tool__empty_new_str_allowed(
         },
     )
 
-    # Returns CallToolResult with structuredContent
-    assert isinstance(result, types.CallToolResult)
-    assert result.structuredContent["name"] == "deleted-text"
+    assert result.structured_content["name"] == "deleted-text"
 
 
 @pytest.mark.asyncio
-async def test__list_tools__edit_prompt_content_has_schema() -> None:
-    """Test edit_prompt_content tool has proper input schema."""
-    result = await handle_list_tools()
+async def test__edit_prompt_content_tool__api_unavailable(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
+    """Test edit_prompt_content handles network errors."""
+    mock_api.patch("/prompts/name/test-prompt/str-replace").mock(
+        side_effect=httpx.ConnectError("Connection refused"),
+    )
 
-    edit_prompt = next(t for t in result if t.name == "edit_prompt_content")
+    result = await mcp_client.call_tool(
+        "edit_prompt_content",
+        {"name": "test-prompt", "old_str": "text", "new_str": "replacement"},
+        raise_on_error=False,
+    )
+
+    assert result.is_error is True
+    assert "unavailable" in result.content[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__list_tools__edit_prompt_content_has_schema(mcp_client: Client) -> None:
+    """Test edit_prompt_content tool has proper input schema."""
+    tools = await mcp_client.list_tools()
+
+    edit_prompt = next(t for t in tools if t.name == "edit_prompt_content")
     schema = edit_prompt.inputSchema
     assert schema["type"] == "object"
     assert "name" in schema["properties"]
@@ -1331,7 +1499,9 @@ async def test__list_tools__edit_prompt_content_has_schema() -> None:
 
 @pytest.mark.asyncio
 async def test__update_prompt_tool__updates_title(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test update_prompt tool updates title and returns structured response."""
     updated_prompt = {
@@ -1348,17 +1518,15 @@ async def test__update_prompt_tool__updates_title(
         return_value=Response(200, json=updated_prompt),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "update_prompt",
         {"name": "test-prompt", "title": "New Title"},
     )
 
-    # Returns CallToolResult with structuredContent
-    assert hasattr(result, "structuredContent")
-    assert result.structuredContent["id"] == "550e8400-e29b-41d4-a716-446655440020"
-    assert result.structuredContent["name"] == "test-prompt"
-    assert result.structuredContent["updated_at"] == "2024-01-02T00:00:00Z"
-    assert "title updated" in result.structuredContent["summary"]
+    assert result.structured_content["id"] == "550e8400-e29b-41d4-a716-446655440020"
+    assert result.structured_content["name"] == "test-prompt"
+    assert result.structured_content["updated_at"] == "2024-01-02T00:00:00Z"
+    assert "title updated" in result.structured_content["summary"]
 
     # Text content also has the response
     response_text = result.content[0].text
@@ -1368,7 +1536,9 @@ async def test__update_prompt_tool__updates_title(
 
 @pytest.mark.asyncio
 async def test__update_prompt_tool__updates_tags(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test update_prompt tool updates tags."""
     updated_prompt = {
@@ -1385,12 +1555,12 @@ async def test__update_prompt_tool__updates_tags(
         return_value=Response(200, json=updated_prompt),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "update_prompt",
         {"name": "test-prompt", "tags": ["new-tag-1", "new-tag-2"]},
     )
 
-    assert "tags updated" in result.structuredContent["summary"]
+    assert "tags updated" in result.structured_content["summary"]
 
     # Verify payload
     payload = json.loads(mock_api.calls[0].request.content)
@@ -1399,7 +1569,9 @@ async def test__update_prompt_tool__updates_tags(
 
 @pytest.mark.asyncio
 async def test__update_prompt_tool__renames_prompt(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test update_prompt tool renames prompt."""
     updated_prompt = {
@@ -1416,12 +1588,12 @@ async def test__update_prompt_tool__renames_prompt(
         return_value=Response(200, json=updated_prompt),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "update_prompt",
         {"name": "old-name", "new_name": "new-name"},
     )
 
-    assert "renamed to 'new-name'" in result.structuredContent["summary"]
+    assert "renamed to 'new-name'" in result.structured_content["summary"]
 
     # Verify payload maps new_name -> name
     payload = json.loads(mock_api.calls[0].request.content)
@@ -1430,7 +1602,9 @@ async def test__update_prompt_tool__renames_prompt(
 
 @pytest.mark.asyncio
 async def test__update_prompt_tool__content_replacement(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test update_prompt tool replaces content."""
     updated_prompt = {
@@ -1447,12 +1621,12 @@ async def test__update_prompt_tool__content_replacement(
         return_value=Response(200, json=updated_prompt),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "update_prompt",
         {"name": "test-prompt", "content": "Completely new content"},
     )
 
-    assert "content updated" in result.structuredContent["summary"]
+    assert "content updated" in result.structured_content["summary"]
 
     # Verify payload
     payload = json.loads(mock_api.calls[0].request.content)
@@ -1461,7 +1635,9 @@ async def test__update_prompt_tool__content_replacement(
 
 @pytest.mark.asyncio
 async def test__update_prompt_tool__content_and_arguments_together(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test update_prompt tool replaces content and arguments together."""
     updated_prompt = {
@@ -1478,7 +1654,7 @@ async def test__update_prompt_tool__content_and_arguments_together(
         return_value=Response(200, json=updated_prompt),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "update_prompt",
         {
             "name": "test-prompt",
@@ -1487,8 +1663,8 @@ async def test__update_prompt_tool__content_and_arguments_together(
         },
     )
 
-    assert "content updated" in result.structuredContent["summary"]
-    assert "arguments updated" in result.structuredContent["summary"]
+    assert "content updated" in result.structured_content["summary"]
+    assert "arguments updated" in result.structured_content["summary"]
 
     # Verify payload
     payload = json.loads(mock_api.calls[0].request.content)
@@ -1498,7 +1674,9 @@ async def test__update_prompt_tool__content_and_arguments_together(
 
 @pytest.mark.asyncio
 async def test__update_prompt_tool__with_expected_updated_at_success(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test update_prompt with valid expected_updated_at succeeds."""
     updated_prompt = {
@@ -1515,7 +1693,7 @@ async def test__update_prompt_tool__with_expected_updated_at_success(
         return_value=Response(200, json=updated_prompt),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "update_prompt",
         {
             "name": "test-prompt",
@@ -1524,10 +1702,10 @@ async def test__update_prompt_tool__with_expected_updated_at_success(
         },
     )
 
-    assert result.structuredContent["id"] == "550e8400-e29b-41d4-a716-446655440026"
-    assert "title updated" in result.structuredContent["summary"]
+    assert result.structured_content["id"] == "550e8400-e29b-41d4-a716-446655440026"
+    assert "title updated" in result.structured_content["summary"]
     # expected_updated_at should NOT appear in summary (it's a control param)
-    assert "expected_updated_at" not in result.structuredContent["summary"]
+    assert "expected_updated_at" not in result.structured_content["summary"]
 
     # Verify expected_updated_at was sent in payload
     payload = json.loads(mock_api.calls[0].request.content)
@@ -1536,7 +1714,9 @@ async def test__update_prompt_tool__with_expected_updated_at_success(
 
 @pytest.mark.asyncio
 async def test__update_prompt_tool__conflict_returns_server_state(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test update_prompt with stale expected_updated_at returns conflict with server_state."""
     current_server_state = {
@@ -1562,30 +1742,31 @@ async def test__update_prompt_tool__conflict_returns_server_state(
         ),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "update_prompt",
         {
             "name": "test-prompt",
             "title": "My title",
             "expected_updated_at": "2024-01-01T00:00:00Z",
         },
+        raise_on_error=False,
     )
 
     # Should return CallToolResult with isError=True and structured conflict data
-    assert result.isError is True
-    assert result.structuredContent["error"] == "conflict"
-    assert "modified" in result.structuredContent["message"].lower()
-    assert result.structuredContent["server_state"]["title"] == "Someone else's title"
-    assert result.structuredContent["server_state"]["updated_at"] == "2024-01-02T00:00:00Z"
+    assert result.is_error is True
+    assert result.structured_content["error"] == "conflict"
+    assert "modified" in result.structured_content["message"].lower()
+    assert result.structured_content["server_state"]["title"] == "Someone else's title"
+    assert result.structured_content["server_state"]["updated_at"] == "2024-01-02T00:00:00Z"
 
 
 @pytest.mark.asyncio
 async def test__update_prompt_tool__rename_conflict(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test update_prompt tool handles rename conflict (no server_state)."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.patch("/prompts/name/old-name").mock(
         return_value=Response(
             409,
@@ -1593,83 +1774,105 @@ async def test__update_prompt_tool__rename_conflict(
         ),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool(
-            "update_prompt",
-            {"name": "old-name", "new_name": "existing-name"},
-        )
+    result = await mcp_client.call_tool(
+        "update_prompt",
+        {"name": "old-name", "new_name": "existing-name"},
+        raise_on_error=False,
+    )
 
-    assert "already exists" in str(exc_info.value).lower()
+    assert result.is_error is True
+    assert "already exists" in result.content[0].text.lower()
 
 
 @pytest.mark.asyncio
 async def test__update_prompt_tool__not_found(
-    mock_api, mock_auth,  # noqa: ARG001
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test update_prompt tool handles not found error."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.patch("/prompts/name/nonexistent").mock(
         return_value=Response(404, json={"detail": "Prompt not found"}),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool(
-            "update_prompt",
-            {"name": "nonexistent", "title": "New Title"},
-        )
+    result = await mcp_client.call_tool(
+        "update_prompt",
+        {"name": "nonexistent", "title": "New Title"},
+        raise_on_error=False,
+    )
 
-    assert "not found" in str(exc_info.value).lower()
-
-
-@pytest.mark.asyncio
-async def test__update_prompt_tool__missing_name_error() -> None:
-    """Test update_prompt tool requires name parameter."""
-    from mcp.shared.exceptions import McpError
-
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool(
-            "update_prompt",
-            {"title": "New Title"},
-        )
-
-    assert "name" in str(exc_info.value).lower()
+    assert result.is_error is True
+    assert "not found" in result.content[0].text.lower()
 
 
 @pytest.mark.asyncio
-async def test__update_prompt_tool__no_data_fields_error(
-    mock_api, mock_auth,  # noqa: ARG001
+async def test__update_prompt_tool__api_unavailable(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
-    """Test update_prompt requires at least one data field."""
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool(
-            "update_prompt",
-            {"name": "test-prompt"},  # No data fields provided
-        )
+    """Test update_prompt handles network errors."""
+    mock_api.patch("/prompts/name/test-prompt").mock(
+        side_effect=httpx.ConnectError("Connection refused"),
+    )
 
-    assert "at least one" in str(exc_info.value).lower()
+    result = await mcp_client.call_tool(
+        "update_prompt",
+        {"name": "test-prompt", "title": "New Title"},
+        raise_on_error=False,
+    )
+
+    assert result.is_error is True
+    assert "unavailable" in result.content[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__missing_name_error(mcp_client: Client) -> None:
+    """Test update_prompt tool requires name parameter."""
+    result = await mcp_client.call_tool(
+        "update_prompt",
+        {"title": "New Title"},
+        raise_on_error=False,
+    )
+
+    assert result.is_error is True
+    assert "name" in result.content[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__no_data_fields_error(mcp_client: Client) -> None:
+    """Test update_prompt requires at least one data field."""
+    result = await mcp_client.call_tool(
+        "update_prompt",
+        {"name": "test-prompt"},  # No data fields provided
+        raise_on_error=False,
+    )
+
+    assert result.is_error is True
+    assert "at least one" in result.content[0].text.lower()
 
 
 @pytest.mark.asyncio
 async def test__update_prompt_tool__expected_updated_at_alone_not_sufficient(
-    mock_api, mock_auth,  # noqa: ARG001
+    mcp_client: Client,
 ) -> None:
     """Test expected_updated_at alone doesn't satisfy 'at least one field' requirement."""
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool(
-            "update_prompt",
-            {"name": "test-prompt", "expected_updated_at": "2024-01-01T00:00:00Z"},
-        )
+    result = await mcp_client.call_tool(
+        "update_prompt",
+        {"name": "test-prompt", "expected_updated_at": "2024-01-01T00:00:00Z"},
+        raise_on_error=False,
+    )
 
-    assert "at least one" in str(exc_info.value).lower()
+    assert result.is_error is True
+    assert "at least one" in result.content[0].text.lower()
 
 
 @pytest.mark.asyncio
-async def test__list_tools__update_prompt_has_schema() -> None:
+async def test__list_tools__update_prompt_has_schema(mcp_client: Client) -> None:
     """Test update_prompt tool has proper input schema with new parameters."""
-    result = await handle_list_tools()
+    tools = await mcp_client.list_tools()
 
-    update_prompt = next(t for t in result if t.name == "update_prompt")
+    update_prompt = next(t for t in tools if t.name == "update_prompt")
     schema = update_prompt.inputSchema
     assert schema["type"] == "object"
     assert "name" in schema["properties"]
@@ -1689,62 +1892,68 @@ async def test__list_tools__update_prompt_has_schema() -> None:
 
 
 @pytest.mark.asyncio
-async def test__list_prompts__no_token_error(mock_api) -> None:  # noqa: ARG001
+async def test__list_prompts__no_token_error(
+    mock_api,  # noqa: ARG001 - needed for HTTP client init
+    mcp_client: Client,
+) -> None:
     """Test list_prompts without token raises error."""
-    from mcp.shared.exceptions import McpError
-    from prompt_mcp_server.auth import clear_current_token
-
     clear_current_token()  # Ensure no token
 
     with pytest.raises(McpError) as exc_info:
-        await handle_list_prompts(make_list_prompts_request())
+        await mcp_client.session.list_prompts()
 
     assert "token" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio
-async def test__list_prompts__invalid_token_error(mock_api, mock_auth) -> None:  # noqa: ARG001
+async def test__list_prompts__invalid_token_error(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
     """Test list_prompts with invalid token."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/").mock(
         return_value=Response(401, json={"detail": "Invalid token"}),
     )
 
     with pytest.raises(McpError) as exc_info:
-        await handle_list_prompts(make_list_prompts_request())
+        await mcp_client.session.list_prompts()
 
     assert "Invalid" in str(exc_info.value) or "expired" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio
-async def test__list_prompts__forbidden_error(mock_api, mock_auth) -> None:  # noqa: ARG001
+async def test__list_prompts__forbidden_error(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
     """Test list_prompts with 403 forbidden error."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/").mock(
         return_value=Response(403, json={"detail": "Access denied"}),
     )
 
     with pytest.raises(McpError) as exc_info:
-        await handle_list_prompts(make_list_prompts_request())
+        await mcp_client.session.list_prompts()
 
     assert "access denied" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio
-async def test__search_prompts__forbidden_error(mock_api, mock_auth) -> None:  # noqa: ARG001
+async def test__search_prompts__forbidden_error(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
     """Test search_prompts tool with 403 forbidden error."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/").mock(
         return_value=Response(403, json={"detail": "Access denied"}),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("search_prompts", {})
+    result = await mcp_client.call_tool("search_prompts", {}, raise_on_error=False)
 
-    assert "access denied" in str(exc_info.value).lower()
+    assert result.is_error is True
+    assert "access denied" in result.content[0].text.lower()
 
 
 # --- 400/422 error handling tests ---
@@ -1752,11 +1961,11 @@ async def test__search_prompts__forbidden_error(mock_api, mock_auth) -> None:  #
 
 @pytest.mark.asyncio
 async def test__create_prompt_tool__422_fastapi_validation_errors(
-    mock_api, mock_auth,  # noqa: ARG001 - needed for side effect
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test 422 validation errors (FastAPI format) are handled as INVALID_PARAMS."""
-    from mcp.shared.exceptions import McpError
-
     # FastAPI validation errors return a list of error objects
     mock_api.post("/prompts/").mock(
         return_value=Response(
@@ -1770,21 +1979,21 @@ async def test__create_prompt_tool__422_fastapi_validation_errors(
         ),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("create_prompt", {"name": ""})
+    result = await mcp_client.call_tool("create_prompt", {"name": "", "content": "test"}, raise_on_error=False)
 
+    assert result.is_error is True
     # Error message should include field info
-    assert "name: field required" in str(exc_info.value)
-    assert "content: string too long" in str(exc_info.value)
+    assert "name: field required" in result.content[0].text
+    assert "content: string too long" in result.content[0].text
 
 
 @pytest.mark.asyncio
 async def test__create_prompt_tool__400_dict_detail_format(
-    mock_api, mock_auth,  # noqa: ARG001 - needed for side effect
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test 400 errors with dict detail format are handled correctly."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.post("/prompts/").mock(
         return_value=Response(
             400,
@@ -1797,19 +2006,19 @@ async def test__create_prompt_tool__400_dict_detail_format(
         ),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("create_prompt", {"name": "test", "content": "{{ bad }}"})
+    result = await mcp_client.call_tool("create_prompt", {"name": "test", "content": "{{ bad }}"}, raise_on_error=False)
 
-    assert "Template contains undefined variables" in str(exc_info.value)
+    assert result.is_error is True
+    assert "Template contains undefined variables" in result.content[0].text
 
 
 @pytest.mark.asyncio
 async def test__create_prompt_tool__400_string_detail_format(
-    mock_api, mock_auth,  # noqa: ARG001 - needed for side effect
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test 400 errors with simple string detail are handled correctly."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.post("/prompts/").mock(
         return_value=Response(
             400,
@@ -1817,10 +2026,10 @@ async def test__create_prompt_tool__400_string_detail_format(
         ),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("create_prompt", {"name": "Invalid Name!"})
+    result = await mcp_client.call_tool("create_prompt", {"name": "Invalid Name!", "content": "test"}, raise_on_error=False)
 
-    assert "Invalid prompt name format" in str(exc_info.value)
+    assert result.is_error is True
+    assert "Invalid prompt name format" in result.content[0].text
 
 
 # --- call_tool (get_prompt_metadata) tests ---
@@ -1830,6 +2039,7 @@ async def test__create_prompt_tool__400_string_detail_format(
 async def test__get_prompt_metadata__returns_length_and_preview(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test get_prompt_metadata returns prompt_length and prompt_preview (translated from API)."""
     metadata_response = {
@@ -1846,10 +2056,9 @@ async def test__get_prompt_metadata__returns_length_and_preview(
         return_value=Response(200, json=metadata_response),
     )
 
-    result = await handle_call_tool("get_prompt_metadata", {"name": "code-review"})
+    result = await mcp_client.call_tool("get_prompt_metadata", {"name": "code-review"})
 
-
-    data = json.loads(result[0].text)
+    data = json.loads(result.content[0].text)
     # API returns content_length/content_preview, MCP translates to prompt_length/prompt_preview
     assert data["prompt_length"] == 1500
     assert data["prompt_preview"] == "You are a code reviewer..."
@@ -1862,18 +2071,38 @@ async def test__get_prompt_metadata__returns_length_and_preview(
 async def test__get_prompt_metadata__prompt_not_found(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test get_prompt_metadata returns error when prompt not found."""
-    from mcp.shared.exceptions import McpError
-
     mock_api.get("/prompts/name/nonexistent/metadata").mock(
         return_value=Response(404, json={"detail": "Prompt not found"}),
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await handle_call_tool("get_prompt_metadata", {"name": "nonexistent"})
+    result = await mcp_client.call_tool("get_prompt_metadata", {"name": "nonexistent"}, raise_on_error=False)
 
-    assert "not found" in str(exc_info.value).lower()
+    assert result.is_error is True
+    assert "not found" in result.content[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test__get_prompt_metadata__api_unavailable(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
+    """Test get_prompt_metadata handles network errors."""
+    mock_api.get("/prompts/name/test-prompt/metadata").mock(
+        side_effect=httpx.ConnectError("Connection refused"),
+    )
+
+    result = await mcp_client.call_tool(
+        "get_prompt_metadata",
+        {"name": "test-prompt"},
+        raise_on_error=False,
+    )
+
+    assert result.is_error is True
+    assert "unavailable" in result.content[0].text.lower()
 
 
 # --- call_tool (get_prompt_content with start_line/end_line) tests ---
@@ -1883,6 +2112,7 @@ async def test__get_prompt_metadata__prompt_not_found(
 async def test__get_prompt_content__with_start_end_line__returns_partial(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
 ) -> None:
     """Test get_prompt_content with start_line/end_line parameters."""
     partial_response = {
@@ -1903,13 +2133,12 @@ async def test__get_prompt_content__with_start_end_line__returns_partial(
         return_value=Response(200, json=partial_response),
     )
 
-    result = await handle_call_tool(
+    result = await mcp_client.call_tool(
         "get_prompt_content",
         {"name": "code-review", "start_line": 5, "end_line": 7},
     )
 
-
-    data = json.loads(result[0].text)
+    data = json.loads(result.content[0].text)
     assert data["content"] == "Line 5\nLine 6\nLine 7"
     assert data["content_metadata"]["total_lines"] == 100
     assert data["content_metadata"]["start_line"] == 5
@@ -1927,9 +2156,6 @@ async def test__get_prompt_content__with_start_end_line__returns_partial(
 @pytest.mark.asyncio
 async def test__cleanup__closes_http_client() -> None:
     """Test cleanup properly closes HTTP client."""
-    from prompt_mcp_server import server as server_module
-    from prompt_mcp_server.server import cleanup, init_http_client, get_http_client
-
     # Initialize HTTP client
     await init_http_client()
     client = get_http_client()
@@ -1947,12 +2173,6 @@ async def test__cleanup__closes_http_client() -> None:
 @pytest.mark.asyncio
 async def test__cleanup__cancels_background_tasks() -> None:
     """Test cleanup cancels pending background tasks."""
-    import asyncio
-    import contextlib
-
-    from prompt_mcp_server import server as server_module
-    from prompt_mcp_server.server import cleanup
-
     # Create a long-running task
     async def long_running() -> None:
         await asyncio.sleep(100)
@@ -1975,9 +2195,6 @@ async def test__cleanup__cancels_background_tasks() -> None:
 @pytest.mark.asyncio
 async def test__cleanup__handles_no_resources() -> None:
     """Test cleanup handles case when no resources exist."""
-    from prompt_mcp_server import server as server_module
-    from prompt_mcp_server.server import cleanup
-
     # Ensure no resources
     server_module._http_client = None
     server_module._background_tasks.clear()
@@ -2066,16 +2283,15 @@ def _sample_prompt_context_response() -> dict[str, Any]:
 async def test__get_context__returns_markdown(
     mock_api: Any,
     mock_auth: Any,  # noqa: ARG001
+    mcp_client: Client,
 ) -> None:
     """get_context tool returns markdown string with expected sections."""
     mock_api.get("/mcp/context/prompts").mock(
         return_value=Response(200, json=_sample_prompt_context_response()),
     )
 
-    result = await handle_call_tool("get_context", {})
-    assert isinstance(result, list)
-    assert len(result) == 1
-    text = result[0].text
+    result = await mcp_client.call_tool("get_context", {})
+    text = result.content[0].text
     assert "# Prompt Context" in text
     assert "## Overview" in text
     assert "30 active, 2 archived" in text
@@ -2090,13 +2306,14 @@ async def test__get_context__returns_markdown(
 async def test__get_context__passes_parameters(
     mock_api: Any,
     mock_auth: Any,  # noqa: ARG001
+    mcp_client: Client,
 ) -> None:
     """get_context passes query parameters to API."""
     mock_api.get("/mcp/context/prompts").mock(
         return_value=Response(200, json=_sample_prompt_context_response()),
     )
 
-    await handle_call_tool("get_context", {
+    await mcp_client.call_tool("get_context", {
         "tag_limit": 10,
         "recent_limit": 5,
         "filter_limit": 3,
@@ -2114,34 +2331,40 @@ async def test__get_context__passes_parameters(
 async def test__get_context__auth_error(
     mock_api: Any,
     mock_auth: Any,  # noqa: ARG001
+    mcp_client: Client,
 ) -> None:
-    """get_context raises McpError on 401."""
+    """get_context returns error on 401."""
     mock_api.get("/mcp/context/prompts").mock(
         return_value=Response(401, json={"detail": "Not authenticated"}),
     )
 
-    with pytest.raises(McpError):
-        await handle_call_tool("get_context", {})
+    result = await mcp_client.call_tool("get_context", {}, raise_on_error=False)
+
+    assert result.is_error is True
+    assert "invalid" in result.content[0].text.lower() or "expired" in result.content[0].text.lower()
 
 
 @pytest.mark.asyncio
 async def test__get_context__api_unavailable(
     mock_api: Any,
     mock_auth: Any,  # noqa: ARG001
+    mcp_client: Client,
 ) -> None:
-    """get_context raises McpError on network error."""
+    """get_context returns error on network error."""
     mock_api.get("/mcp/context/prompts").mock(
         side_effect=httpx.ConnectError("Connection refused"),
     )
 
-    with pytest.raises(McpError, match="API unavailable"):
-        await handle_call_tool("get_context", {})
+    result = await mcp_client.call_tool("get_context", {}, raise_on_error=False)
+
+    assert result.is_error is True
+    assert "API unavailable" in result.content[0].text
 
 
 @pytest.mark.asyncio
-async def test__get_context__tool_in_list() -> None:
+async def test__get_context__tool_in_list(mcp_client: Client) -> None:
     """get_context tool appears in the tool list with correct schema."""
-    tools = await handle_list_tools()
+    tools = await mcp_client.list_tools()
     tool_names = [t.name for t in tools]
     assert "get_context" in tool_names
 
@@ -2155,19 +2378,21 @@ async def test__get_context__tool_in_list() -> None:
 
 
 @pytest.mark.asyncio
-async def test__get_context__no_structured_content(
+async def test__get_context__returns_text_content(
     mock_api: Any,
     mock_auth: Any,  # noqa: ARG001
+    mcp_client: Client,
 ) -> None:
-    """get_context returns text content, not CallToolResult with structuredContent."""
+    """get_context returns text content (not structuredContent)."""
     mock_api.get("/mcp/context/prompts").mock(
         return_value=Response(200, json=_sample_prompt_context_response()),
     )
 
-    result = await handle_call_tool("get_context", {})
-    # Returns list[TextContent], not CallToolResult
-    assert isinstance(result, list)
-    assert isinstance(result[0], types.TextContent)
+    result = await mcp_client.call_tool("get_context", {})
+    # Through protocol, call_tool always returns CallToolResult
+    # Verify text content is present and structuredContent is not set
+    assert result.content[0].text.startswith("# Prompt Context")
+    assert result.structured_content is None
 
 
 # --- Prompt context markdown formatting tests ---
@@ -2301,5 +2526,3 @@ def test__format_prompt_context_markdown__last_used_at_in_recent() -> None:
     }
     md = _format_prompt_context_markdown(data)
     assert "- **Last used**: 2026-01-25T08:30:00Z" in md
-
-

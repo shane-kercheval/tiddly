@@ -1,13 +1,27 @@
 # Prompt MCP Server Evaluation Configuration
 # Tests the edit_prompt_content tool's ability to make targeted edits with argument changes
+#
+# TOOL CONTEXT:
+# edit_prompt_content: Edits template content using old_str/new_str replacement, optionally
+#   updating arguments atomically. old_str must match exactly one location. When the edit changes
+#   template variables ({{ var }}), the arguments parameter must include ALL argument definitions
+#   (full replacement). Omit arguments for text-only changes.
+# update_prompt: Updates metadata (title, description, tags, name) and/or fully replaces template
+#   content. Used for metadata changes or complete rewrites.
+#
+# WHAT THIS EVAL TESTS:
+# Given a prompt template and an instruction to make a targeted change (add/remove/rename a
+# variable, fix a typo), the LLM should use edit_prompt_content (not update_prompt) and
+# correctly coordinate the content edit with the arguments list.
 
 model:
-  name: "gpt-4.1-mini"
-  temperature: 0
+  provider: "anthropic"  # "anthropic" or "openai"
+  name: "claude-haiku-4-5"
+  temperature: 0.3
 
 eval:
   samples: 10
-  success_threshold: 0.8
+  success_threshold: 0.6
 
 test_cases:
   # Test 1: Remove a variable from template

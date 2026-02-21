@@ -41,6 +41,7 @@ const stubIcons = {
   save: () => createElement('span', null, 'save'),
   close: () => createElement('span', null, 'close'),
   tableOfContents: () => createElement('span', null, 'tableOfContents'),
+  versionHistory: () => createElement('span', null, 'versionHistory'),
 }
 
 describe('buildEditorCommands', () => {
@@ -76,7 +77,7 @@ describe('buildEditorCommands', () => {
     ])
   })
 
-  it('should not include Actions section when no callbacks provided', () => {
+  it('should always include toggle-history in Actions even when no callbacks provided', () => {
     const commands = buildEditorCommands({
       showJinja: false,
       callbacks: {},
@@ -84,7 +85,8 @@ describe('buildEditorCommands', () => {
     })
 
     const actionCommands = commands.filter((c) => c.section === 'Actions')
-    expect(actionCommands).toHaveLength(0)
+    expect(actionCommands).toHaveLength(1)
+    expect(actionCommands[0].id).toBe('toggle-history')
   })
 
   it('should include save-and-close command when onSaveAndClose callback provided', () => {
@@ -124,7 +126,12 @@ describe('buildEditorCommands', () => {
     })
 
     const actionCommands = commands.filter((c) => c.section === 'Actions')
-    expect(actionCommands).toHaveLength(2)
+    expect(actionCommands).toHaveLength(3)
+    expect(actionCommands.map((c) => c.id)).toEqual([
+      'save-and-close',
+      'discard',
+      'toggle-history',
+    ])
   })
 
   it('should include all action commands plus toggle-toc when callbacks and showTocToggle provided', () => {
@@ -139,15 +146,16 @@ describe('buildEditorCommands', () => {
     })
 
     const actionCommands = commands.filter((c) => c.section === 'Actions')
-    expect(actionCommands).toHaveLength(3)
+    expect(actionCommands).toHaveLength(4)
     expect(actionCommands.map((c) => c.id)).toEqual([
       'save-and-close',
       'discard',
       'toggle-toc',
+      'toggle-history',
     ])
   })
 
-  it('should only include toggle-toc in Actions when no callbacks but showTocToggle is true', () => {
+  it('should include toggle-toc and toggle-history in Actions when no callbacks but showTocToggle is true', () => {
     const commands = buildEditorCommands({
       showJinja: false,
       callbacks: {},
@@ -156,8 +164,8 @@ describe('buildEditorCommands', () => {
     })
 
     const actionCommands = commands.filter((c) => c.section === 'Actions')
-    expect(actionCommands).toHaveLength(1)
-    expect(actionCommands[0].id).toBe('toggle-toc')
+    expect(actionCommands).toHaveLength(2)
+    expect(actionCommands.map((c) => c.id)).toEqual(['toggle-toc', 'toggle-history'])
   })
 
   it('should place Actions section before Format and Insert', () => {
@@ -263,6 +271,33 @@ describe('buildEditorCommands', () => {
 
     const cmd = commands.find((c) => c.id === 'toggle-toc')
     expect(cmd).toBeUndefined()
+  })
+
+  it('should always include toggle-history command', () => {
+    const commands = buildEditorCommands({
+      showJinja: false,
+      callbacks: {},
+      icons: stubIcons,
+    })
+
+    const cmd = commands.find((c) => c.id === 'toggle-history')
+    expect(cmd).toBeDefined()
+    expect(cmd!.label).toBe('Version History')
+    expect(cmd!.section).toBe('Actions')
+    expect(cmd!.shortcut).toEqual(['⌘', '⇧', '\\'])
+  })
+
+  it('should call togglePanel with history when toggle-history action is executed', () => {
+    const commands = buildEditorCommands({
+      showJinja: false,
+      callbacks: {},
+      icons: stubIcons,
+    })
+
+    const cmd = commands.find((c) => c.id === 'toggle-history')!
+    cmd.action(null as never)
+
+    expect(mockTogglePanel).toHaveBeenCalledWith('history')
   })
 
   it('should call togglePanel on store when toggle-toc action is executed', () => {

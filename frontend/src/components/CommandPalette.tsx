@@ -25,7 +25,7 @@ import { BookmarkCard } from './BookmarkCard'
 import { NoteCard } from './NoteCard'
 import { PromptCard } from './PromptCard'
 import {
-  LoadingSpinnerCentered,
+  LoadingSpinner,
   ErrorState,
   EmptyState,
   SearchFilterBar,
@@ -634,8 +634,8 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                   />
                 </div>
               ) : isLoading ? (
-                <div className="py-8">
-                  <LoadingSpinnerCentered label="Searching..." />
+                <div className="flex justify-center py-8">
+                  <LoadingSpinner label="Searching..." />
                 </div>
               ) : error ? (
                 <div className="px-4 py-8">

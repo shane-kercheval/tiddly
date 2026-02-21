@@ -1,19 +1,18 @@
 """Tests for Auth0-only authentication dependencies."""
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
+from core.config import Settings
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
 from models.user_consent import UserConsent
-
-if TYPE_CHECKING:
-    from core.config import Settings
 
 
 @pytest.fixture
@@ -61,12 +60,8 @@ async def test_user_with_consent(db_session: AsyncSession) -> User:
 
 
 @pytest.fixture
-def mock_settings_no_dev_mode() -> "Settings":
+def mock_settings_no_dev_mode() -> Settings:
     """Create mock settings with dev_mode=False."""
-    from unittest.mock import MagicMock
-
-    from core.config import Settings
-
     settings = MagicMock(spec=Settings)
     settings.dev_mode = False
     settings.frontend_url = "http://localhost:5173"
@@ -75,12 +70,8 @@ def mock_settings_no_dev_mode() -> "Settings":
 
 
 @pytest.fixture
-def mock_settings_dev_mode() -> "Settings":
+def mock_settings_dev_mode() -> Settings:
     """Create mock settings with dev_mode=True."""
-    from unittest.mock import MagicMock
-
-    from core.config import Settings
-
     settings = MagicMock(spec=Settings)
     settings.dev_mode = True
     return settings
@@ -94,13 +85,11 @@ class TestAuthenticateUserAllowPat:
         self,
         db_session: AsyncSession,
         test_user: User,
-        mock_settings_no_dev_mode: "Settings",
+        mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
         """When allow_pat=True (default), PAT tokens are accepted."""
-        from unittest.mock import AsyncMock, patch
-
-        from core.auth import _authenticate_user
+        from core.auth import _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
@@ -124,11 +113,11 @@ class TestAuthenticateUserAllowPat:
     async def test__allow_pat_false__rejects_pat_token_with_403(
         self,
         db_session: AsyncSession,
-        mock_settings_no_dev_mode: "Settings",
+        mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
         """When allow_pat=False, PAT tokens are rejected with 403."""
-        from core.auth import _authenticate_user
+        from core.auth import _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
@@ -150,13 +139,11 @@ class TestAuthenticateUserAllowPat:
         self,
         db_session: AsyncSession,
         test_user: User,
-        mock_settings_no_dev_mode: "Settings",
+        mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
         """When allow_pat=False, Auth0 JWTs are still accepted."""
-        from unittest.mock import patch
-
-        from core.auth import _authenticate_user
+        from core.auth import _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
@@ -177,11 +164,11 @@ class TestAuthenticateUserAllowPat:
     async def test__allow_pat_false__dev_mode_bypasses_check(
         self,
         db_session: AsyncSession,
-        mock_settings_dev_mode: "Settings",
+        mock_settings_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
         """In DEV_MODE, returns dev user regardless of allow_pat setting."""
-        from core.auth import _authenticate_user
+        from core.auth import _authenticate_user  # noqa: PLC0415
 
         # Even with a PAT-looking token, dev mode should bypass and return dev user
         credentials = HTTPAuthorizationCredentials(
@@ -201,11 +188,11 @@ class TestAuthenticateUserAllowPat:
     async def test__no_credentials__returns_401(
         self,
         db_session: AsyncSession,
-        mock_settings_no_dev_mode: "Settings",
+        mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
         """Returns 401 when no credentials provided."""
-        from core.auth import _authenticate_user
+        from core.auth import _authenticate_user  # noqa: PLC0415
 
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
@@ -224,7 +211,7 @@ class TestGetCurrentUserAuth0Only:
     async def test__with_pat__returns_403(
         self,
         db_session: AsyncSession,
-        mock_settings_no_dev_mode: "Settings",
+        mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
         """PAT tokens are rejected with 403 before consent check."""
@@ -237,7 +224,7 @@ class TestGetCurrentUserAuth0Only:
         # uses FastAPI's Depends which we can't easily invoke in unit tests.
         # The dependency just calls _authenticate_user with allow_pat=False
         # and then _check_consent, so we test that flow.
-        from core.auth import _authenticate_user
+        from core.auth import _authenticate_user  # noqa: PLC0415
 
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
@@ -252,13 +239,11 @@ class TestGetCurrentUserAuth0Only:
         self,
         db_session: AsyncSession,
         test_user_with_consent: User,
-        mock_settings_no_dev_mode: "Settings",
+        mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
         """Auth0 JWT with valid consent returns user successfully."""
-        from unittest.mock import patch
-
-        from core.auth import _authenticate_user, _check_consent
+        from core.auth import _authenticate_user, _check_consent  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
@@ -276,9 +261,6 @@ class TestGetCurrentUserAuth0Only:
             )
 
         # Reload user with consent for check
-        from sqlalchemy import select
-        from sqlalchemy.orm import joinedload
-
         result = await db_session.execute(
             select(User).options(joinedload(User.consent)).where(User.id == user.id),
         )
@@ -292,13 +274,11 @@ class TestGetCurrentUserAuth0Only:
         self,
         db_session: AsyncSession,
         test_user: User,
-        mock_settings_no_dev_mode: "Settings",
+        mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
         """Auth0 JWT without consent returns 451."""
-        from unittest.mock import patch
-
-        from core.auth import _authenticate_user, _check_consent
+        from core.auth import _authenticate_user, _check_consent  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
@@ -328,11 +308,11 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
     async def test__with_pat__returns_403(
         self,
         db_session: AsyncSession,
-        mock_settings_no_dev_mode: "Settings",
+        mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
         """PAT tokens are rejected with 403."""
-        from core.auth import _authenticate_user
+        from core.auth import _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
@@ -352,13 +332,11 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
         self,
         db_session: AsyncSession,
         test_user: User,
-        mock_settings_no_dev_mode: "Settings",
+        mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
         """Auth0 JWT without consent still returns user (no consent check)."""
-        from unittest.mock import patch
-
-        from core.auth import _authenticate_user
+        from core.auth import _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
@@ -385,11 +363,11 @@ class TestErrorMessages:
     async def test__pat_rejection_message__is_user_friendly(
         self,
         db_session: AsyncSession,
-        mock_settings_no_dev_mode: "Settings",
+        mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
         """PAT rejection message explains the issue clearly."""
-        from core.auth import _authenticate_user
+        from core.auth import _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",

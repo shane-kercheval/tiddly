@@ -1,9 +1,12 @@
 """Tests for user authentication endpoints."""
+from unittest.mock import MagicMock
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.tier_limits import TIER_LIMITS, Tier, get_tier_limits
 from models.user import User
 
 
@@ -68,27 +71,26 @@ async def test_get_me_response_structure(client: AsyncClient) -> None:
 class TestGetMyLimits:
     """Tests for GET /users/me/limits endpoint."""
 
-    async def test__get_my_limits__returns_free_tier_limits(
+    async def test__get_my_limits__returns_dev_tier_limits_in_dev_mode(
         self,
         client: AsyncClient,
     ) -> None:
-        """Test that /users/me/limits returns limits for user's tier."""
+        """Test that /users/me/limits returns DEV tier limits in dev mode."""
         response = await client.get("/users/me/limits")
         assert response.status_code == 200
 
         data = response.json()
-        assert data["tier"] == "free"
-        assert data["max_bookmarks"] == 100
-        assert data["max_notes"] == 100
-        assert data["max_prompts"] == 100
-
-        # Rate limits should match free tier
-        assert data["rate_read_per_minute"] == 180
-        assert data["rate_read_per_day"] == 4000
-        assert data["rate_write_per_minute"] == 120
-        assert data["rate_write_per_day"] == 4000
-        assert data["rate_sensitive_per_minute"] == 30
-        assert data["rate_sensitive_per_day"] == 250
+        dev_limits = TIER_LIMITS[Tier.DEV]
+        assert data["tier"] == "dev"
+        assert data["max_bookmarks"] == dev_limits.max_bookmarks
+        assert data["max_notes"] == dev_limits.max_notes
+        assert data["max_prompts"] == dev_limits.max_prompts
+        assert data["rate_read_per_minute"] == dev_limits.rate_read_per_minute
+        assert data["rate_read_per_day"] == dev_limits.rate_read_per_day
+        assert data["rate_write_per_minute"] == dev_limits.rate_write_per_minute
+        assert data["rate_write_per_day"] == dev_limits.rate_write_per_day
+        assert data["rate_sensitive_per_minute"] == dev_limits.rate_sensitive_per_minute
+        assert data["rate_sensitive_per_day"] == dev_limits.rate_sensitive_per_day
 
     async def test__get_my_limits__returns_all_limit_fields(
         self,
@@ -147,3 +149,63 @@ class TestGetMyLimits:
         assert data["max_notes"] == 2
         assert data["max_prompts"] == 2
         assert data["max_title_length"] == 10
+
+    async def test__get_my_limits__returns_free_tier_when_not_dev_mode(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """Test that /users/me/limits returns FREE tier when dev mode is off."""
+        from api.main import app  # noqa: PLC0415
+        from core.auth import get_current_user as _get_current_user  # noqa: PLC0415
+        from core.config import get_settings as _get_settings  # noqa: PLC0415
+
+        mock_user = MagicMock()
+        mock_user.tier = "free"
+        mock_settings = MagicMock()
+        mock_settings.dev_mode = False
+
+        app.dependency_overrides[_get_current_user] = lambda: mock_user
+        app.dependency_overrides[_get_settings] = lambda: mock_settings
+        try:
+            response = await client.get("/users/me/limits")
+        finally:
+            app.dependency_overrides.pop(_get_current_user, None)
+            app.dependency_overrides.pop(_get_settings, None)
+
+        assert response.status_code == 200
+        data = response.json()
+        free_limits = TIER_LIMITS[Tier.FREE]
+        assert data["tier"] == "free"
+        assert data["max_bookmarks"] == free_limits.max_bookmarks
+        assert data["max_notes"] == free_limits.max_notes
+        assert data["max_prompts"] == free_limits.max_prompts
+
+
+class TestGetCurrentLimits:
+    """Tests for get_current_limits dependency."""
+
+    def test__get_current_limits__returns_dev_limits_in_dev_mode(self) -> None:
+        """In dev mode, returns DEV tier limits regardless of user's stored tier."""
+        from api.dependencies import get_current_limits  # noqa: PLC0415
+        from schemas.cached_user import CachedUser  # noqa: PLC0415
+
+        user = MagicMock(spec=CachedUser)
+        user.tier = "free"
+        settings = MagicMock()
+        settings.dev_mode = True
+
+        result = get_current_limits(current_user=user, settings=settings)
+        assert result is get_tier_limits(Tier.DEV)
+
+    def test__get_current_limits__returns_user_tier_limits_when_not_dev_mode(self) -> None:
+        """When not in dev mode, resolves limits from user's stored tier."""
+        from api.dependencies import get_current_limits  # noqa: PLC0415
+        from schemas.cached_user import CachedUser  # noqa: PLC0415
+
+        user = MagicMock(spec=CachedUser)
+        user.tier = "free"
+        settings = MagicMock()
+        settings.dev_mode = False
+
+        result = get_current_limits(current_user=user, settings=settings)
+        assert result is get_tier_limits(Tier.FREE)

@@ -1481,7 +1481,7 @@ class TestSyncRelationshipsForEntity:
             db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
         )
 
-        rels, count = await get_relationships_for_content(
+        _rels, count = await get_relationships_for_content(
             db_session, test_user.id, 'bookmark', bookmark_a.id,
         )
         assert count == 1

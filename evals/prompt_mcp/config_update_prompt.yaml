@@ -1,6 +1,12 @@
 # Prompt MCP Server Evaluation Configuration
 # Tests the update_prompt tool for full content replacement scenarios
 #
+# TOOL CONTEXT:
+# update_prompt: Updates metadata (title, description, tags, name) and/or fully replaces template
+#   content. All parameters optional - only provide what you want to change.
+# edit_prompt_content: Edits template content using old_str/new_str replacement with optional
+#   atomic argument updates. Used for targeted text/variable edits.
+#
 # CRITICAL BEHAVIORS TESTED:
 # 1. When variables DON'T change: LLM should NOT provide arguments parameter
 # 2. When variables DO change: LLM MUST provide arguments with ALL variables
@@ -19,8 +25,9 @@
 # - ["tag1", "tag2"]: Final tags should exactly match (LLM must provide ALL tags)
 
 model:
-  name: "gpt-5.2"
-  temperature: 1
+  provider: "anthropic"  # "anthropic" or "openai"
+  name: "claude-haiku-4-5"
+  temperature: 0.3
 
 eval:
   samples: 10

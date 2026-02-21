@@ -7,27 +7,32 @@ from core.auth import (
     get_current_user_auth0_only_without_consent,
     get_current_user_without_consent,
 )
-from core.config import get_settings
-from core.tier_limits import TierLimits, get_tier_limits, get_tier_safely
+from core.config import Settings, get_settings
+from core.tier_limits import Tier, TierLimits, get_tier_limits, get_tier_safely
 from db.session import get_async_session
 from schemas.cached_user import CachedUser
 
 
 def get_current_limits(
     current_user: CachedUser = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
 ) -> TierLimits:
     """
     Get the tier limits for the current user.
 
     This dependency safely converts the user's tier to limits, defaulting
     to FREE tier on unknown values to prevent 500 errors.
+    In dev mode, always returns DEV tier limits regardless of stored tier.
 
     Args:
         current_user: The authenticated user.
+        settings: Application settings.
 
     Returns:
         TierLimits for the user's subscription tier.
     """
+    if settings.dev_mode:
+        return get_tier_limits(Tier.DEV)
     tier = get_tier_safely(current_user.tier)
     return get_tier_limits(tier)
 

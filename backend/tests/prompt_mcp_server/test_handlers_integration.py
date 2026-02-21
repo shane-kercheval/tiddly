@@ -1,10 +1,12 @@
 """
-Integration tests for Prompt MCP server with real API and database.
+Integration tests for Prompt MCP server handlers with real API and database.
 
-These tests verify the MCP handlers work correctly against the actual REST API
-with a real PostgreSQL database (via testcontainers).
+These tests call MCP handler functions directly (bypassing the MCP protocol layer)
+and verify they work correctly against the actual REST API with a real PostgreSQL
+database (via testcontainers).
 """
 
+import asyncio
 import json
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -13,8 +15,11 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from mcp import types
+from mcp.shared.exceptions import McpError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.auth_cache import AuthCache, set_auth_cache
+from core.redis import set_redis_client
 from prompt_mcp_server import server as server_module
 from prompt_mcp_server.auth import clear_current_token, set_current_token
 from prompt_mcp_server.server import (
@@ -23,7 +28,10 @@ from prompt_mcp_server.server import (
     handle_list_prompts,
 )
 
-from .conftest import make_list_prompts_request
+def make_list_prompts_request(cursor: str | None = None) -> types.ListPromptsRequest:
+    """Create a ListPromptsRequest for testing."""
+    params = types.PaginatedRequestParams(cursor=cursor) if cursor else None
+    return types.ListPromptsRequest(method="prompts/list", params=params)
 
 
 @pytest_asyncio.fixture
@@ -38,10 +46,8 @@ async def mcp_integration_client(
     without network overhead. The MCP server's HTTP client is configured to use
     this transport.
     """
-    from api.main import app
-    from core.auth_cache import AuthCache, set_auth_cache
-    from core.redis import set_redis_client
-    from db.session import get_async_session
+    from api.main import app  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
 
     # Override the session dependency
     async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
@@ -203,8 +209,6 @@ async def test__create_prompt_tool__duplicate_name_error(
     test_prompt: dict[str, Any],
 ) -> None:
     """Test create_prompt fails for duplicate name."""
-    from mcp.shared.exceptions import McpError
-
     with pytest.raises(McpError) as exc_info:
         await handle_call_tool(
             "create_prompt",
@@ -219,8 +223,6 @@ async def test__get_prompt__not_found_error(
     mcp_integration_client: AsyncClient,  # noqa: ARG001 - triggers fixture
 ) -> None:
     """Test get_prompt returns error for non-existent prompt."""
-    from mcp.shared.exceptions import McpError
-
     with pytest.raises(McpError) as exc_info:
         await handle_get_prompt("nonexistent-prompt-xyz", None)
 
@@ -254,8 +256,6 @@ async def test__get_prompt__tracks_usage_in_db(
     test_prompt: dict[str, Any],
 ) -> None:
     """Test that get_prompt tracks usage (updates last_used_at)."""
-    import asyncio
-
     # Get the prompt
     await handle_get_prompt("test-greeting", {"name": "Test"})
 

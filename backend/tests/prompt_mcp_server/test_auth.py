@@ -1,5 +1,7 @@
 """Tests for auth module."""
 
+import asyncio
+
 import pytest
 
 from prompt_mcp_server.auth import (
@@ -58,8 +60,6 @@ async def test__token_context__isolated_between_concurrent_tasks() -> None:
     This verifies that contextvars provides proper task-level isolation,
     preventing token leakage between concurrent requests.
     """
-    import asyncio
-
     results: dict[str, str | None] = {}
     errors: dict[str, str] = {}
 

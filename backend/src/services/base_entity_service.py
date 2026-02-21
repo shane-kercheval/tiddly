@@ -6,7 +6,7 @@ Entity-specific behavior is defined via abstract methods and class attributes.
 """
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Generic, Literal, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 from uuid import UUID
 
 from sqlalchemy import Column, Table, exists, func, select
@@ -51,7 +51,7 @@ class TaggableEntity(Protocol):
 T = TypeVar("T", bound=TaggableEntity)
 
 
-class BaseEntityService(ABC, Generic[T]):
+class BaseEntityService[T: TaggableEntity](ABC):
     """
     Abstract base class for entity CRUD operations.
 
@@ -245,7 +245,7 @@ class BaseEntityService(ABC, Generic[T]):
 
     def _get_history_service(self) -> "HistoryService":
         """Get the history service instance. Lazy import to avoid circular dependency."""
-        from services.history_service import history_service
+        from services.history_service import history_service  # noqa: PLC0415
         return history_service
 
     # --- Common CRUD Operations ---

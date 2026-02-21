@@ -5,11 +5,14 @@ These tests verify that the application continues to work when Redis
 is unavailable, using fail-open behavior for rate limiting and
 falling back to database for auth.
 """
+from unittest.mock import AsyncMock, patch
+
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth_cache import set_auth_cache
+from core.auth_cache import AuthCache, set_auth_cache
 from core.redis import RedisClient, set_redis_client
+from services.url_scraper import ExtractedMetadata, ScrapedPage
 
 
 class TestRedisFallbackHTTP:
@@ -37,7 +40,6 @@ class TestRedisFallbackHTTP:
         finally:
             # Restore Redis
             set_redis_client(original_client)
-            from core.auth_cache import AuthCache
             set_auth_cache(AuthCache(original_client))
 
     async def test__no_rate_limit_headers__when_redis_unavailable(
@@ -52,9 +54,6 @@ class TestRedisFallbackHTTP:
         result but with limit=0, remaining=0, reset=0. The middleware
         will still add headers but with zero values.
         """
-        from unittest.mock import AsyncMock, patch
-        from services.url_scraper import ExtractedMetadata, ScrapedPage
-
         mock_scrape = ScrapedPage(
             text="Test",
             metadata=ExtractedMetadata(title="Test", description="Desc"),
@@ -95,7 +94,6 @@ class TestRedisFallbackHTTP:
                 assert limit >= 0
         finally:
             set_redis_client(original_client)
-            from core.auth_cache import AuthCache
             set_auth_cache(AuthCache(original_client))
 
     async def test__auth_falls_back_to_db__when_redis_unavailable(
@@ -126,7 +124,6 @@ class TestRedisFallbackHTTP:
             assert user_data_2["id"] == original_user_id
         finally:
             set_redis_client(original_client)
-            from core.auth_cache import AuthCache
             set_auth_cache(AuthCache(original_client))
 
     async def test__health_reports_redis_unavailable(
@@ -152,7 +149,6 @@ class TestRedisFallbackHTTP:
             assert data["redis"] == "unavailable"
         finally:
             set_redis_client(original_client)
-            from core.auth_cache import AuthCache
             set_auth_cache(AuthCache(original_client))
 
 
@@ -183,5 +179,4 @@ class TestRedisDisabledViaConfig:
         finally:
             await disabled_client.close()
             set_redis_client(original_client)
-            from core.auth_cache import AuthCache
             set_auth_cache(AuthCache(original_client))

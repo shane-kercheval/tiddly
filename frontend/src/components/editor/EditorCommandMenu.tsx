@@ -170,7 +170,7 @@ export function EditorCommandMenu({
   return (
     <div
       ref={panelRef}
-      className="fixed z-50 bg-white border border-gray-200 rounded-xl shadow-lg flex flex-col overflow-hidden"
+      className="fixed z-[60] bg-white border border-gray-200 rounded-xl shadow-lg flex flex-col overflow-hidden"
       style={{ ...style, width: 320, maxHeight: 400 }}
       role="listbox"
       aria-label="Editor commands"

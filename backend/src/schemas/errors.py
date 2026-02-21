@@ -5,7 +5,7 @@ Provides structured error responses for OpenAPI documentation and consistent
 error handling across the API. Also includes str-replace request/response schemas.
 """
 from datetime import datetime
-from typing import Generic, Literal, TypeVar
+from typing import Literal, TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -121,7 +121,7 @@ class StrReplaceMultipleMatchesError(BaseModel):
 T = TypeVar("T")
 
 
-class StrReplaceSuccess(BaseModel, Generic[T]):
+class StrReplaceSuccess[T](BaseModel):
     """
     Success response for str-replace operations (full entity).
 

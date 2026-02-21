@@ -1,7 +1,9 @@
 """Tests for tier-based usage limits."""
+import dataclasses
+
 import pytest
 
-from core.tier_limits import TIER_LIMITS, Tier, TierLimits, get_tier_limits
+from core.tier_limits import TIER_LIMITS, Tier, TierLimits, get_tier_limits, get_tier_safely
 
 
 class TestTierEnum:
@@ -152,3 +154,39 @@ class TestFreeTierDefaults:
         # Sensitive should be strictest
         assert limits.rate_sensitive_per_minute < limits.rate_write_per_minute
         assert limits.rate_sensitive_per_day < limits.rate_write_per_day
+
+
+class TestDevTier:
+    """Tests for the DEV tier."""
+
+    def test__tier_dev__has_expected_value(self) -> None:
+        """Tier.DEV should have value 'dev'."""
+        assert Tier.DEV == "dev"
+        assert Tier.DEV.value == "dev"
+
+    def test__get_tier_limits__returns_dev_limits(self) -> None:
+        """get_tier_limits should return limits for DEV tier."""
+        limits = get_tier_limits(Tier.DEV)
+        assert isinstance(limits, TierLimits)
+        assert limits.max_bookmarks == 1_000_000
+        assert limits.max_notes == 1_000_000
+        assert limits.max_prompts == 1_000_000
+        assert limits.max_bookmark_content_length == 1_000_000
+        assert limits.max_note_content_length == 1_000_000
+        assert limits.max_prompt_content_length == 1_000_000
+        assert limits.history_retention_days == 1_000
+
+    def test__dev_tier__all_limits_higher_than_free(self) -> None:
+        """Every DEV tier limit should be >= the corresponding FREE tier limit."""
+        dev_limits = get_tier_limits(Tier.DEV)
+        free_limits = get_tier_limits(Tier.FREE)
+        for field in dataclasses.fields(TierLimits):
+            dev_val = getattr(dev_limits, field.name)
+            free_val = getattr(free_limits, field.name)
+            assert dev_val >= free_val, (
+                f"DEV {field.name}={dev_val} < FREE {field.name}={free_val}"
+            )
+
+    def test__get_tier_safely__dev_value(self) -> None:
+        """get_tier_safely should return Tier.DEV for 'dev' string."""
+        assert get_tier_safely("dev") == Tier.DEV

@@ -22,7 +22,7 @@ import { InlineEditableText } from './InlineEditableText'
 import { InlineEditableArchiveSchedule } from './InlineEditableArchiveSchedule'
 import { ContentEditor } from './ContentEditor'
 import { TableOfContentsSidebar } from './TableOfContentsSidebar'
-import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog, Tooltip } from './ui'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog, Tooltip, LoadingSpinnerPage } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon, TagIcon, LinkIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
@@ -633,11 +633,7 @@ export function Note({
 
   // Loading guard: don't render form until limits are available
   if (isLoadingLimits || !limits) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900" />
-      </div>
-    )
+    return <LoadingSpinnerPage label="Loading note..." />
   }
 
   return (

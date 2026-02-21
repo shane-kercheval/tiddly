@@ -10,25 +10,15 @@ Before running any benchmarks:
 
 1. **Docker services must be running:** `make docker-up`
 2. **API server must be running in benchmark mode:** `make api-run-bench` (runs 4 uvicorn workers with no reload, matching production). This is a blocking command — run it in a separate terminal or use `run_in_background`.
-3. **Tier limits must be raised** for load testing. In `backend/src/core/tier_limits.py`, temporarily set:
-   ```python
-   Tier.FREE: TierLimits(
-       max_bookmarks=10000,
-       max_notes=10000,
-       max_prompts=10000,
-       ...
-   )
-   ```
-   **Do NOT commit these changes.** Revert after benchmarking.
-4. **Minimize background noise.** Recommend the user close heavy processes (browsers, IDEs with indexing, Docker Desktop dashboard, Spotlight indexing, etc.) or restart their machine before running benchmarks. Background activity introduces variance that can mask or fake regressions.
-5. **Capture machine specs** for the report. Run:
+3. **Minimize background noise.** Recommend the user close heavy processes (browsers, IDEs with indexing, Docker Desktop dashboard, Spotlight indexing, etc.) or restart their machine before running benchmarks. Background activity introduces variance that can mask or fake regressions.
+4. **Capture machine specs** for the report. Run:
    ```bash
    sysctl -n machdep.cpu.brand_string  # CPU
    sysctl -n hw.memsize | awk '{print $0/1073741824 " GB"}'  # RAM
    sw_vers  # macOS version
    ```
    On Linux, use `lscpu`, `free -h`, and `uname -r` instead. Record these — they go in the report's Environment section.
-6. **Verify the API is reachable:** `curl http://localhost:8000/health`
+5. **Verify the API is reachable:** `curl http://localhost:8000/health`
 6. **Check for unarchived profiling results.** If `performance/profiling/results/` contains `.html` or `.txt` files from a previous run, verify they've been archived (a corresponding `.zip` should exist in `performance/profiling/`). If not archived, archive them first:
    ```bash
    cd performance/profiling && zip -r YYYY-MM-DD-branch-name.zip results/ && cd ../..
@@ -409,13 +399,7 @@ After generating reports:
    # Profiling results/ is overwritten per run (same filenames), so no cleanup needed
    ```
 
-4. **Revert tier limit changes** in `backend/src/core/tier_limits.py` and verify:
-   ```bash
-   git diff backend/src/core/tier_limits.py
-   ```
-   This should show the revert (or no diff if already reverted). Confirm the file is not staged (`git diff --cached` should not include it).
-
-5. **Do NOT commit** tier limit changes. The durable artifacts that get committed are:
+4. The durable artifacts that get committed are:
    - `performance/api/results_<branch>/` — raw benchmark files + summary report
    - `performance/api/results/benchmark_report_*.md` — summary report (also in branch archive)
    - `performance/profiling/<date>-<branch>.zip` — profiling archive
@@ -425,7 +409,7 @@ After generating reports:
 
 ## Checklist
 
-- [ ] Prerequisites verified (Docker, API running, tier limits raised)
+- [ ] Prerequisites verified (Docker, API running)
 - [ ] Branch changes reviewed and documented (affected endpoints + code paths identified)
 - [ ] API benchmark: 1KB content completed
 - [ ] API benchmark: 50KB content completed
@@ -435,5 +419,4 @@ After generating reports:
 - [ ] Benchmark report generated with regression analysis
 - [ ] Profiling report generated with code path analysis
 - [ ] Results archived to branch-specific directories
-- [ ] Tier limits reverted
 - [ ] Overall assessment: PASS / PASS WITH WARNINGS / FAIL

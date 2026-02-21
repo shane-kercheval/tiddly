@@ -262,7 +262,7 @@ async def test__export_skills__empty_result_zip(client: AsyncClient) -> None:
 
 async def test__export_skills__pagination(client: AsyncClient) -> None:
     """Verify pagination works by patching page size and checking search calls."""
-    from api.routers import prompts as prompts_router
+    from api.routers import prompts as prompts_router  # noqa: PLC0415
 
     # Create 7 prompts
     for i in range(7):

@@ -1,16 +1,20 @@
 """Tests for the HistoryService."""
 from datetime import timedelta
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
 from diff_match_patch import diff_match_patch
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.request_context import AuthType, RequestContext
+from core.tier_limits import TierLimits
 from models.content_history import ActionType, ContentHistory, EntityType
 from models.note import Note
 from models.user import User
 from services.history_service import (
+    PRUNE_CHECK_INTERVAL,
     SNAPSHOT_INTERVAL,
     history_service,
 )
@@ -1780,7 +1784,7 @@ class TestDeleteEntityHistory:
             previous = current
 
         # Verify history exists
-        items, total = await history_service.get_entity_history(
+        _items, total = await history_service.get_entity_history(
             db=db_session,
             user_id=test_user.id,
             entity_type=EntityType.NOTE,
@@ -1799,7 +1803,7 @@ class TestDeleteEntityHistory:
         assert deleted_count == 3
 
         # Verify history is gone
-        items, total = await history_service.get_entity_history(
+        _items, total = await history_service.get_entity_history(
             db=db_session,
             user_id=test_user.id,
             entity_type=EntityType.NOTE,
@@ -1898,8 +1902,6 @@ class TestRaceConditionHandling:
         request_context: RequestContext,
     ) -> None:
         """Version uniqueness violation triggers retry with savepoint."""
-        from unittest.mock import patch
-
         entity_id = uuid4()
         metadata = {"title": "Test"}
 
@@ -1912,8 +1914,6 @@ class TestRaceConditionHandling:
             call_count += 1
             if call_count == 1:
                 # Simulate version conflict on first attempt
-                from sqlalchemy.exc import IntegrityError
-
                 raise IntegrityError(
                     "duplicate key",
                     params={},
@@ -1946,10 +1946,6 @@ class TestRaceConditionHandling:
         request_context: RequestContext,
     ) -> None:
         """Non-version IntegrityErrors are raised immediately without retry."""
-        from unittest.mock import patch
-
-        from sqlalchemy.exc import IntegrityError
-
         entity_id = uuid4()
         metadata = {"title": "Test"}
         call_count = 0
@@ -1990,10 +1986,6 @@ class TestRaceConditionHandling:
         request_context: RequestContext,
     ) -> None:
         """Max retries exceeded raises the IntegrityError."""
-        from unittest.mock import patch
-
-        from sqlalchemy.exc import IntegrityError
-
         entity_id = uuid4()
         metadata = {"title": "Test"}
         call_count = 0
@@ -2189,8 +2181,6 @@ class TestCountBasedPruning:
         request_context: RequestContext,
     ) -> None:
         """_prune_to_limit deletes oldest records while keeping target count."""
-        from services.history_service import history_service
-
         entity_id = uuid4()
         metadata = {"title": "Test"}
 
@@ -2254,8 +2244,6 @@ class TestCountBasedPruning:
         request_context: RequestContext,
     ) -> None:
         """_prune_to_limit does nothing when count is below target."""
-        from services.history_service import history_service
-
         entity_id = uuid4()
         metadata = {"title": "Test"}
 
@@ -2289,7 +2277,7 @@ class TestCountBasedPruning:
         assert deleted == 0
 
         # Verify all records still exist
-        items, total = await history_service.get_entity_history(
+        _items, total = await history_service.get_entity_history(
             db=db_session,
             user_id=test_user.id,
             entity_type=EntityType.NOTE,
@@ -2310,9 +2298,6 @@ class TestCountBasedPruning:
         When limits.max_history_per_entity is exceeded and version is divisible
         by PRUNE_CHECK_INTERVAL, pruning occurs.
         """
-        from core.tier_limits import TierLimits
-        from services.history_service import PRUNE_CHECK_INTERVAL, history_service
-
         entity_id = uuid4()
         metadata = {"title": "Test"}
 
@@ -2363,7 +2348,7 @@ class TestCountBasedPruning:
         await db_session.commit()
 
         # After PRUNE_CHECK_INTERVAL writes with limit=5, should have pruned
-        items, total = await history_service.get_entity_history(
+        _items, total = await history_service.get_entity_history(
             db=db_session,
             user_id=test_user.id,
             entity_type=EntityType.NOTE,
@@ -2381,8 +2366,6 @@ class TestCountBasedPruning:
         request_context: RequestContext,
     ) -> None:
         """record_action does not prune when limits is None."""
-        from services.history_service import PRUNE_CHECK_INTERVAL, history_service
-
         entity_id = uuid4()
         metadata = {"title": "Test"}
 
@@ -2405,7 +2388,7 @@ class TestCountBasedPruning:
             previous = current
 
         # All records should still exist (no pruning)
-        items, total = await history_service.get_entity_history(
+        _items, total = await history_service.get_entity_history(
             db=db_session,
             user_id=test_user.id,
             entity_type=EntityType.NOTE,
@@ -2656,7 +2639,7 @@ class TestGetUserHistoryFilters:
         created_at = history.created_at
 
         # Filter with start_date before creation
-        items, total = await history_service.get_user_history(
+        _items, total = await history_service.get_user_history(
             db=db_session,
             user_id=test_user.id,
             start_date=created_at - timedelta(hours=1),
@@ -2664,7 +2647,7 @@ class TestGetUserHistoryFilters:
         assert total == 1
 
         # Filter with start_date after creation
-        items, total = await history_service.get_user_history(
+        _items, total = await history_service.get_user_history(
             db=db_session,
             user_id=test_user.id,
             start_date=created_at + timedelta(hours=1),
@@ -2672,7 +2655,7 @@ class TestGetUserHistoryFilters:
         assert total == 0
 
         # Filter with end_date after creation
-        items, total = await history_service.get_user_history(
+        _items, total = await history_service.get_user_history(
             db=db_session,
             user_id=test_user.id,
             end_date=created_at + timedelta(hours=1),
@@ -2680,7 +2663,7 @@ class TestGetUserHistoryFilters:
         assert total == 1
 
         # Filter with end_date before creation
-        items, total = await history_service.get_user_history(
+        _items, total = await history_service.get_user_history(
             db=db_session,
             user_id=test_user.id,
             end_date=created_at - timedelta(hours=1),
@@ -2771,7 +2754,7 @@ class TestGetUserHistoryFilters:
         )
 
         # Empty lists are falsy in Python, so they skip the filter (show all)
-        items, total = await history_service.get_user_history(
+        _items, total = await history_service.get_user_history(
             db=db_session,
             user_id=test_user.id,
             entity_types=[],
@@ -2893,8 +2876,6 @@ class TestAuditActions:
         request_context: RequestContext,
     ) -> None:
         """Audit actions don't trigger modulo-based pruning (no crash on NULL % 10)."""
-        from core.tier_limits import TierLimits
-
         entity_id = uuid4()
         metadata = {"title": "Test"}
 

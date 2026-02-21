@@ -17,7 +17,7 @@ from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
 from core.auth_cache import AuthCache, set_auth_cache
-from core.config import Settings
+from core.config import Settings, get_settings
 from core.redis import RedisClient, set_redis_client
 from core.tier_limits import Tier, TierLimits, get_tier_limits
 from models.base import Base
@@ -242,13 +242,11 @@ async def client(
 ) -> AsyncGenerator[AsyncClient]:
     """Create a test client with database session and Redis overrides."""
     # Clear the settings cache so it picks up DATABASE_URL from environment
-    from core.config import get_settings
-
     get_settings.cache_clear()
 
-    from api.main import app
-    from api.routers.mcp import get_concurrent_queries
-    from db.session import get_async_session, get_session_factory
+    from api.main import app  # noqa: PLC0415
+    from api.routers.mcp import get_concurrent_queries  # noqa: PLC0415
+    from db.session import get_async_session, get_session_factory  # noqa: PLC0415
 
     async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
@@ -285,7 +283,7 @@ async def rate_limit_client(
     This fixture patches _apply_rate_limit to NOT skip rate limiting,
     while keeping auth in dev mode (so dev user still works).
     """
-    from core import auth
+    from core import auth  # noqa: PLC0415
 
     # Store the original function
     original_apply_rate_limit = auth._apply_rate_limit
@@ -361,10 +359,11 @@ def low_limits() -> Generator[TierLimits]:
     Override TIER_LIMITS with restrictive limits for testing.
 
     Use this fixture to test quota and field limit enforcement without
-    depending on actual production limit values.
+    depending on actual production limit values. Patches both FREE and DEV
+    tiers since get_current_limits() resolves to DEV in dev mode.
     """
     with patch.dict(
         "core.tier_limits.TIER_LIMITS",
-        {Tier.FREE: LOW_TIER_LIMITS},
+        {Tier.FREE: LOW_TIER_LIMITS, Tier.DEV: LOW_TIER_LIMITS},
     ):
         yield LOW_TIER_LIMITS

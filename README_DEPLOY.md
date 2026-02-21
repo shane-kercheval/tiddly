@@ -89,7 +89,8 @@ Click on each service → **Settings** tab → Configure as follows:
 - Pre-Deploy Command: `uv run alembic upgrade head` (runs database migrations automatically before each deployment)
 
 **Settings → Networking:**
-- Click **Generate Domain**
+- Click **Generate Domain** (public, for external access)
+- Click **+ Private Domain** → set to `api.railway.internal` (for internal service-to-service communication)
 
 #### Content MCP Service
 
@@ -179,7 +180,7 @@ To set DATABASE_URL:
 #### Content MCP Service Variables
 
 ```
-VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
+VITE_API_URL=http://api.railway.internal:8080
 ```
 
 **Note:** Railway automatically provides the `PORT` variable - do not set it manually.
@@ -187,10 +188,12 @@ VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 #### Prompt MCP Service Variables
 
 ```
-VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
+VITE_API_URL=http://api.railway.internal:8080
 ```
 
 **Note:** Railway automatically provides the `PORT` variable - do not set it manually.
+
+**Why `http` and not `https`?** The MCP servers communicate with the API over Railway's private network, which never leaves Railway's infrastructure. TLS is unnecessary for internal traffic and skipping it reduces latency. The frontend must still use the public `https` URL since it runs in the user's browser.
 
 #### Frontend Service Variables
 

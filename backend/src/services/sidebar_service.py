@@ -457,7 +457,7 @@ async def remove_filter_from_sidebar(
     Returns:
         Updated UserSettings, or None if no settings exist.
     """
-    from services.settings_service import get_settings
+    from services.settings_service import get_settings  # noqa: PLC0415
 
     settings = await get_settings(db, user_id)
     if settings is None or settings.sidebar_order is None:

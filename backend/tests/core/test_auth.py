@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.auth_cache import CACHE_SCHEMA_VERSION, get_auth_cache
 from core.redis import RedisClient
 from models.user import User
+from schemas.cached_user import CachedUser
 
 
 class TestGetOrCreateUserNullEmail:
@@ -26,7 +27,7 @@ class TestGetOrCreateUserNullEmail:
         redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """User can be created with email=None."""
-        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+        from core.auth import get_or_create_user  # noqa: PLC0415
 
         auth0_id = "auth0|null-email-test-1"
 
@@ -43,7 +44,7 @@ class TestGetOrCreateUserNullEmail:
         redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """Existing user with null email can be retrieved."""
-        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+        from core.auth import get_or_create_user  # noqa: PLC0415
 
         auth0_id = "auth0|null-email-test-2"
 
@@ -69,7 +70,7 @@ class TestGetOrCreateUserNullEmail:
         redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """User's email can be updated from null to a value."""
-        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+        from core.auth import get_or_create_user  # noqa: PLC0415
 
         auth0_id = "auth0|null-email-test-3"
 
@@ -98,7 +99,7 @@ class TestGetOrCreateUserNullEmail:
         redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """Passing email=None does not overwrite existing email."""
-        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+        from core.auth import get_or_create_user  # noqa: PLC0415
 
         auth0_id = "auth0|null-email-test-4"
 
@@ -131,7 +132,7 @@ class TestAuthCacheNullEmail:
         redis_client: RedisClient,
     ) -> None:
         """Cache correctly stores user with null email."""
-        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+        from core.auth import get_or_create_user  # noqa: PLC0415
 
         auth0_id = "auth0|cache-null-email-1"
 
@@ -153,7 +154,7 @@ class TestAuthCacheNullEmail:
         redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """Cached user with null email can be retrieved."""
-        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+        from core.auth import get_or_create_user  # noqa: PLC0415
 
         auth0_id = "auth0|cache-null-email-2"
 
@@ -175,8 +176,7 @@ class TestAuthCacheNullEmail:
         redis_client: RedisClient,  # noqa: ARG002
     ) -> None:
         """Second request for null-email user uses cache."""
-        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
-        from schemas.cached_user import CachedUser
+        from core.auth import get_or_create_user  # noqa: PLC0415
 
         auth0_id = "auth0|cache-null-email-3"
 
@@ -205,7 +205,7 @@ class TestEmailMismatchCacheFallthrough:
 
         This handles the case where Auth0 updates the user's email.
         """
-        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+        from core.auth import get_or_create_user  # noqa: PLC0415
 
         auth0_id = "auth0|email-mismatch-test"
 
@@ -242,7 +242,7 @@ class TestEmailMismatchCacheFallthrough:
         redis_client: RedisClient,
     ) -> None:
         """When cache has null email and request has email, updates via DB."""
-        from core.auth import get_or_create_user  # needs to be imported inside test for setting up environment variables
+        from core.auth import get_or_create_user  # noqa: PLC0415
 
         auth0_id = "auth0|null-to-email-test"
 

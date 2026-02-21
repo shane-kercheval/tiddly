@@ -64,7 +64,7 @@ def test__render_template__missing_required_argument_error() -> None:
     content = "Hello, {{ name }}!"
     args = [{"name": "name", "required": True}]
 
-    with pytest.raises(TemplateError, match="Missing required argument.*name"):
+    with pytest.raises(TemplateError, match=r"Missing required argument.*name"):
         render_template(content, {}, args)
 
 
@@ -77,7 +77,7 @@ def test__render_template__multiple_missing_required_arguments() -> None:
         {"name": "c", "required": True},
     ]
 
-    with pytest.raises(TemplateError, match="Missing required argument.*a.*b.*c"):
+    with pytest.raises(TemplateError, match=r"Missing required argument.*a.*b.*c"):
         render_template(content, {}, args)
 
 
@@ -86,7 +86,7 @@ def test__render_template__unknown_argument_error() -> None:
     content = "Hello, {{ name }}!"
     args = [{"name": "name", "required": True}]
 
-    with pytest.raises(TemplateError, match="Unknown argument.*extra"):
+    with pytest.raises(TemplateError, match=r"Unknown argument.*extra"):
         render_template(content, {"name": "World", "extra": "value"}, args)
 
 
