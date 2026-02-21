@@ -388,11 +388,11 @@ async def test__list_tools__returns_all_tools() -> None:
     assert "Create a new prompt" in create_prompt.description
 
     edit_prompt = next(t for t in result if t.name == "edit_prompt_content")
-    assert "Edit a prompt" in edit_prompt.description
-    assert "string replacement" in edit_prompt.description
+    assert "Edit template content" in edit_prompt.description
+    assert "old_str/new_str replacement" in edit_prompt.description
 
     update_prompt = next(t for t in result if t.name == "update_prompt")
-    assert "Update a prompt" in update_prompt.description
+    assert "Update metadata" in update_prompt.description
     assert "metadata" in update_prompt.description or "content" in update_prompt.description
 
 

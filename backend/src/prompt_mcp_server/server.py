@@ -9,6 +9,7 @@ for creating new prompts via AI.
 import asyncio
 import json
 import logging
+from pathlib import Path
 from typing import Any, NoReturn
 
 import httpx
@@ -17,7 +18,7 @@ from mcp.server.lowlevel import Server
 from mcp.shared.exceptions import McpError
 
 from shared.api_errors import ParsedApiError, parse_http_error
-from shared.mcp_format import format_filter_expression
+from shared.mcp_utils import format_filter_expression, load_instructions, load_tool_descriptions
 
 from .api_client import api_get, api_patch, api_post, get_api_base_url, get_default_timeout
 from .auth import AuthenticationError, get_bearer_token
@@ -25,105 +26,13 @@ from services.template_renderer import TemplateError, render_template
 
 logger = logging.getLogger(__name__)
 
+_DIR = Path(__file__).parent
+_TOOLS = load_tool_descriptions(_DIR)
+
 # Create the MCP server
 server = Server(
     "prompt-mcp-server",
-    instructions="""
-This is the Prompt MCP server for tiddly.me (also known as "tiddly"). When users mention
-tiddly, tiddly.me, or their prompts/templates, they're referring to this system.
-
-This MCP server is a prompt template manager for creating, editing, and using reusable AI prompts.
-Prompts are Jinja2 templates with defined arguments that can be rendered with user-provided values.
-
-**Tools:**
-- `get_context`: Get a markdown summary of the user's prompts (counts, tags, filters with top items, recent prompts with arguments).
-  Call this once at the start of a session to understand what prompts exist and how they're organized.
-  Re-calling is only useful if the user significantly creates, modifies, or reorganizes content during the session.
-  Use prompt names from the response with `get_prompt_content` for full templates.
-- `search_prompts`: Search prompts with filters. Returns prompt_length and prompt_preview.
-  Use `filter_id` to search within a saved content filter (discover IDs via `list_filters`).
-- `list_filters`: List filters relevant to prompts, with IDs, names, and tag rules.
-  Use filter IDs with `search_prompts(filter_id=...)` to search within a specific filter.
-- `get_prompt_content`: Get a prompt's Jinja2 template and arguments. Returns both the raw template text
-  and the argument definitions list. Use before edit_prompt_content.
-- `get_prompt_metadata`: Get metadata without the template. Returns title, description, tags, prompt_length,
-  and prompt_preview. Use to check size before loading with get_prompt_content.
-- `create_prompt`: Create a new prompt template with Jinja2 content
-- `edit_prompt_content`: Edit template using string replacement. Preferred tool for targeted variable
-  changes (add, remove, rename) while keeping the rest of the template. Use for targeted changes (small or large) where you can identify
-  specific text to replace. More efficient than replacing the entire template.
-  Examples: fix typo, add a variable, remove a variable, rename a variable.
-- `update_prompt`: Update metadata (title, description, tags, name) and/or fully replace template.
-  Use for metadata changes, or when rewriting/restructuring most of the content.
-  Safer for major rewrites (avoids whitespace/formatting matching issues).
-  Examples: complete rewrite, change prompt's purpose, update tags.
-  For targeted variable changes without rewriting, prefer edit_prompt_content instead.
-  **Important:** If updating template that changes variables ({{ var }}), you MUST also provide the full arguments list.
-- `list_tags`: Get all tags with usage counts
-
-Note: There is no delete tool. Prompts can only be deleted via the web UI.
-
-**Optimistic Locking:**
-All mutation tools return `updated_at` in their response. You can optionally pass this value as
-`expected_updated_at` on `update_prompt` for optimistic locking. If the prompt was modified after
-this timestamp, returns a conflict error with `server_state` containing the current version for
-resolution. Omit `expected_updated_at` if you do not have the exact `updated_at` value.
-
-**When to use get_prompt_metadata vs get_prompt_content:**
-- Use `get_prompt_metadata` to check prompt_length before loading large templates
-- Use `get_prompt_content` when you need the template and arguments for viewing or editing
-
-Example workflows:
-
-1. "Create a prompt for summarizing articles"
-   - Call `create_prompt` tool with:
-     - name: "summarize-article"
-     - content: "Summarize the following article:\\n\\n{{ article_text }}\\n\\nProvide..."
-     - arguments: [{"name": "article_text", "description": "To summarize", "required": true}]
-
-2. "Fix a typo in my code-review prompt"
-   - Call `get_prompt_content(name="code-review")` to see current content
-   - Call `edit_prompt_content(name="code-review", old_str="teh code", new_str="the code")`
-
-3. "Add a new variable to my prompt"
-   - When adding {{ new_var }} to the template, you must also add its argument definition
-   - Call `edit_prompt_content` with BOTH the content change AND the updated arguments list:
-     - old_str: "Review this code:"
-     - new_str: "Review this {{ language }} code:"
-     - arguments: [...existing args..., {"name": "language", "description": "Lang"}]
-   - The arguments list REPLACES all existing arguments, so include the ones you want to keep
-
-4. "Remove a variable from my prompt"
-   - Similarly, remove from both content and arguments in one call
-   - Omit the removed argument from the arguments list
-
-5. "Completely rewrite my prompt with a new structure"
-   - Use `update_prompt` when most content changes (not `edit_prompt_content`)
-   - Call `update_prompt(name="my-prompt", content="New template...", arguments=[...])`
-   - Safer for major rewrites - avoids string matching issues
-
-6. "Update my prompt's tags"
-   - Call `update_prompt(name="my-prompt", tags=["new-tag", "another-tag"])`
-   - Tags fully replace existing tags, so include all tags you want
-
-7. "Search for prompts about code review"
-   - Call `search_prompts(query="code review")` to find matching prompts
-   - Response includes prompt_length and prompt_preview for each result
-
-8. "What tags do I have?"
-   - Call `list_tags()` to see all tags with usage counts
-
-9. "What prompts does this user have?"
-   - Call `get_context()` to get an overview of their prompts, tags, filters, and recent activity
-
-10. "Show me prompts from my Development filter"
-   - Call `list_filters()` to find the filter ID
-   - Call `search_prompts(filter_id="<uuid>")` to get prompts matching that filter
-
-Prompt naming: lowercase with hyphens (e.g., `code-review`, `meeting-notes`).
-Argument naming: lowercase with underscores (e.g., `code_to_review`, `article_text`).
-Template syntax: Jinja2 with {{ variable_name }} placeholders.
-""".strip(),  # noqa: E501
+    instructions=load_instructions(_DIR),
 )
 
 # Module-level client for connection reuse
@@ -387,26 +296,36 @@ async def _track_usage(
         logger.warning("Failed to track prompt usage for %s: %s", prompt_id, e)
 
 
+def _arguments_items_schema(params: dict[str, str]) -> dict[str, Any]:
+    """Build the JSON Schema for argument items (shared by 3 tools)."""
+    return {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": params["arguments_items_name"],
+            },
+            "description": {
+                "type": "string",
+                "description": params["arguments_items_description"],
+            },
+            "required": {
+                "type": "boolean",
+                "description": params["arguments_items_required"],
+            },
+        },
+        "required": ["name"],
+    }
+
+
 @server.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
     """List available tools."""
+    _t = _TOOLS
     return [
         types.Tool(
             name="get_context",
-            description=(
-                "Get a summary of the user's prompts. "
-                "Use this at the START of a session to understand: "
-                "what prompts the user has (counts), how prompts are organized "
-                "(tags, filters in priority order), what's inside each filter "
-                "(top prompts per filter), and what prompts the user frequently uses "
-                "(recently used, created, modified). "
-                "Results reflect a point-in-time snapshot. Call once at session start; re-calling "
-                "is only useful if the user significantly creates, modifies, or reorganizes "
-                "content during the session. "
-                "Returns a markdown summary optimized for quick understanding. Use prompt "
-                "names from the response with get_prompt_content for full templates. "
-                "Use tag names with search_prompts to find related prompts."
-            ),
+            description=_t["get_context"]["description"],
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -415,28 +334,28 @@ async def handle_list_tools() -> list[types.Tool]:
                         "default": 50,
                         "minimum": 1,
                         "maximum": 100,
-                        "description": "Number of top tags",
+                        "description": _t["get_context"]["parameters"]["tag_limit"],
                     },
                     "recent_limit": {
                         "type": "integer",
                         "default": 10,
                         "minimum": 1,
                         "maximum": 50,
-                        "description": "Recent prompts per category",
+                        "description": _t["get_context"]["parameters"]["recent_limit"],
                     },
                     "filter_limit": {
                         "type": "integer",
                         "default": 5,
                         "minimum": 0,
                         "maximum": 20,
-                        "description": "Max filters to include",
+                        "description": _t["get_context"]["parameters"]["filter_limit"],
                     },
                     "filter_item_limit": {
                         "type": "integer",
                         "default": 5,
                         "minimum": 1,
                         "maximum": 20,
-                        "description": "Items per filter",
+                        "description": _t["get_context"]["parameters"]["filter_item_limit"],
                     },
                 },
                 "required": [],
@@ -445,60 +364,48 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="search_prompts",
-            description=(
-                "Search prompts with filters. Returns metadata including prompt_length "
-                "and prompt_preview (first 500 chars) for size assessment before fetching "
-                "the template. Use for discovery before get_prompt_content."
-            ),
+            description=_t["search_prompts"]["description"],
             inputSchema={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": (
-                            "Text to search in name, title, description, and content. "
-                            "Omit to list all prompts."
-                        ),
+                        "description": _t["search_prompts"]["parameters"]["query"],
                     },
                     "tags": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Filter by tags (lowercase with hyphens)",
+                        "description": _t["search_prompts"]["parameters"]["tags"],
                     },
                     "tag_match": {
                         "type": "string",
                         "enum": ["all", "any"],
-                        "description": (
-                            "'all' requires ALL tags (default), 'any' requires ANY tag"
-                        ),
+                        "description": _t["search_prompts"]["parameters"]["tag_match"],
                     },
                     "sort_by": {
                         "type": "string",
                         "enum": ["created_at", "updated_at", "last_used_at", "title"],
-                        "description": "Field to sort by (default: created_at)",
+                        "description": _t["search_prompts"]["parameters"]["sort_by"],
                     },
                     "sort_order": {
                         "type": "string",
                         "enum": ["asc", "desc"],
-                        "description": "Sort direction (default: desc)",
+                        "description": _t["search_prompts"]["parameters"]["sort_order"],
                     },
                     "limit": {
                         "type": "integer",
                         "minimum": 1,
                         "maximum": 100,
-                        "description": "Maximum results to return (default: 50)",
+                        "description": _t["search_prompts"]["parameters"]["limit"],
                     },
                     "offset": {
                         "type": "integer",
                         "minimum": 0,
-                        "description": "Number of results to skip for pagination",
+                        "description": _t["search_prompts"]["parameters"]["offset"],
                     },
                     "filter_id": {
                         "type": "string",
-                        "description": (
-                            "Filter by content filter ID (UUID). "
-                            "Use list_filters to discover filter IDs."
-                        ),
+                        "description": _t["search_prompts"]["parameters"]["filter_id"],
                     },
                 },
                 "required": [],
@@ -506,12 +413,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="list_filters",
-            description=(
-                "List filters relevant to prompts. "
-                "Filters are saved views with tag-based rules. Use filter IDs with "
-                "search_prompts(filter_id=...) to search within a specific filter. "
-                "Returns filter ID, name, content types, and the tag-based filter expression."
-            ),
+            description=_t["list_filters"]["description"],
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -521,7 +423,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="list_tags",
-            description="List all tags with their usage counts across prompts.",
+            description=_t["list_tags"]["description"],
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -530,34 +432,23 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="get_prompt_content",
-            description=(
-                "Get a prompt's Jinja2 template and arguments for viewing or editing. "
-                "Returns the raw template text AND the argument definitions list. "
-                "Supports partial reads via start_line/end_line for large templates; "
-                "response includes content_metadata with total_lines and is_partial flag. "
-                "Use get_prompt_metadata first to check prompt_length before loading large templates."  # noqa: E501
-            ),
+            description=_t["get_prompt_content"]["description"],
             inputSchema={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": (
-                            "The prompt name (e.g., 'code-review'). "
-                            "Use search_prompts if you need to discover prompt names."
-                        ),
+                        "description": _t["get_prompt_content"]["parameters"]["name"],
                     },
                     "start_line": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "Start line for partial read (1-indexed). Optional.",
+                        "description": _t["get_prompt_content"]["parameters"]["start_line"],
                     },
                     "end_line": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": (
-                            "End line for partial read (1-indexed, inclusive). Optional."
-                        ),
+                        "description": _t["get_prompt_content"]["parameters"]["end_line"],
                     },
                 },
                 "required": ["name"],
@@ -565,20 +456,13 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="get_prompt_metadata",
-            description=(
-                "Get a prompt's metadata without the template. "
-                "Returns name, title, description, arguments, tags, prompt_length, "
-                "and prompt_preview. Use to check size before fetching with get_prompt_content."
-            ),
+            description=_t["get_prompt_metadata"]["description"],
             inputSchema={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": (
-                            "The prompt name (e.g., 'code-review'). "
-                            "Use search_prompts if you need to discover prompt names."
-                        ),
+                        "description": _t["get_prompt_metadata"]["parameters"]["name"],
                     },
                 },
                 "required": ["name"],
@@ -586,78 +470,37 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="create_prompt",
-            description=(
-                "Create a new prompt template. Prompts are Jinja2 templates with "
-                "defined arguments that can be used as reusable templates for AI "
-                "interactions."
-            ),
+            description=_t["create_prompt"]["description"],
             inputSchema={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": (
-                            "Prompt identifier (lowercase with hyphens, e.g., 'code-review'). "
-                            "Must be unique for your account."
-                        ),
+                        "description": _t["create_prompt"]["parameters"]["name"],
                     },
                     "title": {
                         "type": "string",
-                        "description": (
-                            "Optional human-readable display name "
-                            "(e.g., 'Code Review Assistant')"
-                        ),
+                        "description": _t["create_prompt"]["parameters"]["title"],
                     },
                     "description": {
                         "type": "string",
-                        "description": "Optional description of what the prompt does",
+                        "description": _t["create_prompt"]["parameters"]["description"],
                     },
                     "content": {
                         "type": "string",
-                        "description": (
-                            "The prompt template text (required field). "
-                            "Can be plain text or use Jinja2 syntax: "
-                            "{{ variable_name }} for placeholders, "
-                            "{% if var %}...{% endif %} for conditionals, "
-                            "{% for x in items %}...{% endfor %} for loops, "
-                            "{{ text|upper }} for filters. "
-                            "Variables must be defined in the arguments list. "
-                            "Undefined variables cause errors."
-                        ),
+                        "description": _t["create_prompt"]["parameters"]["content"],
                     },
                     "arguments": {
                         "type": "array",
-                        "description": "List of argument definitions for the template",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {
-                                    "type": "string",
-                                    "description": (
-                                        "Argument name (lowercase with underscores, "
-                                        "e.g., 'code_to_review'). "
-                                        "Must be a valid Python/Jinja2 identifier."
-                                    ),
-                                },
-                                "description": {
-                                    "type": "string",
-                                    "description": "Description of the argument",
-                                },
-                                "required": {
-                                    "type": "boolean",
-                                    "description": (
-                                        "Whether this argument is required "
-                                        "(default: false, optional args default to empty string)"
-                                    ),
-                                },
-                            },
-                            "required": ["name"],
-                        },
+                        "description": _t["create_prompt"]["parameters"]["arguments"],
+                        "items": _arguments_items_schema(
+                            _t["create_prompt"]["parameters"],
+                        ),
                     },
                     "tags": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Optional tags for categorization (lowercase with hyphens)",
+                        "description": _t["create_prompt"]["parameters"]["tags"],
                     },
                 },
                 "required": ["name", "content"],
@@ -665,72 +508,29 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="edit_prompt_content",
-            description=(
-                "Edit a prompt's template and arguments using string replacement. "
-                "This is the preferred tool for targeted template variable changes "
-                "(adding, removing, or renaming a variable while keeping the rest of the template). "  # noqa: E501
-                "Use when: making targeted changes (small or large) where you can identify "
-                "specific text to replace; adding, removing, or modifying content while "
-                "keeping the rest unchanged. More efficient than replacing the entire template. "
-                "Examples: fix a typo, add a variable, remove a variable, rename a variable, "
-                "add a paragraph. "
-                "Use get_prompt_content first to see the current template and construct old_str. "
-                "When adding/removing template variables, you must also update the arguments list "
-                "(it replaces all existing arguments, so include the ones you want to keep). "
-                "Fails with structured error if old_str matches 0 or multiple locations."
-            ),
+            description=_t["edit_prompt_content"]["description"],
             inputSchema={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": (
-                            "The prompt name (e.g., 'code-review'). "
-                            "Use search_prompts if you need to discover prompt names."
-                        ),
+                        "description": _t["edit_prompt_content"]["parameters"]["name"],
                     },
                     "old_str": {
                         "type": "string",
                         "minLength": 1,
-                        "description": (
-                            "Exact text to find in the template. Must match exactly one location. "
-                            "If not found, returns no_match error (whitespace normalization is "
-                            "automatic). If multiple matches, returns multiple_matches error with "
-                            "line numbers and context to help construct a unique match."
-                        ),
+                        "description": _t["edit_prompt_content"]["parameters"]["old_str"],
                     },
                     "new_str": {
                         "type": "string",
-                        "description": (
-                            "Replacement text. Use empty string to delete the matched text."
-                        ),
+                        "description": _t["edit_prompt_content"]["parameters"]["new_str"],
                     },
                     "arguments": {
                         "type": "array",
-                        "description": (
-                            "Only include when adding, removing, or renaming template variables. "
-                            "Do NOT include for simple text edits (typos, wording) - omitting "
-                            "preserves existing arguments automatically. If provided, this list "
-                            "FULLY REPLACES all current arguments (not a merge)."
+                        "description": _t["edit_prompt_content"]["parameters"]["arguments"],
+                        "items": _arguments_items_schema(
+                            _t["edit_prompt_content"]["parameters"],
                         ),
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {
-                                    "type": "string",
-                                    "description": "Argument name (lowercase with underscores)",
-                                },
-                                "description": {
-                                    "type": "string",
-                                    "description": "Description of the argument",
-                                },
-                                "required": {
-                                    "type": "boolean",
-                                    "description": "Whether this argument is required",
-                                },
-                            },
-                            "required": ["name"],
-                        },
                     },
                 },
                 "required": ["name", "old_str", "new_str"],
@@ -738,94 +538,45 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="update_prompt",
-            description=(
-                "Update a prompt's metadata and/or fully replace template content. "
-                "Use when: updating metadata (title, description, tags, name); "
-                "rewriting/restructuring where most content changes; changes are extensive "
-                "enough that finding old_str is impractical. Safer for major rewrites "
-                "(avoids whitespace/formatting matching issues). "
-                "Examples: complete template rewrite, change prompt's purpose, update tags. "
-                "For targeted variable changes (adding, removing, or renaming a variable "
-                "without rewriting the surrounding content), prefer edit_prompt_content instead. "
-                "All parameters are optional - only provide fields you want to change "
-                "(at least one required)."
-            ),
+            description=_t["update_prompt"]["description"],
             inputSchema={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": (
-                            "Current prompt name (e.g., 'code-review'). "
-                            "Use search_prompts or get_context to discover prompt names."
-                        ),
+                        "description": _t["update_prompt"]["parameters"]["name"],
                     },
                     "new_name": {
                         "type": "string",
-                        "description": (
-                            "New name for the prompt (optional). "
-                            "Must be unique and lowercase-with-hyphens."
-                        ),
+                        "description": _t["update_prompt"]["parameters"]["new_name"],
                     },
                     "title": {
                         "type": "string",
-                        "description": "New human-readable title (optional).",
+                        "description": _t["update_prompt"]["parameters"]["title"],
                     },
                     "description": {
                         "type": "string",
-                        "description": "New description (optional).",
+                        "description": _t["update_prompt"]["parameters"]["description"],
                     },
                     "tags": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": (
-                            "New tags list (optional). Replaces all existing tags. "
-                            "Use lowercase-with-hyphens format. "
-                            "If tags aren't changing, omit to preserve existing tags."
-                        ),
+                        "description": _t["update_prompt"]["parameters"]["tags"],
                     },
                     "content": {
                         "type": "string",
-                        "description": (
-                            "New template content (FULL REPLACEMENT of entire template). Omit to leave unchanged. "  # noqa: E501
-                            "If your new content uses the SAME variables as before, do NOT provide the arguments parameter. "  # noqa: E501
-                            "Only provide arguments when variables are added, removed, or renamed."
-                        ),
+                        "description": _t["update_prompt"]["parameters"]["content"],
                     },
                     "arguments": {
                         "type": "array",
-                        "description": (
-                            "New arguments list (FULL REPLACEMENT). "
-                            "Omit if template variables ({{ var }}) aren't changing - "
-                            "existing arguments are preserved automatically. "
-                            "Only provide when adding, removing, or renaming variables. "
-                            "If provided, must include ALL arguments (replaces entire list)."
+                        "description": _t["update_prompt"]["parameters"]["arguments"],
+                        "items": _arguments_items_schema(
+                            _t["update_prompt"]["parameters"],
                         ),
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {
-                                    "type": "string",
-                                    "description": "Argument name (lowercase with underscores)",
-                                },
-                                "description": {
-                                    "type": "string",
-                                    "description": "Description of the argument",
-                                },
-                                "required": {
-                                    "type": "boolean",
-                                    "description": "Whether this argument is required",
-                                },
-                            },
-                            "required": ["name"],
-                        },
                     },
                     "expected_updated_at": {
                         "type": "string",
-                        "description": (
-                            "Optional optimistic locking. Only provide if you have the exact updated_at value "  # noqa: E501
-                            "from a previous response."
-                        ),
+                        "description": _t["update_prompt"]["parameters"]["expected_updated_at"],
                     },
                 },
                 "required": ["name"],

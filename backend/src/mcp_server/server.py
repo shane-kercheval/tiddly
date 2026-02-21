@@ -25,6 +25,7 @@ Note: Clients MUST treat annotations as untrusted hints unless the server
 is explicitly trusted. These inform UI/UX decisions, not security enforcement.
 """
 
+from pathlib import Path
 from typing import Annotated, Any, Literal, NoReturn
 
 import httpx
@@ -35,156 +36,17 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from shared.api_errors import ParsedApiError, parse_http_error
-from shared.mcp_format import format_filter_expression
+from shared.mcp_utils import format_filter_expression, load_instructions, load_tool_descriptions
 
 from .api_client import api_get, api_patch, api_post, get_api_base_url, get_default_timeout
 from .auth import AuthenticationError, get_bearer_token
 
+_DIR = Path(__file__).parent
+_TOOLS = load_tool_descriptions(_DIR)
+
 mcp = FastMCP(
     name="Bookmarks MCP Server",
-    instructions="""
-This is the Content MCP server for tiddly.me (also known as "tiddly"). When users mention
-tiddly, tiddly.me, or their bookmarks/notes service, they're referring to this system.
-
-This MCP server is a content manager for saving and organizing bookmarks and notes.
-Supports full-text search, tagging, markdown notes, and AI-friendly content editing.
-
-## Content Types
-
-- **Bookmarks** have: url, title, description, content (scraped page text or user-provided), tags
-- **Notes** have: title, description, content (markdown), tags
-
-The `content` field is the main body text. For bookmarks, it's typically auto-scraped from the
-URL but can be user-provided. For notes, it's user-written markdown.
-
-## Tool Naming Convention
-
-- **Item tools** (`search_items`, `get_item`, `update_item`): Operate on bookmark/note entities
-- **Content tools** (`edit_content`, `search_in_content`): Operate on the content text field
-
-## Available Tools
-
-**Context:**
-- `get_context`: Get a markdown summary of the user's content (counts, tags, filters with top items, recent items).
-  Call this once at the start of a session to understand what the user has and how it's organized.
-  Re-calling is only useful if the user significantly creates, modifies, or reorganizes content during the session.
-  Use IDs from the response with `get_item` for full content. Use tag names with `search_items`.
-
-**Search** (returns active items only - excludes archived/deleted):
-- `search_items`: Search bookmarks and notes. Two matching modes run together:
-  1. **Full-text search** (English stemming + ranking): "databases" matches "database",
-     "running" matches "runners". Supports operators:
-     - Multiple words: AND by default (`python flask` = must contain both)
-     - Quoted phrases: `"machine learning"` = exact phrase match
-     - OR: `python OR ruby` = either term
-     - Negation: `-python` prefix excludes matches (`flask -django` = flask without django)
-  2. **Substring matching**: catches partial words, code symbols, and punctuation that
-     stemming misses (`auth` finds "authentication", `useState` finds "useState",
-     `node.js` finds "node.js"). Bookmark URLs are also matched via substring.
-  Results matching both modes rank highest. Ranked by relevance by default when query
-  is provided. Use `type` to filter by content type. Use `filter_id` to search within
-  a saved content filter (discover IDs via `list_filters`).
-- `list_filters`: List filters relevant to bookmarks and notes, with IDs, names, and tag rules.
-  Use filter IDs with `search_items(filter_id=...)` to search within a specific filter.
-- `list_tags`: Get all tags with usage counts
-
-**Read & Edit:**
-- `get_item`: Get item by ID. Includes `relationships` array with linked content info.
-  Use `include_content=false` to check size before loading large content.
-- `edit_content`: Edit the `content` field using string replacement (NOT title/description)
-- `search_in_content`: Search within item's text fields for matches with context
-
-**Update:**
-- `update_item`: Update metadata (title, description, tags, url) and/or fully replace content.
-  Use `edit_content` instead for targeted string-based edits to content.
-
-**Create:**
-- `create_bookmark`: Save a new URL (metadata auto-fetched if not provided)
-- `create_note`: Create a new note with markdown content
-
-**Relationships:**
-- `create_relationship`: Link two content items together. Idempotent: if the link already exists, returns it.
-
-## Search Response Structure
-
-`search_items` returns:
-```
-{
-  "items": [...],   // List of items with content_length and content_preview
-  "total": 150,     // Total matches (for pagination)
-  "limit": 50,      // Page size
-  "offset": 0,      // Current offset
-  "has_more": true  // More results available
-}
-```
-
-Each item includes: `id`, `title`, `description`, `tags`, `created_at`, `updated_at`,
-`content_length`, `content_preview`
-- Bookmarks also have: `url`
-- Items have: `type` ("bookmark" or "note")
-
-**Note:** Search results include `content_length` and `content_preview` (first 500 chars)
-but NOT the full `content` field. Use `get_item(id, type)` to fetch full content.
-
-## Updating Items
-
-- **`update_item`**: Update metadata (title, description, tags, url) and/or fully replace content.
-  All parameters are optional - only provide what you want to change (at least one required).
-- **`edit_content`**: Make targeted edits to the content field using string replacement.
-  Use this for fixing typos, inserting/deleting paragraphs, etc. without rewriting everything.
-
-## Optimistic Locking
-
-All mutation tools (`update_item`, `edit_content`, `create_bookmark`, `create_note`) return
-`updated_at` in their response. You can optionally pass this value as `expected_updated_at` on
-`update_item` for optimistic locking. If the item was modified after this timestamp, returns a
-conflict error with `server_state` containing the current version for resolution. Omit
-`expected_updated_at` if you do not have the exact `updated_at` value.
-
-## Limitations
-
-- Delete/archive operations are only available via web UI
-- Search returns active items only (not archived or deleted)
-
-## Example Workflows
-
-1. "Show me my reading list"
-   - Call `list_tags()` to discover tag taxonomy
-   - Call `search_items(tags=["reading-list"])` to filter by tag
-
-2. "Find my Python tutorials"
-   - Call `search_items(query="python tutorial", type="bookmark")` — results ranked by relevance
-
-3. "Save this article: <url>"
-   - Call `create_bookmark(url="<url>", tags=["articles"])`
-
-4. "Create a meeting note"
-   - Call `create_note(title="Meeting Notes", content="## Attendees\\n...", tags=["meeting"])`
-
-5. "Search all my content for Python resources"
-   - Call `search_items(query="python")` — searches both bookmarks and notes, ranked by relevance
-
-6. "Edit my meeting note to fix a typo"
-   - Call `search_items(query="meeting", type="note")` to find the note → get `id` from result
-   - Call `get_item(id="<uuid>", type="note")` to read content
-   - Call `edit_content(id="<uuid>", type="note", old_str="teh mistake", new_str="the mistake")`
-
-7. "Check size before loading large content"
-   - Call `get_item(id="<uuid>", type="note", include_content=false)` to get content_length
-   - If small enough, call `get_item(id="<uuid>", type="note")` to get full content
-
-8. "Update a bookmark's tags"
-   - Call `update_item(id="<uuid>", type="bookmark", tags=["new-tag", "another"])`
-
-9. "What does this user have?"
-   - Call `get_context()` to get an overview of their content, tags, filters, and recent activity
-
-10. "Show me items from my Work Projects filter"
-   - Call `list_filters()` to find the filter ID
-   - Call `search_items(filter_id="<uuid>")` to get items matching that filter
-
-Tags are lowercase with hyphens (e.g., `machine-learning`, `to-read`).
-""".strip(),  # noqa: E501
+    instructions=load_instructions(_DIR),
 )
 
 
@@ -223,60 +85,44 @@ def _raise_tool_error(info: ParsedApiError) -> NoReturn:
 
 
 @mcp.tool(
-    description=(
-        "Search bookmarks and notes using full-text search (English stemming + ranking) "
-        "combined with substring matching. "
-        "Full-text: multiple words are AND'd by default, supports quoted phrases "
-        "('\"exact phrase\"'), OR ('python OR ruby'), and negation prefix "
-        "('-django' excludes items containing 'django'). "
-        "Stemming matches word variants ('running' finds 'runners'). "
-        "Substring: catches partial words and code symbols ('auth' finds "
-        "'authentication', 'useState', 'node.js'). Bookmark URLs matched via substring. "
-        "Items matching both modes rank highest. "
-        "Relevance-ranked by default when query is provided. "
-        "Use `type` to filter by content type. "
-        "Returns metadata including content_length and content_preview (not full content)."
-    ),
+    description=_TOOLS["search_items"]["description"],
     annotations={"readOnlyHint": True},
 )
 async def search_items(
     query: Annotated[
         str | None,
-        Field(
-            description="Combined full-text + substring search across title, description, "
-            "URL (bookmarks), and content. Full-text provides stemming and ranking; "
-            "substring catches partial words and code symbols.",
-        ),
+        Field(description=_TOOLS["search_items"]["parameters"]["query"]),
     ] = None,
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"] | None,
-        Field(description="Filter by type: 'bookmark' or 'note'. Omit to search both."),
+        Field(description=_TOOLS["search_items"]["parameters"]["type"]),
     ] = None,
-    tags: Annotated[list[str] | None, Field(description="Filter by tags")] = None,
+    tags: Annotated[
+        list[str] | None,
+        Field(description=_TOOLS["search_items"]["parameters"]["tags"]),
+    ] = None,
     tag_match: Annotated[
         Literal["all", "any"],
-        Field(description="Tag matching: 'all' requires ALL tags, 'any' requires ANY tag"),
+        Field(description=_TOOLS["search_items"]["parameters"]["tag_match"]),
     ] = "all",
     sort_by: Annotated[
         Literal["created_at", "updated_at", "last_used_at", "title", "relevance"] | None,
-        Field(
-            description="Field to sort by. Defaults to 'relevance' when query is provided, "
-            "'created_at' otherwise. Set explicitly to override.",
-        ),
+        Field(description=_TOOLS["search_items"]["parameters"]["sort_by"]),
     ] = None,
-    sort_order: Annotated[Literal["asc", "desc"], Field(description="Sort direction")] = "desc",
-    limit: Annotated[int, Field(ge=1, le=100, description="Maximum results to return")] = 50,
+    sort_order: Annotated[
+        Literal["asc", "desc"],
+        Field(description=_TOOLS["search_items"]["parameters"]["sort_order"]),
+    ] = "desc",
+    limit: Annotated[
+        int,
+        Field(ge=1, le=100, description=_TOOLS["search_items"]["parameters"]["limit"]),
+    ] = 50,
     offset: Annotated[
-        int, Field(ge=0, description="Number of results to skip for pagination"),
+        int, Field(ge=0, description=_TOOLS["search_items"]["parameters"]["offset"]),
     ] = 0,
     filter_id: Annotated[
         str | None,
-        Field(
-            description=(
-                "Filter by content filter ID (UUID). "
-                "Use list_filters to discover filter IDs."
-            ),
-        ),
+        Field(description=_TOOLS["search_items"]["parameters"]["filter_id"]),
     ] = None,
 ) -> dict[str, Any]:
     """
@@ -336,12 +182,7 @@ async def search_items(
 
 
 @mcp.tool(
-    description=(
-        "List filters relevant to bookmarks and notes. "
-        "Filters are saved views with tag-based rules. Use filter IDs with "
-        "search_items(filter_id=...) to search within a specific filter. "
-        "Returns filter ID, name, content types, and the tag-based filter expression."
-    ),
+    description=_TOOLS["list_filters"]["description"],
     annotations={"readOnlyHint": True},
 )
 async def list_filters() -> dict[str, Any]:
@@ -362,40 +203,26 @@ async def list_filters() -> dict[str, Any]:
 
 
 @mcp.tool(
-    description=(
-        "Get a bookmark or note by ID. By default includes full content. "
-        "Use include_content=false to get content_length and content_preview for size assessment "
-        "before loading large content. "
-        "Supports partial reads via start_line/end_line for large documents."
-    ),
+    description=_TOOLS["get_item"]["description"],
     annotations={"readOnlyHint": True},
 )
 async def get_item(
-    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002, E501
+    id: Annotated[str, Field(description=_TOOLS["get_item"]["parameters"]["id"])],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
-        Field(description="Item type: 'bookmark' or 'note'"),
+        Field(description=_TOOLS["get_item"]["parameters"]["type"]),
     ],
     include_content: Annotated[
         bool,
-        Field(
-            description="If true (default), include full content. "
-            "If false, returns content_length and content_preview for size assessment.",
-        ),
+        Field(description=_TOOLS["get_item"]["parameters"]["include_content"]),
     ] = True,
     start_line: Annotated[
         int | None,
-        Field(
-            description="Start line for partial read (1-indexed). "
-            "Only valid when include_content=true.",
-        ),
+        Field(description=_TOOLS["get_item"]["parameters"]["start_line"]),
     ] = None,
     end_line: Annotated[
         int | None,
-        Field(
-            description="End line for partial read (1-indexed, inclusive). "
-            "Only valid when include_content=true.",
-        ),
+        Field(description=_TOOLS["get_item"]["parameters"]["end_line"]),
     ] = None,
 ) -> dict[str, Any]:
     """
@@ -442,38 +269,22 @@ async def get_item(
 
 
 @mcp.tool(
-    description=(
-        "Edit the 'content' field using string replacement. "
-        "Use when: making targeted changes (small or large) where you can identify "
-        "specific text to replace; adding, removing, or modifying a section while "
-        "keeping the rest unchanged. More efficient than replacing entire content. "
-        "Examples: fix a typo, add a paragraph, remove a section, update specific text. "
-        "Does NOT edit title, description, or tags - only the main content body. "
-        "The old_str must match exactly one location. "
-        "Use search_in_content first to verify match uniqueness."
-    ),
+    description=_TOOLS["edit_content"]["description"],
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
 async def edit_content(
-    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002, E501
+    id: Annotated[str, Field(description=_TOOLS["edit_content"]["parameters"]["id"])],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
-        Field(description="Item type: 'bookmark' or 'note'"),
+        Field(description=_TOOLS["edit_content"]["parameters"]["type"]),
     ],
     old_str: Annotated[
         str,
-        Field(
-            description=(
-                "Exact text to find. Must match exactly one location. "
-                "If not found, returns no_match error (whitespace normalization is automatic). "
-                "If multiple matches, returns multiple_matches error with line numbers and "
-                "context to help construct a unique match."
-            ),
-        ),
+        Field(description=_TOOLS["edit_content"]["parameters"]["old_str"]),
     ],
     new_str: Annotated[
         str,
-        Field(description="Replacement text. Use empty string to delete the matched text."),
+        Field(description=_TOOLS["edit_content"]["parameters"]["new_str"]),
     ],
 ) -> dict[str, Any]:
     """
@@ -527,33 +338,27 @@ async def edit_content(
 
 
 @mcp.tool(
-    description=(
-        "Search within a content item's text to find matches with line numbers and context. "
-        "Use before editing to verify match uniqueness and build a unique old_str."
-    ),
+    description=_TOOLS["search_in_content"]["description"],
     annotations={"readOnlyHint": True},
 )
 async def search_in_content(
-    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002, E501
+    id: Annotated[str, Field(description=_TOOLS["search_in_content"]["parameters"]["id"])],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
-        Field(description="Item type: 'bookmark' or 'note'"),
+        Field(description=_TOOLS["search_in_content"]["parameters"]["type"]),
     ],
-    query: Annotated[str, Field(description="Text to search for (literal match)")],
+    query: Annotated[str, Field(description=_TOOLS["search_in_content"]["parameters"]["query"])],
     fields: Annotated[
         str | None,
-        Field(
-            description="Fields to search (comma-separated): content, title, description. "
-            "Default: 'content' only",
-        ),
+        Field(description=_TOOLS["search_in_content"]["parameters"]["fields"]),
     ] = None,
     case_sensitive: Annotated[
         bool | None,
-        Field(description="Case-sensitive search. Default: false"),
+        Field(description=_TOOLS["search_in_content"]["parameters"]["case_sensitive"]),
     ] = None,
     context_lines: Annotated[
         int | None,
-        Field(description="Lines of context before/after each match (0-10). Default: 2"),
+        Field(description=_TOOLS["search_in_content"]["parameters"]["context_lines"]),
     ] = None,
 ) -> dict[str, Any]:
     """
@@ -598,51 +403,38 @@ async def search_in_content(
 
 
 @mcp.tool(
-    description=(
-        "Update metadata and/or fully replace content. "
-        "Use when: updating metadata (title, description, tags, url); "
-        "rewriting/restructuring where most content changes; changes are extensive "
-        "enough that finding old_str is impractical. Safer for major rewrites. "
-        "Examples: convert format (bullets to prose), change tone/audience, "
-        "reorganize structure, complete rewrite, update tags. "
-        "All parameters optional - only provide what you want to change (at least one required). "
-        "NOTE: For targeted edits where you can identify specific text to replace, "
-        "use edit_content instead - it's more efficient for surgical changes."
-    ),
+    description=_TOOLS["update_item"]["description"],
     annotations={"readOnlyHint": False, "destructiveHint": True},
 )
 async def update_item(
-    id: Annotated[str, Field(description="The item ID (UUID). Use search_items if you need to discover item IDs.")],  # noqa: A002, E501
+    id: Annotated[str, Field(description=_TOOLS["update_item"]["parameters"]["id"])],  # noqa: A002
     type: Annotated[  # noqa: A002
         Literal["bookmark", "note"],
-        Field(description="Item type: 'bookmark' or 'note'"),
+        Field(description=_TOOLS["update_item"]["parameters"]["type"]),
     ],
     title: Annotated[
         str | None,
-        Field(description="New title. Omit to leave unchanged."),
+        Field(description=_TOOLS["update_item"]["parameters"]["title"]),
     ] = None,
     description: Annotated[
         str | None,
-        Field(description="New description. Omit to leave unchanged."),
+        Field(description=_TOOLS["update_item"]["parameters"]["description"]),
     ] = None,
     tags: Annotated[
         list[str] | None,
-        Field(description="New tags (replaces all existing tags). Omit to leave unchanged."),
+        Field(description=_TOOLS["update_item"]["parameters"]["tags"]),
     ] = None,
     url: Annotated[
         str | None,
-        Field(description="New URL (bookmarks only). Omit to leave unchanged."),
+        Field(description=_TOOLS["update_item"]["parameters"]["url"]),
     ] = None,
     content: Annotated[
         str | None,
-        Field(description="New content (FULL REPLACEMENT of entire content field). Omit to leave unchanged."),  # noqa: E501
+        Field(description=_TOOLS["update_item"]["parameters"]["content"]),
     ] = None,
     expected_updated_at: Annotated[
         str | None,
-        Field(
-            description="Optional optimistic locking. Only provide if you have the exact "
-            "updated_at value from a previous response.",
-        ),
+        Field(description=_TOOLS["update_item"]["parameters"]["expected_updated_at"]),
     ] = None,
 ) -> dict[str, Any]:
     """
@@ -710,16 +502,24 @@ async def update_item(
 
 
 @mcp.tool(
-    description="Create a new bookmark.",
+    description=_TOOLS["create_bookmark"]["description"],
     annotations={"readOnlyHint": False, "destructiveHint": False},
 )
 async def create_bookmark(
-    url: Annotated[str, Field(description="The URL to bookmark")],
-    title: Annotated[str | None, Field(description="Bookmark title")] = None,
-    description: Annotated[str | None, Field(description="Bookmark description")] = None,
+    url: Annotated[
+        str, Field(description=_TOOLS["create_bookmark"]["parameters"]["url"]),
+    ],
+    title: Annotated[
+        str | None,
+        Field(description=_TOOLS["create_bookmark"]["parameters"]["title"]),
+    ] = None,
+    description: Annotated[
+        str | None,
+        Field(description=_TOOLS["create_bookmark"]["parameters"]["description"]),
+    ] = None,
     tags: Annotated[
         list[str] | None,
-        Field(description="Tags to assign (lowercase with hyphens, e.g., 'machine-learning')"),
+        Field(description=_TOOLS["create_bookmark"]["parameters"]["tags"]),
     ] = None,
 ) -> dict[str, Any]:
     """Create a new bookmark."""
@@ -757,16 +557,24 @@ async def create_bookmark(
 
 
 @mcp.tool(
-    description="Create a new note.",
+    description=_TOOLS["create_note"]["description"],
     annotations={"readOnlyHint": False, "destructiveHint": False},
 )
 async def create_note(
-    title: Annotated[str, Field(description="The note title (required)")],
-    description: Annotated[str | None, Field(description="Short description/summary")] = None,
-    content: Annotated[str | None, Field(description="Markdown content of the note")] = None,
+    title: Annotated[
+        str, Field(description=_TOOLS["create_note"]["parameters"]["title"]),
+    ],
+    description: Annotated[
+        str | None,
+        Field(description=_TOOLS["create_note"]["parameters"]["description"]),
+    ] = None,
+    content: Annotated[
+        str | None,
+        Field(description=_TOOLS["create_note"]["parameters"]["content"]),
+    ] = None,
     tags: Annotated[
         list[str] | None,
-        Field(description="Tags to assign (lowercase with hyphens, e.g., 'meeting-notes')"),
+        Field(description=_TOOLS["create_note"]["parameters"]["tags"]),
     ] = None,
 ) -> dict[str, Any]:
     """Create a new note with optional markdown content."""
@@ -790,23 +598,26 @@ async def create_note(
 
 
 @mcp.tool(
-    description=(
-        "Link two content items together. "
-        "Idempotent: if the link already exists, returns the existing relationship."
-    ),
+    description=_TOOLS["create_relationship"]["description"],
     annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
 )
 async def create_relationship(
     source_type: Annotated[
         Literal["bookmark", "note"],
-        Field(description="Type of the source item"),
+        Field(description=_TOOLS["create_relationship"]["parameters"]["source_type"]),
     ],
-    source_id: Annotated[str, Field(description="ID of the source item (UUID)")],
+    source_id: Annotated[
+        str,
+        Field(description=_TOOLS["create_relationship"]["parameters"]["source_id"]),
+    ],
     target_type: Annotated[
         Literal["bookmark", "note"],
-        Field(description="Type of the target item"),
+        Field(description=_TOOLS["create_relationship"]["parameters"]["target_type"]),
     ],
-    target_id: Annotated[str, Field(description="ID of the target item (UUID)")],
+    target_id: Annotated[
+        str,
+        Field(description=_TOOLS["create_relationship"]["parameters"]["target_id"]),
+    ],
 ) -> dict[str, Any]:
     """
     Create a 'related' link between two content items.
@@ -861,34 +672,37 @@ async def create_relationship(
 
 
 @mcp.tool(
-    description=(
-        "Get a summary of the user's bookmarks and notes. "
-        "Use this at the START of a session to understand: "
-        "what content the user has (counts by type), how content is organized "
-        "(top tags, custom filters in priority order), what's inside each filter "
-        "(top items per filter), and what the user is actively working with "
-        "(recently used, created, modified items). "
-        "Results reflect a point-in-time snapshot. Call once at session start; re-calling "
-        "is only useful if the user significantly creates, modifies, or reorganizes "
-        "content during the session. "
-        "Returns a markdown summary optimized for quick understanding. Use IDs from "
-        "the response with get_item for full content. Use tag names with search_items "
-        "to find related content."
-    ),
+    description=_TOOLS["get_context"]["description"],
     annotations={"readOnlyHint": True},
 )
 async def get_context(
     tag_limit: Annotated[
-        int, Field(default=50, ge=1, le=100, description="Number of top tags"),
+        int,
+        Field(
+            default=50, ge=1, le=100,
+            description=_TOOLS["get_context"]["parameters"]["tag_limit"],
+        ),
     ] = 50,
     recent_limit: Annotated[
-        int, Field(default=10, ge=1, le=50, description="Recent items per category"),
+        int,
+        Field(
+            default=10, ge=1, le=50,
+            description=_TOOLS["get_context"]["parameters"]["recent_limit"],
+        ),
     ] = 10,
     filter_limit: Annotated[
-        int, Field(default=5, ge=0, le=20, description="Max filters to include"),
+        int,
+        Field(
+            default=5, ge=0, le=20,
+            description=_TOOLS["get_context"]["parameters"]["filter_limit"],
+        ),
     ] = 5,
     filter_item_limit: Annotated[
-        int, Field(default=5, ge=1, le=20, description="Items per filter"),
+        int,
+        Field(
+            default=5, ge=1, le=20,
+            description=_TOOLS["get_context"]["parameters"]["filter_item_limit"],
+        ),
     ] = 5,
 ) -> str:
     """Get a markdown summary of the user's content landscape."""
@@ -1151,7 +965,7 @@ def _append_item_lines(
 
 
 @mcp.tool(
-    description="List all tags with their usage counts",
+    description=_TOOLS["list_tags"]["description"],
     annotations={"readOnlyHint": True},
 )
 async def list_tags() -> dict[str, Any]:

@@ -1,0 +1,148 @@
+search_items:
+  description: |
+    Search bookmarks and notes using full-text search (English stemming + ranking) combined with substring matching. Full-text: multiple words are AND'd by default, supports quoted phrases ('"exact phrase"'), OR ('python OR ruby'), and negation prefix ('-django' excludes items containing 'django'). Stemming matches word variants ('running' finds 'runners'). Substring: catches partial words and code symbols ('auth' finds 'authentication', 'useState', 'node.js'). Bookmark URLs matched via substring. Items matching both modes rank highest. Relevance-ranked by default when query is provided. Use `type` to filter by content type. Returns metadata including content_length and content_preview (not full content).
+  parameters:
+    query: |
+      Combined full-text + substring search across title, description, URL (bookmarks), and content. Full-text provides stemming and ranking; substring catches partial words and code symbols.
+    type: |
+      Filter by type: 'bookmark' or 'note'. Omit to search both.
+    tags: |
+      Filter by tags
+    tag_match: |
+      Tag matching: 'all' requires ALL tags, 'any' requires ANY tag
+    sort_by: |
+      Field to sort by. Defaults to 'relevance' when query is provided, 'created_at' otherwise. Set explicitly to override.
+    sort_order: |
+      Sort direction
+    limit: |
+      Maximum results to return
+    offset: |
+      Number of results to skip for pagination
+    filter_id: |
+      Filter by content filter ID (UUID). Use list_filters to discover filter IDs.
+
+list_filters:
+  description: |
+    List filters relevant to bookmarks and notes. Filters are saved views with tag-based rules. Use filter IDs with search_items(filter_id=...) to search within a specific filter. Returns filter ID, name, content types, and the tag-based filter expression.
+
+get_item:
+  description: |
+    Get a bookmark or note by ID. By default includes full content. Use include_content=false to get content_length and content_preview for size assessment before loading large content. Supports partial reads via start_line/end_line for large documents.
+  parameters:
+    id: |
+      The item ID (UUID). Use search_items if you need to discover item IDs.
+    type: |
+      Item type: 'bookmark' or 'note'
+    include_content: |
+      If true (default), include full content. If false, returns content_length and content_preview for size assessment.
+    start_line: |
+      Start line for partial read (1-indexed). Only valid when include_content=true.
+    end_line: |
+      End line for partial read (1-indexed, inclusive). Only valid when include_content=true.
+
+edit_content:
+  description: |
+    Replace exact text in the content field via old_str/new_str substitution. old_str must match exactly one location - include surrounding context to ensure uniqueness. Only edits the content body (not title, description, or tags). For full content replacement or metadata changes, use update_item instead.
+  parameters:
+    id: |
+      The item ID (UUID). Use search_items if you need to discover item IDs.
+    type: |
+      Item type: 'bookmark' or 'note'
+    old_str: |
+      Exact text to find. Must match exactly one location. If not found, returns no_match error (whitespace normalization is automatic). If multiple matches, returns multiple_matches error with line numbers and context to help construct a unique match.
+    new_str: |
+      Replacement text. Use empty string to delete the matched text.
+
+search_in_content:
+  description: |
+    Search within an item's text for matches with line numbers and surrounding context.
+  parameters:
+    id: |
+      The item ID (UUID). Use search_items if you need to discover item IDs.
+    type: |
+      Item type: 'bookmark' or 'note'
+    query: |
+      Text to search for (literal match)
+    fields: |
+      Fields to search (comma-separated): content, title, description. Default: 'content' only
+    case_sensitive: |
+      Case-sensitive search. Default: false
+    context_lines: |
+      Lines of context before/after each match (0-10). Default: 2
+
+update_item:
+  description: |
+    Update metadata (title, description, tags, url) and/or fully replace content. All parameters optional - only provide what you want to change. For targeted text edits (typos, inserting/removing paragraphs), use edit_content instead.
+  parameters:
+    id: |
+      The item ID (UUID). Use search_items if you need to discover item IDs.
+    type: |
+      Item type: 'bookmark' or 'note'
+    title: |
+      New title. Omit to leave unchanged.
+    description: |
+      New description. Omit to leave unchanged.
+    tags: |
+      New tags (replaces all existing tags). Omit to leave unchanged.
+    url: |
+      New URL (bookmarks only). Omit to leave unchanged.
+    content: |
+      New content (FULL REPLACEMENT of entire content field). Omit to leave unchanged.
+    expected_updated_at: |
+      Optional optimistic locking. Only provide if you have the exact updated_at value from a previous response.
+
+create_bookmark:
+  description: |
+    Create a new bookmark.
+  parameters:
+    url: |
+      The URL to bookmark
+    title: |
+      Bookmark title
+    description: |
+      Bookmark description
+    tags: |
+      Tags to assign (lowercase with hyphens, e.g., 'machine-learning')
+
+create_note:
+  description: |
+    Create a new note.
+  parameters:
+    title: |
+      The note title (required)
+    description: |
+      Short description/summary
+    content: |
+      Markdown content of the note
+    tags: |
+      Tags to assign (lowercase with hyphens, e.g., 'meeting-notes')
+
+create_relationship:
+  description: |
+    Link two content items together. Idempotent: if the link already exists, returns the existing relationship.
+  parameters:
+    source_type: |
+      Type of the source item
+    source_id: |
+      ID of the source item (UUID)
+    target_type: |
+      Type of the target item
+    target_id: |
+      ID of the target item (UUID)
+
+get_context:
+  description: |
+    Get a summary of the user's bookmarks and notes. Use this at the START of a session to understand: what content the user has (counts by type), how content is organized (top tags, custom filters in priority order), what's inside each filter (top items per filter), and what the user is actively working with (recently used, created, modified items). Results reflect a point-in-time snapshot. Call once at session start; re-calling is only useful if the user significantly creates, modifies, or reorganizes content during the session. Returns a markdown summary optimized for quick understanding. Use IDs from the response with get_item for full content. Use tag names with search_items to find related content.
+  parameters:
+    tag_limit: |
+      Number of top tags
+    recent_limit: |
+      Recent items per category
+    filter_limit: |
+      Max filters to include
+    filter_item_limit: |
+      Items per filter
+
+list_tags:
+  description: |
+    List all tags with their usage counts

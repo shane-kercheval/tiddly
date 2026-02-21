@@ -1,13 +1,18 @@
 """
 Evaluation tests for the Prompt MCP server's edit_prompt_content tool.
 
-These tests verify that an LLM can correctly use the edit_prompt_content tool
-to make changes to prompt templates, including atomic updates to both
-content and arguments when adding/removing/renaming variables.
+edit_prompt_content edits template content using old_str/new_str replacement, optionally
+updating arguments atomically. old_str must match exactly one location. When the edit changes
+template variables ({{ var }}), the arguments parameter must include ALL argument definitions
+(full replacement). Omit arguments for text-only changes.
+
+These tests verify that given a prompt template and a targeted instruction, the LLM:
+1. Chooses edit_prompt_content (not update_prompt) for surgical edits
+2. Constructs correct old_str/new_str
+3. Correctly coordinates arguments when adding/removing/renaming variables
 
 The eval uses minimal prompting - just the raw tool output and an instruction.
-This tests whether the tool descriptions and server instructions are sufficient
-for an LLM to use the tools correctly without hand-holding.
+This tests whether the tool descriptions are sufficient for correct tool usage.
 """
 
 import asyncio
@@ -61,6 +66,7 @@ async def _run_edit_prompt_content_eval(
     arguments: list[dict[str, Any]],
     instruction: str,
     model_name: str,
+    provider: str,
     temperature: float,
 ) -> dict[str, Any]:
     """
@@ -120,6 +126,7 @@ async def _run_edit_prompt_content_eval(
                 prompt=llm_prompt,
                 tools=tools,
                 model_name=model_name,
+                provider=provider,
                 temperature=temperature,
             )
 
@@ -180,5 +187,6 @@ async def test_edit_prompt_content(test_case: TestCase) -> dict[str, Any]:
         arguments=test_case.input["arguments"],
         instruction=test_case.input["instruction"],
         model_name=MODEL_CONFIG["name"],
+        provider=MODEL_CONFIG["provider"],
         temperature=MODEL_CONFIG["temperature"],
     )

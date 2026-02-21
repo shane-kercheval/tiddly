@@ -15,7 +15,7 @@ Before running evaluations, ensure:
 1. Your `.env` file has:
    ```bash
    VITE_DEV_MODE=true  # Bypasses authentication
-   OPENAI_API_KEY=sk-...
+   ANTHROPIC_API_KEY=sk-ant-...
    ```
 
 2. **Start Docker containers** (PostgreSQL + Redis):
@@ -68,6 +68,8 @@ uv run pytest evals/prompt_mcp/test_edit_prompt_content.py -v
 uv run pytest evals/prompt_mcp/test_update_prompt.py -v
 ```
 
+**NOTE**: Changes to MCP Servers (e.g. instructions/tool-descriptions, code changes to servers) are not hot reloaded; the MCP Servers need to be restarted.
+
 ## Directory Structure
 
 ```
@@ -94,7 +96,8 @@ Each eval suite has a `config.yaml` that defines:
 ### Model Configuration
 ```yaml
 model:
-  name: "gpt-4.1-mini"
+  provider: "anthropic"  # "anthropic" or "openai"
+  name: "claude-haiku-4-5"
   temperature: 0  # Use 0 for reproducibility
 ```
 
@@ -160,7 +163,7 @@ The eval framework uses `flex-evals` with pytest:
 If evaluations fail, check:
 
 1. **MCP servers running**: Ensure both API and MCP servers are up
-2. **API key valid**: Check `OPENAI_API_KEY` in `.env`
+2. **API key valid**: Check the API key in `.env` matches the provider in your eval config (e.g., `ANTHROPIC_API_KEY` for Anthropic, `OPENAI_API_KEY` for OpenAI)
 3. **Database accessible**: Run `make docker-up` if containers are down
 4. **Verbose output**: Run with `-v` flag for detailed failure info
 

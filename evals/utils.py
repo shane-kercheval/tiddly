@@ -153,10 +153,17 @@ async def call_tool_with_retry(
     raise last_error or ValueError(f"Failed to call {tool_name} after {max_retries} retries")
 
 
+_PROVIDER_MAP = {
+    "anthropic": RegisteredClients.ANTHROPIC_TOOLS,
+    "openai": RegisteredClients.OPENAI_TOOLS,
+}
+
+
 async def get_tool_prediction(
     prompt: str,
     tools: list,
-    model_name: str = "gpt-4.1-mini",
+    model_name: str,
+    provider: str,
     temperature: float = 0,
 ) -> dict[str, Any]:
     """
@@ -165,19 +172,26 @@ async def get_tool_prediction(
     Returns:
         dict with 'tool_name' and 'arguments' keys
     """
+    client_type = _PROVIDER_MAP.get(provider)
+    if client_type is None:
+        raise ValueError(f"Unknown provider '{provider}'. Must be one of: {list(_PROVIDER_MAP)}")
     client = create_client(
-        client_type=RegisteredClients.OPENAI_TOOLS,
+        client_type=client_type,
         model_name=model_name,
         temperature=temperature,
         tools=tools,
     )
     response = await client.run_async(messages=[user_message(prompt)])
 
-    if response.tool_prediction:
-        return {
-            "tool_name": response.tool_prediction.name,
-            "arguments": response.tool_prediction.arguments or {},
-        }
+    try:
+        if response.tool_prediction:
+            return {
+                "tool_name": response.tool_prediction.name,
+                "arguments": response.tool_prediction.arguments or {},
+            }
+    except ValueError:
+        # Multiple tool calls returned — treat as a failed prediction
+        return {"tool_name": None, "arguments": {}}
     return {"tool_name": None, "arguments": {}}
 
 

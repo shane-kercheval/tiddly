@@ -1,6 +1,6 @@
 """Tests for shared MCP formatting utilities."""
 
-from shared.mcp_format import format_filter_expression
+from shared.mcp_utils import format_filter_expression
 
 
 def test__format_filter_expression__single_tag() -> None:
