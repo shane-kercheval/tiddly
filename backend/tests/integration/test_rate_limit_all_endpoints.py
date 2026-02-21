@@ -40,7 +40,7 @@ def low_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
         history_retention_days=30,
         max_history_per_entity=100,
     )
-    monkeypatch.setattr(tier_limits, "TIER_LIMITS", {Tier.FREE: test_limits})
+    monkeypatch.setattr(tier_limits, "TIER_LIMITS", {Tier.FREE: test_limits, Tier.DEV: test_limits})
 
 
 class TestRateLimitAppliedToAllEndpoints:

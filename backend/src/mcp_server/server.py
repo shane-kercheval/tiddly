@@ -136,9 +136,10 @@ but NOT the full `content` field. Use `get_item(id, type)` to fetch full content
 ## Optimistic Locking
 
 All mutation tools (`update_item`, `edit_content`, `create_bookmark`, `create_note`) return
-`updated_at` in their response. Use `expected_updated_at` parameter on `update_item` to prevent
-concurrent edit conflicts. If the item was modified after this timestamp, returns a conflict
-error with `server_state` containing the current version for resolution.
+`updated_at` in their response. You can optionally pass this value as `expected_updated_at` on
+`update_item` for optimistic locking. If the item was modified after this timestamp, returns a
+conflict error with `server_state` containing the current version for resolution. Omit
+`expected_updated_at` if you do not have the exact `updated_at` value.
 
 ## Limitations
 
@@ -639,9 +640,8 @@ async def update_item(
     expected_updated_at: Annotated[
         str | None,
         Field(
-            description="For optimistic locking. If provided and the item was modified after "
-            "this timestamp, returns a conflict error with the current server state. "
-            "Use the updated_at from a previous response.",
+            description="Optional optimistic locking. Only provide if you have the exact "
+            "updated_at value from a previous response.",
         ),
     ] = None,
 ) -> dict[str, Any]:

@@ -1052,7 +1052,7 @@ async def test__api_create_relationship__enforces_limit(
     patched_limits = TIER_LIMITS[Tier.FREE].__class__(
         **{**vars(TIER_LIMITS[Tier.FREE]), 'max_relationships_per_entity': 3},
     )
-    with patch.dict("core.tier_limits.TIER_LIMITS", {Tier.FREE: patched_limits}):
+    with patch.dict("core.tier_limits.TIER_LIMITS", {Tier.FREE: patched_limits, Tier.DEV: patched_limits}):
         # Create relationships up to the limit of 3
         for i in range(3):
             resp = await client.post('/relationships/', json={

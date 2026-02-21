@@ -76,14 +76,6 @@ Tests real app with middleware removed one-by-one to isolate bottlenecks.
 uv run python performance/profiling/isolate_bottleneck.py
 ```
 
-## Tier Limits
-
-The profiling scripts create test items. If you modify them to create many items, you may hit FREE tier limits (100 bookmarks/notes/prompts). To increase limits temporarily:
-
-1. Edit `backend/src/core/tier_limits.py` and increase `max_bookmarks`, `max_notes`, `max_prompts`
-2. Run your tests
-3. Revert the changes (don't commit increased limits)
-
 ## Key Finding
 
 The main performance bottleneck was **DB connection pool cold start**, not middleware. First concurrent burst creates TCP connections to PostgreSQL (~10-15ms each). Solution: concurrent warmup before benchmarking.

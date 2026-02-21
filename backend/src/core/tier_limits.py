@@ -10,6 +10,7 @@ class Tier(StrEnum):
     """User subscription tiers."""
 
     FREE = "free"
+    DEV = "dev"
     # PRO = "pro"  # future
 
 
@@ -78,6 +79,33 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         max_relationships_per_entity=50,
         history_retention_days=30,
         max_history_per_entity=100,
+    ),
+    # DEV tier: resolved at runtime when settings.dev_mode=true.
+    # Not persisted to the database. Effectively unlimited for local
+    # development, evals, and performance testing.
+    Tier.DEV: TierLimits(
+        max_bookmarks=1_000_000,
+        max_notes=1_000_000,
+        max_prompts=1_000_000,
+        max_title_length=1_000_000,
+        max_description_length=1_000_000,
+        max_tag_name_length=1_000_000,
+        max_bookmark_content_length=1_000_000,
+        max_note_content_length=1_000_000,
+        max_prompt_content_length=1_000_000,
+        max_url_length=1_000_000,
+        max_prompt_name_length=1_000_000,
+        max_argument_name_length=1_000_000,
+        max_argument_description_length=1_000_000,
+        rate_read_per_minute=1_000_000,
+        rate_read_per_day=1_000_000,
+        rate_write_per_minute=1_000_000,
+        rate_write_per_day=1_000_000,
+        rate_sensitive_per_minute=1_000_000,
+        rate_sensitive_per_day=1_000_000,
+        max_relationships_per_entity=1_000_000,
+        history_retention_days=1_000,
+        max_history_per_entity=1_000_000,
     ),
 }
 

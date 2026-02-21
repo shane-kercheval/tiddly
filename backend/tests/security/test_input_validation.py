@@ -160,6 +160,7 @@ class TestInputLengthLimits:
         # Should either accept or reject gracefully (not crash)
         assert response.status_code in [201, 422]
 
+    @pytest.mark.usefixtures("low_limits")
     async def test__title_at_max_length__is_accepted(
         self,
         client_as_user_a: AsyncClient,
@@ -180,6 +181,7 @@ class TestInputLengthLimits:
         assert response.status_code == 201
         assert response.json()["title"] == max_title
 
+    @pytest.mark.usefixtures("low_limits")
     async def test__title_over_max_length__is_rejected(
         self,
         client_as_user_a: AsyncClient,

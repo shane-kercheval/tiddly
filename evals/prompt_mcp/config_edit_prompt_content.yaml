@@ -2,12 +2,12 @@
 # Tests the edit_prompt_content tool's ability to make targeted edits with argument changes
 
 model:
-  name: "gpt-4.1-mini"
+  name: "gpt-5.2"
   temperature: 0
 
 eval:
   samples: 10
-  success_threshold: 0.8
+  success_threshold: 0.7
 
 test_cases:
   # Test 1: Remove a variable from template

@@ -49,22 +49,25 @@ Prompts are Jinja2 templates with defined arguments that can be rendered with us
 - `get_prompt_metadata`: Get metadata without the template. Returns title, description, tags, prompt_length,
   and prompt_preview. Use to check size before loading with get_prompt_content.
 - `create_prompt`: Create a new prompt template with Jinja2 content
-- `edit_prompt_content`: Edit template using string replacement. Use for targeted changes (small or large)
-  where you can identify specific text to replace. More efficient than replacing the entire template.
-  Examples: fix typo, add/remove a paragraph, rename a variable.
+- `edit_prompt_content`: Edit template using string replacement. Preferred tool for targeted variable
+  changes (add, remove, rename) while keeping the rest of the template. Use for targeted changes (small or large) where you can identify
+  specific text to replace. More efficient than replacing the entire template.
+  Examples: fix typo, add a variable, remove a variable, rename a variable.
 - `update_prompt`: Update metadata (title, description, tags, name) and/or fully replace template.
   Use for metadata changes, or when rewriting/restructuring most of the content.
   Safer for major rewrites (avoids whitespace/formatting matching issues).
   Examples: complete rewrite, change prompt's purpose, update tags.
+  For targeted variable changes without rewriting, prefer edit_prompt_content instead.
   **Important:** If updating template that changes variables ({{ var }}), you MUST also provide the full arguments list.
 - `list_tags`: Get all tags with usage counts
 
 Note: There is no delete tool. Prompts can only be deleted via the web UI.
 
 **Optimistic Locking:**
-All mutation tools return `updated_at` in their response. Use `expected_updated_at` parameter on
-`update_prompt` to prevent concurrent edit conflicts. If the prompt was modified after this timestamp,
-returns a conflict error with `server_state` containing the current version for resolution.
+All mutation tools return `updated_at` in their response. You can optionally pass this value as
+`expected_updated_at` on `update_prompt` for optimistic locking. If the prompt was modified after
+this timestamp, returns a conflict error with `server_state` containing the current version for
+resolution. Omit `expected_updated_at` if you do not have the exact `updated_at` value.
 
 **When to use get_prompt_metadata vs get_prompt_content:**
 - Use `get_prompt_metadata` to check prompt_length before loading large templates
@@ -664,10 +667,13 @@ async def handle_list_tools() -> list[types.Tool]:
             name="edit_prompt_content",
             description=(
                 "Edit a prompt's template and arguments using string replacement. "
+                "This is the preferred tool for targeted template variable changes "
+                "(adding, removing, or renaming a variable while keeping the rest of the template). "  # noqa: E501
                 "Use when: making targeted changes (small or large) where you can identify "
-                "specific text to replace; adding, removing, or modifying a section while "
+                "specific text to replace; adding, removing, or modifying content while "
                 "keeping the rest unchanged. More efficient than replacing the entire template. "
-                "Examples: fix a typo, add a paragraph, remove a section, rename a variable. "
+                "Examples: fix a typo, add a variable, remove a variable, rename a variable, "
+                "add a paragraph. "
                 "Use get_prompt_content first to see the current template and construct old_str. "
                 "When adding/removing template variables, you must also update the arguments list "
                 "(it replaces all existing arguments, so include the ones you want to keep). "
@@ -739,8 +745,8 @@ async def handle_list_tools() -> list[types.Tool]:
                 "enough that finding old_str is impractical. Safer for major rewrites "
                 "(avoids whitespace/formatting matching issues). "
                 "Examples: complete template rewrite, change prompt's purpose, update tags. "
-                "For targeted changes where you can identify specific text to replace, "
-                "use edit_prompt_content instead (more efficient). "
+                "For targeted variable changes (adding, removing, or renaming a variable "
+                "without rewriting the surrounding content), prefer edit_prompt_content instead. "
                 "All parameters are optional - only provide fields you want to change "
                 "(at least one required)."
             ),
@@ -751,7 +757,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": (
                             "Current prompt name (e.g., 'code-review'). "
-                            "Get names from list_prompts."
+                            "Use search_prompts or get_context to discover prompt names."
                         ),
                     },
                     "new_name": {
@@ -782,8 +788,8 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": (
                             "New template content (FULL REPLACEMENT of entire template). Omit to leave unchanged. "  # noqa: E501
-                            "IMPORTANT: If your new content changes template variables ({{ var }}), you MUST also "  # noqa: E501
-                            "provide the arguments parameter with ALL arguments defined."
+                            "If your new content uses the SAME variables as before, do NOT provide the arguments parameter. "  # noqa: E501
+                            "Only provide arguments when variables are added, removed, or renamed."
                         ),
                     },
                     "arguments": {
@@ -817,8 +823,8 @@ async def handle_list_tools() -> list[types.Tool]:
                     "expected_updated_at": {
                         "type": "string",
                         "description": (
-                            "For optimistic locking. If provided and the prompt was modified after this timestamp, "  # noqa: E501
-                            "returns a conflict error with the current server state. Use the updated_at from a previous response."  # noqa: E501
+                            "Optional optimistic locking. Only provide if you have the exact updated_at value "  # noqa: E501
+                            "from a previous response."
                         ),
                     },
                 },

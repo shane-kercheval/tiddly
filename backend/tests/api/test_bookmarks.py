@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
+import pytest
 from fastapi import HTTPException, status
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -580,6 +581,7 @@ async def test_create_bookmark_invalid_url(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+@pytest.mark.usefixtures("low_limits")
 async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
     """Test that title exceeding max length returns 400."""
     limits = get_tier_limits(Tier.FREE)
@@ -593,6 +595,7 @@ async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
     assert "exceeds limit" in response.text.lower()
 
 
+@pytest.mark.usefixtures("low_limits")
 async def test_create_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
     """Test that description exceeding max length returns 400."""
     limits = get_tier_limits(Tier.FREE)
@@ -606,6 +609,7 @@ async def test_create_bookmark_description_exceeds_max_length(client: AsyncClien
     assert "exceeds limit" in response.text.lower()
 
 
+@pytest.mark.usefixtures("low_limits")
 async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
     """Test that content exceeding max length returns 400."""
     limits = get_tier_limits(Tier.FREE)
@@ -619,12 +623,13 @@ async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient) -
     assert "exceeds limit" in response.text.lower()
 
 
+@pytest.mark.usefixtures("low_limits")
 async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
     """Test that updating with title exceeding max length returns 400."""
     # Create a valid bookmark first
     create_response = await client.post(
         "/bookmarks/",
-        json={"url": "https://example.com", "title": "Valid title"},
+        json={"url": "https://example.com", "title": "Valid"},
     )
     assert create_response.status_code == 201
     bookmark_id = create_response.json()["id"]
@@ -641,6 +646,7 @@ async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
     assert "exceeds limit" in response.text.lower()
 
 
+@pytest.mark.usefixtures("low_limits")
 async def test_update_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
     """Test that updating with description exceeding max length returns 400."""
     # Create a valid bookmark first
@@ -663,6 +669,7 @@ async def test_update_bookmark_description_exceeds_max_length(client: AsyncClien
     assert "exceeds limit" in response.text.lower()
 
 
+@pytest.mark.usefixtures("low_limits")
 async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
     """Test that updating with content exceeding max length returns 400."""
     # Create a valid bookmark first

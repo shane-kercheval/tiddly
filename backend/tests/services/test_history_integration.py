@@ -1265,7 +1265,7 @@ class TestStrReplaceHistory:
             history_retention_days=30,
             max_history_per_entity=max_history,
         )
-        monkeypatch.setattr(tier_limits, "TIER_LIMITS", {Tier.FREE: test_limits})
+        monkeypatch.setattr(tier_limits, "TIER_LIMITS", {Tier.FREE: test_limits, Tier.DEV: test_limits})
 
         # Create note with content we can edit repeatedly
         # Use bracketed markers so each replacement is unique and won't match others

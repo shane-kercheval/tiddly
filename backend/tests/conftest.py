@@ -359,10 +359,11 @@ def low_limits() -> Generator[TierLimits]:
     Override TIER_LIMITS with restrictive limits for testing.
 
     Use this fixture to test quota and field limit enforcement without
-    depending on actual production limit values.
+    depending on actual production limit values. Patches both FREE and DEV
+    tiers since get_current_limits() resolves to DEV in dev mode.
     """
     with patch.dict(
         "core.tier_limits.TIER_LIMITS",
-        {Tier.FREE: LOW_TIER_LIMITS},
+        {Tier.FREE: LOW_TIER_LIMITS, Tier.DEV: LOW_TIER_LIMITS},
     ):
         yield LOW_TIER_LIMITS
