@@ -1,23 +1,40 @@
 """Test fixtures for Prompt MCP server tests."""
 
 from typing import Any
+from collections.abc import AsyncGenerator
 from unittest.mock import patch
 
 import pytest
 import respx
-from mcp import types
+from fastmcp import Client
+from fastmcp.client.transports import FastMCPTransport
 
 from prompt_mcp_server import server as server_module
+from prompt_mcp_server.server import server
 
 
-def make_list_prompts_request(cursor: str | None = None) -> types.ListPromptsRequest:
-    """Create a ListPromptsRequest with optional cursor for testing."""
-    params = types.PaginatedRequestParams(cursor=cursor) if cursor else None
-    return types.ListPromptsRequest(method="prompts/list", params=params)
+class _LowLevelServerWrapper:
+    """
+    Wraps a low-level MCP Server so FastMCPTransport can use it.
+
+    FastMCPTransport expects an object with:
+    - `._mcp_server`: the low-level MCP Server (for .run() and .create_initialization_options())
+    - `.name`: used by FastMCPTransport.__repr__
+
+    It also does an `isinstance(server, FastMCP)` check for lifespan management,
+    which correctly falls through to a no-op for non-FastMCP objects.
+    """
+
+    def __init__(self, mcp_server: Any) -> None:
+        self._mcp_server = mcp_server
+
+    @property
+    def name(self) -> str:
+        return self._mcp_server.name
 
 
 @pytest.fixture
-async def mock_api() -> respx.MockRouter:
+async def mock_api() -> AsyncGenerator[respx.MockRouter]:
     """Context manager for mocking API responses."""
     # Reset the module-level HTTP client to ensure respx captures requests
     server_module._http_client = None
@@ -37,6 +54,19 @@ def mock_auth():
     with patch("prompt_mcp_server.server.get_bearer_token") as mock:
         mock.return_value = "bm_test_token"
         yield mock
+
+
+@pytest.fixture
+async def mcp_client() -> AsyncGenerator[Client]:
+    """
+    Create a fastmcp Client connected to the Prompt MCP server in-memory.
+
+    Uses FastMCPTransport with a wrapper around the low-level MCP Server.
+    Access `client.session` for low-level ClientSession operations (e.g. pagination).
+    """
+    transport = FastMCPTransport(_LowLevelServerWrapper(server))
+    async with Client(transport=transport) as client:
+        yield client
 
 
 @pytest.fixture

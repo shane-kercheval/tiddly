@@ -1,8 +1,9 @@
 """
-Integration tests for Prompt MCP server with real API and database.
+Integration tests for Prompt MCP server handlers with real API and database.
 
-These tests verify the MCP handlers work correctly against the actual REST API
-with a real PostgreSQL database (via testcontainers).
+These tests call MCP handler functions directly (bypassing the MCP protocol layer)
+and verify they work correctly against the actual REST API with a real PostgreSQL
+database (via testcontainers).
 """
 
 import asyncio
@@ -27,7 +28,10 @@ from prompt_mcp_server.server import (
     handle_list_prompts,
 )
 
-from .conftest import make_list_prompts_request
+def make_list_prompts_request(cursor: str | None = None) -> types.ListPromptsRequest:
+    """Create a ListPromptsRequest for testing."""
+    params = types.PaginatedRequestParams(cursor=cursor) if cursor else None
+    return types.ListPromptsRequest(method="prompts/list", params=params)
 
 
 @pytest_asyncio.fixture
