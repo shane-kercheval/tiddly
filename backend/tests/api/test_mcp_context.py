@@ -2,7 +2,6 @@
 import uuid
 from unittest.mock import MagicMock
 
-import pytest
 from httpx import AsyncClient
 
 from core.config import get_settings
@@ -113,7 +112,6 @@ async def _set_sidebar(client: AsyncClient, items: list[dict]) -> dict:
 class TestContentContext:
     """Tests for GET /mcp/context/content."""
 
-    @pytest.mark.anyio
     async def test__basic_response__has_correct_schema(
         self, client: AsyncClient,
     ) -> None:
@@ -133,7 +131,6 @@ class TestContentContext:
         assert "recently_created" in data
         assert "recently_modified" in data
 
-    @pytest.mark.anyio
     async def test__counts__accurate_active_and_archived(
         self, client: AsyncClient,
     ) -> None:
@@ -156,7 +153,6 @@ class TestContentContext:
         assert data["counts"]["notes"]["active"] == 1
         assert data["counts"]["notes"]["archived"] == 1
 
-    @pytest.mark.anyio
     async def test__tags__sorted_by_filter_count_then_content_count(
         self, client: AsyncClient,
     ) -> None:
@@ -180,7 +176,6 @@ class TestContentContext:
         assert python_tag["content_count"] == 2
         assert python_tag["filter_count"] >= 1
 
-    @pytest.mark.anyio
     async def test__tags__limited_by_tag_limit(
         self, client: AsyncClient,
     ) -> None:
@@ -193,7 +188,6 @@ class TestContentContext:
 
         assert len(data["top_tags"]) <= 2
 
-    @pytest.mark.anyio
     async def test__filters__in_sidebar_order(
         self, client: AsyncClient,
     ) -> None:
@@ -215,7 +209,6 @@ class TestContentContext:
         filter_names = [f["name"] for f in data["filters"]]
         assert filter_names == ["Filter B", "Filter A"]
 
-    @pytest.mark.anyio
     async def test__filters__excludes_builtins(
         self, client: AsyncClient,
     ) -> None:
@@ -230,7 +223,6 @@ class TestContentContext:
         assert "Archived" not in filter_names
         assert "Trash" not in filter_names
 
-    @pytest.mark.anyio
     async def test__filters__excludes_empty_expression(
         self, client: AsyncClient,
     ) -> None:
@@ -244,7 +236,6 @@ class TestContentContext:
             groups = f["filter_expression"]["groups"]
             assert any(g["tags"] for g in groups), f"Filter '{f['name']}' has no tag rules"
 
-    @pytest.mark.anyio
     async def test__filter_items__contains_matching_items(
         self, client: AsyncClient,
     ) -> None:
@@ -259,7 +250,6 @@ class TestContentContext:
         assert len(work_filter["items"]) >= 1
         assert work_filter["items"][0]["title"] == "Work Item"
 
-    @pytest.mark.anyio
     async def test__filter_limit_and_item_limit__respected(
         self, client: AsyncClient,
     ) -> None:
@@ -276,7 +266,6 @@ class TestContentContext:
         for f in data["filters"]:
             assert len(f["items"]) <= 1
 
-    @pytest.mark.anyio
     async def test__filter_items__scoped_to_content_types(
         self, client: AsyncClient,
     ) -> None:
@@ -295,7 +284,6 @@ class TestContentContext:
         item_types = {item["type"] for item in shared_filter["items"]}
         assert "prompt" not in item_types
 
-    @pytest.mark.anyio
     async def test__top_tags__excludes_prompt_only_tags(
         self, client: AsyncClient,
     ) -> None:
@@ -310,7 +298,6 @@ class TestContentContext:
         assert "python" in tag_names
         assert "prompt-only" not in tag_names
 
-    @pytest.mark.anyio
     async def test__top_tags__excludes_filter_only_tags(
         self, client: AsyncClient,
     ) -> None:
@@ -328,7 +315,6 @@ class TestContentContext:
         assert "python" in tag_names
         assert "filter-only" not in tag_names
 
-    @pytest.mark.anyio
     async def test__filters__excludes_prompt_only_filters(
         self, client: AsyncClient,
     ) -> None:
@@ -343,7 +329,6 @@ class TestContentContext:
         assert "BM Filter" in filter_names
         assert "Prompt Only" not in filter_names
 
-    @pytest.mark.anyio
     async def test__sidebar_items__included_when_present(
         self, client: AsyncClient,
     ) -> None:
@@ -370,7 +355,6 @@ class TestContentContext:
         assert len(data["sidebar_items"][0]["items"]) == 1
         assert data["sidebar_items"][0]["items"][0]["type"] == "filter"
 
-    @pytest.mark.anyio
     async def test__sidebar_items__empty_when_no_sidebar_filters(
         self, client: AsyncClient,
     ) -> None:
@@ -378,7 +362,6 @@ class TestContentContext:
         data = response.json()
         assert data["sidebar_items"] == []
 
-    @pytest.mark.anyio
     async def test__recently_used__sorted_by_last_used_at(
         self, client: AsyncClient,
     ) -> None:
@@ -396,7 +379,6 @@ class TestContentContext:
         # BM Second was used more recently, should come first
         assert used_titles.index("BM Second") < used_titles.index("BM First")
 
-    @pytest.mark.anyio
     async def test__recently_created__sorted_by_created_at(
         self, client: AsyncClient,
     ) -> None:
@@ -410,7 +392,6 @@ class TestContentContext:
         # Second was created more recently
         assert created_titles.index("Second") < created_titles.index("First")
 
-    @pytest.mark.anyio
     async def test__recently_modified__sorted_by_updated_at(
         self, client: AsyncClient,
     ) -> None:
@@ -430,7 +411,6 @@ class TestContentContext:
         # "First Updated" was modified most recently
         assert modified_titles.index("First Updated") < modified_titles.index("Second")
 
-    @pytest.mark.anyio
     async def test__recently_used__null_last_used_at_sorts_last(
         self, client: AsyncClient,
     ) -> None:
@@ -448,7 +428,6 @@ class TestContentContext:
         assert "Never Used" in used_titles
         assert used_titles.index("Used") < used_titles.index("Never Used")
 
-    @pytest.mark.anyio
     async def test__filter_limit_zero__returns_no_filters(
         self, client: AsyncClient,
     ) -> None:
@@ -460,7 +439,6 @@ class TestContentContext:
 
         assert data["filters"] == []
 
-    @pytest.mark.anyio
     async def test__description_included__when_present(
         self, client: AsyncClient,
     ) -> None:
@@ -476,7 +454,6 @@ class TestContentContext:
         assert items_by_title["With Desc"]["description"] == "A description"
         assert items_by_title["Without Desc"]["description"] is None
 
-    @pytest.mark.anyio
     async def test__empty_state__valid_response(
         self, client: AsyncClient,
     ) -> None:
@@ -494,7 +471,6 @@ class TestContentContext:
         assert data["recently_created"] == []
         assert data["recently_modified"] == []
 
-    @pytest.mark.anyio
     async def test__auth__unauthenticated_returns_401(
         self, client: AsyncClient,
     ) -> None:
@@ -517,7 +493,6 @@ class TestContentContext:
 class TestPromptContext:
     """Tests for GET /mcp/context/prompts."""
 
-    @pytest.mark.anyio
     async def test__basic_response__has_correct_schema(
         self, client: AsyncClient,
     ) -> None:
@@ -536,7 +511,6 @@ class TestPromptContext:
         assert "recently_created" in data
         assert "recently_modified" in data
 
-    @pytest.mark.anyio
     async def test__counts__active_and_archived(
         self, client: AsyncClient,
     ) -> None:
@@ -551,7 +525,6 @@ class TestPromptContext:
         assert data["counts"]["active"] == 2
         assert data["counts"]["archived"] == 1
 
-    @pytest.mark.anyio
     async def test__arguments_included__in_recent_items(
         self, client: AsyncClient,
     ) -> None:
@@ -576,7 +549,6 @@ class TestPromptContext:
         assert prompt_item["arguments"][0]["name"] == "code"
         assert prompt_item["arguments"][0]["required"] is True
 
-    @pytest.mark.anyio
     async def test__prompt_name_included(
         self, client: AsyncClient,
     ) -> None:
@@ -588,7 +560,6 @@ class TestPromptContext:
         names = [p["name"] for p in data["recently_created"]]
         assert "my-prompt" in names
 
-    @pytest.mark.anyio
     async def test__filters_scoped_to_prompts(
         self, client: AsyncClient,
     ) -> None:
@@ -605,7 +576,6 @@ class TestPromptContext:
         assert "Prompt Filter" in filter_names
         assert "BM Only" not in filter_names
 
-    @pytest.mark.anyio
     async def test__top_tags__excludes_bookmark_only_tags(
         self, client: AsyncClient,
     ) -> None:
@@ -620,7 +590,6 @@ class TestPromptContext:
         assert "code-review" in tag_names
         assert "bookmark-only" not in tag_names
 
-    @pytest.mark.anyio
     async def test__top_tags__excludes_filter_only_tags(
         self, client: AsyncClient,
     ) -> None:
@@ -638,7 +607,6 @@ class TestPromptContext:
         assert "code-review" in tag_names
         assert "filter-only" not in tag_names
 
-    @pytest.mark.anyio
     async def test__recently_used__sorted_correctly(
         self, client: AsyncClient,
     ) -> None:
@@ -654,7 +622,6 @@ class TestPromptContext:
         used_names = [p["name"] for p in data["recently_used"]]
         assert used_names.index("second-used") < used_names.index("first-used")
 
-    @pytest.mark.anyio
     async def test__filter_items__scoped_to_prompts_only(
         self, client: AsyncClient,
     ) -> None:
@@ -674,7 +641,6 @@ class TestPromptContext:
         for item in shared_filter["items"]:
             assert "arguments" in item  # Only ContextPrompt has arguments
 
-    @pytest.mark.anyio
     async def test__empty_state__valid_response(
         self, client: AsyncClient,
     ) -> None:
@@ -690,7 +656,6 @@ class TestPromptContext:
         assert data["recently_created"] == []
         assert data["recently_modified"] == []
 
-    @pytest.mark.anyio
     async def test__auth__unauthenticated_returns_401(
         self, client: AsyncClient,
     ) -> None:
