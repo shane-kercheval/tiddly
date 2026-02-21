@@ -52,7 +52,7 @@ import { BookmarkCard } from '../components/BookmarkCard'
 import { NoteCard } from '../components/NoteCard'
 import { PromptCard } from '../components/PromptCard'
 import {
-  LoadingSpinnerCentered,
+  LoadingSpinnerPage,
   ErrorState,
   EmptyState,
   SearchFilterBar,
@@ -619,10 +619,6 @@ export function AllContent(): ReactNode {
 
   // Render content based on state
   const renderContent = (): ReactNode => {
-    if (isLoading) {
-      return <LoadingSpinnerCentered label="Loading content..." />
-    }
-
     if (error) {
       return <ErrorState message={error} onRetry={() => refetch()} />
     }
@@ -807,6 +803,10 @@ export function AllContent(): ReactNode {
 
   // Show quick-add menu for active view (All, or any custom list)
   const showQuickAdd = currentView === 'active'
+
+  if (isLoading) {
+    return <LoadingSpinnerPage label="Loading content..." />
+  }
 
   return (
     <div className="pt-3">

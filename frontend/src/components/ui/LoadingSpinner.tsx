@@ -42,14 +42,16 @@ export function LoadingSpinner({
 }
 
 /**
- * Centered loading spinner for full-page or container loading states.
+ * Page-level centered loading spinner.
+ * Uses viewport-relative min-height to self-center without depending on parent flex layout.
+ * Works both inside Layout (content area) and pre-Layout (full page).
  */
-export function LoadingSpinnerCentered({
+export function LoadingSpinnerPage({
   size = 'md',
   label = 'Loading...',
 }: Omit<LoadingSpinnerProps, 'className'>): ReactNode {
   return (
-    <div className="flex justify-center py-12">
+    <div className="flex items-center justify-center min-h-[calc(100dvh_-_10rem)]">
       <LoadingSpinner size={size} label={label} />
     </div>
   )

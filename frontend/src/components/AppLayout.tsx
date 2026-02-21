@@ -3,7 +3,7 @@ import { Outlet } from 'react-router-dom'
 import { useConsentStore } from '../stores/consentStore'
 import { ConsentDialog } from './ConsentDialog'
 import { isDevMode } from '../config'
-import { LoadingSpinnerCentered } from './ui'
+import { LoadingSpinnerPage } from './ui'
 import { useAuthStatus } from '../hooks/useAuthStatus'
 
 /**
@@ -45,7 +45,7 @@ export function AppLayout(): ReactNode {
 
   // Show loading state while checking consent (initial check only)
   if (isLoading && needsConsent === null) {
-    return <LoadingSpinnerCentered label="Loading..." />
+    return <LoadingSpinnerPage label="Loading..." />
   }
 
   // Show error state if consent check failed (with retry option)
@@ -79,7 +79,7 @@ export function AppLayout(): ReactNode {
   // Only render app when consent is confirmed (needsConsent === false)
   // If needsConsent is still null without error, stay in loading state
   if (needsConsent !== false) {
-    return <LoadingSpinnerCentered label="Loading..." />
+    return <LoadingSpinnerPage label="Loading..." />
   }
 
   return <Outlet />

@@ -1,7 +1,7 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
-import { LoadingSpinner } from './ui'
+import { LoadingSpinnerPage } from './ui'
 import { useAuthStatus } from '../hooks/useAuthStatus'
 
 /**
@@ -33,11 +33,7 @@ function AuthenticatedRoute(): ReactNode {
   const { isAuthenticated, isLoading, error } = useAuthStatus()
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <LoadingSpinner size="lg" label="Authenticating..." />
-      </div>
-    )
+    return <LoadingSpinnerPage label="Authenticating..." />
   }
 
   if (error) {
