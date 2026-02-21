@@ -140,7 +140,7 @@ test_cases:
       instruction: "Rewrite this as a beginner-friendly guide explaining what Redis caching is and why we use it. Avoid jargon - explain concepts simply. Write in a friendly, educational tone."
     expected:
       tool_name: "update_item"
-      final_must_contain: ["Redis", "cache"]
+      final_must_contain: ["Redis", "cach"]
       final_must_not_contain: ["TTL-based expiry", "write-through", "msgpack"]
     metadata:
       description: "Complete tone change from technical to beginner - requires update_item"

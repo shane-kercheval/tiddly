@@ -179,6 +179,11 @@ Fix the issue found above."""
     checks=CHECKS,
     samples=EVAL_CONFIG["samples"],
     success_threshold=EVAL_CONFIG["success_threshold"],
+    output_dir=Path(__file__).parent / "results",
+    metadata={
+        "model_provider": MODEL_CONFIG["provider"],
+        "model_name": MODEL_CONFIG["name"],
+    },
 )
 async def test_edit_content_notes(test_case: TestCase) -> dict[str, Any]:
     """

@@ -182,17 +182,16 @@ async def get_tool_prediction(
         tools=tools,
     )
     response = await client.run_async(messages=[user_message(prompt)])
-
-    try:
-        if response.tool_prediction:
-            return {
-                "tool_name": response.tool_prediction.name,
-                "arguments": response.tool_prediction.arguments or {},
-            }
-    except ValueError:
-        # Multiple tool calls returned — treat as a failed prediction
+    predictions = response.tool_predictions
+    if not predictions:
         return {"tool_name": None, "arguments": {}}
-    return {"tool_name": None, "arguments": {}}
+    if len(predictions) > 1:
+        # Multiple tool calls — treat as a failed prediction
+        return {"tool_name": None, "arguments": {}}
+    return {
+        "tool_name": predictions[0].name,
+        "arguments": predictions[0].arguments or {},
+    }
 
 
 async def delete_note_via_api(note_id: str) -> None:

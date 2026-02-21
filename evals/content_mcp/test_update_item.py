@@ -201,6 +201,11 @@ async def _run_update_item_eval(
     checks=CHECKS,
     samples=EVAL_CONFIG["samples"],
     success_threshold=EVAL_CONFIG["success_threshold"],
+    output_dir=Path(__file__).parent / "results",
+    metadata={
+        "model_provider": MODEL_CONFIG["provider"],
+        "model_name": MODEL_CONFIG["name"],
+    },
 )
 async def test_update_item_notes(test_case: TestCase) -> dict[str, Any]:
     """
