@@ -44,7 +44,7 @@ import {
   ReadingIcon,
 } from './editor/EditorToolbarIcons'
 import { useRightSidebarStore } from '../stores/rightSidebarStore'
-import { CloseIcon } from './icons'
+import { CloseIcon, HistoryIcon } from './icons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
 import { createSlashCommandSource, slashCommandAddToOptions, scrollFadePlugin } from '../utils/slashCommands'
 import { wasEditorFocused } from '../utils/editorUtils'
@@ -423,6 +423,7 @@ export function CodeMirrorEditor({
       save: () => <SaveIcon />,
       close: () => <CloseIcon className="h-4 w-4" />,
       tableOfContents: () => <TableOfContentsIcon />,
+      versionHistory: () => <HistoryIcon className="w-4 h-4" />,
     },
   }), [showJinjaTools, menuCallbacks, isDirty, showTocToggle])
 

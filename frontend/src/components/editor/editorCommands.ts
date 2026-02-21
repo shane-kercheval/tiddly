@@ -57,6 +57,7 @@ interface IconFactories {
   save: () => ReactNode
   close: () => ReactNode
   tableOfContents: () => ReactNode
+  versionHistory: () => ReactNode
 }
 
 interface BuildOptions {
@@ -108,6 +109,14 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
       action: () => { useRightSidebarStore.getState().togglePanel('toc') },
     })
   }
+  commands.push({
+    id: 'toggle-history',
+    label: 'Version History',
+    section: 'Actions',
+    icon: icons.versionHistory(),
+    shortcut: ['⌘', '⇧', '\\'],
+    action: () => { useRightSidebarStore.getState().togglePanel('history') },
+  })
 
   // --- Jinja2 section (prompt pages only, before Format for quick access) ---
   if (showJinja) {
