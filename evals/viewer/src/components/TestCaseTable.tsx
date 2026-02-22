@@ -34,8 +34,8 @@ export default function TestCaseTable({ results }: TestCaseTableProps) {
   const groups = groupByTestCase(results)
 
   return (
-    <div className="space-y-2">
-      <h3 className="text-sm font-medium text-gray-700">
+    <div className="space-y-1.5">
+      <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">
         Test Cases ({groups.length})
       </h3>
       {groups.map((group) => (
@@ -55,20 +55,20 @@ function TestCaseRow({ group }: { group: GroupedTestCase }) {
     total
 
   return (
-    <div className="bg-white rounded border border-gray-200">
+    <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-gray-50 text-left"
+        className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-blue-50 text-left transition-colors"
       >
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-          allPassed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium tabular-nums ${
+          allPassed ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
         }`}>
           {passedCount}/{total}
         </span>
         <span className="font-medium text-gray-900">{group.id}</span>
         <span className="text-gray-500 truncate flex-1">{group.description}</span>
-        <span className="text-gray-400 text-xs">{avgDuration.toFixed(2)}s avg</span>
-        <span className="text-gray-400">{expanded ? '\u25B2' : '\u25BC'}</span>
+        <span className="text-gray-400 text-xs tabular-nums">{avgDuration.toFixed(2)}s avg</span>
+        <span className="text-gray-300 text-xs">{expanded ? '\u25B2' : '\u25BC'}</span>
       </button>
       {expanded && (
         <div>

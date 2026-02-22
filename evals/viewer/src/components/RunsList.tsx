@@ -65,32 +65,32 @@ export default function RunsList() {
                 <tr
                   key={run.evaluation_id}
                   onClick={() => navigate(`/runs/${run.evaluation_id}`)}
-                  className="hover:bg-blue-50/50 cursor-pointer transition-colors"
+                  className="hover:bg-blue-50 cursor-pointer transition-colors"
                 >
-                  <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap tabular-nums">
+                  <td className="px-3 py-2 text-sm text-gray-500 whitespace-nowrap tabular-nums">
                     {new Date(run.started_at).toLocaleString()}
                   </td>
-                  <td className="px-3 py-2 text-xs font-medium text-gray-900">{config.test_function}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600">{run.metadata.model_name}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600 tabular-nums">{(results.success_rate * 100).toFixed(0)}%</td>
+                  <td className="px-3 py-2 text-sm font-medium text-gray-900">{config.test_function}</td>
+                  <td className="px-3 py-2 text-sm text-gray-600">{run.metadata.model_name}</td>
+                  <td className="px-3 py-2 text-sm text-gray-600 tabular-nums">{(results.success_rate * 100).toFixed(0)}%</td>
                   <td className="px-3 py-2">
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium ${
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
                       results.passed ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
                     }`}>
                       {results.passed ? 'pass' : 'fail'}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-600 tabular-nums">
+                  <td className="px-3 py-2 text-sm text-gray-600 tabular-nums">
                     {results.passed_samples}/{results.total_samples}
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-400">{run.source_dir}</td>
+                  <td className="px-3 py-2 text-sm text-gray-400">{run.source_dir}</td>
                 </tr>
               )
             })}
           </tbody>
         </table>
         {filtered.length === 0 && (
-          <p className="text-center py-6 text-xs text-gray-400">No runs found</p>
+          <p className="text-center py-6 text-sm text-gray-400">No runs found</p>
         )}
       </div>
     </div>
