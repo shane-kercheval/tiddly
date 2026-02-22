@@ -90,9 +90,10 @@ function TestCaseRow({ group, expanded, onToggle }: { group: GroupedTestCase; ex
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-      <button
+      <div
         onClick={onToggle}
-        className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-blue-50 text-left transition-colors"
+        className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-blue-50 text-left transition-colors cursor-pointer select-text"
+        role="button"
       >
         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium tabular-nums ${
           allPassed ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
@@ -106,7 +107,7 @@ function TestCaseRow({ group, expanded, onToggle }: { group: GroupedTestCase; ex
           <span className="text-gray-400 text-xs tabular-nums">${avgCost.toFixed(4)} avg</span>
         )}
         <span className="text-gray-300 text-xs">{expanded ? '\u25B2' : '\u25BC'}</span>
-      </button>
+      </div>
       <div className={expanded ? '' : 'hidden'}>
         {group.samples.map((sample, i) => (
           <SampleRow key={i} sample={sample} index={i} />

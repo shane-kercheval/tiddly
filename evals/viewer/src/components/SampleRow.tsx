@@ -85,9 +85,10 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
 
   return (
     <div className="border-t border-gray-100">
-      <button
+      <div
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-blue-50 text-left transition-colors"
+        className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-blue-50 text-left transition-colors cursor-pointer select-text"
+        role="button"
       >
         <span className="text-gray-400 text-xs w-6 tabular-nums">#{index + 1}</span>
         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
@@ -103,7 +104,7 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
           {passedChecks}/{totalChecks} checks
         </span>
         <span className="text-gray-300 text-xs">{expanded ? '\u25B2' : '\u25BC'}</span>
-      </button>
+      </div>
       <div className={expanded ? 'px-3 pb-3 space-y-2 ml-3 border-l-2 border-blue-300' : 'hidden'}>
         {sample.check_results.length > 0 && (
           <div>
