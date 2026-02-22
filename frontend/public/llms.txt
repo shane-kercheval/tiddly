@@ -103,8 +103,8 @@ Provides access to prompts as both MCP tools and the MCP prompts capability.
 - `get_prompt_content`: Get raw (unrendered) template content. Supports partial reads.
 - `get_prompt_metadata`: Get prompt metadata without content.
 - `create_prompt`: Create a new prompt with name, title, content, description, tags, and arguments.
-- `edit_prompt_content`: Edit template via string replacement. Auto-syncs arguments when variables change.
-- `update_prompt`: Update prompt metadata.
+- `edit_prompt_content`: Edit part of a template via string replacement. Use when editing a specific section. Auto-syncs arguments when variables change.
+- `update_prompt`: Rewrite, restructure, or fully replace template content, and/or update metadata (title, description, tags, name).
 - `get_context`: Aggregated context for prompts.
 - `list_tags`: Tags with counts.
 - `list_filters`: Saved filters.
