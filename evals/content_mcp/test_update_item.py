@@ -118,12 +118,13 @@ async def _run_update_item_eval(
 
             # Build prompt - show the full get_item result (includes tags)
             assert note_data is not None, "get_item returned no data"
-            prompt = f"""I need to make changes to this note.
-
+            prompt = f"""
 `get_item` tool result:
 ```json
 {json.dumps(note_data, indent=2)}
 ```
+
+Use the tool result above as context for the following instruction.
 
 **Instruction:** {instruction}"""
             # Get tool predictions (expect exactly one)
@@ -186,6 +187,7 @@ async def _run_update_item_eval(
                 "original_tags": original_tags,
                 "prompt": prompt,
                 "tool_predictions": predictions,
+                "prediction_count": len(predictions),
                 "tags_provided": tags_provided,
                 "tool_result": tool_result,
                 "final_content": final_content,

@@ -245,3 +245,22 @@ checks:
     metadata:
       name: "Content Fixed"
       description: "Final content contains the expected correction"
+
+  # Verify final content does not contain the typo
+  - type: "contains"
+    arguments:
+      text: "$.output.value.final_content"
+      phrases: "$.test_case.expected.final_must_not_contain"
+      negate: true
+    metadata:
+      name: "Typo Removed"
+      description: "Final content no longer contains the original typo"
+
+  # Single tool call check
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.prediction_count"
+      expected: 1
+    metadata:
+      name: "Single Tool Call"
+      description: "Agent made exactly one tool call"

@@ -110,17 +110,22 @@ async def _run_edit_content_eval(
             search_response = json.dumps(search_result.structuredContent, indent=2)
 
             # Build prompt with full context
-            prompt = f"""`get_item` tool result:
+            prompt = f"""
+`get_item` tool result:
+
 ```json
 {item_data}
 ```
 
 `search_in_content` tool result for "{search_query}":
+
 ```json
 {search_response}
 ```
 
-Fix the issue found above."""
+Use the tool results above as context for the following instruction.
+
+**Instruction:** Fix the spelling error "{search_query}" found by the search above."""
 
             # Get tool predictions (expect exactly one)
             result = await get_tool_predictions(
@@ -168,6 +173,7 @@ Fix the issue found above."""
                 "content_id": content_id,
                 "prompt": prompt,
                 "tool_predictions": predictions,
+                "prediction_count": len(predictions),
                 "tool_result": tool_result,
                 "final_content": final_content,
                 "edit_error": edit_error,
