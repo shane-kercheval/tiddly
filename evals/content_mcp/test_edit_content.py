@@ -13,7 +13,6 @@ The eval provides both get_item and search_in_content results so the LLM has ful
 context before deciding which tool to use.
 """
 
-import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -22,17 +21,15 @@ from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 from evals.utils import (
-    MCP_CONCURRENCY_LIMIT,
     call_tool_with_retry,
     create_checks_from_config,
     create_test_cases_from_config,
     delete_note_via_api,
     get_content_mcp_config,
+    get_mcp_semaphore,
     get_tool_predictions,
     load_yaml_config,
 )
-
-_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 # Load configuration at module level
 CONFIG_PATH = Path(__file__).parent / "config_edit_content.yaml"
@@ -72,7 +69,7 @@ async def _run_edit_content_eval(
     config = get_content_mcp_config()
 
     # Acquire semaphore to limit concurrent MCP connections
-    async with _MCP_SEMAPHORE, MCPClientManager(config) as mcp_manager:
+    async with get_mcp_semaphore(), MCPClientManager(config) as mcp_manager:
         print(".", end="", flush=True)
         tools = mcp_manager.get_tools()
         # Create the note (with retry for transient failures)

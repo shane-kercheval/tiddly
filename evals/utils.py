@@ -15,6 +15,19 @@ from sik_llms.mcp_manager import MCPClientManager
 # and connection failures; too low slows down parallel test execution.
 MCP_CONCURRENCY_LIMIT = 20
 
+# Cache semaphores per event loop to avoid "bound to a different event loop" errors
+# when pytest parametrize runs multiple variants with different loops.
+_semaphore_cache: dict[int, asyncio.Semaphore] = {}
+
+
+def get_mcp_semaphore() -> asyncio.Semaphore:
+    """Return a semaphore bound to the current event loop."""
+    loop = asyncio.get_running_loop()
+    loop_id = id(loop)
+    if loop_id not in _semaphore_cache:
+        _semaphore_cache[loop_id] = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
+    return _semaphore_cache[loop_id]
+
 # Default configuration
 PAT_TOKEN = "bm_devtoken"
 API_BASE_URL = "http://localhost:8000"

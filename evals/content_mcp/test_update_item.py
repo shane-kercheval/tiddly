@@ -11,7 +11,6 @@ These tests verify that an LLM correctly uses update_item for:
    - When updating tags: LLM MUST provide ALL tags (full replacement, not merge)
 """
 
-import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -22,17 +21,15 @@ from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 
 from evals.utils import (
-    MCP_CONCURRENCY_LIMIT,
     call_tool_with_retry,
     create_checks_from_config,
     create_test_cases_from_config,
     delete_note_via_api,
     get_content_mcp_config,
+    get_mcp_semaphore,
     get_tool_predictions,
     load_yaml_config,
 )
-
-_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 
 # Load configuration at module level
@@ -90,7 +87,7 @@ async def _run_update_item_eval(
     note_id = None
 
     try:
-        async with _MCP_SEMAPHORE, MCPClientManager(config) as mcp_manager:
+        async with get_mcp_semaphore(), MCPClientManager(config) as mcp_manager:
             print(".", end="", flush=True)
             tools = mcp_manager.get_tools()
 

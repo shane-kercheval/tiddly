@@ -21,7 +21,6 @@ The tests also verify the LLM chooses update_prompt (not edit_prompt_content)
 for substantial template rewrites.
 """
 
-import asyncio
 import json
 import uuid
 from pathlib import Path
@@ -33,18 +32,16 @@ from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 
 from evals.utils import (
-    MCP_CONCURRENCY_LIMIT,
     call_tool_with_retry,
     check_argument_descriptions_preserved,
     create_checks_from_config,
     create_test_cases_from_config,
     delete_prompt_via_api,
+    get_mcp_semaphore,
     get_prompt_mcp_config,
     get_tool_predictions,
     load_yaml_config,
 )
-
-_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 # Load configuration at module level
 CONFIG_PATH = Path(__file__).parent / "config_update_prompt.yaml"
@@ -225,7 +222,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
     prompt_id = None
 
     try:
-        async with _MCP_SEMAPHORE, MCPClientManager(config) as mcp_manager:
+        async with get_mcp_semaphore(), MCPClientManager(config) as mcp_manager:
             print(".", end="", flush=True)
             tools = mcp_manager.get_tools()
 

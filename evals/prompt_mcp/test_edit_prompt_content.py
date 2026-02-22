@@ -15,7 +15,6 @@ The eval uses minimal prompting - just the raw tool output and an instruction.
 This tests whether the tool descriptions are sufficient for correct tool usage.
 """
 
-import asyncio
 import json
 import uuid
 from pathlib import Path
@@ -25,18 +24,16 @@ from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 from evals.utils import (
-    MCP_CONCURRENCY_LIMIT,
     check_argument_descriptions_preserved,
     create_checks_from_config,
     create_prompt_via_api,
     create_test_cases_from_config,
     delete_prompt_via_api,
+    get_mcp_semaphore,
     get_prompt_mcp_config,
     get_tool_predictions,
     load_yaml_config,
 )
-
-_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 # Load configuration at module level
 CONFIG_PATH = Path(__file__).parent / "config_edit_prompt_content.yaml"
@@ -100,7 +97,7 @@ async def _run_edit_prompt_content_eval(
         # Get MCP tools and use get_prompt_content to get the context
         config = get_prompt_mcp_config()
         # Acquire semaphore to limit concurrent MCP connections
-        async with _MCP_SEMAPHORE, MCPClientManager(config) as mcp_manager:
+        async with get_mcp_semaphore(), MCPClientManager(config) as mcp_manager:
             print(".", end="", flush=True)
             tools = mcp_manager.get_tools()
 
