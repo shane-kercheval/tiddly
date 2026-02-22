@@ -18,14 +18,14 @@ interface Flag {
 function Flags({ items }: { items: Flag[] }) {
   if (items.length === 0) return null
   return (
-    <div className="flex flex-wrap gap-1 mt-1">
+    <div className="flex flex-wrap gap-1">
       {items.map((flag) => (
         <span
           key={flag.label}
-          className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+          className={`text-[11px] px-1.5 py-0.5 rounded font-mono ${
             flag.isDefault
-              ? 'bg-gray-50 text-gray-400'
-              : 'bg-amber-50 text-amber-700'
+              ? 'bg-gray-100 text-gray-500'
+              : 'bg-amber-100 text-amber-800'
           }`}
         >
           {flag.label}
@@ -41,13 +41,20 @@ function formatValue(val: unknown): string {
   return String(val)
 }
 
-function ValueCell({ label, value, jsonpath, passed }: { label: string; value: unknown; jsonpath?: string; passed?: boolean }) {
-  const color = passed === undefined ? 'text-gray-700' : passed ? 'text-emerald-700' : 'text-red-700'
+function FieldLabel({ label, jsonpath }: { label: string; jsonpath?: string }) {
+  return (
+    <h6 className="text-[11px] text-gray-400 mb-0.5">
+      {label}
+      {jsonpath && <span className="font-mono text-gray-300 ml-1.5">{jsonpath}</span>}
+    </h6>
+  )
+}
+
+function ValueCell({ label, value, jsonpath }: { label: string; value: unknown; jsonpath?: string }) {
   return (
     <div className="flex-1 min-w-0">
-      <h6 className="text-[10px] text-gray-400 mb-0.5">{label}</h6>
-      {jsonpath && <div className="text-[10px] text-gray-300 font-mono truncate mb-0.5">{jsonpath}</div>}
-      <pre className={`text-xs bg-gray-50 p-1.5 rounded overflow-x-auto whitespace-pre-wrap break-all ${color}`}>
+      <FieldLabel label={label} jsonpath={jsonpath} />
+      <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto whitespace-pre-wrap break-all text-blue-700">
         {formatValue(value)}
       </pre>
     </div>
@@ -55,7 +62,6 @@ function ValueCell({ label, value, jsonpath, passed }: { label: string; value: u
 }
 
 function ExactMatchView({ check }: { check: CheckResult }) {
-  const passed = check.results.passed
   const args = check.resolved_arguments
   const actual = resolvedValue(args.actual)
   const expected = resolvedValue(args.expected)
@@ -66,12 +72,12 @@ function ExactMatchView({ check }: { check: CheckResult }) {
   if (negate !== undefined) flags.push({ label: `negate=${negate}`, isDefault: negate === false })
 
   return (
-    <div>
-      <div className="flex gap-3">
-        <ValueCell label="Actual" value={actual} jsonpath={resolvedJsonpath(args.actual)} passed={passed} />
-        <ValueCell label="Expected" value={expected} jsonpath={resolvedJsonpath(args.expected)} />
-      </div>
+    <div className="space-y-2">
       <Flags items={flags} />
+      <div className="flex gap-3">
+        <ValueCell label="Expected" value={expected} jsonpath={resolvedJsonpath(args.expected)} />
+        <ValueCell label="Actual" value={actual} jsonpath={resolvedJsonpath(args.actual)} />
+      </div>
     </div>
   )
 }
@@ -91,46 +97,37 @@ function ContainsView({ check }: { check: CheckResult }) {
   const text = resolvedValue(args.text)
 
   return (
-    <div>
+    <div className="space-y-2">
+      <Flags items={flags} />
       <div className="flex gap-3">
         <div className="flex-1 min-w-0">
-          <h6 className="text-[10px] text-gray-400 mb-0.5">Phrases</h6>
-          {resolvedJsonpath(args.phrases) && (
-            <div className="text-[10px] text-gray-300 font-mono truncate mb-0.5">{resolvedJsonpath(args.phrases)}</div>
-          )}
-          <pre className="text-xs bg-gray-50 p-1.5 rounded overflow-x-auto whitespace-pre-wrap break-all text-gray-700">
+          <FieldLabel label="Phrases Searched" jsonpath={resolvedJsonpath(args.phrases)} />
+          <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto whitespace-pre-wrap break-all text-blue-700">
             {formatValue(phrases)}
           </pre>
         </div>
         {found && (
           <div className="flex-1 min-w-0">
-            <h6 className="text-[10px] text-gray-400 mb-0.5">Found</h6>
-            <pre className={`text-xs bg-gray-50 p-1.5 rounded overflow-x-auto whitespace-pre-wrap break-all ${check.results.passed ? 'text-emerald-700' : 'text-red-700'}`}>
+            <FieldLabel label="Phrases Found" />
+            <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto whitespace-pre-wrap break-all text-blue-700">
               {formatValue(found)}
             </pre>
           </div>
         )}
       </div>
-      <Flags items={flags} />
       {text != null && (
-        <details className="mt-1.5">
-          <summary className="text-[10px] text-gray-400 cursor-pointer hover:text-gray-500">
-            Search text
-            {resolvedJsonpath(args.text) && (
-              <span className="font-mono text-gray-300 ml-1">{resolvedJsonpath(args.text)}</span>
-            )}
-          </summary>
-          <pre className="text-xs bg-gray-50 p-1.5 rounded overflow-x-auto whitespace-pre-wrap break-all mt-0.5 text-gray-600">
+        <div>
+          <FieldLabel label="Text Searched" jsonpath={resolvedJsonpath(args.text)} />
+          <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto whitespace-pre-wrap break-all text-blue-700 max-h-60 overflow-y-auto">
             {formatValue(text)}
           </pre>
-        </details>
+        </div>
       )}
     </div>
   )
 }
 
 function EqualsView({ check }: { check: CheckResult }) {
-  const passed = check.results.passed
   const args = check.resolved_arguments
   const actual = resolvedValue(args.actual)
   const expected = resolvedValue(args.expected)
@@ -139,12 +136,12 @@ function EqualsView({ check }: { check: CheckResult }) {
   if (negate !== undefined) flags.push({ label: `negate=${negate}`, isDefault: negate === false })
 
   return (
-    <div>
-      <div className="flex gap-3">
-        <ValueCell label="Actual" value={actual} jsonpath={resolvedJsonpath(args.actual)} passed={passed} />
-        <ValueCell label="Expected" value={expected} jsonpath={resolvedJsonpath(args.expected)} />
-      </div>
+    <div className="space-y-2">
       <Flags items={flags} />
+      <div className="flex gap-3">
+        <ValueCell label="Expected" value={expected} jsonpath={resolvedJsonpath(args.expected)} />
+        <ValueCell label="Actual" value={actual} jsonpath={resolvedJsonpath(args.actual)} />
+      </div>
     </div>
   )
 }
