@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import type { SampleResult } from '../types'
-import CheckBadge from './CheckBadge'
+import type { SampleResult, CheckResult } from '../types'
 
 interface SampleRowProps {
   sample: SampleResult
@@ -14,12 +13,69 @@ function samplePassed(sample: SampleResult): boolean {
   )
 }
 
+function checkPassed(check: CheckResult): boolean {
+  return check.status === 'completed' && check.results.passed
+}
+
+function CheckDetail({ check, index }: { check: CheckResult; index: number }) {
+  const passed = checkPassed(check)
+  const isError = check.status === 'error'
+
+  const statusColor = isError
+    ? 'text-yellow-700'
+    : passed
+      ? 'text-emerald-700'
+      : 'text-red-700'
+
+  const statusLabel = isError ? 'error' : passed ? 'pass' : 'fail'
+
+  return (
+    <details className="group">
+      <summary className="flex items-center gap-2 py-1.5 px-2 text-xs cursor-pointer hover:bg-gray-50 rounded transition-colors">
+        <span className="text-gray-400 tabular-nums w-4">#{index + 1}</span>
+        <span className="font-medium text-gray-700">{check.check_type}</span>
+        <span className={`font-medium ${statusColor}`}>{statusLabel}</span>
+      </summary>
+      <div className="ml-6 mb-2">
+        {check.resolved_arguments && Object.keys(check.resolved_arguments).length > 0 && (
+          <div className="mt-1">
+            <h6 className="text-[11px] text-gray-400 mb-0.5">Resolved Arguments</h6>
+            <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto whitespace-pre-wrap">
+              {JSON.stringify(check.resolved_arguments, null, 2)}
+            </pre>
+          </div>
+        )}
+        {check.results.found && (
+          <div className="mt-1">
+            <h6 className="text-[11px] text-gray-400 mb-0.5">Found</h6>
+            <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto whitespace-pre-wrap">
+              {JSON.stringify(check.results.found, null, 2)}
+            </pre>
+          </div>
+        )}
+        {check.error != null && (
+          <div className="mt-1">
+            <h6 className="text-[11px] text-red-400 mb-0.5">Error</h6>
+            <pre className="text-xs bg-red-50 p-2 rounded overflow-x-auto whitespace-pre-wrap">
+              {String(check.error)}
+            </pre>
+          </div>
+        )}
+      </div>
+    </details>
+  )
+}
+
 export default function SampleRow({ sample, index }: SampleRowProps) {
   const [expanded, setExpanded] = useState(false)
   const passed = samplePassed(sample)
   const duration = sample.execution_context.output.metadata.duration_seconds
   const value = sample.execution_context.output.value as Record<string, string | object | null>
   const usage = value.usage as { total_cost?: number; input_tokens?: number; output_tokens?: number } | undefined
+
+  const passedChecks = sample.check_results.filter(checkPassed).length
+  const totalChecks = sample.check_results.length
+  const allChecksPassed = passedChecks === totalChecks
 
   return (
     <div className="border-t border-gray-100">
@@ -37,30 +93,38 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
         {usage?.total_cost != null && (
           <span className="text-gray-400 text-xs tabular-nums">${usage.total_cost.toFixed(4)}</span>
         )}
-        <span className="flex gap-1 ml-auto">
-          {sample.check_results.map((check, i) => (
-            <CheckBadge key={i} check={check} />
-          ))}
+        <span className={`text-xs tabular-nums ml-auto ${allChecksPassed ? 'text-emerald-600' : 'text-red-600'}`}>
+          {passedChecks}/{totalChecks} checks
         </span>
         <span className="text-gray-300 text-xs">{expanded ? '\u25B2' : '\u25BC'}</span>
       </button>
       {expanded && (
-        <div className="px-3 pb-3 space-y-2">
-          {value.tool_prediction && (
+        <div className="px-3 pb-3 space-y-2 ml-3 border-l-2 border-blue-300">
+          {sample.check_results.length > 0 && (
             <div>
-              <h5 className="text-xs font-medium text-gray-400 mb-1">Tool Prediction</h5>
-              <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto">
-                {JSON.stringify(value.tool_prediction, null, 2)}
-              </pre>
+              <h5 className="text-xs font-medium text-gray-400 mb-1">Checks</h5>
+              <div className="border border-gray-100 rounded divide-y divide-gray-100">
+                {sample.check_results.map((check, i) => (
+                  <CheckDetail key={i} check={check} index={i} />
+                ))}
+              </div>
             </div>
           )}
+          {value.tool_prediction && (
+            <details>
+              <summary className="text-xs font-medium text-gray-400 cursor-pointer">Tool Prediction</summary>
+              <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto mt-1">
+                {JSON.stringify(value.tool_prediction, null, 2)}
+              </pre>
+            </details>
+          )}
           {value.final_content && (
-            <div>
-              <h5 className="text-xs font-medium text-gray-400 mb-1">Final Content</h5>
-              <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto whitespace-pre-wrap">
+            <details>
+              <summary className="text-xs font-medium text-gray-400 cursor-pointer">Final Content</summary>
+              <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto whitespace-pre-wrap mt-1">
                 {String(value.final_content)}
               </pre>
-            </div>
+            </details>
           )}
           {(value.prompt || value.llm_prompt) && (
             <details>
