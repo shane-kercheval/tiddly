@@ -17,6 +17,7 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Any
+import pytest
 from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
@@ -38,7 +39,7 @@ CONFIG_PATH = Path(__file__).parent / "config_edit_content.yaml"
 CONFIG = load_yaml_config(CONFIG_PATH)
 
 # Extract configuration values
-MODEL_CONFIG = CONFIG["model"]
+MODELS = CONFIG["models"]
 EVAL_CONFIG = CONFIG["eval"]
 EVAL_NAME = CONFIG.get("name", "")
 EVAL_DESCRIPTION = CONFIG.get("description", "")
@@ -192,14 +193,15 @@ Use the tool results above as context for the following instruction.
     success_threshold=EVAL_CONFIG["success_threshold"],
     output_dir=Path(__file__).parent / "results",
     metadata={
-        "model_provider": MODEL_CONFIG["provider"],
-        "model_name": MODEL_CONFIG["name"],
-        "temperature": MODEL_CONFIG["temperature"],
         "eval_name": EVAL_NAME,
         "eval_description": EVAL_DESCRIPTION,
     },
 )
-async def test_edit_content_notes(test_case: TestCase) -> dict[str, Any]:
+@pytest.mark.parametrize("model_config", MODELS, ids=[m["name"] for m in MODELS])
+async def test_edit_content_notes(
+    test_case: TestCase,
+    model_config: dict[str, Any],
+) -> dict[str, Any]:
     """
     Test that the LLM correctly uses edit_content to fix issues in notes.
 
@@ -218,10 +220,14 @@ async def test_edit_content_notes(test_case: TestCase) -> dict[str, Any]:
     - new_str contains the fix
     - Final content contains the fix
     """
-    return await _run_edit_content_eval(
+    result = await _run_edit_content_eval(
         content=test_case.input["content"],
         search_query=test_case.input["search_query"],
-        model_name=MODEL_CONFIG["name"],
-        provider=MODEL_CONFIG["provider"],
-        temperature=MODEL_CONFIG["temperature"],
+        model_name=model_config["name"],
+        provider=model_config["provider"],
+        temperature=model_config["temperature"],
     )
+    result["model_name"] = model_config["name"]
+    result["model_provider"] = model_config["provider"]
+    result["temperature"] = model_config["temperature"]
+    return result

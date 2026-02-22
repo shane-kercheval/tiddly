@@ -56,7 +56,7 @@ export default function RunDetail() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-2 text-sm">
           <div>
             <span className="text-xs text-gray-400">Model</span>
-            <p className="font-medium text-gray-900">{metadata.model_name}</p>
+            <p className="font-medium text-gray-900">{metadata.model_name ?? (run.results[0]?.execution_context?.output?.value as Record<string, unknown>)?.model_name as string ?? 'unknown'}</p>
           </div>
           {metadata.temperature != null && (
             <div>

@@ -16,7 +16,7 @@ export default function RunsList() {
     [runs],
   )
   const models = useMemo(
-    () => [...new Set(runs.map((r) => r.metadata.model_name))],
+    () => [...new Set(runs.map((r) => r.metadata.model_name ?? 'unknown'))],
     [runs],
   )
 
@@ -26,7 +26,7 @@ export default function RunsList() {
       if (filters.testFunction && evalLabel !== filters.testFunction) return false
       if (filters.status === 'passed' && !r.metadata._test_results.passed) return false
       if (filters.status === 'failed' && r.metadata._test_results.passed) return false
-      if (filters.model && r.metadata.model_name !== filters.model) return false
+      if (filters.model && (r.metadata.model_name ?? 'unknown') !== filters.model) return false
       return true
     })
   }, [runs, filters])
@@ -73,7 +73,7 @@ export default function RunsList() {
                     {new Date(run.started_at).toLocaleString()}
                   </td>
                   <td className="px-3 py-2 text-sm font-medium text-gray-900">{run.metadata.eval_name || config.test_function}</td>
-                  <td className="px-3 py-2 text-sm text-gray-600">{run.metadata.model_name}</td>
+                  <td className="px-3 py-2 text-sm text-gray-600">{run.metadata.model_name ?? 'unknown'}</td>
                   <td className="px-3 py-2 text-sm text-gray-600 tabular-nums">{(results.success_rate * 100).toFixed(0)}%</td>
                   <td className="px-3 py-2">
                     <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${

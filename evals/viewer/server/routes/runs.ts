@@ -50,7 +50,7 @@ router.get('/', async (_req: Request, res: Response) => {
     for (const file of files) {
       const raw = await readFile(file.path, 'utf-8')
       const data = JSON.parse(raw)
-      // Compute cost/token totals from results before stripping them
+      // Compute cost/token totals and extract model info from results before stripping them
       let total_cost = 0
       let total_input_tokens = 0
       let total_output_tokens = 0
@@ -61,6 +61,19 @@ router.get('/', async (_req: Request, res: Response) => {
             total_cost += usage.total_cost ?? 0
             total_input_tokens += usage.input_tokens ?? 0
             total_output_tokens += usage.output_tokens ?? 0
+          }
+        }
+        // Backfill model info from first result's output when not in top-level metadata
+        const firstOutput = data.results[0]?.execution_context?.output?.value
+        if (firstOutput && data.metadata) {
+          if (!data.metadata.model_name && firstOutput.model_name) {
+            data.metadata.model_name = firstOutput.model_name
+          }
+          if (!data.metadata.model_provider && firstOutput.model_provider) {
+            data.metadata.model_provider = firstOutput.model_provider
+          }
+          if (data.metadata.temperature == null && firstOutput.temperature != null) {
+            data.metadata.temperature = firstOutput.temperature
           }
         }
       }

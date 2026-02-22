@@ -76,8 +76,8 @@ export interface TestResults {
 }
 
 export interface RunMetadata {
-  model_provider: string
-  model_name: string
+  model_provider?: string
+  model_name?: string
   _test_config: TestConfig
   _test_results: TestResults
   annotation?: string

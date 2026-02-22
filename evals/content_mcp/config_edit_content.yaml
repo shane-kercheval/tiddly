@@ -10,10 +10,13 @@ description: |
 # update_item: Updates metadata and/or fully replaces content. Used for metadata changes or
 #   complete rewrites.
 
-model:
-  provider: "anthropic"  # "anthropic" or "openai"
-  name: "claude-haiku-4-5"
-  temperature: 0.3
+models:
+  - provider: "anthropic"
+    name: "claude-haiku-4-5"
+    temperature: 0.3
+  - provider: "openai"
+    name: "gpt-4o-mini"
+    temperature: 0.3
 
 eval:
   samples: 10
