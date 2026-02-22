@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { SampleResult, CheckResult } from '../types'
+import CheckBody from './CheckViews'
 
 interface SampleRowProps {
   sample: SampleResult
@@ -46,18 +47,7 @@ function CheckDetail({ check, index }: { check: CheckResult; index: number }) {
         )}
         {check.resolved_arguments && Object.keys(check.resolved_arguments).length > 0 && (
           <div className="mt-1">
-            <h6 className="text-[11px] text-gray-400 mb-0.5">Resolved Arguments</h6>
-            <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto whitespace-pre-wrap">
-              {JSON.stringify(check.resolved_arguments, null, 2)}
-            </pre>
-          </div>
-        )}
-        {check.results.found && (
-          <div className="mt-1">
-            <h6 className="text-[11px] text-gray-400 mb-0.5">Found</h6>
-            <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto whitespace-pre-wrap">
-              {JSON.stringify(check.results.found, null, 2)}
-            </pre>
+            <CheckBody check={check} />
           </div>
         )}
         {check.error != null && (
