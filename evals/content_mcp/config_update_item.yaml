@@ -69,7 +69,7 @@ test_cases:
       final_must_contain: ["Q3", "budget", "$200,000"]
       final_must_not_contain: "- [ ]"
     metadata:
-      description: "Major restructuring from bullet points to prose - must use update_item"
+      description: "Restructure bullet-point notes into flowing prose; agent must choose update_item over edit_content"
 
   # Test 2: Restructure API docs into table format
   # Converting free-form text to structured table
@@ -109,7 +109,7 @@ test_cases:
       tool_name: "update_item"
       final_must_contain: ["|", "Method", "Endpoint", "GET", "POST", "DELETE"]
     metadata:
-      description: "Convert prose docs to table format - structural change requires update_item"
+      description: "Convert prose documentation into a structured table; agent must choose update_item over edit_content"
 
   # Test 3: Rewrite technical notes as beginner-friendly guide
   # Complete tone/audience change requiring full rewrite
@@ -140,7 +140,7 @@ test_cases:
       final_must_contain: ["Redis", "cach"]
       final_must_not_contain: ["TTL-based expiry", "write-through", "msgpack"]
     metadata:
-      description: "Complete tone change from technical to beginner - requires update_item"
+      description: "Rewrite technical content for a beginner audience; agent must choose update_item over edit_content"
 
   # Test 4: Consolidate scattered notes into organized document
   # Reorganizing chaotic content into structured format
@@ -175,7 +175,7 @@ test_cases:
       tool_name: "update_item"
       final_must_contain: ["Bug Fix", "Feature Request", "Dark mode"]
     metadata:
-      description: "Reorganize chaotic notes into structured document - requires update_item"
+      description: "Reorganize scattered notes into structured sections; agent must choose update_item over edit_content"
 
   # Test 5: Add tag to note with existing tags
   # Tags are FULL REPLACEMENT - LLM must provide ALL tags (existing + new)
@@ -196,7 +196,7 @@ test_cases:
       final_must_contain: ["Project Ideas", "CLI tool"]
       expected_tags: ["backlog", "ideas", "projects"]
     metadata:
-      description: "Add tag - tags are FULL REPLACEMENT, must provide ALL tags"
+      description: "Add a tag to existing tags; agent must pass all tags (full replacement, not merge)"
 
   # Test 6: Rewrite content when note has tags (but NOT updating tags)
   # LLM should NOT provide tags parameter - existing tags should be preserved
@@ -216,7 +216,7 @@ test_cases:
       final_must_contain: ["John", "Sarah"]
       expected_tags: null  # Should NOT provide tags - existing tags preserved
     metadata:
-      description: "Rewrite content with existing tags - should NOT provide tags parameter"
+      description: "Rewrite content without changing tags; agent should omit tags param to preserve them"
 
 checks:
   # Primary check: Verify correct tool was selected (update_item, NOT edit_content)

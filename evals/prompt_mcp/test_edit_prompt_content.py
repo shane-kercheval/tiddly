@@ -114,9 +114,8 @@ async def _run_edit_prompt_content_eval(
             # Build minimal prompt - just the raw tool output and instruction
             # No hand-holding about how to use the tool - the LLM should figure
             # that out from the tool descriptions and server instructions
-            llm_prompt = f"""I want to edit this prompt template.
+            llm_prompt = f"""`get_prompt_content` tool result:
 
-`get_prompt_content` tool result:
 ```json
 {json.dumps(prompt_data, indent=2)}
 ```

@@ -36,7 +36,7 @@ test_cases:
       final_must_contain: "This document needs"
       final_must_not_contain: "documentmentation"
     metadata:
-      description: "Fix 'documnt' -> 'document' without corrupting 'documentation'"
+      description: "Fix spelling error that is a prefix of another word; old_str must be precise to avoid corrupting nearby text"
 
   # Test 2: Fix typo in a code block
   # The LLM must understand markdown context and fix the typo in code
@@ -61,7 +61,7 @@ test_cases:
       final_must_contain: "client = APIClient("
       final_must_not_contain: "Clinet"
     metadata:
-      description: "Fix 'APIClinet' -> 'APIClient' in code block"
+      description: "Fix spelling error inside a Python code block"
 
   # Test 3: Fix broken markdown link
   # The LLM must fix a malformed link without breaking surrounding text
@@ -81,7 +81,7 @@ test_cases:
       final_must_contain: "https://example.com/start"
       final_must_not_contain: "htps"
     metadata:
-      description: "Fix 'htps' -> 'https' in markdown link"
+      description: "Fix broken URL protocol inside a markdown link"
 
   # Test 4: Fix typo in markdown table
   # The LLM must fix the typo without breaking table structure
@@ -105,7 +105,7 @@ test_cases:
       final_must_contain: "| Status"
       final_must_not_contain: "Stauts"
     metadata:
-      description: "Fix 'Stauts' -> 'Status' in table header without breaking table"
+      description: "Fix spelling error in a markdown table header; ensure table structure is preserved"
 
   # Test 5: Fix typo in YAML frontmatter
   # The LLM must fix the typo while preserving YAML structure
@@ -129,7 +129,7 @@ test_cases:
       final_must_contain: "title: Project Notes"
       final_must_not_contain: "Ntoes"
     metadata:
-      description: "Fix 'Ntoes' -> 'Notes' in YAML frontmatter"
+      description: "Fix spelling error inside YAML frontmatter; ensure YAML structure is preserved"
 
   # Test 6: Fix typo in nested list
   # The LLM must navigate nested structure and fix only the typo
@@ -154,7 +154,7 @@ test_cases:
       final_must_contain: "Configure environment"
       final_must_not_contain: "environemnt"
     metadata:
-      description: "Fix 'environemnt' -> 'environment' in nested list"
+      description: "Fix spelling error inside a nested numbered list"
 
   # Test 7: Fix typo in embedded JSON
   # The LLM must fix JSON key without breaking JSON syntax
@@ -182,7 +182,7 @@ test_cases:
       final_must_contain: '"endpoint"'
       final_must_not_contain: "enpoint"
     metadata:
-      description: "Fix 'enpoint' -> 'endpoint' in JSON code block"
+      description: "Fix spelling error in a JSON key inside a code block"
 
   # Test 8: Fix typo in indented blockquote
   # Tests handling of indented/nested markdown structures
@@ -207,7 +207,7 @@ test_cases:
       final_must_contain: "requires authentication"
       final_must_not_contain: "requries"
     metadata:
-      description: "Fix 'requries' -> 'requires' in blockquote"
+      description: "Fix spelling error inside a markdown blockquote"
 
 checks:
   # Verify correct tool was selected

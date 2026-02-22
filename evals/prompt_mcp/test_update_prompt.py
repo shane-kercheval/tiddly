@@ -260,7 +260,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                 )
                 prompt_data = json.loads(get_template_result.content[0].text)
                 tool_results_text.append(
-                    f"`get_prompt_content` tool result:\n```json\n"
+                    f"`get_prompt_content` tool result:\n\n```json\n"
                     f"{json.dumps(prompt_data, indent=2)}\n```",
                 )
 
@@ -272,13 +272,13 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                 )
                 metadata = json.loads(get_metadata_result.content[0].text)
                 tool_results_text.append(
-                    f"`get_prompt_metadata` tool result:\n```json\n"
+                    f"`get_prompt_metadata` tool result:\n\n```json\n"
                     f"{json.dumps(metadata, indent=2)}\n```",
                 )
 
             # Build prompt - show the tool result(s) and ask for changes
             tool_results_section = "\n\n".join(tool_results_text)
-            llm_prompt = f"""I need to make changes to this prompt.
+            llm_prompt = f"""
 
 {tool_results_section}
 
