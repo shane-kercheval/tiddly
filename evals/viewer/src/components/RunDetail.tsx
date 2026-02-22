@@ -1,5 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 import { useRun } from '../hooks/useRuns'
+import SummaryMatrix from './SummaryMatrix'
 import TestCaseTable from './TestCaseTable'
 
 export default function RunDetail() {
@@ -114,6 +115,7 @@ export default function RunDetail() {
         </div>
       </div>
 
+      <SummaryMatrix results={run.results} />
       <TestCaseTable results={run.results} />
     </div>
   )
