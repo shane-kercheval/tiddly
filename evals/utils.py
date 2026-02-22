@@ -205,6 +205,56 @@ async def get_tool_predictions(
     }
 
 
+def check_argument_descriptions_preserved(
+    prediction: dict[str, Any] | None,
+    input_arguments: list[dict[str, Any]],
+    expected_argument_names: list[str] | None,
+) -> bool:
+    """
+    Check that unchanged argument descriptions are preserved exactly in the prediction.
+
+    "Unchanged" args are names present in both the input and expected lists. For each,
+    we verify the prediction's description matches the original exactly.
+
+    Args:
+        prediction: The LLM's tool prediction dict.
+        input_arguments: The original argument definitions from the test case input.
+        expected_argument_names: Expected argument names after the edit.
+
+    Returns:
+        True if all unchanged argument descriptions match the originals, or if
+        there are no unchanged args to check.
+    """
+    if not expected_argument_names:
+        return True
+
+    input_names = {arg['name'] for arg in input_arguments if 'name' in arg}
+    unchanged_names = input_names & set(expected_argument_names)
+    if not unchanged_names or prediction is None:
+        return not unchanged_names
+
+    pred_args = prediction.get('arguments', {}).get('arguments')
+    if not pred_args:
+        # LLM omitted arguments parameter — server preserves descriptions automatically
+        return True
+
+    input_desc = {
+        arg['name']: arg.get('description', '')
+        for arg in input_arguments
+        if 'name' in arg
+    }
+    pred_desc = {
+        arg['name']: arg.get('description', '')
+        for arg in pred_args
+        if isinstance(arg, dict) and 'name' in arg
+    }
+
+    return all(
+        name in pred_desc and pred_desc[name] == input_desc.get(name, '')
+        for name in unchanged_names
+    )
+
+
 async def delete_note_via_api(note_id: str) -> None:
     """Delete a note via the API (permanent delete)."""
     async with httpx.AsyncClient() as client:

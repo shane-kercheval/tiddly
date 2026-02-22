@@ -34,6 +34,7 @@ from sik_llms.mcp_manager import MCPClientManager
 from evals.utils import (
     MCP_CONCURRENCY_LIMIT,
     call_tool_with_retry,
+    check_argument_descriptions_preserved,
     create_checks_from_config,
     create_test_cases_from_config,
     delete_prompt_via_api,
@@ -279,8 +280,9 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
             # Build prompt - show the tool result(s) and ask for changes
             tool_results_section = "\n\n".join(tool_results_text)
             llm_prompt = f"""
-
 {tool_results_section}
+
+Use the tool results above as context for the following instruction.
 
 **Instruction:** {instruction}"""
 
@@ -344,6 +346,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                 "prompt_data": prompt_data,
                 "llm_prompt": llm_prompt,
                 "tool_predictions": predictions,
+                "prediction_count": len(predictions),
                 "arguments_provided": arguments_provided,
                 "tags_provided": tags_provided,
                 "predicted_argument_names": predicted_argument_names,
@@ -353,6 +356,9 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                 "final_argument_names": final_argument_names,
                 "final_tags": final_tags,
                 "expected_argument_names_check": expected_argument_names_check,
+                "argument_descriptions": check_argument_descriptions_preserved(
+                    prediction, arguments, expected_argument_names,
+                ),
                 "tags_check": tags_check,
                 "usage": result["usage"],
             }

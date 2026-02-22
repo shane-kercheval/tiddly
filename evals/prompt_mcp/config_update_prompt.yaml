@@ -456,3 +456,21 @@ checks:
     metadata:
       name: "Tags Correct"
       description: "Tags handled correctly (preserved when unchanged, full replacement when updated)"
+
+  # Single tool call check
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.prediction_count"
+      expected: 1
+    metadata:
+      name: "Single Tool Call"
+      description: "Agent made exactly one tool call"
+
+  # Argument descriptions preserved
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.argument_descriptions"
+      expected: true
+    metadata:
+      name: "Descriptions Preserved"
+      description: "Unchanged argument descriptions match the original exactly"

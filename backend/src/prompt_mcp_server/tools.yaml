@@ -83,7 +83,13 @@ create_prompt:
 
 edit_prompt_content:
   description: |
-    Edit part of a template using old_str/new_str replacement. Use when editing a specific section — from a single typo to an entire section. Do NOT use to rewrite or restructure the whole template — use update_prompt for that. old_str must match exactly one location. When adding, removing, or renaming template variables, include the arguments parameter with ALL argument definitions.
+    Edit a specific part of a template using old_str/new_str replacement — from fixing a typo to replacing an entire section. For full rewrites or restructuring, use update_prompt instead. old_str must match exactly one location in the template. When the edit adds, removes, or renames template variables, pass the complete argument definitions list via the `arguments` parameter in the same call — one call handles both the content edit and argument update atomically.
+
+    Example — removing {{ city }} from a template while keeping {{ name }}:
+      name: "my-prompt"
+      old_str: ", welcome to {{ city }}"
+      new_str: ""
+      arguments: [{"name": "name", "description": "User name", "required": true}]
   parameters:
     name: |
       The prompt name (e.g., 'code-review'). Use search_prompts to discover names.
@@ -92,7 +98,7 @@ edit_prompt_content:
     new_str: |
       Replacement text. Use empty string to delete the matched text.
     arguments: |
-      Only include when adding, removing, or renaming template variables. Omit for text-only changes. See server instructions for replacement semantics.
+      The complete list of ALL argument definitions that should exist after the edit. Only include when template variables ({{ var }}) are being added, removed, or renamed. Omit entirely for text-only changes (existing arguments preserved automatically). This list fully replaces the current arguments. Preserve existing argument descriptions exactly — only modify descriptions the user explicitly asks to change.
     arguments_items_name: |
       Argument name (lowercase with underscores)
     arguments_items_description: |
@@ -117,7 +123,7 @@ update_prompt:
     content: |
       New template content (full replacement of entire template). Omit to leave unchanged.
     arguments: |
-      New arguments list. Only include when template variables are added, removed, or renamed. Omit to preserve existing arguments. See server instructions for replacement semantics.
+      New arguments list. Only include when template variables are added, removed, or renamed. Omit to preserve existing arguments. See server instructions for replacement semantics. Preserve existing argument descriptions exactly — only modify descriptions the user explicitly asks to change.
     arguments_items_name: |
       Argument name (lowercase with underscores)
     arguments_items_description: |

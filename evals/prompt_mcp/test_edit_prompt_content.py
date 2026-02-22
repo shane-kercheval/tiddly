@@ -25,6 +25,7 @@ from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 from evals.utils import (
     MCP_CONCURRENCY_LIMIT,
+    check_argument_descriptions_preserved,
     create_checks_from_config,
     create_prompt_via_api,
     create_test_cases_from_config,
@@ -67,6 +68,7 @@ async def _run_edit_prompt_content_eval(
     content: str,
     arguments: list[dict[str, Any]],
     instruction: str,
+    expected_argument_names: list[str] | None,
     model_name: str,
     provider: str,
     temperature: float,
@@ -114,11 +116,14 @@ async def _run_edit_prompt_content_eval(
             # Build minimal prompt - just the raw tool output and instruction
             # No hand-holding about how to use the tool - the LLM should figure
             # that out from the tool descriptions and server instructions
-            llm_prompt = f"""`get_prompt_content` tool result:
+            llm_prompt = f"""
+`get_prompt_content` tool result:
 
 ```json
 {json.dumps(prompt_data, indent=2)}
 ```
+
+Use the tool result above as context for the following instruction.
 
 **Instruction:** {instruction}"""
 
@@ -152,8 +157,12 @@ async def _run_edit_prompt_content_eval(
                 "prompt_data": prompt_data,
                 "llm_prompt": llm_prompt,
                 "tool_predictions": predictions,
+                "prediction_count": len(predictions),
                 "final_content": final_content,
                 "argument_names": argument_names,
+                "argument_descriptions": check_argument_descriptions_preserved(
+                    prediction, arguments, expected_argument_names,
+                ),
                 "usage": result["usage"],
             }
 
@@ -198,6 +207,7 @@ async def test_edit_prompt_content(test_case: TestCase) -> dict[str, Any]:
         content=test_case.input["content"],
         arguments=test_case.input["arguments"],
         instruction=test_case.input["instruction"],
+        expected_argument_names=test_case.expected.get("expected_argument_names"),
         model_name=MODEL_CONFIG["name"],
         provider=MODEL_CONFIG["provider"],
         temperature=MODEL_CONFIG["temperature"],

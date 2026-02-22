@@ -11,6 +11,7 @@ description: |
 model:
   provider: "anthropic"  # "anthropic" or "openai"
   name: "claude-haiku-4-5"
+  # name: "claude-sonnet-4-5"
   temperature: 0.3
 
 eval:
@@ -209,3 +210,21 @@ checks:
     metadata:
       name: "Arguments Correct"
       description: "Argument definitions match expected (added/removed/renamed correctly)"
+
+  # Single tool call check
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.prediction_count"
+      expected: 1
+    metadata:
+      name: "Single Tool Call"
+      description: "Agent made exactly one tool call"
+
+  # Argument descriptions preserved
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.argument_descriptions"
+      expected: true
+    metadata:
+      name: "Descriptions Preserved"
+      description: "Unchanged argument descriptions match the original exactly"

@@ -154,6 +154,17 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
             </pre>
           </details>
         )}
+        {(value.prompt || value.llm_prompt) && (
+          <details>
+            <summary className="text-xs font-medium text-gray-400 cursor-pointer">
+              LLM Prompt
+              <span className="font-normal text-gray-300 ml-1.5">Full prompt sent to the LLM</span>
+            </summary>
+            <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto whitespace-pre-wrap mt-1">
+              {String(value.prompt || value.llm_prompt)}
+            </pre>
+          </details>
+        )}
         {value.tool_predictions && (
           <details>
             <summary className="text-xs font-medium text-gray-400 cursor-pointer">
@@ -173,17 +184,6 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
             </summary>
             <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto whitespace-pre-wrap mt-1">
               {String(value.final_content)}
-            </pre>
-          </details>
-        )}
-        {(value.prompt || value.llm_prompt) && (
-          <details>
-            <summary className="text-xs font-medium text-gray-400 cursor-pointer">
-              LLM Prompt
-              <span className="font-normal text-gray-300 ml-1.5">Full prompt sent to the LLM including MCP tool context</span>
-            </summary>
-            <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto whitespace-pre-wrap mt-1">
-              {String(value.prompt || value.llm_prompt)}
             </pre>
           </details>
         )}
