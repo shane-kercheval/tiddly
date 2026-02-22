@@ -77,6 +77,9 @@ test_cases:
       show_results:
         - "get_prompt_content"
       content: |
+        You are a data analysis assistant. Your goal is to help users
+        understand their data through careful examination and insight.
+
         Please analyze the following data and provide insights.
 
         ## Data to Analyze
@@ -89,14 +92,19 @@ test_cases:
         1. Key trends you observe
         2. Any anomalies or outliers
         3. Actionable recommendations
+        4. Risks or concerns worth flagging
 
-        Format your response with clear sections and bullet points
-        for easy reading.
+        ## Output Guidelines
+
+        - Format your response with clear sections and bullet points
+        - Support claims with specific data points when possible
+        - Prioritize the most impactful findings first
+        - Keep recommendations concrete and actionable
       arguments:
         - name: "data"
           description: "The data to analyze"
           required: true
-      instruction: "Rewrite this prompt to also accept a {{ focus_area }} variable that specifies what aspect to focus on (e.g., 'revenue trends', 'user behavior'). Add a line like 'Focus particularly on {{ focus_area }}' in the task section."
+      instruction: "Restructure this prompt entirely to also accept a {{ focus_area }} variable that specifies what aspect of the data to focus on (e.g., 'revenue trends', 'user behavior'). Weave the focus area throughout the prompt so the analysis is guided by it."
     expected:
       tool_name: "update_prompt"
       final_must_contain:
