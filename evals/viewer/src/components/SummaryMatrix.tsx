@@ -13,9 +13,9 @@ interface CellData {
 function cellBg(cell: CellData): string {
   if (cell.total === 0) return ''
   const rate = cell.passed / cell.total
-  if (rate >= 0.9) return 'bg-emerald-50 text-emerald-700'
-  if (rate <= 0.3) return 'bg-red-50 text-red-700'
-  return 'bg-amber-50 text-amber-700'
+  if (rate >= 1) return 'bg-emerald-50 text-emerald-700'
+  if (rate > 0.5) return 'bg-amber-50 text-amber-700'
+  return 'bg-red-50 text-red-700'
 }
 
 export default function SummaryMatrix({ results }: SummaryMatrixProps) {
