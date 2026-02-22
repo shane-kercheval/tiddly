@@ -121,13 +121,14 @@ async def _run_edit_content_eval(
 Fix the issue found above."""
 
             # Get tool predictions (expect exactly one)
-            predictions = await get_tool_predictions(
+            result = await get_tool_predictions(
                 prompt=prompt,
                 tools=tools,
                 model_name=model_name,
                 provider=provider,
                 temperature=temperature,
             )
+            predictions = result["predictions"]
 
             # Execute the tool if it's a single edit_content prediction
             tool_result = None
@@ -168,6 +169,7 @@ Fix the issue found above."""
                 "tool_result": tool_result,
                 "final_content": final_content,
                 "edit_error": edit_error,
+                "usage": result["usage"],
             }
 
         finally:

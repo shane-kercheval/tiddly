@@ -54,6 +54,7 @@ export default function RunsList() {
               <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Rate</th>
               <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Status</th>
               <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Samples</th>
+              <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Cost</th>
               <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Source</th>
             </tr>
           </thead>
@@ -82,6 +83,9 @@ export default function RunsList() {
                   </td>
                   <td className="px-3 py-2 text-sm text-gray-600 tabular-nums">
                     {results.passed_samples}/{results.total_samples}
+                  </td>
+                  <td className="px-3 py-2 text-sm text-gray-600 tabular-nums">
+                    {run.total_cost ? `$${run.total_cost.toFixed(4)}` : '-'}
                   </td>
                   <td className="px-3 py-2 text-sm text-gray-400">{run.source_dir}</td>
                 </tr>

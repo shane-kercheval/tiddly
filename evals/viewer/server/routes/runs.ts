@@ -50,8 +50,29 @@ router.get('/', async (_req: Request, res: Response) => {
     for (const file of files) {
       const raw = await readFile(file.path, 'utf-8')
       const data = JSON.parse(raw)
+      // Compute cost/token totals from results before stripping them
+      let total_cost = 0
+      let total_input_tokens = 0
+      let total_output_tokens = 0
+      if (Array.isArray(data.results)) {
+        for (const result of data.results) {
+          const usage = result?.execution_context?.output?.value?.usage
+          if (usage) {
+            total_cost += usage.total_cost ?? 0
+            total_input_tokens += usage.input_tokens ?? 0
+            total_output_tokens += usage.output_tokens ?? 0
+          }
+        }
+      }
       const { results: _, ...rest } = data
-      runs.push({ ...rest, source_dir: file.sourceDir, filename: file.filename })
+      runs.push({
+        ...rest,
+        source_dir: file.sourceDir,
+        filename: file.filename,
+        total_cost,
+        total_input_tokens,
+        total_output_tokens,
+      })
     }
     runs.sort((a, b) => b.started_at.localeCompare(a.started_at))
     res.json(runs)

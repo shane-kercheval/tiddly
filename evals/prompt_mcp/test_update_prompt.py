@@ -283,13 +283,14 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
 **Instruction:** {instruction}"""
 
             # Get tool predictions (expect exactly one)
-            predictions = await get_tool_predictions(
+            result = await get_tool_predictions(
                 prompt=llm_prompt,
                 tools=tools,
                 model_name=model_name,
                 provider=provider,
                 temperature=temperature,
             )
+            predictions = result["predictions"]
             prediction = predictions[0] if len(predictions) == 1 else None
 
             # Extract prediction metadata
@@ -351,6 +352,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                 "final_tags": final_tags,
                 "expected_argument_names_check": expected_argument_names_check,
                 "tags_check": tags_check,
+                "usage": result["usage"],
             }
 
     finally:

@@ -16,6 +16,21 @@ export default function RunDetail() {
   const results = metadata._test_results
   const passed = results.passed
 
+  // Compute cost/token totals from all samples
+  const usageTotals = run.results.reduce(
+    (acc, r) => {
+      const usage = (r.execution_context.output.value as Record<string, unknown>)?.usage as
+        { input_tokens?: number; output_tokens?: number; total_cost?: number } | undefined
+      if (usage) {
+        acc.inputTokens += usage.input_tokens ?? 0
+        acc.outputTokens += usage.output_tokens ?? 0
+        acc.totalCost += usage.total_cost ?? 0
+      }
+      return acc
+    },
+    { inputTokens: 0, outputTokens: 0, totalCost: 0 },
+  )
+
   return (
     <div>
       <Link to="/" className="text-sm text-blue-600 hover:underline mb-3 inline-block">
@@ -70,6 +85,20 @@ export default function RunDetail() {
             <span className="text-xs text-gray-400">Completed</span>
             <p className="font-medium text-gray-900">{new Date(run.completed_at).toLocaleString()}</p>
           </div>
+          {usageTotals.totalCost > 0 && (
+            <>
+              <div>
+                <span className="text-xs text-gray-400">Total Cost</span>
+                <p className="font-medium text-gray-900 tabular-nums">${usageTotals.totalCost.toFixed(4)}</p>
+              </div>
+              <div>
+                <span className="text-xs text-gray-400">Tokens</span>
+                <p className="font-medium text-gray-900 tabular-nums">
+                  {usageTotals.inputTokens.toLocaleString()} in / {usageTotals.outputTokens.toLocaleString()} out
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

@@ -125,13 +125,14 @@ async def _run_update_item_eval(
 
 **Instruction:** {instruction}"""
             # Get tool predictions (expect exactly one)
-            predictions = await get_tool_predictions(
+            result = await get_tool_predictions(
                 prompt=prompt,
                 tools=tools,
                 model_name=model_name,
                 provider=provider,
                 temperature=temperature,
             )
+            predictions = result["predictions"]
 
             # Execute the predicted tool (only if single prediction)
             tool_result = None
@@ -189,6 +190,7 @@ async def _run_update_item_eval(
                 "final_tags": final_tags,
                 "tags_check": tags_check,
                 "tool_error": tool_error,
+                "usage": result["usage"],
             }
 
     finally:

@@ -165,12 +165,12 @@ async def get_tool_predictions(
     model_name: str,
     provider: str,
     temperature: float = 0,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """
     Get the LLM's tool predictions for a given prompt.
 
     Returns:
-        List of dicts, each with 'tool_name' and 'arguments' keys.
+        Dict with 'predictions' (list of tool calls) and 'usage' (token/cost data).
     """
     client_type = _PROVIDER_MAP.get(provider)
     if client_type is None:
@@ -182,10 +182,20 @@ async def get_tool_predictions(
         tools=tools,
     )
     response = await client.run_async(messages=[user_message(prompt)])
-    return [
-        {"tool_name": p.name, "arguments": p.arguments or {}}
-        for p in response.tool_predictions
-    ]
+    return {
+        "predictions": [
+            {"tool_name": p.name, "arguments": p.arguments or {}}
+            for p in response.tool_predictions
+        ],
+        "usage": {
+            "input_tokens": response.input_tokens,
+            "output_tokens": response.output_tokens,
+            "input_cost": response.input_cost,
+            "output_cost": response.output_cost,
+            "total_cost": response.total_cost,
+            "duration_seconds": response.duration_seconds,
+        },
+    }
 
 
 async def delete_note_via_api(note_id: str) -> None:

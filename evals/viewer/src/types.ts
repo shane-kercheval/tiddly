@@ -99,4 +99,7 @@ export interface EvalRunListItem {
   metadata: RunMetadata
   source_dir: string
   filename: string
+  total_cost?: number
+  total_input_tokens?: number
+  total_output_tokens?: number
 }

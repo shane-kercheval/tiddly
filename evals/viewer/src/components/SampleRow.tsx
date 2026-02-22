@@ -19,6 +19,7 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
   const passed = samplePassed(sample)
   const duration = sample.execution_context.output.metadata.duration_seconds
   const value = sample.execution_context.output.value as Record<string, string | object | null>
+  const usage = value.usage as { total_cost?: number; input_tokens?: number; output_tokens?: number } | undefined
 
   return (
     <div className="border-t border-gray-100">
@@ -33,6 +34,9 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
           {passed ? 'pass' : 'fail'}
         </span>
         <span className="text-gray-500 text-xs tabular-nums">{duration.toFixed(2)}s</span>
+        {usage?.total_cost != null && (
+          <span className="text-gray-400 text-xs tabular-nums">${usage.total_cost.toFixed(4)}</span>
+        )}
         <span className="flex gap-1 ml-auto">
           {sample.check_results.map((check, i) => (
             <CheckBadge key={i} check={check} />
