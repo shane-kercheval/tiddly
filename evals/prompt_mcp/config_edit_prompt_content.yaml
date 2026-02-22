@@ -8,10 +8,13 @@ description: |
 
   Each test case pre-fetches get_prompt_content and includes the result in the LLM prompt alongside an edit instruction. This simulates an agent that has already retrieved the template and now needs to choose the right mutation tool.
 
-model:
-  provider: "anthropic"  # "anthropic" or "openai"
-  name: "claude-haiku-4-5"
-  temperature: 0.3
+models:
+  - provider: "anthropic"
+    name: "claude-haiku-4-5"
+    temperature: 0.3
+  - provider: "openai"
+    name: "gpt-4o-mini"
+    temperature: 0.3
 
 eval:
   samples: 10

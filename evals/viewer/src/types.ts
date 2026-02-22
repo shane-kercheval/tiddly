@@ -108,4 +108,6 @@ export interface EvalRunListItem {
   total_cost?: number
   total_input_tokens?: number
   total_output_tokens?: number
+  avg_cost?: number
+  avg_duration_seconds?: number
 }

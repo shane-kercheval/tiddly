@@ -14,10 +14,13 @@ description: |
 # - null: LLM should NOT provide tags parameter (tags preserved automatically)
 # - ["tag1", "tag2"]: Final tags should exactly match (LLM must provide ALL tags)
 
-model:
-  provider: "anthropic"  # "anthropic" or "openai"
-  name: "claude-haiku-4-5"
-  temperature: 0.3
+models:
+  - provider: "anthropic"
+    name: "claude-haiku-4-5"
+    temperature: 0.3
+  - provider: "openai"
+    name: "gpt-4o-mini"
+    temperature: 0.3
 
 eval:
   samples: 10
