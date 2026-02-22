@@ -30,7 +30,7 @@ from evals.utils import (
     create_test_cases_from_config,
     delete_prompt_via_api,
     get_prompt_mcp_config,
-    get_tool_prediction,
+    get_tool_predictions,
     load_yaml_config,
 )
 
@@ -121,19 +121,20 @@ async def _run_edit_prompt_content_eval(
 
 **Instruction:** {instruction}"""
 
-            # Get tool prediction
-            prediction = await get_tool_prediction(
+            # Get tool predictions (expect exactly one)
+            predictions = await get_tool_predictions(
                 prompt=llm_prompt,
                 tools=tools,
                 model_name=model_name,
                 provider=provider,
                 temperature=temperature,
             )
+            prediction = predictions[0] if len(predictions) == 1 else None
 
             # Compute final content by applying the edit
             original_content = content
-            old_str = prediction.get("arguments", {}).get("old_str", "")
-            new_str = prediction.get("arguments", {}).get("new_str", "")
+            old_str = prediction.get("arguments", {}).get("old_str", "") if prediction else ""
+            new_str = prediction.get("arguments", {}).get("new_str", "") if prediction else ""
             if old_str and old_str in original_content:
                 final_content = original_content.replace(old_str, new_str)
             else:
@@ -141,14 +142,14 @@ async def _run_edit_prompt_content_eval(
                 final_content = original_content
 
             # Extract argument names (sorted for order-independent comparison)
-            argument_names = _extract_argument_names(prediction)
+            argument_names = _extract_argument_names(prediction) if prediction else []
 
             return {
                 "prompt_id": prompt_id,
                 "prompt_name": unique_name,
                 "prompt_data": prompt_data,
                 "llm_prompt": llm_prompt,
-                "tool_prediction": prediction,
+                "tool_predictions": predictions,
                 "final_content": final_content,
                 "argument_names": argument_names,
             }

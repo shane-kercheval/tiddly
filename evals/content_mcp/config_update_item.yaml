@@ -225,7 +225,7 @@ checks:
   # Primary check: Verify correct tool was selected (update_item, NOT edit_content)
   - type: "exact_match"
     arguments:
-      actual: "$.output.value.tool_prediction.tool_name"
+      actual: "$.output.value.tool_predictions[0].tool_name"
       expected: "$.test_case.expected.tool_name"
 
   # Verify final content contains expected text

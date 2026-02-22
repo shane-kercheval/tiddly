@@ -38,7 +38,7 @@ from evals.utils import (
     create_test_cases_from_config,
     delete_prompt_via_api,
     get_prompt_mcp_config,
-    get_tool_prediction,
+    get_tool_predictions,
     load_yaml_config,
 )
 
@@ -282,21 +282,22 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
 
 **Instruction:** {instruction}"""
 
-            # Get tool prediction
-            prediction = await get_tool_prediction(
+            # Get tool predictions (expect exactly one)
+            predictions = await get_tool_predictions(
                 prompt=llm_prompt,
                 tools=tools,
                 model_name=model_name,
                 provider=provider,
                 temperature=temperature,
             )
+            prediction = predictions[0] if len(predictions) == 1 else None
 
             # Extract prediction metadata
-            predicted_args = prediction.get("arguments", {})
-            arguments_provided = _check_arguments_provided(prediction)
-            tags_provided = _check_tags_provided(prediction)
-            predicted_argument_names = _get_args_from_llm_call(prediction)
-            predicted_tool = prediction["tool_name"]
+            predicted_args = prediction.get("arguments", {}) if prediction else {}
+            arguments_provided = _check_arguments_provided(prediction) if prediction else False
+            tags_provided = _check_tags_provided(prediction) if prediction else False
+            predicted_argument_names = _get_args_from_llm_call(prediction) if prediction else None
+            predicted_tool = prediction["tool_name"] if prediction else None
 
             # Execute the predicted tool and fetch final state
             tool_result, tool_error, final_content, final_argument_names, final_tags = (
@@ -339,7 +340,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                 "original_tags": tags,
                 "prompt_data": prompt_data,
                 "llm_prompt": llm_prompt,
-                "tool_prediction": prediction,
+                "tool_predictions": predictions,
                 "arguments_provided": arguments_provided,
                 "tags_provided": tags_provided,
                 "predicted_argument_names": predicted_argument_names,

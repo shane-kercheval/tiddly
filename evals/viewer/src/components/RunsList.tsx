@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useRuns } from '../hooks/useRuns'
 import Filters, { type FilterValues } from './Filters'
 
@@ -30,6 +30,8 @@ export default function RunsList() {
     })
   }, [runs, filters])
 
+  const navigate = useNavigate()
+
   if (loading) return <p className="text-gray-500">Loading...</p>
   if (error) return <p className="text-red-600">Error: {error}</p>
 
@@ -42,51 +44,53 @@ export default function RunsList() {
         models={models}
       />
 
-      <div className="bg-white rounded border border-gray-200 overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Test Function</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Model</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rate</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Samples</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+        <table className="min-w-full">
+          <thead>
+            <tr className="border-b border-gray-200">
+              <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Time</th>
+              <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Test Function</th>
+              <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Model</th>
+              <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Rate</th>
+              <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Status</th>
+              <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Samples</th>
+              <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Source</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
+          <tbody className="divide-y divide-gray-100">
             {filtered.map((run) => {
               const config = run.metadata._test_config
               const results = run.metadata._test_results
               return (
-                <tr key={run.evaluation_id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
-                    <Link to={`/runs/${run.evaluation_id}`} className="hover:text-blue-600">
-                      {new Date(run.started_at).toLocaleString()}
-                    </Link>
+                <tr
+                  key={run.evaluation_id}
+                  onClick={() => navigate(`/runs/${run.evaluation_id}`)}
+                  className="hover:bg-blue-50/50 cursor-pointer transition-colors"
+                >
+                  <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap tabular-nums">
+                    {new Date(run.started_at).toLocaleString()}
                   </td>
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{config.test_function}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{run.metadata.model_name}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{(results.success_rate * 100).toFixed(0)}%</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                      results.passed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  <td className="px-3 py-2 text-xs font-medium text-gray-900">{config.test_function}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{run.metadata.model_name}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600 tabular-nums">{(results.success_rate * 100).toFixed(0)}%</td>
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium ${
+                      results.passed ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
                     }`}>
                       {results.passed ? 'pass' : 'fail'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-700">
+                  <td className="px-3 py-2 text-xs text-gray-600 tabular-nums">
                     {results.passed_samples}/{results.total_samples}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{run.source_dir}</td>
+                  <td className="px-3 py-2 text-xs text-gray-400">{run.source_dir}</td>
                 </tr>
               )
             })}
           </tbody>
         </table>
         {filtered.length === 0 && (
-          <p className="text-center py-8 text-gray-500">No runs found</p>
+          <p className="text-center py-6 text-xs text-gray-400">No runs found</p>
         )}
       </div>
     </div>

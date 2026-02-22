@@ -27,7 +27,7 @@ from evals.utils import (
     create_test_cases_from_config,
     delete_note_via_api,
     get_content_mcp_config,
-    get_tool_prediction,
+    get_tool_predictions,
     load_yaml_config,
 )
 
@@ -120,8 +120,8 @@ async def _run_edit_content_eval(
 
 Fix the issue found above."""
 
-            # Get tool prediction
-            prediction = await get_tool_prediction(
+            # Get tool predictions (expect exactly one)
+            predictions = await get_tool_predictions(
                 prompt=prompt,
                 tools=tools,
                 model_name=model_name,
@@ -129,12 +129,13 @@ Fix the issue found above."""
                 temperature=temperature,
             )
 
-            # Execute the tool if it's edit_content
+            # Execute the tool if it's a single edit_content prediction
             tool_result = None
             final_content = None
             edit_error = None
+            prediction = predictions[0] if len(predictions) == 1 else None
 
-            if prediction["tool_name"] == "edit_content":
+            if prediction and prediction["tool_name"] == "edit_content":
                 try:
                     edit_result = await call_tool_with_retry(
                         mcp_manager,
@@ -163,7 +164,7 @@ Fix the issue found above."""
             return {
                 "content_id": content_id,
                 "prompt": prompt,
-                "tool_prediction": prediction,
+                "tool_predictions": predictions,
                 "tool_result": tool_result,
                 "final_content": final_content,
                 "edit_error": edit_error,

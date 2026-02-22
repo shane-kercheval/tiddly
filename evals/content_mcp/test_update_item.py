@@ -27,7 +27,7 @@ from evals.utils import (
     create_test_cases_from_config,
     delete_note_via_api,
     get_content_mcp_config,
-    get_tool_prediction,
+    get_tool_predictions,
     load_yaml_config,
 )
 
@@ -124,8 +124,8 @@ async def _run_update_item_eval(
 ```
 
 **Instruction:** {instruction}"""
-            # Get tool prediction
-            prediction = await get_tool_prediction(
+            # Get tool predictions (expect exactly one)
+            predictions = await get_tool_predictions(
                 prompt=prompt,
                 tools=tools,
                 model_name=model_name,
@@ -133,15 +133,16 @@ async def _run_update_item_eval(
                 temperature=temperature,
             )
 
-            # Execute the predicted tool
+            # Execute the predicted tool (only if single prediction)
             tool_result = None
             final_content = None
             final_tags: list[str] = []
             tool_error = None
+            prediction = predictions[0] if len(predictions) == 1 else None
 
-            predicted_tool = prediction["tool_name"]
-            predicted_args = prediction.get("arguments", {})
-            tags_provided = _check_tags_provided(prediction)
+            predicted_tool = prediction["tool_name"] if prediction else None
+            predicted_args = prediction.get("arguments", {}) if prediction else {}
+            tags_provided = _check_tags_provided(prediction) if prediction else False
 
             if predicted_tool in ("update_item", "edit_content"):
                 try:
@@ -181,7 +182,7 @@ async def _run_update_item_eval(
                 "original_content": content,
                 "original_tags": original_tags,
                 "prompt": prompt,
-                "tool_prediction": prediction,
+                "tool_predictions": predictions,
                 "tags_provided": tags_provided,
                 "tool_result": tool_result,
                 "final_content": final_content,

@@ -215,19 +215,19 @@ checks:
   # Verify correct tool was selected
   - type: "exact_match"
     arguments:
-      actual: "$.output.value.tool_prediction.tool_name"
+      actual: "$.output.value.tool_predictions[0].tool_name"
       expected: "$.test_case.expected.tool_name"
 
   # Verify old_str contains the typo
   - type: "contains"
     arguments:
-      text: "$.output.value.tool_prediction.arguments.old_str"
+      text: "$.output.value.tool_predictions[0].arguments.old_str"
       phrases: "$.test_case.expected.old_str_contains"
 
   # Verify new_str contains the fix
   - type: "contains"
     arguments:
-      text: "$.output.value.tool_prediction.arguments.new_str"
+      text: "$.output.value.tool_predictions[0].arguments.new_str"
       phrases: "$.test_case.expected.new_str_contains"
 
   # Verify final content contains the fix
