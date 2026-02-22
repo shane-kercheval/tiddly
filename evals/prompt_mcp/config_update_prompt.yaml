@@ -1,20 +1,14 @@
-# Prompt MCP Server Evaluation Configuration
-# Tests the update_prompt tool for full content replacement scenarios
-#
+name: "update_prompt: Full Replacement & Metadata"
+description: |
+  Tests the update_prompt tool for full content replacement scenarios.
+  The LLM should choose update_prompt (not edit_prompt_content) for substantial rewrites.
+  Verifies correct argument and tag handling: full replacement semantics, not merge.
+
 # TOOL CONTEXT:
 # update_prompt: Updates metadata (title, description, tags, name) and/or fully replaces template
 #   content. All parameters optional - only provide what you want to change.
 # edit_prompt_content: Edits template content using old_str/new_str replacement with optional
 #   atomic argument updates. Used for targeted text/variable edits.
-#
-# CRITICAL BEHAVIORS TESTED:
-# 1. When variables DON'T change: LLM should NOT provide arguments parameter
-# 2. When variables DO change: LLM MUST provide arguments with ALL variables
-# 3. Arguments is a FULL REPLACEMENT, not a merge
-# 4. When NOT updating tags: LLM should NOT provide tags parameter
-# 5. When updating tags: LLM MUST provide ALL tags (existing + new)
-# 6. Tags is a FULL REPLACEMENT, not a merge
-# 7. LLM should choose update_prompt (not edit_prompt_content) for substantial rewrites
 #
 # EXPECTED_ARGUMENT_NAMES SEMANTICS:
 # - null: LLM should NOT provide arguments parameter (variables unchanged)
@@ -415,12 +409,18 @@ checks:
     arguments:
       actual: "$.output.value.tool_predictions[0].tool_name"
       expected: "$.test_case.expected.tool_name"
+    metadata:
+      name: "Correct Tool"
+      description: "LLM selected update_prompt (not edit_prompt_content) for substantial changes"
 
   # Verify final content contains expected text
   - type: "contains"
     arguments:
       text: "$.output.value.final_content"
       phrases: "$.test_case.expected.final_must_contain"
+    metadata:
+      name: "Content Contains Expected"
+      description: "Final template contains the expected text/variables"
 
   # Verify final content does not contain forbidden text (when specified)
   - type: "contains"
@@ -428,6 +428,9 @@ checks:
       text: "$.output.value.final_content"
       phrases: "$.test_case.expected.final_must_not_contain"
       negate: true
+    metadata:
+      name: "Removed Text Gone"
+      description: "Final template no longer contains removed/replaced text"
 
   # Verify argument behavior:
   # - If expected is null: LLM should NOT have provided arguments
@@ -436,6 +439,9 @@ checks:
     arguments:
       actual: "$.output.value.expected_argument_names_check"
       expected: true
+    metadata:
+      name: "Arguments Correct"
+      description: "Arguments handled correctly (preserved when unchanged, updated when modified)"
 
   # Verify tags behavior (when expected_tags specified):
   # Tags are FULL REPLACEMENT - final tags should exactly match expected_tags
@@ -443,3 +449,6 @@ checks:
     arguments:
       actual: "$.output.value.tags_check"
       expected: true
+    metadata:
+      name: "Tags Correct"
+      description: "Tags handled correctly (preserved when unchanged, full replacement when updated)"

@@ -1,17 +1,14 @@
-# Content MCP Server Evaluation Configuration
-# Tests the update_item tool for full content replacement and tags behavior
-#
+name: "update_item: Full Content Replacement & Tags"
+description: |
+  Tests the update_item tool for full content replacement and tags behavior.
+  The LLM should choose update_item (not edit_content) for substantial rewrites.
+  Verifies correct tags handling: full replacement semantics, not merge.
+
 # TOOL CONTEXT:
 # update_item: Updates metadata (title, description, tags, url) and/or fully replaces content.
 #   All parameters optional - only provide what you want to change.
 # edit_content: Replaces exact text in the content field via old_str/new_str substitution.
 #   Used for surgical text edits (typos, small changes).
-#
-# CRITICAL BEHAVIORS TESTED:
-# 1. LLM should choose update_item (not edit_content) for substantial rewrites
-# 2. When NOT updating tags: LLM should NOT provide tags parameter
-# 3. When updating tags: LLM MUST provide ALL tags (existing + new)
-# 4. Tags is a FULL REPLACEMENT, not a merge
 #
 # EXPECTED_TAGS SEMANTICS:
 # - null: LLM should NOT provide tags parameter (tags preserved automatically)
@@ -227,12 +224,18 @@ checks:
     arguments:
       actual: "$.output.value.tool_predictions[0].tool_name"
       expected: "$.test_case.expected.tool_name"
+    metadata:
+      name: "Correct Tool"
+      description: "LLM selected update_item (not edit_content) for substantial changes"
 
   # Verify final content contains expected text
   - type: "contains"
     arguments:
       text: "$.output.value.final_content"
       phrases: "$.test_case.expected.final_must_contain"
+    metadata:
+      name: "Content Updated"
+      description: "Final content contains the expected text after rewrite"
 
   # Verify tags behavior:
   # - If expected is null: LLM should NOT have provided tags
@@ -241,3 +244,6 @@ checks:
     arguments:
       actual: "$.output.value.tags_check"
       expected: true
+    metadata:
+      name: "Tags Correct"
+      description: "Tags handled correctly (preserved when unchanged, full replacement when updated)"

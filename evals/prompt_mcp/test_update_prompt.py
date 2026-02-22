@@ -51,6 +51,8 @@ CONFIG = load_yaml_config(CONFIG_PATH)
 # Extract configuration values
 MODEL_CONFIG = CONFIG["model"]
 EVAL_CONFIG = CONFIG["eval"]
+EVAL_NAME = CONFIG.get("name", "")
+EVAL_DESCRIPTION = CONFIG.get("description", "")
 TEST_CASES = create_test_cases_from_config(CONFIG["test_cases"])
 CHECKS = create_checks_from_config(CONFIG["checks"])
 
@@ -370,6 +372,9 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
     metadata={
         "model_provider": MODEL_CONFIG["provider"],
         "model_name": MODEL_CONFIG["name"],
+        "temperature": MODEL_CONFIG["temperature"],
+        "eval_name": EVAL_NAME,
+        "eval_description": EVAL_DESCRIPTION,
     },
 )
 async def test_update_prompt(test_case: TestCase) -> dict[str, Any]:

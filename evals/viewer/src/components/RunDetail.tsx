@@ -1,6 +1,5 @@
 import { Link, useParams } from 'react-router-dom'
 import { useRun } from '../hooks/useRuns'
-import AnnotationField from './AnnotationField'
 import TestCaseTable from './TestCaseTable'
 
 export default function RunDetail() {
@@ -40,7 +39,10 @@ export default function RunDetail() {
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 mb-4">
         <div className="flex items-start justify-between mb-3">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">{config.test_function}</h2>
+            <h2 className="text-base font-semibold text-gray-900">{metadata.eval_name || config.test_function}</h2>
+            {metadata.eval_description && (
+              <p className="text-sm text-gray-500 mt-1 whitespace-pre-line">{metadata.eval_description.trim()}</p>
+            )}
             <p className="text-xs text-gray-400 font-mono mt-0.5">{run.evaluation_id}</p>
           </div>
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
@@ -55,6 +57,12 @@ export default function RunDetail() {
             <span className="text-xs text-gray-400">Model</span>
             <p className="font-medium text-gray-900">{metadata.model_name}</p>
           </div>
+          {metadata.temperature != null && (
+            <div>
+              <span className="text-xs text-gray-400">Temperature</span>
+              <p className="font-medium text-gray-900 tabular-nums">{metadata.temperature}</p>
+            </div>
+          )}
           <div>
             <span className="text-xs text-gray-400">Success Rate</span>
             <p className="font-medium text-gray-900 tabular-nums">{(results.success_rate * 100).toFixed(1)}%</p>
@@ -85,6 +93,10 @@ export default function RunDetail() {
             <span className="text-xs text-gray-400">Completed</span>
             <p className="font-medium text-gray-900">{new Date(run.completed_at).toLocaleString()}</p>
           </div>
+          <div>
+            <span className="text-xs text-gray-400">Test Function</span>
+            <p className="font-medium text-gray-900 font-mono text-xs">{config.test_function}</p>
+          </div>
           {usageTotals.totalCost > 0 && (
             <>
               <div>
@@ -101,11 +113,6 @@ export default function RunDetail() {
           )}
         </div>
       </div>
-
-      <AnnotationField
-        evaluationId={run.evaluation_id}
-        initialValue={metadata.annotation ?? ''}
-      />
 
       <TestCaseTable results={run.results} />
     </div>

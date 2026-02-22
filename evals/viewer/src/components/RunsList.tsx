@@ -11,8 +11,8 @@ export default function RunsList() {
     model: '',
   })
 
-  const testFunctions = useMemo(
-    () => [...new Set(runs.map((r) => r.metadata._test_config.test_function))],
+  const evalNames = useMemo(
+    () => [...new Set(runs.map((r) => r.metadata.eval_name || r.metadata._test_config.test_function))],
     [runs],
   )
   const models = useMemo(
@@ -22,7 +22,8 @@ export default function RunsList() {
 
   const filtered = useMemo(() => {
     return runs.filter((r) => {
-      if (filters.testFunction && r.metadata._test_config.test_function !== filters.testFunction) return false
+      const evalLabel = r.metadata.eval_name || r.metadata._test_config.test_function
+      if (filters.testFunction && evalLabel !== filters.testFunction) return false
       if (filters.status === 'passed' && !r.metadata._test_results.passed) return false
       if (filters.status === 'failed' && r.metadata._test_results.passed) return false
       if (filters.model && r.metadata.model_name !== filters.model) return false
@@ -40,7 +41,7 @@ export default function RunsList() {
       <Filters
         filters={filters}
         onFiltersChange={setFilters}
-        testFunctions={testFunctions}
+        testFunctions={evalNames}
         models={models}
       />
 
@@ -49,7 +50,7 @@ export default function RunsList() {
           <thead>
             <tr className="border-b border-gray-200">
               <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Time</th>
-              <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Test Function</th>
+              <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Eval</th>
               <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Model</th>
               <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Rate</th>
               <th className="px-3 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Status</th>
@@ -71,7 +72,7 @@ export default function RunsList() {
                   <td className="px-3 py-2 text-sm text-gray-500 whitespace-nowrap tabular-nums">
                     {new Date(run.started_at).toLocaleString()}
                   </td>
-                  <td className="px-3 py-2 text-sm font-medium text-gray-900">{config.test_function}</td>
+                  <td className="px-3 py-2 text-sm font-medium text-gray-900">{run.metadata.eval_name || config.test_function}</td>
                   <td className="px-3 py-2 text-sm text-gray-600">{run.metadata.model_name}</td>
                   <td className="px-3 py-2 text-sm text-gray-600 tabular-nums">{(results.success_rate * 100).toFixed(0)}%</td>
                   <td className="px-3 py-2">

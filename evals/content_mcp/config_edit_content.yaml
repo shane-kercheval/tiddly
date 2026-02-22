@@ -1,16 +1,14 @@
-# Content MCP Server Evaluation Configuration
-# Tests the edit_content tool's ability to make precise text replacements
-#
+name: "edit_content: Surgical Text Fixes"
+description: |
+  Tests the edit_content tool for precise old_str/new_str text replacements.
+  Given a note with a typo and the full item + search results, the LLM should
+  choose edit_content (not update_item) to make a surgical fix.
+
 # TOOL CONTEXT:
 # edit_content: Replaces exact text in the content field via old_str/new_str substitution.
 #   old_str must match exactly one location. Only edits the content body (not title/description/tags).
 # update_item: Updates metadata and/or fully replaces content. Used for metadata changes or
 #   complete rewrites.
-#
-# WHAT THIS EVAL TESTS:
-# Given a note with a typo and the full item + search results, the LLM should use edit_content
-# (not update_item) to make a surgical fix. The eval provides get_item and search_in_content
-# results so the LLM has full context before deciding which tool to use.
 
 model:
   provider: "anthropic"  # "anthropic" or "openai"
@@ -217,21 +215,33 @@ checks:
     arguments:
       actual: "$.output.value.tool_predictions[0].tool_name"
       expected: "$.test_case.expected.tool_name"
+    metadata:
+      name: "Correct Tool"
+      description: "LLM selected the expected tool"
 
   # Verify old_str contains the typo
   - type: "contains"
     arguments:
       text: "$.output.value.tool_predictions[0].arguments.old_str"
       phrases: "$.test_case.expected.old_str_contains"
+    metadata:
+      name: "old_str Has Typo"
+      description: "The old_str argument contains the text to be replaced"
 
   # Verify new_str contains the fix
   - type: "contains"
     arguments:
       text: "$.output.value.tool_predictions[0].arguments.new_str"
       phrases: "$.test_case.expected.new_str_contains"
+    metadata:
+      name: "new_str Has Fix"
+      description: "The new_str argument contains the corrected text"
 
   # Verify final content contains the fix
   - type: "contains"
     arguments:
       text: "$.output.value.final_content"
       phrases: "$.test_case.expected.final_must_contain"
+    metadata:
+      name: "Content Fixed"
+      description: "Final content contains the expected correction"

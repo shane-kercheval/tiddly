@@ -21,22 +21,29 @@ function CheckDetail({ check, index }: { check: CheckResult; index: number }) {
   const passed = checkPassed(check)
   const isError = check.status === 'error'
 
-  const statusColor = isError
-    ? 'text-yellow-700'
+  const statusBg = isError
+    ? 'bg-yellow-50 text-yellow-700'
     : passed
-      ? 'text-emerald-700'
-      : 'text-red-700'
+      ? 'bg-emerald-50 text-emerald-700'
+      : 'bg-red-50 text-red-700'
 
   const statusLabel = isError ? 'error' : passed ? 'pass' : 'fail'
+  const label = check.metadata?.name || check.check_type
 
   return (
     <details className="group">
       <summary className="flex items-center gap-2 py-1.5 px-2 text-xs cursor-pointer hover:bg-gray-50 rounded transition-colors">
         <span className="text-gray-400 tabular-nums w-4">#{index + 1}</span>
-        <span className="font-medium text-gray-700">{check.check_type}</span>
-        <span className={`font-medium ${statusColor}`}>{statusLabel}</span>
+        <span className="font-medium text-gray-700">{label}</span>
+        {check.metadata?.name && (
+          <span className="text-gray-400">{check.check_type}</span>
+        )}
+        <span className={`inline-flex items-center px-1 py-0.5 rounded text-[10px] font-medium ${statusBg}`}>{statusLabel}</span>
       </summary>
       <div className="ml-6 mb-2">
+        {check.metadata?.description && (
+          <p className="text-xs text-gray-500 mt-1 mb-1">{check.metadata.description}</p>
+        )}
         {check.resolved_arguments && Object.keys(check.resolved_arguments).length > 0 && (
           <div className="mt-1">
             <h6 className="text-[11px] text-gray-400 mb-0.5">Resolved Arguments</h6>
@@ -77,6 +84,8 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
   const totalChecks = sample.check_results.length
   const allChecksPassed = passedChecks === totalChecks
 
+  const testCase = sample.execution_context.test_case
+
   return (
     <div className="border-t border-gray-100">
       <button
@@ -110,17 +119,34 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
               </div>
             </div>
           )}
-          {value.tool_prediction && (
+          {testCase && (
             <details>
-              <summary className="text-xs font-medium text-gray-400 cursor-pointer">Tool Prediction</summary>
+              <summary className="text-xs font-medium text-gray-400 cursor-pointer">
+                Test Case
+                <span className="font-normal text-gray-300 ml-1.5">Input and expected values for this test case</span>
+              </summary>
+              <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto whitespace-pre-wrap mt-1">
+                {JSON.stringify({ id: testCase.id, input: testCase.input, expected: testCase.expected, metadata: testCase.metadata }, null, 2)}
+              </pre>
+            </details>
+          )}
+          {value.tool_predictions && (
+            <details>
+              <summary className="text-xs font-medium text-gray-400 cursor-pointer">
+                Tool Predictions
+                <span className="font-normal text-gray-300 ml-1.5">The tool call(s) the LLM chose to make</span>
+              </summary>
               <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto mt-1">
-                {JSON.stringify(value.tool_prediction, null, 2)}
+                {JSON.stringify(value.tool_predictions, null, 2)}
               </pre>
             </details>
           )}
           {value.final_content && (
             <details>
-              <summary className="text-xs font-medium text-gray-400 cursor-pointer">Final Content</summary>
+              <summary className="text-xs font-medium text-gray-400 cursor-pointer">
+                Final Content
+                <span className="font-normal text-gray-300 ml-1.5">Content after executing the predicted tool call</span>
+              </summary>
               <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto whitespace-pre-wrap mt-1">
                 {String(value.final_content)}
               </pre>
@@ -128,7 +154,10 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
           )}
           {(value.prompt || value.llm_prompt) && (
             <details>
-              <summary className="text-xs font-medium text-gray-400 cursor-pointer">LLM Prompt</summary>
+              <summary className="text-xs font-medium text-gray-400 cursor-pointer">
+                LLM Prompt
+                <span className="font-normal text-gray-300 ml-1.5">Full prompt sent to the LLM including MCP tool context</span>
+              </summary>
               <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto whitespace-pre-wrap mt-1">
                 {String(value.prompt || value.llm_prompt)}
               </pre>

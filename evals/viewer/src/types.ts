@@ -8,7 +8,10 @@ export interface CheckResult {
   }
   resolved_arguments: Record<string, unknown>
   evaluated_at: string
-  metadata: unknown
+  metadata: {
+    name?: string
+    description?: string
+  } | null
   error: unknown
 }
 
@@ -78,6 +81,9 @@ export interface RunMetadata {
   _test_config: TestConfig
   _test_results: TestResults
   annotation?: string
+  eval_name?: string
+  eval_description?: string
+  temperature?: number
 }
 
 export interface EvalRun {

@@ -6,8 +6,7 @@ from typing import Any
 
 import httpx
 import yaml
-from flex_evals import TestCase, get_check_class
-from flex_evals.checks.base import BaseCheck
+from flex_evals import Check, TestCase
 from sik_llms import RegisteredClients, create_client, user_message
 from sik_llms.mcp_manager import MCPClientManager
 
@@ -63,9 +62,12 @@ def load_yaml_config(config_path: Path) -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
-def create_checks_from_config(check_specs: list[dict[str, Any]]) -> list[BaseCheck]:
+def create_checks_from_config(check_specs: list[dict[str, Any]]) -> list[Check]:
     """
     Convert YAML check specifications to Check objects.
+
+    Returns Check dataclass objects (not BaseCheck instances) to preserve metadata.
+    The flex_evals engine handles conversion internally.
 
     Example YAML format:
         checks:
@@ -73,12 +75,17 @@ def create_checks_from_config(check_specs: list[dict[str, Any]]) -> list[BaseChe
             arguments:
               text: "$.output.value.final_content"
               phrases: "$.test_case.expected.must_contain"
+            metadata:
+              name: "Content contains fix"
+              description: "Verify the fix was applied"
     """
     checks = []
     for spec in check_specs:
-        check_class = get_check_class(spec["type"])
-        check = check_class(**spec["arguments"])
-        checks.append(check)
+        checks.append(Check(
+            type=spec["type"],
+            arguments=spec["arguments"],
+            metadata=spec.get("metadata"),
+        ))
     return checks
 
 
