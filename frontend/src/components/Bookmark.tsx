@@ -395,13 +395,15 @@ export function Bookmark({
 
           setCurrent((prev) => ({
             ...prev,
-            title: metadata.title ?? '',
-            description: metadata.description ?? '',
-            content: metadata.content ?? '',
+            ...(metadata.title != null && { title: metadata.title }),
+            ...(metadata.description != null && { description: metadata.description }),
+            ...(metadata.content != null && { content: metadata.content }),
           }))
 
           // Force editor remount to display fetched content
-          setContentKey((prev) => prev + 1)
+          if (metadata.content != null) {
+            setContentKey((prev) => prev + 1)
+          }
 
           if (!metadata.error) {
             setShowFetchSuccess(true)
@@ -536,13 +538,15 @@ export function Bookmark({
 
       setCurrent((prev) => ({
         ...prev,
-        title: metadata.title ?? '',
-        description: metadata.description ?? '',
-        content: metadata.content ?? '',
+        ...(metadata.title != null && { title: metadata.title }),
+        ...(metadata.description != null && { description: metadata.description }),
+        ...(metadata.content != null && { content: metadata.content }),
       }))
 
       // Force editor remount to display fetched content
-      setContentKey((prev) => prev + 1)
+      if (metadata.content != null) {
+        setContentKey((prev) => prev + 1)
+      }
 
       if (!metadata.error) {
         setShowFetchSuccess(true)
