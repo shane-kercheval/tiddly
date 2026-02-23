@@ -13,10 +13,10 @@ description: |
 models:
   - provider: "anthropic"
     name: "claude-haiku-4-5"
-    temperature: 0.3
+    temperature: 0.5
   - provider: "openai"
     name: "gpt-4o-mini"
-    temperature: 0.3
+    temperature: 0.5
 
 eval:
   samples: 10
